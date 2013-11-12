@@ -1,0 +1,372 @@
+#!/bin/bash
+# 0.1.0 - July 10, 2005 - Dan Van Wormer - Puppy Linux
+# 0.1.1 - Updated by disciple August 19 2007, to handle files with spaces in their path or name, add "permanently delete item" and "open item" features, and change behaviour on click.
+# 0.1.2 - BK oct 2007: updated for rawpup (icon paths and stuff).
+# 0.2.0 - Updated by disciple 8 April 2008, to fix some bugs in Barry's update and merge some features from the version by Achaw over at Rox.
+# 0.3.0 - Updated by disciple 8 June 2008, for minor tweaks and to finish summary / info file feature.  Note that this feature does not display files trashed by earlier versions.
+# 0.3.1 - Updated by disciple 9 August 2008, for minor changes to summary feature and help file.
+# 0.3.2 - Updated by disciple 4 September 2008, to make summary feature display items with spaces in the path, add minor changes to help file and retrospectively version number everything, so it isn't still claiming to be version 0.1.0 from 2005 :)
+# 0.3.3 - hairywill 5 January 2009, fixed instances of unquoted APPDIR so that the app works with spaces in its path 
+# 0.4   - zephyr2 /L18L 14.02.2013 gettext, xmessage -> pupdialog & gtkdialog. refer: http://www.murga-linux.com/puppy/viewtopic.php?t=84215
+#       - BK 130215 precaution for long pipe. tidy up.
+#       - BK 130310 change "burp" sound to "goodbye"  --no, avoid english, use 2barks.
+
+export TEXTDOMAIN=trash
+export OUTPUT_CHARSET=UTF-8
+
+# Create the Trash directory if it does not already exist.
+[ -d /$HOME/.Trash ] || mkdir /$HOME/.Trash
+
+# Determine the path to this application.
+APPDIR=`dirname "$0"`
+cd "$APPDIR"
+APPDIR="`pwd`"
+actual=`date +%F' '%k:%M:%S`
+
+# Set icon paths
+#fullicon="$APPDIR/trashcan_full.png"
+#emptyicon="$APPDIR/trashcan_empty.png"
+fullicon="/usr/local/lib/X11/pixmaps/trashcan_full48.png"
+emptyicon="/usr/local/lib/X11/pixmaps/trashcan_empty48.png"
+
+# Play the trash sound
+function PlaySound #130215 tidy up...
+{
+ if [ -c /dev/mixer ];then #test for audio ready.
+  # See if /dev/dsp is in use. If it is then do not play the sound file.
+  fuser /dev/dsp
+  if [ $? -ne 0 ];then #=0 if found.
+   aplay "$APPDIR/systemmsg.wav"
+  fi
+ fi
+}
+
+# Play the trash sound - puppy-trash.wav
+function PlaySoundTrashIt #130215 tidy up...
+{
+ if [ -c /dev/mixer ];then #test for audio ready.
+  # See if /dev/dsp is in use. If it is then do not play the sound file.
+  fuser /dev/dsp
+  if [ $? -ne 0 ];then #=0 if found.
+   #aplay "/usr/share/audio/puppy-trash.wav"
+   #aplay "/usr/share/audio/leave.wav" #130310
+   aplay "/usr/share/audio/2barks.wav" #130310
+  fi
+ fi
+}
+
+function EmptyIcon
+{
+ ln -sf "$emptyicon" "$APPDIR/.DirIcon"
+ cd ${HOME}
+ rox -x "$APPDIR"
+}
+
+function FullIcon
+{
+ ln -sf "$fullicon" "$APPDIR/.DirIcon"
+ cd ${HOME}
+ rox -x "$APPDIR"
+}
+
+# Find the name of the file.
+function notAForwardSlash
+{
+fSlash=/
+ if [[ $1 != $fSlash ]]
+
+  then
+   return 0
+  else
+   return 1
+ fi
+}
+
+function getFileName
+{
+ STRING="$1"
+ LENGTH=${#STRING}
+ for ((n=0;n <= $LENGTH; n++))
+ do
+   CHAR=${STRING:$n:1}
+   if notAForwardSlash $CHAR
+   then
+    FileName=$FileName$CHAR
+   else
+    FileName=""
+   fi
+ done
+}
+
+function MoveToTrash
+{
+
+ getFileName "$m"
+
+ # Add a suffix if the item is a hidden file/directory
+ OriginalFileName=$FileName
+ FileName=${FileName/#./HIDDEN-}
+
+ # Create a roxapp for the trashed item.
+ # First, check if File dir exists
+ if test ! -e "$HOME/.Trash/$FileName-$$" ; then
+  mkdir "$HOME/.Trash/$FileName-$$"
+ fi
+
+ # Create a directory to put the item itself in
+ mkdir "$HOME/.Trash/$FileName-$$/Files"
+
+ # Find file extension
+ if [[ "'basename "$m"'" =~ "\." ]]; then extension="`basename "$m" | sed -e "s/^.*\.//g"`";fi
+ if [ "`basename "$m"`" == ".$extension" ]; then extension="";fi
+ if [ -d "$m" ]; then extension="";fi
+
+ # Create the info file
+ echo "Item = $FileName-$$
+Name = $OriginalFileName
+Path = $m
+Size = `du -hs "$m" |cut -f1`
+Deletion Date = $actual
+Type = `if [ -h "$m" ]; then echo symlink; elif [ -d "$m" ]; then echo folder; else rox -m "$m";fi`
+Extension = $extension
+Had desktop shortcut? = `if [ "$shortcuts" = "true" ]; then echo yes; else echo no; fi`" > "$HOME/.Trash/$FileName-$$/Info"
+ #
+ # changed 14.02.2013 - caused error /tmp/xerrs.log
+ #
+ #Had desktop shortcut? = `if [ $shortcuts = "true" ]; then echo yes; else echo no; fi`" > "$HOME/.Trash/$FileName-$$/Info"
+
+ # move the item to the Trash directory.
+ mv "$m" "$HOME/.Trash/$FileName-$$/Files"
+
+ # Link the icon for the trashed item.
+ ln -sf "$APPDIR/template/trash.png" "/$HOME/.Trash/$FileName-$$/.DirIcon"
+
+ # Link the AppInfo file over.
+ ln -sf "$APPDIR/template/AppInfo.xml" "/$HOME/.Trash/$FileName-$$/AppInfo.xml"
+
+ # Write the new AppRun file with.
+ gawk -v var="PATH" -v name="$m" -v trash="$APPDIR" '{sub(var, name)}
+{sub("TRASH", trash)}
+{sub("TRASH", trash); print}' "$APPDIR/template/temp-AppRun" > "/$HOME/.Trash/$FileName-$$/AppRun"
+
+ # Make it executable.
+ chmod 777 "/$HOME/.Trash/$FileName-$$/AppRun"
+
+}
+
+function RemoveOldRoxIcon
+{
+ while grep ">$m<" /$HOME/Choices/ROX-Filer/PuppyPin
+ do
+  number=`grep -m 1 ">$m<" /$HOME/Choices/ROX-Filer/PuppyPin`
+  # Write the new PuppyPin file with the trashed item removed.
+  gawk -v var="$number" '{sub(var, ""); print}' /$HOME/Choices/ROX-Filer/PuppyPin > /$HOME/Choices/ROX-Filer/PuppyPin1
+  # Rename the new PuppyPin file
+  mv /$HOME/Choices/ROX-Filer/PuppyPin1 /$HOME/Choices/ROX-Filer/PuppyPin
+  # Restart the pinboard.
+  rox -p /$HOME/Choices/ROX-Filer/PuppyPin
+ done
+}
+
+# If they chose the "Look in the Trash" option.
+if [ "$1" = "-look" ]
+then
+
+ exec rox /$HOME/.Trash
+
+# If they chose the "View Summary" option.
+elif [ "$1" = "-summary" ]
+then
+
+ #yaf-splash -close never -bg orange -fontsize large -text "Please wait..." & #130215
+ #YAFPID=$!
+ export SUMMARY_DIALOG='
+ <window title="'$(gettext 'All this is in the trash!')'" icon-name="gtk-delete">
+  <vbox>
+    <tree>
+      <label>"'$(gettext 'Item|Name|Path|Size|Deletion Date|Type|Extension|Had desktop shortcut?')'"</label>
+      <input>cat /tmp/trashitems</input>
+      <height>570</height><width>790</width>
+    </tree>
+    <hbox>
+      <button ok></button>
+    </hbox>
+  </vbox>
+ </window>
+ '
+
+
+ du -sb /$HOME/.Trash/* |sort -rn | sed -e 's/[^ ]*\t//'| while read line
+ do cat "$line/Info" | tr '\n' '|' | sed 's/Item = /\n/'; done \
+| sed 's/Name = //' | sed 's/Path = //' | sed 's/Size = //' | sed 's/Deletion Date = //' \
+| sed 's/Type = //' | sed 's/Extension = //' | sed 's/Had desktop shortcut? = //' \
+| sed 1d > /tmp/trashitems
+ sync #BK 130215 (really should tidy up above line!)
+
+ #cat /tmp/trashitems | sed -e 's/</?/g' | sed -e 's/>/?/g' > /tmp/trashitems
+ sed -ie 's/</?/g;s/>/?/g' /tmp/trashitems 
+
+ #sync
+ #pupkill $YAFPID #130215
+ gtkdialog3 --program=SUMMARY_DIALOG --center
+ rm /tmp/trashitems
+
+# If they chose the "Empty the Trash" option.
+elif [ "$1" = "-empty" ]
+then
+
+ # See what is in the trash.
+ #stuff=`ls /$HOME/.Trash`
+ #
+ # Write the confirmation message.
+ #MSG=`which gxmessage` || MSG=xmessage
+ #$MSG -buttons "Delete:21,Cancel" -default Cancel -center -title "Confirm Delete" "$stuff"
+ #
+  # If they chose to cancel.
+  #[ $? -eq 21 ] || exit
+  
+ #new confirmation dialog starts here
+ ls /$HOME/.Trash > /tmp/trash-deletelist
+ export ConfirmDialog='
+	<window title="'$(gettext 'Confirm Action')'" icon-name="gtk-delete">
+		<frame '$(gettext 'Delete file(s)')'>
+		<vbox scrollable="true" height="150" width="250">
+			<text><input file>/tmp/trash-deletelist</input></text>
+		</vbox>
+		<hbox>
+			<button use-stock="true" label="gtk-delete"></button>
+			<button cancel></button>
+		</hbox>
+		</frame>
+    </window>
+ '
+ I=$IFS; IFS=""
+ for STATEMENTS in $(gtkdialog3 --program=ConfirmDialog --center) ; do
+	eval $STATEMENTS
+ done
+ IFS=$I
+ rm /tmp/trash-deletelist
+ [ "$EXIT" != "OK" ] && exit
+ # new confirmation dialog ends here..
+  
+
+ # If they chose to delete.
+ rm -r /$HOME/.Trash/*
+
+ EmptyIcon
+ PlaySoundTrashIt
+
+# If they chose to "Quickly Empty the Trash".
+elif [ "$1" = "-empty-quick" ]
+then
+
+ rm -r /$HOME/.Trash/*
+
+ EmptyIcon
+ PlaySoundTrashIt
+ 
+else
+
+ # Check to see if they clicked on the application or sent a file or directory to be deleted.
+ #test -sd "$@"
+ #
+ # Changed 14.02.2013 Caused error /tmp/xerrs.log
+ #
+ test -z "$*"
+ if [ "$?" = "0" ]
+ then
+
+  # If they just clicked on the icon.
+  if [ "`ls $HOME/.Trash`" = "" ]
+  then
+  EmptyIcon
+  fi
+  exec rox /$HOME/.Trash
+
+else
+
+ # If they sent something to the trash can.
+ for m in "$@"
+ do
+ 
+  # Test to see if the item is a symbolic link.
+  if [ -h "$m" ]
+  then
+
+   # Write the confirmation message.
+   #MSG=`which gxmessage` || MSG=xmessage
+   #$MSG -buttons "Yes:21,No" -default Yes -center -title "Confirm Action" "The item $m is a Symbolic Link.
+   #This will move the Symbolic Link to the Trash and leave the original item  alone.
+   #Do you want to continue?"
+   # If they chose to cancel.
+   #[ $? -eq 21 ] || exit
+   #
+   #new confrimation dialog starts here..
+   pupdialog --title "$(gettext 'Confirm Action')" --yes-label "$(gettext 'Move to Trash')" --no-label "$(gettext 'Cancel')" --yesno "$m $(gettext 'is a Symbolic Link. This will move the Symbolic Link to the Trash and leave the original item  alone. Do you want to continue?')"
+   [ $? -eq 0 ] || exit
+   #new confirmation dialog ends here..
+
+  fi
+
+  match=`grep ">$m<" /$HOME/Choices/ROX-Filer/PuppyPin`
+
+  # Test $match to see if the item had a link to it on the pinboard.
+  test "$match"
+  if [ "$?" = "0" ]
+  then
+
+   pupdialog --title "$(gettext 'Confirm Action')" --yes-label "$(gettext 'Move to Trash')" --no-label "$(gettext 'Cancel')" --yesno "$m $(gettext 'There is one or more Desktop shortcuts pointing to this file. This will move the original item to the Trash and remove the shortcut(s) from the Desktop. Do you want to continue?')"
+   [ $? -eq 0 ] || exit
+
+   while check=`grep ">$m<" /$HOME/Choices/ROX-Filer/PuppyPin`
+   do
+
+    OldNumber=`grep -c ">$m<" /$HOME/Choices/ROX-Filer/PuppyPin`
+
+    # Get the filename again
+    getFileName "$m"
+
+    # Add a suffix if the item is a hidden file/directory
+    FileName=${FileName/#./HIDDEN-}
+
+    # Create directories for the trashed item.
+    mkdir "$HOME/.Trash/$FileName-$$"
+
+    # Create the shortcut file info
+    echo "$match" > "$HOME/.Trash/$FileName-$$/shortcut"
+
+    shortcuts="true"
+
+    rox --RPC << EOF
+<?xml version="1.0"?>
+<env:Envelope xmlns:env="http://www.w3.org/2001/12/soap-envelope">
+ <env:Body xmlns="http://rox.sourceforge.net/SOAP/ROX-Filer">
+  <PinboardRemove>
+   <Path>$m</Path>
+  </PinboardRemove>
+ </env:Body>
+</env:Envelope>
+EOF
+
+    # Check to see if the entry was removed.
+    NewNumber=`grep -c ">$m<" /$HOME/Choices/ROX-Filer/PuppyPin`
+    if [ $OldNumber = $NewNumber ]
+    then
+     # If SOAP did not work then remove the icon manually.
+     RemoveOldRoxIcon "$match"
+    fi
+   done
+
+  fi
+
+  MoveToTrash "$m"
+
+ done
+
+ FullIcon
+
+ PlaySoundTrashIt
+
+fi
+
+fi

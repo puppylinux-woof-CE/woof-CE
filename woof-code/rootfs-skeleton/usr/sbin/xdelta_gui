@@ -1,0 +1,273 @@
+#!/bin/sh
+#(c) Copyright Barry Kauler 2009, puppylinux.com
+#2009 Lesser GPL licence v2 (http://www.fsf.org/licensing/licenses/lgpl.html)
+#a frontend for the 'xdelta' utility.
+#$1 is normally invoked by clicking on a .delta file in rox, $1 has full path.
+#also supports drag and drop.
+#can be invoked from commandline like this:
+#  # xdelta_gui oldfile:newfile.delta <<script searches for oldfile.
+#  # xdelta_gui oldfile newfile       <<script will generate .delta file
+#  # xdelta_gui oldfile genfile.delta <<recreate oldfile
+#...first ex, .delta has old/new files encoded into its own filename.
+#100131 altenate delta file format "oldfile___newfile.delta" (three underscores).
+#120312 rodin.s: adding gettext.
+#120323 replace 'xmessage' with 'pupmessage' and 'yaf-splash'.
+
+export TEXTDOMAIN=xdelta_gui
+export OUTPUT_CHARSET=UTF-8
+. gettext.sh
+
+if [ "`which xdelta3`" = "" ];then
+ pupmessage -center -bg red "`gettext \"The 'xdelta' package must be installed first\"`"
+ exit
+fi
+
+old_find_func () {
+ #needs OLDFILENAME, sets SOURCEFILE_OLD.
+	 #xmessage -bg orange -center -buttons "" "$(gettext 'Please wait, searching for old file...')" &
+	 yaf-splash -bg orange -close never -text "$(gettext 'Please wait, searching for old file...')" &
+	 XPID=$!
+	 SOURCEFILE_OLD="`find /root -maxdepth 4 -type f -name ${OLDFILENAME} | head -n 1`"
+	 if [ "$SOURCEFILE_OLD" = "" ];then
+      #SOURCEFILE_OLD="`find /mnt/home -maxdepth 4 -type f -name ${OLDFILENAME} | head -n 1`"
+	  for ONEMNTD in `mount | grep '^/dev/sd[a-z]' | cut -f 3 -d ' ' | tr '\n' ' '`
+	  do
+	   SOURCEFILE_OLD="`find ${ONEMNTD} -maxdepth 4 -type f -name ${OLDFILENAME} | head -n 1`"
+	   [ "$SOURCEFILE_OLD" != "" ] && break
+	  done
+	 fi
+	 kill $XPID
+     if [ "$SOURCEFILE_OLD" = "" ];then
+      pupmessage -bg yellow -center "`eval_gettext \"Sorry could not find \\\${OLDFILENAME}. You will have to manually drag it into the 'Old file' box\"`"
+     fi
+}
+
+SOURCEFILE_OLD=""
+SOURCEFILE_NEW=""
+SOURCEFILE_DELTA=""
+SOURCEFILE_2ND=""
+if [ $1 ];then
+ SOURCEFILE="$1"
+ if [ ! -f "$SOURCEFILE" ];then
+  pupmessage -center -bg red "`eval_gettext \"ERROR: \\\${SOURCEFILE} does not exist\"`"
+  exit
+ fi
+ if [ "`echo -n "${SOURCEFILE}" | grep '\.delta$'`" = "" ];then
+  SOURCEFILE_OLD="$SOURCEFILE"
+ else
+  SOURCEFILE_DELTA="$SOURCEFILE"
+ fi
+fi
+
+if [ $2 ];then
+ if [ "`echo -n "${2}" | grep '\.delta$'`" = "" ];then
+  if [ "$SOURCEFILE_OLD" = "" ];then
+   SOURCEFILE_OLD="$2"
+  else
+   SOURCEFILE_NEW="$2"
+  fi
+ else
+  SOURCEFILE_DELTA="$2"
+ fi
+fi
+
+if [ "$SOURCEFILE_DELTA" != "" ];then
+ DIRDELTA="`dirname "$SOURCEFILE_DELTA"`"
+ BASEDELTA="`basename "$SOURCEFILE_DELTA"`"
+ if [ "$SOURCEFILE_OLD" = "" ];then
+  #it may be possible to automatically find the old file...
+  #delta file has format "oldfile:newfile.delta" (yes, ':' in filename)
+  if [ "`echo -n "$BASEDELTA" | grep ':'`" != "" ];then
+   OLDFILENAME="`echo -n "$BASEDELTA" | grep ':' | cut -f 1 -d ':'`"
+   NEWFILENAME="`echo -n "$BASEDELTA" | grep ':' | cut -f 2 -d ':' | rev | cut -f 2-9 -d '.' | rev`"
+   if [ "$OLDFILENAME" != "" ];then
+    if [ -f "$DIRDELTA/$OLDFILENAME" ];then
+     SOURCEFILE_OLD="$DIRDELTA/$OLDFILENAME"
+    else
+     old_find_func #needs OLDFILENAME, sets SOURCEFILE_OLD.
+    fi
+   fi
+  fi
+  #100131 altenate delta file format "oldfile___newfile.delta" (three underscores)
+  if [ "`echo -n "$BASEDELTA" | grep '___'`" != "" ];then
+   OLDFILENAME="`echo -n "$BASEDELTA" | grep '___' | sed -e 's%___.*%%'`"
+   NEWFILENAME="`echo -n "$BASEDELTA" | grep '___' | sed -e 's%^.*___%%' | rev | cut -f 2-9 -d '.' | rev`"
+   if [ "$OLDFILENAME" != "" ];then
+    if [ -f "$DIRDELTA/$OLDFILENAME" ];then
+     SOURCEFILE_OLD="$DIRDELTA/$OLDFILENAME"
+    else
+     old_find_func #needs OLDFILENAME, sets SOURCEFILE_OLD.
+    fi
+   fi
+  fi
+ fi
+fi
+
+MSG2="<text><label>\"  \"</label></text>"
+
+DEFAULT_OLD=""
+DEFAULT_NEW=""
+DEFAULT_DELTA=""
+DEFAULT_2ND=""
+SECONDBOX=""
+[ "$SOURCEFILE_OLD" != "" ] && DEFAULT_OLD="<default>${SOURCEFILE_OLD}</default>"
+[ "$SOURCEFILE_NEW" != "" ] && DEFAULT_NEW="<default>${SOURCEFILE_NEW}</default>"
+[ "$SOURCEFILE_DELTA" != "" ] && DEFAULT_DELTA="<default>${SOURCEFILE_DELTA}</default>"
+if [ "$DEFAULT_NEW" != "" ];then
+ SECONDBOX="<hbox>
+  <text><label>$(gettext 'New file:')</label></text>
+  <entry accept=\"directory\">${DEFAULT_NEW}<variable>SOURCEFILE_NEW</variable></entry>
+ </hbox>"
+fi
+if [ "$DEFAULT_DELTA" != "" ];then
+ SECONDBOX="<hbox>
+  <text><label>$(gettext 'Delta file:')</label></text>
+  <entry accept=\"directory\">${DEFAULT_DELTA}<variable>SOURCEFILE_DELTA</variable></entry>
+ </hbox>"
+fi
+if [ "$SECONDBOX" = "" ];then
+ SECONDBOX="<hbox>
+  <text><label>$(gettext 'New or .delta file:')</label></text>
+  <entry accept=\"directory\">${DEFAULT_2ND}<variable>SOURCEFILE_2ND</variable></entry>
+ </hbox>"
+fi
+
+ 
+export XDELTA_DLG="
+<window title=\"$(gettext 'Xdelta difference manager')\" icon-name=\"gtk-file\">
+<vbox>
+  <text><label>`gettext \"Welcome, this is a GUI for the 'xdelta' utility, to manage changes between two files\"`</label></text>
+   <text use-markup=\"true\"><label>\"<b>`gettext \"To generate a '.delta' file, drag old and new files here, or to recreate the new file drag old and '.delta' files here\"` ↓    </b>\"</label></text>
+          
+  <hbox>
+   <text><label>$(gettext 'Old file:')</label></text>
+   <entry accept=\"directory\">${DEFAULT_OLD}<variable>SOURCEFILE_OLD</variable></entry>
+  </hbox>
+  ${SECONDBOX}
+  
+  <hbox> 
+  <button help>
+   <action>Xdialog --wrap --screencenter --left --title \"Xdelta - $(gettext 'HELP')\" --msgbox \"`gettext \"Xdelta is an application program designed to compute changes between two files. These changes (deltas) are similar to the output of the 'diff' program in that they may be used to store and transmit only the changes between files.  However, unlike diff, the output of Xdelta is not expressed in a human-readable format -- Xdelta can also also apply these deltas to a copy of the original file.  Xdelta uses a fast, linear algorithm and performs well on both binary and text files.\n\nTo create a '.delta' file, you need two original files, an 'old' and a 'new' file. The generated delta file will have an extension of '.delta'.\n\nYou can recreate the original 'new' file, as long as you have the original 'old' file and the '.delta' file. This GUI frontend makes this easy -- just drag the .delta file into the box, and the progam will search for and locate the original old file. Or, just click on a .delta file in a ROX-Filer window to regenerate the original new file.\n\nThe author of Xdelta is Joshua MacDonald. The Rsync algorithm, which inspired the core delta algorithm, is due to Andrew Tridgell and Paul Mackerras. The GUI is written by Barry Kauler. Licence is GPL v2.\"`\" 600x0</action>
+  </button>
+  <button cancel></button>
+  <button><label>$(gettext 'GENERATE')</label><action type=\"exit\">generate</action></button>
+  </hbox>
+</vbox>
+</window>"
+
+RETVALS="`gtkdialog3 --program=XDELTA_DLG --center`"
+eval "$RETVALS"
+EXITERR=""
+[ "$EXIT" != "generate" ] && exit
+ 
+if [ "$SOURCEFILE_2ND" != "" ];then
+ if [ "`echo -n "$SOURCEFILE_2ND" | grep '\.delta$'`" = "" ];then
+  SOURCEFILE_DELTA=""
+  SOURCEFILE_NEW="$SOURCEFILE_2ND"
+ else
+  SOURCEFILE_NEW=""
+  SOURCEFILE_DELTA="$SOURCEFILE_2ND"
+ fi
+fi
+ 
+if [ "$SOURCEFILE_NEW" != "" ];then
+ [ ! -f "$SOURCEFILE_NEW" ] && EXITERR="yes"
+ if [ "$EXITERR" != "" ];then
+  pupmessage -bg red -center "`gettext \"Error, 'New file' does not exist\"`"
+  exit
+ fi
+fi
+
+if [ "$SOURCEFILE_DELTA" != "" -a "$SOURCEFILE_OLD" = "" ];then
+ #old file was not specified, see if it is encoded into .delta filename...
+ DIRDELTA="`dirname "$SOURCEFILE_DELTA"`"
+ BASEDELTA="`basename "$SOURCEFILE_DELTA"`"
+ if [ "`echo -n "$BASEDELTA" | grep ':'`" != "" ];then
+  OLDFILENAME="`echo -n "$BASEDELTA" | grep ':' | cut -f 1 -d ':'`"
+  NEWFILENAME="`echo -n "$BASEDELTA" | grep ':' | cut -f 2 -d ':' | rev | cut -f 2-9 -d '.' | rev`"
+  if [ "$OLDFILENAME" != "" ];then
+   if [ -f "$DIRDELTA/$OLDFILENAME" ];then
+    SOURCEFILE_OLD="$DIRDELTA/$OLDFILENAME"
+   else
+    old_find_func #needs OLDFILENAME, sets SOURCEFILE_OLD.
+   fi
+  fi
+ fi
+ #100131 altenate delta file format "oldfile___newfile.delta" (three underscores)
+ if [ "`echo -n "$BASEDELTA" | grep '___'`" != "" ];then
+  OLDFILENAME="`echo -n "$BASEDELTA" | grep '___' | sed -e 's%___.*%%'`"
+  NEWFILENAME="`echo -n "$BASEDELTA" | grep '___' | sed -e 's%^.*___%%' | rev | cut -f 2-9 -d '.' | rev`"
+  if [ "$OLDFILENAME" != "" ];then
+   if [ -f "$DIRDELTA/$OLDFILENAME" ];then
+    SOURCEFILE_OLD="$DIRDELTA/$OLDFILENAME"
+   else
+    old_find_func #needs OLDFILENAME, sets SOURCEFILE_OLD.
+   fi
+  fi
+ fi
+fi
+
+[ "$SOURCEFILE_OLD" = "" ] && EXITERR="yes"
+[ ! -f "$SOURCEFILE_OLD" ] && EXITERR="yes"
+if [ "$EXITERR" != "" ];then
+ pupmessage -bg red -center "`gettext \"Error, 'Old file' does not exist\"`"
+ exit
+fi
+
+OLDEXT="`echo -n "$SOURCEFILE_OLD" | rev | cut -f 1 -d '.' | rev`"
+if [ "$SOURCEFILE_DELTA" != "" ];then
+ #recreate the new file...
+ DIRDELTA="`dirname "$SOURCEFILE_DELTA"`"
+ BASEDELTA="`basename "$SOURCEFILE_DELTA"`"
+ if [ "`echo -n "$BASEDELTA" | grep ':'`" != "" ];then
+  NEWFILENAME="`echo -n "$BASEDELTA" | grep ':' | cut -f 2 -d ':' | rev | cut -f 2-9 -d '.' | rev`"
+  [ "$NEWFILENAME" != "" ] && SOURCEFILE_NEW="$DIRDELTA/$NEWFILENAME"
+ fi
+ #100131 alternate format...
+ if [ "`echo -n "$BASEDELTA" | grep '___'`" != "" ];then
+  NEWFILENAME="`echo -n "$BASEDELTA" | grep '___' | sed -e 's%^.*___%%' | rev | cut -f 2-9 -d '.' | rev`"
+  [ "$NEWFILENAME" != "" ] && SOURCEFILE_NEW="$DIRDELTA/$NEWFILENAME"
+ fi
+ [ "$SOURCEFILE_NEW" = "" ] && SOURCEFILE_NEW="$DIRDELTA/newfile.${OLDEXT}"
+ #xmessage -bg orange -center -buttons "" "$(gettext 'please wait')..." & #100131
+ yaf-splash -bg orange -close never -text "$(gettext 'please wait')..." &
+ XMPID=$!
+ xdelta3 -d -s "$SOURCEFILE_OLD" "$SOURCEFILE_DELTA" "$SOURCEFILE_NEW" 2>/tmp/xdelta_err
+ XFLG=$?
+ sync
+ kill $XMPID
+ if [ $XFLG -eq 0 ];then
+  pupmessage -bg green -center "`eval_gettext \"SUCCESS! \\\${SOURCEFILE_NEW} generated\"`"
+ else
+  pupmessage -bg red -center "$(gettext 'ERROR! failed to recreate the new file. Error message:')
+`cat /tmp/xdelta_err`"
+ fi
+else
+ #generate a delta file...
+ BASE_OLD="`basename "$SOURCEFILE_OLD"`"
+ BASE_NEW="`basename "$SOURCEFILE_NEW"`"
+ DIR_NEW="`dirname "$SOURCEFILE_NEW"`"
+ #check that it's writable (they could be archived on cd/dvd)...
+ touch ${DIR_NEW}/verytempfilehere
+ [ $? -ne 0 ] && DIR_NEW='/root'
+ [ -f ${DIR_NEW}/verytempfilehere ] && rm -f ${DIR_NEW}/verytempfilehere
+ #100131 default to using '___' instead of ':'...
+ #SOURCEFILE_DELTA="${DIR_NEW}/${BASE_OLD}:${BASE_NEW}.delta"
+ SOURCEFILE_DELTA="${DIR_NEW}/${BASE_OLD}___${BASE_NEW}.delta"
+ #xmessage -bg orange -center -buttons "" "$(gettext 'please wait')..." & #100131
+ yaf-splash -bg orange -close never -text "$(gettext 'please wait')..." &
+ XMPID=$!
+ xdelta3 -e -s "$SOURCEFILE_OLD" "$SOURCEFILE_NEW" "$SOURCEFILE_DELTA" 2>/tmp/xdelta_err
+ XFLG=$?
+ sync
+ kill $XMPID
+ if [ $XFLG -eq 0 ];then
+  pupmessage -bg green -center "`eval_gettext \"SUCCESS! \\\${SOURCEFILE_DELTA} generated\"`"
+ else
+  pupmessage -bg red -center "$(gettext 'ERROR! failed to generate the .delta file. Error message:')
+`cat /tmp/xdelta_err`"
+ fi
+fi
+
+
+###END###

@@ -1,0 +1,111 @@
+#!/bin/sh
+#Barry Kauler Oct. 2011
+#this is called from Internet Connection Wizard, script ''.
+#111028 have copied dlg code inside 'connectwizard' script, then call here with hostname passed param.
+#111028 fully internationalised.
+#111103 gcmartin: accept '-' char in hostname.
+#111103 gcmartin: current hostname is $HOSTNAME, but if rerun this script before restarting X, need to get from /etc/hostname.
+#111106 fix passed hostname from connectwizard.
+#111117 shinobar: fix.
+#120227 can also be called from quicksetup. now have exit #
+#120505 when hostname changed, also need to restart network connection. ref: http://www.murga-linux.com/puppy/viewtopic.php?t=77743
+#130511 shinobar: reconnect only if local dynamic DNS is available. See my modification near bottom of script.
+
+export TEXTDOMAIN=hostname-set
+export OUTPUT_CHARSET=UTF-8
+
+#111103 current hostname is $HOSTNAME, but if rerun this script before restarting X, need to get from here...
+[ -f /etc/hostname ] && HOSTNAME="`cat /etc/hostname`"
+
+NEW_HOSTNAME="$HOSTNAME" #111106
+[ $1 ] && NEW_HOSTNAME="$1"
+
+GTKDIALOGEXE="gtkdialog"
+[ "`which gtkdialog4`" ] && GTKDIALOGEXE="gtkdialog4"
+
+WINTITLE=$(gettext 'Set Hostname')
+M_1=$(gettext 'Type your computer name to identify in the network. Alpha-numeric without spaces.')
+M_2=$(gettext "Your computer has been assigned a unique name, known as the 'hostname', by which it identifies itself on a network. However, you might wish to change that to a name that is more meaningful to yourself, such as 'johnsmithpc'. The hostname can have letters and numbers, no spaces.")
+
+if [ "$1" = "" ];then #111028 111117
+ export HOSTNAME_DIALOG="<window title=\"${WINTITLE}\" window_position=\"1\" icon-name=\"mini-hostname\">
+ <vbox>
+ 
+  <text><label>${M_2}</label></text>
+ 
+  <hbox>
+   <text><label>$(gettext 'Hostname'):</label></text>
+   <entry tooltip-text=\"${M_1}\">
+   <input>echo -n \"$NEW_HOSTNAME\"</input><variable>ENTRY_HOSTNAME</variable></entry>
+  </hbox>
+  
+  <hbox>
+   <button ok></button>
+   <button cancel></button>
+  </hbox>
+
+ </vbox>
+</window>"
+
+ RETVALS="`${GTKDIALOGEXE} --program=HOSTNAME_DIALOG`"
+ eval "$RETVALS"
+ [ "$EXIT" != "OK" ] && exit
+
+ NEW_HOSTNAME="`echo -n "$ENTRY_HOSTNAME" | sed -e 's%[^0-9a-zA-Z-]%%g'`" #111103 gcmartin: accept '-' char.
+fi
+
+RECONNECT=""; M_h3="" #130511 shinobar.
+if [ "$NEW_HOSTNAME" != "$HOSTNAME" ];then
+
+ #130511 shinobar: check if network is ready...
+ LANG=C route | grep -q 'default[ ].*[ ]0\.0\.0\.0[ ]' && grep -wq 'nameserver' /etc/resolv.conf && NETREADY="y" || NETREADY=""
+ if [ "$NETREADY" ]; then
+  #check if there is local Dynamic DNS...
+  mv -f /etc/hosts /etc/hosts.bak
+  nslookup "$HOSTNAME" &>/dev/null && RECONNECT="y" || RECONNECT=""
+  mv -f /etc/hosts.bak /etc/hosts
+ fi
+ if [ "$RECONNECT" ]; then #130511
+  M_h3="$(gettext 'However, it will not take full effect until after X (the desktop) has been restarted -- see the \ZbShutdown\ZB entry in the menu.')"
+
+  #120505 when hostname changed, also need to restart network connection...
+  IFCONFIG="`ifconfig | grep '^[pwe]' | grep -v 'wmaster'`"
+  if [ "$IFCONFIG" ];then
+   networkdisconnect #see /usr/sbin
+   touch /tmp/simple_network_setup/network_default_reconnect_required_flag #/usr/bin/xwin will read this, will call /usr/sbin/network_default_connect
+   M_h3b="
+
+$(gettext '\ZbNOTE:\ZB There did appear to be an active network connection, that has now been disconnected. Restart of the network is required for the new hostname to take effect over the network. After restarting X, there should be an automatic reconnection -- if not, you can do it manually by clicking the \Zbconnect\ZB icon on the desktop')"
+  else
+   M_h3b=""
+  fi
+ fi
+
+ hostname $NEW_HOSTNAME
+ echo -n $NEW_HOSTNAME > /etc/hostname
+ echo "127.0.0.1 localhost $NEW_HOSTNAME" > /tmp/hostname-set-hosts
+ grep -vw 'localhost'  /etc/hosts >> /tmp/hostname-set-hosts
+ [ -s /tmp/hostname-set-hosts ] && mv -f /tmp/hostname-set-hosts /etc/hosts
+ M_h1="$(gettext 'Set Hostname: done')"
+ M_h2a="$(gettext 'New hostname')"
+ M_h2b="$(gettext 'has been set.')"
+ #130511 M_h3="$(gettext 'However, it will not take full effect until after X (the desktop) has been restarted -- see the \ZbShutdown\ZB entry in the menu.')"
+ pupdialog --colors --title "${M_h1}" --msgbox "${M_h2a} \Zb${NEW_HOSTNAME}\ZB ${M_h2b}
+${M_h3}${M_h3b}" 0 0
+ [ "$M_h3" = "" ] && exit 2 #130511 BK
+ #130511 ...i have added the above line, in addition to shinobar's changes. my memory of this stuff
+ # is a bit vague. quicksetup calls hostname-set, if returns with 0 then will require a restart of X.
+ # however, shinobar has modified $M_h3 in case of no dynamic DNS, no reconnection is needed
+ # -- but I am still unclear whether that really means can avoid X restart -- will have to study that Forum link again.
+ # This has also required a change to /usr/sbin/quicksetup, for that "2" return value.
+ exit 0
+else #111028
+ M_h4="$(gettext 'Set Hostname')"
+ M_h5a="$(gettext 'The hostname is:')"
+ M_h5b="$(gettext 'You have not changed it.')"
+ pupdialog --colors --title "${M_h4}" --msgbox "${M_h5a} \Zb${NEW_HOSTNAME}\ZB
+${M_h5b}" 0 0
+ exit 1
+fi
+
+###END###

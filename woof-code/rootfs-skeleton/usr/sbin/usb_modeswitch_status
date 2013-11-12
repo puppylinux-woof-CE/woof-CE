@@ -1,0 +1,115 @@
+#!/bin/sh
+#(c) Copyright Barry Kauler Nov. 2010. License: GPL v3 /usr/share/doc/legal.
+#called from /lib/udev/usb_modeswitch, which in turn is called by udev rule when a 3G modem inserted.
+#101208 rewrite, simpler.
+#101209 switch has occurred, but sometimes (my ZTE K3571-Z modem) usbserial.ko fails to attach to usb interface.
+#110914 think possible this script gets called almost simultaneously more than once.
+#110914 create /dev/gsmmodem symlink if usb-modeswitch fails to do it.
+#120109 usb_modeswitch 1.2.1 different success message.
+#120109 /usr/sbin/usb_modeswitch_special_status now just comes here (usb modems that do not need switch).
+#120202 rodin.s: internationalized.
+#130326 note: DEVICE variable no longer in 3.5+ kernel, as /proc/bus/usb removed.
+
+export TEXTDOMAIN=usb_modeswitch_status
+export OUTPUT_CHARSET=UTF-8
+export LANG="`cat /etc/profile|grep '^LANG='| cut -d '=' -f2`"
+
+#all of the uevent env. variables are visible here. ex (my Optus 3G modem):
+#130326 note: DEVICE variable no longer in 3.5+ kernel, as /proc/bus/usb removed...
+#ACTION=add
+#DEVICE=/proc/bus/usb/001/005
+#DEVPATH=/devices/pci0000:00/0000:00:1d.7/usb1/1-2/1-2:1.5
+#DEVTYPE=usb_interface
+#MODALIAS=usb:v12D1p140Cd0000dc00dsc00dp00ic08isc06ip50
+#PRODUCT=12d1/140c/0
+#SEQNUM=1332
+#SUBSYSTEM=usb
+
+#110914 think possible this script gets called almost simultaneously more than once...
+#start lock region#
+touch /tmp/usb_modeswitch_status_lockregion_${$}_
+SLEEPU1=`echo -n ${$} | rev`0 #ex: pid 3124 becomes 4213, more variability for sleep.
+SLEEPU2=${$}0
+for ASLEEP in $SLEEPU1 $SLEEPU2
+do
+ SIMULT="`ls -1 /tmp/usb_modeswitch_status_lockregion_*_`"
+ #random sleep means that this process will kill the others before they can kill this one...
+ usleep ${ASLEEP} #ex: 42130 is 42 milliseconds.
+ if [ `echo "$SIMULT" | wc -l` -gt 1 ];then
+  for ONEPID in `ls -1 /tmp/usb_modeswitch_status_lockregion_*_ | rev | cut -f 2 -d '_' | rev | tr '\n' ' '`
+  do
+   [ $ONEPID -eq ${$} ] && continue
+   [ -f /tmp/usb_modeswitch_status_lockregion_${ONEPID}_ ] && kill $ONEPID #other process within lock region.
+   [ $? -eq 0 ] && rm -f /tmp/usb_modeswitch_status_lockregion_${ONEPID}_
+  done
+ fi
+done
+rm -f /tmp/usb_modeswitch_status_lockregion_${$}_
+#end lock region#
+
+rm -f /tmp/usb_modeswitch_status_flag_success 2>/dev/null
+
+DISPLAY=":0" yaf-splash -placement center -close never -bg yellow -fontsize large -text "$(gettext '3G USB modem inserted, please wait, configuring ...')" &
+yPID=$!
+
+BRKCNT=0
+while [ $BRKCNT -lt 30 ];do
+ sleep 1
+ LOGS="`cat /var/log/usb_modeswitch_*`"
+ [ "`echo "$LOGS" | grep 'Mode switch succeeded'`" ] && break
+ [ "`echo "$LOGS" | grep 'Mode switching was successful'`" ] && break #120109 usb_modeswitch 1.2.1 different success message.
+ BRKCNT=$(($BRKCNT+1))
+done
+
+if [ $BRKCNT -lt 30 ];then
+ #101209 switch has occurred, but sometimes (my ZTE K3571-Z modem) usbserial.ko fails to attach to usb interface...
+ sleep 2
+ if [ "`lsmod | grep '^usbserial '`" != "" ];then
+  if ! ls /dev/ttyUSB* 2>/dev/null;then
+   sleep 2
+   if ! ls /dev/ttyUSB* 2>/dev/null;then
+    VENDOR="`echo -n "$PRODUCT" | cut -f 1 -d '/'`"
+    #101210 keep this simple, only one usb modem plugged in, claiming usbserial.ko...
+    modREGEX="v${VENDOR}p[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]"
+    CHIPNO="`cat /sys/bus/usb/devices/*/modalias | grep -i -o "$modREGEX" | cut -f 2 -d 'p' | tail -n 1`"
+    UPMOD="`lsmod | grep '^usbserial ' | tr -s ' ' | cut -f 4 -d ' ' | cut -f 1 -d ','`"
+    if [ -e /sys/bus/usb-serial/drivers/${UPMOD}1/new_id ];then
+     echo "$VENDOR $CHIPNO" > /sys/bus/usb-serial/drivers/${UPMOD}1/new_id
+     sleep 2
+    fi
+    if ! ls /dev/ttyUSB* 2>/dev/null;then
+     rmmod $UPMOD
+     rmmod usbserial
+     modprobe usbserial vendor=0x${VENDOR} product=0x${CHIPNO}
+     modprobe $UPMOD
+    fi
+   fi
+  fi
+  
+  #110914 this works on my new laptop...
+  #if ls /dev/ttyUSB* 2>/dev/null;then
+   if [ ! -h /dev/gsmmodem  ];then #supposed to be auto-created, but what if it fails.
+    sleep 5
+    if [ ! -h /dev/gsmmodem  ];then
+     #looks for ep_8[0-9]/type with "Interrupt" in it then follows up path looking for a "ttyUSB[0-9]" dir...
+     GSMMODEM="`find /sys/devices -regex '/sys/devices/.*/ep_[8][0-9]/type' | grep '/usb[0-9]' | xargs grep 'Interrupt' | sed -e 's%/ep_[8].*%%' | xargs -I ABCDEF find ABCDEF -maxdepth 1 -name 'ttyUSB*' | rev | cut -f 1 -d '/' | rev | sort -u | head -n 1`"
+     [ "$GSMMODEM" ] && ln -s ${GSMMODEM} /dev/gsmmodem
+    fi
+   fi
+   #...er, but problem, not removed when modem unplugged.
+  #fi
+ 
+ fi
+ kill $yPID
+ DISPLAY=":0" yaf-splash -placement center -close never -timeout 12 -bg green -fontsize large -text "$(gettext '3G USB modem now ready for use')" &
+ touch /tmp/usb_modeswitch_status_flag_success
+else
+ #do not display an error msg. in case no modeswitch was required?
+ echo
+fi
+
+mkdir /tmp/usb_modeswitch${$}
+mv -f /var/log/usb_modeswitch_* /tmp/usb_modeswitch${$}/
+sleep 50 #just in case /lib/udev/usb_modeswitch tries to rerun this script.
+kill $yPID
+###END###

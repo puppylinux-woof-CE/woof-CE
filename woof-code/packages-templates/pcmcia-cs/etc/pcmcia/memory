@@ -1,0 +1,88 @@
+#!/bin/sh
+#
+# memory 1.28 2000/12/15 19:04:03 (David Hinds)
+#
+# Initialize or shutdown a PCMCIA memory device
+#
+# The first argument should be either 'start' or 'stop'.  The second
+# argument is the base name for the device.
+#
+# This script creates character devices for direct access to the PCMCIA
+# address spaces:
+#
+#	/dev/{name}c	- common memory direct access device
+#	/dev/{name}a	- attribute memory direct access device
+#
+# It also creates character and block devices for accessing the first
+# attribute and common memory partitions:
+#
+#       /dev/{name}c0c  - common memory, character device
+#       /dev/{name}c0b  - common memory, block device
+#       /dev/{name}a0c  - attribute memory, character device
+#
+# The script passes an extended device address to 'memory.opts' in the 
+# ADDRESS variable, to retrieve device-specific configuration options
+# for the common-memory block device.
+#
+# The address format is "scheme,socket" where "scheme" is the current
+# PCMCIA device configuration scheme, and "socket" is the socket number.
+#
+
+if [ -r ./shared ] ; then . ./shared ; else . /etc/pcmcia/shared ; fi
+
+# Get device attributes
+get_info $DEVICE
+
+# Load site-specific settings
+ADDRESS="$SCHEME,$SOCKET"
+. $0.opts
+
+case "$ACTION" in
+
+'start')
+    [ "$VERBOSE" -a "$INFO" ] && echo "$INFO"
+    rm -f /dev/${DEVICE}*
+    if [ "$DRIVER" = "memory_cb" ] ; then
+	for N in 0 1 2 3 4 5 6 7 ; do
+	    log mknod /dev/${DEVICE}s${N} c $MAJOR `expr $MINOR + $N`
+	done
+    else
+	log mknod /dev/${DEVICE}c0c c $MAJOR `expr $MINOR`
+	log mknod /dev/${DEVICE}c0b b $MAJOR `expr $MINOR`
+	log mknod /dev/${DEVICE}a0c c $MAJOR `expr $MINOR + 4`
+	log mknod /dev/${DEVICE}c c $MAJOR `expr $MINOR + 8`
+	log mknod /dev/${DEVICE}a c $MAJOR `expr $MINOR + 8 + 4`
+	add_blkdev /dev/${DEVICE}c0b || exit 1
+    fi
+    ;;
+
+'check')
+    is_true $NO_CHECK && exit 0
+    do_fuser -s /dev/${DEVICE}* && exit 1
+    if [ "$DRIVER" != "memory_cb" ] ; then
+	do_fuser -s -m /dev/${DEVICE}c0b && exit 1
+    fi
+    ;;
+
+'stop')
+    do_fuser -k /dev/${DEVICE}* > /dev/null
+    if [ "$DRIVER" != "memory_cb" ] ; then
+	rm_blkdev /dev/${DEVICE}c0b || exit 1
+    fi
+    rm -f /dev/${DEVICE}*
+    ;;
+
+'cksum')
+    chk_simple "$NEW_SCHEME,$SOCKET,$INSTANCE" || exit 1
+    ;;
+    
+'suspend'|'resume')
+    ;;
+
+*)
+    usage
+    ;;
+
+esac
+
+exit 0

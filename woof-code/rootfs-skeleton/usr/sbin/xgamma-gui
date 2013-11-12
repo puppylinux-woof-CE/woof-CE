@@ -1,0 +1,113 @@
+#!/bin/bash
+#Written by PANZERKOPF
+#100215 hacked by BK
+#101207 hacked by EW
+#121019 BK: fixed. internationalized.
+#121022 L18L: complete the internationalization.
+
+#101207 EW:
+# this is a Xdialog frontend for the xgamma program - setting colour calibration for the screen
+# It is using the 3 RGB channels 
+# xgamma uses a logharithmic scale for the gamma values (0.1 - darkest, 1.0 - default, 10.0 - brightest) -> Y Values
+# The GUI uses a linear scale (going from -100 - darkest, 0.0 - default, +100 - brightest) -> X Values
+# The transformation is given by Y=10^(X/100)
+# the calculation has to be performed with bc, 
+# to use decimal values in the exponent the equation must be rewritten Y = exp ( X/100 * log (10))
+# or, setting the precision to 3 decimal points using bc command: Y=$(echo "e( "$X"/100 * l(10))" | bc -l)
+# The reverse transformation is XRED=$(echo "scale:0; 100 * l($YRED) / l(10)" | bc -l)
+
+export TEXTDOMAIN=xgamma-gui
+export OUTPUT_CHARSET=UTF-8
+
+TITLE="$(gettext 'Monitor Gamma calibration')"
+BACKTITLE="$(gettext 'Set value for each colour, or adjust equally if only want to adjust brightness of screen.')
+$(gettext 'The spinboxes are adjustable in the range -100 to +100, where -100 is darkest, 0 is default, and +100 is brightest.')"
+
+if [ "`which xgamma`" = "" ]; then
+ Xdialog --title "${TITLE}" --msgbox "$(gettext 'xgamma not found.')" 0 0
+ exit
+fi
+
+#get current settings (for startup)
+YGAMMA="$(xgamma 2>&1 | tr -s ' ' | sed -e 's%[^0-9. ]%%g' | tr -s ' ')" #ex:  10.000  1.000  1.000
+
+YRED="$(echo "$YGAMMA" | cut -f 2 -d ' ')"
+YGREEN="$(echo "$YGAMMA" | cut -f 3 -d ' ')"
+YBLUE="$(echo "$YGAMMA" | cut -f 4 -d ' ')"
+inYRED="$YRED"
+inYGREEN="$YGREEN"
+inYBLUE="$YBLUE"
+
+echo $YGAMMA 
+echo $YRED $YGREEN $YBLUE
+
+#transform y-->x values, 3 decimals precision, to get the current values;
+XRED=$(echo "scale=3; 100 * l("$YRED") / l(10)" | bc -l)
+XRED=$(echo "scale=0; "$XRED"/1" | bc -l) # cut decimals
+XGREEN=$(echo "scale=3; 100 * l("$YGREEN") / l(10)" | bc -l)
+XGREEN=$(echo "scale=0; "$XGREEN"/1" | bc -l) # cut decimals
+XBLUE=$(echo "scale=3; 100 * l("$YBLUE") / l(10)" | bc -l)
+XBLUE=$(echo "scale=0; "$XBLUE"/1" | bc -l) # cut decimals
+
+EXCODE="0"
+REDLABEL="$(gettext 'Red')"
+GREENLABEL="$(gettext 'Green')"
+BLUELABEL="$(gettext 'Blue')"
+
+APPLIEDFLAG='no'
+while [ "${EXCODE}" = "0" ]; do
+
+ XDGOUT=`Xdialog  --wrap --left --backtitle "${BACKTITLE}" --title "${TITLE}" --stdout --buttons-style "text" --icon "/usr/share/images/xgamma-gui.xpm" --ok-label "$(gettext 'Apply')" --cancel-label "$(gettext 'Exit')" \
+--3spinsbox "" 356x0 "-100" "100" "$XRED" "${REDLABEL}" "-100" "100" "$XGREEN" "${GREENLABEL}" "-100" "100" "$XBLUE" "${BLUELABEL}"`
+ 
+ # get exit code
+ EXCODE=${?}
+ 
+ XGAMMA=$XDGOUT
+ # substitute >space< for >/<, otherways there are problems to parse the string properly
+ XGAMMA=$(echo $XGAMMA| sed 's:/: :g')
+
+ [ "${EXCODE}" != "0" ] && break
+
+ APPLIEDFLAG='yes'
+  
+ # cut in pieces (parse) and assign
+ set -- ${XGAMMA// / }
+ XRED=$1
+ XGREEN=$2
+ XBLUE=$3
+ 
+ # make transformation x-->y 
+ YRED=$(echo "scale=3; e( "$XRED"/100 * l(10))" | bc -l)
+ YGREEN=$(echo "scale=3; e( "$XGREEN"/100 * l(10))" | bc -l)
+ YBLUE=$(echo "scale=3; e( "$XBLUE"/100 * l(10))" | bc -l)
+ 
+ #apply gamma values 
+ xgamma -rgamma ${YRED} -ggamma ${YGREEN} -bgamma ${YBLUE}
+ 
+done
+
+# if default values we dont need xgamma at startup, so remove the file. This saves time in .xinitrc
+if [ "$XGAMMA" = "0 0 0" ]; then
+	rm -f $HOME/.xgamma-gamma
+	exit
+fi
+if [ "$inYRED" = "$YRED" ];then
+ if [ "$inYGREEN" = "$YGREEN" ];then
+  if [ "$inYBLUE" = "$YBLUE" ];then
+   exit
+  fi
+ fi
+fi
+[ "$APPLIEDFLAG" = "no" ] && exit
+
+# else ask if we want to save the current values and create a startup calibration file
+Xdialog --yesno "$(gettext 'Save current configuration?')" 0 0
+if [ ${?} -eq 0 ]; then
+  echo -n "xgamma -rgamma $YRED -ggamma $YGREEN -bgamma $YBLUE"' &' > $HOME/.xgamma-gamma
+  #...xgamma is executed in /root/.xinitrc
+  echo "Saved"  
+fi
+
+###END###
+

@@ -1,0 +1,242 @@
+#!/bin/ash
+#(c) Copyright 2013 Barry Kauler, bkhome.org
+#2013 Licence GPL3 (/usr/share/doc/legal)
+#called from /usr/local/pup_event/pup_event_d
+#a change detected in block devices, parameters are passed in
+#ex1: add:sdc add:sdc1 add:sdc2
+#ex2: rem:sdc2 rem:sdc1 rem:sdc
+#ex3: cha:sr0  ...does not distinguish between optical insert or remove. also, get two of these msgs when insert a disc (this script gets called twice).
+#130609 first version.
+#130610 bug fixes. fix for 'floppy' and 'optical' probing.
+#130614 rewrote most of script.
+#130722 update drive icons (after running gparted, bootflash, puppyinstaller).
+#130729 kernel detects plugin external optical driver, but unfortunately not when insert media.
+#130807 L18L: gettext declaration moved to frontend_funcs.
+
+#130614 the uevents can be complicated. this is what comes in here when I plugin my optus 3g usb stick:
+#add:sdb add:sr1 cha:sdb cha:sr1
+#cha:sdb
+#and when I unplug it:
+#rem:sr1 rem:sdb
+
+#130722 previously, when had /sbin/pup_event_frontend_d big script, gparted_shell (etc) did this:
+# echo "$THEDRIVE" > /tmp/pup_event_frontend_block_request
+#which was read by the script, and the desktop drive icons updated. i want to get away from this
+#type of polling, now gparted_shell (etc) does this:
+# echo 'change' > /sys/block/${THEDRIVE}/uevent
+#and /usr/local/pup_event/pup_event_frontend_d binary daemon reads the uevent and calls frontend_change, with passed param "cha:${THEDRIVE}". ex: cha:sdb
+
+#export TEXTDOMAIN=pup_event_frontend_d
+#export OUTPUT_CHARSET=UTF-8
+#. gettext.sh
+
+OLDLANG=$LANG
+export LANG=C
+
+PARAMS="$@"
+. /etc/rc.d/PUPSTATE #ATADRIVES is all ide/pata/sata drives (not usb, not optical).
+. /etc/eventmanager #has RAMSAVEINTERVAL, ICONDESK, HOTPLUGNOISY, ICONPARTITIONS, BACKENDON, POWERTIMEOUT
+. /etc/rc.d/functions4puppy4
+. /usr/local/pup_event/frontend_funcs
+
+#130722 detect "cha:sdb"...
+DRVCHANGE="$(echo -n "$PARAMS" | grep -v ' ' | grep '^cha' | cut -f 2 -d ':')"
+if [ "$DRVCHANGE" ];then
+ #we want to completely refresh the desktop drive icons...
+ DRV_NAME="$(echo -n "$DRVCHANGE" | grep -o -E '^sd[a-z]|^hd[a-z]|^mmcblk[0-9]')" #remove any partition number.
+ [ ! "$DRV_NAME" ] && exit #precaution.
+ if [ -e /root/.pup_event/drive_${DRV_NAME} ];then
+  remove_pinboard_func #needs DRV_NAME
+  rm -rf /root/.pup_event/drive_${DRV_NAME}* 2>/dev/null
+  #determine new partition info... ex: add:sdb add:sdb1 add:sdb2
+  PARAMS="add:${DRV_NAME} $(probepart | grep "^/dev/${DRV_NAME}" | grep -v "^/dev/${DRV_NAME}|" | cut -f 1 -d '|' | cut -f 3 -d '/' | sed -e 's%^%add:%' | tr '\n' ' ')"
+ fi
+fi
+
+SCRN_X="`cat /tmp/pup_event_frontend_scrn_x`" #written by frontend_startup.
+SCRN_Y="`cat /tmp/pup_event_frontend_scrn_y`" #  "
+
+DRV_NAMES="$(echo -n "$PARAMS" | tr ' ' '\n' | cut -f 2 -d ':' | grep -E '^[hs]d[a-z]$|^mmcblk[0-9]$|^sr|^fd' | sort -u)" #dump partitions. 130614
+ALL_DEVSS="$(echo -n "$PARAMS" | tr ' ' '\n' | cut -f 2 -d ':' | sort -u)" #130614
+
+for DRV_NAME in $DRV_NAMES #precaution, uevents might have more than one drive mixed in.
+do
+ ALL_DEVS="$(echo -n "$ALL_DEVSS" | grep "$DRV_NAME" | tr '\n' ' ')"
+ 
+ case $DRV_NAME in
+  sr*)
+   #special case...
+   ACTION='remove'
+   #130729 external USB optical drive needs more time. 6 worked, but make it 7...
+   for ATIME in 1 2 3 4 5 6 7 #my optus stick takes awhile.
+   do
+    sleep 1
+    cddetect_quick -d/dev/${DRV_NAME} >/dev/null 2>&1 #very fast.
+    if [ $? -eq 0 ];then
+     ACTION='add'
+     break
+    fi
+   done
+  ;;
+  hd*) #old kernel.
+   ACTION='remove'
+   if [ "`cat /proc/ide/$DEVICE/media`" = "cdrom" ];then #MEDIATYPE="optical"
+    for ATIME in 1 2 3 4 5
+    do
+     sleep 1
+     cddetect_quick -d/dev/${DRV_NAME} >/dev/null 2>&1 #very fast.
+     if [ $? -eq 0 ];then
+      ACTION='add'
+      break
+     fi
+    done
+   else
+    [ -e /sys/block/$DRV_NAME ] && ACTION='add'
+   fi
+  ;;
+  sd*|mmc*)
+   if [ -e /sys/block/$DRV_NAME ];then
+    ACTION='add'
+   else
+    ACTION='remove'
+   fi
+  ;;
+  *)
+   continue #precaution.
+  ;;
+ esac
+ case $ACTION in
+  add)
+   [ -e /root/.pup_event/drive_${DRV_NAME} ] && continue #desktop icon (and partitions) already exist.
+  ;;
+  remove)
+   [ ! -e /root/.pup_event/drive_${DRV_NAME} ] && continue #desktop icon (and partitions) already removed.
+  ;;
+ esac
+ 
+ ALL_CNT=`echo -n "$ALL_DEVS" | wc -w` #=1 then no partitions.
+ if [ $ALL_CNT -eq 1 ];then #precaution
+  [ "$(echo -n "$ALL_DEVS" | grep -v -E '^[hs]d[a-z]$|^mmcblk[0-9]$|^sr|^fd')" != "" ] && ALL_CNT=99 #any non-0 number.
+ fi
+ 
+ #code extracted from /sbin/probepart...
+ xPROBEPART=""
+ for DEVICE in $ALL_DEVS
+ do
+  SIZE=0
+  if [ $ALL_CNT -eq 1 ];then #no partitions...
+   if [ "$ACTION" = "add" ];then
+    FSTYPE="`guess_fstype /dev/$DEVICE 2>/dev/null`" #note, audio-cd returns "unknown", as no f.s.
+    [ "$FSTYPE" = "unknown" ] && FSTYPE="none"
+    SIZE=`cat /sys/block/${DEVICE}/size`
+    SIZE=$(($SIZE/2)) #get KB.
+    xPROBEPART="/dev/${DEVICE}|${FSTYPE}|${SIZE} "
+   fi
+  else
+   [ "$DEVICE" = "$DRV_NAME" ] && continue #ignore drive, ex: sdc, only want partitions.
+   if [ "$ACTION" = "add" ];then
+    FSTYPE="`guess_fstype /dev/$DEVICE 2>/dev/null`" #130128 note, audio-cd returns "unknown", as no f.s.
+    [ "$FSTYPE" = "unknown" ] && FSTYPE="none"
+    SIZE=`cat /sys/block/${DRV_NAME}/${DEVICE}/size`
+    SIZE=$(($SIZE/2)) #get KB.
+    xPROBEPART="${xPROBEPART}/dev/${DEVICE}|${FSTYPE}|${SIZE} "
+   fi
+  fi
+ done
+ PROBEPART="`echo -n "$xPROBEPART" | tr ' ' '\n' | grep -E 'ext2|ext3|ext4|f2fs|ntfs|msdos|vfat|reiser|iso9660|udf|audiocd|xfs'`" #130610 screen out unwanted filesystems.
+ 
+ #also find PROBEDISK, extract code from /sbin/probedisk...
+ PROBEDISK=''
+ if [ "$ACTION" = "add" ];then
+  ONEDRV="$DRV_NAME"
+  case $ONEDRV in
+   hd*) # ide device, look in /proc/ide for info
+    MEDIA="`cat /proc/ide/$ONEDRV/media`"
+    [ "$MEDIA" = "disk" ] && MEDIA="drive"
+    [ "$MEDIA" = "cdrom" ] && MEDIA="optical"
+    INFO="`cat /proc/ide/$ONEDRV/model`"
+   ;;
+   sd*) # scsi devices, look in /sys/block (all appear as Direct-Access)
+    MEDIA="drive"
+    VENDOR="`cat /sys/block/$ONEDRV/device/vendor | tr -s ' '`"
+    MODEL="`cat /sys/block/$ONEDRV/device/model | tr -s ' '`"
+    INFO="$VENDOR$MODEL"
+    DRVNAMES="$DRVNAMES `echo -n "$ONEDRV" | cut -b 1-3` "
+    #is it a usb drive (not a ata drive)...
+    if [ "`echo "$ATADRIVES" | grep "$ONEDRV"`" = "" ];then
+     MEDIA="usbdrv"
+     #find out if a usb floppy drive...
+     if [ -e /sys/block/${ONEDRV}/size ];then
+      [ "`cat /sys/block/${ONEDRV}/size`" = "2880" ] && MEDIA="floppy"
+     fi
+     #if the floppy diskette not inserted, try this fallback test...
+     #some examples: Vendor: NEC Model: USB UF000x Rev: 1.50, Sony USB Floppy Drive, rev 1.10/5.01,
+     # MITUMI USB FDD, VenDor: TEAC Model: FD-05PUB, Vendor: COMPAQ Model: USB EXT FLOPPY
+     if [ -e /sys/block/${ONEDRV}/device/model ];then
+      [ "`grep -E ' FDD| UF000x|Floppy|USB\-FDU|^FD\-|FLOPPY' /sys/block/${ONEDRV}/device/model`" != "" ] && MEDIA="floppy"
+     fi
+    else
+     #find out if it is a removable internal drive (zip, ls120, etc)...
+     if [ -e /sys/block/${ONEDRV}/removable ];then
+      [ "`cat /sys/block/${ONEDRV}/removable`" = "1" ] && MEDIA="floppy"
+     fi
+    fi
+   ;;
+   scd*|sr*) #  scsi cdroms
+    MEDIA="optical"
+    VENDOR="`cat /sys/block/$ONEDRV/device/vendor | tr -s ' '`"
+    MODEL="`cat /sys/block/$ONEDRV/device/model | tr -s ' '`"
+    INFO="$VENDOR$MODEL"
+   ;;
+   mmc*) #/dev/mmcblk0
+    MEDIA="card"
+    INFO="MMC/SD: `cat /sys/block/$ONEDRV/device/name`"
+   ;;
+   *)
+    continue
+   ;;
+  esac
+  PROBEDISK="/dev/$ONEDRV|$MEDIA|$INFO"
+ fi
+ 
+ #create or remove desktop drive icons...
+ DEVPATH=/block/$DRV_NAME
+ case $ACTION in
+  add)
+#130729 dump this, see also frontend_timeout...
+#   #130910 for 'floppy' and 'optical', if handled here, then no need to probe in 'frontend_timeout', so delete the entry from file...
+#   #DRVS_FLOPPY created in frontend_startup, read by frontend_timeout. update...
+#   #****NOTE**** needs more work. if cd inserted at bootup, won't come here, so frontend_timeout will probe****
+#   #[ "$MEDIA" = "floppy" ] && [ "`grep "$DRV_NAME" /tmp/pup_event_drvs_floppy`" = "" ] && echo "$DRV_NAME" >> /tmp/pup_event_drvs_floppy
+#   #130610 DRVS_OPTICAL created in frontend_startup, read by frontend_timeout. update...
+#   #[ "$MEDIA" = "optical" ] && [ "`grep "$DRV_NAME" /tmp/pup_event_drvs_optical`" = "" ] && echo "$DRV_NAME" >> /tmp/pup_event_drvs_optical
+   [ "$MEDIA" = "floppy" ] && [ "`grep "$DRV_NAME" /tmp/pup_event_drvs_floppy`" != "" ] && sed -i -e "/${DRV_NAME}/d" /tmp/pup_event_drvs_floppy
+#   if [ "$MEDIA" = "optical" ];then
+#    if [ "`grep "$DRV_NAME" /tmp/pup_event_drvs_optical`" != "" ];then
+#     sed -i -e "/${DRV_NAME}/d" /tmp/pup_event_drvs_optical #130610
+#    else
+#     #130729 an external optical media may have been plugged in, so add it...
+#     #note, this file read by frontend_timeout, as have to probe for media inserted.
+#     echo "${DRV_NAME}" >> /tmp/pup_event_drvs_optical
+#    fi
+#   fi
+   DRV_CATEGORY="$MEDIA"
+   DRV_DESCRIPTION="$INFO"
+   #'startup' param just prevents func from running 'probepart'...
+   [ "$ICONDESK" = "true" ] && create_icon_func startup #uses DRV_NAME, DRV_CATEGORY, DRV_DESCRIPTION
+   [ "$HOTPLUGNOISY" = "true" ] && /root/.pup_event/drive_${DRV_NAME}/AppRun ${DRV_CATEGORY} & #handler script.
+  ;;
+  remove)
+   if [ "`pidof gtkdialog_pmount`" != "" ];then #if pmount running, refresh it.
+    killall gtkdialog_pmount 2>/dev/null
+    sleep 0.1
+    LANG=$OLDLANG pmount & #100613 fix from shinobar.
+   fi
+   remove_pinboard_func #needs DRV_NAME
+   rm -rf /root/.pup_event/drive_${DRV_NAME}* 2>/dev/null
+  ;;
+ esac
+ 
+done
+
+###END###

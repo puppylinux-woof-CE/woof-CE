@@ -1,0 +1,239 @@
+#!/bin/sh
+#(c) Copyright Barry Kauler 2010. License GPL v3 /usr/share/doc/legal.
+#BK a simple frontend for wget.
+#called from /usr/local/petget/petget, downloadpkgs.sh.
+#URL passed in, only downloads to current directory.
+#only put up user-response dlg windows if failure.
+#101116 first version.
+#101117 url sanity check. more download size check.
+#101118 for ftp connection have to get size differently.
+#101126 not sure, it seems that wget now defaults to ipv6, fails for some users, use '-4' to force ipv4.
+#101206 fix find filesize ftp://ftp.lug.udel.edu/pub/puppylinux ...
+#120201 rodin.s: internationalized. Add LANG=C to 1-st wget for proper work
+#120218 removed a LANG=C line (line 43).
+#120220 jemimah: Technosaurus' wget progressbar function to the download_file utility. It also replaces an rxvt window with an Xdialog tailbox. refer: http://murga-linux.com/puppy/viewtopic.php?t=71767&start=420
+#120224 small tweak.
+#120908 revert 120220.
+#121019 extra msg if missing-url, when called from ppm (refer /usr/local/petget/downloadpkgs.sh).
+
+# adding gettext
+export TEXTDOMAINDIR=/usr/share/locale
+export TEXTDOMAIN=download_file
+eval_gettext () {
+  local myMESSAGE=$(gettext "$1")
+  eval echo \"$myMESSAGE\"
+}
+LANG="`cat /etc/profile|grep '^LANG='`"
+eval $LANG
+export LANG_USER=$LANG
+#-----------------------------#
+
+#exit number: 0 ok, 1 unable to download, 2 download fail, 3 invalid url.
+
+#export LANG=C #keep Xdialog happy.
+LANG=$LANG_USER # i18n
+URLSPEC="$@"
+FILENAME="`basename "$@"`"
+URLDIR="`dirname "$@"`" #121019
+. /etc/rc.d/PUPSTATE
+
+#121019 ***TODO***
+#note: in future maybe make this into a gtkdialog window, with a button to launch web browser...
+#this is a quick hack. in future, modify download-file so that only a missing-file runs "exit 1", then
+#put up this info in downloadpkgs.sh. then no need for exported DL_F_CALLED_FROM.
+PPM_NO_URL_MSG=""
+if [ "$DL_F_CALLED_FROM" = "ppm" ];then #see /usr/local/petget/downloadpkgs.sh
+ PPM_NO_URL_MSG="
+
+$(gettext "NOTE:")
+$(gettext "It may be that the local package database needs to be updated. In some cases, the packages in the online package repository change, so you may be trying to download a package that no longer exists. One way to check this is to go to the URL with your web browser:")
+${URLDIR}
+$(gettext "If the URL is working and the repository has a later package, cancel the current operation. In the Puppy Package Manager main window, click the 'Configure' button, then the 'Update now' button -- this will update the local database. Be warned though, for some large repositories this process may take awhile.")"
+fi
+
+#note, can use wildcard to test if file exists, if need to look for alternate versions:
+# wget -4 -t 2 -T 20 --waitretry=20 --spider -S --recursive --no-parent --no-directories -A 'avast-*.pet' 'http://distro.ibiblio.org/quirky/pet_packages-common/'
+
+#test url... -t 2 means try 2 times, -T 20 means timeout in 20 seconds
+while [ 1 ];do
+ echo -n "" > /tmp/download_file_spider.log1
+ #gtklogfileviewer "/tmp/download_file_spider.log" "Close" 0 0 600 200 "Testing remote file exists:" &
+ rxvt -geometry 130x10+0+0 -bg orange -fg black -title "$(gettext 'Testing file exists:') ${URLSPEC}" -e tail -f /tmp/download_file_spider.log1 & #120908 restored.
+ #Xdialog --wmclass "gtkdialog2" --title "$(gettext 'Testing file exists:') ${URLSPEC}" --tailbox /tmp/download_file_spider.log1 30 100 & #120220
+ PID1=$!
+ LANG=C wget -4 -t 2 -T 20 --waitretry=20 --spider -S "${URLSPEC}" > /tmp/download_file_spider.log1 2>&1 #
+ if [ $? -ne 0 ];then
+  Xdialog --wmclass "gtkdialog2" --left --wrap --title "$(gettext 'Puppy File Downloader')" --screen-center --cr-wrap --ok-label "$(gettext 'TEST AGAIN')" --cancel-label "$(gettext 'GIVE UP')" --icon "/usr/local/lib/X11/pixmaps/error.xpm" --yesno "$(gettext 'Tested if remote file exists, but failed, see log top-left of screen.
+Do you want to test again, or give up?')${PPM_NO_URL_MSG}" 0 0
+  REPLY1=$?
+  kill $PID1
+  [ $REPLY1 -eq 0 ] && continue
+  exit 1
+ fi
+ kill $PID1
+ break
+done
+#LANG=C # i18n
+#find out size of online file...
+SIZEB_ONLINE=`grep '^Length: ' /tmp/download_file_spider.log1 | tr -s ' ' | cut -f 2 -d ' ' | sed -e 's%[^0-9]%%g'`
+#101118 for ftp connection have to get size differently...
+[ "$SIZEB_ONLINE" = "" ] && SIZEB_ONLINE=`grep "${FILENAME}" /tmp/download_file_spider.log1 | tr '\t' ' ' | tr -s ' ' | grep ' ftp ' | cut -f 5 -d ' ' | sed -e 's%[^0-9]%%g'`
+#101206 ftp://ftp.lug.udel.edu/pub/puppylinux/pet_packages-3/gpm-1.20.1-1.pet ...
+[ "$SIZEB_ONLINE" = "" ] && SIZEB_ONLINE=`grep "${FILENAME}" /tmp/download_file_spider.log1 | tr '\t' ' ' | tr -s ' ' | grep ' root ' | cut -f 5 -d ' ' | sed -e 's%[^0-9]%%g'`
+[ "$SIZEB_ONLINE" = "" ] && SIZEB_ONLINE=`grep "${FILENAME}" /tmp/download_file_spider.log1 | tr '\t' ' ' | tr -s ' ' | grep ' 2[0-9][0-9][0-9] ' | cut -f 5 -d ' ' | sed -e 's%[^0-9]%%g'`
+#101117 sanity check...
+URL_BROKEN='0'
+if [ "$SIZEB_ONLINE" = "" ];then
+ MSG_NO1="$(gettext 'Oh dear, unable to obtain size of remote file:')
+${URLSPEC}
+$(gettext 'although it does seem to exist.')"
+ URL_BROKEN='1'
+else
+ case $SIZEB_ONLINE in
+  unspecified)
+   MSG_NO1="$(gettext 'Oh dear, this URL seems to be wrong:')
+${URLSPEC}
+$(gettext 'It is supposed to be of the format http://foo.org/abiword-1.pet,
+or ftp://foo.org/abiword-1.pet (with name of the file to download
+on the end), but your URL seems wrong.')"
+   URL_BROKEN='1'
+  ;;
+  *[a-zA-Z]*)
+   MSG_NO1="$(gettext 'Oh dear, something seems to be wrong with the URL:')
+${URLSPEC}
+$(gettext 'A probe of the remote file could not retrieve correct information
+on it.') "
+   URL_BROKEN='1'
+  ;;
+ esac
+fi
+if [ "$URL_BROKEN" != "0" ];then
+ Xdialog --wmclass "gtkdialog2" --title "$(gettext 'Puppy File Downloader')" --screen-center --cr-wrap --icon "/usr/local/lib/X11/pixmaps/error.xpm" --msgbox "${MSG_NO1}
+
+$(gettext 'Click button to abort download...')" 0 0
+ exit 3
+fi
+#101117 check enough free space...
+#FREEK=`df -k | grep ' /$' | tr -s ' ' | cut -f 4 -d ' '`
+#no, need to know free space in whatever is current dir...
+PWD="`pwd`"
+FREEblocks=`stat -f --format=%a ${PWD}`
+BLOCKsize=`stat -f --format=%S ${PWD}`
+FREEbytes=`expr $FREEblocks \* $BLOCKsize`
+FREEK=`expr $FREEbytes \/ 1024`
+
+SIZEK_ONLINE=`expr $SIZEB_ONLINE \/ 1024`
+case $PUPMODE in
+ 3|7|13|77) #tmpfs on top
+  #when install pkg, it writes direct to save-layer.
+  SIZEK_REQUEST=`expr $SIZEK_ONLINE + 6000` #6MB slack.
+ ;;
+ *)
+  SIZEK_REQUEST=`expr $SIZEK_ONLINE \* 3` #3MB slack, no, need install space too.
+ ;;
+esac
+#LANG=$LANG_USER
+if [ $SIZEK_REQUEST -gt $FREEK ];then
+ case $PUPMODE in
+  5)
+   MSGs="$(gettext 'You need to shutdown and create a save-file, then you will have more space.
+See menu Shutdown -> Reboot')"
+  ;;
+  2|6)
+   MSGs="$(gettext 'The partition is full, you will have to delete something.')"
+  ;;
+  3|7|77) #tmpfs on top, full partition underneath
+   MSGs="$(gettext 'Do not have enough space in the RAM. Maybe you need a swap file
+or swap partition (or it needs to be bigger)')"
+  ;;
+  *)
+   MSGs="$(gettext 'You need to increase the size of the save-file.
+See menu Utility -> Resize personal storage file')"
+  ;;
+ esac
+ Xdialog --wmclass "gtkdialog2" --title "$(gettext 'Puppy File Downloader')" --screen-center --cr-wrap --icon "/usr/local/lib/X11/pixmaps/error.xpm" --msgbox "
+`eval_gettext \"Sorry, but there is not enough free space to download to.
+Attempted download directory: \\\${PWD}
+The online file is \\\${SIZEK_ONLINE}KB, but your free space is \\\${FREEK}KB.
+
+\\\${MSGs}
+
+Click button to abort download...\"`" 0 0
+ exit 1
+fi
+
+INSERT1="$(gettext 'already ')"
+
+while [ 1 ];do
+
+ CONTPARAM=''
+ if [ -f $FILENAME ];then
+  SIZEB_LOCAL=`stat --format=%s "${FILENAME}"`
+  if [ $SIZEB_LOCAL -lt $SIZEB_ONLINE ];then
+   Xdialog --wmclass "gtkdialog2" --title "$(gettext 'Puppy File Downloader')" --screen-center --cr-wrap --ok-label "$(gettext 'CONTINUE')" --cancel-label "$(gettext 'START AGAIN')"  --icon "/usr/local/lib/X11/pixmaps/question.xpm" --yesno "`eval_gettext \"File '\\\${FILENAME}' is \\\${INSERT1}partly downloaded (although there is
+no guarantee it is uncorrupted), do you want to continue downloading it,
+or erase it and download entire file again?\"`" 0 0
+   if [ $? -eq 0 ];then
+    CONTPARAM='-c'
+   else
+    rm -f "$FILENAME"
+   fi
+  else
+   if [ $SIZEB_LOCAL -gt $SIZEB_ONLINE ];then #101117
+    Xdialog --wmclass "gtkdialog2" --title "$(gettext 'Puppy File Downloader')" --screen-center --cr-wrap --ok-label "$(gettext 'DOWNLOAD AGAIN')" --cancel-label "$(gettext 'NO')"  --icon "/usr/local/lib/X11/pixmaps/error.xpm" --yesno "`eval_gettext \"File '\\\${FILENAME}' is \\\${INSERT1}downloaded but is larger
+than the online file. Hmmm... this probably means that the online
+file is a more recent version, so it is recommended that you erase
+the local file and download it again...
+Do you want to erase it and download entire file again?\"`" 0 0
+    if [ $? -eq 0 ];then
+     rm -f "$FILENAME"
+    else
+     exit 0
+    fi
+   else
+    Xdialog --wmclass "gtkdialog2" --title "$(gettext 'Puppy File Downloader')" --screen-center --cr-wrap --ok-label "$(gettext 'DOWNLOAD AGAIN')" --cancel-label "$(gettext 'NO')"  --icon "/usr/local/lib/X11/pixmaps/question.xpm" --yesno "`eval_gettext \"File '\\\${FILENAME}' is \\\${INSERT1}fully downloaded (although there is
+no guarantee it is uncorrupted), do you want to erase it and download
+entire file again?\"`" 0 0
+    if [ $? -eq 0 ];then
+     rm -f "$FILENAME"
+    else
+     exit 0
+    fi
+   fi
+  fi
+ fi
+
+ echo -n "" > /tmp/download_file_spider.log2
+ rxvt -geometry 130x10+0+0 -bg orange -fg black -title "$(gettext 'Downloading file:') ${URLSPEC}" -e tail -f /tmp/download_file_spider.log2 & #120908 restored.
+ ##120220 jemimah...
+ #tail -f /tmp/download_file_spider.log2 | while read LINE; do
+ #     case $LINE in
+ #        *%*)LINE=${LINE##*..};echo ${LINE%%%*};;
+ #     esac
+ #done |Xdialog --wmclass "gtkdialog2" --title "$(gettext 'Puppy File Downloader')" --screen-center --gauge "$(gettext 'Downloading file:') ${URLSPEC}" 0 0&
+ PID1=$!
+ #-t 5 means retry 5 times, -w 5 means wait 5 seconds between retries...
+ wget -4 ${CONTPARAM} -t 5 -w 5 "${URLSPEC}" > /tmp/download_file_spider.log2 2>&1
+ if [ $? -ne 0 ];then
+  Xdialog --wmclass "gtkdialog2" --title "$(gettext 'Puppy File Downloader')" --screen-center --cr-wrap --ok-label "$(gettext 'TRY AGAIN')" --cancel-label "$(gettext 'GIVE UP')" --icon "/usr/local/lib/X11/pixmaps/error.xpm" --yesno "$(gettext 'Download failed, see log top-left of screen.
+Do you want to try again, or give up?')" 0 0
+  REPLY1=$?
+  kill $PID1
+  [ $REPLY1 -eq 0 ] && continue
+  rm -f "$FILENAME"
+  exit 2
+ fi
+ kill $PID1
+ 
+ #paranoid, check size of downloaded file...
+ SIZEB_LOCAL=`stat --format=%s "${FILENAME}"`
+ if [ $SIZEB_LOCAL -ne $SIZEB_ONLINE ];then
+  INSERT1=''
+  continue
+ fi
+ 
+ break
+done
+
+exit 0
+###END###

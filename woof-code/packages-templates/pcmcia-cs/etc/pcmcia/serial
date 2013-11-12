@@ -1,0 +1,109 @@
+#!/bin/sh
+#
+# serial 1.43 2004/07/01 17:26:26 (David Hinds)
+#
+# Initialize or shutdown a PCMCIA serial device
+#
+# The first argument should be either 'start' or 'stop'.  The second
+# argument is the base name for the device.
+#
+# The script passes an extended device address to 'serial.opts' in the 
+# ADDRESS variable, to retrieve device-specific configuration options.
+# The address format is "scheme,socket,instance" where "scheme" is the
+# PCMCIA configuration scheme, "socket" is the socket number, and
+# "instance" is used to number multiple ports on a single card.  
+#
+
+if [ -r ./shared ] ; then . ./shared ; else . /etc/pcmcia/shared ; fi
+
+# Get device attributes
+get_info $DEVICE
+
+# Load site-specific settings
+ADDRESS="$SCHEME,$SOCKET,$INSTANCE"
+start_fn () { return; }
+stop_fn () { return; }
+. $0.opts
+
+# Newer kernels deprecate use of "cua" devices, but we need to
+# keep track of them anyway, if the device files are present
+NR=`expr $MINOR - 64`
+if [ -c /dev/cua1 ] ; then
+    CALLOUT=cua$NR
+else
+    CALLOUT=$DEVICE
+fi
+
+case "$ACTION" in
+
+'start')
+    [ -n "$VERBOSE" -a -n "$INFO" ] && echo "$INFO"
+    if [ ! -c /dev/$DEVICE ] ; then
+	cd /dev ; log ./MAKEDEV $DEVICE
+    fi
+    if [ -n "$LINK" ] ; then
+	if [ -L $LINK ] ; then rm $LINK ; fi
+	if match `uname -r` "2.[2-9].*" ; then
+	    ln -s /dev/$DEVICE $LINK
+	else
+	    ln -s /dev/$CALLOUT $LINK
+	fi
+    fi
+    if [ -x /bin/setserial ] ; then
+	# Workaround for serial driver bug
+	IRQ=`setserial /dev/$DEVICE | sed -e 's/.*IRQ: //'`
+	setserial /dev/$DEVICE irq 0 ; setserial /dev/$DEVICE irq $IRQ
+	if [ -n "$SERIAL_OPTS" ] ; then
+	    log setserial /dev/$DEVICE $SERIAL_OPTS
+	fi
+    fi
+    if [ -n "$INITTAB" ] ; then
+	echo "S$NR:12345:respawn:$INITTAB $DEVICE" >> /etc/inittab
+	telinit q
+    fi
+    start_fn $DEVICE
+    ;;
+
+'check')
+    is_true $NO_CHECK && exit 0
+    if [ -n "$INITTAB" ] ; then
+	do_fuser -v /dev/$DEVICE /dev/$CALLOUT $LINK | grep -v getty \
+	    | grep -q /dev/$DEVICE && exit 1
+    else
+	do_fuser -s /dev/$DEVICE /dev/$CALLOUT $LINK && exit 1
+    fi
+    ;;
+
+'cksum')
+    chk_simple "$NEW_SCHEME,$SOCKET,$INSTANCE" || exit 1
+    ;;
+    
+'stop')
+    if [ -n "$INITTAB" ] ; then
+	grep -v $DEVICE /etc/inittab > /etc/inittab.new
+	mv /etc/inittab.new /etc/inittab
+	telinit q
+    fi
+    do_fuser -k /dev/$DEVICE /dev/$CALLOUT $LINK > /dev/null
+    if [ -L "$LINK" ] ; then rm $LINK ; fi
+    stop_fn $DEVICE
+    ;;
+
+'suspend')
+    do_fuser -k -STOP /dev/$DEVICE /dev/$CALLOUT > /dev/null
+    ;;
+
+'resume')
+    if [ -n "$SERIAL_OPTS" ] ; then
+	setserial /dev/$DEVICE $SERIAL_OPTS
+    fi
+    do_fuser -k -CONT /dev/$DEVICE /dev/$CALLOUT $LINK > /dev/null
+    ;;
+
+*)
+    usage
+    ;;
+
+esac
+
+exit 0

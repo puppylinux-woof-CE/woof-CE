@@ -1,0 +1,117 @@
+#!/bin/sh
+#Barry Kauler, for Puppy Linux v2.17. LGPL.
+#BK updated for 3.01
+#v3.94 14 dec 2007 BK updated.
+#v3.98 bugfix. w462 small mods.
+#w471 add 'cupsview'.
+#w480 bugfix if still using old cups.
+#w482 general update, now using html help viewer.
+#091126 bugfix if using seamonkey/firefox ui for cups.
+#100410 extra test for SM 2.0.4 on slow PCs. Fix samba printing.
+#100512 fix samba printing, take two. 100706 fix.
+#101221 yaf-splash fix.
+#120201 rodin.s: internationalized.
+#120225 internationalized help file. modified basichtmlviewer.
+#120329 Xdialog bug --yesno supposed to "yes" "No" buttons, but they are "OK" "Cancel".
+#130802 changed default browser.
+
+export TEXTDOMAIN=cups_shell
+export TEXTDOMAINDIR=/usr/share/locale
+export OUTPUT_CHARSET=UTF-8
+
+Yes_lbl="$(gettext 'Yes')"
+No_lbl="$(gettext 'No')"
+
+#USEBROWSER="defaultbrowser"
+USEBROWSER="defaulthtmlviewer" #130802
+[ -f /usr/bin/netsurf-barewindow ] && USEBROWSER="netsurf-barewindow"
+[ -f /usr/local/bin/bareview ] && USEBROWSER="bareview" #from gtkmoz pkg.
+[ -f /usr/local/bin/cupsview ] && USEBROWSER="cupsview" #w471 from gtkmoz pkg.
+
+#v3.98 'lpr' is a script in cups package, comment this out...
+##v2.17.1 PDQ print system has lpr symlink to /usr/bin/pdq, set in /usr/sbin/printerwizard.sh,
+##so may have to change it back...
+#rm -f /usr/bin/lpr
+#ln -s lpr-cups /usr/bin/lpr
+
+#v2.20 warning the defaultbarehtmlviewer must support css.
+
+#100524 note, this is now done in Woof in 3builddistro...
+#100410 fixes from rcrsn51 for samba printing...
+[ -f /etc/cups/snmp.conf ] && [ "`stat --format=%U%G /etc/cups/snmp.conf | grep 'UNKNOWN'`" != "" ] && chown root:nobody /etc/cups/snmp.conf
+if [ ! -e /usr/lib/cups/backend/smb ];then
+ SMBSPOOL="`which smbspool`"
+ #100512 seems have to copy smbspool and rename to smb... 100706 no, restore to symlink...
+ [ "$SMBSPOOL" ] && ln -snf $SMBSPOOL /usr/lib/cups/backend/smb
+ #[ "$SMBSPOOL" ] && cp -a $SMBSPOOL /usr/lib/cups/backend/smb
+fi
+[ -f /etc/opt/samba/smb.conf ] && chmod 755 /etc/opt/samba/smb.conf #need world-readable.
+[ -f /etc/samba/smb.conf ] && chmod 755 /etc/samba/smb.conf #need world-readable.
+
+Xdialog --ok-label "$Yes_lbl" --cancel-label "$No_lbl" --yesno "$(gettext 'Do you want to add a new printer?')" 0 0
+if [ $? -ne 0 ];then
+ #is cupsd running?...
+ if [ "`pidof cupsd`" = "" ];then
+  #[ -f /etc/rc.d/rc.cups ] && /etc/rc.d/rc.cups start
+  #[ -f /etc/init.d/cups ] && /etc/init.d/cups start
+  /etc/init.d/cups start
+ fi
+ #exec defaultbarehtmlviewer http://localhost:631/
+ exec $USEBROWSER http://localhost:631/
+fi
+
+if [ -f /usr/share/doc/cups_shell-${LANG%_*}.htm ];then #120225
+ basichtmlviewer file:///usr/share/doc/cups_shell-${LANG%_*}.htm &
+else
+ basichtmlviewer file:///usr/share/doc/cups_shell.htm &
+fi
+
+#killall cupsd
+/etc/init.d/cups stop
+
+#note, /us/share/ppd may not be needed anymore...
+mkdir -p /usr/share/cups/model/gutenprint/5.0 #old gutenprint pkg.
+mkdir -p /usr/share/ppd/gutenprint/5.0 #old gutenprint pkg.
+mkdir -p /usr/share/cups/model/gutenprint/5.2
+mkdir -p /usr/share/ppd/gutenprint/5.2
+
+#w480, need to run cups-genppd if old cups...
+CUPSVERSION=""
+[ "`which cups-config`" != "" ] && CUPSVERSION="`cups-config --version`"
+if [ "$CUPSVERSION" = "1.1.23" ];then
+# yaf-splash -font "8x16" -outline 0 -margin 4 -bg orange -placement top -text "Please wait, composing Gutenprint '.ppd' driver files..." &
+ yaf-splash -close never -bg orange -placement top -text "`gettext \"Please wait, composing Gutenprint '.ppd' driver files...\"`" &
+ X1PID=$!
+ [ "`which cups-genppd.5.0`" != "" ] && cups-genppd.5.0
+ [ "`which cups-genppd.5.2`" != "" ] && cups-genppd.5.2
+ kill $X1PID
+fi
+
+sync
+
+#/usr/sbin/cupsd
+/etc/init.d/cups start
+sleep 4 #091126 increase.
+
+#mv /usr/share/cups/model/gutenprint/5.0/*.gz /usr/share/cups/model/gutenprint/5.0/C/
+
+#defaultbarehtmlviewer http://localhost:631/
+$USEBROWSER http://localhost:631/ 2>/tmp/cups-shell-ui-fail
+#091126 seamonkey/ff already started above, for help page, but slow to startup... 100410 extra test...
+CNT=0
+while [ "`grep -E "Failed to send command|No running window found" /tmp/cups-shell-ui-fail`" ];do
+ sleep 4
+ $USEBROWSER http://localhost:631/ 2>/tmp/cups-shell-ui-fail
+ CNT=`expr $CNT + 1`
+ [ $CNT -gt 7 ] && break
+done
+
+#rm -rf /usr/share/cups/model/gutenprint/5.0/C
+if [ "$CUPSVERSION" = "1.1.23" ];then #w480
+ rm -rf /usr/share/cups/model/gutenprint/5.0/* 2>/dev/null #old gutenprint pkg.
+ rm -rf /usr/share/ppd/gutenprint/5.0/* 2>/dev/null #old gutenprint pkg.
+ rm -rf /usr/share/cups/model/gutenprint/5.2/* 2>/dev/null
+ rm -rf /usr/share/ppd/gutenprint/5.2/* 2>/dev/null
+fi
+
+###END###

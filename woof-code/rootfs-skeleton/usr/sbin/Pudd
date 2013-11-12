@@ -1,0 +1,740 @@
+#!/bin/sh
+#2006 (c) Copyright Barry Kauler www.puppylinux.com
+#2007 Lesser GPL licence v2 (http://www.fsf.org/licensing/licenses/lgpl.html)
+#this is a frontend to dd
+# will copy corrupted partitions, as well as healthy ones.
+#
+# Modified by Laurent Cas, April 2007
+# to display a message window when the script begins
+# until the probles are ok, so to inform the user
+# everything is going well.
+#
+#1102025 use probedisk2.
+#120329 Xdialog bug --yesno supposed to "yes" "No" buttons, but they are "OK" "Cancel".
+#120331 ping -4 for ipv4, refer: http://murga-linux.com/puppy/viewtopic.php?p=616090#616090
+#130203 change probedisk2 to probedisk.
+#130207 BK: this is a very old script, major upgrade. npierce has contributed. fixes not yet tested!
+#130216 support f2fs (may need other upgrades).
+#130317 L18L: internationalisation (gettext and Pudd.htm in help/<language>/)
+#130524 shinobar: fix NLS
+
+. gettext.sh
+export TEXTDOMAIN=pudd
+export OUTPUT_CHARSET=UTF-8
+TITLE="$(gettext 'Puppy universal dd')"
+
+BKCOLOR='#ffe0e0'
+BLURBERR=""
+touch /tmp/umounterr.txt
+
+# Added by LC
+# this window message will remain on screen until probe is over
+xmessage -center -bg "orange" -buttons "" -title "$TITLE" "$TITLE
+
+$(gettext 'Testing hardware.
+Please wait, this may take awhile...')" &
+XPID=$!
+
+
+#recognise IDE Zip drive...
+FOUNDZIP=""
+#ZIPDETAIL="`probedisk | grep -i "zip" | head -n 1 -`"
+#if [ ! "$ZIPDETAIL" = "" ];then
+# #load ide-floppy.o to access atapi zip drive...
+# ZIPMODULE="`lsmod | grep "ide-floppy"`"
+# if [ "$ZIPMODULE" = "" ];then
+#  modprobe ide-floppy
+# fi
+#fi
+
+#recognise floppy...
+PROBEFD0="`disktype /dev/fd0 2>&1`"
+echo "$PROBEFD0" | grep "No such device"
+if [ $? -eq 0 ];then
+ FOUNDFD0=""
+else
+ FINDFD0="`echo "$PROBEFD0" | head -n 4 | tail -n 1`"
+ FD0FS="`echo "$FINDFD0" | cut -f 1 -d " " | grep -i "fat"`"
+ if [ $? -eq 0 ];then
+  FD0FS="vfat"
+ else
+  FD0FS="`echo "$FINDFD0" | cut -f 1 -d " " | grep -i "ext"`"
+  if [ $? -eq 0 ];then
+   FD0FS="ext2"
+  else
+   FD0FS="msdos"
+  fi
+ fi
+ FOUNDFD0="/dev/fd0|${FD0FS}||floppy disk
+"
+fi
+
+
+while [ 1 ];do #first loop.
+
+
+ BLURB2="$(gettext 'If all is well, click a button to choose source drive/partition/image-file...')"
+ RETMSG0="`probepart -k 2>&1`"
+ if [ ! $? -eq 0 ];then
+  BLURB2=$(gettext '...HOWEVER, Puppy detects an error probing the partitions!!!')
+  USBERR="`echo -n "$RETMSG0" | grep "/dev/sd"`"
+  if [ ! "$USBERR" = "" ];then
+   sync
+   #find what usb mounted on and unmount (don't assume /mnt/flash)...
+   USBMNTD="`mount | grep "/dev/sd" | cut -f 3 -d " " | tr "\n" " "`"
+   for ONEUSBMNT in $USBMNTD
+   do
+    rox -D "$ONEUSBMNT"
+    #fuser -k -m $ONEUSBMNT
+    sync
+    umount -r $ONEUSBMNT 2> /tmp/umounterr.txt
+   done
+   modprobe -r usb-storage 2>/dev/null #130207 these days it is builtin.
+   BLURB2="$(gettext '...HOWEVER, Puppy detects an error probing the USB partitions!!!')"
+  fi
+  BKCOLOR='#ffc0c0'
+ else
+  BKCOLOR='#e0ffe0'
+ fi
+ PROBEPART0="`probepart -k | grep '^/dev/' | grep -v '|none|'`" #130207
+ PROBEPARTALL="$FOUNDZIP$FOUNDFD0$PROBEPART0"
+ PROBEDISK0="`probedisk | grep '^/dev/'`" #110205
+ PROBEDISKALL="$FOUNDFD0$PROBEDISK0"
+
+ #we should not copy from/to anything that is mounted...
+ MNTLIST="`df | grep "^/dev/" | cut -f 1 -d " " | tr "\n" " "`" #130207
+ for MNTONE in $MNTLIST
+ do
+  mntPTN="^${MNTONE}|" #130207
+  NONMATCH="`echo -n "$PROBEPARTALL" | grep -v "$mntPTN"`" #130207
+  PROBEPARTALL="$NONMATCH"
+ done
+ #...PROBEPARTALL has mounted partitions removed.
+ DISKLIST="`echo -n "$PROBEDISKALL" | cut -f 1 -d "|" | tr "\n" " "`"
+ for DISKONE in $DISKLIST
+ do
+  if [ ! "`echo "$MNTLIST" | grep "$DISKONE"`" = "" ];then
+   NONMATCH="`echo -n "$PROBEDISKALL" | grep -v "$DISKONE"`"
+   PROBEDISKALL="$NONMATCH"
+  fi
+ done
+ #...if PROBEDISKALL contains any mounted partitions, drive is removed.
+
+ # Added by LC
+ # we remove the information message at beginning of the script
+ kill $XPID >/dev/null 2>&1
+
+ BLURB1="$(gettext 'Welcome to Pudd, the Puppy universal dd drive/partition/image-file backup/rescue program!
+This program will copy any drive, partition, or image-file to another drive, partition
+or file, on the same PC or over a network. You can use Pudd to make copies of floppy
+disks, to make clones of a drive/partition, or to rescue a failing drive/partition.')
+
+$(gettext 'Okay, the first thing to do is decide on the source:
+ 1. If the source is a file, it must be a complete filesystem, such as produced by a 
+    previous usage of Pudd to copy a partition or drive  to a file -- such a "file" is
+    not like an ordinary text or graphic file, it is an image of a partition or complete
+    drive. An image file can be copied to a partition or drive,  an ordinary file cannot.
+ 2. If the source is a drive, for example /dev/sda, the entire drive is copied. However, if
+    source is a partition, example: /dev/sda1, then it only is copied (sda1, sda2, etc. are
+    partitions in drive sda. Some drives do not have individual partitions, ex: /dev/fd0,
+    that is, there is only one filesystem that occupies the entire drive).')
+
+$(gettext 'These are the partitions that Puppy knows about (Note: mounted partitions not
+shown. A mounted partition should be unmounted before copying from/to it):')
+$PROBEPARTALL
+
+$(gettext '...if USB partitions are missing or incorrect, click the "Probe USB" button...')
+$(gettext '...if ZIP partitions are missing or incorrect, click the "Probe ZIP" button...')
+$(gettext '...if floppy disk partition missing or incorrect, click "Probe FLOPPY" button...')
+$BLURB2"
+
+ if [ -s /tmp/umounterr.txt ];then
+  BKCOLOR="#ff8080"
+  CATERR="`cat /tmp/umounterr.txt`"
+  BLURBERR="$(eval_gettext 'ERROR: Puppy experienced a problem trying to unmount partition ${CATERR}')"
+ fi
+
+ xmessage -bg "$BKCOLOR" -center -name "Pudd" -title "$TITLE" -buttons "$(gettext 'Probe USB')":14,"$(gettext 'Probe ZIP')":15,"$(gettext 'Probe FLOPPY')":16,"$(gettext 'Choose drive')":17,"$(gettext 'Choose partition')":11,"$(gettext 'Choose file')":10,$(gettext 'HELP'):12,$(gettext 'EXIT'):13 -file -<<MSG1
+$BLURBERR$BLURB1
+MSG1
+
+ RETVAL=$?
+ BLURBERR=""
+> /tmp/umounterr.txt
+ case ${RETVAL} in
+   10)# file
+     SOURCECHOICE="file"
+     break
+     ;;
+   11)# partition
+     SOURCECHOICE="partition"
+     break
+     ;;
+   17)# drive
+     SOURCECHOICE="drive"
+     break
+     ;;
+   12)# HELP
+     #defaulthtmlviewer file:///usr/share/doc/Pudd.htm &
+     which pman &>/dev/null && exec pman Pudd #130312 translation in help/<language>/
+     ;;
+   13)# EXIT
+     exit
+     ;;
+   14)# probe USB
+     sync
+     #find what usb mounted on and unmount... 130207 rewrite...
+     SDMNTD="$(mount | grep '^/dev/sd' | cut -f 3 -d ' ')"
+     USBDRVS="$(echo "$PROBEDISK0" | grep '|usbdrv|' | cut -f 1 -d '|' | tr '\n' ' ')"
+     for ONEUSBDRV in $USBDRVS
+     do
+      [ "`echo "$SDMNTD" | grep "$ONEUSBDRV"`" = "" ] && continue #no partitions mounted.
+      for ONEUSBMNT in `echo "$SDMNTD" | grep "$ONEUSBDRV" | tr '\n' ' '`
+      do
+       rox -D "$ONEUSBMNT"
+       sync
+       umount $ONEUSBMNT 2> /tmp/umounterr.txt
+       sleep 1
+       dd if=$ONEUSBMNT of=/dev/null bs=512 count=1 #may help update /proc.
+      done
+     done
+     killall xmessage
+     ;;
+   15)# probe ZIP
+    FOUNDZIP=""
+    ZIPPART=""
+     RETZIPMNT="`mount | grep "/mnt/zip"`" #130207 outdated, see further down.
+     if [ ! "$RETZIPMNT" = "" ];then
+      rox -D "/mnt/zip"
+      #fuser -k -m /mnt/zip
+      sync
+      umount /mnt/zip 2> /tmp/umounterr.txt
+     fi
+    #is it a ide or parallel-port Zip?...
+    xmessage -bg "#ffe0e0" -center -name "Pudd" -title "$(eval_gettext '${TITLE}: probe ZIP')" -buttons "$(gettext 'Parallel port ZIP')":14,"$(gettext 'IDE (internal) ZIP')":15,"$(gettext 'none of these'):10" "$(gettext 'Please choose what type of ZIP drive you have...')"
+    RETVAL=$?
+    if [ $RETVAL -eq 14 ];then
+     modprobe -r imm #won't be loaded first time probably.
+     sleep 1
+     modprobe imm
+     if [ $? -eq 0 ];then
+      ZIPLOADED="imm"
+     fi
+    fi
+    if [ $RETVAL -eq 15 ];then
+     modprobe -r ide-floppy
+     sleep 1
+     modprobe ide-floppy
+     if [ $? -eq 0 ];then
+      ZIPLOADED="ide-floppy"
+     fi
+    fi
+    if [ ! "ZIPLOADED" = "" ];then
+     sleep 1
+     PROBEZIP="`probedisk | grep "|floppy|"`"
+     if [ ! "$PROBEZIP" = "" ];then
+      #the problem is, probedisk shows drive, but probepart shows nothing.
+      #have to find the partition...
+      #(got code for this out of rc.sysinit)...
+      ZIPDRIVE="`echo "$PROBEZIP" | cut -f 1 -d '|'`"
+      ZIPDRIVX="`echo -n $ZIPDRIVE | cut -f 3 -d '/'`"
+      PHOM4="`
+echo -n $ZIPDRIVX
+echo "4"
+`"
+      PHOM1="`
+echo -n $ZIPDRIVX
+echo "1"
+`"
+      if [ ! "$ZIPDRIVE" = "" ];then
+       PROBEPHOME="`disktype /dev/$PHOM4 2>&1`"
+       echo "$PROBEPHOME" | grep "No such device"
+       if [ $? -eq 0 ];then
+        #failed to find the partition...
+        PROBEPHOME="`disktype /dev/$PHOM1 2>&1`"
+        echo "$PROBEPHOME" | grep "No such device"
+        if [ ! $? -eq 0 ];then
+         ZIPPART="/dev/$PHOM1"
+        fi
+       else
+        ZIPPART="/dev/$PHOM4"
+       fi
+      fi
+     fi
+     if [ ! "$ZIPPART" = "" ];then
+      #now find f.s. type...
+      FINDZIP="`echo "$PROBEHOME" | head -n 4 | tail -n 1`"
+      ZIPFS="`echo "$FINDZIP" | cut -f 1 -d " "`"
+       #if [ ! "`echo "$ZIPFS" | grep -i "fat"`" = "" ];then
+       # ZIPFS="vfat"
+       #fi
+      FOUNDZIP="${ZIPPART}|${ZIPFS}||floppy zip drive
+"
+      #a final check, in case probepart is showing it...
+      #(danleff reported it did, in case of imm.o driver)
+      if [ ! "`probepart -k | grep "$ZIPPART"`" = "" ];then
+       FOUNDZIP=""
+      fi
+     fi
+    fi
+    if [ "$ZIPPART" != "" ];then #130207
+     ZIPMNT="`mount | grep "${ZIPPART} " | cut -f 3 -d ' '`"
+     if [ "$ZIPMNT" != "" ];then
+      rox -D "$ZIPMNT"
+      sync
+      umount $ZIPMNT 2> /tmp/umounterr.txt
+     fi
+    fi
+   ;;
+   16)# probe FLOPPY
+    FLOPPYMNT="`mount | grep "^/dev/fd0 " | cut -f 3 -d ' '`" #130207
+    if [ "$FLOPPYMNT" != "" ];then
+     rox -D "$FLOPPYMNT"
+     sync
+     umount $FLOPPYMNT 2> /tmp/umounterr.txt
+    fi
+    PROBEFD0="`disktype /dev/fd0 2>&1`"
+    echo "$PROBEFD0" | grep "No such device"
+    if [ $? -eq 0 ];then
+     FOUNDFD0=""
+    else
+     FINDFD0="`echo "$PROBEFD0" | head -n 4 | tail -n 1`"
+     FD0FS="`echo "$FINDFD0" | cut -f 1 -d " " | grep -i "fat"`"
+     if [ $? -eq 0 ];then
+      FD0FS="vfat"
+     else
+      FD0FS="`echo "$FINDFD0" | cut -f 1 -d " " | grep -i "ext"`"
+      if [ $? -eq 0 ];then
+       FD0FS="ext2"
+      else
+       FD0FS="msdos"
+      fi
+     fi
+     FOUNDFD0="/dev/fd0|${FD0FS}||floppy disk
+"
+    fi
+    ;;
+   *) 
+    exit
+    ;;
+ esac
+done
+
+
+#now process SOURCECHOICE...
+ALLPARTSM="`echo "$PROBEPARTALL" | tr ':' ' ' | grep -n '^/dev/' | tr '\t' ' ' | tr ' ' '_' | sed -e 's/:/PART /'`" #130207
+ALLPARTSS="`echo "$ALLPARTSM" | tr '\n' ':' | sed -e 's/:/ /g'`" #single line.
+
+ALLDISKSM="`echo "$PROBEDISKALL" | tr ':' ' ' | grep -n '^/dev/' | tr '\t' ' ' | tr ' ' '_' | sed -e 's/:/PART /'`" #130207
+ALLDISKSS="`echo "$ALLDISKSM" | tr '\n' ':' | sed -e 's/:/ /g'`" #single line.
+
+
+if [ "$SOURCECHOICE" = "partition" ];then
+ SOURCETAG="`Xdialog --wmclass "Pudd" --title "$(eval_gettext '${TITLE}: choose source partition')" --stdout \
+ --no-tags --menubox "$(gettext 'Choose the partition to be copied from:')" 0 0 0 $ALLPARTSS 2> /dev/null `"
+ if [ ! $? -eq 0 ];then
+  exit
+ fi
+ SOURCEPART="`echo "$ALLPARTSM" | grep "^$SOURCETAG" | cut -f 2 -d " " | cut -f 1 -d "|"`" #130207 npierce.
+ SOURCEFS="`echo "$ALLPARTSM" | grep "$^SOURCETAG" | cut -f 2 -d " " | cut -f 2 -d "|"`" #130207 npierce.
+ SOURCEBYTES=`disktype $SOURCEPART | grep "Volume size" | tr "(" " " | tr -s " " | cut -f 6 -d " "`
+ SOURCESIZE=`expr $SOURCEBYTES \/ 1024`
+fi
+
+if [ "$SOURCECHOICE" = "drive" ];then
+ SOURCETAG="`Xdialog --wmclass "Pudd" --title "$(eval_gettext '${TITLE}: choose source drive')" --stdout \
+ --no-tags --menubox "$(gettext 'Choose the drive to be copied from:')" 0 0 0 $ALLDISKSS 2> /dev/null `"
+ if [ ! $? -eq 0 ];then
+  exit
+ fi
+ SOURCEPART="`echo "$ALLDISKSM" | grep "^$SOURCETAG" | cut -f 2 -d " " | cut -f 1 -d "|"`" #130207 npierce.
+ SOURCEFS=""
+ SOURCEBYTES=`disktype $SOURCEPART | grep "Block device" | tr "(" " " | tr -s " " | cut -f 6 -d " "`
+ SOURCESIZE=`expr $SOURCEBYTES \/ 1024`
+fi
+
+UNCOMPRPATHNAME=""
+WARNING1=""
+if [ "$SOURCECHOICE" = "file" ];then
+ WARNING1="$(gettext 'WARNING1: be careful what you write that file to. If it is an image of a partition
+          then it should be written to a partition. If an image of a whole drive, then it
+          should be written to a whole drive.')
+"
+ while [ 1 ];do
+  SOURCEPART="`Xdialog --wmclass "Pudd" --title "$(eval_gettext '${TITLE}: choose source file')" --stdout --no-buttons --fselect "" 0 0`"
+  if [ ! $? -eq 0 ];then
+   exit
+  fi
+  echo "$SOURCEPART" | grep ".gz"
+  if [ $? -eq 0 ];then
+   UNCOMPRPATHNAME="`echo "$SOURCEPART" | cut -f 1 -d "."`"
+   UNCOMPRPATHNAME="${UNCOMPRPATHNAME}.tmp"
+   gunzip -c $SOURCEPART > $UNCOMPRPATHNAME
+   if [ ! $? -eq 0 ];then
+    xmessage -bg "#ff0000" -center "$(eval_gettext 'Error uncompressing ${SOURCEPART}. Click button to quit...')"
+    rm -f $UNCOMPRPATHNAME
+    exit
+   fi
+   WARNING1="$(eval_gettext '${WARNING1}WARNING2: $SOURCEPART file has been uncompressed as $UNCOMPRPATHNAME.
+          Pudd will delete it, but aborting before completion may prevent this.')
+"
+   SOURCEPART="$UNCOMPRPATHNAME"
+   sync
+  fi
+  SOURCEFS="`disktype $SOURCEPART | grep "file system" | head -n 1 | tr -s " " | cut -f 1 -d " "`"
+  if [ "$SOURCEFS" = "" ];then
+   xmessage -bg "#ff0000" -name Pudd -title "$(eval_gettext '${TITLE}: ERROR')" -center "$(gettext 'Sorry, this file does not have a filesystem inside it. 
+Pudd is not intended for copying ordinary files. A file with a filesystem inside it is an
+image of a drive or partition, and may be copied back to a drive or partition. Try again...')"
+  else
+   SOURCEBYTES=`disktype $SOURCEPART | grep "Volume size" | tr "(" " " | tr -s " " | cut -f 6 -d " "`
+   SOURCESIZE=`expr $SOURCEBYTES \/ 1024`
+   break
+  fi
+ done
+fi
+
+#now process DESTCHOICE...
+#enter here with SOURCEPART (example: /dev/hda2), SOURCEFS (example: vfat).
+
+BLURB7="$(eval_gettext 'Ok, you have chosen a source of ${SOURCEPART}')
+$WARNING1
+$(gettext 'Now to choose the destination. This Pudd program will first try to use the "dd"
+program in normal mode, but if the source has an error it will abort.
+Pudd will then try an alternate mode of dd to ignore read errors, which means
+that the destination will have errors in it also.')
+
+$(gettext 'If the destination is a file, it will be compressed with the "gzip" program. This
+means that the file will be about half the size of the source drive/partition.
+Well, even though the destination file is compressed, you will still need to 
+uncompress it if you ever want to mount it by loopback device, and Pudd also will
+uncompress it if it has to be copied to another drive/partition.')
+
+$(gettext 'If the destination is a drive/partition, it must be at least as large as the source
+drive/partition -- Pudd will display some info about this in the next window.')
+
+$(gettext 'If the destination is a partition, Pudd will offer to grow the filesystem to fill
+the partition. However, this only applies if the source partition is an ext2,
+ext3, ext4, or fat12/16/32 (this includes what we call msdos and vfat) filesystem.
+(NOTE: destination f.s. does not matter as will be overwritten)
+(WARNING: fat resize code is immature. Do not use on anything critical!)')
+
+$(gettext 'Click on "Run_fdisk" button to create/edit/delete partitions...')
+
+$(gettext 'If no need to run fdisk, click a button to choose destination...
+(Note, if destination not on current PC, click "Choose_remote" button)...')"
+
+BKCOLOR='#ffe0e0'
+BUTTONS2="$(gettext 'Run_fdisk'):16,$(gettext 'Choose_drive'):14,$(gettext 'Choose_partition'):11,$(gettext 'Choose_file'):10,$(gettext 'Choose_remote'):18,$(gettext 'HELP'):12,$(gettext 'EXIT'):13"
+if [ "$SOURCECHOICE" = "drive" ];then
+ BUTTONS2="$(gettext 'Run_fdisk'):16,$(gettext 'Choose_drive'):14,$(gettext 'Choose_file'):10,$(gettext 'Choose_remote'):18,$(gettext 'HELP'):12,$(gettext 'EXIT'):13"
+fi
+if [ "$SOURCECHOICE" = "partition" ];then
+ BUTTONS2="$(gettext 'Run_fdisk'):16,$(gettext 'Choose_partition'):11,$(gettext 'Choose_file'):10,$(gettext 'Choose_remote'):18,$(gettext 'HELP'):12,$(gettext 'EXIT'):13"
+fi
+
+while [ 1 ];do #STARTWHILE3
+
+xmessage -bg "$BKCOLOR" -center -name "Pudd" -title "$(eval_gettext '${TITLE}: choose destination')" -buttons "$BUTTONS2" -file -<<MSG1
+$BLURB7
+MSG1
+
+RETVAL=$?
+
+case ${RETVAL} in
+   10)# file 
+     DESTCHOICE="file"
+     break
+     ;;
+   11)# partition
+     DESTCHOICE="partition"
+     break
+     ;;
+   14)# drive
+     DESTCHOICE="drive"
+     break
+     ;;
+   18)# remote
+     DESTCHOICE="remote"
+     break
+     ;;
+   12)# HELP
+     defaulthtmlviewer file:///usr/share/doc/Pudd.htm &
+     ;;
+   13)# EXIT
+     rm -f $UNCOMPRPATHNAME
+     exit
+     ;;
+   16)# fdisk
+     FDISKTAG="`Xdialog --wmclass "Pudd" --title "$(eval_gettext '${TITLE}: run fdisk')" --stdout \
+ --no-tags --menubox "$(gettext 'Choose the drive to be examined by fdisk:')" 0 0 0 $ALLDISKSS 2> /dev/null `"
+     if [ $? -eq 0 ];then
+      FDISKPART="`echo "$ALLDISKSM" | grep "^$FDISKTAG" | cut -f 2 -d " " | cut -f 1 -d "|"`" #130207 npierce.
+      rxvt -e fdisk $FDISKPART
+     fi
+     ;;
+   *)
+    rm -f $UNCOMPRPATHNAME
+    exit
+    ;;
+esac
+done #ENDWHILE3
+
+ALLOWGROW=""
+
+REMOTEADDR="196.108.56.10"
+REMOTEPORT="1234"
+if [ "$DESTCHOICE" = "remote" ];then
+ ERRBLURB=""
+ while [ 1 ];do #WHILE9
+  RETSTR=`Xdialog --wmclass "Pudd" --title "$(eval_gettext '${TITLE} choose remote')" --stdout --left --separator "|" --2inputsbox "${ERRBLURB}$(gettext 'To transfer to a remote computer, you have to start the netcat/nc program\nrunning on the remote computer. If the destination is a drive or partition,\nit must be unmounted. The setup could be as simple as a ethernet cross-over\ncable between two PCs, or over the Internet.\nThis is what you need to execute on the remote PC:\n # nc -l -p ${REMOTEPORT} < /dev/null | gunzip -c | dd of=DESTDEV bs=512\n...where DESTDEV is whatever you want to write to, for example /dev/hda1\n...you may be able to leave the bs= parameter off, or make it 1024 for ext2/3.\n...I think for msdos/vfat, bs=512 is correct.\n...the -l parameter means that nc will listen for data incoming at the port.\n...THIS MUST BE DONE RIGHT NOW!\n\nThe local PC needs to know where the remote PC is, and the address may be\na URL or IP. For example, www.goosee.com, or 196.108.56.10.\nThe Port number at local and remote must be the same. I suggest 1234.\n\nPLEASE START THE REMOTE nc PROGRAM RUNNING BEFORE CLICKING OK BUTTON')" 0 0 "$(gettext 'Remote address:')" "$REMOTEADDR" "$(gettext 'Port:')" "$REMOTEPORT"`
+  if [ ! $? -eq 0 ];then
+   exit
+  fi
+  REMOTEADDR=`echo -n "$RETSTR" | cut -f 1 -d "|"`
+  REMOTEPORT=`echo -n "$RETSTR" | cut -f 2 -d "|"`
+  #need to know that remote PC is reachable...
+  RETSTR="`ping -4 -c 1 -q $REMOTEADDR | grep ' 0% '`" #not to REMOTEPORT, as will mess up data transfer.
+  if [ "$RETSTR" = "" ];then
+   ERRBLURB="$(eval_gettext 'ERROR, $REMOTEADDR IS NOT REACHABLE!')
+
+"
+  else #ping was ok.
+   DESTFS=""
+   DESTPART=""
+   DESTINFO=""
+   break
+  fi
+ done #WHILE9
+fi
+
+if [ "$DESTCHOICE" = "partition" ];then
+ while [ 1 ];do #WHILE4
+  DESTTAG="`Xdialog --wmclass "Pudd" --title "$(eval_gettext '${TITLE}: choose destination partition')" --stdout \
+ --no-tags --menubox "$(gettext 'Choose the partition to be copied to:')" 0 0 0 $ALLPARTSS 2> /dev/null `"
+  if [ ! $? -eq 0 ];then
+   exit
+  fi
+  DESTPART="`echo "$ALLPARTSM" | grep "^$DESTTAG" | cut -f 2 -d " " | cut -f 1 -d "|"`" #130207 npierce.
+  DESTFS="`echo "$ALLPARTSM" | grep "^$DESTTAG" | cut -f 2 -d " " | cut -f 2 -d "|"`" #130207 npierce.
+  DESTBYTES=`disktype $DESTPART | grep "Volume size" | tr "(" " " | tr -s " " | cut -f 6 -d " "`
+  DESTSIZE=`expr $DESTBYTES \/ 1024`
+  if [ $DESTSIZE -gt $SOURCESIZE ];then
+   ALLOWGROW="`echo "$SOURCEFS" | grep --extended-regexp "ext2|ext3|ext4|Ext2|Ext3|Ext4|FAT12|FAT16|FAT32|msdos|vfat"`"
+   if [ ! "$ALLOWGROW" = "" ];then
+    Xdialog --wmclass "Pudd" --title "$(eval_gettext '${TITLE}: grow filesystem')" --stdout --ok-label "$(gettext 'Yes')" --cancel-label "$(gettext 'No')" --yesno "$(gettext 'Do you want to grow the filesystem to fill the partition?\n(after it is copied to the partition)\n(ext2, ext3, ext4 and fat12/16/32 (msdos/vfat) filesystems only)')" 0 0
+    if [ ! $? -eq 0 ];then
+     ALLOWGROW=""
+    fi
+   fi
+   break
+  fi
+  if [ $DESTSIZE -eq $SOURCESIZE ];then
+   break
+  fi
+  #dest part is too small...
+  xmessage -bg "#ff8080" -center -name "Pudd" -title "$(eval_gettext '${TITLE}: ERROR')" "$(eval_gettext 'Sorry, the destination partition is too small. The source 
+$SOURCEPART is $SOURCESIZE Kbytes but the destination 
+$DESTPART is $DESTSIZE Kbytes. Try again...')"
+ done #WHILE4
+fi
+
+if [ "$DESTCHOICE" = "drive" ];then
+ while [ 1 ];do
+  DESTTAG="`Xdialog --wmclass "Pudd" --title "$(eval_gettext '${TITLE}: choose destination drive')" --stdout --no-tags --menubox "$(gettext 'Choose the drive to be copied to:')" 0 0 0 $ALLDISKSS 2> /dev/null `"
+  if [ ! $? -eq 0 ];then
+   exit
+  fi
+  DESTPART="`echo "$ALLDISKSM" | grep "^$DESTTAG" | cut -f 2 -d " " | cut -f 1 -d "|"`" #130207 npierce.
+  #DESTFS="`echo "$ALLDISKSM" | grep "$DESTTAG" | cut -f 2 -d " " | cut -f 2 -d "|"`"
+  DESTFS=""
+  DESTBYTES=`disktype $DESTPART | grep "Block device" | tr "(" " " | tr -s " " | cut -f 6 -d " "`
+  DESTSIZE=`expr $DESTBYTES \/ 1024`
+  if [ $DESTSIZE -ge $SOURCESIZE ];then
+   break
+  fi
+  #dest drive is too small...
+  xmessage -bg "#ff8080" -center -name "Pudd" -title "$(eval_gettext '${TITLE}: ERROR')" "$(eval_gettext 'Sorry, the destination drive is too small. The source 
+$SOURCEPART is $SOURCESIZE Kbytes but the destination 
+$DESTPART is $DESTSIZE Kbytes. Try again...')"
+ done
+fi
+
+
+if [ "$DESTCHOICE" = "file" ];then
+  DESTPART="`Xdialog --wmclass "Pudd" --title "$(gettext 'Pudd: new or choose existing (replace) dest. file')" --no-buttons --stdout --fselect "myfile.img" 0 0`"
+  if [ ! $? -eq 0 ];then
+   exit
+  fi
+ DESTFS=""
+fi
+
+SOURCEINFO="`disktype $SOURCEPART`"
+if [ "$DESTFS" ];then
+ DESTTYPE="`disktype $DESTPART`"
+ DESTINFO="$(eval_gettext 'Here is what Puppy knows about ${DESTPART} ${DESTCHOICE}:')
+${DESTTYPE}
+"
+else
+ DESTINFO=""
+fi
+
+#v1.0.7
+#SPACEINFO="`df | grep -v "rootfs" | grep -v "/dev/loop0"`"
+SPACEINFO="`df -k | grep -v "rootfs" | grep -v "/dev/loop0" | grep -v "/dev/loop3" | grep -v "none"`"
+
+if [ "$DESTCHOICE" = "file" ];then
+ DESTXTN="${DESTPART}.gz"
+else
+ DESTXTN="$DESTPART"
+fi
+if [ "$DESTCHOICE" = "remote" ];then
+ DESTXTN="${REMOTEADDR}:${REMOTEPORT}"
+fi
+
+BLURB8="$(gettext 'Last chance to backout!')
+$(eval_gettext 'You have chosen to copy ${SOURCEPART} to destination ${DESTXTN}')
+
+$(eval_gettext 'Here is what Puppy knows about ${SOURCEPART}:')
+$SOURCEINFO
+$DESTINFO
+$(gettext '...for a destination partition, make sure that it is at least as big as the source.
+...for a destination file, make sure that the mounted partition where it will reside
+   has enough free space. A summary of the space in the local mounted partitions:')
+$SPACEINFO
+
+$(gettext 'If everything looks ok, click the "Continue" button...')"
+
+xmessage -bg "$BKCOLOR" -center -name "Pudd" -title "$(eval_gettext '${TITLE}: final check')" -buttons $(gettext 'Continue'):10,$(gettext 'EXIT'):13 -file -<<MSG1
+$BLURB8
+MSG1
+
+RETVAL=$?
+
+case ${RETVAL} in
+   10)# continue
+     #finally, get to try dd...
+     echo '#!/bin/sh' > /tmp/backuppartition.sh
+     if [ "$DESTCHOICE" = "file" ];then
+
+      #if source is partition, zeroise unused part for max compression...
+      if [ "$SOURCECHOICE" = "partition" ];then
+       ALLOWZERO="`echo "$SOURCEFS" | grep --extended-regexp "f2fs|ext2|ext3|ext4|Ext2|Ext3|Ext4|FAT12|FAT16|FAT32|msdos|vfat|ReiserFS|reiserfs"`" #130216 add f2fs.
+       if [ ! "$ALLOWZERO" = "" ];then
+        Xdialog --wmclass "Pudd" --title "$(eval_gettext '${TITLE}: optimise compression')" --stdout --ok-label "$(gettext 'Yes')" --cancel-label "$(gettext 'No')" --yesno "$(eval_gettext '$SOURCEPART will be copied to $DESTPART.gz, compressed with gzip.
+Compression may be greatly improved if the unused part of $SOURCEPART
+is zeroised. This involves temporarily mounting it on /mnt/tmp,
+writing zeroes to the unused areas, then unmounting it.
+Would you like to do this size optimisation?')" 0 0
+        if [ $? -eq 0 ];then
+         mkdir /mnt/tmp 2> /dev/null
+         if [ ! "`echo "$SOURCEFS" | grep --extended-regexp "ext2|ext3|ext4|Ext2|Ext3|Ext4"`" = "" ];then
+          APPLYFS="`echo -n "$SOURCEFS" | tr "E" "e"`"
+         else
+          if [ ! "`echo "$SOURCEFS" | grep --extended-regexp "FAT12|FAT16|FAT32|msdos|vfat"`" = "" ];then
+           APPLYFS="vfat"
+          else
+           APPLYFS="reiserfs"
+          fi
+         fi
+         msg="$(eval_gettext 'Now zeroising unused areas of $2 ...')"
+         echo 'echo "$msg"' >> /tmp/backuppartition.sh
+         msg="$gettext 'For a large partition, this may take awhile...'"
+         echo 'echo "$msg"'  >> /tmp/backuppartition.sh
+         echo "mount -t $APPLYFS $SOURCEPART /mnt/tmp"  >> /tmp/backuppartition.sh
+         echo 'PARTFREE=`df | grep "$2" | tr -s " " | head -n 1 | cut -f 4 -d " "`'  >> /tmp/backuppartition.sh
+         echo 'cd /mnt/tmp'  >> /tmp/backuppartition.sh
+         echo 'dd if=/dev/zero of=empty.tmp bs=1024 count=$PARTFREE'  >> /tmp/backuppartition.sh
+         echo 'sync'  >> /tmp/backuppartition.sh
+         echo 'rm -f empty.tmp'  >> /tmp/backuppartition.sh
+         echo 'sync'  >> /tmp/backuppartition.sh
+         echo 'cd /'  >> /tmp/backuppartition.sh
+         echo 'umount /mnt/tmp'  >> /tmp/backuppartition.sh
+         echo 'rmdir /mnt/tmp'  >> /tmp/backuppartition.sh
+         echo 'echo "...done"'  >> /tmp/backuppartition.sh
+         echo 'echo'  >> /tmp/backuppartition.sh
+        fi
+       fi
+      fi
+      msg="$(eval_gettext 'Now copying $2 to $1, please wait very patiently...')"
+      echo 'echo "$msg"' >> /tmp/backuppartition.sh
+      echo "dd if=$SOURCEPART | gzip - > $DESTPART.gz" >>  /tmp/backuppartition.sh
+      echo 'if [ ! $? -eq 0 ];then' >>  /tmp/backuppartition.sh
+      echo ' echo' >> /tmp/backuppartition.sh
+      msg="$(gettext 'Read error, starting again, ignoring errors...')"
+      echo ' echo "$msg"' >> /tmp/backuppartition.sh
+      echo " dd if=$SOURCEPART  conv=noerror | gzip - > $DESTPART.gz" >> /tmp/backuppartition.sh
+      echo 'fi' >> /tmp/backuppartition.sh
+     else
+      if [ "$DESTCHOICE" = "remote" ];then
+       msg="$(eval_gettext 'Now copying $2 to remote PC, please wait very patiently...')"
+       echo 'echo "$msg"' >> /tmp/backuppartition.sh
+       echo "dd if=$SOURCEPART | gzip -c | nc $REMOTEADDR $REMOTEPORT" >> /tmp/backuppartition.sh
+       echo 'if [ ! $? -eq 0 ];then' >> /tmp/backuppartition.sh
+       echo ' echo' >> /tmp/backuppartition.sh
+       msg="$(gettext 'Read error, starting again and will ignore errors...')"
+       echo ' echo "$msg"' >> /tmp/backuppartition.sh
+       msg="$(gettext 'KILL THE NETCAT LISTENER ON REMOTE PC, AND START IT AGAIN')"
+       echo ' echo "$msg"' >> /tmp/backuppartition.sh
+       msg="$(gettext 'DO THAT RIGHT NOW, THEN PRESS ENTER KEY: ')"
+       echo ' echo -n "$msg"' >> /tmp/backuppartition.sh
+       echo ' read mmmm' >> /tmp/backuppartition.sh
+       echo " dd if=$SOURCEPART conv=noerror | gzip -c | nc $REMOTEADDR $REMOTEPORT" >> /tmp/backuppartition.sh
+       echo 'fi' >> /tmp/backuppartition.sh
+      else
+       msg="$(eval_gettext 'Now copying $2 to $1, please wait very patiently...')"
+       echo 'echo "$msg"' >> /tmp/backuppartition.sh
+       echo "dd if=$SOURCEPART of=$DESTPART" >> /tmp/backuppartition.sh
+       echo 'if [ ! $? -eq 0 ];then' >> /tmp/backuppartition.sh
+       echo ' echo' >> /tmp/backuppartition.sh
+       msg="$(gettext 'Read error, starting again and will ignore errors...')"
+       echo ' echo "$msg"' >> /tmp/backuppartition.sh
+       echo " dd if=$SOURCEPART of=$DESTPART conv=noerror" >> /tmp/backuppartition.sh
+       echo 'fi' >> /tmp/backuppartition.sh
+      fi
+     fi
+
+     echo 'sync' >> /tmp/backuppartition.sh
+     echo 'echo' >> /tmp/backuppartition.sh
+     if [ ! "$ALLOWGROW" = "" ];then
+      msg="$(eval_gettext 'Resizing $4 filesystem to fill $3 Kbyte partition...')"
+      echo 'echo "$msg"' >> /tmp/backuppartition.sh
+      if [ ! "`echo "$ALLOWGROW" | grep --extended-regexp "ext2|ext3|ext4|Ext2|Ext3|Ext4"`" = "" ];then
+       msg="$(gettext 'First check and fix f.s....')"
+       echo 'echo "$msg"' >> /tmp/backuppartition.sh
+       echo "e2fsck -f -y $DESTPART" >> /tmp/backuppartition.sh
+       echo "sync" >> /tmp/backuppartition.sh
+       msg="$(gettext 'Now resizing f.s....')"
+       echo 'echo "$msg"' >> /tmp/backuppartition.sh
+       echo "resize2fs -f $DESTPART" >> /tmp/backuppartition.sh
+      else
+       if [ ! "`echo "$ALLOWGROW" | grep --extended-regexp "FAT12|FAT16|FAT32|msdos|vfat"`" = "" ];then
+        msg="$(gettext 'WARNING: Immature code, do not use for anything critical!')"
+        echo 'echo "$msg"' >> /tmp/backuppartition.sh
+        msg="$(gettext '         Changes have been backed up in /tmp/fsresizebackup.dat')"
+        echo 'echo "$msg"' >> /tmp/backuppartition.sh
+        msg="$(gettext '         (see fsresize doc page how to restore f.s.)')"         
+        echo 'echo "$msg"' >> /tmp/backuppartition.sh
+        echo "fsresize $DESTPART $DESTSIZE -b /tmp/fsresizebackup.dat" >> /tmp/backuppartition.sh
+       fi
+      fi
+      msg="$(gettext '...done')"
+      echo 'echo "$msg"' >> /tmp/backuppartition.sh
+      #echo 'fi' >> /tmp/backuppartition.sh
+     fi
+     msg="$(gettext 'Backup finished. Press ENTER key to exit: ')"
+     echo 'echo -n "$msg"' >> /tmp/backuppartition.sh
+     echo 'read nnn' >> /tmp/backuppartition.sh
+     sync
+     chmod 755 /tmp/backuppartition.sh
+     rxvt -name Pudd -title "Puppy universal dd: copying" -bg "#ffff00" -geometry 80x8 -e /tmp/backuppartition.sh ${DESTPART} ${SOURCEPART} ${DESTSIZE} ${ALLOWGROW} 
+     ;;
+   13)# EXIT
+     ;;
+   *)
+    ;;
+esac
+
+rm -f $UNCOMPRPATHNAME
+
+###END###

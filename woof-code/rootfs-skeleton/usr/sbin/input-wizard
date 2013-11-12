@@ -1,0 +1,611 @@
+#!/bin/sh
+#(c) Barry Kauler 2005/2006 www.puppylinux.com
+#2007 Lesser GPL licence v2 (http://www.fsf.org/licensing/licenses/lgpl.html)
+#keyboard/mouse wizard for Puppy Linux
+#based on code from /usr/X11R7/bin/xwin
+#updated for 2.17
+#v411 rerwin: touchpad fix.
+#v411 rerwin: mouse detect fixes.
+#2009-03-03 ecube: "requires Xorg driver" added for Left-hand mouse
+#2009-05-23 ecube: kmap-1.1.14 keymaps used
+#v431 BK: usb and ps/2 mouse now has same devnode.
+#091122 BK: not using 'kbd' pkg keycodes anymore. only kmaps in /lib/keymaps.
+#100127 notice to restart X if change keyboard layout (see code in /usr/bin/xwin to sync x and console).
+#100215 moved sync code for console/xorg kbd layout from xwin.
+#100527 added jemimah's flsynclient touchpad config.
+#101112 disabled FONTMAP, see http://bkhome.org/blog/?viewDetailed=01956
+#110814 01micko: convert script from gtkdialog2 to gtkdialog3+.
+#120201 rodin.s: internationalized.
+#120627 use keymaps from kbd pkg if present.
+#130216 add button for "mouse sensitivity", run pupx.
+
+export TEXTDOMAINDIR=/usr/share/locale
+export TEXTDOMAIN=input-wizard
+export OUTPUT_CHARSET=UTF-8
+. gettext.sh
+
+export MouseKeyboardWizard="
+<window title=\"$(gettext 'Input Wizard')\">
+ <vbox>
+  <hbox>
+   <text>
+    <label>$(gettext 'Choose keyboard layout for your country...')</label>
+   </text>
+   <button>
+    <input file>/usr/local/lib/X11/mini-icons/mini-keyboard.xpm</input>
+    <action type=\"exit\">KEY1BUTTON</action>
+   </button>
+  </hbox>
+  <hbox>
+   <text>
+    <label>$(gettext 'Advanced Xorg keyboard configuration...')</label>
+   </text>
+   <button>
+    <input file>/usr/local/apps/XkbConfigurationManager/images/layout16.png</input>
+    <action type=\"exit\">KEY4BUTTON</action>
+   </button>
+  </hbox>
+
+  <hbox>
+   <text>
+    <label>$(gettext 'Choose keyboard interface...')</label>
+   </text>
+   <button>
+    <input file>/usr/local/lib/X11/mini-icons/mini-keyboard.xpm</input>
+    <action type=\"exit\">KEY3BUTTON</action>
+   </button>
+  </hbox>
+  
+  <hbox>
+   <text>
+    <label>$(gettext 'Choose type of mouse...')</label>
+   </text>
+   <button>
+    <input file>/usr/local/lib/X11/mini-icons/Mouse.xpm</input>
+    <action type=\"exit\">MOUSE1BUTTON</action>
+   </button>
+  </hbox>
+
+  <hbox>
+   <text>
+    <label>$(gettext 'Adjust mouse sensitivity...')</label>
+   </text>
+   <button>
+    <input file>/usr/local/lib/X11/mini-icons/Mouse.xpm</input>
+    <action type=\"exit\">MOUSE2BUTTON</action>
+   </button>
+  </hbox>
+
+  <hbox>
+   <text>
+    <label>$(gettext 'Configure your touchpad...')</label>
+   </text>
+   <button>
+    <input file>/usr/local/lib/X11/mini-icons/Mouse.xpm</input>
+    <action type=\"exit\">TOUCHPAD1BUTTON</action>
+   </button>
+  </hbox>
+
+  <hbox>
+   <button ok></button>
+  </hbox>
+ </vbox>
+</window>
+"
+
+CHECK1="false"
+
+#120627
+KMAPPATH='/lib/keymaps'
+[ -d /usr/share/kbd/keymaps/i386 ] && KMAPPATH='/usr/share/kbd/keymaps/i386'
+[ -d /usr/share/keymaps/i386 ] && KMAPPATH='/usr/share/keymaps/i386' #debian, gentoo. note, debian files have extension .kmap.gz, gentoo have .map.gz
+KEXT=''
+[ -f ${KMAPPATH}/qwerty/us.map ] && KEXT='.map'
+[ -f ${KMAPPATH}/qwerty/us.map.gz ] && KEXT='.map'
+[ -f ${KMAPPATH}/qwerty/us.kmap ] && KEXT='.kmap'
+[ -f ${KMAPPATH}/qwerty/us.kmap.gz ] && KEXT='.kmap'
+
+askkbdlayout () #091122
+{
+ echo -n "" >/tmp/keybdlist.txt
+ case $KMAPPATH in #120627
+  /lib/keymaps) KMAPFILES="`find /lib/keymaps -mindepth 1 -maxdepth 1 -name '*.gz' | sort`" ;; #ex: us.gz
+  *) KMAPFILES="`find ${KMAPPATH}/[^i]* -name '*.map' -o -name '*.kmap' -o -name '*.map.gz' -o -name '*.kmap.gz' -not -name 'defkeymap*' | sort`" ;;
+ esac
+ for AFILE in $KMAPFILES
+ do
+  AKMAP="`basename $AFILE .gz`" #us, fr, br, etc.
+  AKMAP="`basename $AKMAP .kmap`" #120627
+  AKMAP="`basename $AKMAP .map`" #120627
+  #hmmm, very slow way to do this...
+  case $AKMAP in
+   us*) ACNTRY="(USA)";;
+   fr*) ACNTRY="(France)";;
+   it*) ACNTRY="(Italy)";;
+   ba*) ACNTRY="(Bashkir)";;
+   be*) ACNTRY="(Belgium)";;
+   bg*) ACNTRY="(Bulgaria)";;
+   br*) ACNTRY="(Brazil)";;
+   by*) ACNTRY="(Byelorussian)";;
+   cf*) ACNTRY="(French-Canadian)";;
+   croat*) ACNTRY="(Croatia)";;
+   cz*) ACNTRY="(Czech)";;
+   de) ACNTRY="(Germany)";;
+   de_*) ACNTRY="(Germany)";;
+   de-*) ACNTRY="(Germany)";;
+   dk*) ACNTRY="(Denmark)";;
+   es*) ACNTRY="(Spain)";;
+   fi*) ACNTRY="(Finland)";;
+   hu*) ACNTRY="(Hungary)";;
+   ka*) ACNTRY="(Kazakhstan)";;
+   ky*) ACNTRY="(Kyrgyzstan)";;
+   et*) ACNTRY="(Estonia)";;
+   lt*) ACNTRY="(Lithuania)";;
+   mk*) ACNTRY="(Macedonia)";;
+   sr*) ACNTRY="(Serbia)";;
+   tr*) ACNTRY="(Turkey)";;
+   tt*) ACNTRY="(Tatar)";;
+   sg*) ACNTRY="(Sango)";;
+   ua*) ACNTRY="(Ukraine)";;
+   gr*) ACNTRY="(Greece)";;
+   il*) ACNTRY="(Israel)";;
+   is*) ACNTRY="(Iceland)";;
+   jp*) ACNTRY="(Japan)";;
+   pc*) ACNTRY="(Japanese/English)";;
+   la*) ACNTRY="(Latin_America)";;
+   nl*) ACNTRY="(Netherlands)";;
+   no*) ACNTRY="(Norway)";;
+   pl*) ACNTRY="(Poland)";;
+   pt*) ACNTRY="(Portugal)";;
+   ro*) ACNTRY="(Romania)";;
+   ru*) ACNTRY="(Russia)";;
+   se*) ACNTRY="(Sweden)";;
+   sv*) ACNTRY="(Sweden)";;
+   sk*) ACNTRY="(Slovakia)";;
+   sl*) ACNTRY="(Slovenia)";;
+   uk*) ACNTRY="(UK)";;
+   wangbe*) ACNTRY="(Belgium)";;
+   azerty) ACNTRY="(Tandon)";;
+   dvorak-r) ACNTRY="(Right_single-handed)";;
+   dvorak-l) ACNTRY="(Left_single-handed)";;
+   *)  ACNTRY="-";;
+  esac
+  echo -e "$AKMAP \"${ACNTRY}\"" >> /tmp/keybdlist.txt
+ done
+ KEYLIST="us \"(USA)\" `sort /tmp/keybdlist.txt | tr '\n' ' '`"
+
+ KEYBOARD=""
+ FONTMAP=""
+ CODEPAGE=""
+ CURRKMAP="us"
+ [ -f /etc/keymap ] && CURRKMAP="`cat /etc/keymap | sed -e 's/\..*//'`"
+ #Xdialog --title "Keyboard Wizard" --cancel-label "Cancel" --default-item "$CURRKMAP" --menubox "Select country for your keyboard:" 0 0 0 $( for F in $KEYLIST; do echo $F ; done ) 2> /tmp/kbdextlayout.txt
+ XDLG="Xdialog --title \"$(gettext 'Keyboard Wizard')\" --cancel-label \"$(gettext 'Cancel')\" --default-item \"$CURRKMAP\" --menubox \"$(gettext 'Select country for your keyboard:')\" 0 0 0 ${KEYLIST} 2> /tmp/kbdextlayout.txt"
+ eval $XDLG
+ [ $? != 0 ] && return 1
+ KEYBOARD="`cat /tmp/kbdextlayout.txt`"
+ case $KEYBOARD in #note, same code in /etc/rc.d/rc.country and init.
+  de*|be*|br*|dk*|es*|fi*|fr*|it*|no*|se*|sv*|pt*) #100127 added sv
+   FONTMAP="lat1-12.psfu"
+   modprobe nls_cp850
+   CODEPAGE="850"
+  ;;
+  cz*|hu*|pl*|ro*|sk*|croat*|slovene*)
+   modprobe nls_cp852
+   modprobe nls_iso8859-2
+   FONTMAP="lat2-12.psfu"
+   CODEPAGE="852"
+  ;;
+ esac
+ FONTMAP='' #101112
+ return 0
+}
+
+#big while loop...
+while :; do
+ KMAP=""
+ unset MouseWizard
+ unset KeyboardFeaturesWizard
+
+ #put some code in here to ask keyboard layout, keyboard ps2/usb, mouse serial/ps2/usb setup?
+ #also offer the old 2-letter layout...
+ eval `gtkdialog3 --program=MouseKeyboardWizard | grep "EXIT"`
+
+ case $EXIT in
+  KEY1BUTTON)
+   askkbdlayout #this is extended menu, func above.
+   #...this sets KEYBOARD, FONTMAP, CODEPAGE variables.
+   [ $? -eq 0 ] && KMAP="$KEYBOARD"
+  ;;
+  KEY4BUTTON)
+   exec /usr/local/bin/xkbconfigmanager
+  ;;
+  KEY3BUTTON)
+   KEYBRDTYPE="`cat /etc/keyboardtype`"
+   CHECKKEY1="false"
+   [ "$KEYBRDTYPE" = "usb" ] && CHECKKEY1="true"
+   export KeyboardFeaturesWizard="
+<window>
+ <vbox>
+  <frame $(gettext 'Keyboard interface')>
+   <vbox>
+    <text>
+     <label>$(gettext 'Changing this only takes effect after Puppy is rebooted!')</label>
+    </text>
+    <checkbox>
+     <label>Keyboard has USB interface</label>
+     <default>$CHECKKEY1</default>
+     <variable>CHECKBOX002</variable>
+    </checkbox>
+   </vbox>
+  </frame>
+  <hbox>
+   <button cancel></button>
+   <button ok></button>
+  </hbox>
+ </vbox>
+</window>
+"
+   RETPARAMS=`gtkdialog3 --program=KeyboardFeaturesWizard`
+   echo "$RETPARAMS"
+   if [ ! "`echo "$RETPARAMS" | grep "EXIT" | grep "OK"`" = "" ];then
+    if [ "`echo "$RETPARAMS" | grep "CHECKBOX002" | grep "true"`" != "" ];then
+     echo -n "usb" > /etc/keyboardtype
+     modprobe usbhid 2> /dev/null #maybe then just need to restart X.
+    else
+     echo -n "ps/2" > /etc/keyboardtype
+    fi
+   fi
+  ;;
+  TOUCHPAD1BUTTON) #100527
+   exec flsynclient
+  ;;
+  MOUSE2BUTTON) #130216
+   exec pupx
+  ;;
+  MOUSE1BUTTON)
+   MOUSEDEV="`cat /etc/mousedevice`"
+   #RADIOBUTTONS="$RADIO2$RADIO1$RADIO3" #serial
+   DEF1="false"
+   DEF2="true"
+   DEF3="false"
+   if [ "$MOUSEDEV" = "psaux" ];then
+    #RADIOBUTTONS="$RADIO1$RADIO2$RADIO3"
+    DEF1="true"
+    DEF2="false"
+    DEF3="false"
+   fi
+   if [ "$MOUSEDEV" = "input/mice" ];then
+    #RADIOBUTTONS="$RADIO3$RADIO2$RADIO1"
+    DEF1="false"
+    DEF2="false"
+    DEF3="true"
+   fi
+
+   RADIO1="     <radiobutton>
+      <label>$(gettext 'PS/2 mouse (most common)')</label>
+      <variable>RADIO001</variable>
+      <default>$DEF1</default>
+      <action>if true disable:COMPORT</action>
+     </radiobutton>
+"
+   RADIO2="     <radiobutton>
+      <label>$(gettext 'Serial mouse')</label>
+      <variable>RADIO002</variable>
+      <default>$DEF2</default>
+      <action>if true enable:COMPORT</action>
+     </radiobutton>
+"
+   RADIO3="     <radiobutton>
+      <label>$(gettext 'USB or PS/2 mouse (also touchpad)')</label>
+      <variable>RADIO003</variable>
+      <default>$DEF3</default>
+      <action>if true disable:COMPORT</action>
+     </radiobutton>
+"
+   #RADIOBUTTONS="$RADIO1$RADIO2$RADIO3"
+   RADIOBUTTONS="$RADIO3$RADIO2" #v431
+
+   MOUSEBUTTONS="`cat /etc/mousebuttons`"
+   CHECK1="false"
+   if [ "$MOUSEBUTTONS" = "5" ];then
+    CHECK1="true"
+   fi
+
+   #v1.0.7
+   CHECKM="false"
+   if [ ! "`cat /etc/xextraoptions | grep "\\-2button"`" = "" ];then
+    CHECKM="true"
+   fi
+   #v2.01
+   CHECKH="false"
+   IDLETIME="0"
+   if [ -f /etc/mousehide ];then
+    IDLETIME="`cat /etc/mousehide | cut -f 1 -d ','`"
+    [ ! "$IDLETIME" = "0" ] && CHECKH="true"
+   fi
+
+   #v2.14 modified by Raul Suarez (rarsa at yahoo.com)
+   # if the button 1 is mapped to something different than 1 then I assume
+   # it is a lefhanded mouse
+   CHECKL="false"
+   LEFT_H_MOUSE=` xmodmap -pp | grep -E " *[0-9] *[0-9]" | sed -e 's/ *\([0-9]*\) *\([0-9]*\)/\2/' | head -n 1`
+   if [ ${LEFT_H_MOUSE} -ne 1 ] ; then
+    CHECKL="true"
+   fi
+
+   #v4.11 Control "tapping" function on ALPS/Synaptics touchpads - manipulates MaxTapTime option in xorg.conf.
+   TAPCHKBOX=""
+   if [ -f /etc/X11/xorg.conf -a "`grep '"MaxTapTime"' /etc/X11/xorg.conf`" != "" ];then #touchpad present
+    [ "`grep '"MaxTapTime"' /etc/X11/xorg.conf | grep '"0"'`" = "" ] && CHECKT="true" || CHECKT="false" #taps enabled/disabled
+    TAPCHKBOX="    <checkbox>
+     <label>$(gettext 'Enable touchpad tapping for mouse button clicks')</label>
+     <variable>CHECKBOX013</variable>
+     <default>$CHECKT</default>
+    </checkbox>
+"
+   fi  #v4.11 end
+  
+   #v1.0.7 modified for gtkdialog2... 110814: make that gtkdialog3
+   export MouseWizard="
+<window title=\"$(gettext 'Mouse Wizard')\">
+ <vbox>
+  <frame $(gettext 'Mouse interface')>
+   <hbox>
+    <vbox>
+     $RADIOBUTTONS
+    </vbox>
+    <vbox>
+       <text><label>$(gettext 'Serial port:')</label></text>
+       <combobox>
+         <item>ttyS0</item>
+         <item>ttyS1</item>
+         <item>ttyS2</item>
+         <item>ttyS3</item>
+         <variable>COMPORT</variable>
+         <visible>disabled</visible>
+       </combobox>
+    </vbox>
+   </hbox>
+  </frame>
+  <frame $(gettext 'Mouse features')>
+   <vbox>
+    <checkbox>
+     <label>$(gettext 'Mouse has a scroll wheel')</label>
+     <variable>CHECKBOX009</variable>
+     <default>$CHECK1</default>
+    </checkbox>
+    <checkbox>
+     <label>$(gettext 'Middle button emulated on a 2-button mouse')</label>
+     <variable>CHECKBOX010</variable>
+     <default>$CHECKM</default>
+    </checkbox>
+    <checkbox>
+     <label>$(gettext 'Auto-hide mouse cursor when not moving')</label>
+     <variable>CHECKBOX011</variable>
+     <default>$CHECKH</default>
+    </checkbox>
+    <checkbox>
+     <label>$(gettext 'Left-handed mouse (requires Xorg driver)')</label>
+     <variable>CHECKBOX012</variable>
+     <default>$CHECKL</default>
+    </checkbox>
+    $TAPCHKBOX
+   </vbox>
+  </frame>
+  <hbox>
+   <button cancel></button>
+   <button ok></button>
+  </hbox>
+ </vbox>
+</window>
+"
+
+   RETPARAMS=`gtkdialog3 --program=MouseWizard`
+   echo "$RETPARAMS"
+   if [ ! "`echo "$RETPARAMS" | grep "EXIT" | grep "OK"`" = "" ];then
+    if [ -e /lib/modules/2.6 ];then #v1.0.2 k2.6...
+     modprobe -r psmouse 2> /dev/null #v1.0.2 k2.6
+     modprobe -r sermouse 2> /dev/null #v1.0.2 k2.6
+    else
+     #modprobe -r usbmouse 2> /dev/null #v1.0.2
+     modprobe -r mousedev #v2.0.0
+    fi
+    if [ ! "`echo "$RETPARAMS" | grep "RADIO001" | grep "true"`" = "" ];then
+     MOUSEDEV="psaux" #ps/2 mouse.
+     ln -snf psaux /dev/mouse #v411
+     #k2.4 has ps/2 mouse support inbuilt.
+     if [ -e /lib/modules/2.6 ];then #v1.0.2 k2.6...
+      modprobe psmouse 2> /dev/null #v1.0.2 k2.6
+     fi
+    fi
+    if [ ! "`echo "$RETPARAMS" | grep "RADIO002" | grep "true"`" = "" ];then
+     eval `echo "$RETPARAMS" | grep "COMPORT"`
+     MOUSEDEV="$COMPORT" #ttyS0,1,2,3
+     ln -snf $COMPORT /dev/mouse #v411
+     #2.4 kernel has serial mouse support inbuilt.
+     if [ -e /lib/modules/2.6 ];then #v1.0.2 k2.6...
+      modprobe 8250_pci 
+      modprobe sermouse 
+     fi
+    fi
+    if [ ! "`echo "$RETPARAMS" | grep "RADIO003" | grep "true"`" = "" ];then
+     MOUSEDEV="input/mice" #usb mouse
+     if [ -e /lib/modules/2.6 ];then #v1.0.2 k2.6...
+      modprobe usbhid 2> /dev/null
+     else
+      #modprobe usbmouse
+      modprobe hid #v2.0.0
+      modprobe mousedev #v2.0.0
+     fi
+     ln -snf input/mice /dev/mouse #v411
+    fi
+    echo -n "$MOUSEDEV" > /etc/mousedevice
+
+    #v4.11 Touchpad tapping control - sets xorg.conf MaxTapTime to 0 to disable tapping and to default or user-specified xorg.conf value to enable.
+    if [ "`echo "$RETPARAMS" | grep "CHECKBOX013"`" != "" ];then
+     ZEROTAPTIME="`grep '"MaxTapTime"' /etc/X11/xorg.conf | grep '"0"'`"
+     if [ "`echo "$RETPARAMS" | grep "CHECKBOX013" | grep "true"`" != "" ];then #enable tapping
+      if [ "$ZEROTAPTIME" != "" ];then #currently disabled, else leave as is
+       [ -f /root/.maxtaptime ] && MAXTAPTIME="`grep -m 1 '"MaxTapTime"' /root/.maxtaptime`" || MAXTAPTIME='	Option "MaxTapTime" "220"'
+       SEDSCRIPT="s/$ZEROTAPTIME/$MAXTAPTIME/"
+       sed -i -e  "$SEDSCRIPT" /etc/X11/xorg.conf
+      fi
+     else #disable tapping
+      if [ "$ZEROTAPTIME" = "" ];then #currently enabled, else leave as is
+       MAXTAPTIME="`grep '"MaxTapTime"' /etc/X11/xorg.conf`"
+       if [ "$MAXTAPTIME" != "" ];then
+        echo "$MAXTAPTIME" > /root/.maxtaptime
+        ZEROTAPTIME='	Option "MaxTapTime" "0"'
+        SEDSCRIPT="s/$MAXTAPTIME/$ZEROTAPTIME/"
+        sed -i -e  "$SEDSCRIPT" /etc/X11/xorg.conf
+       fi
+      fi
+     fi
+    fi     
+    #v4.11 end
+
+    #v2.14 modified by Raul Suarez (rarsa at yahoo.com)
+    # sets right or lefhanded mouse and saves it for next boot.
+    if [ ! "`echo "$RETPARAMS" | grep "CHECKBOX012" | grep "true"`" = "" ];then #v2.01
+     XMODMAP_CMD="pointer = 3 2 1 4 5"
+    else
+     XMODMAP_CMD="pointer = 1 2 3 4 5"
+    fi
+    xmodmap -e "${XMODMAP_CMD}"
+    grep -v "^pointer" /root/.Xmodmap > /tmp/Xmodmap.tmp
+    cp /tmp/Xmodmap.tmp /root/.Xmodmap
+    echo "${XMODMAP_CMD}" >> /root/.Xmodmap
+    #
+
+    if [ ! "`echo "$RETPARAMS" | grep "CHECKBOX011" | grep "true"`" = "" ];then #v2.01
+     [ "$IDLETIME" = "0" ] && IDLETIME="3"
+     echo -n "${IDLETIME}," > /etc/mousehide
+     [ "`pidof unclutter`" = "" ] && unclutter -idle $IDLETIME &
+    else
+     echo -n '0,' > /etc/mousehide
+     [ ! "`pidof unclutter`" = "" ] && killall unclutter
+    fi
+
+    #v1.0.7 emulate middle button
+    #v2.02 Dougal has suggested changes for 3-button emulation...
+    MBUTOUT="`cat /etc/xextraoptions | sed -e 's/ \-[23]button//g'`"
+    if [ ! "`echo "$RETPARAMS" | grep "CHECKBOX010" | grep "true"`" = "" ];then
+     #'-2button' tells Xvesa that want 3rd-button emulation...
+     echo -n "$MBUTOUT -2button" > /etc/xextraoptions
+     echo -n "2" > /etc/mousebuttons
+     if [ -f /etc/X11/xorg.conf ];then
+      #\W\+ means one or more whitespace chars...
+      cat /etc/X11/xorg.conf | tr -s '#' | sed -e 's/#Option\W\+"Emulate3Buttons"/Option      "Emulate3Buttons"/g' > /tmp/xorg.conf.tmp2
+      sync
+      cat /tmp/xorg.conf.tmp2 | tr -s '#' | sed -e 's/#Option\W\+"Emulate3Timeout"/Option      "Emulate3Timeout"/g' > /tmp/xorg.conf.tmp
+     fi
+    else
+     #'-3button' tells Xvesa that mouse has 3 buttons so do not want emulation...
+     #echo -n "$MBUTOUT -3button" > /etc/xextraoptions
+     #umm, no, leave it off, for case of 2-button mouse without emulation...
+     #no need to have a explicit '-3button' entry...
+     echo -n "$MBUTOUT" > /etc/xextraoptions
+     echo -n "3" > /etc/mousebuttons
+     if [ -f /etc/X11/xorg.conf ];then
+      cat /etc/X11/xorg.conf | sed -e 's/Option\W\+"Emulate3Buttons"/#Option      "Emulate3Buttons"/g' | tr -s '#' > /tmp/xorg.conf.tmp2
+      sync
+      cat /tmp/xorg.conf.tmp2 | sed -e 's/Option\W\+"Emulate3Timeout"/#Option      "Emulate3Timeout"/g' | tr -s '#' > /tmp/xorg.conf.tmp
+     fi
+    fi
+    sync
+    if [ -f /tmp/xorg.conf.tmp ];then
+     cp -f /tmp/xorg.conf.tmp /etc/X11/xorg.conf
+    fi
+
+    if [ ! "`echo "$RETPARAMS" | grep "CHECKBOX009" | grep "true"`" = "" ];then
+     echo -n "5" > /etc/mousebuttons #enable scrollwheel.
+     if [ -f /etc/X11/xorg.conf ];then
+      cat /etc/X11/xorg.conf | tr -s '#' | sed -e 's/#Option\W\+"ZAxisMapping"\W\+"4 5"/Option      "ZAxisMapping" "4 5"/g' > /tmp/xorg.conf.tmp
+     fi
+    else
+     # echo -n "3" > /etc/mousebuttons ...v1.0.7 moved up.
+     if [ -f /etc/X11/xorg.conf ];then
+      cat /etc/X11/xorg.conf | sed -e 's/Option\W\+"ZAxisMapping"\W\+"4 5"/#Option      "ZAxisMapping" "4 5"/g' | tr -s '#' > /tmp/xorg.conf.tmp
+     fi
+    fi
+    if [ -f /etc/X11/xorg.conf ];then
+     cp -f /tmp/xorg.conf.tmp /etc/X11/xorg.conf
+    fi
+    sync
+
+    #v411 Moved xorg.conf protocol update to xwin, where it also supports changes by rc.sysinit.
+
+   fi
+  ;;
+
+  *)
+   break
+  ;;
+ esac
+
+ if [ "$KMAP" ];then
+  echo -n "${KMAP}${KEXT}" > /etc/keymap #120627
+  echo -n "$FONTMAP" > /etc/fontmap
+  echo -n "$CODEPAGE" > /etc/codepage
+  case $KMAPPATH in #120627
+   /lib/keymaps) gzip -dcf /lib/keymaps/$KMAP.gz | loadkmap ;;
+   *) loadkeys $KMAP ;; #note i think don't need to specify the extension.
+  esac
+  [ "$FONTMAP" ] && gzip -dcf /lib/consolefonts/${FONTMAP}.gz | loadfont
+
+  #100520 this code copied back to /usr/bin/xwin...
+  #100215 moved this from /usr/bin/xwin... (note, xorgwizard has same code)
+  if [ -e /etc/X11/xorg.conf ];then
+   xCONSKEYMAP="`cat /etc/keymap | cut -c 1-2`"
+   [ "$xCONSKEYMAP" = "" ] && xCONSKEYMAP="us"
+   case $xCONSKEYMAP in
+    az) XKEYMAP="fr" ;;     #azerty
+    wa) XKEYMAP="fr" ;;     #wangbe
+    dv) XKEYMAP="dvorak" ;; #dvorak
+    cr) XKEYMAP="cz" ;;     #croat
+    sl) XKEYMAP="si" ;;     #slovene v2.12 bugfix, changed from 'sk' to 'si' (sk is slovakia)
+    sv) XKEYMAP="se" ;;     #sweden
+    uk) XKEYMAP="gb" ;;     #united kingdom
+    *)  XKEYMAP="$xCONSKEYMAP" ;;
+   esac
+   if [ -d /etc/X11/xkb/symbols/pc ];then #100127 fallback... 100215 improved...
+    if [ ! -f /etc/X11/xkb/symbols/pc/${XKEYMAP} ];then
+     if [ ! -f /etc/X11/xkb/symbols/${XKEYMAP} ];then
+      #echo "ERROR: Console keyboard `cat /etc/keymap` no matching Xorg layout. PLEASE REPORT TO BK"
+      XKEYMAP='us'
+      KMAPERR="`eval_gettext \"There is a problem. 
+You have chosen \"\\\$KMAP\" console keyboard map, however Xorg
+cannot find a matching layout. Note, available Xorg layouts
+are in /etc/X11/xkb/symbols/pc.
+Would you kindly contact BarryK at http://bkhome.org/blog and
+report this. If you can suggest a correct match for \"\\\$KMAP\"
+in /etc/X11/xkb/symbols/pc, that will be very helpful.
+
+For now, setting Xorg to use \"us\" layout.\"`"
+      Xdialog --title "$(gettext 'Keyboard Wizard: ERROR')" --msgbox "$KMAPERR" 0 0
+     fi
+    fi
+   fi
+   currXKEYMAP="`grep '#xkeymap0' /etc/X11/xorg.conf | tr '\t' ' ' | tr -s ' ' | cut -f 4 -d '"'`" #'geany fix
+   if [ "$currXKEYMAP" != "$XKEYMAP" ];then
+    skPATTERN="s%.*#xkeymap0%	Option      \"XkbLayout\" \"${XKEYMAP}\" #xkeymap0%"
+    sed -i -e "${skPATTERN}" /etc/X11/xorg.conf #100130
+   fi
+  fi
+
+  KMAPMSG="`eval_gettext \"You have chosen \"\\\$KMAP\" keyboard map.
+Note, this information is saved in file /etc/keymap
+
+YOU WILL NEED TO RESTART X FOR THIS TO TAKE EFFECT
+
+Press OK button to continue Wizard...\"`" 
+  Xdialog --title "$(gettext 'Keyboard Wizard')" --msgbox "$KMAPMSG" 0 0
+ fi
+
+done #end while loop.
+unset MouseKeyboardWizard
+unset MouseWizard
+unset KeyboardFeaturesWizard
+
+###END###

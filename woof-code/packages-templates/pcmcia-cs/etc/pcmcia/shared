@@ -1,0 +1,177 @@
+#
+# shared 1.31 2002/08/19 03:21:11 (David Hinds)
+#
+
+usage ()
+{
+    echo "usage: $0 [action] [device name]"
+    echo "  actions: start check stop suspend resume"
+    exit 1
+}
+
+is_true ()
+{
+    [ "$1" = "y" -o "$1" = "Y" -o "$1" = "yes" -o "$1" = "YES" ]
+}
+
+do_fuser ()
+{
+    is_true $NO_FUSER && return 1
+    fuser $*
+}
+
+do_eval () { eval $* ; }
+
+match () { case $1 in $2) return 0; ;; *) return 1; ;; esac ; }
+
+log ()
+{
+    if [ -n "$VERBOSE" ] ; then
+	echo "$*" ; eval $*
+    else
+	# if command fails, print the command followed by its output
+	RET=0
+	LOG=/var/run/cardmgr.out
+	do_eval $* >$LOG 2>&1
+	if [ $? -ne 0 ] ; then RET=$? ; echo "$*" ; fi
+	cat $LOG 1>&2 ; rm -f $LOG
+	return $RET
+    fi
+}
+
+add_blkdev ()
+{
+    # usage: add_blkdev [device]
+    if [ -n "$LINK" ] ; then
+	if [ -L $LINK ] ; then rm $LINK ; fi
+	ln -s $1 $LINK || return 1
+    fi
+    if is_true $DO_FSTAB ; then
+	echo "$1 $MOUNTPT ${FSTYPE:-auto} ${OPTS:-defaults} 0 0" >> /etc/fstab
+    fi
+    if is_true $DO_FSCK ; then
+	log /sbin/fsck -Ta $1
+	if [ $? -gt 1 ] ; then return 1 ; fi
+    fi
+    if is_true $DO_MOUNT ; then
+	O=${OPTS:+-o $OPTS} ; FS=${FSTYPE:+-t $FSTYPE}
+	log mount -v $O $FS $1 $MOUNTPT || return 1
+    fi
+    return 0
+}
+
+add_parts ()
+{
+    # usage: add_parts [address] [parts]
+    RET=0
+    for PART in ${2:-""} ; do
+	# Get mount options for particular partitions
+	if [ -n "$PART" ] ; then
+	    ADDRESS="$1,$PART"
+	    unset INFO DO_FSTAB DO_FSCK DO_MOUNT LINK
+	    . $0.opts
+	    [ -n "$VERBOSE" -a -n "$INFO" ] && echo "$INFO"
+	fi
+	add_blkdev /dev/$DEVICE$PART || RET=1
+    done
+    return $RET
+}
+
+rm_blkdev ()
+{
+    # usage: rm_blkdev [device]
+    test -b $1 || return 1
+    do_fuser -k -m $1 > /dev/null
+    if mount | grep -q "$1 on" ; then
+	log umount -v $1 || return 1
+    fi
+    if is_true $DO_FSTAB ; then
+	grep -v $1 /etc/fstab > /etc/fstab.N
+	mv /etc/fstab.N /etc/fstab
+    fi
+    if [ -L "$LINK" ] ; then rm $LINK ; fi
+}
+
+rm_parts ()
+{
+    # usage: rm_parts [address] [parts]
+    BLK=/dev/$DEVICE
+    test -b $BLK || return 1
+    for PART in ${2:-""} ; do
+	if [ -n "$PART" ] ; then
+	    ADDRESS="$1,$PART"
+	    unset DO_FSTAB DO_FSCK DO_MOUNT
+	    . $0.opts
+	fi
+	if is_true $DO_FSTAB ; then
+	    grep -v "$BLK$PART " /etc/fstab > /etc/fstab.N
+	    mv /etc/fstab.N /etc/fstab
+	fi
+    done
+    do_fuser -k -m /dev/${DEVICE}* > /dev/null
+    LIST=`mount | sed -ne "s+^\($BLK[0-9]*\) .*+\1+p"`
+    if [ -n "$LIST" ] ; then
+	for MT in $LIST ; do
+	    log umount -v $MT || return 1
+	done
+    fi
+}
+
+chk_simple ()
+{
+    # usage: chk_simple [new-address]
+    ADDRESS=""
+    OLD=`set | grep -v '^OLD=' | md5sum`
+    ADDRESS="$1"
+    . $0.opts
+    ADDRESS=""
+    NEW=`set | grep -v '^OLD=' | md5sum`
+    [ "$OLD" = "$NEW" ]
+}
+
+chk_parts ()
+{
+    # usage: chk_parts [new-address]
+    OLD_ADDR="$ADDRESS"
+    chk_simple $1 || return 1
+    if [ -z "$PARTS" ] ; then return 0 ; fi
+    for PART in $PARTS ; do
+	ADDRESS="$OLD_ADDR,$PART"
+	. $0.opts
+	chk_simple "$1,$PART" || return 1
+    done
+}
+
+grep_stab ()
+{
+    # this should be cheaper than invoking "grep"
+    local DEV
+    while read SOCKET CLASS DRIVER INSTANCE DEV MAJOR MINOR ; do
+	if [ "$SOCKET" != "Socket" -a "$1" = "$DEV" ] ; then return 0 ; fi
+    done
+    return 1
+}
+
+get_info ()
+{
+    if [ -f /var/lib/pcmcia/scheme ] ; then
+	SCHEME=`cat /var/lib/pcmcia/scheme`
+    elif [ -f /var/run/pcmcia-scheme ] ; then
+	SCHEME=`cat /var/run/pcmcia-scheme`
+    fi	
+    if [ -z "$SCHEME" ] ; then SCHEME="default" ; fi
+    if [ -z "$CLASS" -o -z "$MANFID" ] ; then
+	if [ -d /var/lib/pcmcia ] ; then
+	    STAB=/var/lib/pcmcia/stab
+	else
+	    STAB=/var/run/stab
+	fi
+	grep_stab $1 < $STAB || usage
+	eval `/sbin/cardctl info $SOCKET`
+    fi
+}
+
+# A bit of stuff to do right away...
+
+if [ $# -lt 2 ] ; then usage ; fi
+ACTION=$1 ; DEVICE=$2 ; NEW_SCHEME=$3

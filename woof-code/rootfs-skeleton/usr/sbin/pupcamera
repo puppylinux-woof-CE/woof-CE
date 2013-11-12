@@ -1,0 +1,225 @@
+#!/bin/sh
+#(c) Copyright Barry Kauler, Oct. 2011, bkhome.org
+#2011 license GPL3 (see /usr/share/doc/legal)
+#called via menu or autodetected when camera plugged in (via /usr/sbin/pupautodetect).
+#usbutils optionally used if installed, lsusb accesses usb.ids to obtain device description.
+#pupcamera is not a separate application, it is builtin to Woof so is in all builds
+# -- it detects if gphoto (and deps) not installed and informs the user.
+#111010 first release.
+#111015 detect if gphotofs not installed.
+#120202 BK: internationalized.
+#130208 rodin.s: missing translation.
+#130326 note: DEVICE variable no longer in 3.5+ kernel, as /proc/bus/usb removed.
+
+#udevd passes in these variables (for example):
+#130326 note: DEVICE variable no longer in 3.5+ kernel, as /proc/bus/usb removed...
+#ACTION=add
+#BASH=/bin/sh
+#BASH_ARGC=()
+#BASH_ARGV=()
+#BASH_LINENO=([0]="0")
+#BASH_SOURCE=([0]="/usr/sbin/pupcamera")
+#BASH_VERSINFO=([0]="3" [1]="00" [2]="16" [3]="1" [4]="release" [5]="i486-t2-linux-gnu")
+#BASH_VERSION='3.00.16(1)-release'
+#DEVICE=/proc/bus/usb/002/004
+#DEVPATH=/devices/pci0000:00/0000:00:1d.0/usb2/2-1/2-1.3/2-1.3:1.0
+#DEVTYPE=usb_interface
+#DIRSTACK=()
+#DISPLAY=:0
+#EUID=0
+#GROUPS=()
+#GTKDIALOGEXE=gtkdialog4
+#HOSTNAME=puppypc28154
+#HOSTTYPE=i486
+#IFS='   
+#'
+#INTERFACE=6/1/1
+#MACHTYPE=i486-t2-linux-gnu
+#MODALIAS=usb:v04CBp01D0d0100dc00dsc00dp00ic06isc01ip01
+#OPTERR=1
+#OPTIND=1
+#OSTYPE=linux-gnu
+#PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/root/my-applications/bin
+#PIPESTATUS=([0]="0")
+#POSIXLY_CORRECT=y
+#PPID=1
+#PRODUCT=4cb/1d0/100
+#PS4='+ '
+#PWD=/
+#SEQNUM=1571
+#SHELL=/bin/sh
+
+export TEXTDOMAIN=pupcamera
+export OUTPUT_CHARSET=UTF-8
+
+GTKDIALOGEXE='gtkdialog'
+[ "`which gtkdialog4`" ] && GTKDIALOGEXE='gtkdialog4'
+
+mkdir -p /mnt/camera1
+mkdir -p /mnt/camera2
+umount /mnt/camera1 2>/dev/null #precaution.
+umount /mnt/camera2 2>/dev/null #precaution.
+
+#as this app can be run from both menu and auto-detect plugging-in, kill any previous...
+ALLPS="`ps`"
+OLDPIDS="`echo "$ALLPS" | grep 'gtkdialog' | grep 'PUPCAMERA_DLG' | tr -s ' ' | sed -e 's%^ %%' | cut -f 1 -d ' ' | tr '\n' ' '`"
+kill $OLDPIDS 2>/dev/null
+
+##enters with DEVPATH to bInterfaceClass, but want find it this way...
+#for AIC in `ls -1 /sys/class/usb_device/*/device/*/bInterfaceClass`
+#do
+# [ "`cat $AIC`" != "06" ] && continue
+#done
+
+#find BUSNUM, DEVNUM...
+BUSNUM=""; DEVNUM=""; PRODUCTDESC=""
+if [ "$DEVPATH" ];then
+ [ -e /sys${DEVPATH}/product ] && PRODUCTDESC="`cat /sys${DEVPATH}/product`"
+ if [ "$DEVTYPE" = "usb_interface" ];then
+  UPDEVPATH=$DEVPATH
+  while [ "$UPDEVPATH" != "/" ];do
+   UPDEVPATH="`dirname $UPDEVPATH`"
+   case $UPDEVPATH in
+    *usb*) #this is to avoid going too high.
+     [ ! -e /sys${UPDEVPATH}/busnum ] && continue
+     [ ! -e /sys${UPDEVPATH}/devnum ] && continue
+     BUSNUM="00`cat /sys${UPDEVPATH}/busnum`"
+     DEVNUM="00`cat /sys${UPDEVPATH}/devnum`"
+     BUSNUM="`echo -n "$BUSNUM" | rev | cut -c 1,2,3 | rev`" #must be in 3-digit format, ex: 002
+     DEVNUM="`echo -n "$DEVNUM" | rev | cut -c 1,2,3 | rev`" #must be in 3-digit format, ex: 012
+     [ ! "$PRODUCTDESC" ] && [ -e /sys${UPDEVPATH}/product ] && PRODUCTDESC="`cat /sys${UPDEVPATH}/product`"
+     break
+    ;;
+    *)
+     break
+    ;;
+   esac
+  done
+ fi
+fi
+
+echo -n "" > /tmp/pupcamera_ports
+CAMERAINFO=""
+if [ "$BUSNUM" ];then
+ 
+ #get product description from lsusb (usbutils pkg)...
+ VENDORINSERT=""
+ if which lsusb;then
+  if [ "`lsusb --help 2>&1 | grep -i 'busybox'`" = "" ];then #want the full lsusb
+   #BUSNUM10="`echo "ibase=16; ${BUSNUM}; obase=10" | bc`"
+   #DEVNUM10="`echo "ibase=16; ${DEVNUM}; obase=10" | bc`"
+   #above not needed, numbers already decimal...
+   VENDORDESC="`lsusb -s ${BUSNUM}:${DEVNUM} | tr -s ' ' | cut -f 3-9 -d ':' | cut -f 2-99 -d ' '`"
+   if [ "$VENDORDESC" ];then
+    VENDORINSERT="$(gettext 'The camera has identified itself as:')
+ <b>${VENDORDESC}</b>
+"
+   fi
+  fi
+ fi
+ 
+ CAMERAINFO="<text use-markup=\"true\"><label>\"$(gettext 'A camera is detected connected via USB.')
+$(gettext 'The Linux kernel has identified it as:')
+ $(gettext 'Type:') <b>${PRODUCTDESC}</b>
+ $(gettext 'Connected on port: usb:')${BUSNUM},${DEVNUM}
+${VENDORINSERT}\"</label></text>"
+ echo "usb:${BUSNUM},${DEVNUM}" >> /tmp/pupcamera_ports
+fi
+
+PROBEINFO=""
+if [ "`which gphoto2`" ];then
+ GPHOTOPROBE="`gphoto2 --auto-detect | tr -s ' ' | tail -n +3`"
+ if [ "$GPHOTOPROBE" ];then
+  PROBEINFO="<text use-markup=\"true\"><label>\"$(gettext "A probe by the 'gphoto2' utility has detected a camera, so it is likely that this camera will be accessable. Results of probe:")
+<b>${GPHOTOPROBE}</b>\"</label></text>"
+  PROBEPORTS="`echo "$GPHOTOPROBE" | sed -e 's% *$%%' | rev | cut -f 1 -d ' ' | rev`"
+  echo "$PROBEPORTS" >> /tmp/pupcamera_ports
+ else
+  if [ -s /tmp/pupcamera_ports ];then
+   PROBEINFO="<text use-markup=\"true\"><label>\"<b>$(gettext "A probe by the 'gphoto2' utility has not detected a camera, which is not so good. It means that the Gphoto software in puppy does not recognise the camera. (But, you can try, click the 'Open' button)")</b>\"</label></text>"
+  else
+   PROBEINFO="<text use-markup=\"true\"><label>\"<b>$(gettext "A probe by the 'gphoto2' utility has not detected a camera, which is not so good. It means that the Gphoto software in puppy does not recognise the camera.")</b>\"</label></text>"
+  fi
+ fi
+else
+ #gphoto (and deps) not installed...
+ PROBEINFO="<text use-markup=\"true\"><label>\"<b>$(gettext "The 'gphoto' application is not installed, so PupCamera cannot be used to access the photos on a digital camera. Please run the Puppy Package Manager (see 'install' icon on desktop) to install 'gphoto' and it's dependencies.")</b>\"</label></text>"
+ echo -n "" > /tmp/pupcamera_ports #remove button.
+fi
+
+if [ "`which gphotofs`" = "" ];then #111015
+ PROBEINFO="${PROBEINFO}<text use-markup=\"true\"><label>\"<b>$(gettext "The 'gphotofs' application is not installed, so PupCamera cannot be used to access the photos on a digital camera. Please run the Puppy Package Manager (see 'install' icon on desktop) to install 'gphotofs' and it's dependencies.")</b>\"</label></text>"
+fi
+
+OPENBUTTON=""
+if [ -s /tmp/pupcamera_ports ];then
+ CAMCNT=1
+ for ONEPORT in `cat /tmp/pupcamera_ports | sort -u | tr '\n' ' '`
+ do
+  mkdir -p /mnt/camera${CAMCNT}
+  OPENBUTTON="${OPENBUTTON}
+  <button>
+   <label>$(gettext 'Open') ${ONEPORT}</label>
+   <action>gphotofs --port=${ONEPORT} /mnt/camera${CAMCNT}</action>
+   <action>yaf-splash -placement center -bg orange -fg black -timeout 5 -fontsize large -text \"$(gettext 'Please wait...')\"</action>
+   <action>rox -x /mnt/camera${CAMCNT} -d /mnt/camera${CAMCNT} & </action>
+  </button>
+"
+  CAMCNT=$(($CAMCNT + 1))
+ done
+fi
+
+CLOSEBUTTON=""
+if [ "$OPENBUTTON" ];then
+ CLOSEBUTTON="  <button>
+   <label>Close camera</label>
+   <action>rox -D /mnt/camera1</action>
+   <action>umount /mnt/camera1</action>
+   <action>rox -D /mnt/camera2</action>
+   <action>umount /mnt/camera2</action>
+  </button>
+"
+fi
+
+# <text><label>First version of this application, very limited features. It presupposes that your digital camera is connected to the computer, usually by USB cable, is turned on, and that the 'gphoto2' utility will be able to autodetect it.</label></text>
+
+export PUPCAMERA_DLG="
+<window title=\"$(gettext 'PupCamera')\" window_position=\"1\" icon-name=\"gtk-orientation-landscape\">
+<vbox>
+
+ <text use-markup=\"true\"><label>\"<b>$(gettext 'Digital camera access application')</b>\"</label></text>
+
+ <frame $(gettext 'Detected camera')>
+  ${CAMERAINFO}
+  ${PROBEINFO}
+ </frame>
+
+ <text><label>$(gettext "click 'Open' button to access photos on your camera. A ROX-Filer window will pop up, and if you are then able to see your photos, it worked.")</label></text>
+ <text><label>$(gettext "Please click the 'Close camera' button when you have finished accessing your camera...")</label></text>
+
+ <hbox>
+  ${OPENBUTTON}
+  ${CLOSEBUTTON}
+  <button>
+   <label>$(gettext 'Rescan')</label>
+   <action>EXIT:rescan</action>
+  </button>
+  <button>
+   <label>$(gettext 'Exit')</label>
+   <action>EXIT:finished</action>
+  </button>
+ </hbox>
+
+</vbox>
+</window>
+"
+
+echo "$PUPCAMERA_DLG" > /tmp/pupcamera_dlg #debug
+RETVALS="`${GTKDIALOGEXE} --program=PUPCAMERA_DLG`"
+
+umount /mnt/camera1 2>/dev/null #precaution.
+umount /mnt/camera2 2>/dev/null #precaution.
+
+[ "`echo "$RETVALS" | grep 'rescan'`" != "" ] && exec pupcamera #reenter.
+
+###END###

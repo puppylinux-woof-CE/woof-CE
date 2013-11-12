@@ -1,0 +1,290 @@
+#!/bin/sh
+#(c) Copyright Barry Kauler Sept. 2011 puppylinux.com
+#2011 GPL licence v3 (/usr/share/doc/legal)
+#a simple replacement for 'dialog', for when X is running. can use this instead of Xdialog.
+#110924 when no window decoration, also do not appear in taskbar. menu dlg to fit in 480 pixel screen vert. fix pupkill.
+#111011 add --checklist dialog, --helpwindow parameter.
+#111021 increase limit, number commandline items.
+#120131 rodin.s: adding gettext to help
+#120203 think need OUTPUT_CHARSET=UTF-8
+#130221 problem, window close-box and timeout both exit with 255. change timeout to 254 (differs from dialog).
+
+export TEXTDOMAIN=pupdialog
+export OUTPUT_CHARSET=UTF-8
+
+#examples passed params:
+# --timeout 90 --extra-button --ok-label "SAVE TO A FILE"  --extra-label "SAVE TO ${xPDEV}" --cancel-label "DO NOT SAVE" --yesno "etetetete" 0 0
+#accept these, not available in dialog: --background --foreground --countdown "text"
+
+[ ! $1 ] && HELPFLG='yes'
+[ "$1" == "--help" ] && HELPFLG='yes'
+if [ "$HELPFLG" == "yes" ];then
+ echo "pupdialog is a simple replacement for 'dialog' when X is running.
+pupdialog only implements these dialogs: --msgbox --yesno --menu --inputbox --checklist
+These parameters are supported:
+--extra-button --ok-label --extra-label --cancel-label --colors --yes-label --no-label --title --backtitle --stdout --default-item
+ex: pupdialog --timeout 90 --extra-button --ok-label \"SAVE TO A FILE\"  --extra-label \"SAVE TO PARTITION\" --cancel-label \"DO NOT SAVE\" --yesno \"example text\" 0 0
+ex: pupdialog --backtitle \"backtitle here\" --default-item tag2  --menu \"this is blurb for menu dlg\" 0 0 0 tag1 item1 tag2 item2 tag3 item3
+The height and width parameters are ignored.
+If no --title <string>, then window is not decorated.
+Ansi text markup is supported with --colors ex: \Zbbold\ZB \Z1red\Zn
+ -- but basic parsing, always pair them as shown in example (nesting allowed).
+The following are extras in pupdialog not in dialog:
+--background <value>      #background color of window
+--foreground <value>      #color of text
+--countdown <string>      #countdown message, time substituted for TIME (requires --timeout)
+--helpwindow <executable> #run another application, typically help window. does not exit.
+ex: pupdialog --background yellow --foreground black --timeout 90 --countdown \"Shutdown in TIME seconds\" ...
+Note: use 'pupkill $!' to kill a pupdialog window."
+ exit
+fi
+
+GTKDIALOG="`which gtkdialog4`"
+[ ! "$GTKDIALOG" ] && GTKDIALOG="`which gtkdialog`"
+[ ! "$GTKDIALOG" ] && exit 255
+[ ! -e /tmp/pupdialog_exec ] && ln -s $GTKDIALOG /tmp/pupdialog_exec
+
+TIMEOUT=0 #means never timeout.
+FONTSTYLE='Mono 14'
+TABCHAR="`echo -n -e '\t'`"
+
+#evaluate the passed parameters...
+unset EXTRABUTTON OKLABEL EXTRALABEL BACKGROUND CANCELLABEL COLORS FOREGROUND YESLABEL MSGBOX NOLABEL YESNO TITLE NOCOLLAPSE COUNTDOWN MENU STDOUT DEFAULTITEM INPUTBOX HEIGHT WIDTH MENUHEIGHT CHECKLIST HELPWINDOW
+AVAR='START'; AVAL=''; ENDCNT=0; TOGGLE=0; MENUITEMS=''; INITVAL=''; INPUTXML=''; MENUCNT=0; SUBCNT=0
+for AFIELD in "${1}" "${2}" "${3}" "${4}" "${5}" "${6}" "${7}" "${8}" "${9}" "${10}" "${11}" "${12}" "${13}" "${14}" "${15}" "${16}" "${17}" "${18}" "${19}" "${20}" "${21}" "${22}" "${23}" "${24}" "${25}" "${26}" "${27}" "${28}" "${29}" "${30}" "${31}" "${32}" "${33}" "${34}" "${35}" "${36}" "${37}" "${38}" "${39}" "${40}" "${41}" "${42}" "${43}" "${44}" "${45}" "${46}" "${47}" "${48}" "${49}" "${50}" "${51}" "${52}" "${53}" "${54}" "${55}" "${56}" "${57}" "${58}" "${59}" "${60}" "${61}" "${62}" "${63}" "${64}" "${65}" "${66}" "${67}" "${68}" "${69}" "${70}" "${71}" "${72}" "${73}" "${74}" "${75}" "${76}" "${77}" "${78}" "${79}" "${80}" "${81}" "${82}" "${83}" "${84}" "${85}" "${86}" "${87}" "${88}" "${89}" "${90}" "${91}" "${92}" "${93}" "${94}" "${95}" "${96}" "${97}" "${98}" "${99}" "${100}" "${101}" "${102}" TOOLONG
+do
+ if [ "$AFIELD" == "TOOLONG" ];then
+  xmessage -center -bg red "ERROR: There are too many menu items for pupdialog to handle. Aborting."
+  exit 255
+ fi
+ [ "$AFIELD" == "" ] && break #end.
+ case $AVAR in
+  MSGBOX|YESNO|MENU|INPUTBOX|CHECKLIST)
+   DLGTYPE="$AVAR"
+   case $ENDCNT in
+    0)
+     AVAL="`echo "$AFIELD" | tr '"' "'" | tr '\t' ' ' | tr -s ' ' | sed -e 's% $%%'`" #cleanup text.
+     eval "${AVAR}=\"${AVAL}\"" #assigns to variables MSGBOX, YESNO, MENU or INPUTBOX.
+     BODYSTR="$AVAL"
+    ;;
+    1) HEIGHT=$AFIELD ;;
+    2) WIDTH=$AFIELD ;;
+    3)
+     case $AVAR in
+      MENU|CHECKLIST) MENUHEIGHT=$AFIELD ;;
+      INPUTBOX) INITVAL="$AFIELD" ;;
+     esac
+    ;;
+    *)
+     case $AVAR in
+      MENU)
+       if [ $TOGGLE -eq 0 ];then #menu items are format "tag description" for each item, where description displays.
+        MENUCNT=$(($MENUCNT + 1))
+        TAG="$AFIELD"
+        MENUITEMS="${MENUITEMS} <radiobutton draw_indicator=\"false\" xalign=\"0\"><variable>${AFIELD}</variable>"
+        [ "$DEFAULTITEM" == "$AFIELD" ] && MENUITEMS="${MENUITEMS}<default>true</default>"
+        TOGGLE=1
+       else
+        MENUITEMS="${MENUITEMS}<label>${TAG}${TABCHAR}${AFIELD}</label></radiobutton>"
+        TOGGLE=0
+       fi
+      ;;
+      CHECKLIST) #111011
+       SUBCNT=$(($SUBCNT + 1))
+       case $SUBCNT in
+        1)
+         MENUCNT=$(($MENUCNT + 1))
+         TAG="$AFIELD"
+         MENUITEMS="${MENUITEMS} <checkbox draw_indicator=\"false\" xalign=\"0\"><variable>${AFIELD}</variable>"
+        ;;
+        2)
+         MENUITEMS="${MENUITEMS}<label>${TAG}${TABCHAR}${AFIELD}</label>"
+        ;;
+        3)
+         [ "$AFIELD" = "yes" ] && AFIELD='true'
+         [ "$AFIELD" = "no" ] && AFIELD='false'
+         [ "$AFIELD" = "on" ] && AFIELD='true'
+         [ "$AFIELD" = "off" ] && AFIELD='false'
+         MENUITEMS="${MENUITEMS}<default>${AFIELD}</default></checkbox>"
+         SUBCNT=0
+        ;;
+       esac
+      ;;
+     esac
+    ;;
+   esac
+   ENDCNT=$(($ENDCNT + 1))
+   continue
+  ;;
+ esac
+ case $AFIELD in
+  --[a-z]*)
+   [ "$AVAL" == "" ] && AVAL="true" #so as not empty.
+   eval "${AVAR}='${AVAL}'"         #evaluate previous param.
+   AVAR="`echo -n "$AFIELD"| tr -d '-' | tr '[a-z]' '[A-Z]'`"
+   AVAL=''
+  ;;
+  *)
+   AVAL="`echo "$AFIELD" | tr '"' "'" | tr '\t' ' ' | tr -s ' ' | sed -e 's% $%%'`" #cleanup text.
+  ;;
+ esac
+done
+
+#if [ "$YESNO" -o "$MSGBOX" ];then
+ BODYSTR="`echo "$BODYSTR" | sed -e 's%<%\&lt;%g' -e 's%>%\&gt;%g' -e 's%\\\n%\\n%g'`"
+ if [ "$COLORS" ];then
+  #Interpret embedded "\Z" sequences in the dialog text by the following character, which tells dialog to set colors or video attributes: 0 through 7 are the ANSI used in curses: black, red, green, yellow, blue, magenta, cyan and white respectively. Bold is set by 'b', reset by 'B'. Reverse is set by 'r', reset by 'R'. Underline is set by 'u', reset by 'U'. The settings are cumulative, e.g., "\Zb\Z1" makes the following text bold (perhaps bright) red. Restore normal settings with "\Zn".
+  #\Z0 - \Z7 = black, red, green, yellow, blue, magenta, cyan and white
+  BODYSTR="`echo "$BODYSTR" | sed -e 's%\\\Zb%<b>%g' -e 's%\\\ZB%</b>%g' -e 's%\\\Z0%<span color='"'black'"'>%g' -e 's%\\\Z1%<span color='"'red'"'>%g' -e 's%\\\Z2%<span color='"'green'"'>%g' -e 's%\\\Z3%<span color='"'yellow'"'>%g' -e 's%\\\Z4%<span color='"'blue'"'>%g' -e 's%\\\Z5%<span color='"'magenta'"'>%g' -e 's%\\\Z6%<span color='"'cyan'"'>%g' -e 's%\\\Z7%<span color='"'white'"'>%g' -e 's%\\\Zn%</span>%'`"
+ fi
+ BODYTEXT="<text use-markup=\"true\"><label>\"${BODYSTR}\"</label></text>"
+
+ YESBUTTON="<button><label>OK</label><action>EXIT:okbutton</action></button>"
+ [ "$OKLABEL" ] && YESBUTTON="<button><label>${OKLABEL}</label><action>EXIT:okbutton</action></button>"
+ #hmmm, different from dialog, default is no cancel button, unless label specified...
+ [ "$CANCELLABEL" ] && NOBUTTON="<button><label>${CANCELLABEL}</label><action>EXIT:cancelbutton</action></button>"
+
+ case $DLGTYPE in
+  YESNO)
+   YESBUTTON="<button><label>Yes</label><action>EXIT:yesbutton</action></button>"
+   [ "$OKLABEL" ] && YESBUTTON="<button><label>${OKLABEL}</label><action>EXIT:yesbutton</action></button>"
+   [ "$YESLABEL" ] && YESBUTTON="<button><label>${YESLABEL}</label><action>EXIT:yesbutton</action></button>"
+   if [ "$EXTRABUTTON" ];then
+    EXTRABUTTON="<button><label>Extra</label><action>EXIT:extrabutton</action></button>"
+    [ "$EXTRALABEL" ] && EXTRABUTTON="<button><label>${EXTRALABEL}</label><action>EXIT:extrabutton</action></button>"
+   fi
+   NOBUTTON="<button><label>No</label><action>EXIT:nobutton</action></button>"
+   [ "$NOLABEL" ] && NOBUTTON="<button><label>${NOLABEL}</label><action>EXIT:nobutton</action></button>"
+   [ "$CANCELLABEL" ] && NOBUTTON="<button><label>${CANCELLABEL}</label><action>EXIT:nobutton</action></button>"
+  ;;
+  MENU|CHECKLIST)
+   if [ "$MENUITEMS" ];then
+    if [ $MENUCNT -gt 5 ];then
+     MENUXML="<vbox scrollable=\"true\"  height=\"230\" width=\"454\">${MENUITEMS}</vbox>"
+    else
+     MENUXML="<vbox>${MENUITEMS}</vbox>"
+    fi
+   fi
+  ;;
+  INPUTBOX)
+   [ "$INITVAL" ] && DEFAULTXML="<default>${INITVAL}</default>"
+   INPUTXML="<entry>${DEFAULTXML}<variable>INPUTVAR</variable></entry>"
+  ;;
+ esac
+ 
+ if [ "$TITLE" ];then
+  TITLEPARAMS="title=\"${TITLE}\""
+ else
+  TITLEPARAMS="decorated=\"false\" skip_taskbar_hint=\"true\""
+ fi
+ [ "$BACKTITLE" ] && BTTEXT="<text use-markup=\"true\"><label>\"<big><b>${BACKTITLE}</b></big>\"</label></text>"
+ 
+ if [ "$HELPWINDOW" ];then
+  HELPBUTTONXML="<button><label>$(gettext 'Help')</label><action>${HELPWINDOW} & </action></button>"
+ fi
+
+ export PUP${$}DLG="<window ${TITLEPARAMS}>
+ <vbox>
+  ${BTTEXT}
+  ${BODYTEXT}
+  ${MENUXML}
+  ${INPUTXML}
+  <hbox>
+   ${YESBUTTON}${EXTRABUTTON}${NOBUTTON}${HELPBUTTONXML}
+  </hbox>
+ </vbox>
+ </window>"
+#fi
+
+#dumpdlg="<window ${TITLEPARAMS}>
+# <vbox>
+#  ${BTTEXT}
+#  ${BODYTEXT}
+#  ${MENUXML}
+#  ${INPUTXML}
+#  <hbox>
+#   ${YESBUTTON}${EXTRABUTTON}${NOBUTTON}
+#  </hbox>
+# </vbox>
+# </window>"
+#echo "${dumpdlg}" > /tmp/pupdialog_debug_dumpdlg #for debugging.
+
+#setup gtk styles...
+#foreground/background colours, not supported by dialog...
+[ "$BACKGROUND" ] && insertBG="	bg[NORMAL]		= \"${BACKGROUND}\""
+[ "$FOREGROUND" ] && insertFG="	fg[NORMAL]		= \"${FOREGROUND}\""
+#[ "FONTSTYLE" ] && insertFS="style \"specialfont\"
+#{
+#  font_name=\"${FONTSTYLE}\"
+#}
+#class \"GtkWidget\" style \"specialfont\""
+gtkrc="style \"windowstuff\"
+{
+${insertBG}
+${insertFG}
+#font_name=\"${FONTSTYLE}\"
+}
+class \"*\" style \"windowstuff\"
+${insertFS}
+"
+echo "$gtkrc" > /tmp/pupdialog_gtkrc${$}
+export GTK2_RC_FILES=/tmp/pupdialog_gtkrc${$}:/root/.gtkrc-2.0
+
+nTIMEOUT=$TIMEOUT #convert string to numeric.
+if [ $nTIMEOUT -a $nTIMEOUT -ne 0  ];then #assume 0 means never timeout.
+ #note, jwm will use module16.xpm as the window icon...
+ /tmp/pupdialog_exec --center --class="module16" --program=PUP${$}DLG > /tmp/pupdialog_retvals${$} &
+ dlgPID=$!
+ pidPATTERN="^${dlgPID} "
+ while [ $nTIMEOUT -ne 0 ];do
+  sleep 1
+  ALLPS="`ps`"
+  [ "`echo "$ALLPS" | sed -e 's%^ *%%' | grep "$pidPATTERN"`" == "" ] && break #already killed.
+  nTIMEOUT=$(($nTIMEOUT - 1))
+  if [ "$COUNTDOWN" ];then
+   BKCOL="yellow"
+   [ $nTIMEOUT -lt 31 ] && BKCOL="orange"
+   [ $nTIMEOUT -lt 11 ] && BKCOL="red"
+   SPLASHSTR="`echo -n "$COUNTDOWN" | sed -e "s%TIME%${nTIMEOUT}%"`"
+   yaf-splash -timeout 2 -bg ${BKCOL} -placement top -close never -fontsize large -fg black -text " ${SPLASHSTR} " >/dev/null &
+  fi
+ done
+ if [ $nTIMEOUT -eq 0 ];then #has timed out.
+  kill $dlgPID
+  rm -f /tmp/pupdialog_gtkrc${$}
+  rm -f /tmp/pupdialog_retvals${$}
+  exit 254 #255 #as per dialog. 130221 change to 254.
+ fi
+else
+ #note, jwm will use module16.xpm as the window icon...
+ /tmp/pupdialog_exec --center --class="module16" --program=PUP${$}DLG > /tmp/pupdialog_retvals${$}
+fi
+RETVALS="`cat /tmp/pupdialog_retvals${$}`"
+rm -f /tmp/pupdialog_gtkrc${$}
+rm -f /tmp/pupdialog_retvals${$}
+
+#111011 problem if tags are just numbers, ex 2=true
+xRETVALS="`echo "$RETVALS" | sed -e 's%^%TAGPREFIXFIX_%'`"
+eval "$xRETVALS"
+
+ECHODEST='/dev/stderr'
+[ "$STDOUT" ] && ECHODEST='/dev/stdout'
+if [ "$MENU" ];then
+ echo "$RETVALS" | grep '"true"' | head -n 1 | cut -f 1 -d '=' > ${ECHODEST} #echo tag
+fi
+if [ "$INPUTBOX" ];then
+ echo "$TAGPREFIXFIX_INPUTVAR" > ${ECHODEST} #echo contents of entry box.
+fi
+if [ "$CHECKLIST" ];then
+ echo "$RETVALS" | grep '"true"' | cut -f 1 -d '=' > ${ECHODEST} #echo 'true' tags
+fi
+
+case $TAGPREFIXFIX_EXIT in
+ yesbutton|okbutton) exit 0 ;;
+ extrabutton) exit 3 ;;
+ cancelbutton|nobutton) exit 1 ;;
+ helpbutton) exit 2 ;;
+ *) exit 255 ;;
+esac
+
+###END###

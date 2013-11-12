@@ -1,0 +1,213 @@
+#!/bin/sh
+
+IWPRIV=iwpriv
+
+usage()
+{
+    cat <<EOF
+Usage: prism2_param <interface> <parameter> [value]
+
+Wrapper for setting prism2.o parameters using iwpriv and prism2_param ioctl.
+This wrapper converts the given text parameter (see list below) to
+corresponding prism2_param ioctl() value and uses iwpriv to set the given
+value.
+
+If value argument is not given, the current value is shown (if available).
+
+interface:
+	interface name for the wireless LAN device to be used (e.g., wlan0)
+
+parameter:
+	txratectrl:
+		0 = use host driver based TX rate control (default),
+		1 = use f/w based TX rate control
+	beacon_int: beacon interval (1 = 1024 usec)
+	dtim_period: DTIM period, i.e., number of beacon intervals between
+		successive delivery traffic identification maps (DTIMs),
+		used for power saving and multicast/broadcast delivery
+	pseudo_ibss:
+		0 = use IEEE 802.11 IBSS mode (default),
+		1 = use pseudo adhoc mode (no management frames)
+	other_ap_policy:
+		0 = skip all beacons
+		1 = accept beacons with our SSID
+		2 = accept beacons from all APs
+		3 = accept all beacons (even from IBSS)
+	dump: set RX/TX/TXEXC debug dump header bitfield
+		0 = do not dump frame headers
+		1 = dump RX frame headers
+		2 = dump TX frame headers
+		4 = dump TX error frame headers
+		(these values can be bitwise ORed; e.g. 3 = both RX and TX)
+	ap_max_inactivity: Time (in seconds) after which inactive stations
+		can be removed from AP's station list
+	ap_bridge_packets:
+		0 = do not bridge packets between associated stations, i.e.,
+			just pass them to upper layers for handling
+		1 = bridge packets directly between associated stations, i.e.,
+			upper layers do not even see these packets
+	ap_nullfunc_ack:
+		0 = let station firmware take care of data::nullfunc ACKs
+		1 = send "extra" ACKs for data::nullfunc frames to workaround
+			problems with stations using PS mode
+		(default 1 if STA f/w version is 0.8.0, otherwise 0)
+	max_wds: maximum number of allowed WDS connections (default 16)
+	autom_ap_wds:
+		0 = add WDS connections manually
+		1 = add WDS connections automatically to all recorded APs
+			(based on other_ap_policy)
+	ap_auth_algs: allowed authentication algorithms
+		0 = none (no authentication will succeed)
+		1 = only open
+		2 = only shared key
+		3 = open or shared key (default)
+	monitor_allow_fcserr:
+		0 = drop frames with FCS errors in monitor mode
+		1 = pass also frames with FCS errors
+	host_encrypt:
+		0 = do not use host encryption unless in Host AP mode
+		1 = use host encryption in all modes
+	host_decrypt:
+		0 = use WLAN card firmware to decrypt frames
+		1 = use host driver to decrypt frames
+	bus_master_threshold_rx:
+		packet length threshold for using PCI bus master on RX
+		(only used with hostap_pci.o and if PRISM2_BUS_MASTER is set)
+	bus_master_threshold_tx:
+		packet length threshold for using PCI bus master on TX
+		(only used with hostap_pci.o and if PRISM2_BUS_MASTER is set)
+	host_roaming:
+		0 = use station firmware for roaming decision (default)
+		1 = use host driver roaming decision (automatic scan)
+		2 = manual scan and roaming
+	bcrx_sta_key:
+		0 = use station specific key (WEP key mapping) to override
+		    default keys only for RX frames sent to unicast address
+		    ("individual RA") (default)
+		1 = use station specific key also with broadcast RX frames
+		    (this is against IEEE 802.11, but makes it easier to use
+		    different keys with stations that do not support WEP key
+		    mapping)
+	ieee_802_1x:
+		0 = do not use IEEE 802.1X specific functionality (default)
+		1 = use IEEE 802.1X: require 802.1X auth, filter EAPOL packets
+	antsel_tx:
+		0 = do not touch TX AntSel, i.e., use card default (default)
+		1 = use antenna diversity
+		2 = force TX AntSel pin low
+		3 = force TX AntSel pin high
+	antsel_rx:
+		0 = do not touch RX AntSel, i.e., use card default (default)
+		1 = use antenna diversity
+		2 = force RX AntSel pin low
+		3 = force RX AntSel pin high
+	monitor_type:
+		0 = IEEE 802.11 headers (ARPHRD_IEEE80211)
+		1 = Prism2 + IEEE 802.11 headers (ARPHRD_IEEE80211_PRISM)
+		2 = AVS monitor header + IEEE 802.11 headers
+		    (ARPHRD_IEEE80211_PRISM)
+	wds_type: WDS type bitfield
+		0 = options disabled (default)
+		1 = use broadcast RA (WDS frame destination) for broadcast and
+			multicast frames
+		2 = use AP client mode in 'Managed mode'
+		4 = use standard compliant WDS (4 addr) frame also in Host AP
+		    mode (Note! This requires STA f/w ver 1.5.x or newer)
+	hostscan: perform non-destructive AP scanning (i.e., maintain current
+		  association state); this requires STA f/w ver 1.3.1 or newer
+		1 = send Probe Request at 1 Mbps
+		2 = send Probe Request at 2 Mbps
+		3 = send Probe Request at 5.5 Mbps
+		4 = send Probe Request at 11 Mbps
+	ap_scan: interval (in seconds) between passive AP scans on different
+		channels, 0 = disabled (default)
+	enh_sec: "enhanced security" bitfield
+		0 = options disabled (default)
+		1 = hide SSID in beacon frames
+		2 = ignore clients configured with "ANY" (broadcast) SSID
+		(3 = both options)
+		Note! This requires STA f/w ver 1.6.3 or newer
+	basic_rates: basic transmit rate bitmap
+		bit 0: 1 M, bit 1: 2 M, bit 2: 5.5 M, bit 3: 11 M
+		(default 3: 1 and 2 Mbps)
+	oper_rates: operational transmit rate bitmap
+		bit 0: 1 M, bit 1: 2 M, bit 2: 5.5 M, bit 3: 11 M
+		(default 15: 1, 2, 5.5, and 11 Mbps)
+		Note! This changes the same value as iwconfig rate command, but
+		as a bitfield.
+	hostapd: hostapd mode configuration
+		0 = use kernel driver for IEEE 802.11 management
+		1 = use user space daemon, hostapd, for IEEE 802.11 management
+	hostapd_sta: hostapd mode configuration
+		0 = no extra STA interface
+		1 = use hostapd to control extra STA interface (wlan#sta)
+
+	Following parameters are for debug use only;
+	do not use unless you are sure what you are doing!
+
+	alc: 0=disabled ALC, 1=enable ALC (automatic level control)
+EOF
+    exit 1;
+}
+
+
+if [ $# != 3 -a $# != 2 ]; then
+	usage
+fi
+
+if ! $IWPRIV $1 | grep -q prism2_param; then
+	echo "Interface '$1' does not seem to support prism2_param command."
+	echo "Run '$0' without any arguments for usage information."
+	exit 2
+fi
+
+case $2 in
+	txratectrl) param=2 ;;
+	beacon_int) param=3 ;;
+	pseudo_ibss) param=4 ;;
+	alc) param=5 ;;
+	dump) param=7 ;;
+	other_ap_policy) param=8 ;;
+	ap_max_inactivity) param=9 ;;
+	ap_bridge_packets) param=10 ;;
+	dtim_period) param=11 ;;
+	ap_nullfunc_ack) param=12 ;;
+	max_wds) param=13 ;;
+	autom_ap_wds) param=14 ;;
+	ap_auth_algs) param=15 ;;
+	monitor_allow_fcserr) param=16 ;;
+	host_encrypt) param=17 ;;
+	host_decrypt) param=18 ;;
+	bus_master_threshold_rx) param=19 ;;
+	bus_master_threshold_tx) param=20 ;;
+	host_roaming) param=21 ;;
+	bcrx_sta_key) param=22 ;;
+	ieee_802_1x) param=23 ;;
+	antsel_tx) param=24 ;;
+	antsel_rx) param=25 ;;
+	monitor_type) param=26 ;;
+	wds_type) param=27 ;;
+	hostscan) param=28 ;;
+	ap_scan) param=29 ;;
+	enh_sec) param=30 ;;
+	io_debug) param=31 ;;
+	basic_rates) param=32 ;;
+	oper_rates) param=33 ;;
+	hostapd) param=34 ;;
+	hostapd_sta) param=35 ;;
+
+	*)
+		echo "Unknown parameter '$2'."
+		echo "Run '$0' without any arguments for usage information."
+		exit 3
+esac
+
+if [ $# = 3 ]; then
+
+	$IWPRIV $1 prism2_param $param $3
+
+else
+
+	$IWPRIV $1 getprism2_param $param
+
+fi
