@@ -78,32 +78,47 @@
 #130128 support udf f.s.
 #130217 01micko: relocate umount of network shares.
 
+PATH=/bin:/sbin:/usr/bin:/usr/sbin
+#read PUPPYVERSION </etc/puppyversion
+
 #110923
 . /usr/bin/gettext.sh # enables use of eval_gettext (several named variables) and ngettext (plurals)
 export TEXTDOMAIN=rc.shutdown
 export OUTPUT_CHARSET=UTF-8
 
+. /etc/rc.d/functions4puppy #v3.01
+#variables created at bootup by init script in initrd...
+. /etc/rc.d/PUPSTATE #v2.02
+. /etc/DISTRO_SPECS #v412
+ORIGPUPMODE=$PUPMODE #v2.22
+
+if [ "$PUPMODE" = 5 ] ; then
 clear
 exec 1> /dev/null 2>&1
+fi
 
 which rfkill &>/dev/null && rfkill unblock all #110919 jemimah has this in fluppy. if don't do this, may be locked at next boot.
 
 #w482 use xorriso if it is installed (see also functions4puppy)...
 CDRECORD='cdrecord'
 MKISOFS='mkisofs'
-if [ "`which xorriso`" != "" ];then
+if [ "`which xorriso`" ];then
  CDRECORD='xorrecord'
  MKISOFS='xorrisofs' #growisofs reads this variable.
 fi
 export CDRECORD MKISOFS
 
-#variables created at bootup by init script in initrd...
-. /etc/rc.d/PUPSTATE #v2.02
-. /etc/DISTRO_SPECS #v412
-
 #echo "`eval_gettext \"\\\${DISTRO_NAME} is now shutting down...\"`" > /dev/console
 #echo "${DISTRO_NAME} is now shutting down..." > /dev/console
-echo "${DISTRO_NAME} $(gettext 'is now shutting down...')" > /dev/console #120130
+pidof poweroff 2>/dev/null && {
+echo "${DISTRO_NAME} ${DISTRO_VERSION} $(gettext 'is now shutting down...')" > /dev/console #120130
+} || {
+pidof reboot 2>/dev/null && {
+echo "${DISTRO_NAME} ${DISTRO_VERSION} $(gettext 'is now rebooting...')" > /dev/console
+} || {
+#echo $(gettext "Executing /etc/rc.d/rc.shutdown...")
+echo "Executing /etc/rc.d/rc.shutdown..."
+}; }
 
 #100315 improper shutdown check. see /etc/rc.d/rc.sysinit, /init in initramfs, and /sbin/init...
 if [ -f /fsckme.flg ];then
@@ -119,20 +134,12 @@ if [ -f /fsckme.flg ];then
 fi
 [ -f /initrd${PUP_HOME}/fsckme.flg ] && rm -f /initrd${PUP_HOME}/fsckme.flg
 
-ORIGPUPMODE=$PUPMODE #v2.22
-
-#echo $(gettext "Executing /etc/rc.d/rc.shutdown...")
-echo "Executing /etc/rc.d/rc.shutdown..."
-
-PATH=/bin:/sbin:/usr/bin:/usr/sbin
-#PUPPYVERSION="`cat /etc/puppyversion`"
-
 #puppy.sfs is in a subdirectory, default to saving in it...
-PUPSFSFILE="`echo "$PUPSFS" | cut -f 3 -d ','`"
-PSUBDIR="`dirname "$PUPSFSFILE"`"
+PUPSFSFILE=`echo "$PUPSFS" | cut -f 3 -d ','`
+PSUBDIR=`dirname "$PUPSFSFILE"`
 [ "$PSUBDIR" = "/" ] && PSUBDIR=""
-[ $PUPMODE -eq 5 ] && [ "$DEV1FS" = "iso9660" ] && PSUBDIR="" #100920 booting off cd, always default have savefile at /.
-[ $PUPMODE -eq 5 ] && [ "$DEV1FS" = "udf" ] && PSUBDIR=""     #130128 ditto, for udf f.s.
+[ $PUPMODE -eq 5 -a "$DEV1FS" = "iso9660" ] && PSUBDIR="" #100920 booting off cd, always default have savefile at /.
+[ $PUPMODE -eq 5 -a "$DEV1FS" = "udf" ] && PSUBDIR=""     #130128 ditto, for udf f.s.
 [ "$DEV1FS" = "msdos" ] && DEV1FS="vfat" #110919
 
 #100920 reverse...
@@ -146,8 +153,6 @@ PSUBDIR="`dirname "$PUPSFSFILE"`"
 
 #for a full hd install, only setting PUPMODE (=2). no /initrd, no initrd.gz.
 
-. /etc/rc.d/functions4puppy #v3.01
-
 killzombies() {
  #ZOMBIES="`ps -H -A | grep '<defunct>' | sed -e 's/  /|/g' | grep -v '|||' | cut -f 1 -d ' ' | tr '\n' ' '`"
  #ZOMBIES="`ps -H -A | grep '<defunct>' | sed 's/^[[:blank:]]*//g' | grep -v '|||' | cut -f 1 -d ' ' | tr '\n' ' '`" #120103 karl godt: because i was getting a bunch of "killall no such process must be either pid or name" on the screen by the killzombies function.
@@ -160,13 +165,14 @@ killzombies() {
  done
 }
 
-
-
 #v2.0.0 there could be a save tmpfs->persistent-storage running...
-while [ ! "`pidof snapmergepuppy | grep '[0-9]'`" = "" ];do
+pidof snapmergepuppy | grep -q '[0-9]' && {
+echo "`which snapmergepuppy` is copying RAM into ${PUPSAVE##*/}"
+while [ "`pidof snapmergepuppy | grep '[0-9]'`" ];do
  sleep 1
 done
-killall savepuppyd
+}
+pidof savepuppyd >/dev/null && killall savepuppyd
 
 ##rc.local0 can read this...
 #setvol 0 | tr "\n" " " > /etc/.mixervolume
@@ -180,16 +186,20 @@ cd /
 sync
 #just a precaution...
 #echo $(gettext "Killing X and all X apps...")
+pidof X 2>/dev/null && {
 echo "Killing X and all X apps..."
-killall -9 X > /dev/null 2>&1
+killall -9 X
 sleep 1
-killall -3 X > /dev/null 2>&1
+pidof X 2>/dev/null && killall -3 X
 sync
+}
 
 #MU warns may need to do this for dillo...
-killall file.dpi 2>/dev/null
+which dillo 2>/dev/null && {
+killall file.dpi      2>/dev/null
 killall bookmarks.dpi 2>/dev/null
-killall dpid 2>/dev/null
+killall dpid          2>/dev/null
+}
 
 #100902 log the cumulative bytes transmitted on dialup...
 modemdisconnect #(if connected)
@@ -230,7 +240,7 @@ fi
 #v2.16 some packages have a service script that requires stopping...
 for service_script in /etc/init.d/*
 do
-  [ -x $service_script ] && $service_script stop
+  [ -f $service_script -a -x $service_script ] && $service_script stop
 done
 #note, /etc/rc.d/rc.services does same, with 'start' parameter.
 
@@ -259,7 +269,7 @@ fi
 for i in `lsmod | cut -d' ' -f1 | tr '\n' ' '`
 do
  if grep -q "^$i " /etc/networkmodules; then
-  modprobe -r "$i"
+  modprobe -vr "$i"
  fi
 done
 
@@ -270,29 +280,29 @@ if [ -f /sbin/cardmgr ];then #pcmcia-cs package installed.
   #echo -n $(gettext "Shutting down PCMCIA services: ")
   echo -n "Shutting down PCMCIA services: "
   if [ -s /var/run/cardmgr.pid ] ; then
-   PID=`cat /var/run/cardmgr.pid`
-   kill $PID
+   read Pid </var/run/cardmgr.pid
+   kill $Pid
    for N in 1 2 3 4 ; do
-    kill -0 $PID 2>/dev/null || break #-0 is test only.
+    kill -0 $Pid || break #-0 is test only.
     sleep 1
    done
   fi
   if [ -s /var/lib/pcmcia/cardmgr.pid ] ; then
-   PID=`cat /var/lib/pcmcia/cardmgr.pid`
-   kill $PID
+   read Pid </var/lib/pcmcia/cardmgr.pid
+   kill $Pid
    for N in 1 2 3 4 ; do
-    kill -0 $PID 2>/dev/null || break #-0 is test only.
+    kill -0 $Pid 2>/dev/null || break #-0 is test only.
     sleep 1
    done
   fi
   killall -3 "CardBus Watcher" #BK bug, changed -q to -3.
-  /sbin/rmmod tcic 2>/dev/null || /sbin/rmmod i82365 2>/dev/null || /sbin/rmmod yenta_socket 2>/dev/null || /sbin/rmmod i82092 2>/dev/null
+  /sbin/rmmod tcic || /sbin/rmmod i82365 || /sbin/rmmod yenta_socket || /sbin/rmmod i82092
   echo "done."
   rm -f /var/lock/subsys/pcmcia
  fi
 fi
 
-killall udevd > /dev/null 2>&1 #100615
+pidof udevd 2>/dev/null && killall udevd #100615
 
 #first time booted puppy, there may not have been any persistent storage...
 if [ $PUPMODE -eq 5 ];then #ifpupmode5
@@ -315,14 +325,14 @@ fi #end ifpupmode5
 swapfile_func() {
  localSMNTPT="$1"
  localSAVEPART="$2"
- if [ ! -f ${localSMNTPT}/pupswap.swp ];then
-  if [ "$ATADRIVES" ];then #see /etc/rc.d/PUPSTATE 100912
-   TOTALRAM=`free | grep -o 'Mem: .*' | tr -s ' ' | cut -f 2 -d ' '` #110405
-   if [ $TOTALRAM -lt 262145 ];then #was 128000, bump up <=256MB.
+ [ -f "${localSMNTPT}/pupswap.swp" ] && return 0
+ [ "$ATADRIVES" ] || return 0 #see /etc/rc.d/PUPSTATE 100912
+  TOTALRAM=`free | grep -o 'Mem: .*' | tr -s ' ' | cut -f 2 -d ' '` #110405
+  [ $TOTALRAM -lt 262145 ] || return 0 #was 128000, bump up <=256MB.
     TOTALSWAP=`free | grep -o 'Swap: .*' | tr -s ' ' | cut -f 2 -d ' '` #110405
-    if [ $TOTALSWAP -eq 0 ];then
+    [ $TOTALSWAP -eq 0 ] || return 0
      spPATTERN="`echo -n "$localSAVEPART" | sed -e 's/[0-9]*$//'` " #100912 ex: 'sda '
-     if [ "`echo "$ATADRIVES" | grep "$spPATTERN"`" != "" ];then #100912
+     if [ "`echo "$ATADRIVES" | grep "$spPATTERN"`" ];then #100912
       smPATTERN=' '"$localSMNTPT"'$'
       FREESAVEM=`df -m | grep "$smPATTERN" | tr -s ' ' | cut -f 4 -d ' '`
       SWPSIZE=""
@@ -350,25 +360,21 @@ swapfile_func() {
        sync
       fi
      fi
-    fi
-   fi
-  fi
- fi
 } #end swapfile_func
 
-if [ "$PUPSAVE" != "" ];then
+if [ "$PUPSAVE" ];then
  #f.s. and partition where ${DISTRO_FILE_PREFIX}save.2fs is located...
- SAVEFS="`echo -n "$PUPSAVE" | cut -f 2 -d ','`"
- SAVEPART="`echo -n "$PUPSAVE" | cut -f 1 -d ','`"
- SAVEFILE="`echo -n "$PUPSAVE" | cut -f 3 -d ','`"
+ SAVEFS=`echo -n "$PUPSAVE" | cut -f 2 -d ','`
+ SAVEPART=`echo -n "$PUPSAVE" | cut -f 1 -d ','`
+ SAVEFILE=`echo -n "$PUPSAVE" | cut -f 3 -d ','`
 fi
 
-clear >/dev/console
+[ "$PUPMODE" = 5 ] && clear >/dev/console
 
 #121104 move some code up, to before saving session...
 cp -f /etc/profile /var/local/etc_profile_at_shutdown #110217 bad hack, see /etc/rc.d/rc.update.
 #120629 raspberry pi does not have a hw clock. save here, read at bootup (see rc.country)...
-DATESAVE="`date -R | cut -f 2-5 -d ' ' | cut -f 1 -d '.' | tr '[a-z]' '[A-Z]'`" #ex: 29 JUN 2012 08:39:07
+DATESAVE=`date -R | cut -f 2-5 -d ' ' | cut -f 1 -d '.' | tr '[a-z]' '[A-Z]'` #ex: 29 JUN 2012 08:39:07
 echo -n "$DATESAVE" > /var/local/shutdown_date_saved
 #when the working files run in tmpfs in ram, they are saved (below) and /tmp and /var
 #are screened out. however, some PUPMODES mount ${DISTRO_FILE_PREFIX}save.2fs directly on /initrd/pup_rw,
@@ -666,6 +672,6 @@ if [ "$MNTFUSE" != "" ];then
 fi
 
 
-busybox umount -ar > /dev/null 2>&1
+busybox umount -ar
 
 #the end#
