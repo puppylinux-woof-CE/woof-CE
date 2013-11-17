@@ -70,7 +70,8 @@ fi
 && exit
 
 # the aufs major version
-aufs_version=${kernel_version%.*.*} #
+#aufs_version=${kernel_version%.*.*} #
+aufs_version=${kernel_version%%.*}
 
 # fail-safe switch in case someone clicks the script in ROX (real story! not 
 # fun at all!!!!) :p
@@ -106,9 +107,11 @@ today=`date +%d%m%y`
 [ -f build.log.tar.bz2 ] && mv -f build.log.${today}.tar.bz2
 
 # download the kernel
-if [ ! -f dist/sources/vanilla/linux-$kernel_version.tar.bz2 ]; then
+echo ${kernel_version##*-}|grep -q "rc"
+[ "$?" -eq 0 ] && testing=testing||testing=
+if [ ! -f dist/sources/vanilla/linux-$kernel_version.tar.* ]; then
 	echo "Downloading the kernel sources"
-	wget -P dist/sources/vanilla $kernel_mirror/linux-$kernel_version.tar.bz2 > build.log 2>&1
+	wget -P dist/sources/vanilla $kernel_mirror/$testing/linux-$kernel_version.tar.xz --no-check-certificate > build.log 2>&1
 	if [ $? -ne 0 ]; then
 		echo "Error: failed to download the kernel sources."
 		exit 1
@@ -120,13 +123,19 @@ fi
 if [ ! -f dist/sources/vanilla/aufs$aufs_version-$kernel_branch-git$today.tar.bz2 ]; then
 	echo "Downloading the Aufs sources"
 	#git clone http://git.c3sl.ufpr.br/pub/scm/aufs/aufs2-standalone.git aufs$aufs_version-$kernel_branch-git$today >> build.log 2>&1
-	git clone git://aufs.git.sourceforge.net/gitroot/aufs/aufs3-standalone.git aufs$aufs_version-$kernel_branch-git$today >> build.log 2>&1
+	#git clone git://aufs.git.sourceforge.net/gitroot/aufs/aufs3-standalone.git aufs$aufs_version-$kernel_branch-git$today >> build.log 2>&1
+	#git clone git://github.com/sfjro/aufs3-linux.git aufs$aufs_version-$kernel_branch-git$today >> build.log 2>&1
+	git clone $aufs_git aufs$aufs_version-$kernel_branch-git$today >> build.log 2>&1
 	if [ $? -ne 0 ]; then
 		echo "Error: failed to download the Aufs sources."
 		exit 1
 	fi
 	cd aufs$aufs_version-$kernel_branch-git$today
+	if [ "$aufsv" ];then #new far for new kernels
+	git checkout origin/aufs$aufsv >> ../build.log 2>&1
+	else
 	git checkout origin/aufs$aufs_version.$kernel_branch >> ../build.log 2>&1
+	fi
 	if [ $? -ne 0 ]; then
 		echo "Error: failed to download the Aufs sources."
 		exit 1
@@ -145,13 +154,24 @@ else
 fi
 
 # patch Aufs
-echo "Patching the Aufs sources"
-patch -d aufs$aufs_version-$kernel_branch-git$today -p1 < aufs-allow-sfs.patch >> build.log 2>&1
-if [ $? -ne 0 ]; then
-	echo "Error: failed to patch the Aufs sources."
-	exit 1
+if [ -f aufs-allow-sfs.patch ];then #removed for K3.9 experiment
+	echo "Patching the Aufs sources"
+	patch -d aufs$aufs_version-$kernel_branch-git$today -p1 < aufs-allow-sfs.patch >> build.log 2>&1
+	if [ $? -ne 0 ]; then
+		echo "Error: failed to patch the Aufs sources."
+		exit 1
+	fi
+	cp aufs-allow-sfs.patch dist/sources/patches
 fi
-cp aufs-allow-sfs.patch dist/sources/patches
+if [ -f aufs-kconfig.patch ];then #special for K3.9
+	echo "Patching the Aufs sources"
+	patch -d aufs$aufs_version-$kernel_branch-git$today -p1 < aufs-kconfig.patch >> build.log 2>&1
+	if [ $? -ne 0 ]; then
+		echo "Error: failed to patch the Aufs sources for kconfig."
+		exit 1
+	fi
+	cp aufs-kconfig.patch dist/sources/patches
+fi
 
 ##download unionfs
 #if [ ! -f dist/sources/vanilla/unionfs-2.5.11_for_${kernel_version}.diff.gz ]; then
@@ -173,7 +193,7 @@ cp aufs-allow-sfs.patch dist/sources/patches
 
 # extract the kernel
 echo "Extracting the kernel sources"
-tar xf dist/sources/vanilla/linux-$kernel_version.tar.bz2 >> build.log 2>&1
+tar xf dist/sources/vanilla/linux-$kernel_version.tar.* >> build.log 2>&1
 if [ $? -ne 0 ]; then
 	echo "Error: failed to extract the kernel sources."
 	exit 1
@@ -182,7 +202,7 @@ fi
 cd linux-$kernel_version
 
 echo "Adding Aufs to the kernel sources"
-for i in kbuild base standalone; do
+for i in kbuild base standalone mmap; do
 	patch -p1 < ../aufs$aufs_version-$kernel_branch-git$today/aufs$aufs_version-$i.patch >> ../build.log 2>&1
 	if [ $? -ne 0 ]; then
 		echo "Error: failed to add Aufs to the kernel sources."
@@ -190,7 +210,8 @@ for i in kbuild base standalone; do
 	fi
 done
 cp -r ../aufs$aufs_version-$kernel_branch-git$today/{fs,Documentation} .
-cp ../aufs$aufs_version-$kernel_branch-git$today/include/linux/aufs_type.h include/linux
+cp ../aufs$aufs_version-$kernel_branch-git$today/include/linux/aufs_type.h include/linux 2>/dev/null
+cp ../aufs$aufs_version-$kernel_branch-git$today/include/uapi/linux/aufs_type.h include/linux 2>/dev/null
 [ -d ../aufs$aufs_version-$kernel_branch-git$today/include/uapi ] && \
 cp -r ../aufs$aufs_version-$kernel_branch-git$today/include/uapi/linux/aufs_type.h include/uapi/linux
 #cat ../aufs$aufs_version-1-git$today/include/linux/Kbuild >> include/Kbuild
@@ -253,7 +274,7 @@ case $kernelconfig in
 s)echo "skipping" ;;
 esac
 echo
-echo "Ok, kernel is configured. hit ENTER to contine, CTRL+C to quit"
+echo "Ok, kernel is configured. hit ENTER to continue, CTRL+C to quit"
 read goon
 
 [ ! -d ../dist/packages ] && mkdir ../dist/packages
@@ -265,7 +286,7 @@ find kernel_headers-$kernel_major_version-$package_name_suffix/usr/include \( -n
 mv kernel_headers-$kernel_major_version-$package_name_suffix ../dist/packages
 
 echo "Compiling the kernel"
-make bzImage modules >> ../build.log 2>&1
+make ${JOBS} bzImage modules >> ../build.log 2>&1
 if [[ ! -f arch/x86/boot/bzImage || ! -f System.map ]]; then
 	echo "Error: failed to compile the kernel sources."
 	exit 1
@@ -297,26 +318,60 @@ mkdir -p kernel_sources-$kernel_major_version-$package_name_suffix/usr/src
 mv linux-$kernel_version kernel_sources-$kernel_major_version-$package_name_suffix/usr/src/linux
 mkdir -p kernel_sources-$kernel_major_version-$package_name_suffix/lib/modules/${kernel_major_version}$custom_suffix
 ln -s /usr/src/linux kernel_sources-$kernel_major_version-$package_name_suffix/lib/modules/${kernel_major_version}$custom_suffix/build
+[ ! -f kernel_sources-${kernel_major_version}-$package_name_suffix/usr/src/linux/include/linux/version.h ] && \
 ln -s /usr/src/linux/include/generated/uapi/linux/version.h kernel_sources-${kernel_major_version}-$package_name_suffix/usr/src/linux/include/linux/version.h 
 ln -s /usr/src/linux kernel_sources-$kernel_major_version-$package_name_suffix/lib/modules/${kernel_major_version}$custom_suffix/source
-mksquashfs kernel_sources-$kernel_major_version-$package_name_suffix dist/sources/kernel_sources-$kernel_major_version-$package_name_suffix.sfs
+mksquashfs kernel_sources-$kernel_major_version-$package_name_suffix dist/sources/kernel_sources-$kernel_major_version-$package_name_suffix.sfs -comp xz
 
 # build aufs-utils userspace modules
 echo "Now to build the aufs-utils for userspace"
-git clone git://aufs.git.sourceforge.net/gitroot/aufs/aufs-util.git aufs-util
-[ $? -ne 0 ] && echo "Failed to get aufs-util from git, do it manually. Kernel is compiled OK :)" && exit
-cd aufs-util
-git checkout origin/aufs3.0
-[ $? -ne 0 ] && echo "Failed to get aufs-util from git, do it manually. Kernel is compiled OK :)" && exit
+if [ ! -f dist/sources/vanilla/aufs-util${today}.tar.bz2 ];then
+	#git clone git://aufs.git.sourceforge.net/gitroot/aufs/aufs-util.git aufs-util >> build.log 2>&1
+	git clone git://git.code.sf.net/p/aufs/aufs-util aufs-util
+	[ $? -ne 0 ] && echo "Failed to get aufs-util from git, do it manually. Kernel is compiled OK :)" && exit
+	
+	cd aufs-util
+	
+	git branch -a | grep '3' |grep -v 'rcN' | cut -d '.' -f2 > /tmp/aufs-util-version #we go for stable only
+	while read line
+	  do 
+	    if [ "$kernel_branch" = "$line" ];then branch=$line
+	    else
+	      while [ "$kernel_branch" -gt "$line" ]
+	        do branch=$line
+	        echo $branch && break
+	        done 
+	    fi
+	  done < /tmp/aufs-util-version
+	git checkout origin/aufs3.${branch} >> ../build.log 2>&1
+	
+	[ $? -ne 0 ] && echo "Failed to get aufs-util from git, do it manually. Kernel is compiled OK :)" && exit
+	# patch Makefile for static build
+	echo "Patching aufs-util sources"
+	cp Makefile Makefile.orig
+	sed -i 's/-static //' Makefile
+	diff -ru Makefile.orig Makefile > ../dist/sources/patches/aufs-util-dynamic.patch
+	rm *.orig
+	else
+	echo "Extracting the Aufs-util sources"
+	tar xf dist/sources/vanilla/aufs-util$today.tar.bz2 >> ../build.log 2>&1
+	if [ $? -ne 0 ]; then
+		echo "Error: failed to extract the aufs-util sources."
+		exit 1
+	fi	
+	cd aufs-util	
+	patch -p1 < ../dist/sources/patches/aufs-util-dynamic.patch >> ../build.log 2>&1
+	[ "$?" -ne 0 ] && echo "Failed to patch the aufs-util sources, do it manually. Kernel is compiled ok" && exit
+fi
 LinuxSrc=../dist/packages/kernel_headers*
-CPPFLAGS="-I $LinuxSrc/usr/include"
-make
+export CPPFLAGS="-I $LinuxSrc/usr/include"
+make >> ../build.log 2>&1
 [ $? -ne 0 ] && echo "Failed to compile aufs-util, do it manually. Kernel is compiled OK :)" && exit
-make DESTDIR=../dist/packages/aufs-util-$kernel_version install
-make clean
+make DESTDIR=../dist/packages/aufs-util-$kernel_version install >> ../build.log 2>&1
+make clean >> ../build.log 2>&1
 echo "aufs-util-$kernel_version is in dist"
 cd ..
-
+tar -c aufs-util | bzip2 -9 > dist/sources/vanilla/aufs-util$today.tar.bz2
 
 echo "Compressing the log"
 bzip2 -9 build.log
