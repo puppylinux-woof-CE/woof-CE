@@ -11,9 +11,6 @@
 #110508 do not allow argument-module if it is blacklisted (note blacklist.conf created in rc.sysinit).
 #110508 modprobe -i to ignore "install" and "remove" commands in /etc/modprobe.d/*.conf.
 #110509 avoid chance of a module not getting loaded when almost-simultaneous 'add' uevents.
-#110516 no longer using setup_alsa_func. now using /etc/modprobe.d/alsa-base.conf (from Ubuntu) only.
-#111106 support firmware directories.
-#120823 rerwin: $FIRMPKG always written. 
 #120823 rerwin: --use-blacklist to apply the blacklist commands in the configuration files (if any) to module names as well.
 #120828 rerwin: --use-blacklist again.
 #120908 rerwin: Change preference processing to ensure preferred module loaded first.
@@ -32,70 +29,6 @@ RULEMODULE=""
 [ $1 ] && RULEMODULE="$1"
 
 SLEEPU=`echo -n ${$} | rev` #110509 ex: pid 3124 becomes 4213, more variability for sleep.
-
-#setup_alsa_func() {
-# if [ "`echo $MODULE | cut -c 1-4`" = "snd_" ];then
-#  while [ 1 ];do
-#   CNTSND=`find /tmp/pup_event_backend -maxdepth 1 -type f -name 'pup_event_alsa_cnt*' | wc -l`
-#   touch /tmp/pup_event_backend/pup_event_alsa_cnt${$}
-#   tPATTERN='^alias snd\-card\-'"${CNTSND} "
-#   #logic is a bit rough, but Alsa Wizard has already claimed this card...
-#   [ "`grep "$tPATTERN" /etc/modprobe.d/alsa.conf`" != "" ] && continue
-#   # note, /etc/modprobe.d/alsa_card*.conf is removed in rc.sysinit.
-#   echo "alias snd-card-$CNTSND $MODULEx" > /etc/modprobe.d/alsa_card${$}.conf
-#   echo "alias sound-slot-$CNTSND $MODULEx" >> /etc/modprobe.d/alsa_card${$}.conf
-#   #paranoid check for two instances of this script clashing...
-#   CNTSNDchk=`find /tmp/pup_event_backend -maxdepth 1 -type f -name 'pup_event_alsa_cnt*' | wc -l`
-#   CNTSNDdiff=$(($CNTSNDchk - $CNTSND))
-#   if [ $CNTSNDdiff -gt 1 ];then
-#    rm -f /tmp/pup_event_backend/pup_event_alsa_cnt${$}
-#    rm -f /etc/modprobe.d/alsa_card${$}.conf
-#    #usleep ${$} #quasi random sleep.
-#    #usleep `echo -n ${$} | rev` #101202 more variability.
-#    usleep $SLEEPU #110509
-#    continue
-#   fi
-#   break
-#  done
-# fi
-#}
-
-firmware_tarball_func() {
- fPATTERN='[:,]'"${MODULE}"'\.ko|[:,]'"${MODULEx}"'\.ko'
- FIRMPKG="`cat /etc/modules/firmware.dep.${KERNVER}  | grep -v '^#' | grep ':' | grep -E "$fPATTERN" | cut -f 1 -d ':' | head -n 1`"
- if [ "$FIRMPKG" != "" ];then
-  iPATTERN='^'"${FIRMPKG}"'$'
-  if [ "`grep "$iPATTERN" /etc/modules/firmware.dep.inst.${KERNVER}`" = "" ];then
-   FLAGFIRM='no'
-   if [ -d /lib/modules/all-firmware/${FIRMPKG} ];then #111106 support firmware directories.
-    cp -a -f --remove-destination /lib/modules/all-firmware/${FIRMPKG}/* /
-    FLAGFIRM='yes'
-   else
-    if [ -f /lib/modules/all-firmware/${FIRMPKG}.tar.gz ];then
-     tar -z -x --strip=1 --directory=/ -f /lib/modules/all-firmware/${FIRMPKG}.tar.gz > /dev/null 2>&1
-     FLAGFIRM='yes'
-    fi
-   fi
-   if [ "$FLAGFIRM" = "yes" ];then
-    #execute any post-install script...
-    if [ -f /pinstall.${FIRMPKG}.sh ];then
-     BRKCNT=0
-     while [ 1 ];do #serialise execution of pinstall scripts...
-      PINSTALLCNT=`find / -maxdepth 1 -type f -name 'pinstall.*.sh' | wc -l`
-      [ $PINSTALLCNT -eq 1 ] && break
-      usleep ${SLEEPU}0 #110509
-      BRKCNT=$(($BRKCNT + 1))
-      [ $BRKCNT -gt 5 ] && break
-     done
-     cd /
-     /pinstall.${FIRMPKG}.sh >/dev/null 2>&1
-     rm -f /pinstall.${FIRMPKG}.sh >/dev/null 2>&1
-    fi
-    echo "$FIRMPKG" >> /etc/modules/firmware.dep.inst.${KERNVER} #101202 120823 moved.
-   fi
-  fi
- fi
-}
 
 #120908...
 write_preference_log() {
@@ -132,6 +65,8 @@ if [ "$MODULE" = "usb_storage" ];then
  fi
 fi
 
+. /etc/rc.d/pupBOOTfunctions #has firmware_tarball_func
+
 case $MODALIAS in
  pci:*)
   #######/etc/rc.d/MODULESCONFIG overrides######
@@ -146,7 +81,7 @@ case $MODALIAS in
   #####BAD HACKS SECTION#####
   if [ "$MODULE" = "mwave" ];then
    #only install firmware tarball, do not load module (firmware script does it).
-   firmware_tarball_func
+   firmware_tarball_func #see /etc/rc.d/pupBOOTfunctions
    exit 1
   fi
  ;;
@@ -213,8 +148,6 @@ rm -f /tmp/pup_event_backend/lock1-${$} && \
  [ `cat /tmp/pup_event_backend/protect1-* | grep "$mREGEX" | wc -l` -gt 1 ] && \
  rm -f /tmp/pup_event_backend/protect1-${$} && exit
 
-MODULEx="`echo -n "$MODULE" | tr '_' '-'`"
-
 #101210 certain modules are loaded explicitly by /usr/sbin/usb_modeswitch_dispatcher.
 #note, see also /usr/sbin/pupdial_init_hotpluggable, which can replay uevents and trigger usb_modeswitch_dispatcher.
 #i did put code in here to exit if comes here with MODULE==option (for example), but there does not seem
@@ -223,7 +156,7 @@ MODULEx="`echo -n "$MODULE" | tr '_' '-'`"
 
 #110516 no longer using setup_alsa_func...
 #setup_alsa_func
-firmware_tarball_func
+firmware_tarball_func #see /etc/rc.d/pupBOOTfunctions
 
 #log to file. rc.sysinit needs this info to find out if any modaliases missed (also above)...
 echo "MODULE=$MODULE DEVPATH=$DEVPATH MODALIAS=$MODALIAS" >> /tmp/pup_event_backend/pup_event_module_devpath_log${$}
