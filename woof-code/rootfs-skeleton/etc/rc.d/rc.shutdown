@@ -34,7 +34,7 @@
 #100911 fsckme.err filename changed to fsckme.flg. see also initNEW, rc.sysinit, init (initramfs).
 #100912 no longer have FASTPARTS variable in /etc/rc.d/PUPSTATE, use ATADRIVES instead.
 #100912 if copy .sfs's from cd to hd, copy into a subdir, DISTRO_IDSTRING truncated to 8 chars.
-#100915 booting cd, put save-file in same subdir (as 100912). 
+#100915 booting cd, put save-file in same subdir (as 100912).
 #100917 booting usb, if drive has more than one partition, allow choice where save session.
 #100920 reverse 100915. Fix SAVEPATH.
 #100926 crap, recent versions of dialog do not work with --ok-label, --cancel-label, if no extra button...
@@ -78,32 +78,91 @@
 #130128 support udf f.s.
 #130217 01micko: relocate umount of network shares.
 
+PATH=/bin:/sbin:/usr/bin:/usr/sbin
+
 #110923
 . /usr/bin/gettext.sh # enables use of eval_gettext (several named variables) and ngettext (plurals)
 export TEXTDOMAIN=rc.shutdown
 export OUTPUT_CHARSET=UTF-8
 
-clear
-exec 1> /dev/null 2>&1
-
-which rfkill &>/dev/null && rfkill unblock all #110919 jemimah has this in fluppy. if don't do this, may be locked at next boot.
-
-#w482 use xorriso if it is installed (see also functions4puppy)...
-CDRECORD='cdrecord'
-MKISOFS='mkisofs'
-if [ "`which xorriso`" != "" ];then
- CDRECORD='xorrecord'
- MKISOFS='xorrisofs' #growisofs reads this variable.
-fi
-export CDRECORD MKISOFS
-
 #variables created at bootup by init script in initrd...
 . /etc/rc.d/PUPSTATE #v2.02
 . /etc/DISTRO_SPECS #v412
 
+#PUPPYVERSION="`cat /etc/puppyversion`"
+
+ORIGPUPMODE=$PUPMODE #v2.22
+
+#puppy.sfs is in a subdirectory, default to saving in it...
+PUPSFSFILE=`echo "$PUPSFS" | cut -f 3 -d ','`
+PSUBDIR=`dirname "$PUPSFSFILE"`
+[ "$PSUBDIR" = "/" ] && PSUBDIR=""
+[ "$PUPMODE" = 5 -a "$DEV1FS" = "iso9660" ] && PSUBDIR="" #100920 booting off cd, always default have savefile at /.
+[ "$PUPMODE" = 5 -a "$DEV1FS" = "udf" ] && PSUBDIR=""     #130128 ditto, for udf f.s.
+[ "$DEV1FS" = "msdos" ] && DEV1FS="vfat" #110919
+
+#100920 reverse...
+##100915 if booting from cd, .sfs's now optionally copied into a subdir, also want save-file in it...
+## (warning: puppy.sfs on cd must be at /)
+#if [ "$PSUBDIR" = "" ];then
+# if [ "$DEV1FS" = "iso9660" ];then #test if booted off cd.
+#   PSUBDIR="`echo -n "${DISTRO_IDSTRING}" | cut -c 1-8`" #limit dir name to 8 chars.
+# fi
+#fi
+
+#for a full hd install, only setting PUPMODE (=2). no /initrd, no initrd.gz.
+
+#w482 use xorriso if it is installed (see also functions4puppy)...
+#CDRECORD='cdrecord'
+#MKISOFS='mkisofs'
+#if [ "`which xorriso`" != "" ];then
+# CDRECORD='xorrecord'
+# MKISOFS='xorrisofs' #growisofs reads this variable.
+#fi
+#export CDRECORD MKISOFS
+#2013-11-16 KarlGodt : Above put into pupCDfunctions
+#. /etc/rc.d/functions4puppy #v3.01 - has multisavefunc
+. /etc/rc.d/pupCDfunctions
+
+mountpoint /proc &>/dev/null || busybox mount -t proc none /proc
+
+if [ "$PUPMODE" = 5 -a ! -f /tmp/shutdownconfig_results ] ; then
+#keeps the screen undistorted for dialog code.
+#Otherwise kernel messages may appear directly after the last dialog button.
+clear
+exec 1> /dev/null 2>&1
+fi
+
 #echo "`eval_gettext \"\\\${DISTRO_NAME} is now shutting down...\"`" > /dev/console
 #echo "${DISTRO_NAME} is now shutting down..." > /dev/console
-echo "${DISTRO_NAME} $(gettext 'is now shutting down...')" > /dev/console #120130
+if [ "`pidof poweroff`" ] ; then
+echo "${DISTRO_NAME} ${DISTRO_VERSION} $(gettext 'is now shutting down...')" > /dev/console #120130
+elif [ "`pidof reboot`" ] ; then
+echo "${DISTRO_NAME} ${DISTRO_VERSION} $(gettext 'is now rebooting...')" > /dev/console
+else
+#echo $(gettext "Executing /etc/rc.d/rc.shutdown...")
+echo "Executing /etc/rc.d/rc.shutdown..."
+fi
+
+killzombies() {
+ #ZOMBIES="`ps -H -A | grep '<defunct>' | sed -e 's/  /|/g' | grep -v '|||' | cut -f 1 -d ' ' | tr '\n' ' '`"
+ #ZOMBIES="`ps -H -A | grep '<defunct>' | sed 's/^[[:blank:]]*//g' | grep -v '|||' | cut -f 1 -d ' ' | tr '\n' ' '`" #120103 karl godt: because i was getting a bunch of "killall no such process must be either pid or name" on the screen by the killzombies function.
+ ZOMBIES="`/bin/ps -H -A | grep '<defunct>' | sed 's/^[[:blank:]]*//g' | cut -f 1 -d ' ' | sort -gr | tr '\n' ' '`" #120129 karl godt: improved, see http://www.murga-linux.com/puppy/viewtopic.php?t=73122
+ for ONEZOMBIE in $ZOMBIES
+ do
+  #echo "`eval_gettext \"Killing parentless zombie process \\\${ONEZOMBIE}\"`"
+  echo "Killing parentless zombie process $ONEZOMBIE"
+  kill $ONEZOMBIE
+ done
+}
+
+ask_to_save_function(){
+clear >/dev/console
+dialog --timeout 60 --yes-label "$(eval_gettext "SAVE")" --no-label "$(eval_gettext "NO SAVE")" --yesno "$(eval_gettext "Press ENTER key to save session...
+Or, press TAB then ENTER to not save session...
+Note : Timesout in 60 seconds to shutdown without saving.")" 0 0 >/dev/console
+return $?
+}
 
 #100315 improper shutdown check. see /etc/rc.d/rc.sysinit, /init in initramfs, and /sbin/init...
 if [ -f /fsckme.flg ];then
@@ -119,54 +178,15 @@ if [ -f /fsckme.flg ];then
 fi
 [ -f /initrd${PUP_HOME}/fsckme.flg ] && rm -f /initrd${PUP_HOME}/fsckme.flg
 
-ORIGPUPMODE=$PUPMODE #v2.22
-
-#echo $(gettext "Executing /etc/rc.d/rc.shutdown...") 
-echo "Executing /etc/rc.d/rc.shutdown..."
-
-PATH=/bin:/sbin:/usr/bin:/usr/sbin
-#PUPPYVERSION="`cat /etc/puppyversion`"
-
-#puppy.sfs is in a subdirectory, default to saving in it...
-PUPSFSFILE="`echo "$PUPSFS" | cut -f 3 -d ','`"
-PSUBDIR="`dirname "$PUPSFSFILE"`"
-[ "$PSUBDIR" = "/" ] && PSUBDIR=""
-[ $PUPMODE -eq 5 ] && [ "$DEV1FS" = "iso9660" ] && PSUBDIR="" #100920 booting off cd, always default have savefile at /.
-[ $PUPMODE -eq 5 ] && [ "$DEV1FS" = "udf" ] && PSUBDIR=""     #130128 ditto, for udf f.s.
-[ "$DEV1FS" = "msdos" ] && DEV1FS="vfat" #110919
-
-#100920 reverse...
-##100915 if booting from cd, .sfs's now optionally copied into a subdir, also want save-file in it...
-## (warning: puppy.sfs on cd must be at /)
-#if [ "$PSUBDIR" = "" ];then
-# if [ "$DEV1FS" = "iso9660" ];then #test if booted off cd.
-#   PSUBDIR="`echo -n "${DISTRO_IDSTRING}" | cut -c 1-8`" #limit dir name to 8 chars.
-# fi
-#fi
-
-#for a full hd install, only setting PUPMODE (=2). no /initrd, no initrd.gz.
-
-. /etc/rc.d/functions4puppy #v3.01
-
-killzombies() {
- #ZOMBIES="`ps -H -A | grep '<defunct>' | sed -e 's/  /|/g' | grep -v '|||' | cut -f 1 -d ' ' | tr '\n' ' '`"
- #ZOMBIES="`ps -H -A | grep '<defunct>' | sed 's/^[[:blank:]]*//g' | grep -v '|||' | cut -f 1 -d ' ' | tr '\n' ' '`" #120103 karl godt: because i was getting a bunch of "killall no such process must be either pid or name" on the screen by the killzombies function.
- ZOMBIES="`ps -H -A | grep '<defunct>' | sed 's/^[[:blank:]]*//g' | cut -f 1 -d ' ' | sort -gr | tr '\n' ' '`" #120129 karl godt: improved, see http://www.murga-linux.com/puppy/viewtopic.php?t=73122
- for ONEZOMBIE in $ZOMBIES
- do
-  #echo "`eval_gettext \"Killing parentless zombie process \\\${ONEZOMBIE}\"`"
-  echo "Killing parentless zombie process $ONEZOMBIE"
-  kill $ONEZOMBIE
- done
-}
-
-
-
 #v2.0.0 there could be a save tmpfs->persistent-storage running...
-while [ ! "`pidof snapmergepuppy | grep '[0-9]'`" = "" ];do
+pidof snapmergepuppy | grep -q '[0-9]' && {
+echo -n "`which snapmergepuppy` is copying RAM into ${PUPSAVE##*/} ..."
+while [ "`pidof snapmergepuppy | grep '[0-9]'`" ];do
  sleep 1
 done
-killall savepuppyd
+echo " Done."
+}
+pidof savepuppyd >/dev/null && killall savepuppyd
 
 ##rc.local0 can read this...
 #setvol 0 | tr "\n" " " > /etc/.mixervolume
@@ -178,21 +198,27 @@ killall savepuppyd
 
 cd /
 sync
+
 #just a precaution...
+/bin/ps h -o pid,args -C X && {
 #echo $(gettext "Killing X and all X apps...")
 echo "Killing X and all X apps..."
-killall -9 X > /dev/null 2>&1
+killall -9 X
 sleep 1
-killall -3 X > /dev/null 2>&1
+/bin/ps h -o pid,args -C X && killall -3 X
+}
 sync
 
 #MU warns may need to do this for dillo...
-killall file.dpi 2>/dev/null
-killall bookmarks.dpi 2>/dev/null
-killall dpid 2>/dev/null
+which dillo 2>/dev/null && {
+/bin/ps h -o pid,args -C file.dpi && killall file.dpi
+/bin/ps h -o pid,args -C bookmarks.dpi && killall bookmarks.dpi
+/bin/ps h -o pid,args -C dpid && killall dpid
+}
 
 #100902 log the cumulative bytes transmitted on dialup...
-modemdisconnect #(if connected)
+modemdisconnect #(if connected) - currently works if wvdial is still running
+# and kills wvdial AND pppd
 
 #100814 log the cumulative bytes transmitted on network...
 # (see also /etc/rc.d/rc.sysinit and network_tray)
@@ -201,25 +227,27 @@ ACTIVE_INTERFACE=""
 [ ! "$ACTIVE_INTERFACE" ] && ACTIVE_INTERFACE="`ifconfig | grep '^[a-z]' | grep -v '^lo' | grep 'Link encap:Ethernet' | cut -f 1 -d ' ' | head -n 1`"
 if [ "$ACTIVE_INTERFACE" ];then
  if [ -d /sys/class/net/${ACTIVE_INTERFACE}/statistics ];then
-  RX_BYTES="`cat /sys/class/net/${ACTIVE_INTERFACE}/statistics/rx_bytes`"
-  TX_BYTES="`cat /sys/class/net/${ACTIVE_INTERFACE}/statistics/tx_bytes`"
-  echo -n "$RX_BYTES" > /var/local/sns/rx_bytes_session
-  echo -n "$TX_BYTES" > /var/local/sns/tx_bytes_session
-  RX_BYTES_MONTH=`cat /var/local/sns/rx_bytes_month`
+  read RX_BYTES </sys/class/net/${ACTIVE_INTERFACE}/statistics/rx_bytes
+  read TX_BYTES </sys/class/net/${ACTIVE_INTERFACE}/statistics/tx_bytes
+  echo "$RX_BYTES" > /var/local/sns/rx_bytes_session
+  echo "$TX_BYTES" > /var/local/sns/tx_bytes_session
+  read RX_BYTES_MONTH </var/local/sns/rx_bytes_month
   RX_BYTES_MONTH=`expr $RX_BYTES_MONTH + $RX_BYTES`
-  echo -n "$RX_BYTES_MONTH" > /var/local/sns/rx_bytes_month
-  TX_BYTES_MONTH=`cat /var/local/sns/tx_bytes_month`
+  echo "$RX_BYTES_MONTH" > /var/local/sns/rx_bytes_month
+  read TX_BYTES_MONTH </var/local/sns/tx_bytes_month
   TX_BYTES_MONTH=`expr $TX_BYTES_MONTH + $TX_BYTES`
-  echo -n "$TX_BYTES_MONTH" > /var/local/sns/tx_bytes_month
+  echo "$TX_BYTES_MONTH" > /var/local/sns/tx_bytes_month
  fi
 fi
+
+which rfkill &>/dev/null && rfkill unblock all #110919 jemimah has this in fluppy. if don't do this, may be locked at next boot.
 
 ##111107 ldolse: unmount network shares before taking down the network
 ##(see 111106, need to do it sooner, but 111106 will remount read-only if failed to umount here)
 #for MOUNTPOINT in `mount | grep '^//' | cut -d  ' ' -f 3 | tr '\n' ' '`
 #do
 # umount -f $MOUNTPOINT
-#done 
+#done
 ##120219 hmmm, zekebaby reports above does not work for him. i looked up an ex: mount -t nfs boffo.clowns.org:/home/bozo /mnt/bozo
 ##so this is zekebaby's patch: (see http://murga-linux.com/puppy/viewtopic.php?p=605451#605451)
 #for MOUNTPOINT in `mount | grep ':' | cut -d  ' ' -f 3 | tr '\n' ' '`
@@ -301,13 +329,15 @@ if [ $PUPMODE -eq 5 ];then #ifpupmode5
  #note, shutdownconfig normally called via /usr/bin/wmreboot or wmpoweroff when want shutdown from X.
  unset PUPSAVE SAVEFS SAVEPART SAVEFILE NAMEONLY SAVEPATH MYPASSWORD SFEXT xPDEV xDEVFS
  if [ ! -f /tmp/shutdownconfig_results ];then
+  clear >/dev/console
   shutdownconfig
+  clear >/dev/console
  fi
  if [ -s /tmp/shutdownconfig_results ];then
 . /tmp/shutdownconfig_results #supplies variables PUPMODE SAVEFS PUPSAVE SAVEPART SAVEFILE NAMEONLY SAVEPATH MYPASSWORD SFEXT
   rm -f /tmp/shutdownconfig_results #precaution.
  fi
- 
+
 fi #end ifpupmode5
 
 #w481 if low-ram, save-file is on a fast media, and no swap file/partition, then create one...
@@ -315,16 +345,16 @@ fi #end ifpupmode5
 swapfile_func() {
  localSMNTPT="$1"
  localSAVEPART="$2"
- if [ ! -f ${localSMNTPT}/pupswap.swp ];then
-  if [ "$ATADRIVES" ];then #see /etc/rc.d/PUPSTATE 100912
+ [ -f ${localSMNTPT}/pupswap.swp ] && return 0
+ [ "$ATADRIVES" ] || return 0 #see /etc/rc.d/PUPSTATE 100912
    TOTALRAM=`free | grep -o 'Mem: .*' | tr -s ' ' | cut -f 2 -d ' '` #110405
-   if [ $TOTALRAM -lt 262145 ];then #was 128000, bump up <=256MB.
+   [ $TOTALRAM -lt 262145 ] || return 0 #was 128000, bump up <=256MB.
     TOTALSWAP=`free | grep -o 'Swap: .*' | tr -s ' ' | cut -f 2 -d ' '` #110405
-    if [ $TOTALSWAP -eq 0 ];then
+    [ $TOTALSWAP -eq 0 ] || return 0
      spPATTERN="`echo -n "$localSAVEPART" | sed -e 's/[0-9]*$//'` " #100912 ex: 'sda '
      if [ "`echo "$ATADRIVES" | grep "$spPATTERN"`" != "" ];then #100912
       smPATTERN=' '"$localSMNTPT"'$'
-      FREESAVEM=`df -m | grep "$smPATTERN" | tr -s ' ' | cut -f 4 -d ' '`
+      FREESAVEM=`/bin/df -m | grep "$smPATTERN" | tr -s ' ' | cut -f 4 -d ' '`
       SWPSIZE=""
       [ $FREESAVEM -gt 100 ] && SWPSIZE="50"
       [ $FREESAVEM -gt 200 ] && SWPSIZE="100"
@@ -350,10 +380,6 @@ swapfile_func() {
        sync
       fi
      fi
-    fi
-   fi
-  fi
- fi
 } #end swapfile_func
 
 if [ "$PUPSAVE" != "" ];then
@@ -362,8 +388,6 @@ if [ "$PUPSAVE" != "" ];then
  SAVEPART="`echo -n "$PUPSAVE" | cut -f 1 -d ','`"
  SAVEFILE="`echo -n "$PUPSAVE" | cut -f 3 -d ','`"
 fi
-
-clear >/dev/console
 
 #121104 move some code up, to before saving session...
 cp -f /etc/profile /var/local/etc_profile_at_shutdown #110217 bad hack, see /etc/rc.d/rc.update.
@@ -374,30 +398,35 @@ echo -n "$DATESAVE" > /var/local/shutdown_date_saved
 #are screened out. however, some PUPMODES mount ${DISTRO_FILE_PREFIX}save.2fs directly on /initrd/pup_rw,
 #the top unionfs layer, meaning that there is no intermediary tmpfs in ram for working
 #files, hence everything is saved directly, ditto for PUPMODE=2 a full h.d. install.
-#hence need to do some explicit wiping here...
-echo -n "" > /var/log/messages #delete, as it keeps growing.(note choosepartfunc uses this)
-rm -f /var/log/X*
+#hence need to do some explicit wiping here to save space...
+[ "$PUPMODE" = 12 -o "$PUPMODE" = 13 -o "$PUPMODE" = 77 ] && SAVESPACE=yes
+grep rootfs /proc/mounts | grep -qw 'rw' && {
 #120409 experimenting with minit, i discovered this line is killing mingetty. initrd.gz wipes it, have added code to wipe for full hd install at bootup...
 #rm -rf /tmp/*
 rm -f /var/lock/LCK*
 rm -f /var/run/*.pid
-rm -rf /root/tmp 2> /dev/null #...note, not screening this out in any of above save modes.
-rm -rf /root/.thumbnails/* 2> /dev/null
-[ -d /var/tmp ] && rm -rf /var/tmp/* 2> /dev/null #100820
+[ -d /root/tmp -a "`readlink -f /root/tmp`" != '/tmp' ] && { rm -rf /root/tmp/*; rm -rf /root/tmp/.[a-zA-Z0-9]*; }  #...note, not screening this out in any of above save modes. ???
+rm -rf /root/.thumbnails/*
+[ "$SAVESPACE" = yes -a -d /var/tmp ] && rm -rf /var/tmp/*;rm -rf /var/tmp/.[a-zA-Z0-9]*; } #100820
 #110808 L18L if geany still running at shutdown, need these...
-rm -f /tmp/geany_socket* 2>/dev/null
-[ -d /root/.config/geany ] && rm -f /root/.config/geany/geany_socket* 2>/dev/null
+rm -f /tmp/geany_socket*
+[ -d /root/.config/geany ] && rm -f /root/.config/geany/geany_socket*
 [ -f /etc/rc.d/MORESFS ] && rm /etc/rc.d/MORESFS
+}
 sync
 
 #save session...
 case $PUPMODE in
- 3) #PDEV1.
-   echo "$(eval_gettext "Saving session to \${PDEV1}...")" >/dev/console #121104
-   #echo "Saving session to $PDEV1..." >/dev/console
-   /usr/sbin/snapmergepuppy /initrd/pup_ro1 /initrd/pup_rw
+ 5) #v2.02 first boot/shutdown, chosen not to save session .
+  echo "$(gettext "Session not saved")" >/dev/console
+  #echo "Session not saved" >/dev/console
+  sync
+  #ha ha, before had this, if aborted save after choosing save-partition, code
+  #further down wiped all of the partition (it was mntd on /tmp/savepup)...
+  [ ! "$SMNTPT" = "" ] && umount $SMNTPT 2>/dev/null
+  #...well, fixed it, changed mntpt so not in /tmp. Leave above line here.
   ;;
- 32) #first shutdown, save back to PDEV1. v3.97: xPDEV
+ 32) #first boot/shutdown, save back to PDEV1. v3.97: xPDEV
   echo "$(eval_gettext "Saving session to \${xPDEV}...")" >/dev/console #121104
   DEV1MNT="`mount | grep "/dev/$xPDEV" | tr -s " " | cut -f 3 -d " "`"
   if [ "$DEV1MNT" = "" ];then
@@ -424,22 +453,10 @@ case $PUPMODE in
 
   #w481 if low-ram, save-file is on a fast media, and no swap file/partition, then create one...
   swapfile_func $DEV1MNT $xPDEV
-  
+
   umount $DEV1MNT 2> /dev/null
   ;;
- 7) #PDEV1 and PUPSFS.
-   echo "$(eval_gettext "Saving session to \${PDEV1}...")" >/dev/console
-   #echo "Saving session to $PDEV1..." >/dev/console
-   /usr/sbin/snapmergepuppy /initrd/pup_ro1 /initrd/pup_rw
-  ;;
- 13) #PDEV1 and PUPSFS and PUPSAVE
-  #/initrd/pup_rw has tmpfs, pup_ro1 has ${DISTRO_FILE_PREFIX}save.2fs file (PUPSAVE), pup_ro2 has PUPSFS file.
-  #the above are in unionfs at /.
-  echo "$(eval_gettext "Saving session to \${SAVEFILE} (\${SAVEPART})...")" >/dev/console
-  #echo "Saving session to $SAVEFILE (${SAVEPART})..." >/dev/console
-  /usr/sbin/snapmergepuppy /initrd/pup_ro1 /initrd/pup_rw
-  ;;
- 128) #1st shutdown, save to ${DISTRO_FILE_PREFIX}save.2fs.
+ 128) #1st boot/shutdown, save to ${DISTRO_FILE_PREFIX}save.2fs.
   #partition already mounted on $SMNTPT.
   echo "$(eval_gettext "Saving session to \${SAVEFILE} file on \${SAVEPART} partition...")" >/dev/console
   #echo "Saving session to $SAVEFILE file on $SAVEPART partition..." >/dev/console
@@ -467,7 +484,7 @@ case $PUPMODE in
    [ ! $? -eq 0 ] && exit 1
    mount -t $FILEFS -o noatime,rw $DEVLOOP /tmp/save1stpup
   fi
-  
+
   #floppy disk has little space. snapmergepuppy handles this for subsequent saves, but for now,
   #be radical, only save /etc...
   if [ "$SAVEPART" = "fd0" ];then
@@ -499,7 +516,7 @@ case $PUPMODE in
 
   #w481 if low-ram, save-file is on a fast media, and no swap file/partition, then create one...
   swapfile_func $SMNTPT $SAVEPART
-   
+
   umount $SMNTPT 2> /dev/null
 
   #100917 booted from usbflash, saved to partition other than boot...
@@ -519,7 +536,7 @@ case $PUPMODE in
     [ "$fUMNT" = "yes" ] && umount /dev/$PDEV1
    fi
   fi
-  
+
  ;;
  69) #save to folder on multisession CD/DVD (including 1st shutdown). (5+64=69) NOT used
   multisavefunc
@@ -527,30 +544,47 @@ case $PUPMODE in
  77) #save to folder on multisession CD/DVD (including 1st shutdown). (13+64=77)
   multisavefunc
   ;;
- 2)
+ 2) #normal traditional full installation to common harddrive partition
   echo "$(eval_gettext "\${PDEV1} mounted directly, session already saved.")" >/dev/console
   #echo "$PDEV1 mounted directly, session already saved." >/dev/console
   ;;
- 12)
+ 6) #frugal/full hybrid installation to common harddrive partition
+  echo "$(eval_gettext "\${PDEV1} mounted directly top layer, session already saved.")" >/dev/console
+  #echo "$PDEV1 mounted directly top layer, session already saved." >/dev/console
+  ;;
+ 12) #frugal installation with save-file into common harddrive partition
   TXT=`basename $SAVEFILE`
   echo "$(eval_gettext "\${TXT} mounted directly top layer, session already saved.")" >/dev/console
   #echo "`basename $SAVEFILE` mounted directly top layer, session already saved." >/dev/console
   ;;
- 6)
-  echo "$(eval_gettext "\${PDEV1} mounted directly top layer, session already saved.")" >/dev/console
-  #echo "$PDEV1 mounted directly top layer, session already saved." >/dev/console
+ 3) #PDEV1. #full installation to internal flash/ssd memory device
+   ask_to_save_function
+   [ $? = 0 ] && {
+   echo "$(eval_gettext "Saving session to \${PDEV1}...")" >/dev/console #121104
+   #echo "Saving session to $PDEV1..." >/dev/console
+   /usr/sbin/snapmergepuppy /initrd/pup_ro1 /initrd/pup_rw
+    }
   ;;
- 5) #v2.02 first boot.
-  echo "$(gettext "Session not saved")" >/dev/console
-  #echo "Session not saved" >/dev/console
-  sync
-  #ha ha, before had this, if aborted save after choosing save-partition, code
-  #further down wiped all of the partition (it was mntd on /tmp/savepup)...
-  [ ! "$SMNTPT" = "" ] && umount $SMNTPT 2>/dev/null
-  #...well, fixed it, changed mntpt so not in /tmp. Leave above line here.
+ 7) #PDEV1 and PUPSFS. #frugal/full hybrid installation to flash memory
+   ask_to_save_function
+   [ $? = 0 ] && {
+   echo "$(eval_gettext "Saving session to \${PDEV1}...")" >/dev/console
+   #echo "Saving session to $PDEV1..." >/dev/console
+   /usr/sbin/snapmergepuppy /initrd/pup_ro1 /initrd/pup_rw
+    }
   ;;
- *)
-  echo "$(gettext "Session not saved")" >/dev/console
+ 13) #PDEV1 and PUPSFS and PUPSAVE #frugal installation with save-file on flash memory
+  #/initrd/pup_rw has tmpfs, pup_ro1 has ${DISTRO_FILE_PREFIX}save.2fs file (PUPSAVE), pup_ro2 has PUPSFS file.
+  #the above are in unionfs at /.
+  ask_to_save_function
+  [ $? = 0 ] && {
+  echo "$(eval_gettext "Saving session to \${SAVEFILE} (\${SAVEPART})...")" >/dev/console
+  #echo "Saving session to $SAVEFILE (${SAVEPART})..." >/dev/console
+  /usr/sbin/snapmergepuppy /initrd/pup_ro1 /initrd/pup_rw
+    }
+  ;;
+ *) #unhandled
+  echo "$(gettext "Unhandled PUPMODE $PUPMODE : Session not saved")" >/dev/console
   #echo "Session not saved" >/dev/console
   sleep 2
   ;;
@@ -558,42 +592,53 @@ esac
 
 
 #120129 karl godt: need to rearrange order, refer http://murga-linux.com/puppy/viewtopic.php?t=71767&start=405 ...
-MNTDPARTS="`mount`"
-MNTDPARTS="`echo $MNTDPARTS |rev|sed 's# )#\n)#g' |rev`" #reverses order of lines.
+#MNTDPARTS="`mount`"
+MNTDPARTS=`tac /proc/mounts`
+#MNTDPARTS="`echo $MNTDPARTS |rev|sed 's# )#\n)#g' |rev`" #reverses order of lines.
 
 #echo
 #echo $(gettext "Unmounting stray filesystems:")
 echo "Unmounting stray filesystems:"
 
 #091117 110928 if partition mounted, when choose shutdown, pc rebooted. found that param given to fuser must be mount-point, not /dev/*...
-STRAYPARTL="`echo "$MNTDPARTS" | grep ' /mnt/' |grep -v -E '/dev/pts|/proc|/sys|tmpfs|rootfs|on / |/dev/root|usbfs|unionfs|aufs|/initrd'`"
-STRAYPARTD="`echo "$STRAYPARTL" | cut -f 1 -d ' ' | tr '\n' ' '`"
+STRAYPARTL=`echo "$MNTDPARTS" | grep ' /mnt/' |grep -v -E '/dev/pts|/proc|/sys|tmpfs|rootfs| / |/dev/root|usbfs|unionfs|aufs|/initrd'`
+STRAYPARTD=`echo "$STRAYPARTL" | cut -f 1 -d ' '`
 #111106 do not execute fuser if network share mount (may hang, see http://murga-linux.com/puppy/viewtopic.php?t=73122)...
-STRAYPARTandMNT="`echo "$STRAYPARTL" | cut -f 1,3 -d ' ' | tr ' ' '|' | tr '\n' ' '`"
+STRAYPARTandMNT=`echo "$STRAYPARTL" | cut -f 1,2 -d ' ' | tr ' ' '|'`
 for ONESTRAY in $STRAYPARTandMNT
 do
- FLAGCIFS="`echo -n ${ONESTRAY} | grep '^//'`"
- ONESTRAYMNT="`echo -n ${ONESTRAY} | cut -f 2 -d '|'`"
+ FLAGCIFS=`echo -n ${ONESTRAY} | grep '^//'`
+ ONESTRAYMNT=`echo -n ${ONESTRAY} | cut -f 2 -d '|'`
+ ONESTRAYMNT=`busybox echo -e "$ONESTRAYMNT"`  #echo -e translates spechial ascii chars like \040 to their literals . Had problems with bash-3.00, so using busybox.
  #echo "`eval_gettext \"Unmounting \\\${ONESTRAY}...\"`"
  echo "Unmounting $ONESTRAYMNT..."
- if [ "$FLAGCIFS" = "" ];then
-  xFUSER="`fuser -m $ONESTRAYMNT 2>/dev/null`"
-  [ "$xFUSER" != "" ] && fuser -k -m $ONESTRAYMNT 2>/dev/null
+ if [ ! "$FLAGCIFS" ];then
+  xFUSER=`fuser -m "$ONESTRAYMNT" 2>/dev/null`
+  [ "$xFUSER" ] && fuser -k -m "$ONESTRAYMNT" 2>/dev/null
  fi
  killzombies #v3.99
  sync
- umount -r $ONESTRAYMNT #120103 karl godt.
+ umount -r "$ONESTRAYMNT" #120103 karl godt.
 done
 
-swapoff -a #works only if swaps are in mtab or ftab 
+if [ "`swapoff --version 2>&1 | grep 'util\-linux'`" ] ; then
+#busybox swapoff -a works only if swaps are in mtab or ftab, has no -v option
+swapoff -av
+sleep 1 #to update /proc/swaps
+fi
+
+#now for other swapoff like busybox swapoff :
+which swapoff 2>/dev/null && {
 #v2.13 menno suggests this improvement...
-STRAYPARTD="`cat /proc/swaps | grep "/dev/" | cut -f 1 -d " " | tr "\n" " "`"
+STRAYPARTD=`grep "/dev/" /proc/swaps | cut -f 1 -d " " | grep -v 'deleted'`
 for ONESTRAY in $STRAYPARTD
 do
  #echo "`eval_gettext \"Swapoff \\\${ONESTRAY}\"`"
  echo "Swapoff $ONESTRAY"
  swapoff $ONESTRAY
 done
+} || echo -e '\033[1;31m'"WARNING : Please install swapoff ."'\033[0;39m'
+
 sync
 
 #rm -f /tmp/wmexitmode.txt
