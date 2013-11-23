@@ -49,7 +49,7 @@
 #130219 grep, ignore case.
 #130305 rerwin: ensure tmp directory has all permissions after package expansion.
 #130314 install arch linux pkgs. run arch linux pkg post-install script.
-#131122 support xz compressed pets (see dir2pet, pet2tgz)
+#131122 support xz compressed pets (see dir2pet, pet2tgz), changed file test
 
 #information from 'labrador', to expand a .pet directly to '/':
 #NAME="a52dec-0.7.4"
@@ -150,7 +150,7 @@ cd $DLPKG_PATH
 case $DLPKG_BASE in
  *.pet)
   # determine compression
-  file "$DLPKG_BASE" | grep -q xz && EXT=xz || EXT=gz #131122
+  file -b "$DLPKG_BASE" | grep -q "^xz" && EXT=xz || EXT=gz #131122
   case $EXT in
   xz)OPT=-J ;;
   gz)OPT=-z ;;
@@ -257,7 +257,7 @@ case $DLPKG_BASE in
 esac
 
 rm -f $DLPKG_BASE 2>/dev/null
-rm -f $DLPKG_MAIN.tar.gz 2>/dev/null
+rm -f $DLPKG_MAIN.tar.${EXT} 2>/dev/null #131122
 
 #pkgname.files may need to be fixed...
 FIXEDFILES="`cat /root/.packages/${DLPKG_NAME}.files | grep -v '^\\./$'| grep -v '^/$' | sed -e 's%^\\.%%' -e 's%^%/%' -e 's%^//%/%'`"
