@@ -49,6 +49,7 @@
 #130219 grep, ignore case.
 #130305 rerwin: ensure tmp directory has all permissions after package expansion.
 #130314 install arch linux pkgs. run arch linux pkg post-install script.
+#131122 support xz compressed pets (see dir2pet, pet2tgz), changed file test
 
 #information from 'labrador', to expand a .pet directly to '/':
 #NAME="a52dec-0.7.4"
@@ -148,10 +149,16 @@ cd $DLPKG_PATH
 
 case $DLPKG_BASE in
  *.pet)
+  # determine compression
+  file -b "$DLPKG_BASE" | grep -q "^xz" && EXT=xz || EXT=gz #131122
+  case $EXT in
+  xz)OPT=-J ;;
+  gz)OPT=-z ;;
+  esac
   DLPKG_MAIN="`basename $DLPKG_BASE .pet`"
   pet2tgz $DLPKG_BASE
   [ $? -ne 0 ] && exit 1
-  PETFILES="`tar --list -z -f ${DLPKG_MAIN}.tar.gz`"
+  PETFILES="`tar --list ${OPT} -f ${DLPKG_MAIN}.tar.${EXT}`"
   #slackware pkg, got a case where passed the above test but failed here...
   [ $? -ne 0 ] && exit 1
   if [ "`echo "$PETFILES" | grep '^\\./'`" != "" ];then
@@ -159,13 +166,13 @@ case $DLPKG_BASE in
    pPATTERN="s%^\\./${DLPKG_NAME}%%"
    echo "$PETFILES" | sed -e "$pPATTERN" > /root/.packages/${DLPKG_NAME}.files
    install_path_check
-   tar -z -x --strip=2 --directory=${DIRECTSAVEPATH}/ -f ${DLPKG_MAIN}.tar.gz #120102. 120107 remove --unlink-first
+   tar ${OPT} -x --strip=2 --directory=${DIRECTSAVEPATH}/ -f ${DLPKG_MAIN}.tar.${EXT} #120102. 120107 remove --unlink-first
   else
    #new2dir and tgz2pet creates them this way...
    pPATTERN="s%^${DLPKG_NAME}%%"
    echo "$PETFILES" | sed -e "$pPATTERN" > /root/.packages/${DLPKG_NAME}.files
    install_path_check
-   tar -z -x --strip=1 --directory=${DIRECTSAVEPATH}/ -f ${DLPKG_MAIN}.tar.gz #120102. 120107
+   tar ${OPT} -x --strip=1 --directory=${DIRECTSAVEPATH}/ -f ${DLPKG_MAIN}.tar.${EXT} #120102. 120107. 131122
   fi
  ;;
  *.deb)
@@ -250,7 +257,7 @@ case $DLPKG_BASE in
 esac
 
 rm -f $DLPKG_BASE 2>/dev/null
-rm -f $DLPKG_MAIN.tar.gz 2>/dev/null
+rm -f $DLPKG_MAIN.tar.${EXT} 2>/dev/null #131122
 
 #pkgname.files may need to be fixed...
 FIXEDFILES="`cat /root/.packages/${DLPKG_NAME}.files | grep -v '^\\./$'| grep -v '^/$' | sed -e 's%^\\.%%' -e 's%^%/%' -e 's%^//%/%'`"
