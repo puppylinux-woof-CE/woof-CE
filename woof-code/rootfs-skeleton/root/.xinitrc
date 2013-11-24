@@ -78,9 +78,16 @@ if [ -f /etc/xrandrindex ];then
   if [ "$XRANDRINDEX" = "$XRANDRDEFAULT" ];then
    rm -f /etc/xrandrindex
   else
-   NEW_XY="$(echo -n "$XRANDRINDEX" | cut -f 1 -d '@')" #130202
-   NEW_VFREQ="$(echo -n "$XRANDRINDEX" | cut -f 2 -d '@')" #130202
-   xrandr -s $NEW_XY -r $NEW_VFREQ #130202
+   echo "$XRANDRINDEX"|grep -q "@"
+   case $? in
+    1)NEW_XY="$XRANDRINDEX"
+    xrandr -s $NEW_XY #131124 (see quicksetup)
+    ;;
+    *)NEW_XY="$(echo -n "$XRANDRINDEX" | cut -f 1 -d '@')" #130202
+    NEW_VFREQ="$(echo -n "$XRANDRINDEX" | cut -f 2 -d '@')" #130202
+    xrandr -s $NEW_XY -r $NEW_VFREQ #130202
+    ;;
+   esac
   fi
 fi
 
