@@ -224,14 +224,25 @@ diff -up Makefile-orig Makefile > ../dist/sources/patches/extra-version.patch
 rm Makefile-orig
 
 echo "Reducing the number of consoles"
-cp kernel/printk.c kernel/printk.c-orig
-sed -i s/'#define MAX_CMDLINECONSOLES 8'/'#define MAX_CMDLINECONSOLES 5'/ kernel/printk.c
-diff -up kernel/printk.c-orig kernel/printk.c > ../dist/sources/patches/less-consoles.patch
+if [ "$kernel_branch" -ge 12 ];then
+ cp kernel/printk/printk.c kernel/printk/printk.c-orig
+ sed -i s/'#define MAX_CMDLINECONSOLES 8'/'#define MAX_CMDLINECONSOLES 5'/ kernel/printk/printk.c
+ diff -up kernel/printk/printk.c-orig kernel/printk/printk.c > ../dist/sources/patches/less-consoles.patch
 
-echo "Reducing the verbosity level"
-cp -f kernel/printk.c kernel/printk.c-orig
-sed -i s/'#define DEFAULT_CONSOLE_LOGLEVEL 7 \/\* anything MORE serious than KERN_DEBUG \*\/'/'#define DEFAULT_CONSOLE_LOGLEVEL 3 \/\* anything MORE serious than KERN_ERR \*\/'/ kernel/printk.c
-diff -up kernel/printk.c-orig kernel/printk.c > ../dist/sources/patches/lower-verbosity.patch
+ echo "Reducing the verbosity level"
+ cp -f kernel/printk/printk.c kernel/printk/printk.c-orig
+ sed -i s/'#define DEFAULT_CONSOLE_LOGLEVEL 7 \/\* anything MORE serious than KERN_DEBUG \*\/'/'#define DEFAULT_CONSOLE_LOGLEVEL 3 \/\* anything MORE serious than KERN_ERR \*\/'/ kernel/printk/printk.c
+ diff -up kernel/printk/printk.c-orig kernel/printk/printk.c > ../dist/sources/patches/lower-verbosity.patch
+else
+ cp kernel/printk.c kernel/printk.c-orig
+ sed -i s/'#define MAX_CMDLINECONSOLES 8'/'#define MAX_CMDLINECONSOLES 5'/ kernel/printk.c
+ diff -up kernel/printk.c-orig kernel/printk.c > ../dist/sources/patches/less-consoles.patch
+
+ echo "Reducing the verbosity level"
+ cp -f kernel/printk.c kernel/printk.c-orig
+ sed -i s/'#define DEFAULT_CONSOLE_LOGLEVEL 7 \/\* anything MORE serious than KERN_DEBUG \*\/'/'#define DEFAULT_CONSOLE_LOGLEVEL 3 \/\* anything MORE serious than KERN_ERR \*\/'/ kernel/printk.c
+ diff -up kernel/printk.c-orig kernel/printk.c > ../dist/sources/patches/lower-verbosity.patch
+fi
 
 for patch in ../patches/*; do
 	echo "Applying $patch"
