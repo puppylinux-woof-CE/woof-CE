@@ -53,18 +53,7 @@ do
  REPO_DEFAULT_SUBSUBDIR="`echo -n "$LISTNAME" | cut -f 3 -d '-' | sed -e 's%xx$%%'`" #100903 ex: quirky
  #110812 hack for pets that are in quirky site at ibiblio...
  OFFICIAL_REPO='puppylinux'
- [ "$REPO_DEFAULT_SUBSUBDIR" == "quirky" ] && OFFICIAL_REPO='quirky' #100903
- [ "$REPO_DEFAULT_SUBSUBDIR" == "wary5" ] && OFFICIAL_REPO='quirky' #101014 wary5 pets also in quirky repo.
- [ "$REPO_DEFAULT_SUBSUBDIR" == "common" ] && OFFICIAL_REPO='quirky' #110812
- [ "$REPO_DEFAULT_SUBSUBDIR" == "drake" ] && OFFICIAL_REPO='quirky' #110812
- [ "$REPO_DEFAULT_SUBSUBDIR" == "noarch" ] && OFFICIAL_REPO='quirky' #120313
- [ "$REPO_DEFAULT_SUBSUBDIR" == "gap6" ] && OFFICIAL_REPO='quirky' #120515
- [ "$DISTRO_NAME" = "Precise Puppy" ] && OFFICIAL_REPO='quirky' #120908 see /etc/DISTRO_SPECS
- [ "$DISTRO_NAME" = "RetroPrecise Puppy" ] && OFFICIAL_REPO='quirky' #121105
- [ "$DISTRO_NAME" = "Precise Arm Puppy" ] && OFFICIAL_REPO='quirky' #120908
- [ "$DISTRO_NAME" = "Wheezy Arm Raspbian Puppy" ] && OFFICIAL_REPO='quirky' #120908
- [ "$DISTRO_NAME" = "Squeezed Arm Puppy" ] && OFFICIAL_REPO='quirky' #120908
- [ "$DISTRO_NAME" = "Squeezed Puppy" ] && OFFICIAL_REPO='quirky' #120908
+ #Remove BK's quirky hacks 131206
  
  case $LISTNAME in
   Packages-puppy-*) #a .pet pkg.
@@ -74,14 +63,7 @@ do
     ONEPETREPO_1_2="`echo -n "$ONEPETREPO" | cut -f 1,2 -d '|'`"
     [ "`echo -n "$LISTNAME" | grep "$ONEPETREPO_3_PATTERN"`" != "" ] && echo "${ONEPETREPO_1_2}|${LISTNAME}" >> /tmp/petget_repos
     #...ex: ibiblio.org|http://distro.ibiblio.org/pub/linux/distributions/puppylinux|Packages-puppy-4-official
-    #a hack for quirky...
-    if [ "$OFFICIAL_REPO" = "quirky" ];then #110812
-     TMPPETGETREPOS="`grep '/quirky' /tmp/petget_repos`" #100926 fix hack, one puppy repo does not have "puppylinux" in url.
-     echo "$TMPPETGETREPOS" > /tmp/petget_repos
-    else #100903
-     TMPPETGETREPOS="`grep -v '/quirky' /tmp/petget_repos`"
-     echo "$TMPPETGETREPOS" > /tmp/petget_repos
-    fi
+    
    done
   ;;
   *) #a compat pkg.
