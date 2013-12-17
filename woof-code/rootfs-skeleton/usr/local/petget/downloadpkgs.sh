@@ -136,9 +136,6 @@ do
  #RADIO_URL_repository.slacky.eu="true"
  #EXIT="BUTTON_PKGS_DOWNLOAD"
  
- #eval "$RETPARAMS"
-
- #[ "$EXIT" != "BUTTON_PKGS_DOWNLOAD" ] && exit 1
  [ "`echo "$RETPARAMS" | grep 'BUTTON_PKGS_DOWNLOAD'`" = "" ] && exit 1
 
  #determine the url to download from....
@@ -228,7 +225,6 @@ ${BADMSG3}"
    cp -f ${LOCALDIR}/${ONEFILE} ./
   else
    #100527 need fix if |path| field of pkg database was empty... 100903 improve...
-   #[ "$ONEPATH" == "" ] && ONEFILE="pet_packages-${ONEREPOID}${ONEFILE}"
    if [ "$ONEPATH" == "" ];then #120515
     if [ "$FLAGPET" != "yes" ];then
      ONEFILE="compat_packages-${REPO_DEFAULT_SUBSUBDIR}${ONEFILE}"
@@ -237,7 +233,6 @@ ${BADMSG3}"
     fi
    fi
    #101116 now have a download utility...
-   #rxvt -title "Puppy Package Manager: download" -bg orange -fg black -geometry 80x10 -e wget ${DOWNLOADFROM}/${ONEFILE}
    export DL_F_CALLED_FROM='ppm' #121019
    download_file ${DOWNLOADFROM}/${ONEFILE}
    if [ $? -ne 0 ];then #101116
@@ -256,7 +251,6 @@ ${BADMSG3}"
     #...appends pkgname and category to /tmp/petget-installed-pkgs-log if successful.
    fi
    if [ $? -ne 0 ];then
-    #xmessage -bg red -title "Puppy Package Manager" "ERROR: faulty download of $DLPKG"
     export FAIL_DIALOG="<window title=\"$(gettext 'Puppy Package Manager')\" icon-name=\"gtk-about\">
   <vbox>
   <pixmap><input file>/usr/local/lib/X11/pixmaps/error.xpm</input></pixmap>
@@ -271,13 +265,7 @@ ${BADMSG3}"
    fi
    #already removed, but take precautions...
    [ "$PASSEDPARAM" != "DOWNLOADONLY" ] && rm -f /root/$DLPKG 2>/dev/null
-   #DLPKG_NAME="`basename $DLPKG .pet`" 2>/dev/null
-   #DLPKG_NAME="`basename $DLPKG .deb`" 2>/dev/null
-   #DLPKG_NAME="`basename $DLPKG .tgz`" 2>/dev/null
-   #DLPKG_NAME="`basename $DLPKG .tar.gz`" 2>/dev/null
-   #rm -rf /root/$DLPKG_NAME
   else
-   #xmessage -bg red -title "Puppy Package Manager" "ERROR: Failed to download ${DLPKG}"
    export FAIL_DIALOG="<window title=\"$(gettext 'Puppy Package Manager')\" icon-name=\"gtk-about\">
   <vbox>
   <pixmap><input file>/usr/local/lib/X11/pixmaps/error.xpm</input></pixmap>
@@ -416,7 +404,6 @@ if [ -s /tmp/petget-installed-pkgs-log ];then
   RETPARAMS="`gtkdialog3 --program=TRIM_DIALOG`"
   eval "$RETPARAMS"
   [ "$EXIT" != "OK" ] && exit $EXITVAL
-#  /usr/X11R7/bin/yaf-splash -font "8x16" -outline 0 -margin 4 -bg orange -text "Please wait, trimming fat from packages..." &
   yaf-splash -bg orange -text "$(gettext 'Please wait, trimming fat from packages...')" &
   X4PID=$!
   elPATTERN="`echo -n "$ENTRY_LOCALE" | tr ',' '\n' | sed -e 's%^%/%' -e 's%$%/%' | tr '\n' '|'`"

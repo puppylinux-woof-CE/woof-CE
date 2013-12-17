@@ -30,7 +30,6 @@ export OUTPUT_CHARSET=UTF-8
 DB_pkgname="$TREE2"
 
 #v424 info box, nothing yet installed...
-#if [ "$DB_pkgname" = "" ];then
 if [ "$DB_pkgname" = "" -a "`cat /root/.packages/user-installed-packages`" = "" ];then #fix for ziggi
  export REM_DIALOG="<window title=\"$(gettext 'Puppy Package Manager')\" icon-name=\"gtk-about\">
   <vbox>
@@ -80,14 +79,12 @@ if [ -f /root/.packages/${DB_pkgname}.files ];then
   while read ONESPEC
   do
    if [ ! -d "$ONESPEC" ];then
-    #if [ -e "/initrd/pup_ro2$ONESPEC" ];then
     #120103 shinobar: better way of doing this, look all lower layers...
     S=$(ls /initrd/pup_ro{?,??}"$ONESPEC" 2>/dev/null| grep -v '^/initrd/pup_ro1/'| head -n 1)	# pup_ro2 - pup_ro99
     if [ "$S" ]; then
      #the problem is, deleting the file on the top layer places a ".wh" whiteout file,
      #that hides the original file. what we want is to remove the installed file, and
      #restore the original pristine file...
-     #cp -a --remove-destination "/initrd/pup_ro2$ONESPEC" "$ONESPEC"
      cp -a --remove-destination "$S" "$ONESPEC" #120103 shinobar.
      #120103 apparently for odd# PUPMODEs, save layer may have a lurking old file and/or whiteout...
      if [ $PUPMODE -eq 3 -o $PUPMODE -eq 7 -o $PUPMODE -eq 13 ];then
@@ -170,7 +167,6 @@ fi
 
 #what about any user-installed deps...
 remPATTERN='^'"$DB_pkgname"'|'
-#DEP_PKGS="`grep -v "$remPATTERN" /root/.packages/user-installed-packages | cut -f 9 -d '|' | tr ',' '\n' | grep -v '^\\-' | sed -e 's%^+%%'`"
 #110211 shinobar: was the dependency logic inverted...
 DEP_PKGS="`grep "$remPATTERN" /root/.packages/user-installed-packages | cut -f 9 -d '|' | tr ',' '\n' | grep -v '^\\-' | sed -e 's%^+%%'`"
 
@@ -205,7 +201,6 @@ do
 done
 EXTRAMSG=""
 if [ -s /tmp/petget-deps-maybe-rem ];then
- #MAYBEREM="`cat /tmp/petget-deps-maybe-rem`" # wrap=\"false\"
  #nah, just list the names, not descriptions...
  MAYBEREM="`cat /tmp/petget-deps-maybe-rem | cut -f 1 -d ' ' | tr '\n' ' '`"
  EXTRAMSG="<text><label>$(gettext 'Perhaps you do not need these dependencies that you had also installed:')</label></text> <text use-markup=\"true\"><label>\"<b>${MAYBEREM}</b>\"</label></text><text><label>$(gettext "...if you do want to remove them, you will have to do so back on the main window, after clicking the 'Ok' button below (perhaps make a note of the package names on a scrap of paper right now)")</label></text>"

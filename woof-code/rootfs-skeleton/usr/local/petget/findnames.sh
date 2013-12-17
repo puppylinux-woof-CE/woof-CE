@@ -30,7 +30,6 @@ export OUTPUT_CHARSET=UTF-8
 . /root/.packages/DISTRO_PET_REPOS #has PET_REPOS, PACKAGELISTS_PET_ORDER
 
 #120504 Mavrothal:
-#entryPATTERN='^'"`echo -n "$ENTRY1" | sed -e 's%\\-%\\\\-%g' -e 's%\\.%\\\\.%g' -e 's%\\*%.*%g'`"
 if [ "$ENTRY1" = "" ] ; then
  exit 0
 fi
@@ -73,7 +72,6 @@ SEARCH_REPOS_FLAG="current"
 if [ "$SEARCH_REPOS_FLAG" = "current" ];then #120504
  REPOLIST="$CURRENTREPO"
 else
- #REPOLIST="${CURRENTREPO} `cat /tmp/petget_active_repo_list | grep -v "$CURRENTREPO" | tr '\n' ' '`" #repo-triads list.
  REPOLIST="`echo "$ALLACTIVEREPOS"  | tr '\n' ' '`"
 fi
 
@@ -85,26 +83,13 @@ do
  #120827 need nameonly field (#2)...
  #120811 need category field (#5), and subcategory part of it...
  #120504 Mavrothal:
- #FNDENTRIES="`cat /root/.packages/Packages-${ONEREPO} | grep -i "$entryPATTERN"`"
  if [ "$entryPATTERN4" != "" ]; then
-  #FNDENTRIES="`cat /root/.packages/Packages-${ONEREPO} | cut -f1,10 -d \| | grep -i "$entryPATTERN1" | grep -i "$entryPATTERN2" | grep -i "$entryPATTERN3" | grep -i "$entryPATTERN4"`"
-  #FNDENTRIES="`cat /root/.packages/Packages-${ONEREPO} | cut -f1,5,10 -d \| | cut -f 2-99 -d ';' | grep -i "$entryPATTERN1" | grep -i "$entryPATTERN2" | grep -i "$entryPATTERN3" | grep -i "$entryPATTERN4"`"
-  #FNDENTRIES="`cat /root/.packages/Packages-${ONEREPO} | cut -f1,5,10 -d \| | grep -i "$entryPATTERN1" | grep -i "$entryPATTERN2" | grep -i "$entryPATTERN3" | grep -i "$entryPATTERN4"`" #120819
   FNDENTRIES="`cat /root/.packages/Packages-${ONEREPO} | cut -f1,2,3,5,10 -d \| | grep -i "$entryPATTERN1" | grep -i "$entryPATTERN2" | grep -i "$entryPATTERN3" | grep -i "$entryPATTERN4"`" #120827
  elif [ "$entryPATTERN3" != "" ]; then
-  #FNDENTRIES="`cat /root/.packages/Packages-${ONEREPO} | cut -f1,10 -d \| | grep -i "$entryPATTERN1" | grep -i "$entryPATTERN2" | grep -i "$entryPATTERN3"`"
-  #FNDENTRIES="`cat /root/.packages/Packages-${ONEREPO} | cut -f1,5,10 -d \| | cut -f 2-99 -d ';' | grep -i "$entryPATTERN1" | grep -i "$entryPATTERN2" | grep -i "$entryPATTERN3"`"
-  #FNDENTRIES="`cat /root/.packages/Packages-${ONEREPO} | cut -f1,5,10 -d \| | grep -i "$entryPATTERN1" | grep -i "$entryPATTERN2" | grep -i "$entryPATTERN3"`" #120819
   FNDENTRIES="`cat /root/.packages/Packages-${ONEREPO} | cut -f1,2,3,5,10 -d \| | grep -i "$entryPATTERN1" | grep -i "$entryPATTERN2" | grep -i "$entryPATTERN3"`" #120827
  elif [ "$entryPATTERN2" != "" ]; then
-  #FNDENTRIES="`cat /root/.packages/Packages-${ONEREPO} | cut -f1,10 -d \| | grep -i "$entryPATTERN1" | grep -i "$entryPATTERN2"`"
-  #FNDENTRIES="`cat /root/.packages/Packages-${ONEREPO} | cut -f1,5,10 -d \| | cut -f 2-99 -d ';' | grep -i "$entryPATTERN1" | grep -i "$entryPATTERN2"`"
-  #FNDENTRIES="`cat /root/.packages/Packages-${ONEREPO} | cut -f1,5,10 -d \| | grep -i "$entryPATTERN1" | grep -i "$entryPATTERN2"`" #120819
   FNDENTRIES="`cat /root/.packages/Packages-${ONEREPO} | cut -f1,2,3,5,10 -d \| | grep -i "$entryPATTERN1" | grep -i "$entryPATTERN2"`" #120827
  else
-  #FNDENTRIES="`cat /root/.packages/Packages-${ONEREPO} | cut -f1,10 -d \| | grep -i "$entryPATTERN1"`"
-  #FNDENTRIES="`cat /root/.packages/Packages-${ONEREPO} | cut -f1,5,10 -d \| | cut -f 2-99 -d ';' | grep -i "$entryPATTERN1"`"
-  #FNDENTRIES="`cat /root/.packages/Packages-${ONEREPO} | cut -f1,5,10 -d \| | grep -i "$entryPATTERN1"`" #120819
   FNDENTRIES="`cat /root/.packages/Packages-${ONEREPO} | cut -f1,2,3,5,10 -d \| | grep -i "$entryPATTERN1"`" #120827
  fi
 
@@ -112,11 +97,6 @@ do
   FIRSTCHAR="`echo "$FNDENTRIES" | cut -c 1 | tr '\n' ' ' | sed -e 's% %%g'`"
   #write these just in case needed...
   ALPHAPRE="`cat /tmp/petget_pkg_first_char`"
-  #if [ "$ALPHAPRE" != "ALL" ];then
-  # echo "$FIRSTCHAR" > /tmp/petget_pkg_first_char
-  #fi
-  #echo "ALL" > /tmp/petget_filtercategory
-  #echo "$ONEREPO" > /tmp/petget/current-repo-triad #ex: slackware-12.2-official. 120504 BK remove.
   #this is read when update TREE1 in pkg_chooser.sh...
   #echo "$FNDENTRIES" | cut -f 1,10 -d '|' > /tmp/petget/filterpkgs.results
   repoPTN="s%$%|${ONEREPO}|%" #note, '|' on the end also, needed below by printcols.
@@ -157,13 +137,11 @@ else
   if [ -s /tmp/petget/filterpkgs.results.installed ];then
    #change category field to "tick" (postfilerpkgs.sh converts this to "mini-tick", which will display /usr/local/lib/X11/mini-icons/mini-tick.xpm)...
    #120908 now have version field (in field #3), ex: xserver-xorg-video-radeon_6.14.99|xserver-xorg-video-radeon|6.14.99|BuildingBlock|X.Org X server -- AMD/ATI Radeon display driver|puppy-noarch-official|
-   #sed -e 's%|%FIRSTPIPECHAR%' -e 's%|[^|]*%|tick%' -e 's%|tick|%|tick|(ALREADY INSTALLED) %' -e 's%FIRSTPIPECHAR%|%' /tmp/petget/filterpkgs.results.installed >> /tmp/petget/filterpkgs.results
-   sed -e 's%|%ONEPIPECHAR%' -e 's%|%ONEPIPECHAR%' -e 's%|[^|]*%|tick%' -e 's%|tick|%|tick|(ALREADY INSTALLED) %' -e 's%ONEPIPECHAR%|%g' /tmp/petget/filterpkgs.results.installed >> /tmp/petget/filterpkgs.results
+    sed -e 's%|%ONEPIPECHAR%' -e 's%|%ONEPIPECHAR%' -e 's%|[^|]*%|tick%' -e 's%|tick|%|tick|(ALREADY INSTALLED) %' -e 's%ONEPIPECHAR%|%g' /tmp/petget/filterpkgs.results.installed >> /tmp/petget/filterpkgs.results
    #ex: xserver-xorg-video-radeon_6.14.99|xserver-xorg-video-radeon|6.14.99|tick|(ALREADY INSTALLED) X.Org X server -- AMD/ATI Radeon display driver|puppy-noarch-official|
   fi
  fi
  #remove field #2, so file is same as generated by filterpkgs.sh, and as expected by postfilterpkgs.sh... 120908 remove #3...
- #cut -f 1,3,4,5,6 -d '|' /tmp/petget/filterpkgs.results > /tmp/petget/filterpkgs.results1
  cut -f 1,4,5,6,7 -d '|' /tmp/petget/filterpkgs.results > /tmp/petget/filterpkgs.results1 #note, retain | on end.
  mv -f /tmp/petget/filterpkgs.results1 /tmp/petget/filterpkgs.results
  
@@ -180,12 +158,6 @@ else
   #note, printcols (see support/printcols.c in Woof) needs a '|' on the end to work.
   #120811 format in /tmp/petget/filterpkgs.results.post now: pkgname|subcategory|description|dbfile, 
   # ex: htop-0.9-i486|System|View Running Processes|puppy-wary5-official (previously was: pkgname|description|dbfile)
-  #FLG_APPICONS="`cat /var/local/petget/flg_appicons`"
-  #if [ "$FLG_APPICONS" = "true" ];then
-  # POSTPROCLIST="`printcols /tmp/petget/filterpkgs.results.post 1 2 4 3 4 | sed -e 's%|%FIRSTBARCHAR%' -e 's%|%SECBARCHAR[%' -e 's%|%] %' -e 's%FIRSTBARCHAR%|%' -e 's%SECBARCHAR%|%'`"
-  #else
-  # POSTPROCLIST="`printcols /tmp/petget/filterpkgs.results.post 1 3 2 3 | sed -e 's%|%FIRSTBARCHAR[%' -e 's%|%] %' -e 's%FIRSTBARCHAR%|%'`"
-  #fi
   POSTPROCLIST="`printcols /tmp/petget/filterpkgs.results.post 1 2 4 3 4 | sed -e 's%|%FIRSTBARCHAR%' -e 's%|%SECBARCHAR[%' -e 's%|%] %' -e 's%FIRSTBARCHAR%|%' -e 's%SECBARCHAR%|%'`"
   echo "$POSTPROCLIST" > /tmp/petget/filterpkgs.results.post
   #ex line: abiword-1.2.3|[puppy-4-official] Abiword word processor|puppy-4-official|

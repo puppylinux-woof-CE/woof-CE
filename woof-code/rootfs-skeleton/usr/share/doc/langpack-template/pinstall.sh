@@ -13,11 +13,8 @@
 
 echo "Post install script for TARGETLANG language pack"
 
-#if [ "$LANG" = "C" ];then #in case caller script did this.
  LANG="`grep '^LANG=' /etc/profile | cut -f 2 -d '=' | cut -f 1 -d ' '`"
  export LANG
-#fi
-#LANG1="`echo -n $LANG | cut -f 1 -d '_'`"  #ex: de
 LANG1="`cat pet.specs | cut -d'-' -f1 | cut -d'_' -f2-`" #130503 L18L: langpack may be different from current LANG setting.
 
 if [ -d usr/share/applications.in ];then #refer: /usr/sbin/momanager
@@ -51,9 +48,6 @@ if [ -d usr/share/applications.in ];then #refer: /usr/sbin/momanager
    fi
   fi
  done
- #rm -r -f usr/share/applications.in
- #...don't remove it. might be useful for ppm when install future packages.
- #...120926 yes, applications.in now handled in /usr/local/petget/installpkgs.sh.
 fi
 
 if [ -d usr/share/desktop-directories.in ];then
@@ -100,14 +94,6 @@ rm /tmp/appinfoLABLE /tmp/appinfoXMLLABLE
 echo "...merge AppInfo.xml.in with AppInfo.xml finished"
 
 #120830 improved...
-#120315 maybe have hunspell dictionaries in langpack (see also momanager)...
-#note: same code also in woof 3builddistro.
-#for ONEHUN in `find ./usr/share/hunspell -mindepth 1 -maxdepth 1 -type f -name '*.dic' -o -name '*.aff' | tr '\n' ' '`
-#do
-# HUNBASE="`basename $ONEHUN`"
-# [ -e ./usr/lib/seamonkey ] && ln -snf ../../../share/hunspell/${HUNBASE} ./usr/lib/seamonkey/dictionaries/${HUNBASE}
-# [ -e ./usr/lib/firefox ] && ln -snf ../../../share/hunspell/${HUNBASE} ./usr/lib/firefox/dictionaries/${HUNBASE}
-#done
 if [ -d ./usr/share/hunspell ];then
  for ONEHUN in `find ./usr/share/hunspell -mindepth 1 -maxdepth 1 -type f -name '*.dic' -o -name '*.aff' | tr '\n' ' '`
  do

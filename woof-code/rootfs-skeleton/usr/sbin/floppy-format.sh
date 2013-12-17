@@ -12,7 +12,6 @@ zapfloppy()
  # Puppy will only allow 1440, 1680K and 1760K capacities.
  ERR0=1
  while [ $ERR0 -ne 0 ];do
-  #xmessage -bg "#c0ffff" -center -title "$(gettext 'Please wait...')" -buttons "" "$(gettext 'Low-level formatting disk with this capacity:') ${1} Kbyte" &
   pwMSG="$(gettext 'Low-level formatting disk with this capacity:') ${1} Kbyte
 $(gettext 'Please wait...')"
   yaf-splash -close never -bg '#c0ffff' -fontsize large -text "${pwMSG}" &
@@ -51,7 +50,6 @@ fsfloppy()
 echo "$(gettext 'Creating msdos filesystem on the disk...')"
 ERR1=1
 while [ ! $ERR1 -eq 0 ];do
- #xmessage -bg "#c0ffff" -center -title "$(gettext 'Please wait...')" -buttons "" "$(gettext 'Creating msdos/vfat filesystem on floppy disk')" &
  pwMSG="$(gettext 'Creating msdos/vfat filesystem on floppy disk')
 $(gettext 'Please wait...')"
  yaf-splash -close never -bg '#c0ffff' -fontsize large -text "${pwMSG}" &
@@ -117,13 +115,6 @@ $(gettext 'Puppy found a floppy disk already mounted in the drive, but is not ab
 $(gettext 'Puppy found that the floppy disk was mounted, but has now unmounted it. Now ok to format disk.')"
   fi
  fi
-
- #xmessage -bg "#e0ffe0" -name "pformat" -title "Puppy Floppy Formatter" -center \
- #-buttons "Lo-level Format":20,"Msdos/vfat filesystem":30,"EXIT":10 -file -<<XMSG
- #$INTROMSG
- #$MNTDMSG
- #Press a button:
- #XMSG
 
  pressMSG="$(gettext 'Press a button:')"
  pupdialog --colors --background '#e0ffe0' --title "$(gettext 'Puppy Floppy Formatter')" --extra-button --yes-label "$(gettext 'Low-level Format')" --no-label "$(gettext 'EXIT')" --extra-label "$(gettext 'Msdos/vfat filesystem')" --yesno "${INTROMSG}

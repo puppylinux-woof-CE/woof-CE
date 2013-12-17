@@ -51,14 +51,6 @@
 #130314 install arch linux pkgs. run arch linux pkg post-install script.
 #131122 support xz compressed pets (see dir2pet, pet2tgz), changed file test
 
-#information from 'labrador', to expand a .pet directly to '/':
-#NAME="a52dec-0.7.4"
-#pet2tgz "${NAME}.pet"
-#tar -C / --transform 's/^\(\.\/\)\?'"$NAME"'//g' -zxf "${NAME}.tar.gz"
-#i found this also works:
-#tar -z -x --strip=1 --directory=/ -f bluefish-1.0.7.tar.gz
-#v424 .pet pkgs may have post-uninstall script, puninstall.sh
-
 export TEXTDOMAIN=petget___installpkg.sh
 export OUTPUT_CHARSET=UTF-8
 
@@ -135,7 +127,6 @@ if [ $PUPMODE -eq 3 -o $PUPMODE -eq 7 -o $PUPMODE -eq 13 ];then
  fi
  if [ $FLAGNODIRECT -eq 0 ];then
   #note that /sbin/pup_event_frontend_d will not run snapmergepuppy if installpkg.sh or downloadpkgs.sh are running.
-  #if snapmergepuppy is running, wait until it has finished...
   while [ "`pidof snapmergepuppy`" != "" ];do
    sleep 1
   done
@@ -143,7 +134,6 @@ if [ $PUPMODE -eq 3 -o $PUPMODE -eq 7 -o $PUPMODE -eq 13 ];then
   rm -f $DIRECTSAVEPATH/pet.specs $DIRECTSAVEPATH/pinstall.sh $DIRECTSAVEPATH/puninstall.sh $DIRECTSAVEPATH/install/doinst.sh
  fi
 fi
-#fi #111013
 
 cd $DLPKG_PATH
 
@@ -251,7 +241,6 @@ case $DLPKG_BASE in
   echo "$PFILES" > /root/.packages/${DLPKG_NAME}.files
   install_path_check
   #110705 rpm -i does not work for mageia pkgs...
-  #busybox rpm -i $DLPKG_BASE
   exploderpm -i $DLPKG_BASE
  ;;
 esac
@@ -306,7 +295,6 @@ done
 #121123 having a problem with multiarch symlinks in full-installation...
 #it seems that the symlink is getting replaced by a directory.
 if [ "$DISTRO_ARCHDIR" ];then #in /etc/rc.d/DISTRO_SPECS. 130112 change test from DISTRO_ARCHDIR. 130114 revert DISTRO_ARCHDIR_SYMLINKS==yes.
- #if [ $PUPMODE -eq 2 ];then #full installation, no layerfs. #121217 removed.
   if [ -d /usr/lib/${DISTRO_ARCHDIR} ];then
    if [ ! -h /usr/lib/${DISTRO_ARCHDIR} ];then
     cp -a -f --remove-destination /usr/lib/${DISTRO_ARCHDIR}/* /usr/lib/
@@ -331,7 +319,6 @@ if [ "$DISTRO_ARCHDIR" ];then #in /etc/rc.d/DISTRO_SPECS. 130112 change test fro
     ln -s ./ /usr/bin/${DISTRO_ARCHDIR}
    fi
   fi
- #fi
 fi
 
 #flush unionfs cache, so files in pup_save layer will appear "on top"...
@@ -639,7 +626,6 @@ if [ "$DESKTOPFILE" != "" ];then
  DB_description="`echo -n "$DB_ENTRY" | cut -f 10 -d '|'`"
  CATEGORY="$DB_category"
  DESCRIPTION="$DB_description"
- #if [ "$DB_category" = "" ];then
  zCATEGORY="`cat $DESKTOPFILE | grep '^Categories=' | sed -e 's%;$%%' | cut -f 2 -d '=' | rev | cut -f 1 -d ';' | rev`" #121109
  if [ "$zCATEGORY" != "" ];then #121109
   #v424 but want the top-level menu category...
@@ -656,7 +642,6 @@ if [ "$DESKTOPFILE" != "" ];then
   newDB_ENTRY="$newDB_ENTRY""`echo -n "$DB_ENTRY" | cut -f 6-9 -d '|'`"
   newDB_ENTRY="$newDB_ENTRY"'|'"$DESCRIPTION"'|'
   newDB_ENTRY="$newDB_ENTRY""`echo -n "$DB_ENTRY" | cut -f 11-14 -d '|'`"
-  #[ "`echo -n "newDB_ENTRY" | rev | cut -c 1`" != "|" ] && newDB_ENTRY="$newDB_ENTRY"'|'
   DB_ENTRY="$newDB_ENTRY"
  fi
 fi

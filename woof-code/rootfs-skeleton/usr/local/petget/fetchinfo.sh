@@ -63,17 +63,10 @@ case $DB_DISTRO in
   nohup defaulthtmlviewer http://www.archlinux.org/packages/${DB_SUB}/i686/${DB_nameonly}/ &
  ;;
  puppy|t2|gentoo)
-  #rm -f /tmp/gethomepage_1 2>/dev/null
-  #wget --tries=2 --output-document=/tmp/gethomepage_1 http://club.mandriva.com/xwiki/bin/view/rpms/Application/$DB_nameonly
-  #LINK1="`grep 'View package information' /tmp/gethomepage_1 | head -n 1 | grep -o 'href=".*' | cut -f 2 -d '"'`"
-  #rm -f /tmp/gethomepage_2 2>/dev/null
-  #wget --tries=2 --output-document=/tmp/gethomepage_2 http://club.mandriva.com/xwiki/bin/view/rpms/Application/${LINK1}
-  #HOMELINK="`grep 'Homepage:' /tmp/gethomepage_2 | grep -o 'href=".*' | cut -f 2 -d '"'`"
+   #HOMELINK="`grep 'Homepage:' /tmp/gethomepage_2 | grep -o 'href=".*' | cut -f 2 -d '"'`"
   #w019 fast (see also /usr/sbin/indexgen.sh)...
   HOMESITE="http://en.wikipedia.org/wiki/${DB_nameonly}"
   #121217 pkg name might differ - and _ chars...
-  #nEXPATTERN="^${DB_nameonly} "
-  #REALHOME="`cat /root/.packages/PKGS_HOMEPAGES | grep -i "$nEXPATTERN" | head -n 1 | cut -f 2 -d ' '`"
   nPTN1="^$(echo "${DB_nameonly}" | tr '-' '_') "
   nPTN2="^$(echo "${DB_nameonly}" | tr '_' '-') "
   REALHOME="`cat /root/.packages/PKGS_HOMEPAGES | grep -i "$nPTN1" | head -n 1 | cut -f 2 -d ' '`"

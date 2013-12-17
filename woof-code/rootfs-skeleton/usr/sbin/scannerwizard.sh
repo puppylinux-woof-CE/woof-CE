@@ -163,9 +163,6 @@ STATUSRET=$?
 
 if [ $STATUSRET -eq 0 ];then
  echo -n "$RESULTOK" > /etc/scanner
-# Xdialog --wmclass "scannerwizard" --title "Puppy scanner wizard" \
-# --infobox "NOTE: Your choice will only take effect after rebooting" \
-# 8 50 10000 2> /dev/null
  Xdialog --wmclass "scannerwizard" --title "Puppy scanner wizard" \
  --infobox "SCRIPT NOT FINISHED. DOESN'T ACTUALLY DO ANYTHING!" \
  8 50 10000 2> /dev/null

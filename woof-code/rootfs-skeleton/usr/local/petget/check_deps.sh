@@ -135,18 +135,12 @@ dependcheckfunc() {
 
 #searches deps of all user-installed pkgs...
 missingpkgsfunc() {
-# yaf-splash -close never -font "8x16" -outline 0 -margin 4 -bg orange -text "Checking all user-installed packages for any missing dependencies..." &
  yaf-splash -close never -bg orange -text "$(gettext 'Checking all user-installed packages for any missing dependencies...')" &
  X2PID=$!
   USER_DB_dependencies="`cat /root/.packages/user-installed-packages | cut -f 9 -d '|' | tr ',' '\n' | sort -u | tr '\n' ','`"
   /usr/local/petget/findmissingpkgs.sh "$USER_DB_dependencies"
   #...returns /tmp/petget_installed_patterns_all, /tmp/petget_pkg_deps_patterns, /tmp/petget_missingpkgs_patterns
   MISSINGDEPS_PATTERNS="`cat /tmp/petget_missingpkgs_patterns`" #v431
-  #/tmp/petget_missingpkgs_patterns has a list of missing dependencies, format ex:
-  #|kdebase|
-  #|kdelibs|
-  #|mesa|
-  #|qt|
   kill $X2PID
 }
 
@@ -192,14 +186,11 @@ else
   </vbox>
  </window>
 " 
- #RETPARAMS="`gtkdialog3 --program=DEPS_DIALOG`"
  RETPARAMS="`gtkdialog3 --geometry=630x327 --program=DEPS_DIALOG`" #120222
  #ex returned:
  #LIST="audacious-1.5.1"
  #EXIT="BUTTON_CHK_DEPS"
 
- #eval "$RETPARAMS"
- #[ "$EXIT" != "BUTTON_CHK_DEPS" ] && exit
  [ "`echo "$RETPARAMS" | grep 'BUTTON_CHK_DEPS'`" = "" ] && exit
  
  #120222 npierce: Allow '_' in package name.  CAUTION: Names must not contain spaces. 
@@ -216,7 +207,6 @@ if [ -s /tmp/missinglibs.txt ];then
  MISSINGMSG1="<text><label>$(gettext 'These libraries are missing:')</label></text><text use-markup=\"true\"><label>\"<b>`cat /tmp/missinglibs.txt`</b>\"</label></text>"
 fi
 if [ -s /tmp/missinglibs_hidden.txt ];then #100830
- #[ ! -s /tmp/missinglibs.txt ] && MISSINGMSG1=""
  MISSINGMSG1="${MISSINGMSG1} <text><label>$(gettext 'These needed libraries exist but are not in the library search path (it is assumed that a startup script in the package makes these libraries loadable by the application):')</label></text><text use-markup=\"true\"><label>\"<b>`cat /tmp/missinglibs_hidden.txt`</b>\"</label></text>"
 fi
 MISSINGMSG2="<text use-markup=\"true\"><label>\"<b>$(gettext 'No missing dependent packages')</b>\"</label></text>"
