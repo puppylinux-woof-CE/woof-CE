@@ -72,7 +72,9 @@ fi
 #v1.0.7 set by xrandrshell, part of xorg wizard... v3.99...
 if [ -f /etc/xrandrindex ];then
   #v3.99 workround for dual monitors, 'head -n 1'....
-  XRANDRDEFAULT="$(xrandr -q | grep '\*' | tr -s ' ' | grep '^ [0-9]' | cut -f 2,3 -d ' ' | cut -f 1 -d '*' | tr ' ' '@' | head -n 1)" #130202 return 1024x768@60.0
+  XRANDRDEFAULT_ALL="$(xrandr -q | grep '\*' | tr -s ' ' | grep '^ [0-9]' | cut -f 2,3 -d ' ' | cut -f 1 -d '*' | tr ' ' '@')" #130202 return 1024x768@60.0
+  XRANDRDEFAULT_MAIN=`xwininfo -root | grep '\-geometry ' | tail -n1 | grep -o '[0-9].*' | sed 's%\+.*%%'` ##2013-11-24 use xwininfo -root instead of XRANDRDEFAULT | head -n1
+  XRANDRDEFAULT=`echo "$XRANDRDEFAULT" | grep -m1 "$XRANDRDEFAULT_MAIN"`
   XRANDRINDEX="`cat /etc/xrandrindex`" #v3.99 XRANDRINDEX now is XxY resolution. #130202 now vertxhoriz@freq (refer quicksetup).
   #but do not switch if default is already this resolution....
   if [ "$XRANDRINDEX" = "$XRANDRDEFAULT" ];then
