@@ -1,0 +1,163 @@
+#!/bin/bash
+
+# 131222 01micko, script to manage what .desktop files show in menu
+# must be run as root
+
+[ "$UID" = 0 ]|| exec sudo -A ${0} ${@}
+
+tmp=${RANDOM}
+export TMP0=/tmp/${tmp}0
+export TMP1=/tmp/${tmp}1
+export TMP2=/tmp/${tmp}2
+export DIR=/usr/share/applications
+
+# potential shown list(s)
+grep -E "^Icon=" ${DIR}/* | awk -F: '{print $1}' > $TMP0
+
+# enabled list
+echo -n '' > $TMP1
+while read fline
+  do 
+    grep -q -E "^NoDisplay=" $fline
+    case $? in
+      0)FALSE=`grep -E "^NoDisplay=" $fline | grep "false"`
+      [ "$FALSE" ] && echo ${fline##*/} >> $TMP1
+      ;;
+      *)echo ${fline##*/} >> $TMP1
+      ;;
+     esac
+  done < $TMP0
+
+# disabled list
+echo -n '' > $TMP2
+while read tline
+  do 
+    grep -q -E "^NoDisplay=true" $tline
+    [ "$?" -eq 0 ] && echo ${tline##*/} >> $TMP2
+  done < $TMP0
+
+func_msg(){
+   gtkdialog-splash -timeout $5 -bg $6 -close $7 -text "$1 $2 $3 $4."
+}
+export -f func_msg
+
+#loop used for multiple selections when holding ctrl when clicking
+# move to disabled
+move_right() {
+   if [ "$YLIST" != "" ];then
+     for Y in $YLIST
+     do
+      grep -q $Y $TMP2
+      if [ $? != 0 ];then
+       func_msg Removing "$Y" from menu. 1 orange box
+       echo $Y >> $TMP2
+        sed -i "/$Y/d" $TMP1
+      fi
+     done
+   fi
+   return
+}
+export -f move_right
+
+# move to enabled
+move_left() {
+   if [ "$NLIST" != "" ];then
+     for N in $NLIST
+     do
+      grep -q $N $TMP1
+      if [ $? != 0 ];then
+       func_msg enabling "$N" at startup. 1 green box
+       echo $N >> $TMP1
+       sed -i "/$N/d" $TMP2
+      fi
+     done
+   fi
+   return
+}
+export -f move_left
+
+export menuManager='
+<window title="'$(gettext "Menu Manager")'" icon-name="gtk-properties">
+<vbox>
+  '"`/usr/lib/gtkdialog/xml_info fixed menu.svg 60 "$(gettext "This applications controls what apps are set to show in the menu on your system.")"`"'
+  <frame '$(gettext "Currently Menu Items")'>
+      <vbox border-width="10" space-expand="false" space-fill="false">
+        <text wrap="false" xalign="0" use-markup="true" space-expand="false" space-fill="false"><label>"'$(gettext "<b>Remove</b> an app from the menu by highlighting in the left pane and pressing <b>−</b>.")'"</label></text>
+        <text wrap="false" xalign="0" use-markup="true" space-expand="false" space-fill="false"><label>"'$(gettext "<b>Add</b> an app to the menu by highlighting in the right pane and pressing <b>+</b>.")'"</label></text>
+      </vbox>
+     <hbox height-request="150" space-fill="true" space-expand="true">
+       <hbox space-fill="true" space-expand="true">
+         <tree selection-mode="3">
+           <variable>YLIST</variable>
+           <label>'$(gettext "Enabled Menu Items")'</label>
+           <input>cat '"$TMP1"'</input>
+         </tree>
+       </hbox>
+       <vbox homogeneous="true" space-fill="false" space-expand="false">
+         <vbox space-fill="false" space-expand="false">
+           <button border-width="3">
+             '"`/usr/lib/gtkdialog/xml_button-icon remove`"'
+             <action>move_right</action>
+             <action>refresh:YLIST</action>
+             <action>refresh:NLIST</action>
+           </button>
+           <button border-width="3">
+             '"`/usr/lib/gtkdialog/xml_button-icon add`"'
+             <action>move_left</action>
+             <action>refresh:YLIST</action>
+             <action>refresh:NLIST</action>
+           </button>
+         </vbox>
+       </vbox>
+     <tree selection-mode="3">
+       <variable>NLIST</variable>
+         <label>'$(gettext "Disabled Menu Items")'</label>
+         <input>cat '"$TMP2"'</input>
+     </tree>
+   </hbox>
+  </frame>
+ <hbox space-expand="false" space-fill="false">
+    <button space-expand="false" space-fill="false">
+      <label>'$(gettext "Cancel")'</label>
+      '"`/usr/lib/gtkdialog/xml_button-icon cancel`"'
+      <action>exit:Cancel</action>
+    </button>
+    <button space-expand="false" space-fill="false">
+      <label>'$(gettext "Ok")'</label>
+      '"`/usr/lib/gtkdialog/xml_button-icon ok`"'
+      <action>exit:OK</action>
+    </button>
+  </hbox>
+ </vbox>
+</window>'
+
+. /usr/lib/gtkdialog/xml_info gtk #build bg_pixmap for gtk-theme
+eval $(gtkdialog -p menuManager)
+
+case $EXIT in
+OK)
+# add to enabled
+while read line1; do
+ [ -f ${DIR}/${line1} ] && \
+ sed -i "s%NoDisplay=true%NoDisplay=false%" ${DIR}/${line1}
+ done < $TMP1
+# add to disabled
+while read line2; do
+ [ -f ${DIR}/${line2} ] && \
+ grep -q "^NoDisplay=" ${DIR}/${line2}
+  if [ "$?" -eq 0 ];then 
+   sed -i "s%NoDisplay=false%NoDisplay=true%" ${DIR}/${line2}
+  else
+   echo "NoDisplay=true" >> ${DIR}/${line2}
+  fi
+ done < $TMP2
+# fix menu
+func_msg Please wait .. .   2 pink never &
+pid=$!
+fixmenus
+ps -A | grep -q "jwm" && (jwm -reload || jwm -restart)
+kill -9 $pid
+rm $TMP0; rm $TMP1; rm $TMP2
+sleep 1;;
+*)rm $TMP0; rm $TMP1; rm $TMP2;;
+esac
