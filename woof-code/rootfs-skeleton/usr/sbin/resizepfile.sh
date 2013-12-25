@@ -35,17 +35,8 @@ case $PUPMODE in
 esac
 
 if [ "$CANDOIT" != "yes" ];then
-  pupmessage -center -bg "#ffc0c0" -title "$(gettext 'Resize personal storage file: ERROR')" "$(gettext 'Sorry, Puppy is not currently using a personal persistent')
-$(gettext 'storage file. If this is the first time that you booted')
-$(gettext 'Puppy, say from a live-CD, you are currently running')
-$(gettext 'totally in RAM and you will be asked to create a personal')
-$(gettext 'storage file when you end the session (shutdown the PC or')
-`eval_gettext \"reboot). Note, the file will be named \\\${DISTRO_FILE_PREFIX}save.2fs and\"`
-$(gettext 'will be created in a place that you nominate.')
-$(gettext 'If you have installed Puppy to hard drive, or installed')
-$(gettext 'such that personal storage is an entire partition, then')
-`eval_gettext \"you will not have a \\\${DISTRO_FILE_PREFIX}save.2fs file either.\"`
-$(gettext 'Press OK to exit...')"
+/usr/lib/gtkdialog/box_ok "$(gettext 'Resize personal storage file')" error "<b>$(gettext "Sorry, Puppy is not currently using a personal persistent storage file.")</b>" " " "$(gettext "If this is the first time that you booted Puppy, say from a live-CD, you are currently running totally in RAM and you will be asked to create a personal storage file when you end the session (shutdown the PC or reboot). Note, the file will be named ${DISTRO_FILE_PREFIX}save.2fs and will be created in a place that you nominate.")
+$(gettext "If you have installed Puppy to hard drive, or installed such that personal storage is an entire partition, then you will not have a ${DISTRO_FILE_PREFIX}save.2fs file either.")"
   exit
 fi
 
@@ -77,38 +68,43 @@ x='
   '"`/usr/lib/gtkdialog/xml_info fixed puppy_increase.svg 60 "$(gettext "<b>Your personal file is ${NAMEPFILE},</b> and this contains user data, configuration files, email, newsgroup cache, history files and installed packages...")" "$(gettext "If you see that you are running low on space in $NAMEPFILE, you can make it bigger, but of course there must be enough space in $SAVEPART.")"`"'
   <vbox space-expand="true" space-fill="true">
     <frame>      
+      <text height-request="5"><label>""</label></text>
       <vbox space-expand="true" space-fill="true">
-        <hbox>
-          <text xalign="0" use-markup="true"><label>"<b>'$(gettext 'Personal File')'</b>: '$NAMEPFILE'"</label></text>
-          <text space-expand="true" space-fill="true"><label>""</label></text>
-          <pixmap><input file>/tmp/resizepfile_pfile.svg</input></pixmap>
-        </hbox>
-        <hbox>
-          <text xalign="0" use-markup="true"><label>"<b>'$(gettext 'Partition')'</b>: '$SAVEPART'"</label></text>
-          <text space-expand="true" space-fill="true"><label>""</label></text>
-          <pixmap><input file>/tmp/resizepfile_partition.svg</input></pixmap>
-        </hbox>
-        <text height-request="5"><label>""</label></text>
-        <hbox space-expand="true" space-fill="true">
-          <text xalign="0" space-expand="true" space-fill="true"><label>'$(gettext "Increase size of $NAMEPFILE by amount (Mb). You cannot make it smaller.")'</label></text>
-          <comboboxtext width-request="100" space-expand="false" space-fill="false">
-            <variable>KILOBIG</variable>
-            <item>32</item>
-            <item>64</item>
-            <item>128</item>
-            <item>256</item>
-            <item>512</item>
-            <item>1024</item>
-            <item>2048</item>
-            <item>4096</item>
-          </comboboxtext>
-        </hbox>
-        <text height-request="5"><label>""</label></text>
+        <vbox space-expand="false" space-fill="false">
+          <hbox>
+            <text xalign="0" use-markup="true"><label>"<b>'$(gettext 'Personal File')'</b>: '$NAMEPFILE'"</label></text>
+            <text space-expand="true" space-fill="true"><label>""</label></text>
+            <pixmap><input file>/tmp/resizepfile_pfile.svg</input></pixmap>
+          </hbox>
+          <hbox>
+            <text xalign="0" use-markup="true"><label>"<b>'$(gettext 'Partition')'</b>: '$SAVEPART'"</label></text>
+            <text space-expand="true" space-fill="true"><label>""</label></text>
+            <pixmap><input file>/tmp/resizepfile_partition.svg</input></pixmap>
+          </hbox>
+        </vbox>
+        <text height-request="5" space-expand="true" space-fill="true"><label>""</label></text>
+        <vbox space-expand="false" space-fill="false">
+          <hbox space-expand="true" space-fill="true">
+            <text xalign="0" space-expand="true" space-fill="true"><label>'$(gettext "Increase size of $NAMEPFILE by amount (Mb). You cannot make it smaller.")'</label></text>
+            <comboboxtext width-request="100" space-expand="false" space-fill="false">
+              <variable>KILOBIG</variable>
+              <item>32</item>
+              <item>64</item>
+              <item>128</item>
+              <item>256</item>
+              <item>512</item>
+              <item>1024</item>
+              <item>2048</item>
+              <item>4096</item>
+            </comboboxtext>
+          </hbox>
+        </vbox>
+        <text height-request="10"><label>""</label></text>
       </vbox>
     </frame>
   </vbox>
   <hbox space-expand="false" space-fill="false">
-    '"`/usr/lib/gtkdialog/xml_pixmap info`"'
+    '"`/usr/lib/gtkdialog/xml_pixmap nb`"'
     <text xalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"<b>'$(gettext 'Resizing requires a system reboot')'</b>"</label></text>
     <button space-expand="false" space-fill="false">
       <label>'$(gettext "Cancel")'</label>
@@ -136,16 +132,8 @@ esac
 
 echo -n "$KILOBIG" > /initrd${PUP_HOME}/pupsaveresize.txt
 
-pupmessage -center -bg "orange" -title "$(gettext 'Resize personal storage file')" "$(eval_gettext 'Okay, you have chosen to increase ${NAMEPFILE} by ${KILOBIG} Kbytes, however as the file is currently in use, it will happen at reboot.')
 
-$(gettext 'Technical notes:')
-$(eval_gettext 'The required size increase has been written to file pupsaveresize.txt, in partition ${SAVEPART} (currently mounted on /mnt/home).')
-$(gettext 'File pupsaveresize.txt will be read at bootup and the resize performed then pupsaveresize.txt will be deleted.')
-
-$(eval_gettext 'WARNING: If you have multiple ${DISTRO_FILE_PREFIX}save files, be sure to select the same one when you reboot.')
-
-$(gettext 'You can keep using Puppy. The change will only happen at reboot.')
-$(gettext 'Click OK to exit...')"
+/usr/lib/gtkdialog/box_ok "$(gettext 'Resize personal storage file')" complete "$(gettext "Okay, you have chosen to <b>increase ${NAMEPFILE} by ${KILOBIG} Kbytes</b>, however as the file is currently in use, it will happen at reboot.")" " " "$(gettext 'Technical notes:')" "$(gettext "The required size increase has been written to file pupsaveresize.txt, in partition ${SAVEPART} (currently mounted on /mnt/home).")" "$(gettext 'File pupsaveresize.txt will be read at bootup and the resize performed then pupsaveresize.txt will be deleted.')" "$(gettext "WARNING: If you have multiple ${DISTRO_FILE_PREFIX}save files, be sure to select the same one when you reboot.")" " " "<b>$(gettext 'You can keep using Puppy. The change will only happen at reboot.')</b>"
 
 ###END###
 
