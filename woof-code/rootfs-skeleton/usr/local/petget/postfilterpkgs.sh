@@ -37,22 +37,6 @@ if [ "$DEF_CHK_EXE" = "false" ];then
  mv -f /tmp/petget/filterpkgs.results.post.tmp /tmp/petget/filterpkgs.results.post
 fi
 
-##120529 append an icon to each entry...
-#cp -f /tmp/petget/filterpkgs.results.post /tmp/petget/filterpkgs.results.post-noicons
-#FLG_APPICONS="`cat /var/local/petget/flg_appicons`" #see configure.sh
-#if [ "$FLG_APPICONS" = "true" ];then
-# #ex: 'abiword0-1.2.3|description of abiword|stuff' becomes 'abiword|abiword0-1.2.3|description of abiword|stuff'
-# sed -i -r -e 's%(^[a-zA-Z]*)%\1|\1%' /tmp/petget/filterpkgs.results.post
-#fi
-
-##120811 icon name is now 2nd field, want append "mini-"...
-###120813 also append "mini-" to subcategory, ex: Document;edit becomes mini-Document;mini-edit
-##ex line: htop-0.9-i486|System|View Running Processes|puppy-wary5-official
-##so, get "mini-System", which is name of an icon in /usr/local/lib/X11/mini-icons
-#sed -i -e 's%|%|mini-%' /tmp/petget/filterpkgs.results.post
-###120813 finds first ; followed by a character, appends "mini-" before the char...
-##sed -i -e 's%|%|mini-%' -r -e 's%;([a-z])%;mini-\1%' /tmp/petget/filterpkgs.results.post
-
 #120817 category field: Document;edit becomes mini-Document-edit...
 sed -i -e 's%|%|mini-%' -e 's%;%-%' /tmp/petget/filterpkgs.results.post
 

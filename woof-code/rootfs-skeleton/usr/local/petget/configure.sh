@@ -59,19 +59,6 @@ done
 
 #  <text><label>Choose an alternate User Interface:</label></text>
 
-#120811 remove...
-##120529 note, same code in pkg_chooser.sh, so probably this not req'd...
-#if [ -f /var/local/petget/flg_appicons ];then
-# FLG_APPICONS="`cat /var/local/petget/flg_appicons`"
-#else
-# #test if pet installed with set of 16x16 app icons...
-# [ "`grep 'icons_puppy_app' /root/.packages/woof-installed-packages /root/.packages/user-installed-packages`" != "" ] && FLG_APPICONS='true'
-#fi
-#[ "$FLG_APPICONS" = "" ] && FLG_APPICONS='false'
-
-#120811 removed...
-#  <checkbox><label>$(gettext 'Show application thumbnail icons')</label><variable>CHK_APPICONS</variable><default>${FLG_APPICONS}</default></checkbox>
-
 export CONFIG_DIALOG="<window title=\"$(gettext 'Puppy Package Manager: configure')\" icon-name=\"gtk-about\">
 <hbox>
 
@@ -124,23 +111,6 @@ RETPARAMS="`gtkdialog3 --program=CONFIG_DIALOG`"
 #  EXIT="OK"
 
 [ "`echo -n "$RETPARAMS" | grep 'EXIT' | grep 'OK'`" = "" ] && exit
-
-#120811 removed...
-##120529
-#PREVFLG="`cat /var/local/petget/flg_appicons`"
-#if [ "`echo -n "$RETPARAMS" | grep 'CHK_APPICONS' | grep 'true'`" != "" ];then
-# echo -n 'true' > /var/local/petget/flg_appicons
-# NEWFLG='true'
-#else
-# echo -n 'false' > /var/local/petget/flg_appicons
-# NEWFLG='false'
-#fi
-#if [ "$PREVFLG" != "$NEWFLG" ];then
-# #rm -f /tmp/petget_fltrd_repo_*
-# #rm -f /tmp/petget_installed_*
-# rm -f /tmp/installedpkgs.results.post*
-# rm -f /tmp/petget/filterpkgs.results.post*
-#fi
 
 enabledrepos=" "
 repocnt=1

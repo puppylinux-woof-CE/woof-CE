@@ -8,14 +8,6 @@
 #121206 faster internet check. remove window centralise.
 #121217 DISTRO_VERSION getting reset by 'init' in initrd, need workaround.
 
-#121206 speed this up...
-#exit if no internet connection...
-#check_internet
-#check_internet
-#if [ $? -ne 0 ];then
-# sleep 2
-# check_internet
-#fi
 IFCONFIG="`ifconfig | grep '^[pwe]' | grep -v 'wmaster'`"
 [ ! "$IFCONFIG" ] && exit 1 #no network connection.
 ping -4 -c 1 www.google.com
@@ -27,7 +19,6 @@ fi
 
 export TEXTDOMAIN=petget___service_pack.sh
 export OUTPUT_CHARSET=UTF-8
-#. gettext.sh
 
 . /etc/DISTRO_SPECS #has DISTRO_DB_SUBNAME
 . /root/.packages/DISTRO_PET_REPOS #has PET_REPOS, PKG_DOCS_PET_REPOS
@@ -46,7 +37,6 @@ ping -4 -c 1 $URLPING
 
 #find all service packs...
 #note, can use wildcard to test if file exists, if need to look for alternate versions, ex:
-# wget -4 -t 2 -T 20 --waitretry=20 --spider -S --recursive --no-parent --no-directories -A 'avast-*.pet' 'http://distro.ibiblio.org/quirky/pet_packages-common/'
 wget -4 -t 2 -T 20 --waitretry=20 --spider -S --recursive --no-parent --no-directories -A 'service_pack*.pet' "$URLSPEC" > /tmp/petget/service_pack_probe 2>&1
 PTN1=" ${URLSPEC}service_pack.*\.pet$"
 #ex line in file: --2012-11-25 09:01:13--  http://distro.ibiblio.org/quirky/pet_packages-precise/service_pack-5.4.1_TO_5.4.1.1_precise.pet

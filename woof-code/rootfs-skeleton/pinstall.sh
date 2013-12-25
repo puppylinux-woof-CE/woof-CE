@@ -88,4 +88,19 @@ if [ -f ./etc/xdg/templates/_root_.icewm_menu ];then
  fi
 fi
 
+#screenshot
+TAS=`find usr/bin usr/sbin -name tas`
+if [ "$TAS" ];then echo '#!/bin/sh
+exec tas' > usr/local/bin/defaultscreenshot
+chmod 755 usr/local/bin/defaultscreenshot
+SCR=tas
+fi
+SCREENY=`find usr/bin usr/sbin -name 'screeny'`
+if [ "$SCREENY" ];then echo '#!/bin/sh
+exec screeny' > usr/local/bin/defaultscreenshot
+chmod 755 usr/local/bin/defaultscreenshot
+SCR=screeny
+fi
+echo "Setting $SCR as defaultscreenshot app"
+
 #end#

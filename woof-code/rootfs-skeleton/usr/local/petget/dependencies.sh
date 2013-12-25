@@ -55,7 +55,6 @@ fi
 #databases have all dependencies up-front, whereas some only list the higher-level
 #dependencies and the dependencies of those have to be looked for.
 
-#/usr/X11R7/bin/yaf-splash -font "8x16" -outline 0 -margin 4 -bg orange -text "Please wait, processing package database files..." &
 yaf-splash -bg orange -close never -text "$(gettext 'Please wait, processing package database files...')" &
 X1PID=$!
 
@@ -170,7 +169,6 @@ mv -f /tmp/petget_missingpkgs_patternsx /tmp/petget_missingpkgs_patterns_and_ver
 
 #now find the entries in the databases...
 rm -f /tmp/petget_missing_dbentries* 2>/dev/null
-#for depPATTERN in `cat /tmp/petget_missingpkgs_patterns` #ex depPATTERN=|kdelibs| ex2: |kdelibs&gt2.3.6|
 #111107 01micko: fix for '||' messing things up...
 for depPATTERN in `grep '[a-zA-Z]' /tmp/petget_missingpkgs_patterns_and_versioning_level1` #ex depPATTERN=|kdelibs| ex2: |kdelibs&gt2.3.6|. 120221 jemimah. 120903 versioning.
 do
@@ -201,23 +199,7 @@ do
      do
       DEPOP="`echo -n "$ACOND" | cut -c 1,2`"
       DEPVER="`echo -n "$ACOND" | cut -c 3-99`"
-      
-      #130511 vercmp failed this test: if vercmp 2.2.1 ge 2.2~2011week36; then echo 'greater'; fi
-      # ...this is libqtwebkit4 dep of phantomjs in precise pup, but actual libqtwebkit4 is 2.2.1.
-      #try a workaround...
-      #FIRSTVERFLG="$(echo -n "${DB_version}" | grep -o '~')"
-      #SECONDVERFLG="$(echo -n "${DEPVER}" | grep -o '~')"
-      #if [ "$FIRSTVERFLG" = "" ];then
-      # [ "$SECONDVERFLG" = "~" ] && DEPVER=
-      #else
-      #fi
-      #no, too much fussing, just always remove everything...
-      #DB_versiontmp="$(echo -n "$DB_version" | cut -f 1 -d '~')"
-      #DB_version="$DB_versiontmp"
-      #DEPVERtmp="$(echo -n "$DEPVER" | cut -f 1 -d '~')"
-      #DEPVER="$DEPVERtmp"
-      #no, have solved this in woof, support/debdb2pupdb.bac.
-      
+           
       if ! vercmp ${DB_version} ${DEPOP} ${DEPVER};then
        condFLG='bad'
       fi

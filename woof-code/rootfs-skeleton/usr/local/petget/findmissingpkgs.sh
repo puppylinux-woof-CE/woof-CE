@@ -80,8 +80,6 @@ if [ -s /root/.packages/user-installed-packages ];then
 fi
 
 #add these alias names to the installed patterns...
-#ALIASES_PATTERNS="`echo -n "$PKG_ALIASES_INSTALLED" | tr -s ' ' | sed -e 's%^ %%' -e 's% $%%' | tr ' ' '\n' | sed -e 's%^%|%' -e 's%$%|%' -e 's%\\-%\\\\-%g'`"
-#echo "$ALIASES_PATTERNS" >> /tmp/petget_installed_patterns_all
 #packages may have different names, add them to installed list...
 INSTALLEDALIASES="`grep --file=/tmp/petget_installed_patterns_all /tmp/petget_pkg_name_aliases_patterns | tr ',' '\n'`"
 [ "$INSTALLEDALIASES" ] && echo "$INSTALLEDALIASES" >> /tmp/petget_installed_patterns_all

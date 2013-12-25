@@ -22,7 +22,6 @@
 
 export TEXTDOMAIN=petget___installpreview.sh
 export OUTPUT_CHARSET=UTF-8
-#. gettext.sh #120905 120907
 
 [ "$TREE1" = "" ] && exit #120504 nothing to install.
 
@@ -36,7 +35,6 @@ X1PID=$!
 #ex: TREE1=abiword-1.2.4 (first field in database entry).
 DB_FILE=Packages-`cat /tmp/petget/current-repo-triad` #ex: Packages-slackware-12.2-official
 tPATTERN='^'"$TREE1"'|'
-#xtPATTERN='|'"$TREE1"'|'
 
 #120827 'examine dependencies' button does not work if pkg already installed...
 EXAMDEPSFLAG='yes'
@@ -49,15 +47,7 @@ fi
 #120504 if findnames.sh searched multiple repos, /tmp/petget/current-repo-triad (set in pkg_chooser.sh) might be wrong...
 [ -f /tmp/petget/current-repo-triad.previous ] && rm -f /tmp/petget/current-repo-triad.previous
 if [ -f /tmp/petget/filterpkgs.results.post ];then
- #file ex line: abiword-1.2.3|[puppy-4-official] Abiword word processor|puppy-4-official|
- #120811 removed...
- #120604 fix for prepended icons field...
- #FLG_APPICONS="`cat /var/local/petget/flg_appicons`" #see configure.sh
- #if [ "$FLG_APPICONS" = "true" ];then
- # ALTSEARCHREPO="$(grep "$xtPATTERN" /tmp/petget/filterpkgs.results.post | grep '|\[' | cut -f 2 -d '[' | cut -f 1 -d ']')"
- #else
   ALTSEARCHREPO="$(grep "$tPATTERN" /tmp/petget/filterpkgs.results.post | grep '|\[' | cut -f 2 -d '[' | cut -f 1 -d ']')"
- #fi
  [ "$ALTSEARCHREPO" ] && DB_FILE="Packages-${ALTSEARCHREPO}"
  #hmmm, other scripts, ex dependencies.sh, will need to have this correct...
  if [ "$ALTSEARCHREPO" ];then
@@ -107,7 +97,6 @@ fi
 
 #find missing dependencies...
 if [ "$DB_dependencies" = "" ];then
- #DEPINFO="<text><label>The provider of the package database has not supplied any dependency information for this package. However, after installing it you will have the option to test for any missing shared library files. If uncertain, you might want to look for online documentation for this package that explains any required dependencies.</label></text>"
  DEPINFO="<text><label>$(gettext 'It seems that all dependencies are already installed. Sometimes though, the dependency information in the database is incomplete, however a check for presence of needed shared libraries will be done after installation.')</label></text>"
 else
 
@@ -271,8 +260,6 @@ $(gettext "Please cancel installation, close the Puppy Package Manager, then cli
      FRAME_CNT=`cat /tmp/petget_frame_cnt`
      FRAME_CNT=`expr $FRAME_CNT + 1`
      if [ $FRAME_CNT -gt 10 ];then #120907
-      #echo -n "<text use-markup=\"true\"><label>\"<b>$(gettext 'SORRY! Too many dependencies, list truncated. Suggest install some deps first.')</b>\"</label></text>" >> /tmp/petget_moreframes #120907
-      #echo -n "<text width-chars=\"47\" use-markup=\"true\"><label>\"<b>$(eval_gettext "SORRY! Too many dependencies, list truncated. Suggest untick '\${TREE1}' and install all of the ticked dependencies, then install '\${TREE1}' later along with remaining dependencies.")</b>\"</label></text>" >> /tmp/petget_moreframes #120905
       echo -n "<text use-markup=\"true\"><label>\"<b>$(gettext 'SORRY! Too many dependencies, list truncated. Suggest click Cancel button and install some deps first.')</b>\"</label></text>" >> /tmp/petget_moreframes #120907
      else
       echo -n "<checkbox><default>true</default><label>${DEP_NAME} SIZE: ${DEP_SIZE}B DESCRIPTION: ${DEP_DESCR}</label><variable>CHECK_PKG_${ONEREPO}_${DEP_NAME}</variable></checkbox>" >> /tmp/petget_moreframes
@@ -415,7 +402,6 @@ if [ "`pidof jwm`" != "" ];then #120101
  fi
 fi
 [ "$INSTALLEDCAT" = "none" ] && RESTARTMSG="$(gettext 'Please wait, updating help page...')"
-#/usr/X11R7/bin/yaf-splash -font "8x16" -outline 0 -margin 4 -bg orange -text "${RESTARTMSG}" &
 yaf-splash -bg orange -text "${RESTARTMSG}" &
 X3PID=$!
 

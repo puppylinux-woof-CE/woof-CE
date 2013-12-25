@@ -56,9 +56,6 @@ case $DEFGUIFILTER in
  $NONGUISTR)  guiPTN='\+libx11'"|$guigtk2PTN|$guigtk3PTN|$guiqt4PTN|$guiqt5PTN" ; EXCPARAM='-v' ;; #130331
  *)           guiPTN="|" ;; #$ANYTYPESTR, let everything through.
 esac
-#130507 remove...
-#[ ! -f /var/local/petget/gui_filter_prev ] && cp -f /var/local/petget/gui_filter /var/local/petget/gui_filter_prev
-#PREVGUIFILTER="$(cat /var/local/petget/gui_filter_prev)"
 
 #130507
 xDEFGUIFILTER="$(echo -n "$DEFGUIFILTER" | tr -d ' ' | tr -d '-' | tr -d '+' | tr -d ',')" #ex, translate 'Qt4 GUI apps only' to 'Qt4GUIappsonly'
@@ -69,7 +66,6 @@ PKG_FIRST_CHAR="`cat /tmp/petget_pkg_first_char`" #written in pkg_chooser.sh, ex
 
 X1PID=0
 if [ "`cat /tmp/petget_pkg_first_char`" = "ALL" ];then
-# /usr/X11R7/bin/yaf-splash -font "8x16" -outline 0 -margin 4 -bg orange -text "Please wait, processing all entries may take awhile..." &
  yaf-splash -close never -bg orange -text "$(gettext 'Please wait, processing all entries may take awhile...')" &
  X1PID=$!
 fi
@@ -95,13 +91,6 @@ fi
 #120813 there may be optional subcategory, put ; into pattern...
 categoryPATTERN="|${fltrCATEGORY}[;|]"
 [ "$fltrCATEGORY" = "ALL" ] && categoryPATTERN="|" #let everything through.
-
-#130507 remove...
-##130330...
-#if [ "$DEFGUIFILTER" != "$PREVGUIFILTER" ];then
-# rm -f /tmp/petget_fltrd_repo_${PKG_FIRST_CHAR}_${fltrCATEGORY}_Packages-${fltrREPO_TRIAD}
-# echo -n "$DEFGUIFILTER" > /var/local/petget/gui_filter_prev
-#fi
 
 #find pkgs in db starting with $PKG_FIRST_CHAR and by distro and category...
 #each line: pkgname|nameonly|version|pkgrelease|category|size|path|fullfilename|dependencies|description|
@@ -169,14 +158,10 @@ grep -v '^$' /tmp/petget_installed_patterns > /tmp/petget_installed_patterns-tmp
 mv -f /tmp/petget_installed_patterns-tmp /tmp/petget_installed_patterns
 
 #filter out installed pkgs from the repo pkg list...
-#ALIASES_PATTERNS="`echo -n "$PKG_ALIASES_INSTALLED" | tr -s ' ' | sed -e 's%^ %%' -e 's% $%%' | tr ' ' '\n' | sed -e 's%^%|%' -e 's%$%|%'`"
-#echo "$ALIASES_PATTERNS" >> /tmp/petget_installed_patterns
 fprPTN="s%$%|${fltrREPO_TRIAD}%" #120504 append repo-triad on end of each line.
-#FPR="`grep --file=/tmp/petget_installed_patterns -v /tmp/petget_fltrd_repo_${PKG_FIRST_CHAR}_${fltrCATEGORY}_Packages-${fltrREPO_TRIAD} | cut -f 1,5 -d '|' | sed -e "$fprPTN"`"
 #120811 keep subcategory for icon (if no subcategory, will use category)... 120813 fix...
 #120813 pick subcategory if it exists...
 #120817 no, modify category field in postfilterpkgs.sh...
-#FPR="`grep --file=/tmp/petget_installed_patterns -v /tmp/petget_fltrd_repo_${PKG_FIRST_CHAR}_${fltrCATEGORY}_Packages-${fltrREPO_TRIAD} | cut -f 1,4,5 -d '|' | sed -e 's%|Document;%|%' -e 's%|Desktop;%|%' -e 's%|System;%|%' -e 's%|Setup;%|%' -e 's%|Utility;%|%' -e 's%|Filesystem;%|%' -e 's%|Graphic;%|%' -e 's%|Business;%|%' -e 's%|Personal;%|%' -e 's%|Network;%|%' -e 's%|Internet;%|%' -e 's%|Multimedia;%|%' -e 's%|Fun;%|%' | sed -e "$fprPTN"`"
 FPR="`grep --file=/tmp/petget_installed_patterns -v /tmp/petget_fltrd_repo_${PKG_FIRST_CHAR}_${fltrCATEGORY}_${xDEFGUIFILTER}_Packages-${fltrREPO_TRIAD} | cut -f 1,4,5 -d '|' | sed -e "$fprPTN"`"
 if  [ "$FPR" = "|${fltrREPO_TRIAD}" ];then
  echo -n "" > /tmp/petget/filterpkgs.results #nothing.

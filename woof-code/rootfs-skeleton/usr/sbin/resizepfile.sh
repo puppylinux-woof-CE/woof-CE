@@ -7,6 +7,7 @@
 #120202 rodin.s: internationalized.
 #120323 partial replace 'xmessage' with 'pupmessage'.
 #130715 some translation fixes.
+#131223 gtkdialog
 
 export TEXTDOMAIN=resizepfile.sh
 export TEXTDOMAINDIR=/usr/share/locale
@@ -33,7 +34,7 @@ case $PUPMODE in
   ;;
 esac
 
- if [ "$CANDOIT" != "yes" ];then
+if [ "$CANDOIT" != "yes" ];then
   pupmessage -center -bg "#ffc0c0" -title "$(gettext 'Resize personal storage file: ERROR')" "$(gettext 'Sorry, Puppy is not currently using a personal persistent')
 $(gettext 'storage file. If this is the first time that you booted')
 $(gettext 'Puppy, say from a live-CD, you are currently running')
@@ -46,7 +47,7 @@ $(gettext 'such that personal storage is an entire partition, then')
 `eval_gettext \"you will not have a \\\${DISTRO_FILE_PREFIX}save.2fs file either.\"`
 $(gettext 'Press OK to exit...')"
   exit
- fi
+fi
 
 [ ! "$PUPSAVE" ] && exit #precaution
 [ ! "$PUP_HOME" ] && exit #precaution.
@@ -64,64 +65,70 @@ if [ ! $ACTUALSIZK ];then
 fi
 ACTUALSIZE=`expr $ACTUALSIZK \/ 1024`
 APATTERN="/dev/${SAVEPART} "
+PARTSIZE=`df -m | grep "$APATTERN" | tr -s " " | cut -f 2 -d " "`
 PARTFREE=`df -m | grep "$APATTERN" | tr -s " " | cut -f 4 -d " "`
 
-
-REPORTACTION="$(gettext 'Welcome to the Puppy Resize personal storage file utility!')"
-
-MAINTEXT="`eval_gettext \"Your personal file is \\\$NAMEPFILE, and this contains all of your data,\"`
-$(gettext 'configuration files, email, newsgroup cache, history files, installed')
-$(gettext 'packages and so on.') 
-
-`eval_gettext \"You have \\\$SIZEFREE Mbytes free space left in \\\$NAMEPFILE,\"`
-`eval_gettext \"out of a total size of \\\$ACTUALSIZE Mbytes.\"`
-
-`eval_gettext \"File \\\$NAMEPFILE is actually stored on partition \\\$SAVEPART.\"`
-`eval_gettext \"You have \\\$PARTFREE Mbytes space left in \\\$SAVEPART.\"`
-
-$(gettext 'So, you need to make a decision. If you see that you are running')
-`eval_gettext \"low on space in \\\$NAMEPFILE, you can make it bigger, but of\"`
-`eval_gettext \"course there must be enough space in \\\$SAVEPART.\"`
-`eval_gettext \"Note, it was reported on the Forum that \\\$NAMEPFILE should not be\"`
-$(gettext 'made bigger than 1.8GB, but I have yet to confirm this limitation.')
-
-$(gettext 'PLEASE NOTE THAT AFTER YOU HAVE CLICKED A BUTTON BELOW,
-NOTHING WILL HAPPEN. THE RESIZING WILL HAPPEN AT REBOOT.')
-
-`eval_gettext \"Press a button to make \\\$NAMEPFILE bigger by that amount...\"`
-$(gettext '(note, this is one-way, you cannot make it smaller)')"
-
-BUTTONS="+16M:15,+32M:14,+64M:10,+128M:11,+256M:12,+512M:13,$(gettext 'EXIT'):19"
-
-
-xmessage -center -bg "#c0ffff" -title "$(gettext 'Resize personal storage file')" -buttons "$BUTTONS" -file -<<MSG1
-$REPORTACTION
-
-$MAINTEXT
-MSG1
-
-REPLYX=$?
-
-KILOBIG=
-case ${REPLYX} in
-   15)# 16M
-    KILOBIG=16384
-   ;;
-   14)# 32M
-    KILOBIG=32768
-   ;;
-   10)# 64M
-    KILOBIG=65536
-   ;;
-   11)# 128M
-    KILOBIG=131072
-   ;;
-   12)# 256M
-    KILOBIG=262144
-   ;;
-   13)# 512M
-    KILOBIG=524288
-   ;;
+. /usr/lib/gtkdialog/svg_bar 24 200 "$(((($ACTUALSIZE-$SIZEFREE)*200/$ACTUALSIZE)))" "$ACTUALSIZE Mb / $SIZEFREE Mb $(gettext 'free')"  > /tmp/resizepfile_pfile.svg
+. /usr/lib/gtkdialog/svg_bar 24 200 "$(((($PARTSIZE-$PARTFREE)*200/$PARTSIZE)))" "$PARTSIZE Mb / $PARTFREE Mb $(gettext 'free')"  > /tmp/resizepfile_partition.svg
+ 
+x='
+<window title="'$(gettext 'Resize Personal Storage File')'" icon-name="gtk-refresh"> 
+<vbox space-expand="true" space-fill="true">
+  '"`/usr/lib/gtkdialog/xml_info fixed puppy_increase.svg 60 "$(gettext "<b>Your personal file is ${NAMEPFILE},</b> and this contains user data, configuration files, email, newsgroup cache, history files and installed packages...")" "$(gettext "If you see that you are running low on space in $NAMEPFILE, you can make it bigger, but of course there must be enough space in $SAVEPART.")"`"'
+  <vbox space-expand="true" space-fill="true">
+    <frame>      
+      <vbox space-expand="true" space-fill="true">
+        <hbox>
+          <text xalign="0" use-markup="true"><label>"<b>'$(gettext 'Personal File')'</b>: '$NAMEPFILE'"</label></text>
+          <text space-expand="true" space-fill="true"><label>""</label></text>
+          <pixmap><input file>/tmp/resizepfile_pfile.svg</input></pixmap>
+        </hbox>
+        <hbox>
+          <text xalign="0" use-markup="true"><label>"<b>'$(gettext 'Partition')'</b>: '$SAVEPART'"</label></text>
+          <text space-expand="true" space-fill="true"><label>""</label></text>
+          <pixmap><input file>/tmp/resizepfile_partition.svg</input></pixmap>
+        </hbox>
+        <text height-request="5"><label>""</label></text>
+        <hbox space-expand="true" space-fill="true">
+          <text xalign="0" space-expand="true" space-fill="true"><label>'$(gettext "Increase size of $NAMEPFILE by amount (Mb). You cannot make it smaller.")'</label></text>
+          <comboboxtext width-request="100" space-expand="false" space-fill="false">
+            <variable>KILOBIG</variable>
+            <item>32</item>
+            <item>64</item>
+            <item>128</item>
+            <item>256</item>
+            <item>512</item>
+            <item>1024</item>
+            <item>2048</item>
+            <item>4096</item>
+          </comboboxtext>
+        </hbox>
+        <text height-request="5"><label>""</label></text>
+      </vbox>
+    </frame>
+  </vbox>
+  <hbox space-expand="false" space-fill="false">
+    '"`/usr/lib/gtkdialog/xml_pixmap info`"'
+    <text xalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"<b>'$(gettext 'Resizing requires a system reboot')'</b>"</label></text>
+    <button space-expand="false" space-fill="false">
+      <label>'$(gettext "Cancel")'</label>
+      '"`/usr/lib/gtkdialog/xml_button-icon cancel`"'
+      <action type="exit">EXIT_NOW</action>
+    </button>
+    <button space-expand="false" space-fill="false">
+      <label>'$(gettext "Ok")'</label>
+      '"`/usr/lib/gtkdialog/xml_button-icon ok`"'
+      <action type="exit">save</action>
+    </button>
+  </hbox>
+</vbox>
+</window>'
+export resize="$x"
+. /usr/lib/gtkdialog/xml_info gtk > /dev/null #build bg_pixmap for gtk-theme
+eval $(gtkdialog -p resize)
+case ${EXIT} in
+  save)KILOBIG=$(($KILOBIG * 1024))
+  echo "$KILOBIG" > /initrd${PUP_HOME}/pupsaveresize.txt;;
    *)
     exit
    ;;

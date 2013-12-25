@@ -40,7 +40,6 @@ export OUTPUT_CHARSET=UTF-8
 
 [ "`whoami`" != "root" ] && exec sudo -A ${0} ${@} #110505
 
-#export LANG=C
 mkdir -p /tmp/petget #120504
 mkdir -p /var/local/petget
 
@@ -48,26 +47,8 @@ mkdir -p /var/local/petget
 . /root/.packages/DISTRO_PKGS_SPECS
 . /root/.packages/PKGS_MANAGEMENT #has PKG_REPOS_ENABLED, PKG_NAME_ALIASES
 
-#120811 removed...
-##120527 need these patterns in postfilterpkgs.sh...
-##the awk stuff sorts the line by length of line, longer lines first. if only one char on line, append ^ ...
-##(fallback, any pkgs starting with 'k' are kde apps, or 'g' are gnome apps). also append '^' for 2-char lines...
-#ICONPTNS="$(ls -1 /usr/share/icons/hicolor/16x16/apps | grep 'xpm$' | sed -e 's%\.xpm$%%' | awk '{print length, $0}' | sort -rn | awk '{$1=""; print $0 }' | sed -e 's%^ %%' | sed -r -e 's%(^[a-z][a-z]$)%^\1%' | sed -r -e 's%(^[a-z]$)%^\1%')"
-#echo "$ICONPTNS" > /tmp/petget/postfilter_icon_ptns
-##echo -e 'perl\npython\ntcl\nmail\nkde\nqt\nQt\ndbus\ndb\n' >> /tmp/petget/postfilter_icon_ptns
-
 #120529 app icons
 touch /root/.packages/user-installed-packages #120603 missing at first boot.
-#120811 removed...
-#if [ -f /var/local/petget/flg_appicons ];then
-# FLG_APPICONS="`cat /var/local/petget/flg_appicons`"
-#else
-# #test if pet installed with set of 16x16 app icons...
-# [ "`grep 'icons_puppy_app' /root/.packages/woof-installed-packages /root/.packages/user-installed-packages`" != "" ] && FLG_APPICONS='true'
-#fi
-#[ "$FLG_APPICONS" = "" ] && FLG_APPICONS='false'
-#echo -n "$FLG_APPICONS" > /var/local/petget/flg_appicons
-
 #101129 choose to display EXE, DEV, DOC, NLS pkgs... note, this code-block is also in findnames.sh and filterpkgs.sh...
 DEF_CHK_EXE='true'
 DEF_CHK_DEV='false'
@@ -105,8 +86,7 @@ if [ ! -f /tmp/petget_installed_patterns_system ];then
  case $DISTRO_BINARY_COMPAT in
   ubuntu|debian|raspbian)
    #for 'cups' pet, we want to create a pattern '/cups|' so can locate all debs with that DB_path entry '.../cups'
-   #INSTALLED_PTNS_SYS_PET="`grep '\.pet|' /root/.packages/layers-installed-packages | cut -f 2 -d '|' | sed -e 's%^%/%' -e 's%$%|%' -e 's%\\-%\\\\-%g'`"
-   INSTALLED_PTNS_PET="$(grep '\.pet|' /root/.packages/layers-installed-packages | cut -f 2 -d '|' | sed -e 's%^%/%' -e 's%$%|%' -e 's%\-%\\-%g')"
+    INSTALLED_PTNS_PET="$(grep '\.pet|' /root/.packages/layers-installed-packages | cut -f 2 -d '|' | sed -e 's%^%/%' -e 's%$%|%' -e 's%\-%\\-%g')"
    if [ "$INSTALLED_PTNS_PET" != "/|" ];then
     echo "$INSTALLED_PTNS_PET" > /tmp/petget/installed_ptns_pet
     INSTALLED_ALT_NAMES="$(grep --no-filename -f /tmp/petget/installed_ptns_pet /root/.packages/Packages-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}-* | cut -f 2 -d '|')"
@@ -207,91 +187,11 @@ do
  [ $repocnt -ge 5 ] && break
 done
 
-##100116 quirky...
-#QUIRKY_DB=''
-#if [ "$DISTRO_COMPAT_VERSION" != "wary5" ];then #101126
-# if [ "`echo "$DISTRO_NAME" | grep -i 'quirky'`" != "" ];then
-#  if [ "`echo -n "$PKG_REPOS_ENABLED" | grep 'puppy\-quirky'`" != "" ];then
-#   echo 'puppy-quirky-official' >> /tmp/petget_active_repo_list
-#   QUIRKY_DB='<radiobutton><label>puppy-quirky</label><action>/tmp/filterversion.sh puppy-quirky-official</action><action>/usr/local/petget/filterpkgs.sh</action><action>refresh:TREE1</action></radiobutton>'
-#   FIRST_DB='puppy-quirky-official'
-#   repocnt=1
-#  fi
-# fi
-#fi
-#
-#if [ "$DISTRO_BINARY_COMPAT" != "puppy" ];then #w477 if compat-distro is puppy, bypass.
-# for ONE_DB in `ls -1 /root/.packages/Packages-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}* | tr '\n' ' '`
-# do
-#  BASEREPO="`basename $ONE_DB`"
-#  bPATTERN=' '"$BASEREPO"' '
-#  [ "`echo -n "$PKG_REPOS_ENABLED" | grep "$bPATTERN"`" = "" ] && continue
-#  repocnt=`expr $repocnt + 1`
-#  COMPAT_REPO="`echo -n "$ONE_DB" | rev | cut -f 1 -d '/' | rev | cut -f 2-4 -d '-'`"
-#  if [ "$COMPAT_DBS" = "" ];then #101205
-#   COMPAT_DBS="<radiobutton><label>${COMPAT_REPO}</label><action>/tmp/filterversion.sh ${COMPAT_REPO}</action><action>/usr/local/petget/filterpkgs.sh</action><action>refresh:TREE1</action></radiobutton>"
-#  else
-#   COMPAT_DBS="${COMPAT_DBS}
-#<radiobutton><label>${COMPAT_REPO}</label><action>/tmp/filterversion.sh ${COMPAT_REPO}</action><action>/usr/local/petget/filterpkgs.sh</action><action>refresh:TREE1</action></radiobutton>"
-#  fi
-#  echo "${COMPAT_REPO}" >> /tmp/petget_active_repo_list #read in findnames.sh
-#  [ "$FIRST_DB" = "" ] && [ $repocnt = 1 ] && FIRST_DB="$COMPAT_REPO"
-# done
-#fi
-#
-#PUPPY_DBS=""
-#
-##100903 another hack...
-#if [ "$DISTRO_COMPAT_VERSION" == "wary5" ];then
-# if [ "`echo -n "$PKG_REPOS_ENABLED" | grep 'puppy\-wary5'`" != "" ];then
-#  echo 'puppy-wary5-official' >> /tmp/petget_active_repo_list
-#  PUPPY_DBS='<radiobutton><label>puppy-wary5</label><action>/tmp/filterversion.sh puppy-wary5-official</action><action>/usr/local/petget/filterpkgs.sh</action><action>refresh:TREE1</action></radiobutton>'
-#  FIRST_DB='puppy-wary5-official'
-#  repocnt=1
-# fi
-#fi
-#
-##100911 another hack...
-#if [ "$DISTRO_COMPAT_VERSION" == "lucid" ];then
-# if [ "`echo -n "$PKG_REPOS_ENABLED" | grep 'puppy\-lucid'`" != "" ];then
-#  echo 'puppy-lucid-official' >> /tmp/petget_active_repo_list
-#  PUPPY_DBS='<radiobutton><label>puppy-lucid</label><action>/tmp/filterversion.sh puppy-lucid-official</action><action>/usr/local/petget/filterpkgs.sh</action><action>refresh:TREE1</action></radiobutton>'
-#  FIRST_DB='puppy-lucid-official'
-#  repocnt=1
-# fi
-#fi
-#
-#xrepocnt=$repocnt #w476
-#for ONE_DB in `ls -1 /root/.packages/Packages-puppy* | sort -r | tr '\n' ' '`
-#do
-# BASEREPO="`basename $ONE_DB`"
-# #100903 if wary5, want to list quirky repo, as has same code base...
-# [ "$BASEREPO" = "Packages-puppy-quirky-official" ] && [ "$DISTRO_COMPAT_VERSION" != "wary5" ] && continue #100126 already handled above. 100903
-# [ "$BASEREPO" = "Packages-puppy-wary5-official" ] && continue #100903 already handled above.
-# [ "$BASEREPO" = "Packages-puppy-lucid-official" ] && continue #100911 already handled above.
-# bPATTERN=' '"$BASEREPO"' '
-# [ "`echo -n "$PKG_REPOS_ENABLED" | grep "$bPATTERN"`" = "" ] && continue
-# PUPPY_REPO="`echo -n "$ONE_DB" | rev | cut -f 1 -d '/' | rev | cut -f 2-4 -d '-'`"
-# #chop size of label down a bit, to fit in 800x600 window...
-# PUPPY_REPO_CUT="`echo -n "$ONE_DB" | rev | cut -f 1 -d '/' | rev | cut -f 2,3 -d '-'`"
-# PUPPY_REPO_FULL="`echo -n "$ONE_DB" | rev | cut -f 1 -d '/' | rev | cut -f 2-9 -d '-'`"
-# if [ "$PUPPY_DBS" = "" ];then #101205
-#  PUPPY_DBS="<radiobutton><label>${PUPPY_REPO_CUT}</label><action>/tmp/filterversion.sh ${PUPPY_REPO_FULL}</action><action>/usr/local/petget/filterpkgs.sh</action><action>refresh:TREE1</action></radiobutton>"
-# else
-#  PUPPY_DBS="${PUPPY_DBS}
-#<radiobutton><label>${PUPPY_REPO_CUT}</label><action>/tmp/filterversion.sh ${PUPPY_REPO_FULL}</action><action>/usr/local/petget/filterpkgs.sh</action><action>refresh:TREE1</action></radiobutton>"
-# fi
-# echo "${PUPPY_REPO}" >> /tmp/petget_active_repo_list #read in findnames.sh
-# [ "$FIRST_DB" = "" ] && [ $repocnt = $xrepocnt ] && FIRST_DB="$PUPPY_REPO" #w476
-# repocnt=`expr $repocnt + 1`
-#done
-
 FILTER_CATEG="Desktop"
 #note, cannot initialise radio buttons in gtkdialog...
 echo "Desktop" > /tmp/petget_filtercategory #must start with Desktop.
 echo "$FIRST_DB" > /tmp/petget/current-repo-triad #ex: slackware-12.2-official
 
-#if [ "$DISTRO_BINARY_COMPAT" = "ubuntu" -o "$DISTRO_BINARY_COMPAT" = "debian" ];then
 if [ 0 -eq 1 ];then #w020 disable this choice.
  #filter pkgs by first letter, for more speed. must start with ab...
  echo "ab" > /tmp/petget_pkg_first_char
@@ -338,8 +238,6 @@ echo $1 > /tmp/petget/current-repo-triad
 ' > /tmp/filterversion.sh
 chmod 777 /tmp/filterversion.sh
 
-#  <text use-markup=\"true\"><label>\"<b>To install or uninstall,</b>\"</label></text>
-
 ALLCATEGORY=''
 if [ "$DISTRO_BINARY_COMPAT" = "puppy" ];then #v424 reintroduce the 'ALL' category.
  ALLCATEGORY="<radiobutton><label>$(gettext 'ALL')</label><action>/usr/local/petget/filterpkgs.sh ALL</action><action>refresh:TREE1</action></radiobutton>"
@@ -355,27 +253,6 @@ if [ "$DISTRO_BINARY_COMPAT" = "gentoo" ];then #reintroduce the 'ALL' category.
 fi
 
 DB_ORDERED="$REPOS_RADIO" #120831
-##w476 reverse COMPAT_DBS, PUPPY_DBS...
-##100412 make sure first radiobutton matches list of pkgs...
-##101205 bugfix...
-#DB_ORDERED="${QUIRKY_DB}
-#${PUPPY_DBS}
-#${COMPAT_DBS}"
-#FIRST_DB_cut="`echo -n "$FIRST_DB" | cut -f 1,2 -d '-' | sed -e 's%\\-%\\\\-%g'`" #ex: puppy-lucid-official cut to puppy\-lucid.
-#fdPATTERN='>'"$FIRST_DB_cut"'<'
-#DB_temp0="`echo "$DB_ORDERED" | sed -e 's%^$%%' | grep "$fdPATTERN"`"
-#if [ ! "$DB_temp0" ];then #120327 above may fail.
-# #ex: FIRST_DB=ubuntu-precise-main, DB_ORDERED=puppy-precise\npuppy-noarch\nubuntu-precise-main\nubuntu-precise-multiverse
-# FIRST_DB_cut="`echo -n "$FIRST_DB" | cut -f 1,2,3 -d '-' | sed -e 's%\\-%\\\\-%g'`" #ex: ubuntu-precise-main becomes ubuntu\-precise\-main
-# fdPATTERN='>'"$FIRST_DB_cut"'<'
-# DB_temp0="`echo "$DB_ORDERED" | sed -e 's%^$%%' | grep "$fdPATTERN"`"
-#fi
-#DB_temp1="`echo "$DB_ORDERED" | sed -e 's%^$%%' | grep -v "$fdPATTERN"`"
-#DB_ORDERED="$DB_temp0
-#$DB_temp1"
-
-#  <text use-markup=\"true\"><label>\"<b>Just click on a package!</b>\"</label></text>
-#  <text><label>\" \"</label></text>
 
 #110118 alternate User Interfaces...
 touch /var/local/petget/ui_choice

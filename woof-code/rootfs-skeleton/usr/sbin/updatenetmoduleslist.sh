@@ -15,7 +15,6 @@ DRIVERSDIR="/lib/modules/$KERNVER/kernel/drivers/net"
 echo "Updating /etc/networkmodules..."
 
 DEPFORMAT='new'
-#[ $KERNSUBVER -lt 29 ] && [ $KERNMAJVER -eq 6 ] && DEPFORMAT='old'
 if vercmp $KERNVER lt 2.6.29; then #120507
  DEPFORMAT='old'
 fi
