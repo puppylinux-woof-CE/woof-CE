@@ -57,12 +57,12 @@ do
  
  case $LISTNAME in
   Packages-puppy-*) #a .pet pkg.
-   for ONEPETREPO in $PET_REPOS #ex: ibiblio.org|http://distro.ibiblio.org/pub/linux/distributions/quirky|Packages-puppy-quirky-official
+   for ONEPETREPO in $PET_REPOS #ex: ibiblio.org|http://distro.ibiblio.org//quirky|Packages-puppy-quirky-official
    do
     ONEPETREPO_3_PATTERN="`echo -n "$ONEPETREPO" | cut -f 3 -d '|' | sed -e 's%\\-%\\\\-%g' -e 's%\\*%.*%g'`"
     ONEPETREPO_1_2="`echo -n "$ONEPETREPO" | cut -f 1,2 -d '|'`"
     [ "`echo -n "$LISTNAME" | grep "$ONEPETREPO_3_PATTERN"`" != "" ] && echo "${ONEPETREPO_1_2}|${LISTNAME}" >> /tmp/petget_repos
-    #...ex: ibiblio.org|http://distro.ibiblio.org/pub/linux/distributions/puppylinux|Packages-puppy-4-official
+    #...ex: ibiblio.org|http://distro.ibiblio.org//puppylinux|Packages-puppy-4-official
     
    done
   ;;
