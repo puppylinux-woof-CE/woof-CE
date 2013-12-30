@@ -123,16 +123,16 @@ export resize="$x"
 eval $(gtkdialog -p resize)
 case ${EXIT} in
   save)KILOBIG=$(($KILOBIG * 1024))
-  echo "$KILOBIG" > /initrd${PUP_HOME}/pupsaveresize.txt;;
+	echo "KILOBIG=$KILOBIG" > /initrd${PUP_HOME}/pupsaveresizenew.txt
+	echo "PUPSAVEFILEX=$SAVEFILE" >> /initrd${PUP_HOME}/pupsaveresizenew.txt
+   ;;
    *)
     exit
    ;;
 esac
 
-echo -n "$KILOBIG" > /initrd${PUP_HOME}/pupsaveresize.txt
 
-
-/usr/lib/gtkdialog/box_ok "$(gettext 'Resize personal storage file')" complete "$(eval_gettext "Okay, you have chosen to <b>increase \${NAMEPFILE} by \${KILOBIG} Kbytes</b>, however as the file is currently in use, it will happen at reboot.")" " " "$(gettext 'Technical notes:')" "$(eval_gettext "The required size increase has been written to file pupsaveresize.txt, in partition \${SAVEPART} (currently mounted on /mnt/home).")" "$(gettext 'File pupsaveresize.txt will be read at bootup and the resize performed then pupsaveresize.txt will be deleted.')" "$(eval_gettext "WARNING: If you have multiple \${DISTRO_FILE_PREFIX}save files, be sure to select the same one when you reboot.")" " " "<b>$(gettext 'You can keep using Puppy. The change will only happen at reboot.')</b>"
+/usr/lib/gtkdialog/box_ok "$(gettext 'Resize personal storage file')" complete "$(eval_gettext "Okay, you have chosen to <b>increase \${NAMEPFILE} by \${KILOBIG} Kbytes</b>, however as the file is currently in use, it will happen at reboot.")" " " "$(gettext 'Technical notes:')" "$(eval_gettext "The required size increase has been written to file pupsaveresizenew.txt, in partition \${SAVEPART} (currently mounted on /mnt/home).")" "$(gettext 'File pupsaveresizenew.txt will be read at bootup and the resize performed then pupsaveresizenew.txt will be deleted.')" "$(eval_gettext "WARNING: If you have multiple \${DISTRO_FILE_PREFIX}save files, be sure to select the same one when you reboot.")" " " "<b>$(gettext 'You can keep using Puppy. The change will only happen at reboot.')</b>"
 
 ###END###
 
