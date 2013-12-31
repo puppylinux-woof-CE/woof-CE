@@ -546,6 +546,21 @@ search_func() { #110425
  done
 } #search_func
 
+resize_pupsave_func() { #131225
+	rm -f /mnt/dev_save/pupsaveresizenew.txt
+    echo > /dev/console
+    echo -n "Increasing $PUPSAVEFILE by $KILOBIG Kbytes, please wait..." >/dev/console
+    dd if=/dev/zero bs=1024 count=$KILOBIG >> /mnt/dev_save$PUPSAVEFILEX #131225 
+    sync
+}
+fsck_pupsave_func() {
+    e2fsck -y -f /mnt/dev_save$PUPSAVEFILE
+    resize2fs -pf /mnt/dev_save$PUPSAVEFILE #no size, will fill all of file.
+    sync
+    check_status 0 #note, e2fsck gives an error even though it works. v2.21 maybe okay now.
+    echo -n "...continuing with loading $PUPSAVEFILE..." > /dev/console
+}
+
 #pmedia= usbflash|usbhd|usbcd|ataflash|atahd|atacd|atazip|scsihd|scsicd|cd
 [ $pmedia ] && PMEDIA=$pmedia #boot parameter, broad category of boot media. ex: cd.
 [ $pdev1 ] && PDEV1=$pdev1    #boot parameter, partition have booted off. ex: hda3
@@ -1030,53 +1045,44 @@ if [ "$CREATEPUPSAVE2FS" != "" ];then
    while true; do
     #note, cryptoloop does not work with jounalled fs, hence have to use ext2 only.
 
-    if [ -f /mnt/dev_save/pupsaveresize.txt ];then #111120
-     if [ ! -e /bin/e2fsck ];then
-      echo -e -n "\\033[1;31m SORRY, cannot resize $PUPSAVEFILE \\033[0;39m" > /dev/console #31=red
-      rm -f /mnt/dev_save/pupsaveresize.txt
-     fi
-    fi
-    
-    #v3.01 will take this out as a func later (similar code below)...
-    #about to mount ${DISTRO_FILE_PREFIX}save.2fs, but before that check if need to resize it...
-    if [ -f /mnt/dev_save/pupsaveresize.txt ];then #created by /usr/sbin/resizepfile.sh
-     KILOBIG=`cat /mnt/dev_save/pupsaveresize.txt`
-     rm -f /mnt/dev_save/pupsaveresize.txt
-     echo > /dev/console
-     echo -n "Increasing $PUPSAVEFILE by $KILOBIG Kbytes, please wait..." >/dev/console
-     dd if=/dev/zero bs=1024 count=$KILOBIG >> /mnt/dev_save$PUPSAVEFILE
-     sync
-     if [ "$CRYPTO" = "-e aes" ];then #v3.98
-      echo "NOTICE: As you type your password nothing will be displayed on the screen."  >/dev/console
-      echo "This is a security measure. Just type it in then press ENTER key..." >/dev/console
-      echo -e "\\033[1;36m" >/dev/console #aqua-blue
-      echo -n "Password: " >/dev/console
-      echo -en "\\033[0;39m" >/dev/console
-      read -s MYPASS #< /dev/console v403
-      echo "$MYPASS" | losetup -p 0 -e aes /dev/loop1 /mnt/dev_save$PUPSAVEFILE
+    # if pupsave increase requested
+    if [ -f /mnt/dev_save/pupsaveresizenew.txt ];then #131225 changed to function
+     . /mnt/dev_save/pupsaveresizenew.txt
+     if echo ${PUPSAVEFILEX}|grep -q ${PUPSAVEFILE##*/} ;then #131231
+      if [ ! -e /bin/e2fsck ];then
+       echo -e -n "\\033[1;31m SORRY, cannot resize ${PUPSAVEFILE} \\033[0;39m" > /dev/console #31=red
+       rm -f /mnt/dev_save/pupsaveresizenew.txt
+      else
+       resize_pupsave_func #131225
+      fi # end pupsave increase, old code removed 131225
+      if [ "$CRYPTO" = "-e aes" ];then #v3.98
+       echo "NOTICE: As you type your password nothing will be displayed on the screen."  >/dev/console
+       echo "This is a security measure. Just type it in then press ENTER key..." >/dev/console
+       echo -e "\\033[1;36m" >/dev/console #aqua-blue
+       echo -n "Password: " >/dev/console
+       echo -en "\\033[0;39m" >/dev/console
+       read -s MYPASS #< /dev/console v403
+       echo "$MYPASS" | losetup -p 0 -e aes /dev/loop1 /mnt/dev_save$PUPSAVEFILE
+      else
+       echo -e "\\033[1;36m" >/dev/console #aqua-blue
+       echo -n "Password: " >/dev/console
+       echo -en "\\033[0;39m" >/dev/console
+       #losetup does not accept -p param for xor encryption... may not work...
+       losetup $CRYPTO /dev/loop1 /mnt/dev_save$PUPSAVEFILE
+      fi
+      fsck_pupsave_func #131225
      else
       echo -e "\\033[1;36m" >/dev/console #aqua-blue
       echo -n "Password: " >/dev/console
       echo -en "\\033[0;39m" >/dev/console
-      #losetup does not accept -p param for xor encryption... may not work...
-      losetup $CRYPTO /dev/loop1 /mnt/dev_save$PUPSAVEFILE
-     fi
-     e2fsck -y -f /dev/loop1
-     resize2fs -pf /dev/loop1 #no size, will fill all of file.
-     sync
-     #check_status 0 #note, e2fsck gives an error even though it works. v2.21 maybe okay now.
-     echo -n "...continuing with loading $PUPSAVEFILE..." > /dev/console
-    else
-     echo -e "\\033[1;36m" >/dev/console #aqua-blue
-     echo -n "Password: " >/dev/console
-     echo -en "\\033[0;39m" >/dev/console
-     if [ "$CRYPTO" = "-e aes" ];then #v3.98
-      read -s MYPASS #< /dev/console v403
-      echo "$MYPASS" | losetup -p 0 -e aes /dev/loop1 /mnt/dev_save$PUPSAVEFILE
-     else
-      #losetup does not accept -p param for xor encryption... may not work...
-      losetup $CRYPTO /dev/loop1 /mnt/dev_save$PUPSAVEFILE
-     fi
+      if [ "$CRYPTO" = "-e aes" ];then #v3.98
+       read -s MYPASS #< /dev/console v403
+       echo "$MYPASS" | losetup -p 0 -e aes /dev/loop1 /mnt/dev_save$PUPSAVEFILE
+      else
+       #losetup does not accept -p param for xor encryption... may not work...
+       losetup $CRYPTO /dev/loop1 /mnt/dev_save$PUPSAVEFILE
+      fi
+     fi #131225
     fi
 
     echo "/dev/loop1 $CREATEPUPSAVE2FS ext2 defaults  1 1" >> /etc/fstab #v2.21
@@ -1100,28 +1106,20 @@ if [ "$CREATEPUPSAVE2FS" != "" ];then
     fi
    done
   else #pupsave not encrypted.
-
-   if [ -f /mnt/dev_save/pupsaveresize.txt ];then #111120
-    if [ ! -e /bin/e2fsck ];then
-     echo -e -n "\\033[1;31m SORRY, cannot resize ${PUPSAVEFILE} \\033[0;39m" > /dev/console #31=red
-     rm -f /mnt/dev_save/pupsaveresize.txt
+   # if pupsave increase requested
+   if [ -f /mnt/dev_save/pupsaveresizenew.txt ];then #131225 changed to function
+    . /mnt/dev_save/pupsaveresizenew.txt
+    if echo ${PUPSAVEFILEX}|grep -q ${PUPSAVEFILE##*/} ;then
+     if [ ! -e /bin/e2fsck ];then
+      echo -e -n "\\033[1;31m SORRY, cannot resize ${PUPSAVEFILE} \\033[0;39m" > /dev/console #31=red
+      rm -f /mnt/dev_save/pupsaveresizenew.txt
+     else
+      resize_pupsave_func #131225
+      fsck_pupsave_func #131225
+     fi
     fi
    fi
-    
-   #about to mount ${DISTRO_FILE_PREFIX}save.2fs, but before that check if need to resize it...
-   if [ -f /mnt/dev_save/pupsaveresize.txt ];then #created by /usr/sbin/resizepfile.sh
-    KILOBIG=`cat /mnt/dev_save/pupsaveresize.txt`
-    rm -f /mnt/dev_save/pupsaveresize.txt
-    echo > /dev/console
-    echo -n "Increasing $PUPSAVEFILE by $KILOBIG Kbytes, please wait..." >/dev/console
-    dd if=/dev/zero bs=1024 count=$KILOBIG >> /mnt/dev_save$PUPSAVEFILE
-    sync
-    e2fsck -y -f /mnt/dev_save$PUPSAVEFILE
-    resize2fs -pf /mnt/dev_save$PUPSAVEFILE #no size, will fill all of file.
-    sync
-    check_status 0 #note, e2fsck gives an error even though it works. v2.21 maybe okay now.
-    echo -n "...continuing with loading $PUPSAVEFILE..." > /dev/console
-   fi
+   # end pupsave increase
    losetup /dev/loop1 /mnt/dev_save${PUPSAVEFILE}
    SFFS='ext'`echo -n "$PUPSAVEFILE" | rev | cut -c 3`
    echo "/dev/loop1 $CREATEPUPSAVE2FS $SFFS defaults  1 1" >> /etc/fstab
