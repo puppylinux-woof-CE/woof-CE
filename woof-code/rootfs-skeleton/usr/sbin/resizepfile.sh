@@ -124,7 +124,7 @@ eval $(gtkdialog -p resize)
 case ${EXIT} in
   save)KILOBIG=$(($KILOBIG * 1024))
 	echo "KILOBIG=$KILOBIG" > /initrd${PUP_HOME}/pupsaveresizenew.txt
-	echo "PUPSAVEFILEX=$SAVEFILE" >> /initrd${PUP_HOME}/pupsaveresizenew.txt
+	echo "PUPSAVEFILEX=$SAVEFILE" >> /initrd${PUP_HOME}/pupsaveresizenew.txt #131231
    ;;
    *)
     exit
