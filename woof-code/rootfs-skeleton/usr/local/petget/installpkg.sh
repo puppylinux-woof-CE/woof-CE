@@ -63,6 +63,8 @@ export LANG=C
 
 . /etc/xdg/menus/hierarchy #w478 has PUPHIERARCHY variable.
 
+[ "$PUPMODE" = "2" ] && [ ! -d /audit ] && mkdir -p /audit
+
 DLPKG="$1"
 DLPKG_BASE="`basename $DLPKG`" #ex: scite-1.77-i686-2as.tgz
 DLPKG_PATH="`dirname $DLPKG`"  #ex: /root
@@ -111,28 +113,46 @@ install_path_check() {
 dbPATTERN='|'"$DLPKG_BASE"'|'
 DLPKG_NAME="`cat /tmp/petget_missing_dbentries-Packages-* | grep "$dbPATTERN" | head -n 1 | cut -f 1 -d '|'`"
 
-#boot from flash: bypass tmpfs top layer, install direct to pup_save file...
-DIRECTSAVEPATH=""
-#111013 shinobar: this currently not working, bypass for now... 111013 revert...
-#if [ "ABC" = "DEF" ];then #111013
-if [ $PUPMODE -eq 3 -o $PUPMODE -eq 7 -o $PUPMODE -eq 13 ];then
- FLAGNODIRECT=1
- [ "`lsmod | grep '^unionfs' `" != "" ] && FLAGNODIRECT=0
- #100426 aufs can now write direct to save layer...
- if [ "`lsmod | grep '^aufs' `" != "" ];then
-  #note: fsnotify now preferred not inotify, udba=notify uses whichever is enabled in module...
-  busybox mount -t aufs -o remount,udba=notify unionfs / #remount aufs with best evaluation mode.
-  FLAGNODIRECT=$?
-  [ $FLAGNODIRECT -ne 0 ] && logger -s -t "installpkg.sh" "Failed to remount aufs / with udba=notify"
+#131222 do not allow duplicate installs...
+PTN1='^'"$DLPKG_NAME"'|'
+if [ "`grep "$PTN1" /root/.packages/user-installed-packages`" != "" ];then
+ if [ ! $DISPLAY ];then
+  echo "$(gettext 'Sorry, this package is already installed. Aborting.')"
+ else
+  pupmessage -bg '#ff8080' -fg black -title "$(gettext 'Package:') ${DLPKG_NAME}" "$(gettext 'Sorry, but this package is already installed. Cannot install it twice.')"
  fi
- if [ $FLAGNODIRECT -eq 0 ];then
-  #note that /sbin/pup_event_frontend_d will not run snapmergepuppy if installpkg.sh or downloadpkgs.sh are running.
-  while [ "`pidof snapmergepuppy`" != "" ];do
-   sleep 1
-  done
-  DIRECTSAVEPATH="/initrd${SAVE_LAYER}" #SAVE_LAYER is in /etc/rc.d/PUPSTATE.
-  rm -f $DIRECTSAVEPATH/pet.specs $DIRECTSAVEPATH/pinstall.sh $DIRECTSAVEPATH/puninstall.sh $DIRECTSAVEPATH/install/doinst.sh
+ exit 1
+fi
+
+if [ "$PUPMODE" = "2" ]; then # from BK's quirky6.1
+
+#131220  131229 detect if not enough room in /tmp...
+DIRECTSAVEPATH="/tmp/petget/directsavepath"
+SIZEB=`stat --format=%s ${DLPKG_PATH}/${DLPKG_BASE}`
+SIZEK=`expr $SIZEB \/ 1024`
+EXPK=`expr $SIZEK \* 5` #estimated worst-case expanded size.
+TMPK=`df -k /tmp | grep '^tmpfs' | tr -s ' ' | cut -f 4 -d ' '` #free space in /tmp
+if [ $EXPK -ge $TMPK ];then
+ if [ "$DEV1FS" = "f2fs" ];then #131230
+  DIRECTSAVEPATH=""
+  if [ $DISPLAY ];then
+   pupdialog --background '#ff5050' --foreground black --yes-label "$(gettext 'Direct')" --no-label "$(gettext 'Abort')" --backtitle "$(gettext 'Too big:') ${DLPKG_BASE}" --extra-button --extra-label "$(gettext 'Indirect')" --colors --yesno "$(gettext 'Normally, a package is expanded first in /tmp, then installed. This enables determination of what files are going to be overwritten before final installation, and those files get saved for later recovery when the package is uninstalled.')\n$(gettext 'However, this package is too big to expand in /tmp. There are three options:')\n\n$(gettext '\ZbDirect:\ZB Install straight to /, that is, the partition. However, this means that any overwritten files are not saved, hence unistallation of the package may not be possible without breaking the system. The depends on the package of course.')\n$(gettext '\ZbIndirect:\ZB Expand the package to a directory in the filesystem. I have experienced trouble doing this with some Flash drives. This would allow normal install and uninstall.')\n$(gettext '\ZbAbort:\ZB Do not install the package.')\n\n$(gettext '\ZbNote1:\ZB Running on a PC with more RAM will increase the size of /tmp. Or, a full HD installation will allow package installation with proper uninstall capability.')\n$(gettext '\ZbNote 2:\ZB The Quirky Snapshot Manager is an alternative way of roll-back: take a snapshot before installing this package.')" 0 0
+   #[ $? -ne 0 ] && exit 1
+   case $? in
+    0) DIRECTSAVEPATH="" ;;
+    3) DIRECTSAVEPATH="/audit/directsavepath" ;;
+    *) exit 1
+   esac
+  fi
+ else
+  DIRECTSAVEPATH="/audit/directsavepath"
  fi
+fi
+if [ "$DIRECTSAVEPATH" ];then
+ rm -rf $DIRECTSAVEPATH
+ mkdir -p $DIRECTSAVEPATH
+fi
+
 fi
 
 cd $DLPKG_PATH
@@ -244,6 +264,96 @@ case $DLPKG_BASE in
   exploderpm -i $DLPKG_BASE
  ;;
 esac
+if [ "$PUPMODE" = "2" ]; then #from BK's quirky6.1
+ mkdir /audit/${DLPKG_MAIN}DEPOSED
+ echo -n '' > /tmp/petget/FLAGFND
+ find ${DIRECTSAVEPATH}/ -mindepth 1 | sed -e "s%${DIRECTSAVEPATH}%%" |
+ while read AFILESPEC
+ do
+  if [ -f "$AFILESPEC" ];then
+   ADIR="$(dirname "$AFILESPEC")"
+   mkdir -p /audit/${DLPKG_MAIN}DEPOSED/${ADIR}
+   cp -a -f "$AFILESPEC" /audit/${DLPKG_MAIN}DEPOSED/${ADIR}/
+   echo -n '1' > /tmp/petget/FLAGFND
+  fi
+ done
+ sync
+ if [ -s /tmp/petget/FLAGFND ];then
+  [ -f /audit/${DLPKG_MAIN}DEPOSED.sfs ] && rm -f /audit/${DLPKG_MAIN}DEPOSED.sfs #precaution, should not happen, as not allowing duplicate installs of same pkg.
+  mksquashfs /audit/${DLPKG_MAIN}DEPOSED /audit/${DLPKG_MAIN}DEPOSED.sfs
+ fi
+ sync
+ rm -rf /audit/${DLPKG_MAIN}DEPOSED
+ #now write temp-location to final destination...
+ cp -a -f --remove-destination ${DIRECTSAVEPATH}/* /  2> /tmp/petget/install-cp-errlog
+ sync
+ #can have a problem if want to replace a folder with a symlink. for example, got this error:
+ # cp: cannot overwrite directory '/usr/share/mplayer/skins' with non-directory
+ #3builddistro has this fix... which is a vice-versa situation...
+ #firstly, the vice-versa, source is a directory, target is a symlink...
+ CNT=0
+ while [ -s /tmp/petget/install-cp-errlog ];do
+  if [ -s /tmp/petget/install-cp-errlog ];then #next line fixes those quote chars...
+   cat /tmp/petget/install-cp-errlog | grep 'cannot overwrite non-directory' | tr '[`‘’]' "'" | cut -f 2 -d "'" |
+   while read ONEDIRSYMLINK #ex: /usr/share/mplayer/skins
+   do
+    #adding that extra trailing / does the trick...
+    cp -a -f --remove-destination ${DIRECTSAVEPATH}"${ONEDIRSYMLINK}"/* "${ONEDIRSYMLINK}"/ 2> /tmp/petget/install-cp-errlog2
+   done
+  fi
+  #secondly, which is our mplayer example, source is a symlink, target is a folder...
+  if [ -s /tmp/petget/install-cp-errlog ];then #next line fixes those quote chars...
+   cat /tmp/petget/install-cp-errlog | grep 'cannot overwrite directory' | grep 'with non-directory' | tr '[`‘’]' "'" | cut -f 2 -d "'" |
+   while read ONEDIRSYMLINK #ex: /usr/share/mplayer/skins
+   do
+    mv -f "${ONEDIRSYMLINK}" "${ONEDIRSYMLINK}"TEMP
+    rm -rf "${ONEDIRSYMLINK}"TEMP
+    DIRPATH="$(dirname "${ONEDIRSYMLINK}")"
+    cp -a -f --remove-destination ${DIRECTSAVEPATH}"${ONEDIRSYMLINK}" "${DIRPATH}"/ 2> /tmp/petget/install-cp-errlog3
+   done
+  fi
+  cat /tmp/petget/install-cp-errlog2 >> /tmp/petget/install-cp-errlog3
+  cat /tmp/petget/install-cp-errlog3 > /tmp/petget/install-cp-errlog
+  sync
+  CNT=`expr $CNT + 1`
+  [ $CNT -gt 10 ] && break #something wrong, get out.
+ done
+
+ #end 131220
+ rm -rf ${DIRECTSAVEPATH} #131229 131230
+
+rm -f $DLPKG_BASE 2>/dev/null
+rm -f $DLPKG_MAIN.tar.gz 2>/dev/null
+
+#pkgname.files may need to be fixed...
+FIXEDFILES="`cat /root/.packages/${DLPKG_NAME}.files | grep -v '^\\./$'| grep -v '^/$' | sed -e 's%^\\.%%' -e 's%^%/%' -e 's%^//%/%'`"
+echo "$FIXEDFILES" > /root/.packages/${DLPKG_NAME}.files 
+
+else
+
+#boot from flash: bypass tmpfs top layer, install direct to pup_save file...
+DIRECTSAVEPATH=""
+#111013 shinobar: this currently not working, bypass for now... 111013 revert...
+#if [ "ABC" = "DEF" ];then #111013
+if [ $PUPMODE -eq 3 -o $PUPMODE -eq 7 -o $PUPMODE -eq 13 ];then
+ FLAGNODIRECT=1
+ [ "`lsmod | grep '^unionfs' `" != "" ] && FLAGNODIRECT=0
+ #100426 aufs can now write direct to save layer...
+ if [ "`lsmod | grep '^aufs' `" != "" ];then
+  #note: fsnotify now preferred not inotify, udba=notify uses whichever is enabled in module...
+  busybox mount -t aufs -o remount,udba=notify unionfs / #remount aufs with best evaluation mode.
+  FLAGNODIRECT=$?
+  [ $FLAGNODIRECT -ne 0 ] && logger -s -t "installpkg.sh" "Failed to remount aufs / with udba=notify"
+ fi
+ if [ $FLAGNODIRECT -eq 0 ];then
+  #note that /sbin/pup_event_frontend_d will not run snapmergepuppy if installpkg.sh or downloadpkgs.sh are running.
+  while [ "`pidof snapmergepuppy`" != "" ];do
+   sleep 1
+  done
+  DIRECTSAVEPATH="/initrd${SAVE_LAYER}" #SAVE_LAYER is in /etc/rc.d/PUPSTATE.
+  rm -f $DIRECTSAVEPATH/pet.specs $DIRECTSAVEPATH/pinstall.sh $DIRECTSAVEPATH/puninstall.sh $DIRECTSAVEPATH/install/doinst.sh
+ fi
+fi
 
 rm -f $DLPKG_BASE 2>/dev/null
 rm -f $DLPKG_MAIN.tar.${EXT} 2>/dev/null #131122
@@ -354,6 +464,8 @@ if [ "$DIRECTSAVEPATH" != "" ];then
   mount -t unionfs -o remount,incgen unionfs /
  fi
  sync
+fi
+
 fi
 
 #some .pet pkgs have images at '/'...
