@@ -124,6 +124,9 @@ if [ "`grep "$PTN1" /root/.packages/user-installed-packages`" != "" ];then
  exit 1
 fi
 
+#boot from flash: bypass tmpfs top layer, install direct to pup_save file...
+DIRECTSAVEPATH=""
+ 
 if [ "$PUPMODE" = "2" ]; then # from BK's quirky6.1
 
 #131220  131229 detect if not enough room in /tmp...
@@ -151,6 +154,28 @@ fi
 if [ "$DIRECTSAVEPATH" ];then
  rm -rf $DIRECTSAVEPATH
  mkdir -p $DIRECTSAVEPATH
+fi
+
+#111013 shinobar: this currently not working, bypass for now... 111013 revert...
+#if [ "ABC" = "DEF" ];then #111013
+if [ $PUPMODE -eq 3 -o $PUPMODE -eq 7 -o $PUPMODE -eq 13 ];then
+ FLAGNODIRECT=1
+ [ "`lsmod | grep '^unionfs' `" != "" ] && FLAGNODIRECT=0
+ #100426 aufs can now write direct to save layer...
+ if [ "`lsmod | grep '^aufs' `" != "" ];then
+  #note: fsnotify now preferred not inotify, udba=notify uses whichever is enabled in module...
+  busybox mount -t aufs -o remount,udba=notify unionfs / #remount aufs with best evaluation mode.
+  FLAGNODIRECT=$?
+  [ $FLAGNODIRECT -ne 0 ] && logger -s -t "installpkg.sh" "Failed to remount aufs / with udba=notify"
+ fi
+ if [ $FLAGNODIRECT -eq 0 ];then
+  #note that /sbin/pup_event_frontend_d will not run snapmergepuppy if installpkg.sh or downloadpkgs.sh are running.
+  while [ "`pidof snapmergepuppy`" != "" ];do
+   sleep 1
+  done
+  DIRECTSAVEPATH="/initrd${SAVE_LAYER}" #SAVE_LAYER is in /etc/rc.d/PUPSTATE.
+  rm -f $DIRECTSAVEPATH/pet.specs $DIRECTSAVEPATH/pinstall.sh $DIRECTSAVEPATH/puninstall.sh $DIRECTSAVEPATH/install/doinst.sh
+ fi
 fi
 
 fi
@@ -331,29 +356,6 @@ echo "$FIXEDFILES" > /root/.packages/${DLPKG_NAME}.files
 
 else
 
-#boot from flash: bypass tmpfs top layer, install direct to pup_save file...
-DIRECTSAVEPATH=""
-#111013 shinobar: this currently not working, bypass for now... 111013 revert...
-#if [ "ABC" = "DEF" ];then #111013
-if [ $PUPMODE -eq 3 -o $PUPMODE -eq 7 -o $PUPMODE -eq 13 ];then
- FLAGNODIRECT=1
- [ "`lsmod | grep '^unionfs' `" != "" ] && FLAGNODIRECT=0
- #100426 aufs can now write direct to save layer...
- if [ "`lsmod | grep '^aufs' `" != "" ];then
-  #note: fsnotify now preferred not inotify, udba=notify uses whichever is enabled in module...
-  busybox mount -t aufs -o remount,udba=notify unionfs / #remount aufs with best evaluation mode.
-  FLAGNODIRECT=$?
-  [ $FLAGNODIRECT -ne 0 ] && logger -s -t "installpkg.sh" "Failed to remount aufs / with udba=notify"
- fi
- if [ $FLAGNODIRECT -eq 0 ];then
-  #note that /sbin/pup_event_frontend_d will not run snapmergepuppy if installpkg.sh or downloadpkgs.sh are running.
-  while [ "`pidof snapmergepuppy`" != "" ];do
-   sleep 1
-  done
-  DIRECTSAVEPATH="/initrd${SAVE_LAYER}" #SAVE_LAYER is in /etc/rc.d/PUPSTATE.
-  rm -f $DIRECTSAVEPATH/pet.specs $DIRECTSAVEPATH/pinstall.sh $DIRECTSAVEPATH/puninstall.sh $DIRECTSAVEPATH/install/doinst.sh
- fi
-fi
 
 rm -f $DLPKG_BASE 2>/dev/null
 rm -f $DLPKG_MAIN.tar.${EXT} 2>/dev/null #131122
