@@ -220,11 +220,10 @@ do
 done
 
 #131222 restore files that were deposed when this pkg installed...
-fDB_pkgname=`grep ^${DB_pkgname} /root/.packages/user-installed-packages | cut -f 8 -d '|' |rev| cut -c 5-|rev`
-if [ -f /audit/${fDB_pkgname}DEPOSED.sfs ];then
- busybox mkdir -p /audit/${fDB_pkgname}DEPOSED
- busybox mount -t squashfs -o loop,ro /audit/${fDB_pkgname}DEPOSED.sfs /audit/${fDB_pkgname}DEPOSED
- DIRECTSAVEPATH="/audit/${fDB_pkgname}DEPOSED"
+if [ -f /audit/${DB_pkgname}DEPOSED.sfs ];then
+ busybox mkdir -p /audit/${DB_pkgname}DEPOSED
+ busybox mount -t squashfs -o loop,ro /audit/${DB_pkgname}DEPOSED.sfs /audit/${DB_pkgname}DEPOSED
+ DIRECTSAVEPATH="/audit/${DB_pkgname}DEPOSED"
  #same code as in installpkg.sh... 131230 cp is compiled statically, need full version...
  cp -a -f --remove-destination ${DIRECTSAVEPATH}/* /  2> /tmp/petget/install-cp-errlog
  busybox sync
@@ -257,9 +256,9 @@ if [ -f /audit/${fDB_pkgname}DEPOSED.sfs ];then
   CNT=`busybox expr $CNT + 1`
   [ $CNT -gt 10 ] && break #something wrong, get out.
  done
- busybox umount /audit/${fDB_pkgname}DEPOSED
- busybox rm -rf /audit/${fDB_pkgname}DEPOSED
- busybox rm -f /audit/${fDB_pkgname}DEPOSED.sfs
+ busybox umount /audit/${DB_pkgname}DEPOSED
+ busybox rm -rf /audit/${DB_pkgname}DEPOSED
+ busybox rm -f /audit/${DB_pkgname}DEPOSED.sfs
 fi
 
 #131222 restore latest files, needed by later-installed packages...

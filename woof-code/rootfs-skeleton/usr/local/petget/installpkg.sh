@@ -136,20 +136,7 @@ SIZEK=`expr $SIZEB \/ 1024`
 EXPK=`expr $SIZEK \* 5` #estimated worst-case expanded size.
 TMPK=`df -k /tmp | grep '^tmpfs' | tr -s ' ' | cut -f 4 -d ' '` #free space in /tmp
 if [ $EXPK -ge $TMPK ];then
- if [ "$DEV1FS" = "f2fs" ];then #131230
-  DIRECTSAVEPATH=""
-  if [ $DISPLAY ];then
-   pupdialog --background '#ff5050' --foreground black --yes-label "$(gettext 'Direct')" --no-label "$(gettext 'Abort')" --backtitle "$(gettext 'Too big:') ${DLPKG_BASE}" --extra-button --extra-label "$(gettext 'Indirect')" --colors --yesno "$(gettext 'Normally, a package is expanded first in /tmp, then installed. This enables determination of what files are going to be overwritten before final installation, and those files get saved for later recovery when the package is uninstalled.')\n$(gettext 'However, this package is too big to expand in /tmp. There are three options:')\n\n$(gettext '\ZbDirect:\ZB Install straight to /, that is, the partition. However, this means that any overwritten files are not saved, hence unistallation of the package may not be possible without breaking the system. The depends on the package of course.')\n$(gettext '\ZbIndirect:\ZB Expand the package to a directory in the filesystem. I have experienced trouble doing this with some Flash drives. This would allow normal install and uninstall.')\n$(gettext '\ZbAbort:\ZB Do not install the package.')\n\n$(gettext '\ZbNote1:\ZB Running on a PC with more RAM will increase the size of /tmp. Or, a full HD installation will allow package installation with proper uninstall capability.')\n$(gettext '\ZbNote 2:\ZB The Quirky Snapshot Manager is an alternative way of roll-back: take a snapshot before installing this package.')" 0 0
-   #[ $? -ne 0 ] && exit 1
-   case $? in
-    0) DIRECTSAVEPATH="" ;;
-    3) DIRECTSAVEPATH="/audit/directsavepath" ;;
-    *) exit 1
-   esac
-  fi
- else
   DIRECTSAVEPATH="/audit/directsavepath"
- fi
 fi
 if [ "$DIRECTSAVEPATH" ];then
  rm -rf $DIRECTSAVEPATH
@@ -290,25 +277,25 @@ case $DLPKG_BASE in
  ;;
 esac
 if [ "$PUPMODE" = "2" ]; then #from BK's quirky6.1
- mkdir /audit/${DLPKG_MAIN}DEPOSED
+ mkdir /audit/${DLPKG_NAME}DEPOSED
  echo -n '' > /tmp/petget/FLAGFND
  find ${DIRECTSAVEPATH}/ -mindepth 1 | sed -e "s%${DIRECTSAVEPATH}%%" |
  while read AFILESPEC
  do
   if [ -f "$AFILESPEC" ];then
    ADIR="$(dirname "$AFILESPEC")"
-   mkdir -p /audit/${DLPKG_MAIN}DEPOSED/${ADIR}
-   cp -a -f "$AFILESPEC" /audit/${DLPKG_MAIN}DEPOSED/${ADIR}/
+   mkdir -p /audit/${DLPKG_NAME}DEPOSED/${ADIR}
+   cp -a -f "$AFILESPEC" /audit/${DLPKG_NAME}DEPOSED/${ADIR}/
    echo -n '1' > /tmp/petget/FLAGFND
   fi
  done
  sync
  if [ -s /tmp/petget/FLAGFND ];then
-  [ -f /audit/${DLPKG_MAIN}DEPOSED.sfs ] && rm -f /audit/${DLPKG_MAIN}DEPOSED.sfs #precaution, should not happen, as not allowing duplicate installs of same pkg.
-  mksquashfs /audit/${DLPKG_MAIN}DEPOSED /audit/${DLPKG_MAIN}DEPOSED.sfs
+  [ -f /audit/${DLPKG_NAME}DEPOSED.sfs ] && rm -f /audit/${DLPKG_NAME}DEPOSED.sfs #precaution, should not happen, as not allowing duplicate installs of same pkg.
+  mksquashfs /audit/${DLPKG_NAME}DEPOSED /audit/${DLPKG_NAME}DEPOSED.sfs
  fi
  sync
- rm -rf /audit/${DLPKG_MAIN}DEPOSED
+ rm -rf /audit/${DLPKG_NAME}DEPOSED
  #now write temp-location to final destination...
  cp -a -f --remove-destination ${DIRECTSAVEPATH}/* /  2> /tmp/petget/install-cp-errlog
  sync
