@@ -28,9 +28,14 @@
 #110505 support sudo for non-root user.
 #111229 rerwin: fix jemimah code (110212).
 #120103 rerwin: screen out /.XLOADED when save.
+#140102 SFR: various fixes + gettext
 
 [ "`whoami`" != "root" ] && exec sudo -A ${0} ${@} #110505
 
+export TEXTDOMAIN=snapmergepuppy
+export OUTPUT_CHARSET=UTF-8
+
+OLDLANG="$LANG"
 export LANG=C #110206 Dougal: I **think** this should not cause problems with filenames
 
 #variables created at bootup by 'init' script in initramfs...
@@ -128,8 +133,9 @@ done
 touch /etc/rc.d/BOOTCONFIG
 FREEBASEK=`df -k | grep -w "$BASE"| head -n 1 | tr -s ' ' | cut -f 4 -d ' '` #110212 Jemimah #110222 shinobar
 rm -f /tmp/snapmergepuppy-nospace #110222 shinobar
-#Copy Files... v409 remove '^var'. w003 screen out some /dev files. 100222 shinobar: more exclusions. 100422 added ^root/ftpd. 100429 modify 'trash' exclusion. 100820 added var/tmp #110224 BK: revert, leave save of /dev in for now... 120103 rerwin: add .XLOADED
-find . -mount -not \( -regex '.*/\.wh\.[^/]*' -type f \) -not -type d |  sed -e 's/\.\///' | grep -v -E '^mnt|^initrd|^proc|^sys|^tmp|^pup_|^zdrv_|^root/tmp|_zdrv_|^dev/\.|^dev/fd|^dev/pts|^dev/shm|^\.wh\.|^var/run|^root/ftpd|^var/tmp|\.XLOADED$' | grep -v -E -i '\.thumbnails|\.part$'  |
+rm -f /tmp/snapmergepuppy-error   #140102 SFR
+#Copy Files... v409 remove '^var'. w003 screen out some /dev files. 100222 shinobar: more exclusions. 100422 added ^root/ftpd. 100429 modify 'trash' exclusion. 100820 added var/tmp #110224 BK: revert, leave save of /dev in for now... 120103 rerwin: add .XLOADED # SFR: added dev/snd
+find . -mount -not \( -regex '.*/\.wh\.[^/]*' -type f \) -not -type d |  sed -e 's/\.\///' | grep -v -E '^mnt|^initrd|^proc|^sys|^tmp|^pup_|^zdrv_|^root/tmp|_zdrv_|^dev/\.|^dev/fd|^dev/pts|^dev/snd|^dev/shm|^\.wh\.|^var/run|^root/ftpd|^var/tmp|\.XLOADED$' | grep -v -E -i '\.thumbnails|\.part$'  |
 while read -r N
 do
 
@@ -143,19 +149,16 @@ do
  fi
 
  #stop saving if not enough room left in ${DISTRO_FILE_PREFIX}save file...
+ ([ ! -e "$N" ] && [ ! -L "$N" ]) && continue # SFR: skip non-existing files (btw, '-e' won't detect broken symlinks, so '-L' is necessary!)
  FILESIZEB=`stat --format=%s "/${N}"`
- [ ! $FILESIZEB ] && break #w003 precaution.
+ #[ ! $FILESIZEB ] && break #w003 precaution.
+ [ ! $FILESIZEB ] && { touch /tmp/snapmergepuppy-error; continue; }	# SFR: don't break, continue
  FILESIZEK=$((FILESIZEB/1024))
  FILESIZEK=$((FILESIZEK+200)) #200K slack space.
  if [ $FILESIZEK -gt $FREEBASEK ];then
   FREEBASEK=`df -k | grep -w "$BASE" | head -n 1 | tr -s ' ' | cut -f 4 -d ' '` #110212 Jemimah: this is very slow; try not to check every iteration #110222 shinobar: fix for pup_ro10 and more
   if [ $FILESIZEK -gt $FREEBASEK ];then #110212 Jemimah.
    #also the taskbar freemem-applet lets the user know when low.
-   if [ "$SHUTDOWN" = "no" -a "$XRUNNING" = "yes" ];then
-    export DISPLAY=':0'
-    yaf-splash -timeout 4 -bg red -text "WARNING!
-Unable to save all files. You need to delete some." &
-   fi
    touch /tmp/snapmergepuppy-nospace  #110222 shinobar
    break
   fi
@@ -170,6 +173,7 @@ Unable to save all files. You need to delete some." &
   cp -a -f "$N" "$BASE/$N"
  else
   cp -a -u -f "$N" "$BASE/$N" #v3.02
+  cp -a --attributes-only -f "$N" "$BASE/$N"	# SFR: needed if only permissions/ownership have changed
  fi
  
  BN="`basename "$N"`" #111229 rerwin: bugfix for jemimah code (110212).
@@ -182,7 +186,36 @@ touch /tmp/flagnextpassthru
 
 sync
 cd "$WD"
-[ -f /tmp/snapmergepuppy-nospace ] && exit 1 #110222 shinobar
-exit 0
+
+
+# SFR: make it as a function, since there's more than one error msg now
+error_msg () {
+  if [ "$SHUTDOWN" = "no" -a "$XRUNNING" = "yes" ];then
+    export DISPLAY=':0'
+    yaf-splash -timeout 30 -close box -icon gtk-dialog-warning -bg red -text "$1"
+  else
+    echo "$1"
+  fi
+}
+
+export LANG="$OLDLANG"
+ERRSTATUS=0
+
+if [ -f /tmp/snapmergepuppy-nospace ]; then #110222 shinobar
+  ERRMSG="$(gettext 'WARNING!
+Unable to save all files. You need to delete some.')"
+  error_msg "$ERRMSG"
+  ERRSTATUS=1
+fi
+
+if [ -f /tmp/snapmergepuppy-error ]; then	#140102 SFR
+  ERRMSG="$(gettext 'WARNING!
+There were some errors detected within the layered filesystem.
+Filesystem check of the savefile (pfix=fsck) is highly recommended.')"
+  error_msg "$ERRMSG"
+  ERRSTATUS=1
+fi
+
+exit $ERRSTATUS
 
 ###END###

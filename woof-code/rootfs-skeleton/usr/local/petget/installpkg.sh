@@ -63,6 +63,8 @@ export LANG=C
 
 . /etc/xdg/menus/hierarchy #w478 has PUPHIERARCHY variable.
 
+[ "$PUPMODE" = "2" ] && [ ! -d /audit ] && mkdir -p /audit
+
 DLPKG="$1"
 DLPKG_BASE="`basename $DLPKG`" #ex: scite-1.77-i686-2as.tgz
 DLPKG_PATH="`dirname $DLPKG`"  #ex: /root
@@ -111,8 +113,36 @@ install_path_check() {
 dbPATTERN='|'"$DLPKG_BASE"'|'
 DLPKG_NAME="`cat /tmp/petget_missing_dbentries-Packages-* | grep "$dbPATTERN" | head -n 1 | cut -f 1 -d '|'`"
 
+#131222 do not allow duplicate installs...
+PTN1='^'"$DLPKG_NAME"'|'
+if [ "`grep "$PTN1" /root/.packages/user-installed-packages`" != "" ];then
+ if [ ! $DISPLAY ];then
+  echo "$(gettext 'Sorry, this package is already installed. Aborting.')"
+ else
+  pupmessage -bg '#ff8080' -fg black -title "$(gettext 'Package:') ${DLPKG_NAME}" "$(gettext 'Sorry, but this package is already installed. Cannot install it twice.')"
+ fi
+ exit 1
+fi
+
 #boot from flash: bypass tmpfs top layer, install direct to pup_save file...
 DIRECTSAVEPATH=""
+ 
+if [ "$PUPMODE" = "2" ]; then # from BK's quirky6.1
+
+#131220  131229 detect if not enough room in /tmp...
+DIRECTSAVEPATH="/tmp/petget/directsavepath"
+SIZEB=`stat --format=%s ${DLPKG_PATH}/${DLPKG_BASE}`
+SIZEK=`expr $SIZEB \/ 1024`
+EXPK=`expr $SIZEK \* 5` #estimated worst-case expanded size.
+TMPK=`df -k /tmp | grep '^tmpfs' | tr -s ' ' | cut -f 4 -d ' '` #free space in /tmp
+if [ $EXPK -ge $TMPK ];then
+  DIRECTSAVEPATH="/audit/directsavepath"
+fi
+if [ "$DIRECTSAVEPATH" ];then
+ rm -rf $DIRECTSAVEPATH
+ mkdir -p $DIRECTSAVEPATH
+fi
+
 #111013 shinobar: this currently not working, bypass for now... 111013 revert...
 #if [ "ABC" = "DEF" ];then #111013
 if [ $PUPMODE -eq 3 -o $PUPMODE -eq 7 -o $PUPMODE -eq 13 ];then
@@ -133,6 +163,8 @@ if [ $PUPMODE -eq 3 -o $PUPMODE -eq 7 -o $PUPMODE -eq 13 ];then
   DIRECTSAVEPATH="/initrd${SAVE_LAYER}" #SAVE_LAYER is in /etc/rc.d/PUPSTATE.
   rm -f $DIRECTSAVEPATH/pet.specs $DIRECTSAVEPATH/pinstall.sh $DIRECTSAVEPATH/puninstall.sh $DIRECTSAVEPATH/install/doinst.sh
  fi
+fi
+
 fi
 
 cd $DLPKG_PATH
@@ -244,6 +276,93 @@ case $DLPKG_BASE in
   exploderpm -i $DLPKG_BASE
  ;;
 esac
+if [ "$PUPMODE" = "2" ]; then #from BK's quirky6.1
+ mkdir /audit/${DLPKG_NAME}DEPOSED
+ echo -n '' > /tmp/petget/FLAGFND
+ find ${DIRECTSAVEPATH}/ -mindepth 1 | sed -e "s%${DIRECTSAVEPATH}%%" |
+ while read AFILESPEC
+ do
+  if [ -f "$AFILESPEC" ];then
+   ADIR="$(dirname "$AFILESPEC")"
+   mkdir -p /audit/${DLPKG_NAME}DEPOSED/${ADIR}
+   cp -a -f "$AFILESPEC" /audit/${DLPKG_NAME}DEPOSED/${ADIR}/
+   echo -n '1' > /tmp/petget/FLAGFND
+  fi
+ done
+ sync
+ if [ -s /tmp/petget/FLAGFND ];then
+  [ -f /audit/${DLPKG_NAME}DEPOSED.sfs ] && rm -f /audit/${DLPKG_NAME}DEPOSED.sfs #precaution, should not happen, as not allowing duplicate installs of same pkg.
+  mksquashfs /audit/${DLPKG_NAME}DEPOSED /audit/${DLPKG_NAME}DEPOSED.sfs
+ fi
+ sync
+ rm -rf /audit/${DLPKG_NAME}DEPOSED
+ #now write temp-location to final destination...
+ cp -a -f --remove-destination ${DIRECTSAVEPATH}/* /  2> /tmp/petget/install-cp-errlog
+ sync
+ #can have a problem if want to replace a folder with a symlink. for example, got this error:
+ # cp: cannot overwrite directory '/usr/share/mplayer/skins' with non-directory
+ #3builddistro has this fix... which is a vice-versa situation...
+ #firstly, the vice-versa, source is a directory, target is a symlink...
+ CNT=0
+ while [ -s /tmp/petget/install-cp-errlog ];do
+  echo -n '' > /tmp/petget/install-cp-errlog2
+  echo -n '' > /tmp/petget/install-cp-errlog3
+  cat /tmp/petget/install-cp-errlog | grep 'cannot overwrite non-directory' | grep 'with directory' | tr '[`‘’]' "'" | cut -f 2 -d "'" |
+  while read ONEDIRSYMLINK #ex: /usr/share/mplayer/skins
+  do
+   if [ -h "${ONEDIRSYMLINK}" ];then #source is a directory, target is a symlink...
+    #adding that extra trailing / does the trick...
+    cp -a -f --remove-destination ${DIRECTSAVEPATH}"${ONEDIRSYMLINK}"/* "${ONEDIRSYMLINK}"/ 2>> /tmp/petget/install-cp-errlog2
+   else #source is a directory, target is a file...
+    rm -f "${ONEDIRSYMLINK}" #delete the file!
+    DIRPATH="$(dirname "${ONEDIRSYMLINK}")"
+    cp -a -f ${DIRECTSAVEPATH}"${ONEDIRSYMLINK}" "${DIRPATH}"/ 2>> /tmp/petget/install-cp-errlog2 #copy directory (and contents).
+   fi
+  done
+  #secondly, which is our mplayer example, source is a symlink, target is a folder...
+  cat /tmp/petget/install-cp-errlog | grep 'cannot overwrite directory' | grep 'with non-directory' | tr '[`‘’]' "'" | cut -f 2 -d "'" |
+  while read ONEDIRSYMLINK #ex: /usr/share/mplayer/skins
+  do
+   #difficult situation, whether to impose the symlink of package, or not. if not...
+   #cp -a -f --remove-destination ${DIRECTSAVEPATH}"${ONEDIRSYMLINK}"/* "${ONEDIRSYMLINK}"/ 2> /tmp/petget/install-cp-errlog3
+   #or, if we have chosen to follow link...
+   DIRPATH="$(dirname "${ONEDIRSYMLINK}")"
+   if [ -h ${DIRECTSAVEPATH}"${ONEDIRSYMLINK}" ];then #source is a symlink, trying to overwrite a directory...
+    ALINK="$(readlink ${DIRECTSAVEPATH}"${ONEDIRSYMLINK}")"
+    if [ "${ALINK:0:1}" = "/" ];then #test 1st char
+     xALINK="$ALINK" #absolute
+    else
+     xALINK="${DIRPATH}/${ALINK}"
+    fi
+    if [ -d "$xALINK" ];then
+     cp -a -f --remove-destination "${ONEDIRSYMLINK}"/* "$xALINK"/ 2>> /tmp/petget/install-cp-errlog3 #relocates target files.
+     rm -rf "${ONEDIRSYMLINK}"
+     cp -a -f ${DIRECTSAVEPATH}"${ONEDIRSYMLINK}" "${DIRPATH}"/ #creates symlink only.
+    fi
+   else #source is a file, trying to overwrite a directory...
+    rm -rf "${ONEDIRSYMLINK}" #deleting directory!!!
+    cp -a -f ${DIRECTSAVEPATH}"${ONEDIRSYMLINK}" "${DIRPATH}"/ #creates file only.
+   fi
+  done
+  cat /tmp/petget/install-cp-errlog2 >> /tmp/petget/install-cp-errlog3
+  cat /tmp/petget/install-cp-errlog3 > /tmp/petget/install-cp-errlog
+  sync
+  CNT=`expr $CNT + 1`
+  [ $CNT -gt 10 ] && break #something wrong, get out.
+ done
+
+ #end 131220
+ rm -rf ${DIRECTSAVEPATH} #131229 131230
+
+rm -f $DLPKG_BASE 2>/dev/null
+rm -f $DLPKG_MAIN.tar.gz 2>/dev/null
+
+#pkgname.files may need to be fixed...
+FIXEDFILES="`cat /root/.packages/${DLPKG_NAME}.files | grep -v '^\\./$'| grep -v '^/$' | sed -e 's%^\\.%%' -e 's%^%/%' -e 's%^//%/%'`"
+echo "$FIXEDFILES" > /root/.packages/${DLPKG_NAME}.files 
+
+else
+
 
 rm -f $DLPKG_BASE 2>/dev/null
 rm -f $DLPKG_MAIN.tar.${EXT} 2>/dev/null #131122
@@ -354,6 +473,8 @@ if [ "$DIRECTSAVEPATH" != "" ];then
   mount -t unionfs -o remount,incgen unionfs /
  fi
  sync
+fi
+
 fi
 
 #some .pet pkgs have images at '/'...
