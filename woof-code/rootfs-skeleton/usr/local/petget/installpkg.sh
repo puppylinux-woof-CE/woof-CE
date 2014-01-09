@@ -172,7 +172,7 @@ cd $DLPKG_PATH
 case $DLPKG_BASE in
  *.pet)
   # determine compression
-  file -b "$DLPKG_BASE" | grep -q "^xz" && EXT=xz || EXT=gz #131122
+  file -b "$DLPKG_BASE" | grep -i -q "^xz" && EXT=xz || EXT=gz #131122 #140109 add -i, eg: "XZ"
   case $EXT in
   xz)OPT=-J ;;
   gz)OPT=-z ;;
