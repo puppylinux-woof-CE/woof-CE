@@ -89,7 +89,8 @@ if [ -f ./etc/xdg/templates/_root_.icewm_menu ];then
 fi
 
 #screenshot
-TAS=`find usr/bin usr/sbin -name tas`
+SCR="mtpaint -s"
+TAS=`find usr/bin usr/sbin usr/local/bin -name tas`
 if [ "$TAS" ];then echo '#!/bin/sh
 exec tas' > usr/local/bin/defaultscreenshot
 chmod 755 usr/local/bin/defaultscreenshot
@@ -103,4 +104,14 @@ SCR=screeny
 fi
 echo "Setting $SCR as defaultscreenshot app"
 
+# firefox
+FF=`find /usr -type d -name 'firefox*'`
+if [ "$FF" ];then echo '#!/bin/sh
+exec firefox "$@"' > usr/local/bin/defaultbrowser
+chmod 755 usr/local/bin/defaultbrowser
+echo '#!/bin/sh
+exec firefox "$@"' > usr/local/bin/defaulthtmlviewer
+chmod 755 usr/local/bin/defaulthtmlviewer
+ echo "Setting Firefox as defaultbrowser"
+fi
 #end#
