@@ -134,18 +134,36 @@ DIRECTSAVEPATH="/tmp/petget/directsavepath"
 SIZEB=`stat --format=%s ${DLPKG_PATH}/${DLPKG_BASE}`
 SIZEK=`expr $SIZEB \/ 1024`
 EXPK=`expr $SIZEK \* 5` #estimated worst-case expanded size.
+NEEDK=$EXPK
 TMPK=`df -k /tmp | grep '^tmpfs' | tr -s ' ' | cut -f 4 -d ' '` #free space in /tmp
 if [ $EXPK -ge $TMPK ];then
   DIRECTSAVEPATH="/audit/directsavepath"
+  NEEDK=`expr $NEEDK \* 2`
 fi
 if [ "$DIRECTSAVEPATH" ];then
  rm -rf $DIRECTSAVEPATH
  mkdir -p $DIRECTSAVEPATH
 fi
 
+# check enough space to install pkg...
+#as the pkg gets expanded to an intermediate dir, maybe in main f.s...
+PARTK=`df -k / | grep '/$' | tr -s ' ' | cut -f 4 -d ' '` #free space in partition.
+if [ $NEEDK -gt $PARTK ];then
+ ABORTMSG1="$(gettext 'Package:') ${DLPKG_BASE}"
+ ABORTMSG2="$(gettext 'Sorry, there is not enough free space in the partition to install this package')"
+ if [ $DISPLAY ];then
+  pupmessage -bg pink -fg black -title "${ABORTMSG1}" "${ABORTMSG2}"
+ else
+  echo "${ABORTMSG1}
+${ABORTMSG2}"
+ fi
+ [ "$DLPKG_PATH" = "/root" ] && rm -f ${DLPKG_PATH}/${DLPKG_BASE}
+ exit 1
+fi
+
 #111013 shinobar: this currently not working, bypass for now... 111013 revert...
 #if [ "ABC" = "DEF" ];then #111013
-if [ $PUPMODE -eq 3 -o $PUPMODE -eq 7 -o $PUPMODE -eq 13 ];then
+elif [ $PUPMODE -eq 3 -o $PUPMODE -eq 7 -o $PUPMODE -eq 13 ];then
  FLAGNODIRECT=1
  [ "`lsmod | grep '^unionfs' `" != "" ] && FLAGNODIRECT=0
  #100426 aufs can now write direct to save layer...
@@ -165,6 +183,9 @@ if [ $PUPMODE -eq 3 -o $PUPMODE -eq 7 -o $PUPMODE -eq 13 ];then
  fi
 fi
 
+if [ $DISPLAY ];then #131222
+ yaf-splash -bg orange -fg black -close never -fontsize large -text "$(gettext 'Please wait, processing...')" &
+ YAFPID1=$!
 fi
 
 cd $DLPKG_PATH
@@ -487,6 +508,8 @@ mv /*.xpm /usr/local/lib/X11/mini-icons/ 2>/dev/null
 mv /*.png /usr/local/lib/X11/mini-icons/ 2>/dev/null
 
 ls -dl /tmp | grep -q '^drwxrwxrwt' || chmod 1777 /tmp #130305 rerwin.
+
+[ $DISPLAY ] && pupkill $YAFPID1
 
 #post-install script?...
 if [ -f /pinstall.sh ];then #pet pkgs.
