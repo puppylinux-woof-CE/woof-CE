@@ -8,12 +8,14 @@ REM 130204 include hug.bac, avoid needs recompiling when hug.so updated. (but mu
 REM 130209 go back to hug.so.
 REM 130710 Puppy default dpi has changed from 78 to 96.
 REM 131210 modified for quirky6.
-REM 140205 modified for puppy and quirky and fatdog (anything in 1st word of /etc/issue)
-REM 140206 modified (for slacko) to be different if already connected
-REM compile and create pot file: bacon -x -d /tmp welcome1stboot.bac
+REM 140205 L18L modified for puppy and quirky and fatdog (anything in 1st word of /etc/issue)
+REM 140207 /usr/sbin/delayedrun now tests active network and internet connection.
+REM 140210 L18L choose from available languages, lang_names in new /usr/share/i18n/lang_names
+REM 140211 display lang_names, language code in tooltip
+REM 140212 bugfix
+REM 140215 01micko: disable button_ic if connected; add slacko method which also enables test runs after 1stboot
 
-ISSUE$=EXEC$("cat /etc/issue | head -n 1 | cut -d ' ' -f1")
-SETENVIRON "ISSUE", ISSUE$
+REM compile and create pot file: bacon -x -d /tmp welcome1stboot.bac
 
 OPTION INTERNATIONAL TRUE
 REM .po/.mo files have 'charset=UTF-8', so either set UTF-8 on in LANG variable, or do this...
@@ -25,15 +27,99 @@ INCLUDE "/usr/share/BaCon/hug_imports.bac"
 REM http://developer.gnome.org/gtk/stable/GtkWidget.html#gtk-widget-set-tooltip-text
 IMPORT "gtk_widget_set_tooltip_text(long,char*)" FROM "libgtk-x11-2.0.so" TYPE void
 
+ISSUE$=EXEC$("cat /etc/issue | head -n 1 | cut -d ' ' -f1")
+SETENVIRON "ISSUE", ISSUE$
+
 INIT
 
-'# check connection
-'#shinobar
-'LANG=C route | grep -q 'default[ ].*[ ]0\.0\.0\.0[ ]' && \
-'grep -wq nameserver /etc/resolv.conf && \
-'ping -c1 sourceforge.net &>/dev/null && CONNECTED="yes" || CONNECTED=
-SYSTEM "echo -n no > /tmp/CONNECTED; LANG=C route | grep -q 'default[ ].*[ ]0.0.0.0[ ]' && grep -wq nameserver /etc/resolv.conf && ping -c1 sourceforge.net &>/dev/null && echo -n yes > /tmp/CONNECTED "
-CONNECTED$=EXEC$("cat /tmp/CONNECTED")
+SUB ic_func()
+ SYSTEM "/usr/sbin/connectwizard & "
+END SUB
+
+SUB setup_func()
+ SYSTEM "/usr/sbin/wizardwizard & "
+END SUB
+
+SUB close_dlg(NUMBER widget)
+ HIDE(widget)
+END SUB
+
+
+REM ============================ <language> ======================140210
+
+FUNCTION available_languages$()
+ GLOBAL langs$
+ REM langs$=CONCAT$("en ", CHOP$(EXEC$("echo `find /usr/share/locale/*/LC_MESSAGES/welcome1stboot.mo | cut -d '/' -f 5`")))
+ langs$="en"
+ OPEN "/usr/share/locale/" FOR DIRECTORY AS textdomaindir
+ REPEAT
+  GETFILE oneLANG$ FROM textdomaindir
+  IF FILEEXISTS(CONCAT$("/usr/share/locale/", oneLANG$, "/LC_MESSAGES/", ARGUMENT$, ".mo")) THEN langs$=CONCAT$(langs$, " ", oneLANG$)
+ UNTIL ISFALSE(LEN(oneLANG$))
+ CLOSE DIRECTORY textdomaindir
+ RETURN langs$
+END FUNCTION
+
+SUB get_app_language
+ OPTION BASE 1
+ GLOBAL num_languages, language_win
+ LOCAL num_cols
+ no_LANG_NAME$ = "no name"
+ GLOBAL language_checked[100]
+ REM GLOBAL language_select[100]
+ langs$=available_languages$ ()
+ SPLIT langs$ BY " " TO language$ SIZE num_languages 
+ 
+ IF num_languages > 1 THEN
+  num_cols = 2 : IF num_languages > 15 THEN num_cols = 3
+  HUGOPTIONS("FONT DejaVu Sans 20")
+  win_width=640
+  win_height=480
+  language_win = WINDOW("?", win_width, win_height)
+  check_width = FLOOR((win_width - 10) / num_cols)
+  check_height = win_height / (1 + FLOOR(num_languages / num_cols))
+  padding_x = (win_width - (num_cols * check_width))
+  padding_y = 0
+
+  n = 1 : row = 1 : col = 1
+  WHILE n < num_languages + 1
+   IF n = 1 THEN LANG_NAME$="English"
+   ELIF FILEEXISTS("/usr/share/i18n/lang_names") THEN
+    'get language name in language of language
+    LANG_NAME$=CHOP$(EXEC$(CONCAT$("x=`grep ^", language$[n],": /usr/share/i18n/lang_names || echo ", no_LANG_NAME$, "`;echo ${x#*:}")))
+   ELSE
+    LANG_NAME$=CONCAT$("Code: ", language$[n], "   ")
+   END IF
+   language_checked[n]=CHECK(LANG_NAME$, check_width, check_height) 
+   ATTACH(language_win, language_checked[n], padding_x + (col -1) * check_width , padding_y + (row - 1) * check_height )
+   gtk_widget_set_tooltip_text(language_checked[n],CONCAT$(language$[n], " ⇌ ", LANG_NAME$))
+   CALLBACKX(language_checked[n], use_language, n)
+   INCR n : INCR col
+   IF col > num_cols THEN 
+    INCR row : col = 1  
+   ENDIF 
+  WEND
+  DISPLAY
+ ENDIF 
+END SUB
+
+' restart this programm using LANGUAGE number n
+SUB use_language(NUMBER widget, NUMBER n)
+ SPLIT langs$ BY " " TO language$ SIZE num_languages 
+ SYSTEM CONCAT$("echo -n `pidof ", ARGUMENT$, "`> /tmp/welcome")
+ SYSTEM CONCAT$("LANGUAGE=", language$[n], " ", ARGUMENT$) 
+ SYSTEM CONCAT$("kill `pidof ", ARGUMENT$)
+ END
+END SUB
+
+IF GETENVIRON$("LANGUAGE") = "" THEN 
+ get_app_language                                  : REM language choice screen
+ELSE 
+ SYSTEM "kill `cat /tmp/welcome`; rm /tmp/welcome" : REM kill language choice screen
+END IF
+
+REM ============================ </language> ======================140210
+
 
 REM fix window font layout regardless of dpi...
 REM 78 is the Xft.dpi in /root/.Xresources when I designed the layout... now 96...
@@ -49,17 +135,7 @@ REM space required for the session-save section, if not PUPMODE=2...
 'IF FILETYPE("/initrd") EQ 2 THEN vert_space_save=112
 vert_space_save=4
 
-SUB ic_func()
- SYSTEM "/usr/sbin/connectwizard & "
-END SUB
 
-SUB setup_func()
- SYSTEM "/usr/sbin/wizardwizard & "
-END SUB
-
-SUB close_dlg(NUMBER widget)
- HIDE(widget)
-END SUB
 
 REM to disable decorations, need to hide window first...
 HUGOPTIONS("WIDGET_SHOW 0")
@@ -92,31 +168,49 @@ gtk_widget_set_tooltip_text(button_x,INTL$("Close window"))
 ATTACH(mainwin,button_x,622,6)
 CALLBACK(button_x,QUIT)
 
+button_ic=BUTTON("",58,56)
+image_ic=IMAGE("/usr/local/lib/X11/pixmaps/connect48.png",48,48)
+PROPERTY(button_ic,"image",image_ic)
+gtk_widget_set_tooltip_text(button_ic,INTL$("Connect to Internet"))
+ATTACH(mainwin,button_ic,584,116)
+
 label_ic=MARK(INTL$("Internet connection"),250,24)
 PROPERTY(label_ic,"xalign",0.0)
 FONT(label_ic,"DejaVu Sans Bold 14")
 ATTACH(mainwin,label_ic,60,108)
 
-IF CONNECTED$ = "yes" THEN
- label_ic_body=MARK(INTL$("\nCongratulations, you are already connected to the Internet."),500,30)
-ELSE
- label_ic_body=MARK(INTL$("Click on the 'connect' button on the right, or icon at left of the screen (one click only -- do not double-click!). You will then see some buttons for choosing how you wish to connect to the Internet -- click the most appropriate. It is easy..."),500,70)
- button_ic=BUTTON("",58,56)
- image_ic=IMAGE("/usr/local/lib/X11/pixmaps/connect48.png",48,48)
- PROPERTY(button_ic,"image",image_ic)
- gtk_widget_set_tooltip_text(button_ic,INTL$("Connect to Internet"))
- ATTACH(mainwin,button_ic,584,116)
- CALLBACK(button_ic,ic_func)
- label_c=MARK(INTL$("connect"),82,16)
- FONT(label_c,"DejaVu Sans Bold 10")
- PROPERTY(label_c,"xalign",0.5)
- ATTACH(mainwin,label_c,571,172)
-ENDIF
+label_ic=MARK(INTL$("Internet connection"),250,24)
+PROPERTY(label_ic,"xalign",0.0)
+FONT(label_ic,"DejaVu Sans Bold 14")
+ATTACH(mainwin,label_ic,60,108)
 
+REM 140215 add slacko method which also enables test runs after 1stboot
+'# check connection
+'#shinobar
+'LANG=C route | grep -q 'default[ ].*[ ]0\.0\.0\.0[ ]' && \
+'grep -wq nameserver /etc/resolv.conf && \
+'ping -c1 sourceforge.net &>/dev/null && CONNECTED="yes" || CONNECTED=
+SYSTEM "echo -n no > /tmp/CONNECTED; LANG=C route | grep -q 'default[ ].*[ ]0.0.0.0[ ]' && grep -wq nameserver /etc/resolv.conf && ping -c1 sourceforge.net &>/dev/null && echo -n yes > /tmp/CONNECTED "
+CONNECTED$=EXEC$("cat /tmp/CONNECTED")
+
+IF FILEEXISTS("/tmp/delayedrun-internet-working") OR CONNECTED$ = "yes" THEN
+ label_ic_body=MARK(INTL$("Congratulations, you are connected to the Internet. Experiment with mouse-over, left-click and right-click on the 'network' icon in the tray. Click on the 'connect' icon on the right (or on the desktop) if you need to reconfigure the Internet connection"),500,70)
+ DISABLE(button_ic)
+ELIF FILEEXISTS("/tmp/delayedrun-active-interfaces") THEN
+ label_ic_body=MARK(INTL$("There is a working network interface, but you are not connected to the Internet. Click on the 'connect' icon on the right, or on left-side of the desktop (do NOT double-click), to setup the Internet connection. Note the network status icon in the tray."),500,70)
+ELSE
+ label_ic_body=MARK(INTL$("Click on the 'connect' button on the right, or icon at left of the screen (one click only -- do not double-click!). You will then see some buttons for choosing how you wish to connect to the Internet. It is easy..."),500,70)
+ENDIF
 PROPERTY(label_ic_body,"xalign",0.0)
 PROPERTY(label_ic_body,"yalign",0.0)
 PROPERTY(label_ic_body,"wrap",TRUE)
 ATTACH(mainwin,label_ic_body,60,130)
+
+CALLBACK(button_ic,ic_func)
+label_c=MARK(INTL$("connect"),82,16)
+FONT(label_c,"DejaVu Sans Bold 10")
+PROPERTY(label_c,"xalign",0.5)
+ATTACH(mainwin,label_c,571,172)
 
 REM bad hack for russian translation...
 IF mycountry$ = "ru" THEN
@@ -171,7 +265,6 @@ label_set=MARK(INTL$("setup"),87,16)
 FONT(label_set,"DejaVu Sans Bold 10")
 PROPERTY(label_set,"xalign",0.5)
 ATTACH(mainwin,label_set,568,379+vert_space_save)
-
 
 SHOW(mainwin)
 DISPLAY
