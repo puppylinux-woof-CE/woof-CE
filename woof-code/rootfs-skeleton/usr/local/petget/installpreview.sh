@@ -163,6 +163,10 @@ export PREVIEW_DIALOG="<window title=\"$(gettext 'Puppy Package Manager: preinst
    <action>echo \"${TREE1}\" > /tmp/petget_installpreview_pkgname</action>
    <action type=\"exit\">BUTTON_INSTALL</action>
   </button>
+  <button>
+   <label>Download-only</label>
+   <action type=\"exit\">BUTTON_PKGS_DOWNLOADONLY</action>
+  </button>
   <button cancel></button>
  </hbox>
 </vbox>
@@ -172,7 +176,7 @@ export PREVIEW_DIALOG="<window title=\"$(gettext 'Puppy Package Manager: preinst
 RETPARAMS="`gtkdialog3 --center --program=PREVIEW_DIALOG`"
 
 eval "$RETPARAMS"
-if [ "$EXIT" != "BUTTON_INSTALL" -a "$EXIT" != "BUTTON_EXAMINE_DEPS" ];then
+if [ "$EXIT" != "BUTTON_INSTALL" -a "$EXIT" != "BUTTON_EXAMINE_DEPS" -a "$EXIT" != "BUTTON_PKGS_DOWNLOADONLY" ];then
  [ -f /tmp/petget/current-repo-triad.previous ] && mv -f /tmp/petget/current-repo-triad.previous /tmp/petget/current-repo-triad
  exit
 fi
