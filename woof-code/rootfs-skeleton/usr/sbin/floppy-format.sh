@@ -14,7 +14,7 @@ zapfloppy()
  while [ $ERR0 -ne 0 ];do
   pwMSG="$(gettext 'Low-level formatting disk with this capacity:') ${1} Kbyte
 $(gettext 'Please wait...')"
-  yaf-splash -close never -bg '#c0ffff' -fontsize large -text "${pwMSG}" &
+  /usr/lib/gtkdialog/box_splash -close never -fontsize large -text "${pwMSG}" &
   pwID=$!
   fdformat /dev/fd0u$1
   ERR0=$?
@@ -52,7 +52,7 @@ ERR1=1
 while [ ! $ERR1 -eq 0 ];do
  pwMSG="$(gettext 'Creating msdos/vfat filesystem on floppy disk')
 $(gettext 'Please wait...')"
- yaf-splash -close never -bg '#c0ffff' -fontsize large -text "${pwMSG}" &
+ /usr/lib/gtkdialog/box_splash -close never -fontsize large -text "${pwMSG}" &
  pwID=$!
  mkfs.msdos -c /dev/fd0u$1
  #mformat -f $1 a:
