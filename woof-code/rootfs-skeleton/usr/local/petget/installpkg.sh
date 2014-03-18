@@ -186,6 +186,7 @@ fi
 if [ $DISPLAY ];then #131222
  yaf-splash -bg orange -fg black -close never -fontsize large -text "$(gettext 'Please wait, processing...')" &
  YAFPID1=$!
+ trap 'pupkill $YAFPID1' EXIT #140318
 fi
 
 cd $DLPKG_PATH
@@ -508,8 +509,6 @@ mv /*.xpm /usr/local/lib/X11/mini-icons/ 2>/dev/null
 mv /*.png /usr/local/lib/X11/mini-icons/ 2>/dev/null
 
 ls -dl /tmp | grep -q '^drwxrwxrwt' || chmod 1777 /tmp #130305 rerwin.
-
-[ $DISPLAY ] && pupkill $YAFPID1
 
 #post-install script?...
 if [ -f /pinstall.sh ];then #pet pkgs.
