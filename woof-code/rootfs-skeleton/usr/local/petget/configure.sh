@@ -57,6 +57,9 @@ do
  UI_RADIO="${UI_RADIO}<radiobutton><label>${ONEUI}</label><action>echo -n ${ONEUI} > /var/local/petget/ui_choice</action></radiobutton>"
 done
 
+#checkbox for BuildingBlock category
+[ "`cat /var/local/petget/bb_category`" = "true" ] && BB_STATE=true || BB_STATE=false
+
 #  <text><label>Choose an alternate User Interface:</label></text>
 
 export CONFIG_DIALOG="<window title=\"$(gettext 'Puppy Package Manager: configure')\" icon-name=\"gtk-about\">
@@ -75,12 +78,20 @@ export CONFIG_DIALOG="<window title=\"$(gettext 'Puppy Package Manager: configur
  <frame $(gettext 'User Interface')>
   ${UI_RADIO}
  </frame>
+
+   <checkbox>
+     <label>$(gettext 'Enable BuildingBlock category (for advanced users only!)')</label>
+     <variable>varBB_STATE</variable>
+     <default>${BB_STATE}</default>
+     <action>echo -n \${varBB_STATE} > /var/local/petget/bb_category</action>
+   </checkbox>
+
 </vbox>
 
 <vbox>
  <text use-markup=\"true\"><label>\"<b>$(gettext 'Requires restart of PPM to see changes')</b>\"</label></text>
  <frame $(gettext 'Choose repositories')>
-  <text><label>$(gettext 'Choose what repositories you would like to have appear in the main GUI window (tick a maximum of 5 boxes):')</label></text>
+  <text><label>$(gettext 'Choose what repositories you would like to have appear in the main GUI window:')</label></text>
   ${CHECKBOXES_REPOS}
   ${CHECKBOX_MAIN_REPO}
   <hbox>
@@ -121,7 +132,7 @@ do
  if [ "`echo "$RETPARAMS" | grep "$repoPATTERN" | grep 'false'`" = "" ];then
   enabledrepos="${enabledrepos}${REPOBASE} "
   repocnt=`expr $repocnt + 1`
-  [ $repocnt -gt 5 ] && break #only allow 5 active repos in PPM.
+  #[ $repocnt -gt 5 ] && break #only allow 5 active repos in PPM.	# SFR: no limit
  fi
 done
 grep -v '^PKG_REPOS_ENABLED' /root/.packages/PKGS_MANAGEMENT > /tmp/pkgs_management_tmp2

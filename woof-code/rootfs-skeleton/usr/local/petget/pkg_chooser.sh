@@ -184,7 +184,7 @@ do
  REPOS_RADIO="${REPOS_RADIO}<radiobutton><label>${xREPOCUT}</label><action>/tmp/filterversion.sh ${REPOCUT}</action><action>/usr/local/petget/filterpkgs.sh</action><action>refresh:TREE1</action></radiobutton>"
  echo "$REPOCUT" >> /tmp/petget_active_repo_list #120903 needed in findnames.sh
  repocnt=`expr $repocnt + 1`
- [ $repocnt -ge 5 ] && break
+ #[ $repocnt -ge 5 ] && break	# SFR: no limit
 done
 
 FILTER_CATEG="Desktop"
@@ -228,7 +228,7 @@ ANYTYPESTR="$(gettext 'Any type')"
 GUIEXCSTR="$(gettext 'GUI, not')" #130331 (look in ui_Classic, ui_Ziggy to see context)
 NONGUISTR="$(gettext 'Any non-GUI type')" #130331
 export GUIONLYSTR ANYTYPESTR GUIEXCSTR NONGUISTR #used in ui_classic and ui_ziggy
-[ ! -f /var/local/petget/gui_filter ] && echo -n "$GUIONLYSTR" > /var/local/petget/gui_filter
+[ ! -f /var/local/petget/gui_filter ] && echo -n "$ANYTYPESTR" > /var/local/petget/gui_filter	# SFR: any type by default
 
 #finds pkgs in repository based on filter category and version and formats ready for display...
 /usr/local/petget/filterpkgs.sh $FILTER_CATEG #writes to /tmp/petget/filterpkgs.results
