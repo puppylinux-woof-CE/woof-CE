@@ -313,10 +313,12 @@ mkdir -p linux_kernel-$kernel_major_version-$package_name_suffix/etc/modules
 cp .config linux_kernel-$kernel_major_version-$package_name_suffix/etc/modules/DOTconfig-$kernel_version-$today
 cp arch/x86/boot/bzImage linux_kernel-$kernel_major_version-$package_name_suffix/boot/vmlinuz
 cp System.map linux_kernel-$kernel_major_version-$package_name_suffix/boot
-cp linux_kernel-$kernel_major_version-$package_name_suffix/lib/modules/${kernel_major_version}$custom_suffix/{modules.builtin,modules.order} \
- linux_kernel-$kernel_major_version-$package_name_suffix/etc/modules/
+cp linux_kernel-$kernel_major_version-$package_name_suffix/lib/modules/${kernel_major_version}$custom_suffix/{modules.builtin,modules.order} linux_kernel-$kernel_major_version-$package_name_suffix/etc/modules/
 rm linux_kernel-$kernel_major_version-$package_name_suffix/lib/modules/${kernel_major_version}$custom_suffix/modules*
 mv linux_kernel-$kernel_major_version-$package_name_suffix ../dist/packages
+dir2tgz ../dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix
+tgz2pet ../dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix.tar.gz
+cd ../../ && mv /woof-CE-master/kernel-kit/dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix.pet /local-repositories/x86/packages-pet/
 
 echo "Cleaning the kernel sources"
 make clean >> ../build.log 2>&1
