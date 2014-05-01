@@ -12,6 +12,7 @@ then each boot option. Some boot options:
 0dpupsfs=sdc1:/puppies/wary501/puppy.sfs07 Override auto search.
 0dzdrv=sdc1:/puppies/wary501/zdrv.sfs07    Override auto search.
 0dunderdog=sda907   Mount an entire Linux distro (in sda9) underneath Puppy.
+0dpmedia=cd pfix=ram07 Ignore saved session and do not look in other drives
 
 0bThe following are for debugging, for experts only:07
 0dloglevel=<n>07    Bootup verbosity. 7 is high verbosity for debugging.
