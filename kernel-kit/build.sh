@@ -318,7 +318,7 @@ rm linux_kernel-$kernel_major_version-$package_name_suffix/lib/modules/${kernel_
 mv linux_kernel-$kernel_major_version-$package_name_suffix ../dist/packages
 dir2tgz ../dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix
 tgz2pet ../dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix.tar.gz
-cd ../../ && mv /woof-CE-master/kernel-kit/dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix.pet /local-repositories/x86/packages-pet/
+cd ../../ && cp /woof-CE-master/kernel-kit/dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix.pet /local-repositories/x86/packages-pet/
 
 echo "Cleaning the kernel sources"
 make clean >> ../build.log 2>&1
