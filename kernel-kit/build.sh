@@ -340,7 +340,7 @@ mksquashfs kernel_sources-$kernel_major_version-$package_name_suffix dist/source
 dir2tgz kernel_sources-$kernel_major_version-$package_name_suffix
 tgz2pet kernel_sources-$kernel_major_version-$package_name_suffix.tar.gz
 cd ../../
-cp $startdir/kernel_sources-$kernel_major_version-$package_name_suffix.pet /local-repositories-x86-packages-pet
+cp $startdir/kernel_sources-$kernel_major_version-$package_name_suffix.pet /local-repositories/x86/packages-pet/
 cd $startdir
 
 # build aufs-utils userspace modules
