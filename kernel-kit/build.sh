@@ -338,7 +338,7 @@ mksquashfs kernel_sources-$kernel_major_version-$package_name_suffix dist/source
 
 # build aufs-utils userspace modules
 echo "Now to build the aufs-utils for userspace"
-rm -fr aufs-utils #if this folder exists from previous kernel compile then will not build new.
+rm -fr aufs-util #if this folder exists from previous kernel compile then will not build new.
 if [ ! -f dist/sources/vanilla/aufs-util${today}.tar.bz2 ];then
 	#git clone git://aufs.git.sourceforge.net/gitroot/aufs/aufs-util.git aufs-util >> build.log 2>&1
 	git clone git://git.code.sf.net/p/aufs/aufs-util aufs-util
