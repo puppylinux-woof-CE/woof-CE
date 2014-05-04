@@ -2,7 +2,6 @@
 # originally by Iguleder
 # hacked to DEATH by 01micko
 # see /usr/share/doc/legal NO WARRANTY, NO resposibility accepted
-startdir=$(pwd)
 # read config
 [ -f ./build.conf ] && . ./build.conf
 
@@ -10,6 +9,7 @@ package_name_suffix=$package_name_suffix
 custom_suffix=$custom_suffix
 kernel_version=$kernel_version
 kernel_mirror=$kernel_mirror
+startdir=$(pwd)
 
 # depcheck
 echo "Dependency check..."
