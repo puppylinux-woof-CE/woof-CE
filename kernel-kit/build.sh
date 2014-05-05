@@ -2,7 +2,6 @@
 # originally by Iguleder
 # hacked to DEATH by 01micko
 # see /usr/share/doc/legal NO WARRANTY, NO resposibility accepted
-
 # read config
 [ -f ./build.conf ] && . ./build.conf
 
@@ -10,6 +9,7 @@ package_name_suffix=$package_name_suffix
 custom_suffix=$custom_suffix
 kernel_version=$kernel_version
 kernel_mirror=$kernel_mirror
+startdir=$(pwd)
 
 # depcheck
 echo "Dependency check..."
@@ -313,16 +313,20 @@ mkdir -p linux_kernel-$kernel_major_version-$package_name_suffix/etc/modules
 cp .config linux_kernel-$kernel_major_version-$package_name_suffix/etc/modules/DOTconfig-$kernel_version-$today
 cp arch/x86/boot/bzImage linux_kernel-$kernel_major_version-$package_name_suffix/boot/vmlinuz
 cp System.map linux_kernel-$kernel_major_version-$package_name_suffix/boot
-cp linux_kernel-$kernel_major_version-$package_name_suffix/lib/modules/${kernel_major_version}$custom_suffix/{modules.builtin,modules.order} \
- linux_kernel-$kernel_major_version-$package_name_suffix/etc/modules/
+cp linux_kernel-$kernel_major_version-$package_name_suffix/lib/modules/${kernel_major_version}$custom_suffix/{modules.builtin,modules.order} linux_kernel-$kernel_major_version-$package_name_suffix/etc/modules/
 rm linux_kernel-$kernel_major_version-$package_name_suffix/lib/modules/${kernel_major_version}$custom_suffix/modules*
 mv linux_kernel-$kernel_major_version-$package_name_suffix ../dist/packages
+dir2tgz $startdir/dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix
+tgz2pet $startdir/dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix.tar.gz
+cd ../../
+cp $startdir/dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix.pet /local-repositories/x86/packages-pet/
+cd $startdir
 
 echo "Cleaning the kernel sources"
 make clean >> ../build.log 2>&1
 make prepare >> ../build.log 2>&1
 
-cd ..
+#cd ..
 
 echo "Creating a kernel sources SFS"
 mkdir -p kernel_sources-$kernel_major_version-$package_name_suffix/usr/src
@@ -333,9 +337,15 @@ ln -s /usr/src/linux kernel_sources-$kernel_major_version-$package_name_suffix/l
 ln -s /usr/src/linux/include/generated/uapi/linux/version.h kernel_sources-${kernel_major_version}-$package_name_suffix/usr/src/linux/include/linux/version.h 
 ln -s /usr/src/linux kernel_sources-$kernel_major_version-$package_name_suffix/lib/modules/${kernel_major_version}$custom_suffix/source
 mksquashfs kernel_sources-$kernel_major_version-$package_name_suffix dist/sources/kernel_sources-$kernel_major_version-$package_name_suffix.sfs -comp xz
+dir2tgz kernel_sources-$kernel_major_version-$package_name_suffix
+tgz2pet kernel_sources-$kernel_major_version-$package_name_suffix.tar.gz
+cd ../../
+cp $startdir/kernel_sources-$kernel_major_version-$package_name_suffix.pet /local-repositories/x86/packages-pet/
+cd $startdir
 
 # build aufs-utils userspace modules
 echo "Now to build the aufs-utils for userspace"
+rm -fr aufs-util #if this folder exists from previous kernel compile then will not build new.
 if [ ! -f dist/sources/vanilla/aufs-util${today}.tar.bz2 ];then
 	#git clone git://aufs.git.sourceforge.net/gitroot/aufs/aufs-util.git aufs-util >> build.log 2>&1
 	git clone git://git.code.sf.net/p/aufs/aufs-util aufs-util
