@@ -32,8 +32,8 @@ if [ ! "`pwd`" = "/" ];then
   #fi
 
  echo "Note that mozilla and netscape all point to mozstart in /usr/local/bin"
- echo "...ok, setup for Mozilla (Seamonkey)."
- echo -n "seamonkey" > /tmp/rightbrwsr.txt
+ echo "...ok, setup for Mozilla Iceape (Seamonkey)."
+ echo -n "iceape" > /tmp/rightbrwsr.txt
 
 fi
 
