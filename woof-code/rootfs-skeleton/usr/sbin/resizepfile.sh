@@ -20,6 +20,9 @@ export OUTPUT_CHARSET=UTF-8
 . /etc/rc.d/PUPSTATE
 . /etc/DISTRO_SPECS #v412
 
+SAVELOC=$(echo $PUPSAVE | cut -f3 -d ',')
+[ -d /mnt/home$SAVELOC ] && /usr/lib/gtkdialog/box_ok "$(gettext 'Resize personal storage file')" info "<b>$(gettext "Puppy is currently using a savefolder. There is no need to resize it")</b>" " " && exit 0 
+
 #find out what modes use a ${DISTRO_FILE_PREFIX}save.2fs file...
 CANDOIT="no"
 case $PUPMODE in
