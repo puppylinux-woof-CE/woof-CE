@@ -80,7 +80,13 @@ if [ -f /root/.packages/${DB_pkgname}.files ];then
   do
    if [ ! -d "$ONESPEC" ];then
     #120103 shinobar: better way of doing this, look all lower layers...
-    S=$(ls /initrd/pup_ro{?,??}"$ONESPEC" 2>/dev/null| grep -v '^/initrd/pup_ro1/'| head -n 1)	# pup_ro2 - pup_ro99
+    Sx=$(ls /initrd/pup_{a,y,ro[0-9]*}"$ONESPEC" 2>/dev/null| grep -v '^/initrd/pup_ro1/')
+    INAY=$(echo $Sx | grep -E 'pup_a|pup_y')
+    if [ "$INAY" != "" ]; then
+     S=$(ls /initrd/pup_{a,y}"$ONESPEC" 2>/dev/null| grep -v '^/initrd/pup_ro1/'| tail -n 1)
+    else
+     S=$(ls /initrd/pup_ro{?,??}"$ONESPEC" 2>/dev/null| grep -v '^/initrd/pup_ro1/'| head -n 1)
+    fi # pup_ro2 - pup_ro99
     if [ "$S" ]; then
      #the problem is, deleting the file on the top layer places a ".wh" whiteout file,
      #that hides the original file. what we want is to remove the installed file, and
