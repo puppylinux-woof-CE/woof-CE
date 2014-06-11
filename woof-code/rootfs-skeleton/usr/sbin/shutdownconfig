@@ -33,6 +33,10 @@
 #130712 fix 130522, 130525 dlgs showing in tray.
 #130721 improve some translations.
 
+DEFAULT_SAVE_SIZE=512	#MB
+TIMELIMIT=$(echo $TIMELIMIT | tr -dc '0-9')
+[ "$TIMELIMIT" ] || TIMELIMIT=60
+
 if [ ! $DISPLAY ];then
  export LANG=C #110928 console shutdown using 'dialog', disable i18n.
 else
@@ -93,8 +97,8 @@ class \"*\" style \"windowstuff\"
 "
 echo "$ORANGEGTKRC" > /tmp/orange_gtkrc${$}
 
-choosepartfunc() {
- #dialog to choose what partition to create ${DISTRO_FILE_PREFIX}save.2fs on...
+offerfido() {
+ #offering non-root, ###PENDING### for now
  T_admin="$(gettext 'administrator')"
  T_fidomsg="`eval_gettext \"fido CURRENTLY EXPERIMENTAL STATUS, PLEASE CHOOSE \\\${T_admin}\"`"
  FIDOMSG2="\Zb\Z1${T_fidomsg}\Zn\ZB" #110926
@@ -106,11 +110,16 @@ $(gettext "Note that Puppy only has one non-admin user, fido, as it is not a mul
 $(eval_gettext "Note also, the LoginManager (System menu) enables you to switch back to \${T_admin} if you decide later that you don't want to run as fido.")
 
 ${FIDOMSG2}"
+#'geany fix
  #offer to save non-root...
- ${DIALOGEXE} ${BACKGROUNDYELLOW} ${TITLEPARAM} "$T_fidotitle" --colors --yes-label "$T_admin" --no-label "fido" --yesno "$T_yesno" 0 0 >/dev/console
+ ${DIALOGEXE} ${BACKGROUNDYELLOW} ${TITLEPARAM} "$T_fidotitle" --colors --yes-label "$T_admin" --no-label "fido" --yesno "$T_yesno" 0 0 
  SAVECHOICE=$?
  [ $SAVECHOICE -eq 1 ] && /usr/sbin/root2user
+}
 
+choosepartfunc() {
+	offerfido
+ #dialog to choose what partition to create ${DISTRO_FILE_PREFIX}save.2fs on...
  [ ! "$PMEDIA" ] && PCHOOSE="yes"
  [ "$PMEDIA" = "cd" ] && PCHOOSE="yes"
  [ "$PMEDIA" = "scsicd" ] && PCHOOSE="yes"
@@ -121,6 +130,7 @@ ${FIDOMSG2}"
  [ "$DEV1FS" = "ntfs" ] && PCHOOSE="yes"
  [ "$DEV1FS" = "msdos" ] && DEV1FS="vfat"
  [ "$DEV1FS" = "xxx" ] && PCHOOSE="yes"
+
  expBOOTDRV=''
  if [ "$PMEDIA" = "usbflash" ];then #may have a small boot partition and a big 2nd.
   expBOOTDRV="/dev/`echo ${PDEV1} | sed -e 's%[0-9]*$%%'`"
@@ -152,26 +162,29 @@ ${FIDOMSG2}"
   T_yesno1="$(eval_gettext "WARNING: If you want to create a save-file (\${DISTRO_FILE_PREFIX}save.2fs) in a NTFS partition (Windows XP), it is strongly recommended that you defragment the partition first.")
   $(eval_gettext 'Choose \Zb${T_abort}\ZB button to abort this save, start Windows and choose Start->All Programs->Accessories->System Tools->Defragment.')"
   T_yesno2="$(gettext 'Make sure any required USB, floppy, etc. is PLUGGED IN NOW!')"
-  T_yesno3="$(eval_gettext 'Choose \Zb${T_continue}\ZB button to continue...')"
+  T_yesno3="$(eval_gettext 'Choose \Zb${T_continue}\ZB button to search available storage...')"
   T_yesno="\Z1${T_yesno1}\Zn\n\n\Z5${T_yesno2}\Zn\n\n${T_yesno3}" #111003
-  ${DIALOGEXE} ${BACKGROUNDYELLOW} ${TITLEPARAM} "$T_fidotitle" --colors --yes-label "$T_continue" --no-label "$T_abort" --yesno "$T_yesno" 0 0 >/dev/console
-  [ ! $? -eq 0 ] && return 1 #abort.
+  case $DEV1FS in
+  iso9660|udf)
+   T_iso="`eval_gettext \"You have booted off a live-CD or DVD, and you can now save your personal settings and files to a USB Flash drive or any hard drive partition.
+However, if you have burnt the CD/DVD as multisession (not closed), then sessions can be saved as additional tracks to the CD/DVD -- each saved session will appear on the CD/DVD as a directory with all the saved files in it, not as a single file. \Zb\Z1THIS IS STILL EXPERIMENTAL, AND DOES NOT WORK WITH LAPTOP OPTICAL DRIVES\Zn\ZB\"`"
+    T_yesno="$T_iso\n\n$T_yesno
+$(eval_gettext "or \Zb${T_cd}\ZB button to save your session back to the CD/DVD..." )"
+    ${DIALOGEXE} ${BACKGROUNDYELLOW} ${TITLEPARAM} "$T_fidotitle" --colors --extra-button --ok-label "$T_continue" --extra-label "$T_cd" --cancel-label "$T_abort" --yesno "$T_yesno" 0 0
+   SAVECHOICE=$?
+   [ "$SAVECHOICE" == "3" ] && PUPMODE=77 && SAVEPART="$PDEV1" && return 1 #save to cd/dvd.
+   [ ! $SAVECHOICE -eq 0 ] && return 3 #skip. 
+   ;;
+  *)
+   ${DIALOGEXE} ${BACKGROUNDYELLOW} ${TITLEPARAM} "$T_fidotitle" --colors --yes-label "$T_continue" --no-label "$T_abort" --yesno "$T_yesno" 0 0
+   SAVECHOICE=$?
+   [ ! $SAVECHOICE -eq 0 ] && return 1 #abort.
+   ;;
+  esac
  fi
 
  #130216 add f2fs...
  PARTSLIST="`probepart -m 2> /dev/null | grep '^/dev/' | grep "$expBOOTDRV" | grep -E 'f2fs|ext2|ext3|ext4|reiserfs|msdos|vfat|minix|ntfs|btrfs' | cut -f 1-3 -d '|' | sed -e 's/msdos/vfat/g'`"
-
- #offer floppy disk if present...
- if [ "`cat /var/log/messages | grep "Floppy drive" | grep "fd0"`" != "" ];then
-  if [ "`disktype /dev/fd0 | grep 'file system' | grep '^FAT'`" != "" ];then
-   if [ "$PARTSLIST" = "" ];then
-    PARTSLIST="/dev/fd0|vfat|1.4"
-   else
-    PARTSLIST="${PARTSLIST}
-/dev/fd0|vfat|1.4"
-   fi
-  fi
- fi
 
  #nothing to save to...
  if [ "$PARTSLIST" = "" ];then
@@ -179,17 +192,20 @@ ${FIDOMSG2}"
    /usr/lib/gtkdialog/box_splash -bg red -close box -fontsize large -timeout 10 -text "$T_nosave"
   else
    clear
-   echo "T_nosave" >/dev/console
+   echo "T_nosave"
    sleep 5
   fi
   return 1
  fi
  T_waitprobing="$(gettext 'Please wait, probing partitions...')"
- /usr/lib/gtkdialog/box_splash -close never -fontsize large -text "$T_waitprobing" &
- ppPID=$!
+ if [ "$DISPLAY" ]; then
+  /usr/lib/gtkdialog/box_splash -close never -fontsize large -text "$T_waitprobing" &
+  ppPID=$!
+ fi
  SCHOICES=""; DEFTAG=""
  rm -f /tmp/schoices.txt
  rm -f /tmp/shutdownconfig_deftag
+ echo "$PARTSLIST" | grep -qw "$PDEV1" && INSTALLED="y" || INSTALLED=""
  echo "$PARTSLIST" |
  while read APART
  do
@@ -217,7 +233,7 @@ ${FIDOMSG2}"
 $(gettext 'It will display in the next dialog box in the list of partitions to save to, but it is recommended that you do not use it.')
 $(gettext "Instead, you should first run Microsoft Windows -- most often this problem is due to Windows not being shut down properly the last time it was used, leaving the filesystem in a 'dirty' state.")"
       T_continue="$(gettext 'Click button to continue...')"
-      ${DIALOGEXE} ${BACKGROUNDPINK} ${TITLEPARAM} "$T_ntfstitle" --colors --msgbox "${T_WARNING}\n${T_ntfs}\Zn\n\n${T_continue}" 0 0 >/dev/console
+      ${DIALOGEXE} ${BACKGROUNDPINK} ${TITLEPARAM} "$T_ntfstitle" --colors --msgbox "${T_WARNING}\n${T_ntfs}\Zn\n\n${T_continue}" 0 0
      fi
     fi
    fi
@@ -235,6 +251,11 @@ $(gettext "Instead, you should first run Microsoft Windows -- most often this pr
    fi
   fi
   if [ $AFREE -ne 0 ];then
+   if [ -z "$INSTALLED" ] && [ $AFREE -gt 512 ] && [ ! -s /tmp/shutdownconfig_deftag ];then
+     case $AFS in
+     ext?|reiserfs|minix|btrfs|f2fs) echo -n " --default-item ${ATAG}" > /tmp/shutdownconfig_deftag;;
+     esac 
+   fi
    if [ "$ATAG" = "$PDEV1" -a $AFREE -gt 256 ];then #120327
     echo -n " --default-item ${ATAG}" > /tmp/shutdownconfig_deftag
     echo "${ATAG} \"f.s.: $AFS  `gettext 'Size:'` ${ASIZE}M  `gettext 'Free:'` ${AFREE}M `gettext '*RECOMMENDED*'`\" " >> /tmp/schoices.txt
@@ -252,7 +273,7 @@ $(gettext "Instead, you should first run Microsoft Windows -- most often this pr
    /usr/lib/gtkdialog/box_splash -bg red -close box -fontsize large -timeout 10 -text "$T_nosave"
   else
    clear
-   echo "$T_nosave" >/dev/console
+   echo "$T_nosave"
    sleep 5
   fi
   return 1
@@ -263,11 +284,10 @@ $(gettext "Instead, you should first run Microsoft Windows -- most often this pr
   SAVEPART="`echo -n "$SCHOICES" | cut -f 1 -d ' '`" #no need for dlg.
  else
   T_partitiontitle="$(gettext 'First shutdown: choose partition')"
-  T_menu="$(gettext 'Please choose a partition to create a pup_save.2fs file on.')
-$(gettext 'It can be any of the partitions listed.')
-$(gettext 'It is recommended that you choose a partition with over 512M free, but Puppy can create a smaller save file if there is less space. The file will contain a Linux ext2 or ext3 filesystem.')
+  T_menu="$(gettext 'Please choose a partition to create a pupsave on.')
 
-$(gettext 'Note, next time Puppy boots, this file, with all saved personal data, will be automatically loaded.')
+$(gettext 'For Windows partitions(ntfs/vfat), Puppy makes a file with a Linux filesystem image in it. The size is typically 512MB - 4GB (it can be made bigger later).')
+$(gettext 'On linux partitions(ext3 and etc.), Puppy makes a folder for pupsave. Unlike single file, the size is not predetermined but limited by the free space of the partition. A Linux partition is recommended, if available.')
 
 $(gettext 'Highlight desired choice, then click OK button...')"
   echo '#!/bin/sh' > /tmp/savedlg
@@ -285,10 +305,10 @@ $(eval_gettext 'Choose \Zb${T_tryagain}\ZB button to try again...')
 $(eval_gettext 'Or, \Zb${T_abort}\ZB to shutdown without saving...')"
 
   while [ 1 ];do
-   /tmp/savedlg >/dev/console
+   /tmp/savedlg
    SAVEPART="`cat /tmp/tag.txt | head -n 1`" #head is in case of errs in output.
    if [ "`echo -n "$SAVEPART" | grep --extended-regexp '^hd|^sd|^sc|^fd|^mmcblk'`" = "" ];then
-    ${DIALOGEXE} ${BACKGROUNDPINK} ${TITLEPARAM} "$T_notchosentitle" --colors --yes-label "$T_tryagain" --no-label "${T_abort}" --yesno "$T_yesno" 0 0 >/dev/console
+    ${DIALOGEXE} ${BACKGROUNDPINK} ${TITLEPARAM} "$T_notchosentitle" --colors --yes-label "$T_tryagain" --no-label "${T_abort}" --yesno "$T_yesno" 0 0
     [ ! $? -eq 0 ] && return 1 #abort.
     continue
    fi
@@ -313,8 +333,12 @@ choosesizefunc(){
  for val in $VALUES;do
  [ "$val" -gt "$DU_INITRD_PUP_RW" ] && VALIDS="$VALIDS $val"
  done
+  #global: DEFAULT_SAVE_SIZE in MB
+ [ $DEFAULT_SAVE_SIZE -gt 0 ] || DEFAULT_SAVE_SIZE=512
+ local NDEFAULT=1
  for ACHOICE in $VALIDS
  do
+  [ $ACHOICE -le $DEFAULT_SAVE_SIZE ] && NDEFAULT=$NUM
   KSIZE=`expr $ACHOICE \* 1024`
   SLABEL="${ACHOICE}MB"
   [ $ACHOICE -ge 1024 ] && SLABEL="`dc $ACHOICE 1024 \/ p`GB"
@@ -333,78 +357,106 @@ choosesizefunc(){
  T_sitemenu="$(gettext 'Please choose the size you would like for the personal save file.')
 $(gettext 'Note, 512M is a good choice, or highest if that not available.')
 $(gettext 'Select choice, then click OK button...')"
- ${DIALOGEXE} ${BACKGROUNDYELLOW} ${TITLEPARAM} "$T_sizetitle" --no-collapse --no-cancel --default-item "5" --menu "$T_sitemenu" 0 0 0 $SIZELIST >/dev/console 2>/tmp/sizetag.txt
+ ${DIALOGEXE} ${BACKGROUNDYELLOW} ${TITLEPARAM} "$T_sizetitle" --no-collapse --no-cancel --default-item "$NDEFAULT" --menu "$T_sitemenu" 0 0 0 $SIZELIST 2>/tmp/sizetag.txt
  NUM=`cat /tmp/sizetag.txt`
  ACHOICE=`echo -n "$CHOICES" | cut -f $NUM -d ' '`
  #return $ACHOICE
  SIZEPFILE=$ACHOICE #global variable.
 } # end of choosesizefunc()
 
-pupsavefunc() {
- sPTN="/dev/${SAVEPART} "
- SMNTPT="`mount | grep "$sPTN" | tr -s " " | cut -f 3 -d " "`"
- #ntfs uses /dev/fuse so '/dev/$SAVEPART' no good for grep... NOTE: this fixed later versions ntfs-3g, so this line actually redundant...
- [ "$SMNTPT" = "" ] && SMNTPT="`ps -e | grep -o 'ntfs\-3g.*' | grep "$sPTN" | tr '\t' ' ' | tr -s ' ' | tr ' ' "\n" | grep '^/mnt/'`"
-
- if [ "$SMNTPT" = "" ];then
-  mkdir /mnt/$SAVEPART 2>/dev/null
-  mount -t $SAVEFS /dev/$SAVEPART /mnt/$SAVEPART
-  SMNTPT="/mnt/$SAVEPART"
+choosestyle() {
+ #do not allow save to entire partition if pup installed in a subdirectory...
+ #xPSUBDIR="`echo -n "$PUPSFS" | cut -f 3 -d ',' | sed -e 's%/[^/]*$%%'`" #ex: sda3,ext2,/pup220/puppy.sfs will return /pup220
+ [ "$SAVEPART" = "$PDEV1" ] && [ -z "$xPSUBDIR" ] && OFFER_PARTITION="y" || OFFER_PARTITION=""
+ T_fstitle="$(gettext 'First shutdown: choose saving style')"
+ T_fsmenu="$(gettext "You can save the session in a 'folder(directory)' because you chose a Linux partition. Unlike single file, saving in a folder is not restricted to the fixed file size but by the free space on the partition. You can save multiple profiles by different name.")
+ 
+ $(gettext "A \Zbfolder\ZB is recommended for this case, but you still have another option if you have some reason and you want it.")"
+ T_folder="$(gettext 'Save in a folder.') $(gettext '*RECOMMENDED*')"
+ T_partition=$(gettext "Save to the entire partition. Only one profile.")
+ T_file=$(gettext 'Single file, ext2/3/4 filesystem image in it.')
+ if [ "$OFFER_PARTITION" ]; then
+   ${DIALOGEXE} ${BACKGROUNDYELLOW} ${TITLEPARAM} "$T_fstitle" --colors --no-cancel --default-item folder --menu "$T_fsmenu" 0 0 0 folder "$T_folder" partition "$T_partition" file "$T_file" 2>/tmp/rc.shutdown_pupsave_style
+ else
+   ${DIALOGEXE} ${BACKGROUNDYELLOW} ${TITLEPARAM} "$T_fstitle" --colors --no-cancel --default-item folder --menu "$T_fsmenu" 0 0 0 folder "$T_folder" file "$T_file" 2>/tmp/rc.shutdown_pupsave_style
  fi
+ SAVESTYLE=$(cat /tmp/rc.shutdown_pupsave_style)
+ [ "$SAVESTYLE" ]
+}
 
+choosesize() {
+ #we should check to see that there is enough space on the partition...
+ PARTFREE=`df | grep "$SMNTPT" | tr -s " " | head -n 1 | cut -f 4 -d " "`
+ [ ! $PARTFREE ] && PARTFREE=0
+ [ $PARTFREE -lt 32768 ] && PARTFREE=`expr $PARTFREE - 1024` #leave some slack space.
+ [ $PARTFREE -gt 32768 ] && PARTFREE=`expr $PARTFREE - 8192` #leave some slack space.
+ SIZEPFILE=524288 #512M = 524288K
+ [ $SIZEPFILE -gt  $PARTFREE ] && SIZEPFILE=$PARTFREE
+ [ $PARTFREE -gt 32768 ] && choosesizefunc $PARTFREE #sets SIZEPFILE
+ if [ "`echo -n $SAVEFILE | grep '\.[34]fs$'`" != "" ];then #ext3 f.s. needs minimum size.
+  [ $SIZEPFILE -lt 5000 ] && return 1 #precaution. rerwin discovered this.
+ fi
+}
+
+choosefs(){
  #choose f.s. of save-file... 100410 for now, leave out ext4, doesn't work...
- #dialog --no-cancel --title "Choose filesystem of save-file" --menu "Previously, Puppy has only used 'ext2', now there is a choice. Regarding power-failure, note that Puppy will do a f.s. check at next boot so ext2 can recover, however journalled filesystems can recover even without a f.s. check. If in doubt, just press ENTER to choose 'ext2', otherwise TAB down then ENTER..." 0 0 0 ext2 "Maximum storage space, encrypted save-file must use ext2" ext3 "Journalled f.s., safest if power failure etc." ext4 "Journalled f.s., safest if power failure etc."  >/dev/console 2>/tmp/rc.shutdown_pupsave_fs
  T_fstitle="$(gettext 'First shutdown: choose filesystem')"
  T_fsmenu="$(gettext 'Previously, Puppy has only used 'ext2', now there is a choice. Regarding power-failure, note that Puppy will do a f.s. check at next boot so ext2 can recover, however journalled filesystems can recover even without a f.s. check. If in doubt, choose 'ext2'. After making the choice, click OK button...')"
  T_ext2="$(gettext 'Maximum storage space, encrypted save-file must use ext2')"
  T_ext3="$(gettext 'Journalled f.s., safest if power failure etc.')"
  #120427 01micko: support ext4...
  T_ext4="$(gettext 'Journalled f.s., safest if power failure etc.')"
- if [ "`grep 'ext4$' /proc/filesystems`" != "" ];then #120428 technosaurus: simplify test.
-  ${DIALOGEXE} ${BACKGROUNDYELLOW} ${TITLEPARAM} "$T_fstitle"  --no-cancel --menu "$T_fsmenu" 0 0 3 ext2 "$T_ext2" ext3 "$T_ext3"  ext4 "$T_ext4" >/dev/console 2>/tmp/rc.shutdown_pupsave_fs #120425 01micko
+ if [ "`grep 'ext4$' /proc/filesystems`" != "" ];then #120428 technosaurus: simplify test. 
+  ${DIALOGEXE} ${BACKGROUNDYELLOW} ${TITLEPARAM} "$T_fstitle" --no-cancel --default-item ext4 --menu "$T_fsmenu" 0 0 0 ext2 "$T_ext2" ext3 "$T_ext3"  ext4 "$T_ext4" 2>/tmp/rc.shutdown_pupsave_fs #120425 01micko
  else
-  ${DIALOGEXE} ${BACKGROUNDYELLOW} ${TITLEPARAM} "$T_fstitle"  --no-cancel --menu "$T_fsmenu" 0 0 3 ext2 "$T_ext2" ext3 "$T_ext3"  >/dev/console 2>/tmp/rc.shutdown_pupsave_fs #110926
+  ${DIALOGEXE} ${BACKGROUNDYELLOW} ${TITLEPARAM} "$T_fstitle" --no-cancel --default-item ext3 --menu "$T_fsmenu" 0 0 0 ext2 "$T_ext2" ext3 "$T_ext3"  2>/tmp/rc.shutdown_pupsave_fs #110926
  fi
  SFFS="`cat /tmp/rc.shutdown_pupsave_fs`"
  [ "$SFFS" = "" ] && SFFS='ext2'
  SFEXTNUM="`echo -n "$SFFS" | cut -c 4`"
  SFEXT="${SFEXTNUM}fs" #ex: 2fs
- sfPATTERN="s%[234]fs$%${SFEXTNUM}fs%"
- SAVEFILE="`echo -n "$SAVEFILE" | sed -e "$sfPATTERN"`"
- PUPSAVE="$SAVEPART,$SAVEFS,$SAVEFILE"
- NAMEONLY="`basename $SAVEFILE`"
+ #sfPATTERN="s%[234]fs$%${SFEXTNUM}fs%"
+ #SAVEFILE="`echo -n "$SAVEFILE" | sed -e "$sfPATTERN"`"
+ #PUPSAVE="$SAVEPART,$SAVEFS,$SAVEFILE"
+ #NAMEONLY="`basename $SAVEFILE`"
+}
 
+choosename() {
+ #[ "${DENSITY}" ] && CRYPT_NAME="_crypt${DENSITY}" || CRYPT_NAME=""
  #customise the name of the ${DISTRO_FILE_PREFIX}save file...
- T_nametitle="$(gettext 'First shutdown: save-file name')"
- T_nameinput="$(eval_gettext "Would you like to customise the name of the '\${DISTRO_FILE_PREFIX}save.\${SFEXT}' file?")
-$(eval_gettext "This is optional, but it is convenient if you have lots of '\${DISTRO_FILE_PREFIX}save' files and you want to choose the right one at startup.")
-$(eval_gettext "For example, if you enter 'john' here, the file will become '\${DISTRO_FILE_PREFIX}save-john.\${SFEXT}'.")
+ T_nametitle="$(gettext 'First shutdown: pupsave name')"
+ T_nameinput="$(eval_gettext "Would you like to customise the name of the '\${DISTRO_FILE_PREFIX}save'?")
 
-$(gettext 'Type any characters you wish, then click OK button:')"
+$(eval_gettext "This is optional, but it is convenient to manage multiple profiles. If you have lots of '\${DISTRO_FILE_PREFIX}save' and you want to choose the right one at startup.")
+$(eval_gettext "For example, if you enter 'john' here, the file will become '\${DISTRO_FILE_PREFIX}save-john'.")
+
+$(gettext 'Type any alpha-numeric characters you wish, then click OK button:')"
  MYUSERNAME="`${DIALOGEXE} ${BACKGROUNDYELLOW} ${TITLEPARAM} "$T_nametitle" --stdout --nocancel --inputbox "$T_nameinput" 0 0 ""`"
+ NAMEONLY="${DISTRO_FILE_PREFIX}save${CRYPT_NAME}"
  if [ "$MYUSERNAME" != "" ];then
   MYUSERNAME="`echo -n "$MYUSERNAME" | tr ' ' '_' | tr '-' '_' | sed -e 's/[^a-zA-Z0-9_.]//g'`"
-  NAMEONLY="${DISTRO_FILE_PREFIX}save-${MYUSERNAME}.${SFEXT}"
-  SAVEFILE="$PSUBDIR/$NAMEONLY"
-  PUPSAVE="$SAVEPART,$SAVEFS,$SAVEFILE"
+  NAMEONLY="$NAMEONLY-${MYUSERNAME}"
  fi
+ #[ "${SFEXT}" ] && NAMEONLY="$NAMEONLY.${SFEXT}"
+ #SAVEFILE="$PSUBDIR/$NAMEONLY"
+ #PUPSAVE="$SAVEPART,$SAVEFS,$SAVEFILE"
+}
 
+choosecrypt() {
  CRYPTO=""
  T_cryptotitle="$(gettext 'First shutdown: encryption')"
  T_cryptono="$(gettext 'NORMAL (no encryp.)')"
  T_cryptoheavy="$(gettext 'Heavy encrypted')"
  T_cryptolight="$(gettext 'Light encrypted')"
- T_yesno="$(eval_gettext "Do you want to encrypt the '\${NAMEONLY}' file?")
+ T_yesno="$(eval_gettext "Do you want to encrypt the '\${DISTRO_FILE_PREFIX}save'?")
 $(eval_gettext "If the '\${DISTRO_FILE_PREFIX}save' is encrypted, then a password will have to be entered at every bootup. The reason for doing this is security, as no one else will be able to see what is inside the \${DISTRO_FILE_PREFIX}save. Encryption does slow \${DISTRO_NAME} down slightly, the 'heavy' encryption the most. Two scenarios:")
-\Zb$(gettext '1.')\ZB
-$(eval_gettext "If the \${DISTRO_FILE_PREFIX}save file is on a Flash drive, encryption is protection in case the drive is mislaid. Heavy encryption is recommended, as \${DISTRO_NAME} minimises writes to the save file (to prolong life of the Flash drive, but this also minimises encryption slowdown).")
-\Zb$(gettext '2.')\ZB
-$(eval_gettext "If the \${DISTRO_FILE_PREFIX}save file is on a hard drive, 'light' encryption is recommended to minimise slowdown, particularly on older PCs.")
+\Zb$(gettext '1.')\ZB $(eval_gettext "If the \${DISTRO_FILE_PREFIX}save file is on a Flash drive, encryption is protection in case the drive is mislaid. Heavy encryption is recommended, as \${DISTRO_NAME} minimises writes to the save file (to prolong life of the Flash drive, but this also minimises encryption slowdown).")
+\Zb$(gettext '2.')\ZB $(eval_gettext "If the \${DISTRO_FILE_PREFIX}save file is on a hard drive, 'light' encryption is recommended to minimise slowdown, particularly on older PCs.")
 
 $(eval_gettext "Encrypted \${DISTRO_FILE_PREFIX}save files have another advantage, they allow multiple users. Recommended if spouse and kids are going to be using the same \${DISTRO_NAME} installation.")
 
 $(gettext 'Unless you have a good reason to use encryption, it is recommended not to, to avoid the overhead. Recommend choose \ZbNORMAL\ZB button...')"
- ${DIALOGEXE} ${BACKGROUNDYELLOW} ${TITLEPARAM} "$T_cryptotitle" --colors --extra-button --ok-label "$T_cryptono" --cancel-label "$T_cryptoheavy" --extra-label "$T_cryptolight" --yesno "$T_yesno" 0 0 >/dev/console #110926
+ ${DIALOGEXE} ${BACKGROUNDYELLOW} ${TITLEPARAM} "$T_cryptotitle" --colors --extra-button --ok-label "$T_cryptono" --cancel-label "$T_cryptoheavy" --extra-label "$T_cryptolight" --yesno "$T_yesno" 0 0 #110926
  RETVAL=$?
  if [ $RETVAL -eq 1 -o $RETVAL -eq 3 ];then
   T_passtitle="$(gettext 'First shutdown: password')"
@@ -426,73 +478,51 @@ entered at every bootup.')"
   else
    DENSITY="x" #light xor encryption.
    CRYPTO='-E 1' #'-e xor' --bug, loads xor.ko which is something else.
-  fi
-  if [ "$MYUSERNAME" != "" ];then
-   NAMEONLY="${DISTRO_FILE_PREFIX}save_crypt${DENSITY}-${MYUSERNAME}.${SFEXT}"
-  else
-   NAMEONLY="${DISTRO_FILE_PREFIX}save_crypt${DENSITY}.${SFEXT}"
-  fi
-  SAVEFILE="$PSUBDIR/$NAMEONLY"
-  PUPSAVE="$SAVEPART,$SAVEFS,$SAVEFILE"
+  fi 
+  CRYPT_NAME=""
+  [ "${DENSITY}" ] && CRYPT_NAME="_crypt${DENSITY}" && SFEXT="2fs"
  fi
- MNAMEONLY="`basename $SAVEFILE .${SFEXT}`"
+}
 
+nameclash() {
  #save with different name if clash...
- if [ -f $SMNTPT$SAVEFILE ]; then
+ [ ! -e $SMNTPT$SAVEFILE ] && return 0
+ NAMEONLY=$(basename "$SAVEFILE")
+ NAMEROOT=${NAMEONLY%.*}
+ MNAMEONLY=$NAMEROOT
   T_clashtitle="$(gettext 'First shutdown: name clash')"
   T_save="$(gettext 'SAVE')"
-  T_yesno="$(eval_gettext "There already exists a '\${NAMEONLY}' file on the partition you chose.")
+  T_yesno="$(eval_gettext "There already exists '\${NAMEONLY}' on the partition you chose.")
 
 $(eval_gettext 'To create another one, with a slightly different name (such as ${MNAMEONLY}-1.${SFEXT}), select \Zb${T_save}\ZB button...')
 $(eval_gettext 'To quit without saving, select \Zb${T_no}\ZB button...')"
-  ${DIALOGEXE} ${BACKGROUNDPINK} ${TITLEPARAM} "$T_clashtitle" --colors --yes-label "$T_save" --yesno "$T_yesno" 0 0 >/dev/console
+  ${DIALOGEXE} ${BACKGROUNDPINK} ${TITLEPARAM} "$T_clashtitle" --colors --yes-label "$T_save" --yesno "$T_yesno" 0 0
   [ ! $? -eq 0 ] && return 1
   local BLA=1 #; local SFFIX=`echo "$SAVEFILE" | tail -c 5`
-  while [ -f $SMNTPT$SAVEFILE ]; do
-   SAVEFILE="$PSUBDIR/${MNAMEONLY}-${BLA}.${SFEXT}"
+  while [ -e $SMNTPT$SAVEFILE ]; do
+   SAVEFILE="$PSUBDIR/${NAMEROOT}-${BLA}"
+   [ "${SFEXT}" ] && SAVEFILE="$SAVEFILE.${SFEXT}"
    BLA=`expr $BLA + 1`
   done
-  PUPSAVE="$SAVEPART,$SAVEFS,$SAVEFILE"
-  NAMEONLY="`basename $SAVEFILE`"
+  #PUPSAVE="$SAVEPART,$SAVEFS,$SAVEFILE"
+  #NAMEONLY="`basename $SAVEFILE`"
+}
+
+enmount() {
+ sPTN="/dev/${SAVEPART} "
+ SMNTPT="`mount | grep "$sPTN" | head -n1 | tr -s " " | cut -f 3 -d " "`"
+ #ntfs uses /dev/fuse so '/dev/$SAVEPART' no good for grep... NOTE: this fixed later versions ntfs-3g, so this line actually redundant...
+ [ "$SMNTPT" = "" ] && SMNTPT="`ps -e | grep -o 'ntfs\-3g.*' | grep "$sPTN" | tr '\t' ' ' | tr -s ' ' | tr ' ' "\n" | grep '^/mnt/'`"
+
+ if [ "$SMNTPT" = "" ];then
+  mkdir /mnt/$SAVEPART 2>/dev/null
+  mount -t $SAVEFS /dev/$SAVEPART /mnt/$SAVEPART
+  SMNTPT="/mnt/$SAVEPART"
  fi
+ return 0
+}
 
- #we should check to see that there is enough space on the partition...
- PARTFREE=`df | grep "$SMNTPT" | tr -s " " | head -n 1 | cut -f 4 -d " "`
- [ ! $PARTFREE ] && PARTFREE=0
- [ $PARTFREE -lt 32768 ] && PARTFREE=`expr $PARTFREE - 1024` #leave some slack space.
- [ $PARTFREE -gt 32768 ] && PARTFREE=`expr $PARTFREE - 8192` #leave some slack space.
- SIZEPFILE=524288 #512M = 524288K
- [ $SIZEPFILE -gt  $PARTFREE ] && SIZEPFILE=$PARTFREE
- [ $PARTFREE -gt 32768 ] && choosesizefunc $PARTFREE #sets SIZEPFILE
- if [ "`echo -n $SAVEFILE | grep '\.[34]fs$'`" != "" ];then #ext3 f.s. needs minimum size.
-  [ $SIZEPFILE -lt 5000 ] && return 1 #precaution. rerwin discovered this.
- fi
-
- SAVEPATH="`dirname $SAVEFILE`"
- [ ! -d ${SMNTPT}${SAVEPATH} ] && mkdir -p ${SMNTPT}${SAVEPATH}
-
- #final sanity check...
- AAAMB=`expr $SIZEPFILE \/ 1024`
- T_sanititle="$(gettext 'First shutdown: sanity check')"
- T_saniyes="$(gettext 'YES, SAVE')"
- T_sanichange="$(gettext 'CHANGE FOLDER')"
- while [ 1 ];do #110926
-  T_sanitext="`eval_gettext \"\Zb\Z1FINAL SANITY CHECK:\Zn\ZB
-Partition you are saving to:      \Zb\\\${SAVEPART}\ZB
-The filesystem of \\\${SAVEPART} partition: \Zb\\\${SAVEFS}\ZB
-Name of the save file:            \Zb\\\${NAMEONLY}\ZB
-Path (folder) of the save file:   \Zb\\\${SAVEPATH}\ZB
-Size of save file:                \Zb\\\${SIZEPFILE}KB (\\\${AAAMB}MB)\ZB
-Filesystem inside save file:      \Zb\\\${SFFS}\ZB
-
-If they definitely look right, choose \Zb\\\${T_saniyes}\ZB button...
-Looks ok, but you want to change the folder, choose \Zb\\\${T_sanichange}\ZB...
-If anything looks wrong, choose \Zb\\\${T_notsave}\ZB...\"`"
-  ${DIALOGEXE} ${BACKGROUNDYELLOW} ${TITLEPARAM} "$T_sanititle" --colors --no-collapse --extra-button --ok-label "$T_saniyes"  --extra-label "$T_sanichange" --cancel-label "$T_notsave" --yesno "$T_sanitext" 0 0 >/dev/console #110926
-  SANITYRET=$?
-  [ $SANITYRET -ne 0 -a $SANITYRET -ne 3 ] && return 1
-  [ $SANITYRET -eq 0 ] && break
-  if [ $SANITYRET -eq 3 ];then #change folder.
+changefolder() {
    T_choosefoldertitle="$(gettext 'First shutdown: choose folder')"
    T_inputbox="$(gettext 'Edit path. '/' means top-level of partition.
 You are only allowed to save one-deep, for example: '/puppy300'.
@@ -508,6 +538,40 @@ If uncertain, just click OK button.')"
    [ "$SAVEPATH" != "/" ] && SAVEPATHs="${SAVEPATH}/"
    SAVEFILE="${SAVEPATHs}${NAMEONLY}"
    PUPSAVE="$SAVEPART,$SAVEFS,$SAVEFILE"
+}
+
+pupsavefunc() {
+
+ SAVEPATH="`dirname $SAVEFILE`"
+ #[ ! -d ${SMNTPT}${SAVEPATH} ] && mkdir -p ${SMNTPT}${SAVEPATH}
+
+ #final sanity check...
+ AAAMB=`expr $SIZEPFILE \/ 1024`
+ T_sanititle="$(gettext 'First shutdown: sanity check')"
+ T_saniyes="$(gettext 'YES, SAVE')"
+ T_sanichange="$(gettext 'CHANGE FOLDER')"
+ while [ 1 ];do
+  nameclash || return 1
+  SAVEPATH=$(dirname "$SAVEFILE")
+  [ "$SAVEPATH" = '/' ] && SAVEPATH=''
+  NAMEONLY=$(basename "$SAVEFILE")
+  T_sanitext="`eval_gettext \"\Zb\Z1FINAL SANITY CHECK:\Zn\ZB
+Partition you are saving to:      \Zb\\\${SAVEPART}\ZB
+The filesystem of \\\${SAVEPART} partition: \Zb\\\${SAVEFS}\ZB
+Name of the save file:            \Zb\\\${NAMEONLY}\ZB
+Path (folder) of the save file:   \Zb\\\${SAVEPATH}\ZB
+Size of save file:                \Zb\\\${SIZEPFILE}KB (\\\${AAAMB}MB)\ZB
+Filesystem inside save file:      \Zb\\\${SFFS}\ZB
+
+If they definitely look right, choose \Zb\\\${T_saniyes}\ZB button...
+Looks ok, but you want to change the folder, choose \Zb\\\${T_sanichange}\ZB...
+If anything looks wrong, choose \Zb\\\${T_notsave}\ZB...\"`"
+  ${DIALOGEXE} ${BACKGROUNDYELLOW} ${TITLEPARAM} "$T_sanititle" --colors --no-collapse --extra-button --ok-label "$T_saniyes"  --extra-label "$T_sanichange" --cancel-label "$T_notsave" --yesno "$T_sanitext" 0 0 #110926
+  SANITYRET=$?
+  [ $SANITYRET -ne 0 -a $SANITYRET -ne 3 ] && return 1
+  [ $SANITYRET -eq 0 ] && break
+  if [ $SANITYRET -eq 3 ];then #change folder.
+    changefolder
   else
    SAVEFILE="${SAVEPATH}${NAMEONLY}"
    PUPSAVE="$SAVEPART,$SAVEFS,$SAVEFILE"
@@ -520,7 +584,7 @@ If uncertain, just click OK button.')"
  #JOPT=""
  [ "$SAVEPART" = "fd0" ] && SIZEPFILE=`expr $SIZEPFILE - 16`
  [ "$SFEXT" = "3fs" ] && JOPT='-j'
- #echo "Creating $NAMEONLY in /dev/$SAVEPART, please wait awhile..." >/dev/console
+ #echo "Creating $NAMEONLY in /dev/$SAVEPART, please wait awhile..."
  T_createtitle="$(gettext 'First shutdown: creating save-file')"
  T_createsf="$(eval_gettext "Creating \${NAMEONLY} in \${SAVEPART}, please wait awhile (no need to click OK button)...")"
  altT_createsf="$(eval_gettext "Creating \${NAMEONLY} in \${SAVEPART}, please wait awhile...")"
@@ -532,16 +596,16 @@ If uncertain, just click OK button.')"
 <text use-markup=\"true\"><label>\"<big>${altT_createsf}</big>\"</label></text>
 </vbox>
 </window>"
-  GTK2_RC_FILES=/tmp/orange_gtkrc${$}:/root/.gtkrc-2.0 gtkdialog --center --class="splashwindow" --program=SHUTDLG >/dev/console & #130525 130712
+  GTK2_RC_FILES=/tmp/orange_gtkrc${$}:/root/.gtkrc-2.0 gtkdialog --center --class="splashwindow" --program=SHUTDLG & #130525 130712
   w1PID=$!
  else
-  ${DIALOGEXE} ${BACKGROUNDORANGE} ${TITLEPARAM} "$T_createtitle" --colors --ok-label "OK" --msgbox "$T_createsf" 0 0 >/dev/console &
+  ${DIALOGEXE} ${BACKGROUNDORANGE} ${TITLEPARAM} "$T_createtitle" --colors --ok-label "OK" --msgbox "$T_createsf" 0 0 &
   w1PID=$!
  fi
- dd if=/dev/zero of=${SMNTPT}$SAVEFILE bs=1k count=$SIZEPFILE
+ dd if=/dev/zero of=${SMNTPT}$SAVEFILE bs=1k count=$SIZEPFILE >&2
  sync
  #pupkill $w1PID
- echo "`eval_gettext \"Creating a \\\${SFFS} filesystem in \\\${NAMEONLY}...\"`" >/dev/console
+ echo "`eval_gettext \"Creating a \\\${SFFS} filesystem in \\\${NAMEONLY}...\"`"
  if [ "$CRYPTO" = "" ];then
   case $SFFS in
    ext2) mkfs.ext2 -q -m 0 -F ${SMNTPT}$SAVEFILE ;;
@@ -565,13 +629,13 @@ If uncertain, just click OK button.')"
    T_note2="$(gettext 'the password in the case of light encryption...')"
 
    echo "#!/bin/sh
-   echo \"${T_note1}\" >/dev/console
-   echo \"${T_note2}\" >/dev/console
-   echo \"${MYPASSWORD}\" | losetup-FULL -p 0 ${CRYPTO} ${DEVLOOP} ${SMNTPT}${SAVEFILE} >/dev/console" > /tmp/shutdownconfig_encrypt_password
+   echo \"${T_note1}\"
+   echo \"${T_note2}\"
+   echo \"${MYPASSWORD}\" | losetup-FULL -p 0 ${CRYPTO} ${DEVLOOP} ${SMNTPT}${SAVEFILE}" > /tmp/shutdownconfig_encrypt_password
    chmod 755 /tmp/shutdownconfig_encrypt_password
    urxvt -bg '#FFFF80' -fg black -geometry 80x5 -title "$(gettext 'First shutdown: reenter password')" -e /tmp/shutdownconfig_encrypt_password
   else
-   echo "$MYPASSWORD" | losetup-FULL -p 0 $CRYPTO $DEVLOOP ${SMNTPT}$SAVEFILE >/dev/console
+   echo "$MYPASSWORD" | losetup-FULL -p 0 $CRYPTO $DEVLOOP ${SMNTPT}$SAVEFILE
   fi
   if [ $? -ne 0 ];then
    pupkill $w1PID #130525 moved down.
@@ -586,6 +650,130 @@ If uncertain, just click OK button.')"
  return 0
 } #end pupsavefunc
 
+save_directory() {
+ #final sanity check...
+ T_sanititle="$(gettext 'First shutdown: sanity check')"
+ T_saniyes="$(gettext 'YES, SAVE')"
+ T_sanichange="$(gettext 'CHANGE FOLDER')"
+ while [ 1 ];do
+  nameclash || return 1
+  SAVEPATH=$(dirname "$SAVEFILE")
+  [ "$SAVEPATH" = '/' ] && SAVEPATH=''
+  NAMEONLY=$(basename "$SAVEFILE")
+  T_sanitext="`eval_gettext \"\Zb\Z1FINAL SANITY CHECK:\Zn\ZB
+Partition you are saving to:      \Zb\\\${SAVEPART}\ZB
+The filesystem of \\\${SAVEPART} partition: \Zb\\\${SAVEFS}\ZB
+Path (folder) of the pupsave:   \Zb\\\${SAVEPATH}/${NAMEONLY}\ZB
+
+If they definitely look right, choose \Zb\\\${T_saniyes}\ZB button...
+Looks ok, but you want to change the folder, choose \Zb\\\${T_sanichange}\ZB...
+If anything looks wrong, choose \Zb\\\${T_notsave}\ZB...\"`"
+  ${DIALOGEXE} ${BACKGROUNDYELLOW} ${TITLEPARAM} "$T_sanititle" --colors --no-collapse --extra-button --ok-label "$T_saniyes"  --extra-label "$T_sanichange" --cancel-label "$T_notsave" --yesno "$T_sanitext" 0 0 #110926
+  SANITYRET=$?
+  [ $SANITYRET -ne 0 -a $SANITYRET -ne 3 ] && return 1
+  [ $SANITYRET -eq 0 ] && break
+  if [ $SANITYRET -eq 3 ];then #change folder.
+    changefolder
+  else
+   SAVEFILE="${SAVEPATH}${NAMEONLY}"
+   PUPSAVE="$SAVEPART,$SAVEFS,$SAVEFILE"
+  fi
+ done
+
+ mkdir -p $SMNTPT$SAVEFILE 2>/dev/null
+ PUPSAVEICON=/usr/local/apps/ROX-Filer/ROX/MIME/application-x-ext2-image.png
+ [ -s "$PUPSAVEICON" ] && cp -f "$PUPSAVEICON"  "$SMNTPT$SAVEFILE/.DirIcon"
+
+ #record all variables to a file...
+ #echo "
+PUPMODE=128
+SAVEPART=${SAVEPART}
+SAVEFS=${SAVEFS}
+PUPSAVE=${PUPSAVE}
+SAVEFILE=${SAVEFILE}
+NAMEONLY=${NAMEONLY}
+SAVEPATH=${SAVEPATH}
+MYPASSWORD=''
+SFEXT=''
+xPDEV=${PDEV1}
+xDEVFS=${DEV1FS}
+xPSUBDIR=${PSUBDIR}
+SMNTPT=${SMNTPT}
+CRYPTO=''
+expBOOTDRV=${expBOOTDRV}	#" > /tmp/shutdownconfig_results
+
+} #end sace_directory
+
+offersfscopy() {
+	 #offer to copy $DISTRO_PUPPYSFS (puppy.sfs) and $DISTRO_ZDRVSFS (zdrv.sfs) etc off the cd...
+ if [ "$DEV1FS" = "iso9660" -o "$DEV1FS" = "udf" ];then #test if booted off cd. 130128
+  if [ ! -f ${SMNTPT}/${DISTRO_PUPPYSFS} ];then #see file DISTRO_SPECS, init
+   NAMEONLY="`basename $SAVEFILE`"
+   T_copytitle="$(gettext 'First shutdown: copy .sfs from CD')"
+   T_copy="$(gettext 'COPY')"
+   yesno="`eval_gettext \"The CD has '\\\${DISTRO_PUPPYSFS}' and maybe other .sfs files on it. It will speed startup considerably if these are on the hard drive.
+Also, for PCs with less than 256MB of RAM, \\\${DISTRO_NAME} does not copy the \\\${DISTRO_PUPPYSFS} file to RAM so the CD drive remains mounted, meaning that the drive cannot be used for other purposes.
+However, if you reply \Zb\\\${T_copy}\ZB here then it will be copied to the same drive as the '\\\${DISTRO_FILE_PREFIX}save' file and loaded from there at startup, thus freeing the CD drive for other uses.
+Even if you have heaps of RAM, it is still good to answer \Zb\\\${T_copy}\ZB to get the faster startup.
+
+Note: if a CD has extra .sfs files on it, by copying them to the same drive as the '\\\${DISTRO_FILE_PREFIX}save' file, they are then available to be loaded at startup, which is configurable by the BootManager (the BootManager is in the System menu)
+
+If you answer \Zb\\\${T_copy}\ZB here, please \Zb\Z1FIRST, RIGHT NOW\Zn\ZB, put the \\\${DISTRO_NAME} CD into the \\\${PDEV1} drive (the same one that the CD was in at startup), if it isn't already, THEN select the \Zb\\\${T_copy}\ZB button...\"`"
+
+
+   ${DIALOGEXE} ${BACKGROUNDYELLOW} ${TITLEPARAM} "$T_copytitle" --colors --yes-label "$T_copy" --yesno "$yesno" 0 0
+   RETVAL=$?
+   clear
+   if [ $RETVAL -eq 0 ];then
+    #echo "Please wait, accessing CD drive..."
+    T_waitcopy="$(gettext 'Please wait, copying .sfs files from CD...')"
+
+    if [ $DISPLAY ];then #130525 remove OK button...
+     #create nice window looking like prior ones...
+     export COPYSFSDLG="<window decorated=\"false\">
+     <vbox>
+     <text use-markup=\"true\"><label>\"<big><b>${T_copytitle}</b></big>\"</label></text>
+     <text use-markup=\"true\"><label>\"<big>${T_waitcopy}</big>\"</label></text>
+     </vbox>
+     </window>"
+     GTK2_RC_FILES=/tmp/orange_gtkrc${$}:/root/.gtkrc-2.0 gtkdialog --center --class="splashwindow" --program=COPYSFSDLG & #130712
+     cPID=$!
+    else
+     ${DIALOGEXE} ${BACKGROUNDORANGE} ${TITLEPARAM} "$T_copytitle" --msgbox "$T_waitcopy" 0 0 &
+     cPID=$!
+    fi
+
+    APATTERN="/dev/$PDEV1 "
+    CDMNTPT="`mount | grep "$APATTERN" | cut -f 3 -d ' '`"
+    mkdir -p /mnt/$PDEV1
+    if [ "$CDMNTPT" = "" ];then
+     mount -t iso9660 /dev/$PDEV1 /mnt/$PDEV1
+     CDMNTPT="/mnt/$PDEV1"
+    fi
+    for ONESFS in `find $CDMNTPT -maxdepth 1 -type f -name \*.sfs | grep -v ' ' | tr '\n' ' '`
+    do
+     BASESFS="`basename $ONESFS`"
+     FILESIZEB=`stat --format=%s $ONESFS`
+     FILESIZEK=`expr $FILESIZEB \/ 1024 + 2048` #2MB slack.
+     BPATTERN=" $SMNTPT"'$'
+     DRVFREEK=`df -k | tr -s ' ' | grep "$BPATTERN" | cut -f 4 -d ' '`
+     if [ $DRVFREEK -gt $FILESIZEK ];then
+      echo "`eval_gettext \"Copying \\\${BASESFS}...\"`"
+      cp -f $ONESFS $SMNTPT/
+      sync
+     else
+      T_cantcopy="`eval_gettext \"Insufficient space! Cannot copy \\\${BASESFS}\"`"
+      echo "$T_cantcopy"
+      [ $DISPLAY ] && pupmessage -bg red -center "$T_cantcopy"
+      break
+     fi
+    done
+    busybox umount $CDMNTPT
+    pupkill $cPID
+   fi
+  fi
+ fi
+} #end offersfscopy
 
 xDEVFS="$DEV1FS"
 xPDEV="$PDEV1"
@@ -607,107 +795,64 @@ T_canceltitle="$(gettext 'Click close-box to cancel shutdown')"
 T_countdown="$(gettext 'Shutdown in TIME seconds')"
 T_savetofile="$(gettext 'SAVE TO FILE')"
 T_savetopart="`eval_gettext \"SAVE TO \\\${xPDEV}\"`"
-T_orwait240="$(gettext '(Or, wait 240 seconds to shutdown without saving session)')"
+T_orwait240=""
+[ $TIMELIMIT -gt 0 ] && \
+T_orwait240=$(printf "$(gettext '(Or, wait %s seconds to shutdown without saving session)')" "$TIMELIMIT")
+
 T_save="$(gettext 'SAVE')"
 T_cd="$(gettext 'SAVE TO CD')"
 
 #130221 note, pupdialog will exit with 255 if click window close-box, 254 if timeout.
 # former, want to abort shutdown, latter, shutdown without saving.
-
-case $xDEVFS in
- ext2|ext3|ext4|reiserfs|minix|btrfs|f2fs) #linux f.s.  130216 add f2fs.
-  #do not allow save to entire partition if pup installed in a subdirectory...
-  xPSUBDIR="`echo -n "$PUPSFS" | cut -f 3 -d ',' | sed -e 's%/[^/]*$%%'`" #ex: sda3,ext2,/pup220/puppy.sfs will return /pup220
-  SAVECHOICE=1
-
-  if [ "$xPSUBDIR" = "" ];then
-   T_nosubdir="`eval_gettext \"You can now choose to save the personal session files to a file, named '\\\${DISTRO_FILE_PREFIX}save.2fs'.
-Or, if \\\${xPDEV} partition is not being used by anything else (no other operating system) then you can choose to save the session files direct to the partition.
-Either way, your choice will be remembered at next bootup.
-
-Which to choose?
- Partition: you immediately get the entire partition available for saving.
- File: having everything in a single file is convenient for archiving, but storage is limited to the size of the file, typically 512MB - 4GB (it can be made bigger later).\"`"
-
-   if [ $DISPLAY ];then
-    T_display="`eval_gettext \"If in doubt, click \Zb\\\${T_savetofile}\ZB button.
-
-Select \Zb\\\${T_savetofile}\ZB to create a '\\\${DISTRO_FILE_PREFIX}save.2fs file',
-select \Zb\\\${T_savetopart}\ZB to save direct to partition, or \Zb\\\${T_notsave}\ZB to shutdown without saving session...\"`"
-    yesno="$T_nosubdir \n\n$T_display \n\n$T_orwait240"
-    pupdialog --background '#FFFF80' --colors --title "$T_canceltitle" --backtitle "$T_title" --timeout 240 --countdown "$T_countdown" --extra-button --ok-label "$T_savetofile"  --extra-label "$T_savetopart" --cancel-label "$T_notsave" --yesno "$yesno" 0 0 >/dev/console
-   else
-    T_display="`eval_gettext \"If in doubt, just press ENTER to accept the default.
-
-Select \Zb\\\${T_savetofile}\ZB to create a '\\\${DISTRO_FILE_PREFIX}save.2fs file',
-select \Zb\\\${T_savetopart}\\\${PDEV1}   \ZB (TAB then ENTER) to save direct to partition, or \Zb\\\${T_notsave}\ZB to shutdown without saving session...\"`"
-    yesno="$T_nosubdir \n\n$T_display \n\n$T_orwait240"
-    dialog --colors --title "$T_title" --timeout 240 --extra-button --ok-label "$T_savetofile"  --extra-label "$T_savetopart" --cancel-label "$T_notsave" --yesno "$yesno" 0 0 >/dev/console
-   fi
-   SAVECHOICE=$?
-  else
-   T_subdir="`eval_gettext \"You can now choose to save the personal session files to a file, named '\\\${DISTRO_FILE_PREFIX}save.2fs'. Your choice will be remembered at next bootup.
-
-NOTE: You cannot choose to save the session to the entire partition \\\${xPDEV}, as Puppy is installed into a sub-directory '\\\${xPSUBDIR}'. If Puppy had been installed at '/', not in a folder, then you would have the option of saving the session to the entire partition (assuming that the partition does not have any other distro installed in it) which has the advantage of all the free space in the partition available for your session files.\"`"
-   if [ $DISPLAY ];then
-    T_display="`eval_gettext \"Click the \Zb\\\${T_savetofile}\ZB button to create a '\\\${DISTRO_FILE_PREFIX}save.2fs' file, or \Zb\\\${T_notsave}\ZB to shutdown without saving session...\"`"
-    yesno="$T_subdir \n\n$T_display \n\n$T_orwait240"
-    pupdialog --background '#FFFF80' --colors --title "$T_canceltitle" --backtitle "$T_title" --timeout 240 --countdown "$T_countdown" --yes-label "${T_savetofile}" --no-label "$T_notsave" --yesno "$yesno" 0 0 >/dev/console
-   else
-    #bother, recent versions of dialog do not work with --ok-label, --cancel-label, if no extra button...
-    T_display="`eval_gettext \"Select \Zb\\\${T_savetofile}\ZB (just press ENTER key) to create a '\\\${DISTRO_FILE_PREFIX}save.2fs' file, or press TAB key then ENTER to shutdown without saving session...\"`"
-    yesno="$T_subdir \n\n$T_display \n\n$T_orwait240"
-    dialog --colors --title "$T_title" --timeout 240 --yes-label "${T_savetofile}" --no-label "$T_notsave" --yesno "$yesno" 0 0 >/dev/console
-   fi
-   SAVECHOICE=$?
-  fi
-  [ "$SAVECHOICE" == "3" ] && PUPMODE=32 #3=save to partition.
- ;;
- vfat|msdos|ntfs|xxx) #handle other f.s. types...
- 
+ #shinobar: for all case
   xPSUBDIR="`echo -n "$PUPSFS" | cut -f 3 -d ',' | sed -e 's%/[^/]*$%%'`" #ex: sda3,vfat,/pup220/puppy.sfs will return /pup220
- 
-  T_ms="`eval_gettext \"You can save the session (all of your personal data and settings) to a file, named '\\\${DISTRO_FILE_PREFIX}save.2fs' (that has a ext2 (or ext3) filesystem inside it). Note, your answer to this question will be remembered at next boot.
+  T_ms="`eval_gettext \"You can save the session (all of your personal data and settings) to the storage, named '\\\${DISTRO_FILE_PREFIX}save'.
 
-Do you want to create a '\\\${DISTRO_FILE_PREFIX}save.2fs' file? If unsure, it is recommended that you do save the session, so all your personal settings and files will be automatically loaded at next boot.\"`"
+Do you want to create a '\\\${DISTRO_FILE_PREFIX}save'? If unsure, it is recommended that you do save the session, so all your personal settings and files will be automatically loaded at next boot.\"`"
   if [ $DISPLAY ];then
-   T_display="`eval_gettext \"Click the \Zb\\\${T_save}\ZB button to create '\\\${DISTRO_FILE_PREFIX}save.2fs' and save to it, or click \Zb\\\${T_no}\ZB to not save session...\"`" #111012 fix.
+   T_display="`eval_gettext \"Click the \Zb\\\${T_save}\ZB button to create '\\\${DISTRO_FILE_PREFIX}save' and save to it, or click \Zb\\\${T_no}\ZB to not save session...\"`" #111012 fix.
    yesno="$T_ms \n\n$T_display \n\n$T_orwait240"
-   pupdialog --background '#FFFF80' --colors --title "$T_canceltitle" --backtitle "$T_title" --timeout 240 --countdown "$T_countdown" --no-label "$T_no" --yes-label "$T_save" --yesno "$yesno" 0 0 >/dev/console #120512
+   pupdialog --background '#FFFF80' --colors --title "$T_canceltitle" --backtitle "$T_title" --timeout $TIMELIMIT --countdown "$T_countdown" --no-label "$T_no" --yes-label "$T_save" --yesno "$yesno" 0 0 #120512
   else
-   T_display="`eval_gettext \"Select \Zb\\\${T_save}\ZB (just press ENTER key) to create '\\\${DISTRO_FILE_PREFIX}save.2fs' and save to it, or select \Zb\\\${T_no}\ZB (TAB then ENTER) to not save session...\"`"
+   T_display="`eval_gettext \"Select \Zb\\\${T_save}\ZB (just press ENTER key) to create '\\\${DISTRO_FILE_PREFIX}save' and save to it, or select \Zb\\\${T_no}\ZB (TAB then ENTER) to not save session...\"`"
    yesno="$T_ms \n\n$T_display \n\n$T_orwait240"
-   dialog --colors --title "$T_title" --timeout 240 --no-label "$T_no" --yes-label "$T_save" --yesno "$yesno" 0 0 >/dev/console #120512
+   dialog --colors --title "$T_title" --timeout $TIMELIMIT --no-label "$T_no" --yes-label "$T_save" --yesno "$yesno" 0 0 #120512
   fi
   SAVECHOICE=$?
- ;;
- iso9660|udf) #130128
-  if [ -f /etc/personal_data_save_disabled ];then #120823 rerwin
-   SAVECHOICE=256 #120823 rerwin: do not save - case *) below
-  else #120823
-   T_iso="`eval_gettext \"You have booted off a live-CD or DVD, and you can now save your personal settings and files to a USB Flash drive or any hard drive partition. The session will be saved as a single file, named '\\\${DISTRO_FILE_PREFIX}save.2fs', which has a ext2 (or ext3) filesystem inside it.
-However, if you have burnt the CD/DVD as multisession (not closed), then sessions can be saved as additional tracks to the CD/DVD -- each saved session will appear on the CD/DVD as a directory with all the saved files in it, not as a single file. \Zb\Z1THIS IS STILL EXPERIMENTAL, AND DOES NOT WORK WITH LAPTOP OPTICAL DRIVES\Zn\ZB\"`"
-   if [ $DISPLAY ];then
-    T_display="`eval_gettext \"Click the \Zb\\\${T_savetofile}\ZB button to choose a partition to save the session as file '\\\${DISTRO_FILE_PREFIX}save.2fs'...
-Click \Zb\\\${T_cd}\ZB button to save session to CD/DVD (multisession) (EXPERIMENTAL)...
-Click \Zb\\\${T_notsave}\ZB to shutdown without saving session...\"`"
-    yesno="$T_iso \n\n$T_display \n\n$T_orwait240"
-    pupdialog --background '#FFFF80' --colors --title "$T_canceltitle" --backtitle "$T_title" --timeout 240 --countdown "$T_countdown" --extra-button --ok-label "$T_savetofile"  --extra-label "$T_cd" --cancel-label "$T_notsave" --yesno "$yesno" 0 0 >/dev/console #120512
-   else
-    T_display="`eval_gettext \"Select <\\\${T_savetofile}> (just press ENTER key) to choose a partition to save the session as file \\\${DISTRO_FILE_PREFIX}save.2fs...
-Select <\\\${T_cd}> (TAB then ENTER) to save session to CD/DVD (multisession) (EXPERIMENTAL)...
-Select <\\\${T_notsave}> to shutdown without saving session...\"`"
-    yesno="$T_iso \n\n$T_display \n\n$T_orwait240"
-    dialog --colors --title "$T_title" --timeout 240 --extra-button --ok-label "$T_savetofile"  --extra-label "$T_cd" --cancel-label "$T_notsave" --yesno "$yesno" 0 0 >/dev/console
-   fi
-   SAVECHOICE=$?
-  fi #120823
-  [ "$SAVECHOICE" == "3" ] && PUPMODE=77 && SAVEPART="$PDEV1" #save to cd/dvd.
- ;;
-esac
+
 case $SAVECHOICE in
  0)
-  choosepartfunc && pupsavefunc && PUPMODE=128 #yes, save it.
+  if choosepartfunc; then
+    enmount
+    case $SAVEFS in
+      ext?|reiserfs|minix|btrfs|f2fs) SAVEFS_IS_LINUX="y";;
+      *) SAVEFS_IS_LINUX="";;
+    esac
+    SAVESTYLE='file'
+    DENSITY=''
+    SFEXT=''
+    choosecrypt
+    [ -z "$DENSITY" ] && [ "$SAVEFS_IS_LINUX" ] && choosestyle
+    if [ "$SAVESTYLE" = "file" ]; then
+       SFEXT='2fs'
+       [ -z "$DENSITY" ] && choosefs
+       choosesize || exit	###FIXME###
+    fi
+    if [ "$SAVESTYLE" != "partition" ]; then
+      choosename
+      NAMEROOT="$NAMEONLY"
+      [ "${SFEXT}" ] && NAMEONLY="$NAMEROOT.${SFEXT}"
+      SAVEFILE="$PSUBDIR/$NAMEONLY"
+      #nameclash || exit	###FIXME###
+      PUPSAVE="$SAVEPART,$SAVEFS,$SAVEFILE"
+    fi
+    case "$SAVESTYLE" in
+      folder) save_directory && PUPMODE=128;;
+      partition) PUPMODE=32;;
+      file) pupsavefunc && PUPMODE=128;;
+      *) "SAVESTYLE=$SAVESTYLE" ;;
+    esac
+  fi
  ;;
  3)
   echo #case already handled above.
@@ -716,79 +861,12 @@ case $SAVECHOICE in
   exit 255 #wmreboot and wmpoweroff can cancel shutdown. 130221
  ;;
  *)
-  echo "$(gettext 'Shutting down without saving...')" >/dev/console
+  echo "$(gettext 'Shutting down without saving...')"
  ;;
 esac
 
 if [ $PUPMODE -eq 128 ];then #will be saving session.
- #offer to copy $DISTRO_PUPPYSFS (puppy.sfs) and $DISTRO_ZDRVSFS (zdrv.sfs) etc off the cd...
- if [ "$DEV1FS" = "iso9660" -o "$DEV1FS" = "udf" ];then #test if booted off cd. 130128
-  if [ ! -f ${SMNTPT}/${DISTRO_PUPPYSFS} ];then #see file DISTRO_SPECS, init
-   NAMEONLY="`basename $SAVEFILE`"
-   T_copytitle="$(gettext 'First shutdown: copy .sfs from CD')"
-   T_copy="$(gettext 'COPY')"
-   yesno="`eval_gettext \"The CD has '\\\${DISTRO_PUPPYSFS}' and maybe other .sfs files on it. It will speed startup considerably if these are on the hard drive.
-Also, for PCs with less than 256MB of RAM, \\\${DISTRO_NAME} does not copy the \\\${DISTRO_PUPPYSFS} file to RAM so the CD drive remains mounted, meaning that the drive cannot be used for other purposes.
-However, if you reply \Zb\\\${T_copy}\ZB here then it will be copied to the same drive as the '\\\${DISTRO_FILE_PREFIX}save' file and loaded from there at startup, thus freeing the CD drive for other uses.
-Even if you have heaps of RAM, it is still good to answer \Zb\\\${T_copy}\ZB to get the faster startup.
-
-Note: if a CD has extra .sfs files on it, by copying them to the same drive as the '\\\${DISTRO_FILE_PREFIX}save' file, they are then available to be loaded at startup, which is configurable by the BootManager (the BootManager is in the System menu)
-
-If you answer \Zb\\\${T_copy}\ZB here, please \Zb\Z1FIRST, RIGHT NOW\Zn\ZB, put the \\\${DISTRO_NAME} CD into the \\\${PDEV1} drive (the same one that the CD was in at startup), if it isn't already, THEN select the \Zb\\\${T_copy}\ZB button...\"`"
-
-
-   ${DIALOGEXE} ${BACKGROUNDYELLOW} ${TITLEPARAM} "$T_copytitle" --colors --yes-label "$T_copy" --yesno "$yesno" 0 0 >/dev/console
-   RETVAL=$?
-   clear >/dev/console
-   if [ $RETVAL -eq 0 ];then
-    #echo "Please wait, accessing CD drive..." >/dev/console
-    T_waitcopy="$(gettext 'Please wait, copying .sfs files from CD...')"
-
-    if [ $DISPLAY ];then #130525 remove OK button...
-     #create nice window looking like prior ones...
-     export COPYSFSDLG="<window decorated=\"false\">
-     <vbox>
-     <text use-markup=\"true\"><label>\"<big><b>${T_copytitle}</b></big>\"</label></text>
-     <text use-markup=\"true\"><label>\"<big>${T_waitcopy}</big>\"</label></text>
-     </vbox>
-     </window>"
-     GTK2_RC_FILES=/tmp/orange_gtkrc${$}:/root/.gtkrc-2.0 gtkdialog --center --class="splashwindow" --program=COPYSFSDLG >/dev/console & #130712
-     cPID=$!
-    else
-     ${DIALOGEXE} ${BACKGROUNDORANGE} ${TITLEPARAM} "$T_copytitle" --msgbox "$T_waitcopy" 0 0 >/dev/console &
-     cPID=$!
-    fi
-
-    APATTERN="/dev/$PDEV1 "
-    CDMNTPT="`mount | grep "$APATTERN" | cut -f 3 -d ' '`"
-    mkdir -p /mnt/$PDEV1
-    if [ "$CDMNTPT" = "" ];then
-     mount -t iso9660 /dev/$PDEV1 /mnt/$PDEV1
-     CDMNTPT="/mnt/$PDEV1"
-    fi
-    for ONESFS in `find $CDMNTPT -maxdepth 1 -type f -name \*.sfs | grep -v ' ' | tr '\n' ' '`
-    do
-     BASESFS="`basename $ONESFS`"
-     FILESIZEB=`stat --format=%s $ONESFS`
-     FILESIZEK=`expr $FILESIZEB \/ 1024 + 2048` #2MB slack.
-     BPATTERN=" $SMNTPT"'$'
-     DRVFREEK=`df -k | tr -s ' ' | grep "$BPATTERN" | cut -f 4 -d ' '`
-     if [ $DRVFREEK -gt $FILESIZEK ];then
-      echo "`eval_gettext \"Copying \\\${BASESFS}...\"`" >/dev/console
-      cp -f $ONESFS $SMNTPT/
-      sync
-     else
-      T_cantcopy="`eval_gettext \"Insufficient space! Cannot copy \\\${BASESFS}\"`"
-      echo "$T_cantcopy" >/dev/console
-      [ $DISPLAY ] && pupmessage -bg red -center "$T_cantcopy"
-      break
-     fi
-    done
-    busybox umount $CDMNTPT
-    pupkill $cPID
-   fi
-  fi
- fi
+  offersfscopy
 fi
 
 #record all variables to a file...
@@ -807,6 +885,5 @@ xPSUBDIR='${xPSUBDIR}'
 SMNTPT='${SMNTPT}'
 CRYPTO='${CRYPTO}'
 expBOOTDRV='${expBOOTDRV}'" > /tmp/shutdownconfig_results
-
 exit 0
 #the end#
