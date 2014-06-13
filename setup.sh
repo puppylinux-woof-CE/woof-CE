@@ -78,6 +78,8 @@ prepare_work_dir() {
 	rm -rf $WORK_DIR; mkdir -p $WORK_DIR
 	
 	cat > $WORK_DIR/build.conf << EOF
+### For SFS builders ###
+
 HOST_ARCH='$HOST_ARCH'
 TARGET_ARCH='$TARGET_ARCH'
 SOURCE='$SOURCE'
@@ -101,6 +103,18 @@ APT_PKGDB_DIR=\${CHROOT_DIR}/var/lib/apt/lists
 
 # loads REPO_URL, REPO_PKGDB, REPO_SECTIONS, WITH_APT_DB
 . ./repo-url 
+
+### for ISO builders ###
+OUTPUT_DIR=iso        # if you change this, change %makesfs params in pkglist too
+OUTPUT_ISO=puppy.iso
+ISO_ROOT=\$OUTPUT_DIR/iso-root
+
+PUPPY_SFS=puppy.sfs   # if you change this, change %makesfs params in pkglist too
+KERNEL_VERSION=3.12.9 # change as needed
+
+WOOF_ISO_ROOT=TODO
+WOOF_INITRD=TODO
+
 EOF
 
 	ln -s $(pwd)/$SOURCE-build.sh $WORK_DIR/build-sfs.sh
