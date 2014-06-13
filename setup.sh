@@ -63,6 +63,16 @@ get_source_distro() {
 	# echo $SOURCE
 }
 
+map_target_arch() { # as needed to meet source distro name
+	case $SOURCE in
+		ubuntu|debian)
+			case $TARGET_ARCH in
+				x86)    MAPPED_ARCH=i386 ;;
+				x86_64) MAPPED_ARCH=amd64 ;;
+			esac
+	esac
+}
+
 prepare_work_dir() {
 	echo "Cleaning out $WORK_DIR ..."
 	rm -rf $WORK_DIR; mkdir -p $WORK_DIR
@@ -71,13 +81,32 @@ prepare_work_dir() {
 HOST_ARCH='$HOST_ARCH'
 TARGET_ARCH='$TARGET_ARCH'
 SOURCE='$SOURCE'
-VERSIN='$VERSION'
 CROSS='$CROSS'
 WOOFCE='$(pwd)'
+
+# Edit as needed. Commented section are defaults.
+ARCH='$MAPPED_ARCH'
+PKGLIST=pkglist
+VERSION='$VERSION'
+#DISTRO_PREFIX=puppy
+#DISTRO_VERSION=700
+
+REPO_DIR=repo-\$VERSION-\$ARCH
+CHROOT_DIR=chroot-\$VERSION-\$ARCH
+BASE_PATH="\$WOOFCE/rootfs-skeleton"
+EXTRAPKG_PATH="\$WOOFCE/rootfs-packages"
+
+APT_SOURCES_DIR=\${CHROOT_DIR}/etc/apt/sources.list.d
+APT_PKGDB_DIR=\${CHROOT_DIR}/var/lib/apt/lists
+
+# loads REPO_URL, REPO_PKGDB, REPO_SECTIONS, WITH_APT_DB
+. ./repo-url 
 EOF
+
 	ln -s $(pwd)/$SOURCE-build.sh $WORK_DIR/build-sfs.sh
 	ln -s $(pwd)/$SOURCE-build.sh $WORK_DIR/build-iso.sh
 	cp woof-distro/${TARGET_ARCH}/${SOURCE}/${VERSION}/pkglist $WORK_DIR
+	cp woof-distro/${TARGET_ARCH}/${SOURCE}/${VERSION}/repo-url $WORK_DIR
 }
 
 confirmation() {
@@ -91,10 +120,12 @@ Source distro:  $SOURCE
 Source version: $VERSION
 Cross-build:    $([ $CROSS ] && echo yes || echo no)
 ---
-The default pkglist has been copied to $WORK_DIR. You can use this file
-as is, or you can modify it as you see fit.
+The default pkglist and repo-url has been copied to $WORK_DIR. 
+You can use these files as they are, or you can modify them 
+as you see fit.
 
-If this is not right, re-run the script to re-create the configuration.
+If this doesn't sound right, re-run the script to re-create 
+the configuration.
 EOF
 }
 
@@ -102,6 +133,7 @@ EOF
 sanity_check
 get_target_arch
 get_source_distro
+map_target_arch
 prepare_work_dir
 confirmation
 exit

@@ -8,7 +8,7 @@
 # 
 
 ### end-user configuration
-PKGLIST=${PKGLIST:-ubuntu-pkglist}
+PKGLIST=${PKGLIST:-pkglist}
 ARCH=${ARCH:-i386} # or amd64
 VERSION=${VERSION:-trusty}
 DISTRO_PREFIX=${DISTRO_PREFIX:-puppy}
