@@ -193,6 +193,7 @@ dpkg_install() {
 }
 ### choice of bootstrap or dpkg 
 dpkgchroot_install() {
+	! [ -d $CHROOT_DIR/tmp ] && mkdir -p $CHROOT_DIR/tmp
 	cp "$REPO_DIR/$PKGFILE" $CHROOT_DIR/tmp
 	chroot $CHROOT_DIR /usr/bin/dpkg --force-all --unpack /tmp/"$PKGFILE"
 	rm -f $CHROOT_DIR/tmp/"$PKGFILE"
@@ -428,8 +429,13 @@ process_pkglist() {
 	return 0
 }
 
+sanity_check() {
+	! type dpkg-deb > /dev/null && echo "Missing dpkg-deb, please install first." && exit
+	! type dpkg > /dev/null && echo "Missing dpkg, please install first." && exit
+}
 
 ### main
+sanity_check
 prepare_dirs
 add_repo $REPO_URL $VERSION "$REPO_SECTIONS" $REPO_PKGDB
 echo Flattening $PKGLIST ...

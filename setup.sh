@@ -93,8 +93,8 @@ VERSION='$VERSION'
 
 REPO_DIR=repo-\$VERSION-\$ARCH
 CHROOT_DIR=chroot-\$VERSION-\$ARCH
-BASE_PATH="\$WOOFCE/rootfs-skeleton"
-EXTRAPKG_PATH="\$WOOFCE/rootfs-packages"
+BASE_PATH="\$WOOFCE/woof-code/rootfs-skeleton"
+EXTRAPKG_PATH="\$WOOFCE/woof-code/rootfs-packages"
 
 APT_SOURCES_DIR=\${CHROOT_DIR}/etc/apt/sources.list.d
 APT_PKGDB_DIR=\${CHROOT_DIR}/var/lib/apt/lists
