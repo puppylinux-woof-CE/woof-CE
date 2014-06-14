@@ -63,7 +63,7 @@ prepare_dirs() {
 		(cd helpers; ln -sf $(which true) update-rc.d)
 	fi
 	PATH=$(pwd)/helpers:$PATH
-	touch $TRACKER
+	> $TRACKER
 }
 
 ###

@@ -69,7 +69,12 @@ map_target_arch() { # as needed to meet source distro name
 			case $TARGET_ARCH in
 				x86)    MAPPED_ARCH=i386 ;;
 				x86_64) MAPPED_ARCH=amd64 ;;
-			esac
+			esac ;;
+		slackware)
+			case $TARGET_ARCH in
+				x86)    MAPPED_ARCH=slackware ;;
+				x86_64) MAPPED_ARCH=slackware64 ;;
+			esac ;;
 	esac
 }
 
@@ -79,7 +84,6 @@ prepare_work_dir() {
 	
 	cat > $WORK_DIR/build.conf << EOF
 ### For SFS builders ###
-
 HOST_ARCH='$HOST_ARCH'
 TARGET_ARCH='$TARGET_ARCH'
 SOURCE='$SOURCE'
@@ -99,11 +103,16 @@ BASE_CODE_PATH="\$WOOFCE/woof-code/rootfs-skeleton"
 BASE_ARCH_PATH="\$WOOFCE/woof-arch/\$TARGET_ARCH/target/rootfs-skeleton"
 EXTRAPKG_PATH="\$WOOFCE/woof-code/rootfs-packages"
 
+# loads REPO_URL, REPO_PKGDB, REPO_SECTIONS, WITH_APT_DB
+. ./repo-url 
+
+# debian/ubuntu only
 APT_SOURCES_DIR=\${CHROOT_DIR}/etc/apt/sources.list.d
 APT_PKGDB_DIR=\${CHROOT_DIR}/var/lib/apt/lists
 
-# loads REPO_URL, REPO_PKGDB, REPO_SECTIONS, WITH_APT_DB
-. ./repo-url 
+# slackware only
+INSTALLPKG=./installpkg
+REMOVEPKG=./removepkg
 
 ### for ISO builders ###
 PUPPY_SFS=puppy.sfs   # if you change this, change %makesfs params in pkglist too
@@ -121,11 +130,19 @@ KERNEL_VERSION=3.12.9 # change as needed
 
 EOF
 
-	ln -s $(pwd)/$SOURCE-build.sh $WORK_DIR/build-sfs.sh
-	ln -s $(pwd)/build-iso.sh $WORK_DIR/build-iso.sh
-	ln -s $(pwd)/runqemu.sh $WORK_DIR/runqemu.sh
+	ln -s $(pwd)/builders/$SOURCE-build.sh $WORK_DIR/build-sfs.sh
+	ln -s $(pwd)/builders/build-iso.sh $WORK_DIR/build-iso.sh
+	ln -s $(pwd)/builders/runqemu.sh $WORK_DIR/runqemu.sh
 	cp woof-distro/${TARGET_ARCH}/${SOURCE}/${VERSION}/pkglist $WORK_DIR
 	cp woof-distro/${TARGET_ARCH}/${SOURCE}/${VERSION}/repo-url $WORK_DIR
+	
+	# distro-specific tools
+	case $SOURCE in
+		slackware) 
+			ln -s $(pwd)/builders/installpkg $WORK_DIR/installpkg
+			ln -s $(pwd)/builders/removepkg $WORK_DIR/removepkg ;;
+	esac
+
 }
 
 confirmation() {
