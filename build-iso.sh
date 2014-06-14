@@ -44,16 +44,15 @@ install_kernel() {
 
 install_initrd() {
 	local initrdtmp=/tmp/initrd.tmp.$$
-	if ! [ -e $ISO_ROOT/initrd.gz ]; then
-		mkdir -p $initrdtmp
-		
-		# copy over source files and cleanup
-		cp -a $INITRD_ARCH/* $INITRD_CODE/* $initrdtmp
-		find $initrdtmp -name '*MARKER' -delete
-		( cd $initrdtmp/bin; sh bb-create-symlinks; )
+	mkdir -p $initrdtmp
 
-		# create minimal distro specs, read woof's docs to get the meaning
-		> $initrdtmp/DISTRO_SPECS cat << EOF
+	# copy over source files and cleanup
+	cp -a $INITRD_ARCH/* $INITRD_CODE/* $initrdtmp
+	find $initrdtmp -name '*MARKER' -delete
+	( cd $initrdtmp/bin; sh bb-create-symlinks; )
+
+	# create minimal distro specs, read woof's docs to get the meaning
+	> $initrdtmp/DISTRO_SPECS cat << EOF
 DISTRO_NAME='$SOURCE Puppy'
 DISTRO_VERSION=7.0
 DISTRO_BINARY_COMPAT='$SOURCE'
@@ -65,9 +64,8 @@ DISTRO_DB_SUBNAME='$SOURCE'
 DISTRO_PUPPYSFS=$PUPPY_SFS
 DISTRO_ZDRVSFS=kernel-modules.sfs
 EOF
-		( cd $initrdtmp; find . | cpio -o -H newc ) | gzip -9 > $ISO_ROOT/initrd.gz
-		rm -rf $initrdtmp
-	fi
+	( cd $initrdtmp; find . | cpio -o -H newc ) | gzip -9 > $ISO_ROOT/initrd.gz
+	rm -rf $initrdtmp
 }
 
 make_iso() {

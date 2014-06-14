@@ -1,4 +1,16 @@
 #!/bin/sh
+#rootfs-skeleton post-install script
+
+echo "Configuring Puppy skeleton..."
+# tasks that used to be done by merge2out: cleanup, set permissions, missing dirs
+# cleanup
+
+# set permissions
+chmod 1777 tmp 
+chmod 777 archive
+
+exit
+
 #post-install script.
 #Puppy Linux
 #assume current directory is rootfs-complete, which has the final filesystem.

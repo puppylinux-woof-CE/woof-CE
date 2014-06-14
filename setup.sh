@@ -157,8 +157,9 @@ prepare_work_dir
 confirmation
 exit
 
-<< "EOF"
-=== Original code kept for future reference ===
+
+# === Original code kept for future reference ===
+
 #!/bin/dash
 #BK nov. 2011
 #111126 do not copy files from woof-distro to woof-out, symlink only.
@@ -489,4 +490,3 @@ have been created that link into it, where pkgs will be downloaded to."
 
 
 ###END###
-EOF
