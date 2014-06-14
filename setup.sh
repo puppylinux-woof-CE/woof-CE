@@ -95,7 +95,8 @@ VERSION='$VERSION'
 
 REPO_DIR=repo-\$VERSION-\$ARCH
 CHROOT_DIR=chroot-\$VERSION-\$ARCH
-BASE_PATH="\$WOOFCE/woof-code/rootfs-skeleton"
+BASE_CODE_PATH="\$WOOFCE/woof-code/rootfs-skeleton"
+BASE_ARCH_PATH="\$WOOFCE/woof-arch/\$TARGET_ARCH/target/rootfs-skeleton"
 EXTRAPKG_PATH="\$WOOFCE/woof-code/rootfs-packages"
 
 APT_SOURCES_DIR=\${CHROOT_DIR}/etc/apt/sources.list.d
@@ -105,20 +106,24 @@ APT_PKGDB_DIR=\${CHROOT_DIR}/var/lib/apt/lists
 . ./repo-url 
 
 ### for ISO builders ###
+PUPPY_SFS=puppy.sfs   # if you change this, change %makesfs params in pkglist too
 OUTPUT_DIR=iso        # if you change this, change %makesfs params in pkglist too
 OUTPUT_ISO=puppy.iso
 ISO_ROOT=\$OUTPUT_DIR/iso-root
 
-PUPPY_SFS=puppy.sfs   # if you change this, change %makesfs params in pkglist too
-KERNEL_VERSION=3.12.9 # change as needed
+ISOLINUX_BIN="\$WOOFCE/woof-arch/x86/build/boot/isolinux.bin"
+ISOLINUX_CFG="\$WOOFCE/woof-code/boot/boot-dialog"
+INITRD_ARCH="\$WOOFCE/woof-arch/x86/target/boot/initrd-tree0"
+INITRD_CODE="\$WOOFCE/woof-code/boot/initrd-tree0"
 
-WOOF_ISO_ROOT=TODO
-WOOF_INITRD=TODO
+# provisional settings
+KERNEL_VERSION=3.12.9 # change as needed
 
 EOF
 
 	ln -s $(pwd)/$SOURCE-build.sh $WORK_DIR/build-sfs.sh
-	ln -s $(pwd)/$SOURCE-build.sh $WORK_DIR/build-iso.sh
+	ln -s $(pwd)/build-iso.sh $WORK_DIR/build-iso.sh
+	ln -s $(pwd)/runqemu.sh $WORK_DIR/runqemu.sh
 	cp woof-distro/${TARGET_ARCH}/${SOURCE}/${VERSION}/pkglist $WORK_DIR
 	cp woof-distro/${TARGET_ARCH}/${SOURCE}/${VERSION}/repo-url $WORK_DIR
 }

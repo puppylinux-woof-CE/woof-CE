@@ -22,7 +22,8 @@ REPO_SECTIONS=${REPO_SECTIONS:-"main universe"}
 # dirs
 REPO_DIR=${REPO_DIR:-repo-$VERSION-$ARCH}
 CHROOT_DIR=${CHROOT_DIR:-chroot-$VERSION-$ARCH}
-BASE_PATH=${ROOTFS_BASE:-rootfs-skeleton}
+BASE_CODE_PATH=${ROOTFS_BASE:-rootfs-skeleton}
+# BASE_ARCH_PATH= # inherit - arch-specific base files, can be empty
 EXTRAPKG_PATH=${EXTRAPKG_PATH:-rootfs-packages}
 
 APT_SOURCES_DIR=${CHROOT_DIR}/etc/apt/sources.list.d
@@ -401,10 +402,12 @@ process_pkglist() {
 				remove_pkg "$@" ;;
 			%addbase)
 				echo Installing base rootfs ...
-				install_from_dir $BASE_PATH base core ;;
+				install_from_dir $BASE_CODE_PATH base core
+				[ "$BASE_ARCH_PATH" ] && install_from_dir $BASE_ARCH_PATH base-arch core ;;
 			%addpkg)
 				shift # $1-pkgname, pkgname ...
 				while [ "$1" ]; do
+					! [ -d $EXTRAPKG_PATH/$1 ] && shift && continue
 					echo Installing extra package "$1"  ...
 					install_from_dir $EXTRAPKG_PATH/$1 $1 optional
 					shift
