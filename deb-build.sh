@@ -261,12 +261,16 @@ remove_pkg() {
 			sed -i -e "/^Package: ${1}\$/,/^$/d" "$CHROOT_DIR/$ADMIN_DIR/status"
 
 			# then delete installed files
-			[ -e "$CHROOT_DIR/$ADMIN_DIR/info/${1}.list" ] &&
-			< "$CHROOT_DIR/$ADMIN_DIR/info/${1}.list" awk -v chroot="$CHROOT_DIR" '
-			NR==1 {} { printf("%s%s\0",chroot,$0)}' | xargs -0 rm -f
+			if [ -e "$CHROOT_DIR/$ADMIN_DIR/info/${1}.list" ]; then
+				< "$CHROOT_DIR/$ADMIN_DIR/info/${1}.list" sort -r |
+				> /tmp/removepkg.$$ awk -v chroot="$CHROOT_DIR" '$0=="/." {next} { printf("%s%s\0",chroot,$0)}'
+				< /tmp/removepkg.$$ xargs -0 rm -f 2>/dev/null
+				< /tmp/removepkg.$$ xargs -0 rmdir 2>/dev/null
+				rm -f /tmp/removepkg.$$
+			fi
 
 			# then remove all database files
-			rm -f "$CHROOT_DIR/$ADMIN_DIR/info/${1}".*
+			rm -f "$CHROOT_DIR/$ADMIN_DIR/info/${1}".* 2>/dev/null
 		fi
 		shift
 	done
