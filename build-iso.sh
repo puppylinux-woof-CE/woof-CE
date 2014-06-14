@@ -6,6 +6,7 @@
 OUTPUT_DIR=${OUTPUT_DIR:-iso}
 OUTPUT_ISO=${OUTPUT_ISO:-puppy.iso}
 ISO_ROOT=${ISO_ROOT:-$OUTPUT_DIR/iso-root}
+DISTRO_PREFIX=${DISTRO_PREFIX:-puppy}
 
 PUPPY_SFS=${PUPPY_SFS:-puppy.sfs}
 KERNEL_VERSION=${KERNEL_VERSION:-3.12.9}
@@ -30,6 +31,7 @@ install_boot_files() {
 	done
 	grep -q logo.16 $ISO_ROOT/boot.msg && sed -i -e 's/logo.16/logo1.16/' $ISO_ROOT/boot.msg 
 	! grep -q pfix=nox $ISO_ROOT/isolinux.cfg && sed -i -e 's|pmedia=cd|& pfix=nox|' $ISO_ROOT/isolinux.cfg
+	grep -q BOOTLABEL $ISO_ROOT/isolinux.cfg && sed -i -e "s|BOOTLABEL|$DISTRO_PREFIX|" $ISO_ROOT/isolinux.cfg
 }
 
 install_kernel() {
