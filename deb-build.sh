@@ -5,7 +5,7 @@
 #
 # env vars: DRY_RUN=1     - don't install, just print output of flattened pkglist
 #           WITH_APT_DB=1 - include apt database (5MB compressed)
-# 
+#           WITHOUT_DPKG=1 - don't use system dpkg
 
 ### end-user configuration
 PKGLIST=${PKGLIST:-pkglist}
@@ -201,7 +201,19 @@ dpkgchroot_install() {
 	return 0
 }
 bootstrap_install() {
-	dpkg-deb -X "$REPO_DIR/$PKGFILE" $CHROOT_DIR | 
+	local data decompressor
+	if [ -z "$WITHOUT_DPKG" ]; then
+		dpkg-deb -X "$REPO_DIR/$PKGFILE" $CHROOT_DIR
+	else
+		data=$(ar t "$REPO_DIR/$PKGFILE" | grep data)
+		case $data in
+			*xz) decompressor="unxz -c" ;;
+			*gz) decompressor="gunzip -c" ;;
+			*bz2) decompressor="bunzip2 -c" ;;
+			*lzma) decompressor="unlzma -c" ;;
+		esac
+		ar p "$REPO_DIR/$PKGFILE" $data | $decompressor | tar -xv -C $CHROOT_DIR
+	fi |
 	sed '1 s|^.*$|/.|; s|^\.||' > "$CHROOT_DIR/$ADMIN_DIR/info/${PKG}.list" &&
 	update_pkg_status "$PKG" "$PKGPRIO" "$PKGSECTION" "$PKGVER" "$PKGDEP"
 }
@@ -242,7 +254,20 @@ install_from_dir() {
 # $@-pkg to remove
 remove_pkg() {
 	while [ "$1" ]; do
-		dpkg --root=$CHROOT_DIR --admindir=$CHROOT_DIR/$ADMIN_DIR --force-all -P "$1"
+		if [ -z "$WITHOUT_DPKG" ]; then
+			dpkg --root=$CHROOT_DIR --admindir=$CHROOT_DIR/$ADMIN_DIR --force-all -P "$1"
+		else
+			# manual removal - first remove entries from status
+			sed -i -e "/^Package: ${1}\$/,/^$/d" "$CHROOT_DIR/$ADMIN_DIR/status"
+
+			# then delete installed files
+			[ -e "$CHROOT_DIR/$ADMIN_DIR/info/${1}.list" ] &&
+			< "$CHROOT_DIR/$ADMIN_DIR/info/${1}.list" awk -v chroot="$CHROOT_DIR" '
+			NR==1 {} { printf("%s%s\0",chroot,$0)}' | xargs -0 rm -f
+
+			# then remove all database files
+			rm -f "$CHROOT_DIR/$ADMIN_DIR/info/${1}".*
+		fi
 		shift
 	done
 }
@@ -284,7 +309,7 @@ install_bb_links() {
 		$CHROOT_DIR/bin/busybox --list-full | while read -r p; do
 			pp=${p#$nousr}
 			[ -e $CHROOT_DIR/$pp ] && continue # don't override existing binaries
-			echo $pp >> "$CHROOT_DIR/$ADMIN_DIR/info/bblinks.list"
+			echo /$pp >> "$CHROOT_DIR/$ADMIN_DIR/info/bblinks.list"
 			case $pp in 
 				usr*) ln -s ../../bin/busybox $CHROOT_DIR/$pp 2>/dev/null ;; 
 				*)    ln -s ../bin/busybox $CHROOT_DIR/$pp 2>/dev/null ;; 
@@ -323,7 +348,7 @@ flatten_pkglist() {
 			%exit) break ;;
 			%include)
 				[ "$2" ] && flatten_pkglist "$2" ;;
-			%dpkg|%bootstrap|%bblinks|%makesfs|%remove|%addbase|%addpkg|%dummy|%dpkg_configure|%lock)
+			%dpkg|%dpkgchroot|%bootstrap|%bblinks|%makesfs|%remove|%addbase|%addpkg|%dummy|%dpkg_configure|%lock)
 				echo "$pp" ;;
 			%depend)
 				track_dependency() { list_dependency; } ;;
@@ -382,10 +407,11 @@ process_pkglist() {
 			%exit) break ;;
 			%dpkg)
 				echo Switching to dpkg
-				do_install() { dpkg_install; } ;;
+				[ -z "$WITHOUT_DPKG" ] && do_install() { dpkg_install; } ||
+				do_install() { dpkgchroot_install; } ;;
 			%dpkgchroot)
 				echo Switching to dpkgchroot
-				do_install() { dpkgchroot_install; } ;;				
+				do_install() { dpkgchroot_install; } ;;
 			%bootstrap)
 				echo Switching to bootstrap
 				do_install() { bootstrap_install; } ;;
@@ -433,8 +459,12 @@ process_pkglist() {
 }
 
 sanity_check() {
-	! type dpkg-deb > /dev/null && echo "Missing dpkg-deb, please install first." && exit
-	! type dpkg > /dev/null && echo "Missing dpkg, please install first." && exit
+	if [ -z "$WITHOUT_DPKG" ]; then
+		! type dpkg-deb > /dev/null && echo "Missing dpkg-deb, please install first." && exit
+		! type dpkg > /dev/null && echo "Missing dpkg, please install first." && exit
+	else
+		! type ar > /dev/null && echo "Missing ar, please install first (may be from devx?)." && exit	
+	fi
 }
 
 ### main
