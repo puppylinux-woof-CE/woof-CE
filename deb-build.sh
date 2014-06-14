@@ -402,8 +402,8 @@ process_pkglist() {
 				remove_pkg "$@" ;;
 			%addbase)
 				echo Installing base rootfs ...
-				install_from_dir $BASE_CODE_PATH base core
-				[ "$BASE_ARCH_PATH" ] && install_from_dir $BASE_ARCH_PATH base-arch core ;;
+				[ "$BASE_ARCH_PATH" ] && install_from_dir $BASE_ARCH_PATH base-arch core				
+				install_from_dir $BASE_CODE_PATH base core ;;
 			%addpkg)
 				shift # $1-pkgname, pkgname ...
 				while [ "$1" ]; do

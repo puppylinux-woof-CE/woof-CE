@@ -10,7 +10,52 @@ find . -name "*MARKER" -delete
 chmod 1777 tmp 
 chmod 777 archive
 
+# fixup puppy scripts
+find . -name "*-puppy" | grep -vE "set-time-for-puppy" | while read -r p; do
+	pp=${p%-puppy}
+	[ -e $pp ] && mv $pp ${pp}-FULL
+	mv $p $pp
+done
+
+# temporary code - they will be merged to rootfs-skeleton later
+rm -rf run; ln -s tmp run                       # /run is symlink to /tmp
+sed -i -e 's/^Rxvt.keysym/!&/'  root/.Xdefaults # toxic keysym
+sed -i -e 's/ TERM="xterm"/#&/' etc/profile # toxic TERM
+
+# we like bash, ensure that default shell is *always* bash
+ln -sf bash bin/sh        # default shell is bash
+
+# update dynamic databases we didn't setup earlier
+echo MIME database setup
+chroot . /usr/bin/update-mime-database /usr/share/mime
+echo Gdk pixbuf loaders setup
+chroot . /$(echo usr/lib/*/*/gdk-pixbuf-query-loaders) --update-cache
+echo prepare udev
+chroot . /sbin/udevadm hwdb --update
+
+# udev rules: run input_id
+>> etc/udev/rules.d/50-udev-puppy-basic.rules cat << "EOF"
+# add input_id for autoconf xorg
+SUBSYSTEM=="input",  ENV{ID_INPUT}=="", IMPORT{program}="input_id %p"
+EOF
+
+# rc.sysinit: udevadm trigger
+>> etc/rc.d/rc.sysinit cat << "EOF"
+echo Updating udev device databases
+udevadm trigger --action=add
+EOF
+
+### debian/ubuntu specific, this has to go to its own pinstall.sh later
+rm -f etc/init.d/udev               # spurious udev
+rm usr/bin/X; ln -sf Xorg usr/bin/X # delete xorg wrapper
+ln -s xterm usr/bin/x-terminal-emulator
+
+# because ROX MIME is in different locations for ubuntu/debian
+echo ROX mime icons
+cp -a --remove-destination usr/local/apps/ROX-Filer/ROX/MIME/* usr/share/rox/ROX/MIME
 exit
+
+# ======= Original code, left as reference for later until migration is complete ============
 
 #post-install script.
 #Puppy Linux
