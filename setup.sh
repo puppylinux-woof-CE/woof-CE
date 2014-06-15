@@ -124,10 +124,6 @@ ISOLINUX_BIN="\$WOOFCE/woof-arch/x86/build/boot/isolinux.bin"
 ISOLINUX_CFG="\$WOOFCE/woof-code/boot/boot-dialog"
 INITRD_ARCH="\$WOOFCE/woof-arch/x86/target/boot/initrd-tree0"
 INITRD_CODE="\$WOOFCE/woof-code/boot/initrd-tree0"
-
-# provisional settings
-KERNEL_VERSION=3.12.9 # change as needed
-
 EOF
 
 	ln -s $(pwd)/builders/$SOURCE-build.sh $WORK_DIR/build-sfs.sh
