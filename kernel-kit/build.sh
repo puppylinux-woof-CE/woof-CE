@@ -3,6 +3,27 @@
 # hacked to DEATH by 01micko
 # see /usr/share/doc/legal NO WARRANTY, NO resposibility accepted
 
+CWD=`pwd`
+
+if [ "$1" = "clean" ];then
+	echo -en "\033[1;35m""WARNING" #purple?
+	echo -en "\033[0m" #reset
+	echo ": This will delete all builds and sources but wont touch configs."
+	echo "Hit CTRL+C and save your stuff manually if you don't want to clean."
+	echo "Hit ENTER to clean"
+	read clean
+	echo "Please wait..."
+	rm -rf ./{dist,aufs*,kernel*,build.log*}
+	echo "Cleaning complete"
+	exit 0
+fi
+
+if [ -d ./dist ];then
+	echo "This is not a clean kit. Hit ENTER to continue"
+	echo "or CTRL+C to quit and run './build.sh clean'"
+	read notcleango
+fi
+
 # read config
 [ -f ./build.conf ] && . ./build.conf
 
@@ -14,19 +35,19 @@ kernel_mirror=$kernel_mirror
 # depcheck
 echo "Dependency check..."
 if git --version &>/dev/null
- then echo -e "\033[1;34m""git is installed" #green 
- else echo -e "\033[1;31m""git is not installed""\033[0m" && exit #red
+	then echo -e "\033[1;32m""git is installed" #green 
+else echo -e "\033[1;31m""git is not installed""\033[0m" && exit #red
 fi
 if gcc --version &>/dev/null
- then echo -e "\033[1;34m""gcc is installed" 
- else
+	then echo -e "\033[1;32m""gcc is installed" 
+else
    echo -e "\033[1;31m""gcc is not installed""\033[0m" && exit
 fi
 MKSQ="$(which mksquashfs)"
 if [ "$MKSQ" ]
- then 
-   echo -e "\033[1;34m""mksquashfs is installed"
- else #yellow
+	then 
+   echo -e "\033[1;32m""mksquashfs is installed"
+else #yellow
    echo -e "\033[1;30m""mksquashfs is not installed but you can continue"
 fi
 echo -e "\033[0m" #reset to original
@@ -48,9 +69,9 @@ cat /tmp/kernel_configs
 echo -n "Enter choice: "
 read Chosen
 if [ ! $Chosen ];then 
-  echo -e "\033[1;31m""ERROR: you didn't choose, start again!""\033[0m" \
-  && exit
-  else
+	echo -e "\033[1;31m""ERROR: you didn't choose, start again!""\033[0m" \
+	&& exit
+else
     Choice=$(grep ^$Chosen /tmp/kernel_configs|cut -d ' ' -f2)
     [ ! $Choice ] && \
     echo -e "\033[1;31m""ERROR: your choice is not sane ..quiting""\033[0m" \
@@ -173,24 +194,6 @@ if [ -f aufs-kconfig.patch ];then #special for K3.9
 	cp aufs-kconfig.patch dist/sources/patches
 fi
 
-##download unionfs
-#if [ ! -f dist/sources/vanilla/unionfs-2.5.11_for_${kernel_version}.diff.gz ]; then
-	#echo "downloading unionfs patches"
-	#wget -P dist/sources/vanilla http://download.filesystems.org/unionfs/unionfs-2.x-latest/unionfs-2.5.11_for_${kernel_version}.diff.gz >> build.log 2>&1
-	#if [ $? -ne 0 ]; then
-		#echo "Error: failed to download the unionfs patch."
-		#exit 1
-	#fi
-	#gunzip dist/sources/vanilla/unionfs-2.5.11_for_${kernel_version}.diff.gz
-	#if [ $? -ne 0 ]; then
-		#echo "Error: failed to extract the unionfs patch."
-		#exit 1
-	#fi
-	#mv dist/sources/vanilla/unionfs-2.5.11_for_${kernel_version}.diff patches/unionfs-2.5.11_for_${kernel_version}.patch
-#fi
-
-#read #remove!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-
 # extract the kernel
 echo "Extracting the kernel sources"
 tar xf dist/sources/vanilla/linux-$kernel_version.tar.* >> build.log 2>&1
@@ -203,10 +206,13 @@ cd linux-$kernel_version
 
 echo "Adding Aufs to the kernel sources"
 for i in kbuild base standalone mmap; do
-	patch -p1 < ../aufs$aufs_version-$kernel_branch-git$today/aufs$aufs_version-$i.patch >> ../build.log 2>&1
+	patch -N -p1 < ../aufs$aufs_version-$kernel_branch-git$today/aufs$aufs_version-$i.patch >> ../build.log 2>&1
 	if [ $? -ne 0 ]; then
-		echo "Error: failed to add Aufs to the kernel sources."
-		exit 1
+		#echo "Error: failed to add Aufs to the kernel sources."
+		#exit 1
+		echo "WARNING: failed to add some Aufs patches to the kernel sources."
+		echo "Check it manually and either CRTL+C to bail or hit enter to go on"
+		read goon
 	fi
 done
 cp -r ../aufs$aufs_version-$kernel_branch-git$today/{fs,Documentation} .
@@ -312,11 +318,22 @@ mkdir linux_kernel-$kernel_major_version-$package_name_suffix/boot
 mkdir -p linux_kernel-$kernel_major_version-$package_name_suffix/etc/modules
 cp .config linux_kernel-$kernel_major_version-$package_name_suffix/etc/modules/DOTconfig-$kernel_version-$today
 cp arch/x86/boot/bzImage linux_kernel-$kernel_major_version-$package_name_suffix/boot/vmlinuz
+BZIMAGE=`find . -type f -name bzImage`
 cp System.map linux_kernel-$kernel_major_version-$package_name_suffix/boot
+cp $BZIMAGE linux_kernel-$kernel_major_version-$package_name_suffix/boot
 cp linux_kernel-$kernel_major_version-$package_name_suffix/lib/modules/${kernel_major_version}$custom_suffix/{modules.builtin,modules.order} \
  linux_kernel-$kernel_major_version-$package_name_suffix/etc/modules/
+[ "$FD" = "1" ] || \
 rm linux_kernel-$kernel_major_version-$package_name_suffix/lib/modules/${kernel_major_version}$custom_suffix/modules*
 mv linux_kernel-$kernel_major_version-$package_name_suffix ../dist/packages
+
+if [ "$FD" = "1" ];then #make fatdog kernel module package
+	mv ../dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix/boot/vmlinuz ../dist/packages/vmlinuz-$kernel_major_version-$package_name_suffix
+	#gzip -9 ../dist/packages/vmlinuz-$kernel_major_version-$package_name_suffix
+	[ -f ../dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix/boot/bzImage ] &&
+rm -f ../dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix/boot/bzImage
+	echo "FatDog compatible kernel is ready in dist"
+fi
 
 echo "Cleaning the kernel sources"
 make clean >> ../build.log 2>&1
@@ -332,7 +349,7 @@ ln -s /usr/src/linux kernel_sources-$kernel_major_version-$package_name_suffix/l
 [ ! -f kernel_sources-${kernel_major_version}-$package_name_suffix/usr/src/linux/include/linux/version.h ] && \
 ln -s /usr/src/linux/include/generated/uapi/linux/version.h kernel_sources-${kernel_major_version}-$package_name_suffix/usr/src/linux/include/linux/version.h 
 ln -s /usr/src/linux kernel_sources-$kernel_major_version-$package_name_suffix/lib/modules/${kernel_major_version}$custom_suffix/source
-mksquashfs kernel_sources-$kernel_major_version-$package_name_suffix dist/sources/kernel_sources-$kernel_major_version-$package_name_suffix.sfs -comp xz
+mksquashfs kernel_sources-$kernel_major_version-$package_name_suffix dist/sources/kernel_sources-$kernel_major_version-$package_name_suffix.sfs $COMP
 
 # build aufs-utils userspace modules
 echo "Now to build the aufs-utils for userspace"
@@ -343,7 +360,7 @@ if [ ! -f dist/sources/vanilla/aufs-util${today}.tar.bz2 ];then
 	
 	cd aufs-util
 	
-	git branch -a | grep '3' |grep -v 'rcN' | cut -d '.' -f2 > /tmp/aufs-util-version #we go for stable only
+	git branch -a | grep 'aufs3' |grep -v 'rcN' | cut -d '.' -f2 > /tmp/aufs-util-version #we go for stable only
 	while read line
 	  do 
 	    if [ "$kernel_branch" = "$line" ];then branch=$line
@@ -374,15 +391,31 @@ if [ ! -f dist/sources/vanilla/aufs-util${today}.tar.bz2 ];then
 	patch -p1 < ../dist/sources/patches/aufs-util-dynamic.patch >> ../build.log 2>&1
 	[ "$?" -ne 0 ] && echo "Failed to patch the aufs-util sources, do it manually. Kernel is compiled ok" && exit
 fi
+arch=`uname -m`
 LinuxSrc=../dist/packages/kernel_headers*
 export CPPFLAGS="-I $LinuxSrc/usr/include"
 make >> ../build.log 2>&1
 [ $? -ne 0 ] && echo "Failed to compile aufs-util, do it manually. Kernel is compiled OK :)" && exit
-make DESTDIR=../dist/packages/aufs-util-$kernel_version install >> ../build.log 2>&1
+make DESTDIR=$CWD/dist/packages/aufs-util-$kernel_version-$arch install >> ../build.log 2>&1 #maybe needs absolute path
 make clean >> ../build.log 2>&1
+if [ "$arch" = "x86_64" ];then
+ mv $CWD/dist/packages/aufs-util-$kernel_version-$arch/usr/lib \
+$CWD/dist/packages/aufs-util-$kernel_version-$arch/usr/lib64
+fi
 echo "aufs-util-$kernel_version is in dist"
 cd ..
-tar -c aufs-util | bzip2 -9 > dist/sources/vanilla/aufs-util$today.tar.bz2
+if [ "$FD" = "1" ];then #shift aufs-utils to kernel-modules.sfs
+	echo "Installing aufs-utils into kernel package"
+	cp -a --remove-destination dist/packages/aufs-util-$kernel_version-$arch/* dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix
+	echo "Pausing here, pending a better method, to add extra firmware"
+	echo "once you have manually added firmware to "
+	echo "dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix/lib/firmware"
+	echo "hit ENTER to continue"
+	read firm
+	mksquashfs dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix dist/packages/kernel-modules.sfs-$kernel_major_version-$package_name_suffix $COMP
+	[ "$?" = 0 ] && echo "FatDog compatible kernel packages are ready in dist/" || exit 1
+fi
+tar -c aufs-util | bzip2 -9 > dist/sources/vanilla/aufs-util$today-$arch.tar.bz2
 
 echo "Compressing the log"
 bzip2 -9 build.log
