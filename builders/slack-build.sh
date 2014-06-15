@@ -83,8 +83,7 @@ add_repo() {
 			>> $REPO_DIR/$LOCAL_PKGDB \
 			< "$REPO_DIR/$localdb" \
 			awk -v repo_url="${1}/$ARCH-$VERSION/$p" -v section=$p '
-/^MD5 message digest/ { started=1; next; }
-started==1 && /\.t.z$/ {
+/\.t.z$/ {
 	PKGMD5=$1; 
 	sub(/\.\//,"",$2); PKGPATH=$2; 
 	sub(/.*\//,"",$2); PKGFILE=$2; 
