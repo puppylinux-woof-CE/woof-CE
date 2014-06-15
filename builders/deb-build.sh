@@ -182,7 +182,7 @@ download_pkg() {
 # $1-force PKGFILE PKG PKGVER PKGPRIO ARCH
 do_install() { bootstrap_install; } # enable bootstrap installer by default
 install_pkg() {
-	if ! is_already_installed $PKG || [ "$2 = force" ]; then
+	if ! is_already_installed $PKG || [ "$1" = force ]; then
 		echo Installing "$PKGFILE" ... 
 		do_install 
 	fi
@@ -242,7 +242,7 @@ install_from_dir() {
 	is_already_installed $pkgname && return 1
 
 	echo "/." > "$CHROOT_DIR/$ADMIN_DIR/info/${pkgname}.list"
-	cp -av --remove-destination "${1}"/* $CHROOT_DIR | sed "s|.*\`$CHROOT_DIR||; s|'\$||" \
+	cp -av --remove-destination "${1}"/* $CHROOT_DIR | sed "s|.*${CHROOT_DIR}||; s|'\$||" \
 	>> "$CHROOT_DIR/$ADMIN_DIR/info/${pkgname}.list"
 	[ -f "$CHROOT_DIR"/pinstall.sh ] && ( cd "$CHROOT_DIR"; sh pinstall.sh )
 	rm -f $CHROOT_DIR/pinstall.sh
@@ -302,7 +302,7 @@ install_dummy() {
 # $1-if "nousr", then don't use /usr
 # note: busybox must be static and compiled with applet list
 install_bb_links() {
-	[ -e "$CHROOT_DIR/$ADMIN_DIR/info/bblink.list" ] && return
+	is_already_installed bblink && return
 	local nousr=""
 	case $1 in
 		nousr|nouser) nousr=usr/ ;;
