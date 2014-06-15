@@ -3,8 +3,6 @@
 # Copyright (C) James Budiono 2014
 #
 # env vars: DRY_RUN=1     - don't install, just print output of flattened pkglist
-#           WITH_APT_DB=1 - include apt database (5MB compressed)
-#           WITHOUT_DPKG=1 - don't use system dpkg
 
 ### end-user configuration
 PKGLIST=${PKGLIST:-pkglist}
