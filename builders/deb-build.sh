@@ -1,6 +1,8 @@
 #!/bin/sh
 # DEB chroot installer for making Woof-based puppy
 # Copyright (C) James Budiono 2014
+# License: GNU GPL Version 3 or later.
+#
 # Note: Assumes you have working dpkg-deb in the parent OS.
 #
 # env vars: DRY_RUN=1     - don't install, just print output of flattened pkglist

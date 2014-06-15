@@ -1,5 +1,8 @@
 #!/bin/sh
 # James way of making iso
+# Copyright (C) James Budiono 2014
+# License: GNU GPL Version 3 or later.
+#
 # Download kernel, make initrd, output iso.
 
 ### config

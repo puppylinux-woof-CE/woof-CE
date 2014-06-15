@@ -1,6 +1,7 @@
 #!/bin/sh
 # Slackware chroot installer for making Woof-based puppy
 # Copyright (C) James Budiono 2014
+# License: GNU GPL Version 3 or later.
 #
 # env vars: DRY_RUN=1     - don't install, just print output of flattened pkglist
 
