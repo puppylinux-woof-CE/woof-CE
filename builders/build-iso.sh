@@ -1,5 +1,8 @@
 #!/bin/sh
 # James way of making iso
+# Copyright (C) James Budiono 2014
+# License: GNU GPL Version 3 or later.
+#
 # Download kernel, make initrd, output iso.
 
 ### config
@@ -9,7 +12,6 @@ ISO_ROOT=${ISO_ROOT:-$OUTPUT_DIR/iso-root}
 DISTRO_PREFIX=${DISTRO_PREFIX:-puppy}
 
 PUPPY_SFS=${PUPPY_SFS:-puppy.sfs}
-KERNEL_VERSION=${KERNEL_VERSION:-3.12.9}
 SOURCE=${PARENT_DISTRO:-ubuntu} # or debian
 
 WOOFCE=${WOOFCE:-..}
@@ -35,10 +37,11 @@ install_boot_files() {
 }
 
 install_kernel() {
+	# check that kernel is already installed
 	for p in vmlinuz kernel-modules.sfs; do
 		! [ -e $ISO_ROOT/$p ] &&
-		wget -P $ISO_ROOT -c http://distro.ibiblio.org/fatdog/kernels/700/$p-$KERNEL_VERSION &&
-		mv $ISO_ROOT/$p-$KERNEL_VERSION $ISO_ROOT/$p
+		echo "Missing $p. Please build it using kernel-kit. Fatdog-style kernel is required." &&
+		exit
 	done
 }
 
@@ -78,7 +81,7 @@ make_iso() {
 
 ### main
 mkdir -p $ISO_ROOT
-! [ -e $ISO_ROOT/$PUPPY_SFS ] && echo Put the $PUPPY_SFS to $ISO_ROOT. && exit 1
+! [ -e $ISO_ROOT/$PUPPY_SFS ] && echo Put $PUPPY_SFS to $ISO_ROOT. && exit 1
 install_boot_files
 install_kernel
 install_initrd
