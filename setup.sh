@@ -1,5 +1,6 @@
 #!/bin/sh
-# (C) James Budiono 2014 
+# Prepare build system.
+# Copyright (C) James Budiono 2014 
 # License: GNU GPL Version 3 or later.
 
 ### configuration
@@ -9,16 +10,26 @@ HOST_ARCH=${HOST_ARCH:-$(uname -m)}
 #SOURCE=      # source distro - inherit or ask
 #VERSION=     # distro version - inherit or ask
 #CROSS=       # automatically set - currently cross-build is not supported yet
-#DONT_ASK=   # if set to 1, don't ask questions
+#DONT_ASK=    # if set to 1, don't ask questions
 
 ### helpers 
 
 sanity_check() {
+	case $1 in
+		--help|-help|-h) 
+			echo "Usage: ${0##*/} [workdir]"
+			echo "WORK_DIR environment will be used if [workdir] not specified".
+			echo "Otherwise 'workdir' will be used as default."
+			exit ;;
+		"") ;;
+		*)  WORK_DIR=$1 ;;
+	esac
+		
 	[ ! -d ./woof-arch ] && echo Missing woof-arch && exit
 	[ ! -d ./woof-code ] && echo Missing woof-code && exit
 	[ ! -d ./woof-distro ] && echo Missing woof-code && exit
 	if [ -e $WORK_DIR ]; then
-		echo "$WORK_DIR already exists, running this script again will obliterate it."
+		echo "'$WORK_DIR' already exists, running this script again will obliterate it."
 		printf "Continue? (yes/no) "; read p
 		case $p in
 			yes|YES|Yes) ;;
@@ -79,9 +90,7 @@ map_target_arch() { # as needed to meet source distro name
 }
 
 prepare_work_dir() {
-	echo "Cleaning out $WORK_DIR ..."
-	rm -rf $WORK_DIR; mkdir -p $WORK_DIR
-	
+	rm -rf $WORK_DIR; mkdir -p $WORK_DIR	
 	cat > $WORK_DIR/build.conf << EOF
 ### For SFS builders ###
 HOST_ARCH='$HOST_ARCH'
@@ -143,7 +152,7 @@ EOF
 
 confirmation() {
 	cat << EOF
-Directory $WORK_DIR has been prepare for your build.
+Directory '$WORK_DIR' has been prepare for your build.
 Your configuration is as follows:
 ---
 Host arch:      $HOST_ARCH
@@ -152,7 +161,7 @@ Source distro:  $SOURCE
 Source version: $VERSION
 Cross-build:    $([ $CROSS ] && echo yes || echo no)
 ---
-The default pkglist and repo-url has been copied to $WORK_DIR. 
+The default pkglist and repo-url has been copied to '$WORK_DIR'. 
 You can use these files as they are, or you can modify them 
 as you see fit.
 
@@ -162,7 +171,7 @@ EOF
 }
 
 ### main ###
-sanity_check
+sanity_check "$@"
 get_target_arch
 get_source_distro
 map_target_arch
