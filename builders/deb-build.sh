@@ -466,9 +466,11 @@ process_pkglist() {
 
 sanity_check() {
 	if [ -z "$WITHOUT_DPKG" ]; then
-		! type dpkg-deb > /dev/null && echo "Missing dpkg-deb, please install first." && exit
-		! type dpkg > /dev/null && echo "Missing dpkg, please install first." && exit
-	else
+		! dpkg-deb --help 2>&1 | grep -q -- -X && WITHOUT_DPKG=1
+		! dpkg --help 2>&1 | grep -q root && WITHOUT_DPKG=1
+		[ "$WITHOUT_DPKG" ] && echo "Bad dpkg/dpkg-deb found, will attempt to build without one."
+	fi
+	if [ -z "$WITHOUT_DPKG" ]; then
 		! type ar > /dev/null && echo "Missing ar, please install first (may be from devx?)." && exit	
 	fi
 }
