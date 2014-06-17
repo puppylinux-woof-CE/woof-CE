@@ -332,7 +332,7 @@ if [ "$FD" = "1" ];then #make fatdog kernel module package
 	#gzip -9 ../dist/packages/vmlinuz-$kernel_major_version-$package_name_suffix
 	[ -f ../dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix/boot/bzImage ] &&
 rm -f ../dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix/boot/bzImage
-	echo "FatDog compatible kernel is ready in dist"
+	echo "Huge kernel $kernel_major_version-$package_name_suffix is ready in dist"
 fi
 
 echo "Cleaning the kernel sources"
@@ -413,7 +413,11 @@ if [ "$FD" = "1" ];then #shift aufs-utils to kernel-modules.sfs
 	echo "hit ENTER to continue"
 	read firm
 	mksquashfs dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix dist/packages/kernel-modules.sfs-$kernel_major_version-$package_name_suffix $COMP
-	[ "$?" = 0 ] && echo "FatDog compatible kernel packages are ready in dist/" || exit 1
+	[ "$?" = 0 ] && echo "Huge compatible kernel packages are ready to package./" || exit 1
+	echo "Packaging huge-$kernel_major_version-$package_name_suffix kernel"
+	tar -cjvf huge-$kernel_major_version-${package_name_suffix}.tar.bz2 \
+	vmlinuz-$kernel_major_version-$package_name_suffix linux_kernel-$kernel_major_version-$package_name_suffix
+	[ "$?" = 0 ] && echo "huge-$kernel_major_version-${package_name_suffix}.tar.bz2 is in dist/packages" || exit 1
 fi
 tar -c aufs-util | bzip2 -9 > dist/sources/vanilla/aufs-util$today-$arch.tar.bz2
 
@@ -422,4 +426,4 @@ bzip2 -9 build.log
 cp build.log.bz2 dist/sources
 
 echo "Done!"
-aplay /usr/share/sounds/2barks.au
+[ -f /usr/share/sounds/2barks.au ] && aplay /usr/share/sounds/2barks.au
