@@ -4,13 +4,15 @@
 # License: GNU GPL Version 3 or later.
 
 ### configuration
+#DONT_ASK=    # if set to 1, don't ask questions
 WORK_DIR=${WORK_DIR:-./workdir}
 HOST_ARCH=${HOST_ARCH:-$(uname -m)}
 #TARGET_ARCH= # inherit or ask
 #SOURCE=      # source distro - inherit or ask
 #VERSION=     # distro version - inherit or ask
 #CROSS=       # automatically set - currently cross-build is not supported yet
-#DONT_ASK=    # if set to 1, don't ask questions
+KERNEL_URL=${KERNEL_URL:-http://distro.ibiblio.org/puppylinux/huge_kernels}
+#KERNEL_TARBALL # inherit or ask
 
 ### helpers 
 
@@ -47,17 +49,15 @@ sanity_check() {
 #$1-prompt $2-output var $3 selection
 get_selection() {
 	[ "$DONT_ASK" ] && return
-	local inp p good
+	local choice p
 	while true; do
-		echo "$1"; echo "$3" | awk '{ print "-", $0 }'
-		printf "Enter your selection: "; read inp 
-		good=; for p in $3; do
-			[ $inp = $p ] && good=yes && break
-		done
-		[ $good ] && echo && break
-		printf "$inp is not one of the choices. Please try again.\n\n"
+		echo "$1"; echo "$3" | awk '{ print NR ")", $0 }'
+		printf "Enter your selection: "; read choice
+		choice=$(echo "$3" | awk -v choice=$choice 'NR==choice {print $0}')
+		[ "$choice" ] && echo && break
+		printf "Bad selection. Please try again.\n\n"
 	done
-	eval $2=$inp
+	eval $2=\"$choice\"
 }
 
 get_target_arch() {
@@ -72,6 +72,28 @@ get_source_distro() {
 	get_selection "Please select source distro: " SOURCE "$(ls woof-distro/$TARGET_ARCH)"
 	get_selection "Please select version: " VERSION "$(ls woof-distro/$TARGET_ARCH/$SOURCE)"
 	# echo $SOURCE
+}
+
+get_kernel() {
+	local p
+	# handle mirror selection later
+	
+	# prepare filters
+	case $TARGET_ARCH in
+		x86) filter="/-$TARGET_ARCH\./p; /-i.86\./p;" ;;
+		*)   filter="/-$TARGET_ARCH\./p;" ;;
+	esac
+	p=${KERNEL_URL##*//}; p=${p%%/*}
+	echo Getting list of available kernels from $p ...
+	kernels=$(wget -q -O - $KERNEL_URL | 
+	          sed '/href/!d; /\.tar\./!d; /md5\.txt/d; s/.*href="//; s/".*//' |
+	          sed -n "$filter")
+	get_selection "Please select kernel" KERNEL_TARBALL "$kernels $(printf "\nI will build my own later.")"
+	
+	case "$KERNEL_TARBALL" in
+		*.tar.*) ;;
+		*) KERNEL_URL="" KERNEL_TARBALL="" ;; # self-build - clear the variables
+	esac
 }
 
 map_target_arch() { # as needed to meet source distro name
@@ -134,8 +156,8 @@ ISOLINUX_CFG="\$WOOFCE/woof-code/boot/boot-dialog"
 INITRD_ARCH="\$WOOFCE/woof-arch/x86/target/boot/initrd-tree0"
 INITRD_CODE="\$WOOFCE/woof-code/boot/initrd-tree0"
 
-KERNEL_URL=http://distro.ibiblio.org/puppylinux/huge_kernels # change as needed
-KERNEL_TARBALL=huge-3.4.93-slacko32FD4G.tar.bz2              # change as needed
+KERNEL_URL="$KERNEL_URL"
+KERNEL_TARBALL=$KERNEL_TARBALL
 
 EOF
 
@@ -178,6 +200,7 @@ EOF
 sanity_check "$@"
 get_target_arch
 get_source_distro
+get_kernel
 map_target_arch
 prepare_work_dir
 confirmation
