@@ -123,7 +123,7 @@ APT_PKGDB_DIR=\${CHROOT_DIR}/var/lib/apt/lists
 INSTALLPKG=./installpkg
 REMOVEPKG=./removepkg
 
-### for ISO builders ###
+### for ISO builder ###
 PUPPY_SFS=puppy.sfs   # if you change this, change %makesfs params in pkglist too
 OUTPUT_DIR=iso        # if you change this, change %makesfs params in pkglist too
 OUTPUT_ISO=puppy.iso
@@ -133,6 +133,10 @@ ISOLINUX_BIN="\$WOOFCE/woof-arch/x86/build/boot/isolinux.bin"
 ISOLINUX_CFG="\$WOOFCE/woof-code/boot/boot-dialog"
 INITRD_ARCH="\$WOOFCE/woof-arch/x86/target/boot/initrd-tree0"
 INITRD_CODE="\$WOOFCE/woof-code/boot/initrd-tree0"
+
+KERNEL_URL=http://distro.ibiblio.org/puppylinux/huge_kernels # change as needed
+KERNEL_TARBALL=huge-3.4.93-slacko32FD4G.tar.bz2              # change as needed
+
 EOF
 
 	ln -s $(pwd)/builders/$SOURCE-build.sh $WORK_DIR/build-sfs.sh

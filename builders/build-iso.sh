@@ -14,6 +14,9 @@ DISTRO_PREFIX=${DISTRO_PREFIX:-puppy}
 PUPPY_SFS=${PUPPY_SFS:-puppy.sfs}
 SOURCE=${PARENT_DISTRO:-ubuntu} # or debian
 
+KERNEL_URL=${KERNEL_URL:-http://distro.ibiblio.org/puppylinux/huge_kernels}
+KERNEL_TARBALL=${KERNEL_TARBALL:-huge-3.4.93-slacko32FD4G.tar.bz2}
+
 WOOFCE=${WOOFCE:-..}
 ISOLINUX_BIN=${ISOLINUX_BIN:-$WOOFCE/woof-arch/x86/build/boot/isolinux.bin}
 ISOLINUX_CFG=${ISOLINUX_FILES:-$WOOFCE/woof-code/boot/boot-dialog}
@@ -39,10 +42,28 @@ install_boot_files() {
 install_kernel() {
 	# check that kernel is already installed
 	for p in vmlinuz kernel-modules.sfs; do
-		! [ -e $ISO_ROOT/$p ] &&
-		echo "Missing $p. Please build it using kernel-kit. Fatdog-style kernel is required." &&
-		exit
+		if ! [ -e $ISO_ROOT/$p ]; then
+			install_extract_kernel && return # attempt to use existing
+			echo Downloading kernel $KERNEL_TARBALL ...
+			if [ $KERNEL_URL ]; then
+				wget -c $KERNEL_URL/$KERNEL_TARBALL
+				wget -c $KERNEL_URL/${KERNEL_TARBALL}.md5.txt
+				install_extract_kernel && return # attempt to use existing
+			else
+				echo "Missing kernel. You can build one with kernel-kit. Fatdog-style kernel is required." &&
+				exit
+			fi
+		fi
 	done
+}
+install_extract_kernel() {
+	if md5sum -c ${KERNEL_TARBALL}.md5.txt 2>/dev/null; then
+		tar -xf ${KERNEL_TARBALL} -C $ISO_ROOT
+		mv $ISO_ROOT/vmlinuz-* $ISO_ROOT/vmlinuz
+		mv $ISO_ROOT/kernel-modules.sfs-* $ISO_ROOT/kernel-modules.sfs
+		return 0
+	fi
+	return 1
 }
 
 install_initrd() {
