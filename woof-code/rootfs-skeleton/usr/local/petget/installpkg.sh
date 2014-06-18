@@ -162,8 +162,9 @@ ${ABORTMSG2}"
 fi
 
 #111013 shinobar: this currently not working, bypass for now... 111013 revert...
-#if [ "ABC" = "DEF" ];then #111013
-elif [ $PUPMODE -eq 3 -o $PUPMODE -eq 7 -o $PUPMODE -eq 13 ];then
+# SFR: bypassed again, everything -> tmpfs
+elif [ "ABC" = "DEF" ];then #111013
+#elif [ $PUPMODE -eq 3 -o $PUPMODE -eq 7 -o $PUPMODE -eq 13 ];then
  FLAGNODIRECT=1
  [ "`lsmod | grep '^unionfs' `" != "" ] && FLAGNODIRECT=0
  #100426 aufs can now write direct to save layer...
