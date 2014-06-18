@@ -415,9 +415,13 @@ if [ "$FD" = "1" ];then #shift aufs-utils to kernel-modules.sfs
 	mksquashfs dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix dist/packages/kernel-modules.sfs-$kernel_major_version-$package_name_suffix $COMP
 	[ "$?" = 0 ] && echo "Huge compatible kernel packages are ready to package./" || exit 1
 	echo "Packaging huge-$kernel_major_version-$package_name_suffix kernel"
+	cd dist/packages/
 	tar -cjvf huge-$kernel_major_version-${package_name_suffix}.tar.bz2 \
-	vmlinuz-$kernel_major_version-$package_name_suffix linux_kernel-$kernel_major_version-$package_name_suffix
+	vmlinuz-$kernel_major_version-$package_name_suffix kernel-modules.sfs-$kernel_major_version-$package_name_suffix
 	[ "$?" = 0 ] && echo "huge-$kernel_major_version-${package_name_suffix}.tar.bz2 is in dist/packages" || exit 1
+	md5sum huge-$kernel_major_version-${package_name_suffix}.tar.bz2 > huge-$kernel_major_version-${package_name_suffix}.tar.bz2.md5.txt
+	echo
+	cd -
 fi
 tar -c aufs-util | bzip2 -9 > dist/sources/vanilla/aufs-util$today-$arch.tar.bz2
 
