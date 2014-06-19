@@ -72,7 +72,7 @@ if [ ! $Chosen ];then
 	echo -e "\033[1;31m""ERROR: you didn't choose, start again!""\033[0m" \
 	&& exit
 else
-    Choice=$(grep ^$Chosen /tmp/kernel_configs|cut -d ' ' -f2)
+    Choice=$(grep "^$Chosen\." /tmp/kernel_configs|cut -d ' ' -f2)
     [ ! $Choice ] && \
     echo -e "\033[1;31m""ERROR: your choice is not sane ..quiting""\033[0m" \
     && exit
