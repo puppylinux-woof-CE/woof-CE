@@ -11,12 +11,14 @@
 #120811 category field now supports sub-category |category;subcategory|, use as icon in ppm main window. -- always enabled.
 #121102 Packages-puppy-${DISTRO_FILE_PREFIX}- (or Packages-puppy-${DISTRO_COMPAT_VERSION}-) is now Packages-puppy-${DISTRO_DB_SUBNAME}-. refer /etc/DISTRO_SPECS.
 #121129 Update: d/l Packages-puppy-squeeze-official, which wasn't there before, upset this script.
+#140610 SFR: redesigned GUI
 
 export TEXTDOMAIN=petget___configure.sh
 export OUTPUT_CHARSET=UTF-8
 
 #export LANG=C
 . /etc/DISTRO_SPECS #has DISTRO_BINARY_COMPAT, DISTRO_COMPAT_VERSION
+. /etc/rc.d/PUPSTATE
 . /root/.packages/DISTRO_PKGS_SPECS
 . /root/.packages/DISTRO_PET_REPOS
 . /root/.packages/PKGS_MANAGEMENT #has PKG_REPOS_ENABLED
@@ -48,69 +50,131 @@ do
 done
 
 #110118 choose a user interface...
-UI="`cat /var/local/petget/ui_choice`"
+[ -f /var/local/petget/ui_choice ] && UI="`cat /var/local/petget/ui_choice`"
 [ "$UI" = "" ] && UI="Classic"
-UI_RADIO="<radiobutton><label>${UI}</label><action>echo -n ${UI} > /var/local/petget/ui_choice</action></radiobutton>"
+
+# Current...
+UI_RADIO="
+<radiobutton>
+  <variable>varUI_${UI}</variable>
+  <label>${UI}</label>
+  <action>ln -sfT \"${MYDIR}/ui_${UI}.png\" /tmp/petget_ui_preview</action>
+  <action>refresh:UI_PREVIEW</action>
+</radiobutton>"
+
+# ...and the rest
 for ONEUI in Classic Ziggy
 do
  [ "$ONEUI" = "$UI" ] && continue
- UI_RADIO="${UI_RADIO}<radiobutton><label>${ONEUI}</label><action>echo -n ${ONEUI} > /var/local/petget/ui_choice</action></radiobutton>"
+ UI_RADIO="${UI_RADIO}
+ <radiobutton>
+   <variable>varUI_${ONEUI}</variable>
+   <label>${ONEUI}</label>
+   <action>ln -sfT \"${MYDIR}/ui_${ONEUI}.png\" /tmp/petget_ui_preview</action>
+   <action>refresh:UI_PREVIEW</action>
+ </radiobutton>"
 done
+#UI_RADIO="${UI_RADIO}</vbox>"
 
 #checkbox for BuildingBlock category
-[ "`cat /var/local/petget/bb_category`" = "true" ] && BB_STATE=true || BB_STATE=false
+if [ -f /var/local/petget/bb_category ]; then
+  [ "`cat /var/local/petget/bb_category`" = "true" ] && BB_STATE=true || BB_STATE=false
+else
+  BB_STATE=false
+fi
+
+#installation method
+IMODE_RADIO=""
+if [ $PUPMODE -eq 3 -o $PUPMODE -eq 7 -o $PUPMODE -eq 13 ]; then
+  [ -f /var/local/petget/install_mode ] && IMODE="`cat /var/local/petget/install_mode`" || IMODE="savefile"
+  [ "$IMODE" = "" ] && IMODE=savefile
+  if [ "$IMODE" = "tmpfs" ]; then
+    IMODE_tmpfs=true; IMODE_savefile=false
+  else
+    IMODE_tmpfs=false; IMODE_savefile=true
+  fi
+
+  IMODE_RADIO="
+  <frame $(gettext 'Installation Mode')>
+    <radiobutton>
+      <variable>varIMODE_savefile</variable>
+      <default>$IMODE_savefile</default>
+      <label>$(gettext 'Install directly to savefile/savefolder/savepartition')</label>
+    </radiobutton>
+    <text>
+      <label>$(gettext "It's strongly recommended to save the session when you finish installing/uninstalling the package(s). It's because some important system files are still being modified only at tmpfs level.")</label>
+    </text>
+    <radiobutton>
+      <variable>varIMODE_tmpfs</variable>
+      <default>$IMODE_tmpfs</default>
+      <label>$(gettext 'Install to tmpfs (memory)')</label>
+    </radiobutton>
+    <text>
+      <label>$(gettext "Keep in mind that if you're low on RAM and want to install many large packages, all available memory may fill up quickly, so, in order to free it up, reboot will be necessary (saving the session is not enough).")</label>
+    </text>
+  </frame>"
+fi
 
 #  <text><label>Choose an alternate User Interface:</label></text>
 
-export CONFIG_DIALOG="<window title=\"$(gettext 'Puppy Package Manager: configure')\" icon-name=\"gtk-about\">
-<hbox>
+export CONFIG_DIALOG="
+<window title=\"$(gettext 'Puppy Package Manager: configure')\" icon-name=\"gtk-about\">
+  <vbox>
+    <notebook tab-labels=\"$(gettext 'Update database')|$(gettext 'Choose repositories')|$(gettext 'Miscellaneous')\">
 
-<vbox>
- <frame $(gettext 'Update database')>
-  <hbox>
-   <text><label>$(gettext 'Puppy has a database file for each package repository. Click this button to download the latest information on what packages are in the repository:')</label></text>
-   <button><label>$(gettext 'Update now')</label><action>rxvt -bg yellow -title 'download databases' -e /usr/local/petget/0setup</action></button>
-  </hbox>
-  <text><label>$(gettext "Note: some repositories are 'fixed' and do not need to be updated. An example of this is the Slackware official version 12.2 repo. An example that does change is the Slackware 'slacky' 12.2 repo which has extra packages for Slackware 12.2. Anyway, to be on the safe side, clicking the above button will update all database files.")</label></text>
-  <text><label>$(gettext "Warning: The database information for some repositories is quite large, about 1.5MB for 'slacky' and several MB for Ubuntu/Debian. If you are on dialup, be prepared for this.")</label></text>
-  <text><label>$(gettext 'Technical note: if you would like to see the package databases, they are at') /root/.packages/Packages-*. $(gettext 'These are in a standardised format, regardless of which distribution they were obtained from. This format is considerably smaller than that of the original distro.')</label></text>
- </frame>
- <frame $(gettext 'User Interface')>
-  ${UI_RADIO}
- </frame>
+      <frame>
+        <hbox>
+          <text><label>$(gettext 'Puppy has a database file for each package repository. Click this button to download the latest information on what packages are in the repository:')</label></text>
+          <button><label>$(gettext 'Update now')</label><action>rxvt -bg yellow -title 'download databases' -e /usr/local/petget/0setup</action></button>
+        </hbox>
+        <text><label>$(gettext "Note: some repositories are 'fixed' and do not need to be updated. An example of this is the Slackware official version 12.2 repo. An example that does change is the Slackware 'slacky' 12.2 repo which has extra packages for Slackware 12.2. Anyway, to be on the safe side, clicking the above button will update all database files.")</label></text>
+        <text><label>$(gettext "Warning: The database information for some repositories is quite large, about 1.5MB for 'slacky' and several MB for Ubuntu/Debian. If you are on dialup, be prepared for this.")</label></text>
+        <text><label>$(gettext 'Technical note: if you would like to see the package databases, they are at') /root/.packages/Packages-*. $(gettext 'These are in a standardised format, regardless of which distribution they were obtained from. This format is considerably smaller than that of the original distro.')</label></text>
+      </frame>
+ 
 
-   <checkbox>
-     <label>$(gettext 'Enable BuildingBlock category (for advanced users only!)')</label>
-     <variable>varBB_STATE</variable>
-     <default>${BB_STATE}</default>
-     <action>echo -n \${varBB_STATE} > /var/local/petget/bb_category</action>
-   </checkbox>
+      <frame>
+        <text><label>$(gettext 'Choose what repositories you would like to have appear in the main GUI window:')</label></text>
+        <vbox scrollable=\"true\">
+          ${CHECKBOXES_REPOS}
+          ${CHECKBOX_MAIN_REPO}
+        </vbox>
+        <hbox>
+          <text><label>$(gettext 'Adding a new repository currently requires manual editing of some text files. Click this button for further information:')</label></text>
+          <button><label>$(gettext 'Add repo help')</label>
+            <action>nohup defaulthtmlviewer file:///usr/local/petget/README-add-repo.htm & </action>
+          </button>
+        </hbox>
+      </frame>
+      
+      <frame>
+        <frame $(gettext 'User Interface')>
+          ${UI_RADIO}
+        </frame>
+        
+        ${IMODE_RADIO}
+        
+        <frame $(gettext 'Extra Category')>
+        <checkbox>
+          <label>$(gettext 'Enable BuildingBlock category (for advanced users only!)')</label>
+          <variable>varBB_STATE</variable>
+          <default>${BB_STATE}</default>
+        </checkbox>
+        </frame>
+      </frame>
+      
+    </notebook>
 
-</vbox>
-
-<vbox>
- <text use-markup=\"true\"><label>\"<b>$(gettext 'Requires restart of PPM to see changes')</b>\"</label></text>
- <frame $(gettext 'Choose repositories')>
-  <text><label>$(gettext 'Choose what repositories you would like to have appear in the main GUI window:')</label></text>
-  ${CHECKBOXES_REPOS}
-  ${CHECKBOX_MAIN_REPO}
-  <hbox>
-   <text><label>$(gettext 'Adding a new repository currently requires manual editing of some text files. Click this button for further information:')</label></text>
-   <button><label>$(gettext 'Add repo help')</label>
-   <action>nohup defaulthtmlviewer file:///usr/local/petget/README-add-repo.htm & </action>
-   </button>
-  </hbox>
- </frame>
- <hbox>
-  <button ok></button>
-  <button cancel></button>
- </hbox>
-</vbox>
-
-</hbox>
+    <hbox>
+      <text use-markup=\"true\"><label>\"<b>$(gettext 'Requires restart of PPM to see changes')</b>\"</label></text>
+      <text space-fill=\"true\" space-expand=\"true\"><label>\"\"</label></text>
+      <button ok></button>
+      <button cancel></button>
+    </hbox>
+  </vbox>
 </window>"
 
-RETPARAMS="`gtkdialog3 --program=CONFIG_DIALOG`"
+RETPARAMS="`gtkdialog --program=CONFIG_DIALOG`"
 #ex:
 #  CHECK_puppy-2-official="false"
 #  CHECK_puppy-3-official="true"
@@ -123,6 +187,21 @@ RETPARAMS="`gtkdialog3 --program=CONFIG_DIALOG`"
 
 [ "`echo -n "$RETPARAMS" | grep 'EXIT' | grep 'OK'`" = "" ] && exit
 
+# handle UI choice
+UI="`echo -n "$RETPARAMS" | grep '^varUI.*true' | cut -f2- -d '_' | cut -f1 -d '='`"
+echo -n "$UI" > /var/local/petget/ui_choice
+
+# handle BB category
+BB="`echo -n "$RETPARAMS" | grep '^varBB_STATE' | grep -oE 'true|false'`"
+echo -n "$BB" > /var/local/petget/bb_category
+
+# handle install mode
+if [ $PUPMODE -eq 3 -o $PUPMODE -eq 7 -o $PUPMODE -eq 13 ]; then
+  IMODE="`echo -n "$RETPARAMS" | grep 'varIMODE.*true' | cut -f2- -d '_' | cut -f1 -d '='`"
+  echo -n "$IMODE" > /var/local/petget/install_mode
+fi
+
+# handle repos
 enabledrepos=" "
 repocnt=1
 for ONEREPO in `echo "$DBFILESLIST" | tr '\n' ' '` #121129
