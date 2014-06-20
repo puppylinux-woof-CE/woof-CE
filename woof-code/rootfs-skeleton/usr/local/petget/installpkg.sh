@@ -162,26 +162,29 @@ ${ABORTMSG2}"
 fi
 
 #111013 shinobar: this currently not working, bypass for now... 111013 revert...
-# SFR: bypassed again, everything -> tmpfs
-elif [ "ABC" = "DEF" ];then #111013
-#elif [ $PUPMODE -eq 3 -o $PUPMODE -eq 7 -o $PUPMODE -eq 13 ];then
- FLAGNODIRECT=1
- [ "`lsmod | grep '^unionfs' `" != "" ] && FLAGNODIRECT=0
- #100426 aufs can now write direct to save layer...
- if [ "`lsmod | grep '^aufs' `" != "" ];then
-  #note: fsnotify now preferred not inotify, udba=notify uses whichever is enabled in module...
-  busybox mount -t aufs -o remount,udba=notify unionfs / #remount aufs with best evaluation mode.
-  FLAGNODIRECT=$?
-  [ $FLAGNODIRECT -ne 0 ] && logger -s -t "installpkg.sh" "Failed to remount aufs / with udba=notify"
- fi
- if [ $FLAGNODIRECT -eq 0 ];then
-  #note that /sbin/pup_event_frontend_d will not run snapmergepuppy if installpkg.sh or downloadpkgs.sh are running.
-  while [ "`pidof snapmergepuppy`" != "" ];do
-   sleep 1
-  done
-  DIRECTSAVEPATH="/initrd${SAVE_LAYER}" #SAVE_LAYER is in /etc/rc.d/PUPSTATE.
-  rm -f $DIRECTSAVEPATH/pet.specs $DIRECTSAVEPATH/pinstall.sh $DIRECTSAVEPATH/puninstall.sh $DIRECTSAVEPATH/install/doinst.sh
- fi
+#elif [ "ABC" = "DEF" ];then #111013
+elif [ $PUPMODE -eq 3 -o $PUPMODE -eq 7 -o $PUPMODE -eq 13 ];then
+  # SFR: let user chose...
+  [ -f /var/local/petget/install_mode ] && IMODE="`cat /var/local/petget/install_mode`" || IMODE="savefile"
+  if [ "$IMODE" != "tmpfs" ]; then
+    FLAGNODIRECT=1
+    [ "`lsmod | grep '^unionfs' `" != "" ] && FLAGNODIRECT=0
+    #100426 aufs can now write direct to save layer...
+    if [ "`lsmod | grep '^aufs' `" != "" ];then
+     #note: fsnotify now preferred not inotify, udba=notify uses whichever is enabled in module...
+     busybox mount -t aufs -o remount,udba=notify unionfs / #remount aufs with best evaluation mode.
+     FLAGNODIRECT=$?
+     [ $FLAGNODIRECT -ne 0 ] && logger -s -t "installpkg.sh" "Failed to remount aufs / with udba=notify"
+    fi
+    if [ $FLAGNODIRECT -eq 0 ];then
+     #note that /sbin/pup_event_frontend_d will not run snapmergepuppy if installpkg.sh or downloadpkgs.sh are running.
+     while [ "`pidof snapmergepuppy`" != "" ];do
+      sleep 1
+     done
+     DIRECTSAVEPATH="/initrd${SAVE_LAYER}" #SAVE_LAYER is in /etc/rc.d/PUPSTATE.
+     rm -f $DIRECTSAVEPATH/pet.specs $DIRECTSAVEPATH/pinstall.sh $DIRECTSAVEPATH/puninstall.sh $DIRECTSAVEPATH/install/doinst.sh
+    fi
+  fi
 fi
 
 if [ $DISPLAY ];then #131222
