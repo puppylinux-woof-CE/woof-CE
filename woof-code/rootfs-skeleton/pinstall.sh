@@ -38,12 +38,6 @@ chroot . /sbin/udevadm hwdb --update 2>/dev/null
 SUBSYSTEM=="input",  ENV{ID_INPUT}=="", IMPORT{program}="input_id %p"
 EOF
 
-# rc.sysinit: udevadm trigger
->> etc/rc.d/rc.sysinit cat << "EOF"
-echo Updating udev device databases
-udevadm trigger --action=add
-EOF
-
 ### debian/ubuntu specific, this has to go to its own pinstall.sh later
 rm -f etc/init.d/udev               # spurious udev
 rm usr/bin/X; ln -sf Xorg usr/bin/X # delete xorg wrapper
