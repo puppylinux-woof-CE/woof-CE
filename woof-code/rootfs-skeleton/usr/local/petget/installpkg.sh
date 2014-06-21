@@ -69,6 +69,11 @@ DLPKG="$1"
 DLPKG_BASE="`basename $DLPKG`" #ex: scite-1.77-i686-2as.tgz
 DLPKG_PATH="`dirname $DLPKG`"  #ex: /root
 
+clean_and_die () {
+  rm -f /root/.packages/${DLPKG_NAME}.files
+  exit 1
+}
+
 # 6sep10 shinobar: installing files under /mnt is danger
 install_path_check() {
   FILELIST="/root/.packages/${DLPKG_NAME}.files"
@@ -222,6 +227,7 @@ case $DLPKG_BASE in
    install_path_check
    tar ${OPT} -x --strip=1 --directory=${DIRECTSAVEPATH}/ -f ${DLPKG_MAIN}.tar.${EXT} #120102. 120107. 131122
   fi
+  [ $? -ne 0 ] && clean_and_die
  ;;
  *.deb)
   DLPKG_MAIN="`basename $DLPKG_BASE .deb`"
@@ -230,10 +236,7 @@ case $DLPKG_BASE in
   echo "$PFILES" > /root/.packages/${DLPKG_NAME}.files
   install_path_check
   dpkg-deb -x $DLPKG_BASE ${DIRECTSAVEPATH}/
-  if [ $? -ne 0 ];then
-   rm -f /root/.packages/${DLPKG_NAME}.files
-   exit 1
-  fi
+  [ $? -ne 0 ] && clean_and_die
   [ -d /DEBIAN ] && rm -rf /DEBIAN #130112 precaution.
   dpkg-deb -e $DLPKG_BASE /DEBIAN #130112 extracts deb control files to dir /DEBIAN. may have a post-install script, see below.
  ;;
@@ -247,6 +250,7 @@ case $DLPKG_BASE in
   echo "$PFILES" > /root/.packages/${DLPKG_NAME}.files
   install_path_check
   tar -z -x --directory=${DIRECTSAVEPATH}/ -f $DLPKG_BASE #120102. 120107
+  [ $? -ne 0 ] && clean_and_die
  ;;
  *.txz) #100616
   DLPKG_MAIN="`basename $DLPKG_BASE .txz`" #ex: scite-1.77-i686-2as
@@ -258,6 +262,7 @@ case $DLPKG_BASE in
   echo "$PFILES" > /root/.packages/${DLPKG_NAME}.files
   install_path_check
   tar -J -x --directory=${DIRECTSAVEPATH}/ -f $DLPKG_BASE #120102. 120107
+  [ $? -ne 0 ] && clean_and_die
  ;;
  *.tar.gz)
   DLPKG_MAIN="`basename $DLPKG_BASE .tar.gz`" #ex: acl-2.2.47-1-i686.pkg
@@ -268,6 +273,7 @@ case $DLPKG_BASE in
   echo "$PFILES" > /root/.packages/${DLPKG_NAME}.files
   install_path_check
   tar -z -x --directory=${DIRECTSAVEPATH}/ -f $DLPKG_BASE #120102. 120107
+  [ $? -ne 0 ] && clean_and_die
  ;;
  *.tar.bz2) #100110
   DLPKG_MAIN="`basename $DLPKG_BASE .tar.bz2`"
@@ -278,6 +284,7 @@ case $DLPKG_BASE in
   echo "$PFILES" > /root/.packages/${DLPKG_NAME}.files
   install_path_check
   tar -j -x --directory=${DIRECTSAVEPATH}/ -f $DLPKG_BASE #120102. 120107
+  [ $? -ne 0 ] && clean_and_die
  ;;
  *.pkg.tar.zx) #130314 arch pkgs.
   DLPKG_MAIN="`basename $DLPKG_BASE .pkg.tar.xz`" #ex: acl-2.2.51-3-i686
@@ -289,6 +296,7 @@ case $DLPKG_BASE in
   echo "$PFILES" > /root/.packages/${DLPKG_NAME}.files
   install_path_check
   tar -J -x --directory=${DIRECTSAVEPATH}/ -f $DLPKG_BASE
+  [ $? -ne 0 ] && clean_and_die
  ;;
  *.rpm) #110523
   DLPKG_MAIN="`basename $DLPKG_BASE .rpm`"
@@ -300,6 +308,7 @@ case $DLPKG_BASE in
   install_path_check
   #110705 rpm -i does not work for mageia pkgs...
   exploderpm -i $DLPKG_BASE
+  [ $? -ne 0 ] && clean_and_die
  ;;
 esac
 if [ "$PUPMODE" = "2" ]; then #from BK's quirky6.1
