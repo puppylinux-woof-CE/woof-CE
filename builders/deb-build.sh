@@ -16,9 +16,7 @@ VERSION=${VERSION:-trusty}
 DISTRO_PREFIX=${DISTRO_PREFIX:-puppy}
 DISTRO_VERSION=${DISTRO_VERSION:-700} # informative only
 
-REPO_URL=${REPO_URL:-http://archive.ubuntu.com/ubuntu}
-REPO_PKGDB=${REPO_PKGDB:-Packages.bz2}
-REPO_SECTIONS=${REPO_SECTIONS:-"main universe"}
+DEFAULT_REPOS=${REPO_URLS:-http://archive.ubuntu.com/ubuntu|$VERSION|main:universe|Packages.bz2}
 #WITH_APT_DB= # default is don't include apt-db
 
 # dirs
@@ -72,7 +70,7 @@ prepare_dirs() {
 # $REPO_DIR, $LOCAL_PKGDB, $1-url, $2-version, $3-repos-to-use, $4-pkgdb
 add_repo() {
 	local MARKER localdb pkgdb_url apt_pkgdb apt_source
-	for p in $3; do 
+	for p in $(echo $3|tr ':' ' '); do
 		MARKER="### $2-$p-$1 ###" 
 		localdb=$2-$p-$4
 		pkgdb_url="$(echo $REPO_PKGDB_URL | sed "s|%repo_url%|$1|; s|%version%|$2|; s|%repo%|$p|; s|%repo_pkgdb%|$4|;")"
@@ -102,7 +100,7 @@ add_repo() {
 		esac > $APT_PKGDB_DIR/"$apt_pkgdb"
 
 		if ! grep -F -m1 -q "$MARKER" $REPO_DIR/$LOCAL_PKGDB 2>/dev/null; then	
-			echo Processing database for "$p $1" ...
+			echo Processing database for "$2 $p" ...
 			echo "$MARKER" >> $REPO_DIR/$LOCAL_PKGDB
 			# awk version is 10x faster than bash/ash/dash version, even with LANG=C
 			# format: pkg|pkgver|pkgfile|pkgpath|pkgprio|pkgsection|pkgmd5|pkgdep			
@@ -128,6 +126,20 @@ function fixdepends(s) {
 '
 		fi
 		if [ -z "$WITH_APT_DB" ] || [ $DRY_RUN ]; then rm -f $APT_PKGDB_DIR/"$apt_pkgdb"; fi
+	done
+
+	# remove duplicates, use the "later" version if duplicate packages are found
+	< $REPO_DIR/$LOCAL_PKGDB > /tmp/t.$$ \
+	awk -F"|" '{if (!a[$1]) b[n++]=$1; a[$1]=$0} END {for (i=0;i<n;i++) {print a[b[i]]}}'
+	mv /tmp/t.$$ $REPO_DIR/$LOCAL_PKGDB
+}
+
+# $*-repos, format: url|version|sections|pkgdb
+add_multiple_repos() {
+	local repo_url version sections pkgdb
+	while [ "$1" ]; do
+		add_repo $(echo "$1" | tr '|' ' ')
+		shift
 	done
 }
 
@@ -487,7 +499,7 @@ sanity_check() {
 ### main
 sanity_check
 prepare_dirs
-add_repo $REPO_URL $VERSION "$REPO_SECTIONS" $REPO_PKGDB
+add_multiple_repos $DEFAULT_REPOS
 echo Flattening $PKGLIST ...
 flatten_pkglist $PKGLIST > $FLATTEN
 if [ -z "$DRY_RUN" ]; then

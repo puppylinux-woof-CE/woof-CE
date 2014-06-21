@@ -134,7 +134,7 @@ BASE_CODE_PATH="\$WOOFCE/woof-code/rootfs-skeleton"
 BASE_ARCH_PATH="\$WOOFCE/woof-arch/\$TARGET_ARCH/target/rootfs-skeleton"
 EXTRAPKG_PATH="\$WOOFCE/woof-code/rootfs-packages"
 
-# loads REPO_URL, REPO_PKGDB, REPO_SECTIONS, WITH_APT_DB
+# loads DEFAULT_REPOS, WITH_APT_DB and other repository options
 . ./repo-url 
 
 # debian/ubuntu only
