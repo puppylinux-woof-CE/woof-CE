@@ -3,33 +3,34 @@
 
 echo "Configuring Puppy skeleton..."
 # tasks that used to be done by merge2out: cleanup, set permissions, missing dirs
+
 # cleanup
 find . -name "*MARKER" -delete
 
 # set permissions and owners as needed
-chmod 1777 tmp 
-chmod 777 archive
+chmod 1777 tmp archive
+chown 0755 usr/lib/cups/backend usr/lib/cups/filters
+chmod 0500 usr/lib/cups/backend/*
 
-# fixup puppy scripts
+# symlinks
+rm -rf run; ln -s tmp run # make /run is symlink to /tmp, always
+ln -sf bash bin/sh        # ensure that default shell is *always* bash
+
+# rename -puppy scripts to original names
 find . -name "*-puppy" | grep -vE "set-time-for-puppy" | while read -r p; do
 	pp=${p%-puppy}
 	[ -e $pp ] && mv $pp ${pp}-FULL
 	mv $p $pp
 done
 
-# temporary code - they will be merged to rootfs-skeleton later
-rm -rf run; ln -s tmp run                       # /run is symlink to /tmp
-
-# we like bash, ensure that default shell is *always* bash
-ln -sf bash bin/sh        # default shell is bash
-
+# last few steps
 # update dynamic databases we didn't setup earlier
 echo MIME database setup
-chroot . /usr/bin/update-mime-database /usr/share/mime
+chroot . /usr/bin/update-mime-database /usr/share/mime 2>/dev/null
 echo Gdk pixbuf loaders setup
-chroot . /$(echo usr/lib/*/*/gdk-pixbuf-query-loaders) --update-cache
-echo prepare udev
-chroot . /sbin/udevadm hwdb --update
+chroot . /$(echo usr/lib/*/*/gdk-pixbuf-query-loaders) --update-cache 2>/dev/null
+echo Create udev hardware database
+chroot . /sbin/udevadm hwdb --update 2>/dev/null
 
 # udev rules: run input_id
 >> etc/udev/rules.d/50-udev-puppy-basic.rules cat << "EOF"
