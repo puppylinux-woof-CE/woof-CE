@@ -32,14 +32,6 @@ chroot . /$(echo usr/lib/*/*/gdk-pixbuf-query-loaders) --update-cache 2>/dev/nul
 echo Create udev hardware database
 chroot . /sbin/udevadm hwdb --update 2>/dev/null
 
-### debian/ubuntu specific, this has to go to its own pinstall.sh later
-rm -f etc/init.d/udev               # spurious udev
-rm usr/bin/X; ln -sf Xorg usr/bin/X # delete xorg wrapper
-ln -s xterm usr/bin/x-terminal-emulator
-
-# because ROX MIME is in different locations for ubuntu/debian
-echo ROX mime icons
-cp -a --remove-destination usr/local/apps/ROX-Filer/ROX/MIME/* usr/share/rox/ROX/MIME
 exit
 
 # ======= Original code, left as reference for later until migration is complete ============
