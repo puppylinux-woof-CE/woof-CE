@@ -281,10 +281,19 @@ remove_pkg() {
 ###
 # $@-pkg to lock
 lock_pkg() {
-	while [ "$1" ]; do
-		echo "$1" hold
-		shift
-	done | dpkg --root=$CHROOT_DIR --admindir=$CHROOT_DIR/$ADMIN_DIR --set-selections
+	if [ $WITHOUT_DPKG ]; then
+		# dpkg-less lock method
+		while [ "$1" ]; do
+			sed -i -e "/^Package: ${1}\$/,/^$/ {/^Status:/ s/install/hold/}" "$CHROOT_DIR/$ADMIN_DIR/status"	
+			shift
+		done
+	else
+		# use dpkg to lock it
+		while [ "$1" ]; do
+			echo "$1" hold
+			shift
+		done | dpkg --root=$CHROOT_DIR --admindir=$CHROOT_DIR/$ADMIN_DIR --set-selections
+	fi
 }
 
 ### so that apt-get is happy
