@@ -1,6 +1,8 @@
 #!/bin/sh
 #rootfs-skeleton post-install script
+#
 
+#exec 2>/dev/null # debug
 echo "Configuring Puppy skeleton..."
 # tasks that used to be done by merge2out: cleanup, set permissions, missing dirs
 
