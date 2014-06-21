@@ -32,12 +32,6 @@ chroot . /$(echo usr/lib/*/*/gdk-pixbuf-query-loaders) --update-cache 2>/dev/nul
 echo Create udev hardware database
 chroot . /sbin/udevadm hwdb --update 2>/dev/null
 
-# udev rules: run input_id
->> etc/udev/rules.d/50-udev-puppy-basic.rules cat << "EOF"
-# add input_id for autoconf xorg
-SUBSYSTEM=="input",  ENV{ID_INPUT}=="", IMPORT{program}="input_id %p"
-EOF
-
 ### debian/ubuntu specific, this has to go to its own pinstall.sh later
 rm -f etc/init.d/udev               # spurious udev
 rm usr/bin/X; ln -sf Xorg usr/bin/X # delete xorg wrapper
