@@ -136,7 +136,6 @@ function fixdepends(s) {
 
 # $*-repos, format: url|version|sections|pkgdb
 add_multiple_repos() {
-	local repo_url version sections pkgdb
 	while [ "$1" ]; do
 		add_repo $(echo "$1" | tr '|' ' ')
 		shift

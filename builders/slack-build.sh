@@ -108,7 +108,6 @@ add_repo() {
 
 # $*-repos, format: url|version|sections|pkgdb
 add_multiple_repos() {
-	local repo_url version sections pkgdb
 	while [ "$1" ]; do
 		add_repo $(echo "$1" | tr '|' ' ')
 		shift
@@ -354,7 +353,6 @@ prepare_dirs
 add_multiple_repos $DEFAULT_REPOS
 echo Flattening $PKGLIST ...
 flatten_pkglist $PKGLIST > $FLATTEN
-exit
 if [ -z "$DRY_RUN" ]; then
 	process_pkglist $FLATTEN
 else
