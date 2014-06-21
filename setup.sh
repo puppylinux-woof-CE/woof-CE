@@ -123,7 +123,7 @@ WOOFCE='$(pwd)'
 
 # Edit as needed. Commented section are defaults.
 ARCH='$MAPPED_ARCH'
-PKGLIST=pkglist
+PKGLIST=basesfs
 VERSION='$VERSION'
 #DISTRO_PREFIX=puppy
 #DISTRO_VERSION=700
@@ -146,8 +146,8 @@ INSTALLPKG=./installpkg
 REMOVEPKG=./removepkg
 
 ### for ISO builder ###
-PUPPY_SFS=puppy.sfs   # if you change this, change %makesfs params in pkglist too
-OUTPUT_DIR=iso        # if you change this, change %makesfs params in pkglist too
+PUPPY_SFS=puppy.sfs   # if you change this, change %makesfs params in basesfs too
+OUTPUT_DIR=iso        # if you change this, change %makesfs params in basesfs too
 OUTPUT_ISO=puppy.iso
 ISO_ROOT=\$OUTPUT_DIR/iso-root
 
@@ -164,8 +164,7 @@ EOF
 	ln -s $(pwd)/builders/$SOURCE-build.sh $WORK_DIR/build-sfs.sh
 	ln -s $(pwd)/builders/build-iso.sh $WORK_DIR/build-iso.sh
 	ln -s $(pwd)/builders/runqemu.sh $WORK_DIR/runqemu.sh
-	cp woof-distro/${TARGET_ARCH}/${SOURCE}/${VERSION}/pkglist $WORK_DIR
-	cp woof-distro/${TARGET_ARCH}/${SOURCE}/${VERSION}/repo-url $WORK_DIR
+	cp woof-distro/${TARGET_ARCH}/${SOURCE}/${VERSION}/* $WORK_DIR
 	
 	# distro-specific tools
 	case $SOURCE in
