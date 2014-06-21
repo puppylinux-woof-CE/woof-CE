@@ -19,7 +19,6 @@ done
 
 # temporary code - they will be merged to rootfs-skeleton later
 rm -rf run; ln -s tmp run                       # /run is symlink to /tmp
-sed -i -e 's/ TERM="xterm"/#&/' etc/profile # toxic TERM
 
 # we like bash, ensure that default shell is *always* bash
 ln -sf bash bin/sh        # default shell is bash
