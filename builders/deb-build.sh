@@ -193,20 +193,24 @@ download_pkg() {
 # $@-all, doc, gtkdoc, locales, cache
 cutdown() {
 	local options="$*"
-	[ "$1" = "all" ] && options="doc gtkdoc locales cache"
-	set -x
+	[ "$1" = "all" ] && options="doc gtkdoc locales cache man"
 	for p in $options; do
 		case $p in
 			doc)     rm -rf $CHROOT_DIR/usr/share/doc 
 					 mkdir $CHROOT_DIR/usr/share/doc ;;
 			gtkdoc)  rm -rf $CHROOT_DIR/usr/share/gtk-doc 
 					 mkdir $CHROOT_DIR/usr/share/gtk-doc ;;
-			locales) rm -rf $CHROOT_DIR/usr/share/locale 
-					 mkdir -p $CHROOT_DIR/usr/share/locale/en ;;
+			locales) for p in $(ls $CHROOT_DIR/usr/share/locale); do
+					     [ $p != en ] && rm -rf $CHROOT_DIR/usr/share/locale/$p
+					 done ;;
 			cache)   find $CHROOT_DIR -name icon-theme.cache -delete ;;
+			man)     rm -rf $CHROOT_DIR/usr/share/man $CHROOT_DIR/usr/share/info
+					 mkdir $CHROOT_DIR/usr/share/info
+					 for p in $(seq 1 8); do
+						mkdir -p $CHROOT_DIR/usr/share/man/man${p}
+					 done ;;
 		esac
 	done
-	set +x
 }
 
 
