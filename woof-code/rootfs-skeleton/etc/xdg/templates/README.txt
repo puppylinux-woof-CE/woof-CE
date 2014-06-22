@@ -1,3 +1,11 @@
+Woof-NG Notes
+=============
+JWMRC and jwmrc-tray is used by jwm_menu_create.
+_root_.jwmrc is used by original fixmenus (which is deprecated and will be deleted soon).
+
+
+Woof2 Legacy Notes
+==================
 This directory contains template files for menus.
 
 For example, JWM window manager has a configuration file /root/.jwmrc
