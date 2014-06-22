@@ -190,6 +190,27 @@ download_pkg() {
 	return $retval
 }
 
+# $@-all, doc, gtkdoc, locales, cache
+cutdown() {
+	local options="$*"
+	[ "$1" = "all" ] && options="doc gtkdoc locales cache"
+	set -x
+	for p in $options; do
+		case $p in
+			doc)     rm -rf $CHROOT_DIR/usr/share/doc 
+					 mkdir $CHROOT_DIR/usr/share/doc ;;
+			gtkdoc)  rm -rf $CHROOT_DIR/usr/share/gtk-doc 
+					 mkdir $CHROOT_DIR/usr/share/gtk-doc ;;
+			locales) rm -rf $CHROOT_DIR/usr/share/locale 
+					 mkdir -p $CHROOT_DIR/usr/share/locale/en ;;
+			cache)   find $CHROOT_DIR -name icon-theme.cache -delete ;;
+		esac
+	done
+	set +x
+}
+
+
+######## commands handler ########
 
 ###
 # $1-force PKGFILE PKG PKGVER PKGPRIO ARCH
@@ -361,6 +382,9 @@ padsfs() {
 	dd if=/dev/zero of="$1" bs=256K seek=$BLOCKS256K count=0
 }
 
+
+######## pkglist parser ########
+
 ###
 # $1-pkglist, output std
 flatten_pkglist() {
@@ -374,7 +398,7 @@ flatten_pkglist() {
 			%exit) break ;;
 			%include)
 				[ "$2" ] && flatten_pkglist "$2" ;;
-			%dpkg|%dpkgchroot|%bootstrap|%bblinks|%makesfs|%remove|%addbase|%addpkg|%dummy|%dpkg_configure|%lock)
+			%dpkg|%dpkgchroot|%bootstrap|%bblinks|%makesfs|%remove|%addbase|%addpkg|%dummy|%dpkg_configure|%lock|%cutdown)
 				echo "$pp" ;;
 			%depend)
 				track_dependency() { list_dependency; } ;;
@@ -473,6 +497,9 @@ process_pkglist() {
 			%lock)
 				shift # $1-pkgname, pkgname ...
 				lock_pkg "$@" ;;
+			%cutdown)
+				shift # $@ various cutdown options
+				cutdown "$@" ;;
 			*)  # anything else
 				get_pkg_info $p
 				[ -z "$PKG" ] && echo Cannot find ${p}. && continue
@@ -494,6 +521,7 @@ sanity_check() {
 		! type ar > /dev/null && echo "Missing ar, please install first (may be from devx?)." && exit	
 	fi
 }
+
 
 ### main
 sanity_check
