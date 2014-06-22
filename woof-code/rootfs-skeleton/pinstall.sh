@@ -18,13 +18,6 @@ chmod 0500 usr/lib/cups/backend/*
 rm -rf run; ln -s tmp run # make /run is symlink to /tmp, always
 ln -sf bash bin/sh        # ensure that default shell is *always* bash
 
-# rename -puppy scripts to original names
-find . -name "*-puppy" | grep -vE "set-time-for-puppy" | while read -r p; do
-	pp=${p%-puppy}
-	[ -e $pp ] && mv $pp ${pp}-FULL
-	mv $p $pp
-done
-
 # last few steps
 # update dynamic databases we didn't setup earlier
 echo MIME database setup
@@ -36,6 +29,23 @@ echo Pango modules setup
 chroot . /usr/bin/pango-querymodules --update-cache 2>/dev/null
 echo Create udev hardware database
 chroot . /sbin/udevadm hwdb --update 2>/dev/null
+
+# tell ROX to use puppy's icons, if rox-mime-data is installed
+if ! [ -x usr/local/apps/ROX-Filer/ROX-Filer ] && 
+   [ -d usr/local/apps/ROX-Filer/ROX/MIME ]; then
+	ROXMIME=$(find . -name MIME | grep -v usr/local/apps | grep ROX)
+	if [ "$ROXMIME" ]; then
+		rm -rf $ROXMIME
+		ln -s /usr/local/apps/ROX-Filer/ROX/MIME $ROXMIME
+	fi
+fi
+
+# rename -puppy scripts to original names
+find . -name "*-puppy" | grep -vE "set-time-for-puppy" | while read -r p; do
+	pp=${p%-puppy}
+	[ -e $pp ] && mv $pp ${pp}-FULL
+	mv $p $pp
+done
 
 exit
 
