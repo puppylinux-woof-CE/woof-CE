@@ -173,14 +173,11 @@ elif [ $PUPMODE -eq 3 -o $PUPMODE -eq 7 -o $PUPMODE -eq 13 ];then
   [ -f /var/local/petget/install_mode ] && IMODE="`cat /var/local/petget/install_mode`" || IMODE="savefile"
   if [ "$IMODE" != "tmpfs" ]; then
     FLAGNODIRECT=1
-    [ "`lsmod | grep '^unionfs' `" != "" ] && FLAGNODIRECT=0
     #100426 aufs can now write direct to save layer...
-    if [ "`lsmod | grep '^aufs' `" != "" ];then
-     #note: fsnotify now preferred not inotify, udba=notify uses whichever is enabled in module...
-     busybox mount -t aufs -o remount,udba=notify unionfs / #remount aufs with best evaluation mode.
-     FLAGNODIRECT=$?
-     [ $FLAGNODIRECT -ne 0 ] && logger -s -t "installpkg.sh" "Failed to remount aufs / with udba=notify"
-    fi
+    #note: fsnotify now preferred not inotify, udba=notify uses whichever is enabled in module...
+    busybox mount -t aufs -o remount,udba=notify unionfs / #remount aufs with best evaluation mode.
+    FLAGNODIRECT=$?
+    [ $FLAGNODIRECT -ne 0 ] && logger -s -t "installpkg.sh" "Failed to remount aufs / with udba=notify"
     if [ $FLAGNODIRECT -eq 0 ];then
      #note that /sbin/pup_event_frontend_d will not run snapmergepuppy if installpkg.sh or downloadpkgs.sh are running.
      while [ "`pidof snapmergepuppy`" != "" ];do
@@ -501,12 +498,9 @@ if [ "$DIRECTSAVEPATH" != "" ];then
   fi
  done
  #now re-evaluate all the layers...
- if [ "`lsmod | grep '^aufs' `" != "" ];then #100426
-  busybox mount -t aufs -o remount,udba=reval unionfs / #remount with faster evaluation mode.
-  [ $? -ne 0 ] && logger -s -t "installpkg.sh" "Failed to remount aufs / with udba=reval"
- else
-  mount -t unionfs -o remount,incgen unionfs /
- fi
+ busybox mount -t aufs -o remount,udba=reval unionfs / #remount with faster evaluation mode.
+ [ $? -ne 0 ] && logger -s -t "installpkg.sh" "Failed to remount aufs / with udba=reval"
+
  sync
 fi
 
