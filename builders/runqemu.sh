@@ -6,4 +6,4 @@ QEMU=qemu-system-x86_64
 ! type $QEMU > /dev/null && echo "Sorry I can't find qemu" && exit
 
 [ "$REDIR" ] && REDIR="-redir tcp:$REDIR_PORT::22"
-$QEMU -vga $VGA_TYPE -enable-kvm -m 1024 $REDIR -cdrom iso/puppy.iso
+$QEMU -sdl -vga $VGA_TYPE -enable-kvm -m 1024 $REDIR -cdrom iso/puppy.iso
