@@ -30,7 +30,10 @@ done
 echo MIME database setup
 chroot . /usr/bin/update-mime-database /usr/share/mime 2>/dev/null
 echo Gdk pixbuf loaders setup
+chroot . /usr/bin/gdk-pixbuf-query-loaders --update-cache 2>/dev/null
 chroot . /$(echo usr/lib/*/*/gdk-pixbuf-query-loaders) --update-cache 2>/dev/null
+echo Pango modules setup
+chroot . /usr/bin/pango-querymodules --update-cache 2>/dev/null
 echo Create udev hardware database
 chroot . /sbin/udevadm hwdb --update 2>/dev/null
 
