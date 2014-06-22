@@ -102,7 +102,7 @@ if [ $PUPMODE -eq 3 -o $PUPMODE -eq 7 -o $PUPMODE -eq 13 ]; then
       <label>$(gettext 'Install directly to savefile/savefolder/savepartition')</label>
     </radiobutton>
     <text>
-      <label>$(gettext "It's strongly recommended to save the session when you finish installing/uninstalling the package(s). It's because some important system files are still being modified only at tmpfs level.")</label>
+      <label>$(gettext "It's strongly recommended to save the session when you finish (un)installing the package(s), because some important system files are still being modified only at tmpfs level.")</label>
     </text>
     <radiobutton>
       <variable>varIMODE_tmpfs</variable>
@@ -110,7 +110,7 @@ if [ $PUPMODE -eq 3 -o $PUPMODE -eq 7 -o $PUPMODE -eq 13 ]; then
       <label>$(gettext 'Install to tmpfs (memory)')</label>
     </radiobutton>
     <text>
-      <label>$(gettext "Keep in mind that if you're low on RAM and want to install many large packages, all available memory may fill up quickly, so, in order to free it up, reboot will be necessary (saving the session is not enough).")</label>
+      <label>$(gettext "If you're low on RAM and try to install many large packages, available memory may be insufficient and, in order to free it up, reboot will be necessary (saving the session is not enough). Also note that if there's not enough free space in the savefile, some of files may not get copied from tmpfs -> savefile, while saving the session.")</label>
     </text>
   </frame>"
 fi
