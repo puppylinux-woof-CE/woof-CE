@@ -27,6 +27,7 @@ fi
 # read config
 [ -f ./build.conf ] && . ./build.conf
 
+FW_URL=${FW_URL:-http://distro.ibiblio.org/puppylinux/firmware}
 package_name_suffix=$package_name_suffix
 custom_suffix=$custom_suffix
 kernel_version=$kernel_version
@@ -406,12 +407,44 @@ echo "aufs-util-$kernel_version is in dist"
 cd ..
 if [ "$FD" = "1" ];then #shift aufs-utils to kernel-modules.sfs
 	echo "Installing aufs-utils into kernel package"
-	cp -a --remove-destination dist/packages/aufs-util-$kernel_version-$arch/* dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix
-	echo "Pausing here, pending a better method, to add extra firmware"
-	echo "once you have manually added firmware to "
-	echo "dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix/lib/firmware"
-	echo "hit ENTER to continue"
-	read firm
+	cp -a --remove-destination dist/packages/aufs-util-$kernel_version-$arch/* \
+	dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix
+	echo "Pausing hereto add extra firmware."
+	echo "Choose an option:"
+	# download the fw or offer to copy
+	tmpfw=/tmp/fw$$
+	x=1
+	wget -q $FW_URL -O - |\
+        sed '/href/!d; /\.tar\./!d; /md5\.txt/d; s/.*href="//; s/".*//' |\
+        while read f;do
+             [ "$f" ] && echo "$x $f" >> ${tmpfw}
+             x=$(($x + 1 ))
+        done
+    y=`cat ${tmpfw}|wc -l `
+    [ "$y" = 0 ] && echo "error, no firmware at that URL" && exit 1
+    x=$(($x + $y))
+    echo "$x I'll copy in my own." >> ${tmpfw}
+    cat ${tmpfw}
+    echo -n "Enter a number, 1 to $x:  "
+    read fw
+    if [ "$fw" -gt "$x" ];then "error, wrong number" && exit
+	elif [ "$fw" = "$x" ];then
+		echo "once you have manually added firmware to "
+		echo "dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix/lib/firmware"
+		echo "hit ENTER to continue"
+		read firm
+	else
+		fw_pkg=`grep ^$fw ${tmpfw}`
+		fw_pkg=${fw_pkg##* }
+		echo "You chose ${fw_pkg}. If that isn't correct change it manually later."
+		echo "downloading $FW_URL/${fw_pkg}"
+		wget -t0 -c $FW_URL/${fw_pkg} -P dist/packages
+		[ $? -ne 0 ] && echo "failed to download ${fw_pkg##* }" && exit 1
+		tar -xjf dist/packages/${fw_pkg} -C dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix/lib/
+		[ $? -ne 0 ] && echo "failed to unpack ${fw_pkg}" && exit 1
+		echo "Successfully extracted ${fw_pkg}."
+	fi
+	rm ${tmpfw}
 	mksquashfs dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix dist/packages/kernel-modules.sfs-$kernel_major_version-$package_name_suffix $COMP
 	[ "$?" = 0 ] && echo "Huge compatible kernel packages are ready to package./" || exit 1
 	echo "Packaging huge-$kernel_major_version-$package_name_suffix kernel"
