@@ -2,7 +2,7 @@
 #rootfs-skeleton post-install script
 #
 
-exec 2>/dev/null # comment to debug
+#exec 2>/dev/null # comment to enable debug output
 echo "Configuring Puppy skeleton..."
 # tasks that used to be done by merge2out: cleanup, set permissions, missing dirs
 
@@ -39,6 +39,13 @@ if ! [ -x usr/local/apps/ROX-Filer/ROX-Filer ] &&
 		ln -s /usr/local/apps/ROX-Filer/ROX/MIME $ROXMIME
 	fi
 fi
+
+# create puppy icons
+source=usr/local/lib/X11/themes/StandardSvg
+target=usr/local/lib/X11/pixmaps
+for p in $(ls $source); do
+	chroot . /usr/bin/rsvg-convert -w 48 -h 48 /$source/$p > $target/${p%.svg}48.png
+done
 
 # rename -puppy scripts to original names
 find . -name "*-puppy" | grep -vE "set-time-for-puppy" | while read -r p; do

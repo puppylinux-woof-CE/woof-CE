@@ -145,12 +145,13 @@ EXTRAPKG_PATH="\$WOOFCE/woof-code/rootfs-packages"
 . ./repo-url 
 
 # debian/ubuntu only
-APT_SOURCES_DIR=\${CHROOT_DIR}/etc/apt/sources.list.d
-APT_PKGDB_DIR=\${CHROOT_DIR}/var/lib/apt/lists
+APT_SOURCES_DIR=/etc/apt/sources.list.d
+APT_PKGDB_DIR=/var/lib/apt/lists
 
 # slackware only
 INSTALLPKG=./installpkg
 REMOVEPKG=./removepkg
+SLAPTGET_PKGDB=/etc/slapt-get/slapt-getrc
 
 ### for ISO builder ###
 PUPPY_SFS=puppy.sfs   # if you change this, change %makesfs params in basesfs too

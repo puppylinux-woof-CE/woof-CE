@@ -124,14 +124,13 @@ function fixdepends(s) {
 /^$/            { print PKG "|" PKGVER "|" PKGFILE "|" repo_url "/" PKGPATH "|" PKGPRIO "|" PKGSECTION "|" PKGMD5 "|" PKGDEP ;
                   PKG=""; PKGVER=""; PKGFILE=""; PKGPATH=""; PKGPRIO=""; PKGSECTION=""; PKGMD5="";  PKGDEP=""; }
 '
+			# remove duplicates, use the "later" version if duplicate packages are found
+			< $REPO_DIR/$LOCAL_PKGDB > /tmp/t.$$ \
+			awk -F"|" '{if (!a[$1]) b[n++]=$1; a[$1]=$0} END {for (i=0;i<n;i++) {print a[b[i]]}}'
+			mv /tmp/t.$$ $REPO_DIR/$LOCAL_PKGDB
 		fi
 		if [ -z "$WITH_APT_DB" ] || [ $DRY_RUN ]; then rm -f $CHROOT_DIR/APT_PKGDB_DIR/"$apt_pkgdb"; fi
 	done
-
-	# remove duplicates, use the "later" version if duplicate packages are found
-	< $REPO_DIR/$LOCAL_PKGDB > /tmp/t.$$ \
-	awk -F"|" '{if (!a[$1]) b[n++]=$1; a[$1]=$0} END {for (i=0;i<n;i++) {print a[b[i]]}}'
-	mv /tmp/t.$$ $REPO_DIR/$LOCAL_PKGDB
 }
 
 # $*-repos, format: url|version|sections|pkgdb
