@@ -17,6 +17,7 @@ chmod 0500 usr/lib/cups/backend/*
 # symlinks
 rm -rf run; ln -s tmp run # make /run is symlink to /tmp, always
 ln -sf bash bin/sh        # ensure that default shell is *always* bash
+! [ -f usr/bin/rxvt ] && ln -sf xterm usr/bin/rxvt
 
 # last few steps
 # update dynamic databases we didn't setup earlier
