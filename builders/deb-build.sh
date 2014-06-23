@@ -52,7 +52,7 @@ cleanup() {
 
 ### prepare critical dirs
 prepare_dirs() {
-	rm -rf $CHROOT_DIR 
+	rm -rf $CHROOT_DIR
 	mkdir -p $REPO_DIR $CHROOT_DIR $CHROOT_DIR/$APT_SOURCES_DIR $CHROOT_DIR/$APT_PKGDB_DIR
 	for p in info parts alternatives methods updates; do
 		mkdir -p $CHROOT_DIR/$ADMIN_DIR/$p
@@ -212,12 +212,13 @@ cutdown() {
 					mkdir -p $CHROOT_DIR/usr/share/man/man${p}
 				done ;;
 			nls)
-				mkdir -p $NLS_DIR/usr/share/locale
+				rm -rf $NLS_DIR; mkdir -p $NLS_DIR/usr/share/locale
 				for p in $(ls $CHROOT_DIR/usr/share/locale); do
 					[ $p != en ] && mv $CHROOT_DIR/usr/share/locale/$p $NLS_DIR/usr/share/locale
 				done ;;
 			dev)
 				# recreates dir structure, move headers and static libs to devx dir
+				rm -rf $DEVX_DIR
 				find $CHROOT_DIR -type d | sed "s|$CHROOT_DIR|$DEVX_DIR|" | xargs mkdir -p
 				rm -rf $DEVX_DIR/usr/include; mv $CHROOT_DIR/usr/include $DEVX_DIR/usr
 				find $CHROOT_DIR -name "*.a" -type f | while read -r pp; do
