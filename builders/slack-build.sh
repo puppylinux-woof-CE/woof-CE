@@ -7,8 +7,8 @@
 
 ### end-user configuration
 PKGLIST=${PKGLIST:-pkglist}
-ARCH=${ARCH:-slackware} # or slackware64
-VERSION=${VERSION:-14.1}
+ARCH=${ARCH:-x86} # or x86_64
+VERSION=${VERSION:-slackware-14.1}
 DISTRO_PREFIX=${DISTRO_PREFIX:-puppy}
 DISTRO_VERSION=${DISTRO_VERSION:-700} # informative only
 
@@ -24,9 +24,11 @@ BASE_CODE_PATH=${ROOTFS_BASE:-rootfs-skeleton}
 # BASE_ARCH_PATH= # inherit - arch-specific base files, can be empty
 EXTRAPKG_PATH=${EXTRAPKG_PATH:-rootfs-packages}
 
+SLAPTGET_PKGDB=/etc/slapt-get/slapt-getrc
+
 ### system-configuration, don't change
 LANG=C
-REPO_PKGDB_URL="%repo_url%/${ARCH}-%version%/%repo%/%repo_pkgdb%"
+REPO_PKGDB_URL="%repo_url%/%version%/%repo%/%repo_pkgdb%"
 LOCAL_PKGDB=pkgdb
 ADMIN_DIR=/var/log/packages
 TRACKER=/tmp/tracker.$$
@@ -50,6 +52,20 @@ prepare_dirs() {
 	for p in packages removed_packages removed_scripts scripts setup/tmp; do
 		mkdir -p $CHROOT_DIR/var/log/$p
 	done
+	
+	# prepare slapt-getrc template
+	mkdir -p $CHROOT_DIR/${SLAPTGET_PKGDB%/*}
+	> $CHROOT_DIR/${SLAPTGET_PKGDB} << EOF
+# Working directory for local storage/cache.
+WORKINGDIR=/var/slapt-get
+
+# Exclude package names and expressions.
+# To exclude pre and beta packages, add this to the exclude: 
+#   [0-9\_\.\-]{1}pre[0-9\-\.\-]{1}
+#EXCLUDE=^aaa_elflibs,^devs,^glibc-.*,^kernel-.*,^udev,.*-[0-9]+dl$,x86_64,i[3456]86
+EXCLUDE=^aaa-.*,^${DISTRO_PREFIX}-base,^${DISTRO_PREFIX}-base-arch,^glibc$
+
+EOF
 	> $TRACKER
 }
 
@@ -74,6 +90,9 @@ add_repo() {
 			fi
 		fi
 
+		# add sources to SLAPTGET_PKGDB
+		[ -z "$DRY_RUN" ] && echo "SOURCE=${pkgdb_url%/*/*}:OFFICIAL" >> $CHROOT_DIR/$SLAPTGET_PKGDB
+		
 		if ! grep -F -m1 -q "$MARKER" $REPO_DIR/$LOCAL_PKGDB 2>/dev/null; then	
 			echo Processing database for "$2 $p" ...
 			echo "$MARKER" >> $REPO_DIR/$LOCAL_PKGDB
@@ -81,7 +100,7 @@ add_repo() {
 			# format: pkg|pkgver|pkgfile|pkgpath|pkgprio|pkgsection|pkgmd5|pkgdep
 			>> $REPO_DIR/$LOCAL_PKGDB \
 			< "$REPO_DIR/$localdb" \
-			awk -v repo_url="${1}/$ARCH-$VERSION/$p" -v section=$p '
+			awk -v repo_url="${1}/$VERSION/$p" -v section=$p '
 /\.t.z$/ {
 	PKGMD5=$1; 
 	sub(/\.\//,"",$2); PKGPATH=$2; 

@@ -26,8 +26,8 @@ BASE_CODE_PATH=${ROOTFS_BASE:-rootfs-skeleton}
 # BASE_ARCH_PATH= # inherit - arch-specific base files, can be empty
 EXTRAPKG_PATH=${EXTRAPKG_PATH:-rootfs-packages}
 
-APT_SOURCES_DIR=${CHROOT_DIR}/etc/apt/sources.list.d
-APT_PKGDB_DIR=${CHROOT_DIR}/var/lib/apt/lists
+APT_SOURCES_DIR=/etc/apt/sources.list.d
+APT_PKGDB_DIR=/var/lib/apt/lists
 
 ### system-configuration, don't change
 LANG=C
@@ -51,7 +51,7 @@ cleanup() {
 ### prepare critical dirs
 prepare_dirs() {
 	rm -rf $CHROOT_DIR 
-	mkdir -p $REPO_DIR $CHROOT_DIR $APT_SOURCES_DIR $APT_PKGDB_DIR
+	mkdir -p $REPO_DIR $CHROOT_DIR $CHROOT_DIR/$APT_SOURCES_DIR $CHROOT_DIR/$APT_PKGDB_DIR
 	for p in info parts alternatives methods updates; do
 		mkdir -p $CHROOT_DIR/$ADMIN_DIR/$p
 	done
@@ -90,21 +90,21 @@ add_repo() {
 		fi
 
 		# add apt sources and database
-		echo "deb $1 $2 $p" > $APT_SOURCES_DIR/"$apt_source"
+		echo "deb $1 $2 $p" > $CHROOT_DIR/$APT_SOURCES_DIR/"$apt_source"
 		[ $WITH_APT_DB ] && echo Copying "$p $1" database for apt ...
 		case $4 in
 			*gz)  gunzip -c  $REPO_DIR/$localdb ;;
 			*bz2) bunzip2 -c $REPO_DIR/$localdb ;;
 			*xz)  unxz -c    $REPO_DIR/$localdb ;;
 			*)    cat        $REPO_DIR/$localdb ;;
-		esac > $APT_PKGDB_DIR/"$apt_pkgdb"
+		esac > $CHROOT_DIR/$APT_PKGDB_DIR/"$apt_pkgdb"
 
 		if ! grep -F -m1 -q "$MARKER" $REPO_DIR/$LOCAL_PKGDB 2>/dev/null; then	
 			echo Processing database for "$2 $p" ...
 			echo "$MARKER" >> $REPO_DIR/$LOCAL_PKGDB
 			# awk version is 10x faster than bash/ash/dash version, even with LANG=C
 			# format: pkg|pkgver|pkgfile|pkgpath|pkgprio|pkgsection|pkgmd5|pkgdep			
-			< $APT_PKGDB_DIR/"$apt_pkgdb" >> $REPO_DIR/$LOCAL_PKGDB \
+			< $CHROOT_DIR/$APT_PKGDB_DIR/"$apt_pkgdb" >> $REPO_DIR/$LOCAL_PKGDB \
 			awk -v repo_url="$1" '
 function fixdepends(s) {
 	split(s,a,","); s="";
@@ -125,7 +125,7 @@ function fixdepends(s) {
                   PKG=""; PKGVER=""; PKGFILE=""; PKGPATH=""; PKGPRIO=""; PKGSECTION=""; PKGMD5="";  PKGDEP=""; }
 '
 		fi
-		if [ -z "$WITH_APT_DB" ] || [ $DRY_RUN ]; then rm -f $APT_PKGDB_DIR/"$apt_pkgdb"; fi
+		if [ -z "$WITH_APT_DB" ] || [ $DRY_RUN ]; then rm -f $CHROOT_DIR/APT_PKGDB_DIR/"$apt_pkgdb"; fi
 	done
 
 	# remove duplicates, use the "later" version if duplicate packages are found

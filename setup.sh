@@ -103,10 +103,17 @@ map_target_arch() { # as needed to meet source distro name
 				x86)    MAPPED_ARCH=i386 ;;
 				x86_64) MAPPED_ARCH=amd64 ;;
 			esac ;;
-		slackware)
+		*)
+			MAPPED_ARCH=$TARGET_ARCH ;;
+	esac
+}
+
+map_version() { # as needed to meet source distro name
+	case $SOURCE in
+		slackware) # this is specific for mirrors.slackware.com, others may differ
 			case $TARGET_ARCH in
-				x86)    MAPPED_ARCH=slackware ;;
-				x86_64) MAPPED_ARCH=slackware64 ;;
+				x86)    VERSION=slackware-$VERSION ;;
+				x86_64) VERSION=slackware64-$VERSION ;;
 			esac ;;
 	esac
 }
@@ -201,6 +208,7 @@ get_target_arch
 get_source_distro
 get_kernel
 map_target_arch
+map_version
 prepare_work_dir
 confirmation
 exit
