@@ -22,6 +22,8 @@ DEFAULT_REPOS=${REPO_URLS:-http://archive.ubuntu.com/ubuntu|$VERSION|main:univer
 # dirs
 REPO_DIR=${REPO_DIR:-repo-$VERSION-$ARCH}
 CHROOT_DIR=${CHROOT_DIR:-chroot-$VERSION-$ARCH}
+DEVX_DIR=${DEVX_DIR:-devx-holder}
+NLS_DIR=${NLS_DIR:-nls-holder}
 BASE_CODE_PATH=${ROOTFS_BASE:-rootfs-skeleton}
 # BASE_ARCH_PATH= # inherit - arch-specific base files, can be empty
 EXTRAPKG_PATH=${EXTRAPKG_PATH:-rootfs-packages}
@@ -31,7 +33,7 @@ APT_PKGDB_DIR=/var/lib/apt/lists
 
 ### system-configuration, don't change
 LANG=C
-REPO_PKGDB_URL="%repo_url%/dists/%version%/%repo%/binary-${ARCH}/%repo_pkgdb%"
+REPO_PKGDB_URL="%repo_url%/dists/%version%/%repo%/binary-%arch/%repo_pkgdb%"
 LOCAL_PKGDB=pkgdb
 ADMIN_DIR=/var/lib/dpkg
 TRACKER=/tmp/tracker.$$
@@ -50,7 +52,7 @@ cleanup() {
 
 ### prepare critical dirs
 prepare_dirs() {
-	rm -rf $CHROOT_DIR 
+	rm -rf $CHROOT_DIR
 	mkdir -p $REPO_DIR $CHROOT_DIR $CHROOT_DIR/$APT_SOURCES_DIR $CHROOT_DIR/$APT_PKGDB_DIR
 	for p in info parts alternatives methods updates; do
 		mkdir -p $CHROOT_DIR/$ADMIN_DIR/$p
@@ -73,7 +75,7 @@ add_repo() {
 	for p in $(echo $3|tr ':' ' '); do
 		MARKER="### $2-$p-$1 ###" 
 		localdb=$2-$p-$4
-		pkgdb_url="$(echo $REPO_PKGDB_URL | sed "s|%repo_url%|$1|; s|%version%|$2|; s|%repo%|$p|; s|%repo_pkgdb%|$4|;")"
+		pkgdb_url="$(echo $REPO_PKGDB_URL | sed "s|%repo_url%|$1|; s|%version%|$2|; s|%repo%|$p|; s|%repo_pkgdb%|$4|; s|%arch|$ARCH|")"
 		apt_pkgdb="$(echo "$pkgdb_url" | sed 's|^http.*://||; s|^file:///||; s|/|_|g; s|\..z$||; s|\.bz2$||;')"
 		apt_source="$2-$p.list"
 
@@ -124,14 +126,13 @@ function fixdepends(s) {
 /^$/            { print PKG "|" PKGVER "|" PKGFILE "|" repo_url "/" PKGPATH "|" PKGPRIO "|" PKGSECTION "|" PKGMD5 "|" PKGDEP ;
                   PKG=""; PKGVER=""; PKGFILE=""; PKGPATH=""; PKGPRIO=""; PKGSECTION=""; PKGMD5="";  PKGDEP=""; }
 '
+			# remove duplicates, use the "later" version if duplicate packages are found
+			< $REPO_DIR/$LOCAL_PKGDB > /tmp/t.$$ \
+			awk -F"|" '{if (!a[$1]) b[n++]=$1; a[$1]=$0} END {for (i=0;i<n;i++) {print a[b[i]]}}'
+			mv /tmp/t.$$ $REPO_DIR/$LOCAL_PKGDB
 		fi
 		if [ -z "$WITH_APT_DB" ] || [ $DRY_RUN ]; then rm -f $CHROOT_DIR/APT_PKGDB_DIR/"$apt_pkgdb"; fi
 	done
-
-	# remove duplicates, use the "later" version if duplicate packages are found
-	< $REPO_DIR/$LOCAL_PKGDB > /tmp/t.$$ \
-	awk -F"|" '{if (!a[$1]) b[n++]=$1; a[$1]=$0} END {for (i=0;i<n;i++) {print a[b[i]]}}'
-	mv /tmp/t.$$ $REPO_DIR/$LOCAL_PKGDB
 }
 
 # $*-repos, format: url|version|sections|pkgdb
@@ -196,19 +197,42 @@ cutdown() {
 	[ "$1" = "all" ] && options="doc gtkdoc locales cache man"
 	for p in $options; do
 		case $p in
-			doc)     rm -rf $CHROOT_DIR/usr/share/doc 
-					 mkdir $CHROOT_DIR/usr/share/doc ;;
-			gtkdoc)  rm -rf $CHROOT_DIR/usr/share/gtk-doc 
-					 mkdir $CHROOT_DIR/usr/share/gtk-doc ;;
-			locales) for p in $(ls $CHROOT_DIR/usr/share/locale); do
-					     [ $p != en ] && rm -rf $CHROOT_DIR/usr/share/locale/$p
-					 done ;;
-			cache)   find $CHROOT_DIR -name icon-theme.cache -delete ;;
-			man)     rm -rf $CHROOT_DIR/usr/share/man $CHROOT_DIR/usr/share/info
-					 mkdir $CHROOT_DIR/usr/share/info
-					 for p in $(seq 1 8); do
-						mkdir -p $CHROOT_DIR/usr/share/man/man${p}
-					 done ;;
+			doc)
+				rm -rf $CHROOT_DIR/usr/share/doc $CHROOT_DIR/usr/doc
+				mkdir $CHROOT_DIR/usr/share/doc $CHROOT_DIR/usr/doc ;;
+			gtkdoc)
+				rm -rf $CHROOT_DIR/usr/share/gtk-doc
+				mkdir $CHROOT_DIR/usr/share/gtk-doc ;;
+			cache)
+				find $CHROOT_DIR -name icon-theme.cache -delete ;;
+			man)
+				rm -rf $CHROOT_DIR/usr/share/man $CHROOT_DIR/usr/share/info
+				mkdir $CHROOT_DIR/usr/share/info
+				for p in $(seq 1 8); do
+					mkdir -p $CHROOT_DIR/usr/share/man/man${p}
+				done ;;
+			nls)
+				rm -rf $NLS_DIR; mkdir -p $NLS_DIR/usr/share/locale $NLS_DIR/usr/lib/locale
+				for p in $(ls $CHROOT_DIR/usr/share/locale); do
+					[ $p != en ] && mv $CHROOT_DIR/usr/share/locale/$p $NLS_DIR/usr/share/locale
+				done
+				for p in $(ls $CHROOT_DIR/usr/lib/locale); do
+					case $p in
+						en_US|en_AU|en_US.*|en_AU.*|C|C.*) ;; # skip
+						*) mv $CHROOT_DIR/usr/lib/locale/$p $NLS_DIR/usr/lib/locale
+					esac
+				done ;;
+			dev)
+				# recreates dir structure, move headers and static libs to devx dir
+				rm -rf $DEVX_DIR
+				find $CHROOT_DIR -type d | sed "s|$CHROOT_DIR|$DEVX_DIR|" | xargs mkdir -p
+				rm -rf $DEVX_DIR/usr/include; mv $CHROOT_DIR/usr/include $DEVX_DIR/usr
+				find $CHROOT_DIR -name "*.a" -type f | while read -r pp; do
+					mv $pp $DEVX_DIR/${pp#$CHROOT_DIR/}
+				done
+
+				# clean up empty dirs
+				find $DEVX_DIR -type d | sort -r | xargs rmdir 2>/dev/null ;;
 		esac
 	done
 }
@@ -286,6 +310,14 @@ install_from_dir() {
 	rm -f $CHROOT_DIR/pinstall.sh
 	update_pkg_status "$pkgname" "required" "$3" "1.0" ""
 	return 0
+}
+
+# $@ dirs to import
+import_dir() {
+	while [ "$1" ]; do
+		[ -d "$1" ] && echo "Importing $1 ..." && cp -a "$1"/* $CHROOT_DIR
+		shift
+	done
 }
 
 ###
@@ -402,7 +434,7 @@ flatten_pkglist() {
 			%exit) break ;;
 			%include)
 				[ "$2" ] && flatten_pkglist "$2" ;;
-			%dpkg|%dpkgchroot|%bootstrap|%bblinks|%makesfs|%remove|%addbase|%addpkg|%dummy|%dpkg_configure|%lock|%cutdown)
+			%dpkg|%dpkgchroot|%bootstrap|%bblinks|%makesfs|%remove|%addbase|%addpkg|%dummy|%dpkg_configure|%lock|%cutdown|%import)
 				echo "$pp" ;;
 			%depend)
 				track_dependency() { list_dependency; } ;;
@@ -504,6 +536,9 @@ process_pkglist() {
 			%cutdown)
 				shift # $@ various cutdown options
 				cutdown "$@" ;;
+			%import)
+				shift # $@ dirs to import
+				import_dir "$@" ;;
 			*)  # anything else
 				get_pkg_info $p
 				[ -z "$PKG" ] && echo Cannot find ${p}. && continue
@@ -526,8 +561,16 @@ sanity_check() {
 	fi
 }
 
+params() {
+	case "$1" in
+		--help|-h) echo "Usage: ${0##*/} [--help|-h|pkglist]" && exit ;;
+		"") ;;
+		*) PKGLIST="$1"
+	esac
+}
 
 ### main
+params "$@"
 sanity_check
 prepare_dirs
 add_multiple_repos $DEFAULT_REPOS
