@@ -7,14 +7,12 @@
 
 ### end-user configuration
 PKGLIST=${PKGLIST:-pkglist}
-ARCH=${ARCH:-slackware} # or slackware64
-VERSION=${VERSION:-14.1}
+ARCH=${ARCH:-x86} # or x86_64
+VERSION=${VERSION:-slackware-14.1}
 DISTRO_PREFIX=${DISTRO_PREFIX:-puppy}
 DISTRO_VERSION=${DISTRO_VERSION:-700} # informative only
 
-REPO_URL=${REPO_URL:-http://mirrors.slackware.com/slackware}
-REPO_PKGDB=${REPO_PKGDB:-CHECKSUMS.md5}
-REPO_SECTIONS=${REPO_SECTIONS:-"slackware extra"}
+DEFAULT_REPOS=${REPO_URLS:-http://mirrors.slackware.com/slackware|$VERSION|slackware:extra|CHECKSUMS.md5}
 
 INSTALLPKG=${INSTALLER:-installpkg}
 REMOVEPKG=${INSTALLER:-removepkg}
@@ -26,9 +24,11 @@ BASE_CODE_PATH=${ROOTFS_BASE:-rootfs-skeleton}
 # BASE_ARCH_PATH= # inherit - arch-specific base files, can be empty
 EXTRAPKG_PATH=${EXTRAPKG_PATH:-rootfs-packages}
 
+SLAPTGET_PKGDB=/etc/slapt-get/slapt-getrc
+
 ### system-configuration, don't change
 LANG=C
-REPO_PKGDB_URL="%repo_url%/${ARCH}-%version%/%repo%/%repo_pkgdb%"
+REPO_PKGDB_URL="%repo_url%/%version%/%repo%/%repo_pkgdb%"
 LOCAL_PKGDB=pkgdb
 ADMIN_DIR=/var/log/packages
 TRACKER=/tmp/tracker.$$
@@ -52,6 +52,20 @@ prepare_dirs() {
 	for p in packages removed_packages removed_scripts scripts setup/tmp; do
 		mkdir -p $CHROOT_DIR/var/log/$p
 	done
+	
+	# prepare slapt-getrc template
+	mkdir -p $CHROOT_DIR/${SLAPTGET_PKGDB%/*}
+	> $CHROOT_DIR/${SLAPTGET_PKGDB} << EOF
+# Working directory for local storage/cache.
+WORKINGDIR=/var/slapt-get
+
+# Exclude package names and expressions.
+# To exclude pre and beta packages, add this to the exclude: 
+#   [0-9\_\.\-]{1}pre[0-9\-\.\-]{1}
+#EXCLUDE=^aaa_elflibs,^devs,^glibc-.*,^kernel-.*,^udev,.*-[0-9]+dl$,x86_64,i[3456]86
+EXCLUDE=^aaa-.*,^${DISTRO_PREFIX}-base,^${DISTRO_PREFIX}-base-arch,^glibc$
+
+EOF
 	> $TRACKER
 }
 
@@ -59,7 +73,7 @@ prepare_dirs() {
 # $REPO_DIR, $LOCAL_PKGDB, $1-url, $2-version, $3-repos-to-use, $4-pkgdb
 add_repo() {
 	local MARKER localdb pkgdb_url apt_pkgdb apt_source
-	for p in $3; do 
+	for p in $(echo $3|tr ':' ' '); do
 		MARKER="### $2-$p-$1 ###" 
 		localdb=$2-$p-$4
 		pkgdb_url="$(echo $REPO_PKGDB_URL | sed "s|%repo_url%|$1|; s|%version%|$2|; s|%repo%|$p|; s|%repo_pkgdb%|$4|;")"
@@ -76,14 +90,17 @@ add_repo() {
 			fi
 		fi
 
+		# add sources to SLAPTGET_PKGDB
+		[ -z "$DRY_RUN" ] && echo "SOURCE=${pkgdb_url%/*/*}:OFFICIAL" >> $CHROOT_DIR/$SLAPTGET_PKGDB
+		
 		if ! grep -F -m1 -q "$MARKER" $REPO_DIR/$LOCAL_PKGDB 2>/dev/null; then	
-			echo Processing database for "$p $1" ...
+			echo Processing database for "$2 $p" ...
 			echo "$MARKER" >> $REPO_DIR/$LOCAL_PKGDB
 			# awk version is 10x faster than bash/ash/dash version, even with LANG=C
 			# format: pkg|pkgver|pkgfile|pkgpath|pkgprio|pkgsection|pkgmd5|pkgdep
 			>> $REPO_DIR/$LOCAL_PKGDB \
 			< "$REPO_DIR/$localdb" \
-			awk -v repo_url="${1}/$ARCH-$VERSION/$p" -v section=$p '
+			awk -v repo_url="${1}/$VERSION/$p" -v section=$p '
 /\.t.z$/ {
 	PKGMD5=$1; 
 	sub(/\.\//,"",$2); PKGPATH=$2; 
@@ -100,6 +117,19 @@ add_repo() {
 }
 '
 		fi
+	done
+
+	# remove duplicates, use the "later" version if duplicate packages are found
+	< $REPO_DIR/$LOCAL_PKGDB > /tmp/t.$$ \
+	awk -F"|" '{if (!a[$1]) b[n++]=$1; a[$1]=$0} END {for (i=0;i<n;i++) {print a[b[i]]}}'
+	mv /tmp/t.$$ $REPO_DIR/$LOCAL_PKGDB
+}
+
+# $*-repos, format: url|version|sections|pkgdb
+add_multiple_repos() {
+	while [ "$1" ]; do
+		add_repo $(echo "$1" | tr '|' ' ')
+		shift
 	done
 }
 
@@ -140,6 +170,8 @@ download_pkg() {
 	return $retval
 }
 
+
+######## commands handler ########
 
 ###
 # $1-force PKGFILE PKG PKGVER PKGPRIO ARCH
@@ -238,6 +270,32 @@ padsfs() {
 	dd if=/dev/zero of="$1" bs=256K seek=$BLOCKS256K count=0
 }
 
+# $@-all, doc, gtkdoc, locales, cache
+cutdown() {
+	local options="$*"
+	[ "$1" = "all" ] && options="doc gtkdoc locales cache man"
+	for p in $options; do
+		case $p in
+			doc)     rm -rf $CHROOT_DIR/usr/share/doc $CHROOT_DIR/usr/doc 
+					 mkdir $CHROOT_DIR/usr/share/doc $CHROOT_DIR/usr/doc ;;
+			gtkdoc)  rm -rf $CHROOT_DIR/usr/share/gtk-doc 
+					 mkdir $CHROOT_DIR/usr/share/gtk-doc ;;
+			locales) for p in $(ls $CHROOT_DIR/usr/share/locale); do
+					     [ $p != en ] && rm -rf $CHROOT_DIR/usr/share/locale/$p
+					 done ;;
+			cache)   find $CHROOT_DIR -name icon-theme.cache -delete ;;
+			man)     rm -rf $CHROOT_DIR/usr/share/man $CHROOT_DIR/usr/share/info
+					 mkdir $CHROOT_DIR/usr/share/info
+					 for p in $(seq 1 8); do
+						mkdir -p $CHROOT_DIR/usr/share/man/man${p}
+					 done ;;
+		esac
+	done
+}
+
+
+######## pkglist parser ########
+
 ###
 # $1-pkglist, output std
 flatten_pkglist() {
@@ -251,7 +309,7 @@ flatten_pkglist() {
 			%exit) break ;;
 			%include)
 				[ "$2" ] && flatten_pkglist "$2" ;;
-			%bblinks|%makesfs|%remove|%addbase|%addpkg|%dummy)
+			%bblinks|%makesfs|%remove|%addbase|%addpkg|%dummy|%cutdown)
 				echo "$pp" ;;
 			%repo)
 				shift # $1-url $2-version $3-repos to use $4-pkgdb
@@ -325,6 +383,9 @@ process_pkglist() {
 			%dummy)
 				shift # $1-pkgname, pkgname ...
 				install_dummy "$@" ;;
+			%cutdown)
+				shift # $@ various cutdown options
+				cutdown "$@" ;;
 			*)  # anything else
 				get_pkg_info $p
 				[ -z "$PKG" ] && echo Cannot find ${p}. && continue
@@ -339,7 +400,7 @@ process_pkglist() {
 
 ### main
 prepare_dirs
-add_repo $REPO_URL $VERSION "$REPO_SECTIONS" $REPO_PKGDB
+add_multiple_repos $DEFAULT_REPOS
 echo Flattening $PKGLIST ...
 flatten_pkglist $PKGLIST > $FLATTEN
 if [ -z "$DRY_RUN" ]; then

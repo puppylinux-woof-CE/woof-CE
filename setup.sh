@@ -1,24 +1,37 @@
 #!/bin/sh
-# (C) James Budiono 2014 
+# Prepare build system.
+# Copyright (C) James Budiono 2014 
 # License: GNU GPL Version 3 or later.
 
 ### configuration
+#DONT_ASK=    # if set to 1, don't ask questions
 WORK_DIR=${WORK_DIR:-./workdir}
 HOST_ARCH=${HOST_ARCH:-$(uname -m)}
 #TARGET_ARCH= # inherit or ask
 #SOURCE=      # source distro - inherit or ask
 #VERSION=     # distro version - inherit or ask
 #CROSS=       # automatically set - currently cross-build is not supported yet
-#DONT_ASK=   # if set to 1, don't ask questions
+KERNEL_URL=${KERNEL_URL:-http://distro.ibiblio.org/puppylinux/huge_kernels}
+#KERNEL_TARBALL # inherit or ask
 
 ### helpers 
 
 sanity_check() {
+	case $1 in
+		--help|-help|-h) 
+			echo "Usage: ${0##*/} [workdir]"
+			echo "WORK_DIR environment will be used if [workdir] not specified".
+			echo "Otherwise 'workdir' will be used as default."
+			exit ;;
+		"") ;;
+		*)  WORK_DIR=$1 ;;
+	esac
+		
 	[ ! -d ./woof-arch ] && echo Missing woof-arch && exit
 	[ ! -d ./woof-code ] && echo Missing woof-code && exit
 	[ ! -d ./woof-distro ] && echo Missing woof-code && exit
 	if [ -e $WORK_DIR ]; then
-		echo "$WORK_DIR already exists, running this script again will obliterate it."
+		echo "'$WORK_DIR' already exists, running this script again will obliterate it."
 		printf "Continue? (yes/no) "; read p
 		case $p in
 			yes|YES|Yes) ;;
@@ -36,17 +49,15 @@ sanity_check() {
 #$1-prompt $2-output var $3 selection
 get_selection() {
 	[ "$DONT_ASK" ] && return
-	local inp p good
+	local choice p
 	while true; do
-		echo "$1"; echo "$3" | awk '{ print "-", $0 }'
-		printf "Enter your selection: "; read inp 
-		good=; for p in $3; do
-			[ $inp = $p ] && good=yes && break
-		done
-		[ $good ] && echo && break
-		printf "$inp is not one of the choices. Please try again.\n\n"
+		echo "$1"; echo "$3" | awk '{ print NR ")", $0 }'
+		printf "Enter your selection: "; read choice
+		choice=$(echo "$3" | awk -v choice=$choice 'NR==choice {print $0}')
+		[ "$choice" ] && echo && break
+		printf "Bad selection. Please try again.\n\n"
 	done
-	eval $2=$inp
+	eval $2=\"$choice\"
 }
 
 get_target_arch() {
@@ -63,6 +74,28 @@ get_source_distro() {
 	# echo $SOURCE
 }
 
+get_kernel() {
+	local p
+	# handle mirror selection later
+	
+	# prepare filters
+	case $TARGET_ARCH in
+		x86) filter="/-$TARGET_ARCH\./p; /-i.86\./p;" ;;
+		*)   filter="/-$TARGET_ARCH\./p;" ;;
+	esac
+	p=${KERNEL_URL##*//}; p=${p%%/*}
+	echo Getting list of available kernels from $p ...
+	kernels=$(wget -q -O - $KERNEL_URL | 
+	          sed '/href/!d; /\.tar\./!d; /md5\.txt/d; s/.*href="//; s/".*//' |
+	          sed -n "$filter")
+	get_selection "Please select kernel" KERNEL_TARBALL "$kernels $(printf "\nI will build my own later.")"
+	
+	case "$KERNEL_TARBALL" in
+		*.tar.*) ;;
+		*) KERNEL_URL="" KERNEL_TARBALL="" ;; # self-build - clear the variables
+	esac
+}
+
 map_target_arch() { # as needed to meet source distro name
 	case $SOURCE in
 		ubuntu|debian)
@@ -70,18 +103,23 @@ map_target_arch() { # as needed to meet source distro name
 				x86)    MAPPED_ARCH=i386 ;;
 				x86_64) MAPPED_ARCH=amd64 ;;
 			esac ;;
-		slackware)
+		*)
+			MAPPED_ARCH=$TARGET_ARCH ;;
+	esac
+}
+
+map_version() { # as needed to meet source distro name
+	case $SOURCE in
+		slackware) # this is specific for mirrors.slackware.com, others may differ
 			case $TARGET_ARCH in
-				x86)    MAPPED_ARCH=slackware ;;
-				x86_64) MAPPED_ARCH=slackware64 ;;
+				x86)    VERSION=slackware-$VERSION ;;
+				x86_64) VERSION=slackware64-$VERSION ;;
 			esac ;;
 	esac
 }
 
 prepare_work_dir() {
-	echo "Cleaning out $WORK_DIR ..."
-	rm -rf $WORK_DIR; mkdir -p $WORK_DIR
-	
+	rm -rf $WORK_DIR; mkdir -p $WORK_DIR	
 	cat > $WORK_DIR/build.conf << EOF
 ### For SFS builders ###
 HOST_ARCH='$HOST_ARCH'
@@ -92,7 +130,7 @@ WOOFCE='$(pwd)'
 
 # Edit as needed. Commented section are defaults.
 ARCH='$MAPPED_ARCH'
-PKGLIST=pkglist
+PKGLIST=basesfs
 VERSION='$VERSION'
 #DISTRO_PREFIX=puppy
 #DISTRO_VERSION=700
@@ -103,7 +141,7 @@ BASE_CODE_PATH="\$WOOFCE/woof-code/rootfs-skeleton"
 BASE_ARCH_PATH="\$WOOFCE/woof-arch/\$TARGET_ARCH/target/rootfs-skeleton"
 EXTRAPKG_PATH="\$WOOFCE/woof-code/rootfs-packages"
 
-# loads REPO_URL, REPO_PKGDB, REPO_SECTIONS, WITH_APT_DB
+# loads DEFAULT_REPOS, WITH_APT_DB and other repository options
 . ./repo-url 
 
 # debian/ubuntu only
@@ -114,9 +152,9 @@ APT_PKGDB_DIR=\${CHROOT_DIR}/var/lib/apt/lists
 INSTALLPKG=./installpkg
 REMOVEPKG=./removepkg
 
-### for ISO builders ###
-PUPPY_SFS=puppy.sfs   # if you change this, change %makesfs params in pkglist too
-OUTPUT_DIR=iso        # if you change this, change %makesfs params in pkglist too
+### for ISO builder ###
+PUPPY_SFS=puppy.sfs   # if you change this, change %makesfs params in basesfs too
+OUTPUT_DIR=iso        # if you change this, change %makesfs params in basesfs too
 OUTPUT_ISO=puppy.iso
 ISO_ROOT=\$OUTPUT_DIR/iso-root
 
@@ -124,13 +162,16 @@ ISOLINUX_BIN="\$WOOFCE/woof-arch/x86/build/boot/isolinux.bin"
 ISOLINUX_CFG="\$WOOFCE/woof-code/boot/boot-dialog"
 INITRD_ARCH="\$WOOFCE/woof-arch/x86/target/boot/initrd-tree0"
 INITRD_CODE="\$WOOFCE/woof-code/boot/initrd-tree0"
+
+KERNEL_URL="$KERNEL_URL"
+KERNEL_TARBALL=$KERNEL_TARBALL
+
 EOF
 
 	ln -s $(pwd)/builders/$SOURCE-build.sh $WORK_DIR/build-sfs.sh
 	ln -s $(pwd)/builders/build-iso.sh $WORK_DIR/build-iso.sh
 	ln -s $(pwd)/builders/runqemu.sh $WORK_DIR/runqemu.sh
-	cp woof-distro/${TARGET_ARCH}/${SOURCE}/${VERSION}/pkglist $WORK_DIR
-	cp woof-distro/${TARGET_ARCH}/${SOURCE}/${VERSION}/repo-url $WORK_DIR
+	cp woof-distro/${TARGET_ARCH}/${SOURCE}/${VERSION}/* $WORK_DIR
 	
 	# distro-specific tools
 	case $SOURCE in
@@ -143,7 +184,7 @@ EOF
 
 confirmation() {
 	cat << EOF
-Directory $WORK_DIR has been prepare for your build.
+Directory '$WORK_DIR' has been prepare for your build.
 Your configuration is as follows:
 ---
 Host arch:      $HOST_ARCH
@@ -152,7 +193,7 @@ Source distro:  $SOURCE
 Source version: $VERSION
 Cross-build:    $([ $CROSS ] && echo yes || echo no)
 ---
-The default pkglist and repo-url has been copied to $WORK_DIR. 
+The default pkglist and repo-url has been copied to '$WORK_DIR'. 
 You can use these files as they are, or you can modify them 
 as you see fit.
 
@@ -162,10 +203,12 @@ EOF
 }
 
 ### main ###
-sanity_check
+sanity_check "$@"
 get_target_arch
 get_source_distro
+get_kernel
 map_target_arch
+map_version
 prepare_work_dir
 confirmation
 exit

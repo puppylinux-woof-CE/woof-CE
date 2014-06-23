@@ -192,6 +192,7 @@ fi
 #v2.11 GuestToo suggested this improvement...
 which $CURRENTWM && exec $CURRENTWM
 [ -x $CURRENTWM ] && exec $CURRENTWM
+jwm_menu_create
 exec jwm
 
 ###END###

@@ -16,9 +16,7 @@ VERSION=${VERSION:-trusty}
 DISTRO_PREFIX=${DISTRO_PREFIX:-puppy}
 DISTRO_VERSION=${DISTRO_VERSION:-700} # informative only
 
-REPO_URL=${REPO_URL:-http://archive.ubuntu.com/ubuntu}
-REPO_PKGDB=${REPO_PKGDB:-Packages.bz2}
-REPO_SECTIONS=${REPO_SECTIONS:-"main universe"}
+DEFAULT_REPOS=${REPO_URLS:-http://archive.ubuntu.com/ubuntu|$VERSION|main:universe|Packages.bz2}
 #WITH_APT_DB= # default is don't include apt-db
 
 # dirs
@@ -28,8 +26,8 @@ BASE_CODE_PATH=${ROOTFS_BASE:-rootfs-skeleton}
 # BASE_ARCH_PATH= # inherit - arch-specific base files, can be empty
 EXTRAPKG_PATH=${EXTRAPKG_PATH:-rootfs-packages}
 
-APT_SOURCES_DIR=${CHROOT_DIR}/etc/apt/sources.list.d
-APT_PKGDB_DIR=${CHROOT_DIR}/var/lib/apt/lists
+APT_SOURCES_DIR=/etc/apt/sources.list.d
+APT_PKGDB_DIR=/var/lib/apt/lists
 
 ### system-configuration, don't change
 LANG=C
@@ -53,7 +51,7 @@ cleanup() {
 ### prepare critical dirs
 prepare_dirs() {
 	rm -rf $CHROOT_DIR 
-	mkdir -p $REPO_DIR $CHROOT_DIR $APT_SOURCES_DIR $APT_PKGDB_DIR
+	mkdir -p $REPO_DIR $CHROOT_DIR $CHROOT_DIR/$APT_SOURCES_DIR $CHROOT_DIR/$APT_PKGDB_DIR
 	for p in info parts alternatives methods updates; do
 		mkdir -p $CHROOT_DIR/$ADMIN_DIR/$p
 	done
@@ -72,7 +70,7 @@ prepare_dirs() {
 # $REPO_DIR, $LOCAL_PKGDB, $1-url, $2-version, $3-repos-to-use, $4-pkgdb
 add_repo() {
 	local MARKER localdb pkgdb_url apt_pkgdb apt_source
-	for p in $3; do 
+	for p in $(echo $3|tr ':' ' '); do
 		MARKER="### $2-$p-$1 ###" 
 		localdb=$2-$p-$4
 		pkgdb_url="$(echo $REPO_PKGDB_URL | sed "s|%repo_url%|$1|; s|%version%|$2|; s|%repo%|$p|; s|%repo_pkgdb%|$4|;")"
@@ -92,21 +90,21 @@ add_repo() {
 		fi
 
 		# add apt sources and database
-		echo "deb $1 $2 $p" > $APT_SOURCES_DIR/"$apt_source"
+		echo "deb $1 $2 $p" > $CHROOT_DIR/$APT_SOURCES_DIR/"$apt_source"
 		[ $WITH_APT_DB ] && echo Copying "$p $1" database for apt ...
 		case $4 in
 			*gz)  gunzip -c  $REPO_DIR/$localdb ;;
 			*bz2) bunzip2 -c $REPO_DIR/$localdb ;;
 			*xz)  unxz -c    $REPO_DIR/$localdb ;;
 			*)    cat        $REPO_DIR/$localdb ;;
-		esac > $APT_PKGDB_DIR/"$apt_pkgdb"
+		esac > $CHROOT_DIR/$APT_PKGDB_DIR/"$apt_pkgdb"
 
 		if ! grep -F -m1 -q "$MARKER" $REPO_DIR/$LOCAL_PKGDB 2>/dev/null; then	
-			echo Processing database for "$p $1" ...
+			echo Processing database for "$2 $p" ...
 			echo "$MARKER" >> $REPO_DIR/$LOCAL_PKGDB
 			# awk version is 10x faster than bash/ash/dash version, even with LANG=C
 			# format: pkg|pkgver|pkgfile|pkgpath|pkgprio|pkgsection|pkgmd5|pkgdep			
-			< $APT_PKGDB_DIR/"$apt_pkgdb" >> $REPO_DIR/$LOCAL_PKGDB \
+			< $CHROOT_DIR/$APT_PKGDB_DIR/"$apt_pkgdb" >> $REPO_DIR/$LOCAL_PKGDB \
 			awk -v repo_url="$1" '
 function fixdepends(s) {
 	split(s,a,","); s="";
@@ -127,7 +125,20 @@ function fixdepends(s) {
                   PKG=""; PKGVER=""; PKGFILE=""; PKGPATH=""; PKGPRIO=""; PKGSECTION=""; PKGMD5="";  PKGDEP=""; }
 '
 		fi
-		if [ -z "$WITH_APT_DB" ] || [ $DRY_RUN ]; then rm -f $APT_PKGDB_DIR/"$apt_pkgdb"; fi
+		if [ -z "$WITH_APT_DB" ] || [ $DRY_RUN ]; then rm -f $CHROOT_DIR/APT_PKGDB_DIR/"$apt_pkgdb"; fi
+	done
+
+	# remove duplicates, use the "later" version if duplicate packages are found
+	< $REPO_DIR/$LOCAL_PKGDB > /tmp/t.$$ \
+	awk -F"|" '{if (!a[$1]) b[n++]=$1; a[$1]=$0} END {for (i=0;i<n;i++) {print a[b[i]]}}'
+	mv /tmp/t.$$ $REPO_DIR/$LOCAL_PKGDB
+}
+
+# $*-repos, format: url|version|sections|pkgdb
+add_multiple_repos() {
+	while [ "$1" ]; do
+		add_repo $(echo "$1" | tr '|' ' ')
+		shift
 	done
 }
 
@@ -179,6 +190,31 @@ download_pkg() {
 	return $retval
 }
 
+# $@-all, doc, gtkdoc, locales, cache
+cutdown() {
+	local options="$*"
+	[ "$1" = "all" ] && options="doc gtkdoc locales cache man"
+	for p in $options; do
+		case $p in
+			doc)     rm -rf $CHROOT_DIR/usr/share/doc 
+					 mkdir $CHROOT_DIR/usr/share/doc ;;
+			gtkdoc)  rm -rf $CHROOT_DIR/usr/share/gtk-doc 
+					 mkdir $CHROOT_DIR/usr/share/gtk-doc ;;
+			locales) for p in $(ls $CHROOT_DIR/usr/share/locale); do
+					     [ $p != en ] && rm -rf $CHROOT_DIR/usr/share/locale/$p
+					 done ;;
+			cache)   find $CHROOT_DIR -name icon-theme.cache -delete ;;
+			man)     rm -rf $CHROOT_DIR/usr/share/man $CHROOT_DIR/usr/share/info
+					 mkdir $CHROOT_DIR/usr/share/info
+					 for p in $(seq 1 8); do
+						mkdir -p $CHROOT_DIR/usr/share/man/man${p}
+					 done ;;
+		esac
+	done
+}
+
+
+######## commands handler ########
 
 ###
 # $1-force PKGFILE PKG PKGVER PKGPRIO ARCH
@@ -281,10 +317,19 @@ remove_pkg() {
 ###
 # $@-pkg to lock
 lock_pkg() {
-	while [ "$1" ]; do
-		echo "$1" hold
-		shift
-	done | dpkg --root=$CHROOT_DIR --admindir=$CHROOT_DIR/$ADMIN_DIR --set-selections
+	if [ $WITHOUT_DPKG ]; then
+		# dpkg-less lock method
+		while [ "$1" ]; do
+			sed -i -e "/^Package: ${1}\$/,/^$/ {/^Status:/ s/install/hold/}" "$CHROOT_DIR/$ADMIN_DIR/status"	
+			shift
+		done
+	else
+		# use dpkg to lock it
+		while [ "$1" ]; do
+			echo "$1" hold
+			shift
+		done | dpkg --root=$CHROOT_DIR --admindir=$CHROOT_DIR/$ADMIN_DIR --set-selections
+	fi
 }
 
 ### so that apt-get is happy
@@ -341,6 +386,9 @@ padsfs() {
 	dd if=/dev/zero of="$1" bs=256K seek=$BLOCKS256K count=0
 }
 
+
+######## pkglist parser ########
+
 ###
 # $1-pkglist, output std
 flatten_pkglist() {
@@ -354,7 +402,7 @@ flatten_pkglist() {
 			%exit) break ;;
 			%include)
 				[ "$2" ] && flatten_pkglist "$2" ;;
-			%dpkg|%dpkgchroot|%bootstrap|%bblinks|%makesfs|%remove|%addbase|%addpkg|%dummy|%dpkg_configure|%lock)
+			%dpkg|%dpkgchroot|%bootstrap|%bblinks|%makesfs|%remove|%addbase|%addpkg|%dummy|%dpkg_configure|%lock|%cutdown)
 				echo "$pp" ;;
 			%depend)
 				track_dependency() { list_dependency; } ;;
@@ -453,6 +501,9 @@ process_pkglist() {
 			%lock)
 				shift # $1-pkgname, pkgname ...
 				lock_pkg "$@" ;;
+			%cutdown)
+				shift # $@ various cutdown options
+				cutdown "$@" ;;
 			*)  # anything else
 				get_pkg_info $p
 				[ -z "$PKG" ] && echo Cannot find ${p}. && continue
@@ -475,10 +526,11 @@ sanity_check() {
 	fi
 }
 
+
 ### main
 sanity_check
 prepare_dirs
-add_repo $REPO_URL $VERSION "$REPO_SECTIONS" $REPO_PKGDB
+add_multiple_repos $DEFAULT_REPOS
 echo Flattening $PKGLIST ...
 flatten_pkglist $PKGLIST > $FLATTEN
 if [ -z "$DRY_RUN" ]; then

@@ -1,58 +1,52 @@
 #!/bin/sh
 #rootfs-skeleton post-install script
+#
 
+exec 2>/dev/null # comment to debug
 echo "Configuring Puppy skeleton..."
 # tasks that used to be done by merge2out: cleanup, set permissions, missing dirs
+
 # cleanup
 find . -name "*MARKER" -delete
 
 # set permissions and owners as needed
-chmod 1777 tmp 
-chmod 777 archive
+chmod 1777 tmp archive
+chown 0755 usr/lib/cups/backend usr/lib/cups/filters
+chmod 0500 usr/lib/cups/backend/*
 
-# fixup puppy scripts
+# symlinks
+rm -rf run; ln -s tmp run # make /run is symlink to /tmp, always
+ln -sf bash bin/sh        # ensure that default shell is *always* bash
+
+# last few steps
+# update dynamic databases we didn't setup earlier
+echo MIME database setup
+chroot . /usr/bin/update-mime-database /usr/share/mime 2>/dev/null
+echo Gdk pixbuf loaders setup
+chroot . /usr/bin/gdk-pixbuf-query-loaders --update-cache 2>/dev/null
+chroot . /$(echo usr/lib/*/*/gdk-pixbuf-query-loaders) --update-cache 2>/dev/null
+echo Pango modules setup
+chroot . /usr/bin/pango-querymodules --update-cache 2>/dev/null
+echo Create udev hardware database
+chroot . /sbin/udevadm hwdb --update 2>/dev/null
+
+# tell ROX to use puppy's icons, if rox-mime-data is installed
+if ! [ -x usr/local/apps/ROX-Filer/ROX-Filer ] && 
+   [ -d usr/local/apps/ROX-Filer/ROX/MIME ]; then
+	ROXMIME=$(find . -name MIME | grep -v usr/local/apps | grep ROX)
+	if [ "$ROXMIME" ]; then
+		rm -rf $ROXMIME
+		ln -s /usr/local/apps/ROX-Filer/ROX/MIME $ROXMIME
+	fi
+fi
+
+# rename -puppy scripts to original names
 find . -name "*-puppy" | grep -vE "set-time-for-puppy" | while read -r p; do
 	pp=${p%-puppy}
 	[ -e $pp ] && mv $pp ${pp}-FULL
 	mv $p $pp
 done
 
-# temporary code - they will be merged to rootfs-skeleton later
-rm -rf run; ln -s tmp run                       # /run is symlink to /tmp
-sed -i -e 's/^Rxvt.keysym/!&/'  root/.Xdefaults # toxic keysym
-sed -i -e 's/ TERM="xterm"/#&/' etc/profile # toxic TERM
-
-# we like bash, ensure that default shell is *always* bash
-ln -sf bash bin/sh        # default shell is bash
-
-# update dynamic databases we didn't setup earlier
-echo MIME database setup
-chroot . /usr/bin/update-mime-database /usr/share/mime
-echo Gdk pixbuf loaders setup
-chroot . /$(echo usr/lib/*/*/gdk-pixbuf-query-loaders) --update-cache
-echo prepare udev
-chroot . /sbin/udevadm hwdb --update
-
-# udev rules: run input_id
->> etc/udev/rules.d/50-udev-puppy-basic.rules cat << "EOF"
-# add input_id for autoconf xorg
-SUBSYSTEM=="input",  ENV{ID_INPUT}=="", IMPORT{program}="input_id %p"
-EOF
-
-# rc.sysinit: udevadm trigger
->> etc/rc.d/rc.sysinit cat << "EOF"
-echo Updating udev device databases
-udevadm trigger --action=add
-EOF
-
-### debian/ubuntu specific, this has to go to its own pinstall.sh later
-rm -f etc/init.d/udev               # spurious udev
-rm usr/bin/X; ln -sf Xorg usr/bin/X # delete xorg wrapper
-ln -s xterm usr/bin/x-terminal-emulator
-
-# because ROX MIME is in different locations for ubuntu/debian
-echo ROX mime icons
-cp -a --remove-destination usr/local/apps/ROX-Filer/ROX/MIME/* usr/share/rox/ROX/MIME
 exit
 
 # ======= Original code, left as reference for later until migration is complete ============
