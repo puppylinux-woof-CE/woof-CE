@@ -33,7 +33,7 @@ APT_PKGDB_DIR=/var/lib/apt/lists
 
 ### system-configuration, don't change
 LANG=C
-REPO_PKGDB_URL="%repo_url%/dists/%version%/%repo%/binary-${ARCH}/%repo_pkgdb%"
+REPO_PKGDB_URL="%repo_url%/dists/%version%/%repo%/binary-%arch/%repo_pkgdb%"
 LOCAL_PKGDB=pkgdb
 ADMIN_DIR=/var/lib/dpkg
 TRACKER=/tmp/tracker.$$
@@ -75,7 +75,7 @@ add_repo() {
 	for p in $(echo $3|tr ':' ' '); do
 		MARKER="### $2-$p-$1 ###" 
 		localdb=$2-$p-$4
-		pkgdb_url="$(echo $REPO_PKGDB_URL | sed "s|%repo_url%|$1|; s|%version%|$2|; s|%repo%|$p|; s|%repo_pkgdb%|$4|;")"
+		pkgdb_url="$(echo $REPO_PKGDB_URL | sed "s|%repo_url%|$1|; s|%version%|$2|; s|%repo%|$p|; s|%repo_pkgdb%|$4|; s|%arch|$ARCH|")"
 		apt_pkgdb="$(echo "$pkgdb_url" | sed 's|^http.*://||; s|^file:///||; s|/|_|g; s|\..z$||; s|\.bz2$||;')"
 		apt_source="$2-$p.list"
 
