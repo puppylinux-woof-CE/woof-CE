@@ -112,9 +112,11 @@ map_version() { # as needed to meet source distro name
 	case $SOURCE in
 		slackware) # this is specific for mirrors.slackware.com, others may differ
 			case $TARGET_ARCH in
-				x86)    VERSION=slackware-$VERSION ;;
-				x86_64) VERSION=slackware64-$VERSION ;;
+				x86)    MAPPED_VERSION=slackware-$VERSION ;;
+				x86_64) MAPPED_VERSION=slackware64-$VERSION ;;
 			esac ;;
+		*)
+			MAPPED_VERSION=$VERSION ;;
 	esac
 }
 
@@ -131,7 +133,7 @@ WOOFCE='$(pwd)'
 # Edit as needed. Commented section are defaults.
 ARCH='$MAPPED_ARCH'
 PKGLIST=basesfs # or devx
-VERSION='$VERSION'
+VERSION='$MAPPED_VERSION'
 #DISTRO_PREFIX=puppy
 #DISTRO_VERSION=700
 
