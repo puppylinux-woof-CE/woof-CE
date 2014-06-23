@@ -212,9 +212,15 @@ cutdown() {
 					mkdir -p $CHROOT_DIR/usr/share/man/man${p}
 				done ;;
 			nls)
-				rm -rf $NLS_DIR; mkdir -p $NLS_DIR/usr/share/locale
+				rm -rf $NLS_DIR; mkdir -p $NLS_DIR/usr/share/locale $NLS_DIR/usr/lib/locale
 				for p in $(ls $CHROOT_DIR/usr/share/locale); do
 					[ $p != en ] && mv $CHROOT_DIR/usr/share/locale/$p $NLS_DIR/usr/share/locale
+				done
+				for p in $(ls $CHROOT_DIR/usr/lib/locale); do
+					case $p in
+						en_US|en_AU|en_US.*|en_AU.*|C|C.*) ;; # skip
+						*) mv $CHROOT_DIR/usr/lib/locale/$p $NLS_DIR/usr/lib/locale
+					esac
 				done ;;
 			dev)
 				# recreates dir structure, move headers and static libs to devx dir
