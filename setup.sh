@@ -130,13 +130,15 @@ WOOFCE='$(pwd)'
 
 # Edit as needed. Commented section are defaults.
 ARCH='$MAPPED_ARCH'
-PKGLIST=basesfs
+PKGLIST=basesfs # or devx
 VERSION='$VERSION'
 #DISTRO_PREFIX=puppy
 #DISTRO_VERSION=700
 
 REPO_DIR=repo-\$VERSION-\$ARCH
 CHROOT_DIR=chroot-\$VERSION-\$ARCH
+DEVX_DIR=devx-holder
+NLS_DIR=nls-holder
 BASE_CODE_PATH="\$WOOFCE/woof-code/rootfs-skeleton"
 BASE_ARCH_PATH="\$WOOFCE/woof-arch/\$TARGET_ARCH/target/rootfs-skeleton"
 EXTRAPKG_PATH="\$WOOFCE/woof-code/rootfs-packages"

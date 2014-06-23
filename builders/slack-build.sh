@@ -20,6 +20,8 @@ REMOVEPKG=${INSTALLER:-removepkg}
 # dirs
 REPO_DIR=${REPO_DIR:-repo-$VERSION-$ARCH}
 CHROOT_DIR=${CHROOT_DIR:-chroot-$VERSION-$ARCH}
+DEVX_DIR=${DEVX_DIR:-devx-holder}
+NLS_DIR=${NLS_DIR:-nls-holder}
 BASE_CODE_PATH=${ROOTFS_BASE:-rootfs-skeleton}
 # BASE_ARCH_PATH= # inherit - arch-specific base files, can be empty
 EXTRAPKG_PATH=${EXTRAPKG_PATH:-rootfs-packages}
@@ -207,6 +209,14 @@ install_from_dir() {
 	return 0
 }
 
+# $@ dirs to import
+import_dir() {
+	while [ "$1" ]; do
+		[ -d "$1" ] && echo "Importing $1 ..." && cp -a "$1"/* $CHROOT_DIR
+		shift
+	done
+}
+
 ###
 # $@-pkg to remove
 remove_pkg() {
@@ -272,22 +282,38 @@ padsfs() {
 # $@-all, doc, gtkdoc, locales, cache
 cutdown() {
 	local options="$*"
-	[ "$1" = "all" ] && options="doc gtkdoc locales cache man"
+	[ "$1" = "all" ] && options="doc gtkdoc nls cache man dev"
 	for p in $options; do
 		case $p in
-			doc)     rm -rf $CHROOT_DIR/usr/share/doc $CHROOT_DIR/usr/doc 
-					 mkdir $CHROOT_DIR/usr/share/doc $CHROOT_DIR/usr/doc ;;
-			gtkdoc)  rm -rf $CHROOT_DIR/usr/share/gtk-doc 
-					 mkdir $CHROOT_DIR/usr/share/gtk-doc ;;
-			locales) for p in $(ls $CHROOT_DIR/usr/share/locale); do
-					     [ $p != en ] && rm -rf $CHROOT_DIR/usr/share/locale/$p
-					 done ;;
-			cache)   find $CHROOT_DIR -name icon-theme.cache -delete ;;
-			man)     rm -rf $CHROOT_DIR/usr/share/man $CHROOT_DIR/usr/share/info
-					 mkdir $CHROOT_DIR/usr/share/info
-					 for p in $(seq 1 8); do
-						mkdir -p $CHROOT_DIR/usr/share/man/man${p}
-					 done ;;
+			doc)
+				rm -rf $CHROOT_DIR/usr/share/doc $CHROOT_DIR/usr/doc
+				mkdir $CHROOT_DIR/usr/share/doc $CHROOT_DIR/usr/doc ;;
+			gtkdoc)
+				rm -rf $CHROOT_DIR/usr/share/gtk-doc
+				mkdir $CHROOT_DIR/usr/share/gtk-doc ;;
+			cache)
+				find $CHROOT_DIR -name icon-theme.cache -delete ;;
+			man)
+				rm -rf $CHROOT_DIR/usr/share/man $CHROOT_DIR/usr/share/info
+				mkdir $CHROOT_DIR/usr/share/info
+				for p in $(seq 1 8); do
+					mkdir -p $CHROOT_DIR/usr/share/man/man${p}
+				done ;;
+			nls)
+				mkdir -p $NLS_DIR/usr/share/locale
+				for p in $(ls $CHROOT_DIR/usr/share/locale); do
+					[ $p != en ] && mv $CHROOT_DIR/usr/share/locale/$p $NLS_DIR/usr/share/locale
+				done ;;
+			dev)
+				# recreates dir structure, move headers and static libs to devx dir
+				find $CHROOT_DIR -type d | sed "s|$CHROOT_DIR|$DEVX_DIR|" | xargs mkdir -p
+				rm -rf $DEVX_DIR/usr/include; mv $CHROOT_DIR/usr/include $DEVX_DIR/usr
+				find $CHROOT_DIR -name "*.a" -type f | while read -r pp; do
+					mv $pp $DEVX_DIR/${pp#$CHROOT_DIR/}
+				done
+
+				# clean up empty dirs
+				find $DEVX_DIR -type d | sort -r | xargs rmdir 2>/dev/null ;;
 		esac
 	done
 }
@@ -308,7 +334,7 @@ flatten_pkglist() {
 			%exit) break ;;
 			%include)
 				[ "$2" ] && flatten_pkglist "$2" ;;
-			%bblinks|%makesfs|%remove|%addbase|%addpkg|%dummy|%cutdown)
+			%bblinks|%makesfs|%remove|%addbase|%addpkg|%dummy|%cutdown|%import)
 				echo "$pp" ;;
 			%repo)
 				shift # $1-url $2-version $3-repos to use $4-pkgdb
@@ -385,6 +411,9 @@ process_pkglist() {
 			%cutdown)
 				shift # $@ various cutdown options
 				cutdown "$@" ;;
+			%import)
+				shift # $@ dirs to import
+				import_dir "$@" ;;
 			*)  # anything else
 				get_pkg_info $p
 				[ -z "$PKG" ] && echo Cannot find ${p}. && continue
@@ -396,8 +425,16 @@ process_pkglist() {
 	return 0
 }
 
+params() {
+	case "$1" in
+		--help|-h) echo "Usage: ${0##*/} [--help|-h|pkglist]" && exit ;;
+		"") ;;
+		*) PKGLIST="$1"
+	esac
+}
 
 ### main
+params "$@"
 prepare_dirs
 add_multiple_repos $DEFAULT_REPOS
 echo Flattening $PKGLIST ...
