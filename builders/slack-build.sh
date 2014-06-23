@@ -281,7 +281,7 @@ padsfs() {
 
 # $@-all, doc, gtkdoc, locales, cache
 cutdown() {
-	local options="$*"
+	local options="$*" LIBDIR=lib
 	[ "$1" = "all" ] && options="doc gtkdoc nls cache man dev"
 	for p in $options; do
 		case $p in
@@ -300,14 +300,15 @@ cutdown() {
 					mkdir -p $CHROOT_DIR/usr/share/man/man${p}
 				done ;;
 			nls)
-				rm -rf $NLS_DIR; mkdir -p $NLS_DIR/usr/share/locale $NLS_DIR/usr/lib/locale
+				[ -d $CHROOT_DIR/usr/lib64/locale ] && LIBDIR=lib64
+				rm -rf $NLS_DIR; mkdir -p $NLS_DIR/usr/share/locale $NLS_DIR/usr/$LIBDIR/locale
 				for p in $(ls $CHROOT_DIR/usr/share/locale); do
 					[ $p != en ] && mv $CHROOT_DIR/usr/share/locale/$p $NLS_DIR/usr/share/locale
 				done
-				for p in $(ls $CHROOT_DIR/usr/lib/locale); do
+				for p in $(ls $CHROOT_DIR/usr/$LIBDIR/locale); do
 					case $p in
 						en_US|en_AU|en_US.*|en_AU.*|C|C.*) ;; # skip
-						*) mv $CHROOT_DIR/usr/lib/locale/$p $NLS_DIR/usr/lib/locale
+						*) mv $CHROOT_DIR/usr/$LIBDIR/locale/$p $NLS_DIR/usr/$LIBDIR/locale
 					esac
 				done ;;
 			dev)
