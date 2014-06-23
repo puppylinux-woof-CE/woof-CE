@@ -276,8 +276,8 @@ cutdown() {
 	[ "$1" = "all" ] && options="doc gtkdoc locales cache man"
 	for p in $options; do
 		case $p in
-			doc)     rm -rf $CHROOT_DIR/usr/share/doc 
-					 mkdir $CHROOT_DIR/usr/share/doc ;;
+			doc)     rm -rf $CHROOT_DIR/usr/share/doc $CHROOT_DIR/usr/doc 
+					 mkdir $CHROOT_DIR/usr/share/doc $CHROOT_DIR/usr/doc ;;
 			gtkdoc)  rm -rf $CHROOT_DIR/usr/share/gtk-doc 
 					 mkdir $CHROOT_DIR/usr/share/gtk-doc ;;
 			locales) for p in $(ls $CHROOT_DIR/usr/share/locale); do
