@@ -8,10 +8,12 @@ rm etc/termcap* # toxic
 # cp our fonts to slackware's location
 for p in ./usr/share/fonts/default/*; do
 	pp=$(echo $p | sed 's|default/||';)
-	mkdir -p $pp
-	[ -d $p ] && mv $p/* $pp
-	rmdir $p
+	if [ -d $p ]; then
+		mkdir -p $pp
+		mv $p/* $pp
+	fi
 done
+rm -rf ./usr/share/fonts/default
 
 # compensate for wrong doinst.sh in font packages
 rm -f ./fonts.dir ./fonts.scale
