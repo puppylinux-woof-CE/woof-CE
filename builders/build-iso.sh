@@ -34,7 +34,7 @@ install_boot_files() {
 	for p in boot.msg help.msg help2.msg isolinux.cfg logo1.16; do
 		! [ -e $ISO_ROOT/$p ] && cp $ISOLINUX_CFG/$p $ISO_ROOT
 	done
-	grep -q logo.16 $ISO_ROOT/boot.msg && sed -i -e 's/logo.16/logo1.16/' $ISO_ROOT/boot.msg 
+	grep -q logo.16 $ISO_ROOT/boot.msg && sed -i -e 's/logo.16/logo1.16/' $ISO_ROOT/boot.msg
 	! grep -q pfix=nox $ISO_ROOT/isolinux.cfg && sed -i -e 's|pmedia=cd|& pfix=nox|' $ISO_ROOT/isolinux.cfg
 	grep -q BOOTLABEL $ISO_ROOT/isolinux.cfg && sed -i -e "s|BOOTLABEL|$DISTRO_PREFIX|" $ISO_ROOT/isolinux.cfg
 }
@@ -93,10 +93,25 @@ EOF
 }
 
 make_iso() {
-	mkisofs -o "$OUTPUT_DIR/$OUTPUT_ISO" \
-	-volid "Puppy-Linux" \
-	-iso-level 4 -D -R  \
-	-b isolinux.bin -no-emul-boot -boot-load-size 4 -boot-info-table $ISO_ROOT/
+	xorriso="$(which xorriso)"
+	if [ -n "$xorriso" ]; then
+		$xorriso -as mkisofs \
+		-iso-level 3 \
+		-full-iso9660-filenames \
+		-volid "Puppy-Linux" \
+		-appid "Puppy-Linux" \
+		-eltorito-boot isolinux.bin \
+		-eltorito-catalog boot.cat \
+		-no-emul-boot -boot-load-size 4 -boot-info-table \
+		-output "$OUTPUT_DIR/$OUTPUT_ISO" \
+		$ISO_ROOT/
+	else
+		mkisofs -o "$OUTPUT_DIR/$OUTPUT_ISO" \
+		-volid "Puppy-Linux" \
+		-iso-level 4 -D -R  \
+		-b isolinux.bin -no-emul-boot -boot-load-size 4 -boot-info-table \
+		$ISO_ROOT/
+	fi
 	isohybrid -o 64 "$OUTPUT_DIR/$OUTPUT_ISO"
 }
 
