@@ -12,7 +12,9 @@ ISO_ROOT=${ISO_ROOT:-$OUTPUT_DIR/iso-root}
 DISTRO_PREFIX=${DISTRO_PREFIX:-puppy}
 
 PUPPY_SFS=${PUPPY_SFS:-puppy.sfs}
-SOURCE=${PARENT_DISTRO:-ubuntu} # or debian
+SOURCE=${PARENT_DISTRO:-ubuntu}       # informative only
+DISTRO_VERSION=${DISTRO_VERSION:-700} # informative only
+TARGET_ARCH=${TARGET_ARCH:-x86}       # informative only
 
 KERNEL_URL=${KERNEL_URL:-http://distro.ibiblio.org/puppylinux/huge_kernels}
 KERNEL_TARBALL=${KERNEL_TARBALL:-huge-3.4.93-slacko32FD4G.tar.bz2}
@@ -78,12 +80,12 @@ install_initrd() {
 	# create minimal distro specs, read woof's docs to get the meaning
 	> $initrdtmp/DISTRO_SPECS cat << EOF
 DISTRO_NAME='$SOURCE Puppy'
-DISTRO_VERSION=7.0
+DISTRO_VERSION='$DISTRO_VERSION'
 DISTRO_BINARY_COMPAT='$SOURCE'
 DISTRO_FILE_PREFIX='$SOURCE'
 DISTRO_COMPAT_VERSION='$SOURCE'
 DISTRO_XORG_AUTO='yes'
-DISTRO_TARGETARCH='x86'
+DISTRO_TARGETARCH='$TARGET_ARCH'
 DISTRO_DB_SUBNAME='$SOURCE'
 DISTRO_PUPPYSFS=$PUPPY_SFS
 DISTRO_ZDRVSFS=kernel-modules.sfs
