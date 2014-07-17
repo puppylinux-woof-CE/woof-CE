@@ -52,11 +52,8 @@ NAMEPFILE="`basename $SAVEFILE`"
 
 HOMELOCATION="/initrd${PUP_HOME}${SAVEFILE}"
 SIZEFREE=`df -m | grep "$PERSISTMNTPT" | tr -s " " | cut -f 4 -d " "` #free space in ${DISTRO_FILE_PREFIX}save.3fs
-ACTUALSIZK=`ls -sk $HOMELOCATION | tr -s " " | cut -f 1 -d " "` #total size of ${DISTRO_FILE_PREFIX}save.3fs
-if [ ! $ACTUALSIZK ];then
- ACTUALSIZK=`ls -sk $HOMELOCATION | tr -s " " | cut -f 2 -d " "`
-fi
-ACTUALSIZE=`expr $ACTUALSIZK \/ 1024`
+ACTUALSIZK=`stat -c %s $HOMELOCATION` #total size of ${DISTRO_FILE_PREFIX}save.3fs
+ACTUALSIZE=`expr $ACTUALSIZK \/ 1024 \/ 1024`
 APATTERN="/dev/${SAVEPART} "
 PARTSIZE=`df -m | grep "$APATTERN" | tr -s " " | cut -f 2 -d " "`
 PARTFREE=`df -m | grep "$APATTERN" | tr -s " " | cut -f 4 -d " "`
