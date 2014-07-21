@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 # originally by Iguleder
 # hacked to DEATH by 01micko
 # see /usr/share/doc/legal NO WARRANTY, NO resposibility accepted
