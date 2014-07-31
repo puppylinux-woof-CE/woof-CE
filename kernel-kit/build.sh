@@ -13,7 +13,7 @@ if [ "$1" = "clean" ];then
 	echo "Hit ENTER to clean"
 	read clean
 	echo "Please wait..."
-	rm -rf ./{dist,aufs*,kernel*,build.log*}
+	rm -rfI ./{dist,aufs*,kernel*,build.log*} #interactive chance to keep sources.xz/bz2 archives.
 	echo "Cleaning complete"
 	exit 0
 fi
@@ -319,19 +319,19 @@ mkdir -p linux_kernel-$kernel_major_version-$package_name_suffix/etc/modules
 cp .config linux_kernel-$kernel_major_version-$package_name_suffix/etc/modules/DOTconfig-$kernel_version-$today
 cp arch/x86/boot/bzImage linux_kernel-$kernel_major_version-$package_name_suffix/boot/vmlinuz
 BZIMAGE=`find . -type f -name bzImage`
-cp System.map linux_kernel-$kernel_major_version-$package_name_suffix/boot
-cp $BZIMAGE linux_kernel-$kernel_major_version-$package_name_suffix/boot
+cp System.map linux_kernel-$kernel_major_version-$package_name_suffix/boot/
+cp $BZIMAGE linux_kernel-$kernel_major_version-$package_name_suffix/boot/vmlinuz
 cp linux_kernel-$kernel_major_version-$package_name_suffix/lib/modules/${kernel_major_version}$custom_suffix/{modules.builtin,modules.order} \
  linux_kernel-$kernel_major_version-$package_name_suffix/etc/modules/
 [ "$FD" = "1" ] || \
-rm linux_kernel-$kernel_major_version-$package_name_suffix/lib/modules/${kernel_major_version}$custom_suffix/modules*
+#rm linux_kernel-$kernel_major_version-$package_name_suffix/lib/modules/${kernel_major_version}$custom_suffix/modules*
 mv linux_kernel-$kernel_major_version-$package_name_suffix ../dist/packages
 
 if [ "$FD" = "1" ];then #make fatdog kernel module package
 	mv ../dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix/boot/vmlinuz ../dist/packages/vmlinuz-$kernel_major_version-$package_name_suffix
 	#gzip -9 ../dist/packages/vmlinuz-$kernel_major_version-$package_name_suffix
-	[ -f ../dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix/boot/bzImage ] &&
-rm -f ../dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix/boot/bzImage
+	[ -f ../dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix/boot/vmlinuz ] &&
+rm -f ../dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix/boot/vmlinuz
 	echo "Huge kernel $kernel_major_version-$package_name_suffix is ready in dist"
 fi
 
