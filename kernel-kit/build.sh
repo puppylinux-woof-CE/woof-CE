@@ -13,7 +13,7 @@ if [ "$1" = "clean" ];then
 	echo "Hit ENTER to clean"
 	read clean
 	echo "Please wait..."
-	rm -rf ./{dist,aufs*,kernel*,build.log*}
+	rm -rfI ./{dist,aufs*,kernel*,build.log*}                 #if sources extant no need to re-download.
 	echo "Cleaning complete"
 	exit 0
 fi
@@ -314,7 +314,7 @@ echo "Creating the kernel package"
 make INSTALL_MOD_PATH=linux_kernel-$kernel_major_version-$package_name_suffix modules_install >> ../build.log 2>&1
 rm -f linux_kernel-$kernel_major_version-$package_name_suffix/lib/modules/${kernel_major_version}$custom_suffix/{build,source}
 #(cd linux_kernel-$kernel_major_version-$package_name_suffix/lib/modules/; ln -s ${kernel_major_version}$custom_suffix $kernel_major_version)
-mkdir linux_kernel-$kernel_major_version-$package_name_suffix/boot
+mkdir -p linux_kernel-$kernel_major_version-$package_name_suffix/boot
 mkdir -p linux_kernel-$kernel_major_version-$package_name_suffix/etc/modules
 cp .config linux_kernel-$kernel_major_version-$package_name_suffix/etc/modules/DOTconfig-$kernel_version-$today
 cp arch/x86/boot/bzImage linux_kernel-$kernel_major_version-$package_name_suffix/boot/vmlinuz
@@ -324,14 +324,14 @@ cp $BZIMAGE linux_kernel-$kernel_major_version-$package_name_suffix/boot
 cp linux_kernel-$kernel_major_version-$package_name_suffix/lib/modules/${kernel_major_version}$custom_suffix/{modules.builtin,modules.order} \
  linux_kernel-$kernel_major_version-$package_name_suffix/etc/modules/
 [ "$FD" = "1" ] || \
-rm linux_kernel-$kernel_major_version-$package_name_suffix/lib/modules/${kernel_major_version}$custom_suffix/modules*
+#rm linux_kernel-$kernel_major_version-$package_name_suffix/lib/modules/${kernel_major_version}$custom_suffix/modules*
 mv linux_kernel-$kernel_major_version-$package_name_suffix ../dist/packages
 
 if [ "$FD" = "1" ];then #make fatdog kernel module package
 	mv ../dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix/boot/vmlinuz ../dist/packages/vmlinuz-$kernel_major_version-$package_name_suffix
 	#gzip -9 ../dist/packages/vmlinuz-$kernel_major_version-$package_name_suffix
-	[ -f ../dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix/boot/bzImage ] &&
-rm -f ../dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix/boot/bzImage
+	[ -f ../dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix/boot/vmlinuz ] &&
+rm -f ../dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix/boot/vmlinuz
 	echo "FatDog compatible kernel is ready in dist"
 fi
 
