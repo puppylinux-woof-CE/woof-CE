@@ -295,7 +295,7 @@ echo
 echo "Ok, kernel is configured. hit ENTER to continue, CTRL+C to quit"
 read goon
 
-[ ! -d ../dist/packages ] && mkdir ../dist/packages
+[ ! -d ../dist/packages ] && mkdir -p ../dist/packages
 
 echo "Creating the kernel headers package"
 make headers_check >> ../build.log 2>&1
@@ -315,7 +315,7 @@ echo "Creating the kernel package"
 make INSTALL_MOD_PATH=linux_kernel-$kernel_major_version-$package_name_suffix modules_install >> ../build.log 2>&1
 rm -f linux_kernel-$kernel_major_version-$package_name_suffix/lib/modules/${kernel_major_version}$custom_suffix/{build,source}
 #(cd linux_kernel-$kernel_major_version-$package_name_suffix/lib/modules/; ln -s ${kernel_major_version}$custom_suffix $kernel_major_version)
-mkdir linux_kernel-$kernel_major_version-$package_name_suffix/boot
+mkdir -p linux_kernel-$kernel_major_version-$package_name_suffix/boot
 mkdir -p linux_kernel-$kernel_major_version-$package_name_suffix/etc/modules
 cp .config linux_kernel-$kernel_major_version-$package_name_suffix/etc/modules/DOTconfig-$kernel_version-$today
 cp arch/x86/boot/bzImage linux_kernel-$kernel_major_version-$package_name_suffix/boot/vmlinuz
