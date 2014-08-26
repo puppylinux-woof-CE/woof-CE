@@ -232,23 +232,34 @@ rm Makefile-orig
 
 echo "Reducing the number of consoles"
 if [ "$kernel_branch" -ge 12 ];then
- cp kernel/printk/printk.c kernel/printk/printk.c-orig
- sed -i s/'#define MAX_CMDLINECONSOLES 8'/'#define MAX_CMDLINECONSOLES 5'/ kernel/printk/printk.c
- diff -up kernel/printk/printk.c-orig kernel/printk/printk.c > ../dist/sources/patches/less-consoles.patch
-
- echo "Reducing the verbosity level"
- cp -f kernel/printk/printk.c kernel/printk/printk.c-orig
- sed -i s/'#define DEFAULT_CONSOLE_LOGLEVEL 7 \/\* anything MORE serious than KERN_DEBUG \*\/'/'#define DEFAULT_CONSOLE_LOGLEVEL 3 \/\* anything MORE serious than KERN_ERR \*\/'/ kernel/printk/printk.c
- diff -up kernel/printk/printk.c-orig kernel/printk/printk.c > ../dist/sources/patches/lower-verbosity.patch
+ if [ "${kernel_version%%.*}" -ge 3 -a "$kernel_branch" -ge 16 ];then
+	 cp kernel/printk/printk.c kernel/printk/printk.c.orig
+	 sed -i s/'#define MAX_CMDLINECONSOLES 8'/'#define MAX_CMDLINECONSOLES 5'/ kernel/printk/printk.c
+	 diff -up kernel/printk/printk.c.orig kernel/printk/printk.c > ../dist/sources/patches/less-consoles.patch
+	
+	 echo "Reducing the verbosity level"
+	 cp -f include/linux/printk.h include/linux/printk.h.orig
+	 sed -i s/'#define CONSOLE_LOGLEVEL_DEFAULT 7 \/\* anything MORE serious than KERN_DEBUG \*\/'/'#define CONSOLE_LOGLEVEL_DEFAULT 3 \/\* anything MORE serious than KERN_ERR \*\/'/ include/linux/printk.h
+	 diff -up include/linux/printk.h.orig include/linux/printk.h > ../dist/sources/patches/lower-verbosity.patch
+ else
+	 cp kernel/printk/printk.c kernel/printk/printk.c.orig
+	 sed -i s/'#define MAX_CMDLINECONSOLES 8'/'#define MAX_CMDLINECONSOLES 5'/ kernel/printk/printk.c
+	 diff -up kernel/printk/printk.c.orig kernel/printk/printk.c > ../dist/sources/patches/less-consoles.patch
+	
+	 echo "Reducing the verbosity level"
+	 cp -f kernel/printk/printk.c kernel/printk/printk.c.orig
+	 sed -i s/'#define DEFAULT_CONSOLE_LOGLEVEL 7 \/\* anything MORE serious than KERN_DEBUG \*\/'/'#define DEFAULT_CONSOLE_LOGLEVEL 3 \/\* anything MORE serious than KERN_ERR \*\/'/ kernel/printk/printk.c
+	 diff -up kernel/printk/printk.c.orig kernel/printk/printk.c > ../dist/sources/patches/lower-verbosity.patch
+  fi
 else
- cp kernel/printk.c kernel/printk.c-orig
+ cp kernel/printk.c kernel/printk.c.orig
  sed -i s/'#define MAX_CMDLINECONSOLES 8'/'#define MAX_CMDLINECONSOLES 5'/ kernel/printk.c
- diff -up kernel/printk.c-orig kernel/printk.c > ../dist/sources/patches/less-consoles.patch
+ diff -up kernel/printk.c.orig kernel/printk.c > ../dist/sources/patches/less-consoles.patch
 
  echo "Reducing the verbosity level"
- cp -f kernel/printk.c kernel/printk.c-orig
- sed -i s/'#define DEFAULT_CONSOLE_LOGLEVEL 7 \/\* anything MORE serious than KERN_DEBUG \*\/'/'#define DEFAULT_CONSOLE_LOGLEVEL 3 \/\* anything MORE serious than KERN_ERR \*\/'/ kernel/printk.c
- diff -up kernel/printk.c-orig kernel/printk.c > ../dist/sources/patches/lower-verbosity.patch
+ cp -f kernel/printk.c kernel/printk.c.orig
+ sed -i s/'#define DEFAULT_CONSOLE_LOGLEVEL 7 \/\* anything MORE serious than KERN_DEBUG \*\/'/'#define DEFAULT_CONSOLE_LOGLEVEL 3 \/\* Puppy linux hack \*\/'/ kernel/printk.c
+ diff -up kernel/printk.c.orig kernel/printk.c > ../dist/sources/patches/lower-verbosity.patch
 fi
 
 for patch in ../patches/*; do
