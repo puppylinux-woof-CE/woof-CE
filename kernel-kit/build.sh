@@ -405,7 +405,7 @@ if [ ! -f dist/sources/vanilla/aufs-util${today}.tar.bz2 ];then
 fi
 arch=`uname -m`
 #LinuxSrc=../dist/packages/kernel_headers*
-LinuxSrc=`find .. -type d -name 'kernel_headers*'`
+LinuxSrc=`find $CWD -type d -name 'kernel_headers*'`
 export CPPFLAGS="-I $LinuxSrc/usr/include"
 make >> ../build.log 2>&1
 [ $? -ne 0 ] && echo "Failed to compile aufs-util, do it manually. Kernel is compiled OK :)" && exit
