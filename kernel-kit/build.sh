@@ -405,9 +405,13 @@ if [ ! -f dist/sources/vanilla/aufs-util${today}.tar.bz2 ];then
 fi
 arch=`uname -m`
 #LinuxSrc=../dist/packages/kernel_headers*
+# see if fhsm is enabled in kernel config
+CONFIG=`find $CWD/dist/sources -type f -name 'DOTconfig*'`
+grep -q 'CONFIG_AUFS_FHSM=y' $CONFIG
+[ "$?" -eq 0 ] && export MAKE=make || export MAKE="make BuildFHSM=no"
 LinuxSrc=`find $CWD -type d -name 'kernel_headers*'`
 export CPPFLAGS="-I $LinuxSrc/usr/include"
-make >> ../build.log 2>&1
+$MAKE >> ../build.log 2>&1
 [ $? -ne 0 ] && echo "Failed to compile aufs-util, do it manually. Kernel is compiled OK :)" && exit
 make DESTDIR=$CWD/dist/packages/aufs-util-$kernel_version-$arch install >> ../build.log 2>&1 #maybe needs absolute path
 make clean >> ../build.log 2>&1
