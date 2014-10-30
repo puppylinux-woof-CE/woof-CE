@@ -1,4 +1,4 @@
-#!/bin/sh -x
+#!/bin/sh
 #(c) Copyright Barry Kauler jan. 2014, bkhome.org
 #License GPL v3 (/usr/share/doc/legal).
 #look online for a devx service-pack.
