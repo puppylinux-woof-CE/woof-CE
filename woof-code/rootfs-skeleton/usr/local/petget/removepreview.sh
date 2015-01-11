@@ -152,7 +152,7 @@ fi
 if [ "$PUPMODE" = "2" ]; then
 #any user-installed deps?...
 remPATTERN='^'"$DB_pkgname"'|'
-DEP_PKGS="`grep "$remPATTERN" /root/.packages/user-installed-packages | cut -f 9 -d '|' | tr ',' '\n' | grep -v '^\\-' | sed -e 's%^+%%'`" #names-only, one each line.
+DEP_PKGS="`grep "$remPATTERN" /root/.packages/user-installed-packages | cut -f 9 -d '|' | tr ',' '\n' | grep -v '^\\-' | sed -e 's%^+%%' | cut -f1 -d '&'`" #names-only, one each line.
 
 #131222 do not uninstall if other-installed depend on it...
 echo -n '' > /tmp/petget/other-installed-deps
