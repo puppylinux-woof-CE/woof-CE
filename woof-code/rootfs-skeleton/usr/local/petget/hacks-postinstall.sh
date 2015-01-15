@@ -24,42 +24,6 @@ case $INSTALLEDPKG in
    fi
   fi
  ;;
- exaile_*)
-  if [ -f /usr/bin/bbe ];then #bbe is a sed-like utility for binary files.
-   if [ -f /usr/lib/exaile/exaile.py  ];then
-    bbe -e 's/geteuid/getppid/' /usr/lib/exaile/exaile.py > /tmp/vlc-temp1
-    mv -f /tmp/vlc-temp1 /usr/lib/exaile/exaile.py
-    chmod 755 /usr/lib/exaile/exaile.py
-   fi
-  fi
- ;; 
- "0ad"*)
-  if [ -f /usr/bin/bbe ];then #bbe is a sed-like utility for binary files.
-   if [ -f /usr/games/pyrogenesis  ];then
-    bbe -e 's/geteuid/getppid/' /usr/games/pyrogenesis > /tmp/vlc-temp1
-    mv -f /tmp/vlc-temp1 /usr/games/pyrogenesis
-    chmod 755 /usr/games/pyrogenesis
-   fi
-  fi
- ;; 
- chromium-browser_*)
-   if [ -f /usr/bin/chromium-browser ];then
-   mv /usr/bin/chromium-browser /usr/bin/chromium-browser1
-   echo "#!/bin/sh" > /usr/bin/chromium-browser
-   echo 'exec chromium-browser1 --user-data-dir=/root/.config/chrome --allow-outdated-plugins --audio-buffer-size=2048 "$@"
-' >> /usr/bin/chromium-browser
-   chmod 755 /usr/bin/chromium-browser
-   fi
- ;;
-  "iron"*)
-   if [ -f /usr/share/iron/iron ];then
-   mv /usr/share/iron/iron /usr/share/iron/iron1
-   echo "#!/bin/sh" > /usr/share/iron/iron
-   echo '/usr/share/iron/iron1 --user-data-dir=/root/.config/chrome --allow-outdated-plugins --audio-buffer-size=2048 "$@"
-' >> /usr/share/iron/iron
-   chmod 755 /usr/share/iron/iron
-   fi
- ;;
  google-chrome-*) #130221 pemasu. 130224 pemasu: limit cache size...
   if [ -f /usr/bin/bbe ];then #bbe is a sed-like utility for binary files.
    if [ -f /opt/google/chrome/chrome  ];then
