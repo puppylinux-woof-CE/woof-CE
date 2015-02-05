@@ -69,6 +69,11 @@ DLPKG="$1"
 DLPKG_BASE="`basename $DLPKG`" #ex: scite-1.77-i686-2as.tgz
 DLPKG_PATH="`dirname $DLPKG`"  #ex: /root
 
+clean_and_die () {
+  rm -f /root/.packages/${DLPKG_NAME}.files
+  exit 1
+}
+
 # 6sep10 shinobar: installing files under /mnt is danger
 install_path_check() {
   FILELIST="/root/.packages/${DLPKG_NAME}.files"
@@ -162,25 +167,26 @@ ${ABORTMSG2}"
 fi
 
 #111013 shinobar: this currently not working, bypass for now... 111013 revert...
-#if [ "ABC" = "DEF" ];then #111013
+#elif [ "ABC" = "DEF" ];then #111013
 elif [ $PUPMODE -eq 3 -o $PUPMODE -eq 7 -o $PUPMODE -eq 13 ];then
- FLAGNODIRECT=1
- [ "`lsmod | grep '^unionfs' `" != "" ] && FLAGNODIRECT=0
- #100426 aufs can now write direct to save layer...
- if [ "`lsmod | grep '^aufs' `" != "" ];then
-  #note: fsnotify now preferred not inotify, udba=notify uses whichever is enabled in module...
-  busybox mount -t aufs -o remount,udba=notify unionfs / #remount aufs with best evaluation mode.
-  FLAGNODIRECT=$?
-  [ $FLAGNODIRECT -ne 0 ] && logger -s -t "installpkg.sh" "Failed to remount aufs / with udba=notify"
- fi
- if [ $FLAGNODIRECT -eq 0 ];then
-  #note that /sbin/pup_event_frontend_d will not run snapmergepuppy if installpkg.sh or downloadpkgs.sh are running.
-  while [ "`pidof snapmergepuppy`" != "" ];do
-   sleep 1
-  done
-  DIRECTSAVEPATH="/initrd${SAVE_LAYER}" #SAVE_LAYER is in /etc/rc.d/PUPSTATE.
-  rm -f $DIRECTSAVEPATH/pet.specs $DIRECTSAVEPATH/pinstall.sh $DIRECTSAVEPATH/puninstall.sh $DIRECTSAVEPATH/install/doinst.sh
- fi
+  # SFR: let user chose...
+  [ -f /var/local/petget/install_mode ] && IMODE="`cat /var/local/petget/install_mode`" || IMODE="savefile"
+  if [ "$IMODE" != "tmpfs" ]; then
+    FLAGNODIRECT=1
+    #100426 aufs can now write direct to save layer...
+    #note: fsnotify now preferred not inotify, udba=notify uses whichever is enabled in module...
+    busybox mount -t aufs -o remount,udba=notify unionfs / #remount aufs with best evaluation mode.
+    FLAGNODIRECT=$?
+    [ $FLAGNODIRECT -ne 0 ] && logger -s -t "installpkg.sh" "Failed to remount aufs / with udba=notify"
+    if [ $FLAGNODIRECT -eq 0 ];then
+     #note that /sbin/pup_event_frontend_d will not run snapmergepuppy if installpkg.sh or downloadpkgs.sh are running.
+     while [ "`pidof snapmergepuppy`" != "" ];do
+      sleep 1
+     done
+     DIRECTSAVEPATH="/initrd${SAVE_LAYER}" #SAVE_LAYER is in /etc/rc.d/PUPSTATE.
+     rm -f $DIRECTSAVEPATH/pet.specs $DIRECTSAVEPATH/pinstall.sh $DIRECTSAVEPATH/puninstall.sh $DIRECTSAVEPATH/install/doinst.sh
+    fi
+  fi
 fi
 
 if [ $DISPLAY ];then #131222
@@ -218,6 +224,7 @@ case $DLPKG_BASE in
    install_path_check
    tar ${OPT} -x --strip=1 --directory=${DIRECTSAVEPATH}/ -f ${DLPKG_MAIN}.tar.${EXT} #120102. 120107. 131122
   fi
+  [ $? -ne 0 ] && clean_and_die
  ;;
  *.deb)
   DLPKG_MAIN="`basename $DLPKG_BASE .deb`"
@@ -226,10 +233,7 @@ case $DLPKG_BASE in
   echo "$PFILES" > /root/.packages/${DLPKG_NAME}.files
   install_path_check
   dpkg-deb -x $DLPKG_BASE ${DIRECTSAVEPATH}/
-  if [ $? -ne 0 ];then
-   rm -f /root/.packages/${DLPKG_NAME}.files
-   exit 1
-  fi
+  [ $? -ne 0 ] && clean_and_die
   [ -d /DEBIAN ] && rm -rf /DEBIAN #130112 precaution.
   dpkg-deb -e $DLPKG_BASE /DEBIAN #130112 extracts deb control files to dir /DEBIAN. may have a post-install script, see below.
  ;;
@@ -243,6 +247,7 @@ case $DLPKG_BASE in
   echo "$PFILES" > /root/.packages/${DLPKG_NAME}.files
   install_path_check
   tar -z -x --directory=${DIRECTSAVEPATH}/ -f $DLPKG_BASE #120102. 120107
+  [ $? -ne 0 ] && clean_and_die
  ;;
  *.txz) #100616
   DLPKG_MAIN="`basename $DLPKG_BASE .txz`" #ex: scite-1.77-i686-2as
@@ -254,6 +259,7 @@ case $DLPKG_BASE in
   echo "$PFILES" > /root/.packages/${DLPKG_NAME}.files
   install_path_check
   tar -J -x --directory=${DIRECTSAVEPATH}/ -f $DLPKG_BASE #120102. 120107
+  [ $? -ne 0 ] && clean_and_die
  ;;
  *.tar.gz)
   DLPKG_MAIN="`basename $DLPKG_BASE .tar.gz`" #ex: acl-2.2.47-1-i686.pkg
@@ -264,6 +270,7 @@ case $DLPKG_BASE in
   echo "$PFILES" > /root/.packages/${DLPKG_NAME}.files
   install_path_check
   tar -z -x --directory=${DIRECTSAVEPATH}/ -f $DLPKG_BASE #120102. 120107
+  [ $? -ne 0 ] && clean_and_die
  ;;
  *.tar.bz2) #100110
   DLPKG_MAIN="`basename $DLPKG_BASE .tar.bz2`"
@@ -274,6 +281,7 @@ case $DLPKG_BASE in
   echo "$PFILES" > /root/.packages/${DLPKG_NAME}.files
   install_path_check
   tar -j -x --directory=${DIRECTSAVEPATH}/ -f $DLPKG_BASE #120102. 120107
+  [ $? -ne 0 ] && clean_and_die
  ;;
  *.pkg.tar.zx) #130314 arch pkgs.
   DLPKG_MAIN="`basename $DLPKG_BASE .pkg.tar.xz`" #ex: acl-2.2.51-3-i686
@@ -285,6 +293,7 @@ case $DLPKG_BASE in
   echo "$PFILES" > /root/.packages/${DLPKG_NAME}.files
   install_path_check
   tar -J -x --directory=${DIRECTSAVEPATH}/ -f $DLPKG_BASE
+  [ $? -ne 0 ] && clean_and_die
  ;;
  *.rpm) #110523
   DLPKG_MAIN="`basename $DLPKG_BASE .rpm`"
@@ -296,6 +305,7 @@ case $DLPKG_BASE in
   install_path_check
   #110705 rpm -i does not work for mageia pkgs...
   exploderpm -i $DLPKG_BASE
+  [ $? -ne 0 ] && clean_and_die
  ;;
 esac
 if [ "$PUPMODE" = "2" ]; then #from BK's quirky6.1
@@ -488,12 +498,9 @@ if [ "$DIRECTSAVEPATH" != "" ];then
   fi
  done
  #now re-evaluate all the layers...
- if [ "`lsmod | grep '^aufs' `" != "" ];then #100426
-  busybox mount -t aufs -o remount,udba=reval unionfs / #remount with faster evaluation mode.
-  [ $? -ne 0 ] && logger -s -t "installpkg.sh" "Failed to remount aufs / with udba=reval"
- else
-  mount -t unionfs -o remount,incgen unionfs /
- fi
+ busybox mount -t aufs -o remount,udba=reval unionfs / #remount with faster evaluation mode.
+ [ $? -ne 0 ] && logger -s -t "installpkg.sh" "Failed to remount aufs / with udba=reval"
+
  sync
 fi
 

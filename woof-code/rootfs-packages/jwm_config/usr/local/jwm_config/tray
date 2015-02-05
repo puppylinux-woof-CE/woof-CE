@@ -1,0 +1,1216 @@
+#!/bin/bash
+#JWM Tray Configuration
+#Copyright 2008,2009,2010,2014 GPL
+#Sigmund Berglund
+
+export TEXTDOMAIN=jwm
+export OUTPUT_CHARSET=UTF-8
+
+/usr/lib/gtkdialog/box_splash -close never -fontsize large -icon_width 60 -icon /usr/share/pixmaps/puppy/puppy_config.svg -text " $(gettext 'Loading JWM Tray configuration...')" &
+XPID=$!
+
+APPDIR="`dirname $0`"
+[ "$APPDIR" = "." ] && APPDIR="`pwd`"
+export APPDIR="$APPDIR"
+export WORKDIR=$HOME/.jwm/tmp
+[ ! -d "$WORKDIR" ] && mkdir -p "$WORKDIR"
+
+case $1 in
+	-clock)
+		PAGE_NR=6
+		DEFAULT_CLOCK=true
+		;;
+	*)
+		PAGE_NR=0
+		DEFAULT_CLOCK=false
+		;;
+esac
+
+#default values
+echo 1 > $WORKDIR/tray_nr
+echo 32 > $WORKDIR/tray_SWALLOW_WIDTH
+echo '' > $WORKDIR/tray_SWALLOW_HEIGHT
+find /usr/share/jwm/tray_templates -mindepth 1 -maxdepth 1 -type d -printf "%f\n" | sort > $WORKDIR/tray_templates
+
+
+
+[ ! -f $HOME/.jwm/jwmrc-tray4 ] && echo -n > $HOME/.jwm/jwmrc-tray4
+[ ! -f $HOME/.jwm/jwmrc-tray3 ] && echo -n > $HOME/.jwm/jwmrc-tray3
+[ ! -f $HOME/.jwm/jwmrc-tray2 ] && echo -n > $HOME/.jwm/jwmrc-tray2
+[ ! -f $HOME/.jwm/jwmrc-tray1 ] && echo '
+<JWM>
+<Tray autohide="false" insert="right" border="0" layer="above" halign="center" valign="bottom" height="28" layout="horizontal" >
+    <TrayButton label="Menu" icon="puppy.svg" border="true">root:9</TrayButton>
+    <TrayButton popup="Show desktop" icon="desktop.svg">showdesktop</TrayButton>
+    <TrayButton popup="Wizard Wizard" icon="/usr/share/pixmaps/puppy/puppy_config.svg">exec:wizardwizard</TrayButton>
+    <TrayButton popup="Urxvt terminal emulator" icon="/usr/share/pixmaps/puppy/terminal.svg">exec:urxvt</TrayButton>
+    <Pager/>
+    <TaskList maxwidth="200"/>
+    <Dock/>
+    <Swallow name="xload" width="32">xload -nolabel -fg "#225F7C" -hl white -bg "#222"</Swallow>
+    <Clock format="%I:%M">/usr/local/jwm_config/time</Clock>
+</Tray>
+</JWM>' > $HOME/.jwm/jwmrc-tray1
+
+
+
+  ##########################################################################
+  ##                                                                      ##
+  ##                           F U N C T I O N S                          ##
+  ##                                                                      ##
+  ##########################################################################
+  
+
+load (){
+	TEMPLATE="$1"
+	cp -f /usr/share/jwm/tray_templates/"$TEMPLATE"/jwmrc-tray* $HOME/.jwm/
+	[ -s /usr/share/jwm/tray_templates/"$TEMPLATE"/install ] && /usr/share/jwm/tray_templates/"$TEMPLATE"/install
+	read_settings
+	apply
+}
+
+save (){
+	[ "$1" = "$(gettext 'Load setup')" ] && TMP="" || TMP="$1"
+	export JWM_tray='
+	<window title="'$(gettext 'Save')'" icon-name="save">
+	<vbox>
+	  <frame '$(gettext 'Save tray setup')'>
+	    <text><label>"'$(gettext 'Note!
+This will save the last APPLIED tray setup.')'
+"</label></text> 
+	    <hbox>
+	      <text><label>'$(gettext 'Name')'</label></text> 
+	      <entry>
+	        <variable>SAVE</variable>
+	        <default>"'$TMP'"</default>
+	      </entry>
+	    </hbox>
+	  </frame>
+	  <hbox>
+	    <button cancel></button>
+	    <button can-default="true" has-default="true" use-stock="true">
+	      <label>'$(gettext 'Save')'</label>
+	      <input file stock="gtk-save"></input>
+	      <action type="exit">save</action>
+	    </button>
+	  </hbox>
+	</vbox>
+	</window>'
+	I=$IFS; IFS=""
+	for STATEMENTS in $(gtkdialog -p JWM_tray --center); do
+		eval $STATEMENTS
+	done
+	IFS=$I
+	if [ "$EXIT" = "save" ]; then
+		if [ ! "$SAVE" ]; then
+			. /usr/lib/gtkdialog/box_ok "$(gettext 'JWM tray')" error "$(gettext 'No name defined')"
+			exit
+		elif [ -d /usr/share/jwm/tray_templates/"$SAVE"/ ]; then #already exist
+			. /usr/lib/gtkdialog/box_yesno "$(gettext 'JWM tray')" "<b>$(gettext 'Template already exist')</b>" "$(gettext 'Do you want to overwrite it?')"
+			[ $EXIT != yes ] && exit
+		else
+			mkdir -p /usr/share/jwm/tray_templates/"$SAVE"/
+		fi
+		cp -f $HOME/.jwm/jwmrc-tray* /usr/share/jwm/tray_templates/"$SAVE"/
+		find /usr/share/jwm/tray_templates -mindepth 1 -maxdepth 1 -type d -printf "%f\n" | sort > $WORKDIR/tray_templates
+	fi
+}
+
+delete (){
+	if [ ! -d /usr/share/jwm/tray_templates/"$1"/ ]; then
+		. /usr/lib/gtkdialog/box_ok "$(gettext 'JWM tray')" error "$(gettext 'Nothing to delete')"
+	else
+		. /usr/lib/gtkdialog/box_yesno "$(gettext 'JWM tray')" "$(gettext 'Do you really want to delete the Tray template')" "<b>$1</b>"
+		[ $EXIT != yes ] && exit
+		rm -fr /usr/share/jwm/tray_templates/"$1"
+		find /usr/share/jwm/tray_templates -mindepth 1 -maxdepth 1 -type d -printf "%f\n" | sort > $WORKDIR/tray_templates
+	fi
+}
+
+add (){
+	case $1 in
+	Tray)
+		tac $WORKDIR/tray_rc | head -n-1 > $WORKDIR/tray_tmp
+		echo -e "<Tray autohide=\"$AUTOHIDE\" insert=\"right\" border=\"$BORDER\" layer=\"$LAYER\" \c" > $WORKDIR/tray_tmp1
+		if [ "$HALIGN" = "$(gettext 'Absolute position')" ]; then
+			echo -e "x=\"$X\" \c" >> $WORKDIR/tray_tmp1
+		else
+			echo -e "halign=\"$HALIGN\" \c" >> $WORKDIR/tray_tmp1
+		fi
+		if [ "$VALIGN" = "$(gettext 'Absolute position')" ]; then
+			echo -e "y=\"$Y\" \c" >> $WORKDIR/tray_tmp1
+		else
+			echo -e "valign=\"$VALIGN\" \c" >> $WORKDIR/tray_tmp1
+		fi
+		[ $DIRECTION_HOR = true ] && echo -e "height=\"$HEIGHT\" layout=\"horizontal\" \c"  >> $WORKDIR/tray_tmp1
+		[ $DIRECTION_VER = true ] && echo -e "width=\"$WIDTH\" layout=\"vertical\" \c" >> $WORKDIR/tray_tmp1
+		echo -e ">" >> $WORKDIR/tray_tmp1
+		tac $WORKDIR/tray_tmp >> $WORKDIR/tray_tmp1
+		mv $WORKDIR/tray_tmp1 $WORKDIR/tray_rc
+		;;
+	Menu)
+		case $2 in
+		main)
+			echo '    <TrayButton label="'$(gettext 'Menu')'" icon="puppy.svg" border="true">root:9</TrayButton>' >> $WORKDIR/tray_rc
+			;;
+		bookmarks)
+			echo '    <TrayButton label="'$(gettext 'Bookmarks')'" icon="bookmark.svg" border="true">root:6</TrayButton>' >> $WORKDIR/tray_rc
+			;;
+		esac
+		;;
+	Dock\ area)
+		echo '    <Dock/>' >> $WORKDIR/tray_rc
+		;;
+	Tasklist)
+		case $TASKLIST_STYLE in
+			"$(gettext 'Iconify')")			TMP=25;;
+			"$(gettext 'Fixed width')")		TMP=200;;
+			*)								TMP=0;;
+		esac
+		if [ "`grep -F '<TaskList' $WORKDIR/tray_rc`" ]; then
+			TMP1="`grep '<TaskList' $WORKDIR/tray_rc`"
+			sed -i "s%$TMP1%    <TaskList maxwidth=\"$TMP\"/>%" $WORKDIR/tray_rc
+		else
+			echo "    <TaskList maxwidth=\"$TMP\"/>" >> $WORKDIR/tray_rc
+		fi
+		#insert program at left/right
+		if [ "`grep -F '<TaskListStyle ' $HOME/.jwm/jwmrc-personal`" ]; then
+			TMP="`grep '<TaskListStyle ' $HOME/.jwm/jwmrc-personal`"
+			sed -i "s%$TMP%<TaskListStyle insert=\"$TASKLIST_SIDE\"/>%" $HOME/.jwm/jwmrc-personal
+		else
+			TMP="`grep -i '<JWM>' $HOME/.jwm/jwmrc-personal`"
+			sed -i "s%$TMP%<JWM>\n\n<!-- Tray Task Insert -->\n<TaskListStyle insert=\"$TASKLIST_SIDE\"/>%" $HOME/.jwm/jwmrc-personal
+		fi
+		;;
+	Spacer)
+		echo "    <Spacer width=\"$SPACER\" height=\"$SPACER\"/> <!-- $(date +%s) -->" >> $WORKDIR/tray_rc
+		;;
+	Clock)
+		[ ! "$CLOCK" ] && CLOCK="24:mm"
+		[ ! "$CLOCK_ACTION" ] && CLOCK_ACTION="/usr/local/jwm_config/time"
+		TMP=''
+		[ "`grep -F 12 <<< "$CLOCK"`" ] && TMP=$TMP'%I'
+		[ "`grep -F 24 <<< "$CLOCK"`" ] && TMP=$TMP'%H'
+		[ "`grep -F mm <<< "$CLOCK"`" ] && TMP=$TMP':%M'
+		[ "`grep -F ss <<< "$CLOCK"`" ] && TMP=$TMP':%S'
+		[ "`grep -F AM <<< "$CLOCK"`" ] && TMP=$TMP':%p'
+		if [ "`grep -F '<Clock' $WORKDIR/tray_rc`" ]; then
+			TMP1="`grep '<Clock' $WORKDIR/tray_rc`"
+			sed -i "s|${TMP1}|    <Clock format=\"$TMP\">${CLOCK_ACTION}</Clock>|" $WORKDIR/tray_rc
+		else
+			echo "    <Clock format=\"${TMP}\">${CLOCK_ACTION}</Clock>" >> $WORKDIR/tray_rc
+		fi
+		;;
+	Pager)
+		if [ "`grep -F '<Desktops ' $HOME/.jwm/jwmrc-personal`" ]; then
+			TMP="`grep '<Desktops ' $HOME/.jwm/jwmrc-personal`"
+			sed -i "s%$TMP%<Desktops width=\"$PAGER_COLUMNS\" height=\"$PAGER_ROWS\"/>%" $HOME/.jwm/jwmrc-personal
+		else
+			TMP="`grep -i '<JWM>' $HOME/.jwm/jwmrc-personal`"
+			sed -i "s%$TMP%<JWM>\n\n<!-- Number of virtual desktops -->\n<Desktops width=\"$PAGER_COLUMNS\" height=\"$PAGER_ROWS\"/>%" $HOME/.jwm/jwmrc-personal
+		fi
+		[ ! "`grep -F '<Pager/>' $WORKDIR/tray_rc`" ] && echo '    <Pager/>' >> $WORKDIR/tray_rc
+		;;
+	Function\ button)
+		case $FUNCTION in
+		$(gettext 'Show desktop'))
+			echo '    <TrayButton popup="'$(gettext 'Show desktop')'" border="'$BUTTON_BORDER'" icon="desktop.svg">showdesktop</TrayButton>' >> $WORKDIR/tray_rc
+			;;
+		$(gettext 'Lock screen'))
+			echo '    <TrayButton popup="'$(gettext 'Lock screen')'" border="'$BUTTON_BORDER'" icon="screen_lock.svg">exec:/usr/local/apps/Xlock/AppRun</TrayButton>' >> $WORKDIR/tray_rc
+			;;
+		$(gettext 'Leave'))
+			echo '    <TrayButton popup="'$(gettext 'Leave Puppy')'" border="'$BUTTON_BORDER'" icon="quit.svg">exec:/usr/sbin/logout_gui</TrayButton>' >> $WORKDIR/tray_rc
+			;;
+		$(gettext 'Shutdown NOW'))
+			echo '    <TrayButton popup="'$(gettext 'Power OFF computer')'" border="'$BUTTON_BORDER'" icon="shutdown.svg">exec:wmpoweroff</TrayButton>' >> $WORKDIR/tray_rc
+			;;
+		$(gettext 'Reboot NOW'))
+			echo '    <TrayButton popup="'$(gettext 'Reboot computer')'" border="'$BUTTON_BORDER'" icon="reboot.svg">exec:wmreboot</TrayButton>' >> $WORKDIR/tray_rc
+			;;
+		$(gettext 'Reboot NOW'))
+			echo '    <TrayButton popup="'$(gettext 'Reboot computer')'" border="'$BUTTON_BORDER'" icon="reboot.svg">exec:wmreboot</TrayButton>' >> $WORKDIR/tray_rc
+			;;
+		$(gettext 'Edit tray'))
+			echo '    <TrayButton popup="'$(gettext 'Edit tray')'" border="'$BUTTON_BORDER'" icon="desktop_tray_config.svg">exec:/usr/local/jwm_config/tray</TrayButton>' >> $WORKDIR/tray_rc
+			;;
+		Theme*)
+			THEME="`cut -d: -f2- <<< "$FUNCTION"`"
+			ICON="`grep -F 'ICON=' "/usr/share/ptheme/globals/${THEME}" | cut -d'=' -f2 | tr -d '"'`"
+			echo '    <TrayButton popup="'$(gettext 'Puppy global theme')'" border="'$BUTTON_BORDER'" icon="'$ICON'">exec:ptheme -p "'$THEME'"</TrayButton>' >> $WORKDIR/tray_rc
+			;;
+		esac
+		;;
+	Program\ button)
+		POPUP="`grep -Fm 1 Name "/usr/share/applications/${PROGRAM}.desktop" | cut -d'=' -f2`" #find description
+		ICON="`grep -Fm 1 Icon "/usr/share/applications/${PROGRAM}.desktop" | cut -d'=' -f2`" #find icon
+		EXEC="`grep -Fm 1 Exec "/usr/share/applications/${PROGRAM}.desktop" | cut -d'=' -f2`"
+		#write item to jwm
+		echo "    <TrayButton popup=\"$POPUP\" border=\"$BUTTON_BORDER\" icon=\"$ICON\">exec:$EXEC</TrayButton>" >> $WORKDIR/tray_rc
+		;;
+	Swallowed)
+		SWALLOW_NAME="`cut -d' ' -f1 <<< "$SWALLOW"`"
+		[ "$SWALLOW_HEIGHT" ] && TMP="height=\"$SWALLOW_HEIGHT\""
+		[ "$SWALLOW_WIDTH" ] && TMP1="width=\"$SWALLOW_WIDTH\""
+		echo -e '    <Swallow name="'${SWALLOW_NAME}'" '${TMP}' '${TMP1}'>'${SWALLOW}'</Swallow>' >> $WORKDIR/tray_rc
+		;;
+	esac
+}
+
+apply (){
+	echo -e "<JWM>\n" > "$HOME/.jwm/jwmrc-tray$(<$WORKDIR/tray_nr)"
+	if [ "`grep -Fiv '<tray ' $WORKDIR/tray_rc | grep -v "^$"`" ]; then #with an empty <tray> tag, video fullscreen fails.
+		cat $WORKDIR/tray_rc >> "$HOME/.jwm/jwmrc-tray$(<$WORKDIR/tray_nr)"
+		echo '</Tray>' >> "$HOME/.jwm/jwmrc-tray$(<$WORKDIR/tray_nr)"
+	fi
+	echo '</JWM>' >> "$HOME/.jwm/jwmrc-tray$(<$WORKDIR/tray_nr)"
+	$APPDIR/jwm_restart
+	set_icons
+}
+
+move_up (){
+	TRAY="$(<$WORKDIR/tray_treeselect)"
+	SWITCH_ITEM="`grep -B 1 "$TRAY" $WORKDIR/tray_rc | grep -v "$TRAY"`" 
+	if [ ! "$SWITCH_ITEM" ] || [ "`grep -F '<Tray ' <<< "$SWITCH_ITEM"`" ]; then exit; fi
+	ABOVE="`grep -B 1000 "$TRAY" $WORKDIR/tray_rc | grep -v "$TRAY" | grep -v "$SWITCH_ITEM"`" 
+	BELOW="`grep -A 1000 "$TRAY" $WORKDIR/tray_rc | grep -v "$TRAY"`"
+	echo -e "$ABOVE\n    $TRAY\n$SWITCH_ITEM\n$BELOW" | grep -v "^$" > $WORKDIR/tray_rc
+}
+
+move_down (){
+	TRAY="$(<$WORKDIR/tray_treeselect)"
+	SWITCH_ITEM="`grep -A 1 "$TRAY" $WORKDIR/tray_rc | grep -v "$TRAY"`"
+	if [ ! "$SWITCH_ITEM" ] || [ "`grep -F '<Tray ' <<< "$SWITCH_ITEM"`" ]; then exit; fi
+	ABOVE="`grep -B 1000 "$TRAY" $WORKDIR/tray_rc | grep -v "$TRAY"`" 
+	BELOW="`grep -A 1000 "$TRAY" $WORKDIR/tray_rc | grep -v "$TRAY" | grep -v "$SWITCH_ITEM"`"
+	echo -e "$ABOVE\n$SWITCH_ITEM\n    $TRAY\n$BELOW" | grep -v "^$" > $WORKDIR/tray_rc
+}
+
+read_settings (){
+	#read tray rc
+	grep -vEi "jwm>|/tray>" "$HOME/.jwm/jwmrc-tray$(<$WORKDIR/tray_nr)" | grep "[a-z]" > $WORKDIR/tray_rc
+	#vertical placement
+	if [ "`grep -o " y=.* " "$HOME/.jwm/jwmrc-tray$(<$WORKDIR/tray_nr)"`" ]; then
+		TMP="`grep -o " y=.* " "$HOME/.jwm/jwmrc-tray$(<$WORKDIR/tray_nr)" | cut -d'"' -f2`"
+		[ "$TMP" ] && echo "$TMP" > $WORKDIR/tray_Y || echo 0 > $WORKDIR/tray_Y
+		gettext 'Absolute position' > $WORKDIR/tray_VALIGN
+	else
+		TMP="`grep -o " valign=.* " "$HOME/.jwm/jwmrc-tray$(<$WORKDIR/tray_nr)" | cut -d'"' -f2`"
+		[ "$TMP" ] && echo "$TMP" > $WORKDIR/tray_VALIGN || echo bottom > $WORKDIR/tray_VALIGN
+		echo 0 > $WORKDIR/tray_Y
+	fi
+	# horizontal placement
+	if [ "`grep -o " x=.* " "$HOME/.jwm/jwmrc-tray$(<$WORKDIR/tray_nr)"`" ]; then
+		TMP="`grep -o " x=.* " "$HOME/.jwm/jwmrc-tray$(<$WORKDIR/tray_nr)" | cut -d'"' -f2`"
+		[ "$TMP" ] && echo "$TMP" > $WORKDIR/tray_X || echo 0 > $WORKDIR/tray_X
+		gettext 'Absolute position' > $WORKDIR/tray_HALIGN
+	else
+		TMP="`grep -o " halign=.* " "$HOME/.jwm/jwmrc-tray$(<$WORKDIR/tray_nr)" | cut -d'"' -f2`"
+		[ "$TMP" ] && echo "$TMP" > $WORKDIR/tray_HALIGN || echo center > $WORKDIR/tray_HALIGN
+		echo 0 > $WORKDIR/tray_X
+	fi
+	#---
+	TMP="`grep -Fi '<Tray' "$HOME/.jwm/jwmrc-tray$(<$WORKDIR/tray_nr)" | grep -om1 " height=.* " | cut -d'"' -f2`"
+	[ "$TMP" ] && echo "$TMP" > $WORKDIR/tray_HEIGHT || echo 28 > $WORKDIR/tray_HEIGHT
+	TMP="`grep -Fi '<Tray' "$HOME/.jwm/jwmrc-tray$(<$WORKDIR/tray_nr)" | grep -om1 " width=.* " | cut -d'"' -f2`"
+	[ "$TMP" ] && echo "$TMP" > $WORKDIR/tray_WIDTH || echo 28 > $WORKDIR/tray_WIDTH
+	TMP="`grep -o " border=.* " "$HOME/.jwm/jwmrc-tray$(<$WORKDIR/tray_nr)" | cut -d'"' -f2`"
+	[ "$TMP" ] && echo "$TMP" > $WORKDIR/tray_BORDER || echo 0 > $WORKDIR/tray_BORDER
+	TMP="`grep -o " layer=.* " "$HOME/.jwm/jwmrc-tray$(<$WORKDIR/tray_nr)" | cut -d'"' -f2`"
+	[ "$TMP" ] && echo "$TMP" > $WORKDIR/tray_LAYER || echo above > $WORKDIR/tray_LAYER
+	if [ "`grep -F 'layout="vertical"' "$HOME/.jwm/jwmrc-tray$(<$WORKDIR/tray_nr)"`" ]; then
+		echo true > $WORKDIR/tray_DIRECTION_VER
+		echo false > $WORKDIR/tray_DIRECTION_HOR
+	else
+		echo true > $WORKDIR/tray_DIRECTION_HOR
+		echo false > $WORKDIR/tray_DIRECTION_VER
+	fi
+	if [ "`grep -F 'autohide="true"' "$HOME/.jwm/jwmrc-tray$(<$WORKDIR/tray_nr)"`" ]; then
+		echo true > $WORKDIR/tray_AUTOHIDE
+	else
+		echo false > $WORKDIR/tray_AUTOHIDE
+	fi
+	#pager
+	TMP="`grep -F '<Desktops ' $HOME/.jwm/jwmrc-personal | cut -d'"' -f4`"
+	[ "$TMP" ] && echo "$TMP" > $WORKDIR/tray_PAGER_ROWS || echo 1 > $WORKDIR/tray_PAGER_ROWS
+	TMP="`grep -F '<Desktops ' $HOME/.jwm/jwmrc-personal | cut -d'"' -f2`"
+	[ "$TMP" ] && echo "$TMP" > $WORKDIR/tray_PAGER_COLUMNS || echo 3 > $WORKDIR/tray_PAGER_COLUMNS
+	#Tasklist
+	TMP="`grep -F '<TaskList' "$HOME/.jwm/jwmrc-tray$(<$WORKDIR/tray_nr)" | grep -F maxwidth | cut -d'"' -f2`"
+	[ ! "$TMP" ] && TMP=0
+	case $TMP in
+		25)		echo "$(gettext 'Iconify')" > $WORKDIR/tray_TASKLIST_STYLE;;
+		200)	echo "$(gettext 'Fixed width')" > $WORKDIR/tray_TASKLIST_STYLE;;
+		*)		echo "$(gettext 'Variable width')" > $WORKDIR/tray_TASKLIST_STYLE;;
+	esac
+	TMP="`grep -F '<TaskListStyle ' $HOME/.jwm/jwmrc-personal | cut -d'"' -f2`"
+	[ "$TMP" ] && echo "$TMP" > $WORKDIR/tray_TASKLIST_SIDE || echo right > $WORKDIR/tray_TASKLIST_SIDE
+}
+
+set_icons (){
+	#set placement icons
+	for I in 1 2 3 4; do
+		if [ "`grep -Fi 'valign="bottom"' $HOME/.jwm/jwmrc-tray$I | grep -Eiv 'halign="left"|halign="right"'`" ]; then
+			cp /usr/share/pixmaps/puppy/placement_bottom.svg $WORKDIR/tray_$I.svg
+		elif [ "`grep -Fi 'valign="top"' $HOME/.jwm/jwmrc-tray$I | grep -Eiv 'halign="left"|halign="right"'`" ]; then
+			cp /usr/share/pixmaps/puppy/placement_top.svg $WORKDIR/tray_$I.svg
+		elif [ "`grep -Fi 'valign="top"' $HOME/.jwm/jwmrc-tray$I | grep -Fi 'halign="left"'`" ]; then
+			cp /usr/share/pixmaps/puppy/placement_topleft.svg $WORKDIR/tray_$I.svg
+		elif [ "`grep -Fi 'valign="top"' $HOME/.jwm/jwmrc-tray$I | grep -Fi 'halign="right"'`" ]; then
+			cp /usr/share/pixmaps/puppy/placement_topright.svg $WORKDIR/tray_$I.svg
+		elif [ "`grep -Fi 'valign="bottom"' $HOME/.jwm/jwmrc-tray$I | grep -Fi 'halign="left"'`" ]; then
+			cp /usr/share/pixmaps/puppy/placement_bottomleft.svg $WORKDIR/tray_$I.svg
+		elif [ "`grep -Fi 'valign="bottom"' $HOME/.jwm/jwmrc-tray$I | grep -Fi 'halign="right"'`" ]; then
+			cp /usr/share/pixmaps/puppy/placement_bottomright.svg $WORKDIR/tray_$I.svg
+		elif [ "`grep -Fi 'halign="left"' $HOME/.jwm/jwmrc-tray$I | grep -Eiv 'valign="top"|valign="bottom"'`" ]; then
+			cp /usr/share/pixmaps/puppy/placement_left.svg $WORKDIR/tray_$I.svg
+		elif [ "`grep -Fi 'halign="right"' $HOME/.jwm/jwmrc-tray$I | grep -Eiv 'valign="top"|valign="bottom"'`" ]; then
+			cp /usr/share/pixmaps/puppy/placement_right.svg $WORKDIR/tray_$I.svg
+		elif [ "`grep -Ei ' y=|x=' $HOME/.jwm/jwmrc-tray$I`" ]; then
+			cp /usr/share/pixmaps/puppy/placement.svg $WORKDIR/tray_$I.svg
+		else
+			cp /usr/share/pixmaps/puppy/placement_none.svg $WORKDIR/tray_$I.svg
+		fi
+	done
+}
+
+export -f load save delete add apply read_settings move_up move_down set_icons
+
+
+
+  ##########################################################################
+  ##                                                                      ##
+  ##                             P R O G R A M                            ##
+  ##                                                                      ##
+  ##########################################################################
+
+
+
+#build program-list
+echo > $WORKDIR/tray_applist
+ls -1 /usr/share/applications/ | sed 's/.desktop//g' >> $WORKDIR/tray_applist
+#build theme-list
+ITEMS_THEMES="`find /usr/share/ptheme/globals/ -mindepth 1 -maxdepth 1 -type f -printf "<item>Theme:%f</item>\n"`"
+
+read_settings
+set_icons
+
+echo '
+<window title="'$(gettext 'Tray configuration')'" icon-name="gtk-preferences" default-height="500" default-width="780">
+<vbox space-fill="true" space-expand="true">
+  <vbox space-fill="false" space-expand="false">
+    <hbox space-fill="true" space-expand="true">
+      <pixmap space-fill="true" space-expand="true">
+        <variable>ICON1</variable>
+        <input file>'$WORKDIR'/tray_1.svg</input>
+        <height>60</height>
+      </pixmap>
+      <pixmap space-fill="true" space-expand="true">
+        <variable>ICON2</variable>
+        <input file>'$WORKDIR'/tray_2.svg</input>
+        <height>60</height>
+      </pixmap>
+      <pixmap space-fill="true" space-expand="true">
+        <variable>ICON3</variable>
+        <input file>'$WORKDIR'/tray_3.svg</input>
+        <height>60</height>
+      </pixmap>
+      <pixmap space-fill="true" space-expand="true">
+        <variable>ICON4</variable>
+        <input file>'$WORKDIR'/tray_4.svg</input>
+        <height>60</height>
+      </pixmap>
+
+    </hbox>
+    <hbox space-fill="true" space-expand="true">
+      <radiobutton draw-indicator="false" space-fill="true" space-expand="true">
+        <label>'$(gettext 'Tray 1')'</label>
+        <variable>RADIO_TRAY1</variable>
+        <default>true</default>
+        <action signal="button-release-event">echo 1 > '$WORKDIR'/notebook_page</action>
+        <action signal="button-release-event">refresh:GUI_OPTIONS</action>
+        <action signal="button-release-event">echo true > '$WORKDIR'/tray_radio_null</action>
+        <action signal="button-release-event">refresh:RADIO_NULL</action>
+        <action signal="button-release-event">disable:BOX_TREEBUTTONS</action>
+        <action>if true echo 1 > $WORKDIR/tray_nr</action>
+        <action>if true read_settings</action>
+        <action>if true refresh:VALIGN</action>
+        <action>if true refresh:HALIGN</action>
+        <action>if true refresh:X</action>
+        <action>if true refresh:Y</action>
+        <action>if true refresh:HEIGHT</action>
+        <action>if true refresh:WIDTH</action>
+        <action>if true refresh:AUTOHIDE</action>
+        <action>if true refresh:DIRECTION_HOR</action>
+        <action>if true refresh:DIRECTION_VER</action>
+        <action>if true refresh:BORDER</action>
+        <action>if true refresh:LAYER</action>
+        <action>if true refresh:PAGER_ROWS</action>
+        <action>if true refresh:PAGER_COLUMNS</action>
+        <action>if true refresh:TASKLIST_STYLE</action>
+        <action>if true refresh:TASKLIST_SIDE</action>
+        <action>if true add Tray</action>
+        <action>if true refresh:TRAY</action>
+      </radiobutton>
+      <radiobutton draw-indicator="false" space-fill="true" space-expand="true">
+        <label>'$(gettext 'Tray 2')'</label>
+        <variable>RADIO_TRAY2</variable>
+        <action signal="button-release-event">echo 1 > '$WORKDIR'/notebook_page</action>
+        <action signal="button-release-event">refresh:GUI_OPTIONS</action>
+        <action signal="button-release-event">echo true > '$WORKDIR'/tray_radio_null</action>
+        <action signal="button-release-event">refresh:RADIO_NULL</action>
+        <action signal="button-release-event">disable:BOX_TREEBUTTONS</action>
+        <action>if true echo 2 > $WORKDIR/tray_nr</action>
+        <action>if true read_settings</action>
+        <action>if true refresh:VALIGN</action>
+        <action>if true refresh:HALIGN</action>
+        <action>if true refresh:X</action>
+        <action>if true refresh:Y</action>
+        <action>if true refresh:HEIGHT</action>
+        <action>if true refresh:WIDTH</action>
+        <action>if true refresh:AUTOHIDE</action>
+        <action>if true refresh:DIRECTION_HOR</action>
+        <action>if true refresh:DIRECTION_VER</action>
+        <action>if true refresh:BORDER</action>
+        <action>if true refresh:LAYER</action>
+        <action>if true refresh:PAGER_ROWS</action>
+        <action>if true refresh:PAGER_COLUMNS</action>
+        <action>if true refresh:TASKLIST_STYLE</action>
+        <action>if true refresh:TASKLIST_SIDE</action>
+        <action>if true add Tray</action>
+        <action>if true refresh:TRAY</action>
+      </radiobutton>
+      <radiobutton draw-indicator="false" space-fill="true" space-expand="true">
+        <label>'$(gettext 'Tray 3')'</label>
+        <variable>RADIO_TRAY3</variable>
+        <action signal="button-release-event">echo 1 > '$WORKDIR'/notebook_page</action>
+        <action signal="button-release-event">refresh:GUI_OPTIONS</action>
+        <action signal="button-release-event">echo true > '$WORKDIR'/tray_radio_null</action>
+        <action signal="button-release-event">refresh:RADIO_NULL</action>
+        <action signal="button-release-event">disable:BOX_TREEBUTTONS</action>
+        <action>if true echo 3 > $WORKDIR/tray_nr</action>
+        <action>if true read_settings</action>
+        <action>if true refresh:VALIGN</action>
+        <action>if true refresh:HALIGN</action>
+        <action>if true refresh:X</action>
+        <action>if true refresh:Y</action>
+        <action>if true refresh:HEIGHT</action>
+        <action>if true refresh:WIDTH</action>
+        <action>if true refresh:AUTOHIDE</action>
+        <action>if true refresh:DIRECTION_HOR</action>
+        <action>if true refresh:DIRECTION_VER</action>
+        <action>if true refresh:BORDER</action>
+        <action>if true refresh:LAYER</action>
+        <action>if true refresh:PAGER_ROWS</action>
+        <action>if true refresh:PAGER_COLUMNS</action>
+        <action>if true refresh:TASKLIST_STYLE</action>
+        <action>if true refresh:TASKLIST_SIDE</action>
+        <action>if true add Tray</action>
+        <action>if true refresh:TRAY</action>
+      </radiobutton>
+      <radiobutton draw-indicator="false" space-fill="true" space-expand="true">
+        <label>'$(gettext 'Tray 4')'</label>
+        <variable>RADIO_TRAY4</variable>
+        <action signal="button-release-event">echo 1 > '$WORKDIR'/notebook_page</action>
+        <action signal="button-release-event">refresh:GUI_OPTIONS</action>
+        <action signal="button-release-event">echo true > '$WORKDIR'/tray_radio_null</action>
+        <action signal="button-release-event">refresh:RADIO_NULL</action>
+        <action signal="button-release-event">disable:BOX_TREEBUTTONS</action>
+        <action>if true echo 4 > $WORKDIR/tray_nr</action>
+        <action>if true read_settings</action>
+        <action>if true refresh:VALIGN</action>
+        <action>if true refresh:HALIGN</action>
+        <action>if true refresh:X</action>
+        <action>if true refresh:Y</action>
+        <action>if true refresh:HEIGHT</action>
+        <action>if true refresh:WIDTH</action>
+        <action>if true refresh:AUTOHIDE</action>
+        <action>if true refresh:DIRECTION_HOR</action>
+        <action>if true refresh:DIRECTION_VER</action>
+        <action>if true refresh:BORDER</action>
+        <action>if true refresh:LAYER</action>
+        <action>if true refresh:PAGER_ROWS</action>
+        <action>if true refresh:PAGER_COLUMNS</action>
+        <action>if true refresh:TASKLIST_STYLE</action>
+        <action>if true refresh:TASKLIST_SIDE</action>
+        <action>if true add Tray</action>
+        <action>if true refresh:TRAY</action>
+      </radiobutton>
+    </hbox>
+  </vbox>
+  
+  <hbox space-fill="true" space-expand="true">
+
+    <hbox space-fill="false" space-expand="false">
+      <vbox space-fill="true" space-expand="true">
+        <radiobutton visible="false">
+          <input file>'$WORKDIR'/tray_radio_null</input>
+          <variable>RADIO_NULL</variable>
+        </radiobutton>
+        <radiobutton draw-indicator="false" space-fill="true" space-expand="true">
+          <label>'$(gettext 'Tasklist')'</label>
+          <action>if true show:BUTTON_TASKLIST_ADD</action>
+          <action condition="command_is_true([[ `grep -F \"TaskList\" '$WORKDIR'/tray_rc` ]] && echo true)">if true hide:BUTTON_TASKLIST_ADD</action>
+          <action>if true echo 4 > '$WORKDIR'/notebook_page</action>
+          <action>if true refresh:GUI_OPTIONS</action>
+        </radiobutton>
+        <radiobutton draw-indicator="false" space-fill="true" space-expand="true">
+          <label>'$(gettext 'Dock area')'</label>
+          <action>if true enable:BUTTON_DOCK_ADD</action>
+          <action condition="command_is_true([[ `grep -F \"Dock/\" '$WORKDIR'/tray_rc` ]] && echo true)">if true disable:BUTTON_DOCK_ADD</action>
+          <action>if true echo 3 > '$WORKDIR'/notebook_page</action>
+          <action>if true refresh:GUI_OPTIONS</action>
+        </radiobutton>
+        <radiobutton draw-indicator="false" space-fill="true" space-expand="true">
+          <label>'$(gettext 'Menu')'</label>
+          <action>if true echo 2 > '$WORKDIR'/notebook_page</action>
+          <action>if true refresh:GUI_OPTIONS</action>
+        </radiobutton>
+        <radiobutton draw-indicator="false" space-fill="true" space-expand="true">
+          <label>" '$(gettext 'Desktops')' "</label>
+          <action>if true show:BUTTON_PAGER_ADD</action>
+          <action condition="command_is_true([[ `grep -F \"Pager/\" '$WORKDIR'/tray_rc` ]] && echo true)">if true hide:BUTTON_PAGER_ADD</action>
+          <action>if true echo 5 > '$WORKDIR'/notebook_page</action>
+          <action>if true refresh:GUI_OPTIONS</action>
+        </radiobutton>
+        <radiobutton draw-indicator="false" space-fill="true" space-expand="true">
+          <label>'$(gettext 'Button')'</label>
+          <action>if true echo 7 > '$WORKDIR'/notebook_page</action>
+          <action>if true refresh:GUI_OPTIONS</action>
+       </radiobutton>
+        <radiobutton draw-indicator="false" space-fill="true" space-expand="true">
+          <label>" '$(gettext 'Swallowed')' "</label>
+          <action>if true echo 8 > '$WORKDIR'/notebook_page</action>
+          <action>if true refresh:GUI_OPTIONS</action>
+        </radiobutton>
+        <radiobutton draw-indicator="false" space-fill="true" space-expand="true">
+          <label>'$(gettext 'Clock')'</label>
+          <default>'$DEFAULT_CLOCK'</default>
+          <action>if true echo 6 > '$WORKDIR'/notebook_page</action>
+          <action>if true refresh:GUI_OPTIONS</action>
+        </radiobutton>
+        <radiobutton draw-indicator="false" space-fill="true" space-expand="true">
+          <label>'$(gettext 'Spacer')'</label>
+          <action>if true echo 9 > '$WORKDIR'/notebook_page</action>
+          <action>if true refresh:GUI_OPTIONS</action>
+        </radiobutton>
+      </vbox>
+    </hbox>
+
+    <hbox space-fill="false" space-expand="false">
+      <vbox space-fill="false" space-expand="false">
+        <notebook page="'$PAGE_NR'" show-tabs="false" show-border="false" labels="1|2|3|4|5|6|7|8|9" space-fill="true" space-expand="true">
+
+        <vbox space-fill="true" space-expand="true">
+          '"`/usr/lib/gtkdialog/xml_info scale null 0 "<b>$(gettext 'Do minor changes to your existing tray or build up a new tray from scratch.')</b>" "$(gettext 'Choose a tray above and fill in content from the options at left.')" "$(gettext 'To the right you see the config file that is written to the window manager (JWM). You might want to move items up/down left/right to get it the way you like. Nothing will be stored or activated until you press the Apply button.')" " " "$(gettext 'Note that graphics and fonts are set by the graphical theme, not here.')"`"'
+        </vbox>' > $WORKDIR/tray_xml
+
+
+               ##################################################
+               ##                                              ##
+               ##                   T R A Y                    ##
+               ##                                              ##
+               ##################################################
+
+echo '
+<hbox space-fill="true" space-expand="true">
+  <frame '$(gettext 'Tray settings')'>
+    <vbox margin="30" space-fill="false" space-expand="false">
+      <vbox>
+        <text xalign="0" space-fill="true" space-expand="true"><label>'$(gettext 'Placement')'</label></text>
+        <hbox>
+          <text xalign="0" space-fill="true" space-expand="true"><label>'$(gettext 'Left/right (X)')'</label></text>
+          <comboboxtext space-fill="false" space-expand="false">
+            <variable>HALIGN</variable>
+            <input file>'$WORKDIR'/tray_HALIGN</input>
+            <item>center</item>
+            <item>left</item>
+            <item>right</item>
+            <item>'$(gettext 'Absolute position')'</item>
+            <action>disable:X</action>
+            <action condition="command_is_true([[ $HALIGN = \"'$(gettext 'Absolute position')'\" ]] && echo true)">enable:X</action>
+            <action>add Tray</action>
+            <action>refresh:TRAY</action>
+          </comboboxtext>
+          <entry editable="true" allow-empty="false" width-request="40" space-fill="false" space-expand="false">
+            <input file>'$WORKDIR'/tray_X</input>
+            <variable>X</variable>
+            <sensitive>false</sensitive>
+            <action signal="focus-out-event">if [ "`echo "$X" | grep -v "[a-z]" | grep "[0-9]"`" ]; then echo $X > '$WORKDIR'/tray_X; fi</action>
+            <action signal="focus-out-event">refresh:X</action>
+            <action signal="focus-out-event">add Tray</action>
+            <action signal="focus-out-event">refresh:TRAY</action>
+          </entry>
+        </hbox>
+        <hbox>
+          <text xalign="0" space-fill="true" space-expand="true"><label>'$(gettext 'Top/bottom (Y)')'</label></text>
+          <comboboxtext space-fill="false" space-expand="false">
+            <variable>VALIGN</variable>
+            <input file>'$WORKDIR'/tray_VALIGN</input>
+            <item>top</item>
+            <item>center</item>
+            <item>bottom</item>
+            <item>'$(gettext 'Absolute position')'</item>
+            <action>disable:Y</action>
+            <action condition="command_is_true([[ $VALIGN = \"'$(gettext 'Absolute position')'\" ]] && echo true)">enable:Y</action>
+            <action>add Tray</action>
+            <action>refresh:TRAY</action>
+          </comboboxtext>
+          <entry editable="true" allow-empty="false" width-request="40" space-fill="false" space-expand="false">
+            <input file>'$WORKDIR'/tray_Y</input>
+            <variable>Y</variable>
+            <sensitive>false</sensitive>
+            <action signal="focus-out-event">if [ "`echo "$Y" | grep -v "[a-z]" | grep "[0-9]"`" ]; then echo $Y > '$WORKDIR'/tray_Y; fi</action>
+            <action signal="focus-out-event">refresh:Y</action>
+            <action signal="focus-out-event">add Tray</action>
+            <action signal="focus-out-event">refresh:TRAY</action>
+          </entry>
+        </hbox>
+      </vbox>
+
+      <hseparator></hseparator>
+      
+      <vbox space-fill="false" space-expand="false" tooltip-text="'$(gettext 'Direction of the tray')'">
+        <radiobutton>
+          <variable>DIRECTION_HOR</variable>
+          <label>'$(gettext 'Horizontal Tray')'</label>
+          <input file>'$WORKDIR'/tray_DIRECTION_HOR</input>
+          <action>if true show:BOX_TRAY_HEIGHT</action>
+          <action>if true hide:BOX_TRAY_WIDTH</action>
+          <action>if true add Tray</action>
+          <action>if true refresh:TRAY</action>
+        </radiobutton>
+        <radiobutton>
+          <variable>DIRECTION_VER</variable>
+          <input file>'$WORKDIR'/tray_DIRECTION_VER</input>
+          <label>'$(gettext 'Vertical Tray')'</label>
+          <action>if true hide:BOX_TRAY_HEIGHT</action>
+          <action>if true show:BOX_TRAY_WIDTH</action>
+          <action>if true add Tray</action>
+          <action>if true refresh:TRAY</action>
+        </radiobutton>
+      </vbox>
+        <checkbox space-fill="false" space-expand="false">
+          <variable>AUTOHIDE</variable>
+          <input file>'$WORKDIR'/tray_AUTOHIDE</input>
+          <label>'$(gettext 'Autohide')'</label>
+          <action>add Tray</action>
+          <action>refresh:TRAY</action>
+        </checkbox>
+      <hbox space-fill="true" space-expand="true">
+        <text xalign="0" space-fill="true" space-expand="true"><label>'$(gettext 'Tray Height (px)')'</label></text>
+        <entry editable="true" allow-empty="false" width-request="40" space-fill="false" space-expand="false">
+          <input file>'$WORKDIR'/tray_HEIGHT</input>
+          <variable>HEIGHT</variable>
+          <action signal="focus-out-event">if [ "`echo "$HEIGHT" | grep -v "[a-z]" | grep "[0-9]"`" ]; then echo $HEIGHT > '$WORKDIR'/tray_HEIGHT; fi</action>
+          <action signal="focus-out-event">refresh:HEIGHT</action>
+          <action signal="focus-out-event">add Tray</action>
+          <action signal="focus-out-event">refresh:TRAY</action>
+        </entry>
+        <variable>BOX_TRAY_HEIGHT</variable>
+      </hbox>
+      <hbox visible="false" space-fill="true" space-expand="true">
+        <text xalign="0" space-fill="true" space-expand="true"><label>'$(gettext 'Tray Width (px)')'</label></text>
+        <entry editable="true" allow-empty="false" width-request="40" space-fill="false" space-expand="false">
+          <input file>'$WORKDIR'/tray_WIDTH</input>
+          <variable>WIDTH</variable>
+          <action signal="focus-out-event">if [ "`echo "$WIDTH" | grep -v "[a-z]" | grep "[0-9]"`" ]; then echo $WIDTH > '$WORKDIR'/tray_WIDTH; fi</action>
+          <action signal="focus-out-event">refresh:WIDTH</action>
+          <action signal="focus-out-event">add Tray</action>
+          <action signal="focus-out-event">refresh:TRAY</action>
+        </entry>
+        <variable>BOX_TRAY_WIDTH</variable>
+      </hbox>
+      <hbox tooltip-text="'$(gettext '0 gives no border')'" space-fill="true" space-expand="true">
+        <text xalign="0" space-fill="true" space-expand="true"><label>"'$(gettext 'Border width (px)')'"</label></text>
+        <entry editable="true" allow-empty="false" width-request="40" space-fill="false" space-expand="false">
+          <input file>'$WORKDIR'/tray_BORDER</input>
+          <variable>BORDER</variable>
+          <action signal="focus-out-event">if [ "`echo "$BORDER" | grep -v "[a-z]" | grep "[0-9]"`" ]; then echo $BORDER > '$WORKDIR'/tray_BORDER; fi</action>
+          <action signal="focus-out-event">refresh:BORDER</action>
+          <action signal="focus-out-event">add Tray</action>
+          <action signal="focus-out-event">refresh:TRAY</action>
+        </entry>
+      </hbox>
+      <hbox tooltip-text="'$(gettext 'Should the tray be above/below programs.')'" space-fill="true" space-expand="true">
+        <text xalign="0" space-fill="true" space-expand="true"><label>"'$(gettext 'Layer')'"</label></text>
+        <comboboxtext space-fill="false" space-expand="false">
+          <variable>LAYER</variable>
+          <input file>'$WORKDIR'/tray_LAYER</input>
+          <item>below</item>
+          <item>normal</item>
+          <item>above</item>
+          <action>add Tray</action>
+          <action>refresh:TRAY</action>
+        </comboboxtext>
+      </hbox>
+    </vbox>
+  </frame>
+</hbox>' >> $WORKDIR/tray_xml
+
+
+               ##################################################
+               ##                                              ##
+               ##             M E N U    B U T T O N           ##
+               ##                                              ##
+               ##################################################
+
+echo '
+<vbox space-fill="true" space-expand="true">
+  <frame '$(gettext 'Menu')'>
+    <vbox space-fill="false" space-expand="false">
+      <text yalign="0" space-fill="true" space-expand="true"><label>"'$(gettext 'Add menu-button - if not already added.')'"</label></text>
+    </vbox>
+    <vbox margin="30" space-fill="false" space-expand="false">
+      <hbox space-fill="false" space-expand="false">
+        <button space-fill="false" space-expand="false">
+          <label>" '$(gettext 'Main menu')' "</label>
+          '"`/usr/lib/gtkdialog/xml_button-icon add`"'
+          <action>[ ! "`grep -F ">root:9" '$WORKDIR'/tray_rc`" ] && add Menu main</action>
+          <action>refresh:TRAY</action>
+        </button>
+      </hbox>
+      <text><label>""</label></text>
+      <hbox space-fill="false" space-expand="false">
+        <button space-fill="false" space-expand="false">
+          <label>" '$(gettext 'Bookmarks menu')' "</label>
+          '"`/usr/lib/gtkdialog/xml_button-icon add`"'
+          <action>[ ! "`grep -F ">root:6" '$WORKDIR'/tray_rc`" ] && add Menu bookmarks</action>
+          <action>refresh:TRAY</action>
+        </button>
+      </hbox>
+    </vbox>
+  </frame>
+</vbox>' >> $WORKDIR/tray_xml
+   
+
+               ##################################################
+               ##                                              ##
+               ##              D O C K    A R E A              ##
+               ##                                              ##
+               ##################################################
+
+echo '
+<hbox space-fill="true" space-expand="true">
+  <frame '$(gettext 'Dock area')'>
+    <vbox space-fill="false" space-expand="false">
+      <text yalign="0" space-fill="true" space-expand="true"><label>"'$(gettext 'Allow programs to place themself in tray. It is recommended that Dock area is included in the main tray.')'
+
+'$(gettext 'Note! Tray apps appears in 2 different ways. Either as a swallowed app, or it is docked in the dock-area. Swallowed apps can be managed here, while tray-apps in the dock-area lives more on their own. They have been started either by user, or during startup. - Most commonly, these are started from $HOME/Startup.')'"</label></text>
+    </vbox>
+    <vbox margin="30" space-fill="false" space-expand="false">
+      <hbox space-fill="false" space-expand="false">
+        <button space-fill="false" space-expand="false">
+          <variable>BUTTON_DOCK_ADD</variable>
+          <label>" '$(gettext 'Add Dock-area to tray')' "</label>
+          '"`/usr/lib/gtkdialog/xml_button-icon add`"'
+          <action>[ ! "`grep -F "Dock/" '$WORKDIR'/tray_rc`" ] && add "Dock area"</action>
+          <action>refresh:TRAY</action>
+        </button>
+      </hbox>
+    </vbox>
+  </frame>
+</hbox>' >> $WORKDIR/tray_xml
+   
+
+               ##################################################
+               ##                                              ##
+               ##               T A S K L I S T                ##
+               ##                                              ##
+               ##################################################
+
+echo '
+<hbox space-fill="true" space-expand="true">
+  <frame '$(gettext 'Tasklist')'>
+    <vbox space-fill="false" space-expand="false">
+      <text yalign="0" space-fill="true" space-expand="true"><label>"'$(gettext 'Show running programs in tray.
+NOTE! The tasklist makes the tray stretch horizontaly.')'"</label></text>
+    </vbox>
+    <vbox margin="30" space-fill="false" space-expand="false">
+      <hbox space-fill="false" space-expand="false">
+        <button space-fill="false" space-expand="false">
+          <variable>BUTTON_TASKLIST_ADD</variable>
+          <label>" '$(gettext 'Add Tasklist to tray')' "</label>
+          '"`/usr/lib/gtkdialog/xml_button-icon add`"'
+          <action>add Tasklist</action>
+          <action>refresh:TRAY</action>
+        </button>
+      </hbox>
+      <text><label>""</label></text>
+      <hbox space-fill="false" space-expand="false">
+        <text xalign="0" space-fill="true" space-expand="true"><label>"'$(gettext 'How programs show up in tray')'"</label></text>
+        <comboboxtext space-fill="false" space-expand="false">
+          <variable>TASKLIST_STYLE</variable>
+          <input file>'$WORKDIR'/tray_TASKLIST_STYLE</input>
+          <item>'$(gettext 'Iconify')'</item>
+          <item>'$(gettext 'Fixed width')'</item>
+          <item>'$(gettext 'Variable width')'</item>
+          <action signal="button-release-event">add Tasklist</action>
+          <action signal="button-release-event">refresh:TRAY</action>
+        </comboboxtext>
+      </hbox>
+      <hbox space-fill="false" space-expand="false">
+        <text xalign="0" space-fill="true" space-expand="true"><label>"'$(gettext 'Insert new progams at left/right')'"</label></text>
+        <comboboxtext space-fill="false" space-expand="false">
+          <variable>TASKLIST_SIDE</variable>
+          <input file>'$WORKDIR'/tray_TASKLIST_SIDE</input>
+          <item>left</item>
+          <item>right</item>
+          <action>add Tasklist</action>
+          <action>refresh:TRAY</action>
+        </comboboxtext>
+      </hbox>
+    </vbox>
+  </frame>
+</hbox>' >> $WORKDIR/tray_xml
+
+
+               ##################################################
+               ##                                              ##
+               ##                D E S K T O P S               ##
+               ##                                              ##
+               ##################################################
+
+echo '
+<hbox space-fill="true" space-expand="true">
+  <frame '$(gettext 'Virtual desktops')'>
+    <vbox space-fill="false" space-expand="false">
+      <text yalign="0" space-fill="true" space-expand="true"><label>"'$(gettext "The 'Pager' sets up a desktop selector. 
+Define how many virtual desktops to show.")'"</label></text>
+    </vbox>
+    <vbox margin="30" space-fill="true" space-expand="true">
+      <vbox space-fill="false" space-expand="false">
+        <hbox space-fill="false" space-expand="false">
+          <button space-fill="false" space-expand="false">
+            <variable>BUTTON_PAGER_ADD</variable>
+            <label>"'$(gettext 'Add Pager to tray')'"</label>
+            '"`/usr/lib/gtkdialog/xml_button-icon add`"'
+            <action>[ ! "`grep -F "Pager/" '$WORKDIR'/tray_rc`" ] && add "Pager"</action>
+            <action>refresh:TRAY</action>
+          </button>
+        </hbox>
+      </vbox>
+      <text><label>""</label></text>
+      <vbox space-fill="false" space-expand="false">
+        <hbox>
+          <text space-fill="false" space-expand="false"><label>"Rows"</label></text>
+          <comboboxtext width-request="50" space-fill="false" space-expand="false">
+            <variable>PAGER_ROWS</variable>
+            <input file>'$WORKDIR'/tray_PAGER_ROWS</input>
+            <item>1</item>
+            <item>2</item>
+            <action>add Pager</action>
+            <action>refresh:TRAY</action>
+          </comboboxtext>
+         </hbox>
+         <hbox>
+          <text space-fill="false" space-expand="false"><label>"Columns"</label></text>
+          <comboboxtext width-request="50" space-fill="false" space-expand="false">
+            <variable>PAGER_COLUMNS</variable>
+            <input file>'$WORKDIR'/tray_PAGER_COLUMNS</input>
+            <item>1</item>
+            <item>2</item>
+            <item>3</item>
+            <item>4</item>
+            <item>5</item>
+            <action>add Pager</action>
+            <action>refresh:TRAY</action>
+          </comboboxtext>
+        </hbox>
+      </vbox>
+    </vbox>
+  </frame>
+</hbox>' >> $WORKDIR/tray_xml
+
+
+               ##################################################
+               ##                                              ##
+               ##                   C L O C K                  ##
+               ##                                              ##
+               ##################################################
+
+echo '
+<vbox space-fill="true" space-expand="true">
+  <frame '$(gettext 'Clock')'>
+    <vbox space-fill="false" space-expand="false">
+      <text yalign="0" space-fill="true" space-expand="true"><label>"'$(gettext 'The clock font is set by the graphical theme.')'"</label></text>
+    </vbox>
+    <vbox margin="30" space-fill="false" space-expand="false">
+      <hbox homogeneous="true" space-fill="true" space-expand="true">
+        <text xalign="0.98" space-fill="true" space-expand="true"><label>'$(gettext 'Clock format')'</label></text>
+        <comboboxtext space-fill="true" space-expand="true">
+          <variable>CLOCK</variable>
+          <item>""</item>
+          <item>12:mm</item>
+          <item>12:mm AM</item>
+          <item>12:mm:ss</item>
+          <item>12:mm:ss AM</item>
+          <item>24:mm</item>
+          <item>24:mm:ss</item>
+        </comboboxtext>
+      </hbox>
+      <hbox homogeneous="true" space-fill="true" space-expand="true">
+        <text xalign="0.98" space-fill="true" space-expand="true"><label>'$(gettext 'Action when click on clock')'</label></text>
+        <comboboxentry space-fill="true" space-expand="true">
+          <variable>CLOCK_ACTION</variable>
+          <item>/usr/local/jwm_config/time</item>' >> $WORKDIR/tray_xml
+          [ "`which minixcal`" ]			&& echo '<item>minixcal</item>' >> $WORKDIR/tray_xml
+          [ "`which pclock`" ]				&& echo '<item>pclock</item>' >> $WORKDIR/tray_xml
+          [ "`which set-time-for-puppy`" ]	&& echo '<item>set-time-for-puppy</item>' >> $WORKDIR/tray_xml
+        echo '</comboboxentry>
+      </hbox>
+      <text><label>""</label></text>
+      <hbox space-fill="false" space-expand="false">
+        <button space-fill="false" space-expand="false">
+          <label>"'$(gettext 'Add clock')'"</label>
+          '"`/usr/lib/gtkdialog/xml_button-icon add`"'
+          <action>add Clock</action>
+          <action>refresh:TRAY</action>
+        </button>
+      </hbox>
+      <text space-fill="true" space-expand="true"><label>""</label></text>
+    </vbox>
+  </frame>
+</vbox>' >> $WORKDIR/tray_xml
+
+   
+               ##################################################
+               ##                                              ##
+               ##                 B U T T O N                  ##
+               ##                                              ##
+               ##################################################
+
+echo '
+<vbox space-fill="true" space-expand="true">
+  <frame '$(gettext 'Tray buttons')'>
+    <vbox margin="30" space-fill="false" space-expand="false">
+      <text space-fill="false" space-expand="false"><label>"'$(gettext 'Add predefined function buttons')'"</label></text>
+      <comboboxtext space-fill="false" space-expand="false">
+        <variable>FUNCTION</variable>
+        <item>""</item>
+        <item>'$(gettext 'Show desktop')'</item>' >> $WORKDIR/tray_xml
+        [ "`which xlock`" ] && echo "<item>$(gettext 'Lock screen')</item>" >> $WORKDIR/tray_xml
+        echo '<item>'$(gettext 'Leave')'</item>
+        <item>'$(gettext 'Shutdown NOW')'</item>
+        <item>'$(gettext 'Reboot NOW')'</item>
+        <item>'$(gettext 'Edit tray')'</item>
+        '$ITEMS_THEMES'
+        <action>add "Function button"</action>
+        <action>refresh:TRAY</action>
+      </comboboxtext>
+      <text space-fill="true" space-expand="true"><label>""</label></text>
+      <text space-fill="false" space-expand="false"><label>"'$(gettext 'Add shortcut-buttons to installed apps')'"</label></text>
+      <comboboxtext space-fill="false" space-expand="false">
+        <variable>PROGRAM</variable>
+        <input file>'$WORKDIR'/tray_applist</input>
+        <action>add "Program button"</action>
+        <action>refresh:TRAY</action>
+      </comboboxtext>
+      <text space-fill="true" space-expand="true"><label>""</label></text>
+      <checkbox>
+        <variable>BUTTON_BORDER</variable>
+        <label>'$(gettext 'Button border')'</label>
+        <default>true</default>
+      </checkbox>
+    </vbox>
+    <text space-fill="true" space-expand="true"><label>""</label></text>
+  </frame>
+</vbox>' >> $WORKDIR/tray_xml
+
+
+               ##################################################
+               ##                                              ##
+               ##              S W A L L O W E D               ##
+               ##                                              ##
+               ##################################################
+
+echo '
+<vbox space-fill="true" space-expand="true">
+  <frame '$(gettext 'Swallowed')'>
+    <vbox space-fill="false" space-expand="false">
+      <text space-fill="true" space-expand="true"><label>"'$(gettext 'Let tray swallow an app. Choose from the list or edit field to swallow your app (not all apps allow being swallowed).')'"</label></text>
+    </vbox>
+    <vbox margin="30" space-fill="false" space-expand="false">
+      <hbox space-fill="true" space-expand="true">
+        <text xalign="0.98" space-fill="true" space-expand="true"><label>'$(gettext 'Command')'</label></text>
+        <comboboxentry space-fill="false" space-expand="false">
+          <variable>SWALLOW</variable>' >> $WORKDIR/tray_xml
+          [ "`which asapm`" ]			&& echo '<item>asapmshell -u 4 -status PaleGreen3 -green PaleGreen3</item>' >> $WORKDIR/tray_xml
+          [ "`which xload`" ]			&& echo '<item>xload -nolabel -fg "#225F7C" -hl white -bg "#222"</item>' >> $WORKDIR/tray_xml
+          [ "`which freememapplet`" ]	&& echo '<item>freememappletshell</item>' >> $WORKDIR/tray_xml
+          [ "`which blinkydelayed`" ]	&& echo '<item>blinkydelayed -bg "#939191"</item>' >> $WORKDIR/tray_xml
+          [ "`which xvkbd`" ]			&& echo '<item>xvkbd -geometry 800x300 -no-keypad</item>' >> $WORKDIR/tray_xml
+          
+        echo '</comboboxentry>
+      </hbox>
+      <hbox space-fill="true" space-expand="true">
+        <text xalign="0.98" space-fill="true" space-expand="true"><label>'$(gettext 'Height (optional)')'</label></text>
+        <entry editable="true" allow-empty="false" width-request="40" space-fill="false" space-expand="false">
+          <input file>'$WORKDIR'/tray_SWALLOW_HEIGHT</input>
+          <variable>SWALLOW_HEIGHT</variable>
+          <action signal="focus-out-event">if [ "`echo "$SWALLOW_HEIGHT" | grep -v "[a-z]" | grep "[0-9]"`" ]; then echo $SWALLOW_HEIGHT > '$WORKDIR'/tray_SWALLOW_HEIGHT; fi</action>
+          <action signal="focus-out-event">refresh:SWALLOW_HEIGHT</action>
+        </entry>
+      </hbox>
+      <hbox space-fill="true" space-expand="true">
+        <text xalign="0.98" space-fill="true" space-expand="true"><label>'$(gettext 'Width (optional)')'</label></text>
+        <entry editable="true" allow-empty="false" width-request="40" space-fill="false" space-expand="false">
+          <input file>'$WORKDIR'/tray_SWALLOW_WIDTH</input>
+          <variable>SWALLOW_WIDTH</variable>
+          <action signal="focus-out-event">if [ "`echo "$SWALLOW_WIDTH" | grep -v "[a-z]" | grep "[0-9]"`" ]; then echo $SWALLOW_WIDTH > '$WORKDIR'/tray_SWALLOW_WIDTH; fi</action>
+          <action signal="focus-out-event">refresh:SWALLOW_WIDTH</action>
+        </entry>
+      </hbox>
+      <text><label>""</label></text>
+      <hbox space-fill="true" space-expand="true">
+        <button space-fill="false" space-expand="false">
+          <label>" '$(gettext 'Let tray swallow app')' "</label>
+          '"`/usr/lib/gtkdialog/xml_button-icon add`"'
+          <action>add Swallowed</action>
+          <action>refresh:TRAY</action>
+        </button>
+      </hbox>
+    </vbox>
+  </frame>
+</vbox>' >> $WORKDIR/tray_xml
+
+
+               ##################################################
+               ##                                              ##
+               ##                  S P A C E R                 ##
+               ##                                              ##
+               ##################################################
+
+echo '
+<vbox space-fill="true" space-expand="true">
+  <frame '$(gettext 'Spacer')'>
+    <vbox space-fill="false" space-expand="false">
+      <text yalign="0" space-fill="true" space-expand="true"><label>"'$(gettext 'Set the height/width to 0, and the spacer will fill.')'"</label></text>
+    </vbox>
+    <vbox margin="30" space-fill="false" space-expand="false">
+      <hbox space-fill="true" space-expand="true">
+        <text xalign="0.98" space-fill="true" space-expand="true"><label>'$(gettext 'Width')'</label></text>
+        <spinbutton range-max="999" width-request="47" space-expand="false" space-fill="false">
+          <variable>SPACER</variable>
+          <default>10</default>
+        </spinbutton>
+      </hbox>
+      <hbox space-fill="true" space-expand="true">
+        <button space-fill="false" space-expand="false">
+          '"`/usr/lib/gtkdialog/xml_button-icon add`"'
+          <label>" '$(gettext 'Add empty gap')' "</label>
+          <action>add Spacer</action>
+          <action>refresh:TRAY</action>
+        </button>
+      </hbox>
+      <text space-fill="true" space-expand="true"><label>""</label></text>
+    </vbox>
+  </frame>
+</vbox>' >> $WORKDIR/tray_xml
+
+
+
+
+        echo '<variable>GUI_OPTIONS</variable>
+        <input file>'$WORKDIR'/notebook_page</input>
+      </notebook>
+    </vbox>
+  </hbox>
+
+
+
+    <frame Tray setup (left/top to right/bottom)>
+      <hbox space-fill="true" space-expand="true">
+        <vbox space-fill="true" space-expand="true">
+        <tree headers_visible="false" selection-mode="1" space-fill="true" space-expand="true">
+          <label>""</label>
+          <variable>TRAY</variable>
+          <input file>'$WORKDIR'/tray_rc</input>
+          <action signal="button-release-event">echo $TRAY > '$WORKDIR'/tray_treeselect</action>
+          <action signal="button-release-event" condition="command_is_true([[ `grep -Fi \"<\" <<< \"$TRAY\"` ]] && echo true)">enable:BOX_TREEBUTTONS</action>
+          <action signal="button-release-event" condition="command_is_true([[ `grep -Fi \"<Tray \" <<< \"$TRAY\"` ]] && echo true)">disable:BOX_TREEBUTTONS</action>
+        </tree>
+        </vbox>
+        <vbox space-fill="false" space-expand="false">
+          <button space-fill="false" space-expand="false" tooltip-text="'$(gettext 'Clear list')'">
+            '"`/usr/lib/gtkdialog/xml_button-icon clear`"'
+            <action>. /usr/lib/gtkdialog/box_yesno "'$(gettext 'Clear Tray')'" "'$(gettext 'Do you want to clear the Tray?')'"; if [ "$EXIT" = "yes" ]; then echo -n > '$WORKDIR'/tray_rc; add Tray; fi</action>
+            <action>refresh:TRAY</action>
+            <action>apply</action>
+            <action>refresh:ICON1</action>
+            <action>refresh:ICON2</action>
+            <action>refresh:ICON3</action>
+            <action>refresh:ICON4</action>
+          </button>
+          <vbox>
+          <button space-fill="false" space-expand="false">
+            '"`/usr/lib/gtkdialog/xml_button-icon remove`"'
+            <action>if [ "$TRAY" ]; then grep -vx "$TRAY" '$WORKDIR'/tray_rc > '$WORKDIR'/tray_tmp; mv '$WORKDIR'/tray_tmp '$WORKDIR'/tray_rc; fi</action>
+            <action>refresh:TRAY</action>
+            <action>disable:BOX_TREEBUTTONS</action>
+          </button>
+          <button space-fill="false" space-expand="false">
+            '"`/usr/lib/gtkdialog/xml_button-icon go-up`"'
+            <action>move_up</action>
+            <action>refresh:TRAY</action>
+          </button>
+          <button space-fill="false" space-expand="false">
+            '"`/usr/lib/gtkdialog/xml_button-icon go-down`"'
+            <action>move_down</action>
+            <action>refresh:TRAY</action>
+          </button>
+            <variable>BOX_TREEBUTTONS</variable>
+            <sensitive>false</sensitive>
+          </vbox>
+        </vbox>
+      </hbox>
+    </frame>
+
+  </hbox>
+
+  <hbox space-expand="false" space-fill="false">
+    <comboboxentry editable="false" space-expand="false" space-fill="false">
+      <variable>TEMPLATE</variable>
+      <default>'$(gettext 'Load setup')'</default>
+      <input file>'$WORKDIR'/tray_templates</input>
+      <action>load "$TEMPLATE"</action>
+      <action>refresh:ICON1</action>
+      <action>refresh:ICON2</action>
+      <action>refresh:ICON3</action>
+      <action>refresh:ICON4</action>
+    </comboboxentry>
+    <button space-expand="false" space-fill="false">
+      '"`/usr/lib/gtkdialog/xml_button-icon delete`"'
+      <action>delete "$TEMPLATE"</action>
+      <action>refresh:TEMPLATE</action>
+    </button>
+    <button space-expand="false" space-fill="false">
+      '"`/usr/lib/gtkdialog/xml_button-icon save`"'
+      <label>"'$(gettext 'Save setup')'"</label>
+      <action>save "$TEMPLATE"</action>
+      <action>refresh:TEMPLATE</action>
+    </button>
+    <text space-expand="true" space-fill="true"><label>""</label></text>
+    <button>
+      '"`/usr/lib/gtkdialog/xml_button-icon cancel`"'
+      <label>'$(gettext 'Cancel')'</label>
+      <action>exit:EXIT</action>
+    </button>
+    <button>
+      '"`/usr/lib/gtkdialog/xml_button-icon apply`"'
+      <label>'$(gettext 'Apply')'</label>
+      <action>apply</action>
+      <action>refresh:ICON1</action>
+      <action>refresh:ICON2</action>
+      <action>refresh:ICON3</action>
+      <action>refresh:ICON4</action>
+    </button>
+    '"`/usr/lib/gtkdialog/xml_scalegrip`"'
+  </hbox>
+  
+</vbox>
+<action signal="show">kill '$XPID'</action>
+</window>' >> $WORKDIR/tray_xml
+
+. /usr/lib/gtkdialog/xml_info gtk #build bg_pixmap for gtk-theme
+gtkdialog -f $WORKDIR/tray_xml

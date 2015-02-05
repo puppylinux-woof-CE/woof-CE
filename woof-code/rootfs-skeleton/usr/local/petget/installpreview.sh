@@ -75,8 +75,17 @@ DB_description="`echo -n "$DB_ENTRY" | cut -f 10 -d '|'`"
 
 [ "$DB_description" = "" ] && DB_description="$(gettext 'no description available')"
 
+. /etc/rc.d/PUPSTATE
+
 SIZEFREEM=`cat /tmp/pup_event_sizefreem | head -n 1` #100821 bug in Lucid 5.1, file had two identical lines.
-SIZEFREEK=`expr $SIZEFREEM \* 1024`
+if [ $SIZEFREEM ]; then
+ SIZEFREEK=`expr $SIZEFREEM \* 1024`
+else
+ BASEMTP="/initrd${SAVE_LAYER}"
+ [ -L $BASEMTP ] && BASEMTP="/initrd${PUP_HOME}"
+ SIZEFREEK=`df | grep -m1 -w "$BASEMTP"| tr -s ' ' | cut -f 4 -d ' '`
+ SIZEFREEM=`expr $SIZEFREEK / 1024` 
+fi
 
 if [ $DB_size ];then
  SIZEMK="`echo -n "$DB_size" | rev | cut -c 1`"

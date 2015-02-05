@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 # originally by Iguleder
 # hacked to DEATH by 01micko
 # see /usr/share/doc/legal NO WARRANTY, NO resposibility accepted
@@ -27,6 +27,7 @@ fi
 # read config
 [ -f ./build.conf ] && . ./build.conf
 
+FW_URL=${FW_URL:-http://distro.ibiblio.org/puppylinux/firmware}
 package_name_suffix=$package_name_suffix
 custom_suffix=$custom_suffix
 kernel_version=$kernel_version
@@ -72,7 +73,7 @@ if [ ! $Chosen ];then
 	echo -e "\033[1;31m""ERROR: you didn't choose, start again!""\033[0m" \
 	&& exit
 else
-    Choice=$(grep ^$Chosen /tmp/kernel_configs|cut -d ' ' -f2)
+    Choice=$(grep "^$Chosen\." /tmp/kernel_configs|cut -d ' ' -f2)
     [ ! $Choice ] && \
     echo -e "\033[1;31m""ERROR: your choice is not sane ..quiting""\033[0m" \
     && exit
@@ -231,23 +232,34 @@ rm Makefile-orig
 
 echo "Reducing the number of consoles"
 if [ "$kernel_branch" -ge 12 ];then
- cp kernel/printk/printk.c kernel/printk/printk.c-orig
- sed -i s/'#define MAX_CMDLINECONSOLES 8'/'#define MAX_CMDLINECONSOLES 5'/ kernel/printk/printk.c
- diff -up kernel/printk/printk.c-orig kernel/printk/printk.c > ../dist/sources/patches/less-consoles.patch
-
- echo "Reducing the verbosity level"
- cp -f kernel/printk/printk.c kernel/printk/printk.c-orig
- sed -i s/'#define DEFAULT_CONSOLE_LOGLEVEL 7 \/\* anything MORE serious than KERN_DEBUG \*\/'/'#define DEFAULT_CONSOLE_LOGLEVEL 3 \/\* anything MORE serious than KERN_ERR \*\/'/ kernel/printk/printk.c
- diff -up kernel/printk/printk.c-orig kernel/printk/printk.c > ../dist/sources/patches/lower-verbosity.patch
+ if [ "${kernel_version%%.*}" -ge 3 -a "$kernel_branch" -ge 16 ];then
+	 cp kernel/printk/printk.c kernel/printk/printk.c.orig
+	 sed -i s/'#define MAX_CMDLINECONSOLES 8'/'#define MAX_CMDLINECONSOLES 5'/ kernel/printk/printk.c
+	 diff -up kernel/printk/printk.c.orig kernel/printk/printk.c > ../dist/sources/patches/less-consoles.patch
+	
+	 echo "Reducing the verbosity level"
+	 cp -f include/linux/printk.h include/linux/printk.h.orig
+	 sed -i s/'#define CONSOLE_LOGLEVEL_DEFAULT 7 \/\* anything MORE serious than KERN_DEBUG \*\/'/'#define CONSOLE_LOGLEVEL_DEFAULT 3 \/\* anything MORE serious than KERN_ERR \*\/'/ include/linux/printk.h
+	 diff -up include/linux/printk.h.orig include/linux/printk.h > ../dist/sources/patches/lower-verbosity.patch
+ else
+	 cp kernel/printk/printk.c kernel/printk/printk.c.orig
+	 sed -i s/'#define MAX_CMDLINECONSOLES 8'/'#define MAX_CMDLINECONSOLES 5'/ kernel/printk/printk.c
+	 diff -up kernel/printk/printk.c.orig kernel/printk/printk.c > ../dist/sources/patches/less-consoles.patch
+	
+	 echo "Reducing the verbosity level"
+	 cp -f kernel/printk/printk.c kernel/printk/printk.c.orig
+	 sed -i s/'#define DEFAULT_CONSOLE_LOGLEVEL 7 \/\* anything MORE serious than KERN_DEBUG \*\/'/'#define DEFAULT_CONSOLE_LOGLEVEL 3 \/\* anything MORE serious than KERN_ERR \*\/'/ kernel/printk/printk.c
+	 diff -up kernel/printk/printk.c.orig kernel/printk/printk.c > ../dist/sources/patches/lower-verbosity.patch
+  fi
 else
- cp kernel/printk.c kernel/printk.c-orig
+ cp kernel/printk.c kernel/printk.c.orig
  sed -i s/'#define MAX_CMDLINECONSOLES 8'/'#define MAX_CMDLINECONSOLES 5'/ kernel/printk.c
- diff -up kernel/printk.c-orig kernel/printk.c > ../dist/sources/patches/less-consoles.patch
+ diff -up kernel/printk.c.orig kernel/printk.c > ../dist/sources/patches/less-consoles.patch
 
  echo "Reducing the verbosity level"
- cp -f kernel/printk.c kernel/printk.c-orig
- sed -i s/'#define DEFAULT_CONSOLE_LOGLEVEL 7 \/\* anything MORE serious than KERN_DEBUG \*\/'/'#define DEFAULT_CONSOLE_LOGLEVEL 3 \/\* anything MORE serious than KERN_ERR \*\/'/ kernel/printk.c
- diff -up kernel/printk.c-orig kernel/printk.c > ../dist/sources/patches/lower-verbosity.patch
+ cp -f kernel/printk.c kernel/printk.c.orig
+ sed -i s/'#define DEFAULT_CONSOLE_LOGLEVEL 7 \/\* anything MORE serious than KERN_DEBUG \*\/'/'#define DEFAULT_CONSOLE_LOGLEVEL 3 \/\* Puppy linux hack \*\/'/ kernel/printk.c
+ diff -up kernel/printk.c.orig kernel/printk.c > ../dist/sources/patches/lower-verbosity.patch
 fi
 
 for patch in ../patches/*; do
@@ -294,7 +306,7 @@ echo
 echo "Ok, kernel is configured. hit ENTER to continue, CTRL+C to quit"
 read goon
 
-[ ! -d ../dist/packages ] && mkdir ../dist/packages
+[ ! -d ../dist/packages ] && mkdir -p ../dist/packages
 
 echo "Creating the kernel headers package"
 make headers_check >> ../build.log 2>&1
@@ -314,7 +326,7 @@ echo "Creating the kernel package"
 make INSTALL_MOD_PATH=linux_kernel-$kernel_major_version-$package_name_suffix modules_install >> ../build.log 2>&1
 rm -f linux_kernel-$kernel_major_version-$package_name_suffix/lib/modules/${kernel_major_version}$custom_suffix/{build,source}
 #(cd linux_kernel-$kernel_major_version-$package_name_suffix/lib/modules/; ln -s ${kernel_major_version}$custom_suffix $kernel_major_version)
-mkdir linux_kernel-$kernel_major_version-$package_name_suffix/boot
+mkdir -p linux_kernel-$kernel_major_version-$package_name_suffix/boot
 mkdir -p linux_kernel-$kernel_major_version-$package_name_suffix/etc/modules
 cp .config linux_kernel-$kernel_major_version-$package_name_suffix/etc/modules/DOTconfig-$kernel_version-$today
 cp arch/x86/boot/bzImage linux_kernel-$kernel_major_version-$package_name_suffix/boot/vmlinuz
@@ -332,7 +344,7 @@ if [ "$FD" = "1" ];then #make fatdog kernel module package
 	#gzip -9 ../dist/packages/vmlinuz-$kernel_major_version-$package_name_suffix
 	[ -f ../dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix/boot/bzImage ] &&
 rm -f ../dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix/boot/bzImage
-	echo "FatDog compatible kernel is ready in dist"
+	echo "Huge kernel $kernel_major_version-$package_name_suffix is ready in dist"
 fi
 
 echo "Cleaning the kernel sources"
@@ -392,9 +404,14 @@ if [ ! -f dist/sources/vanilla/aufs-util${today}.tar.bz2 ];then
 	[ "$?" -ne 0 ] && echo "Failed to patch the aufs-util sources, do it manually. Kernel is compiled ok" && exit
 fi
 arch=`uname -m`
-LinuxSrc=../dist/packages/kernel_headers*
+#LinuxSrc=../dist/packages/kernel_headers*
+# see if fhsm is enabled in kernel config
+CONFIG=`find $CWD/dist/sources -type f -name 'DOTconfig*'`
+grep -q 'CONFIG_AUFS_FHSM=y' $CONFIG
+[ "$?" -eq 0 ] && export MAKE=make || export MAKE="make BuildFHSM=no"
+LinuxSrc=`find $CWD -type d -name 'kernel_headers*'`
 export CPPFLAGS="-I $LinuxSrc/usr/include"
-make >> ../build.log 2>&1
+$MAKE >> ../build.log 2>&1
 [ $? -ne 0 ] && echo "Failed to compile aufs-util, do it manually. Kernel is compiled OK :)" && exit
 make DESTDIR=$CWD/dist/packages/aufs-util-$kernel_version-$arch install >> ../build.log 2>&1 #maybe needs absolute path
 make clean >> ../build.log 2>&1
@@ -406,14 +423,54 @@ echo "aufs-util-$kernel_version is in dist"
 cd ..
 if [ "$FD" = "1" ];then #shift aufs-utils to kernel-modules.sfs
 	echo "Installing aufs-utils into kernel package"
-	cp -a --remove-destination dist/packages/aufs-util-$kernel_version-$arch/* dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix
-	echo "Pausing here, pending a better method, to add extra firmware"
-	echo "once you have manually added firmware to "
-	echo "dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix/lib/firmware"
-	echo "hit ENTER to continue"
-	read firm
+	cp -a --remove-destination dist/packages/aufs-util-$kernel_version-$arch/* \
+	dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix
+	echo "Pausing hereto add extra firmware."
+	echo "Choose an option:"
+	# download the fw or offer to copy
+	tmpfw=/tmp/fw$$
+	x=1
+	wget -q $FW_URL -O - |\
+        sed '/href/!d; /\.tar\./!d; /md5\.txt/d; s/.*href="//; s/".*//' |\
+        while read f;do
+             [ "$f" ] && echo "$x $f" >> ${tmpfw}
+             x=$(($x + 1 ))
+        done
+    y=`cat ${tmpfw}|wc -l `
+    [ "$y" = 0 ] && echo "error, no firmware at that URL" && exit 1
+    x=$(($x + $y))
+    echo "$x I'll copy in my own." >> ${tmpfw}
+    cat ${tmpfw}
+    echo -n "Enter a number, 1 to $x:  "
+    read fw
+    if [ "$fw" -gt "$x" ];then "error, wrong number" && exit
+	elif [ "$fw" = "$x" ];then
+		echo "once you have manually added firmware to "
+		echo "dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix/lib/firmware"
+		echo "hit ENTER to continue"
+		read firm
+	else
+		fw_pkg=`grep ^$fw ${tmpfw}`
+		fw_pkg=${fw_pkg##* }
+		echo "You chose ${fw_pkg}. If that isn't correct change it manually later."
+		echo "downloading $FW_URL/${fw_pkg}"
+		wget -t0 -c $FW_URL/${fw_pkg} -P dist/packages
+		[ $? -ne 0 ] && echo "failed to download ${fw_pkg##* }" && exit 1
+		tar -xjf dist/packages/${fw_pkg} -C dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix/lib/
+		[ $? -ne 0 ] && echo "failed to unpack ${fw_pkg}" && exit 1
+		echo "Successfully extracted ${fw_pkg}."
+	fi
+	rm ${tmpfw}
 	mksquashfs dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix dist/packages/kernel-modules.sfs-$kernel_major_version-$package_name_suffix $COMP
-	[ "$?" = 0 ] && echo "FatDog compatible kernel packages are ready in dist/" || exit 1
+	[ "$?" = 0 ] && echo "Huge compatible kernel packages are ready to package./" || exit 1
+	echo "Packaging huge-$kernel_major_version-$package_name_suffix kernel"
+	cd dist/packages/
+	tar -cjvf huge-$kernel_major_version-${package_name_suffix}.tar.bz2 \
+	vmlinuz-$kernel_major_version-$package_name_suffix kernel-modules.sfs-$kernel_major_version-$package_name_suffix
+	[ "$?" = 0 ] && echo "huge-$kernel_major_version-${package_name_suffix}.tar.bz2 is in dist/packages" || exit 1
+	md5sum huge-$kernel_major_version-${package_name_suffix}.tar.bz2 > huge-$kernel_major_version-${package_name_suffix}.tar.bz2.md5.txt
+	echo
+	cd -
 fi
 tar -c aufs-util | bzip2 -9 > dist/sources/vanilla/aufs-util$today-$arch.tar.bz2
 
@@ -422,4 +479,4 @@ bzip2 -9 build.log
 cp build.log.bz2 dist/sources
 
 echo "Done!"
-aplay /usr/share/sounds/2barks.au
+[ -f /usr/share/sounds/2barks.au ] && aplay /usr/share/sounds/2barks.au

@@ -108,7 +108,7 @@ fi
 echo "Setting $SCR as defaultscreenshot app"
 
 # firefox
-FF=`find /usr -type d -name 'firefox*'`
+FF=`find usr -type d -name 'firefox*'`
 if [ "$FF" ];then echo '#!/bin/sh
 exec firefox "$@"' > usr/local/bin/defaultbrowser
 chmod 755 usr/local/bin/defaultbrowser
