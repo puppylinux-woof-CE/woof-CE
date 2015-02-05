@@ -572,14 +572,9 @@ else
  dlPATTERN='|'"`echo -n "$DLPKG_BASE" | sed -e 's%\\-%\\\\-%'`"'|'
  DB_ENTRY="`cat /tmp/petget_missing_dbentries-Packages-* | grep "$dlPATTERN" | head -n 1`"
 fi
-echo DLPKG_BASE=$DLPKG_BASE
-echo DLPKG_NAME=$DLPKG_NAME
-echo DB_ENTRY=$DB_ENTRY
 ##+++2011-12-27 KRG check if $DLPKG_BASE matches DB_ENTRY 1 so uninstallation works :Ooops:
 db_pkg_name=`echo "$DB_ENTRY" |cut -f 1 -d '|'`
-echo db_pkg_name=$db_pkg_name
 if [ "$db_pkg_name" != "$DLPKG_NAME" ];then
- echo not equal sed ing now
  DB_ENTRY=`echo "$DB_ENTRY" |sed "s#$db_pkg_name#$DLPKG_NAME#"`
 fi
 ##+++2011-12-27 KRG
