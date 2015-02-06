@@ -213,7 +213,7 @@ case $DLPKG_BASE in
   [ $? -ne 0 ] && exit 1
   if [ "`echo "$PETFILES" | grep '^\\./'`" != "" ];then
    #ttuuxx has created some pets with './' prefix...
-   pPATTERN="s%^\\./${DLPKG_NAME}%%"
+   pPATTERN="s%^\\./[^/]*%%" 
    echo "$PETFILES" | sed -e "$pPATTERN" > /root/.packages/${DLPKG_NAME}.files
    install_path_check
    tar ${OPT} -x --strip=2 --directory=${DIRECTSAVEPATH}/ -f ${DLPKG_MAIN}.tar.${EXT} #120102. 120107 remove --unlink-first
