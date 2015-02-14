@@ -460,6 +460,21 @@ if [ "$FD" = "1" ];then #shift aufs-utils to kernel-modules.sfs
 		[ $? -ne 0 ] && echo "failed to unpack ${fw_pkg}" && exit 1
 		echo "Successfully extracted ${fw_pkg}."
 	fi
+
+	if  [ ! -d ../kernel-skeleton -a ! -d ../woof-code/kernel-skeleton ]; then
+		echo "Error: all-firmware folder was not found" >> ../build.log
+	else
+		[ -d ../kernel-skeleton ] && AFpath="../kernel-skeleton" ||
+		 AFpath="../woof-code/kernel-skeleton"
+		cp -aR -f "$AFpath"/* \
+		 dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix/
+		cd dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix/
+		./pinstall.sh
+		rm -f pinstall.sh
+		mv -f etc/modules/firmware.dep etc/modules/firmware.dep.$kernel_major_version
+		cd -
+	fi
+
 	rm ${tmpfw}
 	mksquashfs dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix dist/packages/kernel-modules.sfs-$kernel_major_version-$package_name_suffix $COMP
 	[ "$?" = 0 ] && echo "Huge compatible kernel packages are ready to package./" || exit 1
