@@ -60,15 +60,9 @@ esac
 #130507
 xDEFGUIFILTER="$(echo -n "$DEFGUIFILTER" | tr -d ' ' | tr -d '-' | tr -d '+' | tr -d ',')" #ex, translate 'Qt4 GUI apps only' to 'Qt4GUIappsonly'
 
-#alphabetic group...
-PKG_FIRST_CHAR="`cat /tmp/petget_pkg_first_char`" #written in pkg_chooser.sh, ex: 'mn'
-[ "$PKG_FIRST_CHAR" = "ALL" ] && PKG_FIRST_CHAR='a-z0-9'
-
-X1PID=0
-if [ "`cat /tmp/petget_pkg_first_char`" = "ALL" ];then
- yaf-splash -close never -bg orange -text "$(gettext 'Please wait, processing all entries may take awhile...')" &
- X1PID=$!
-fi
+PKG_FIRST_CHAR='a-z0-9'
+/usr/lib/gtkdialog/box_splash -close never -text "$(gettext 'Please wait, processing all entries may take awhile...')" &
+X1PID=$!
 
 #which repo...
 FIRST_DB="`ls -1 /root/.packages/Packages-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}* | head -n 1 | rev | cut -f 1 -d '/' | rev | cut -f 2-4 -d '-'`"
@@ -79,14 +73,13 @@ fltrREPO_TRIAD="$FIRST_DB" #ex: slackware-12.2-official
 REPO_FILE="`find /root/.packages -type f -name "Packages-${fltrREPO_TRIAD}*" | head -n 1`"
 
 #choose a category in the repo...
-#$1 exs: Document, Internet, Graphic, Setup, Desktop
-fltrCATEGORY="Desktop" #show Desktop category pkgs.
-if [ $1 ];then
+if [ $1 ];then #$1 exs: Document, Internet, Graphic, Setup, Desktop
  fltrCATEGORY="$1"
  echo "$1" > /tmp/petget_filtercategory
+elif [ -f /tmp/petget_filtercategory ]; then #or, a selection was made in the main gui (pkg_chooser.sh)...
+ fltrCATEGORY="`cat /tmp/petget_filtercategory`"
 else
- #or, a selection was made in the main gui (pkg_chooser.sh)...
- [ -f /tmp/petget_filtercategory ] && fltrCATEGORY="`cat /tmp/petget_filtercategory`"
+ fltrCATEGORY="Desktop" #show Desktop category pkgs.
 fi
 #120813 there may be optional subcategory, put ; into pattern...
 categoryPATTERN="|${fltrCATEGORY}[;|]"

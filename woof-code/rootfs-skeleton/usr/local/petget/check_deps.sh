@@ -13,6 +13,10 @@
 #120905 vertical scrollbars, fix window too high.
 #130511 need to include devx-only-installed-packages, if loaded.
 
+[ "$(cat /var/local/petget/nt_category 2>/dev/null)" != "true" ] && \
+ [ -f /tmp/install_quietly ] && set -x
+ #; mkdir -p /tmp/PPM_LOGs ; NAME=$(basename "$0"); exec 1>> /tmp/PPM_LOGs/"$NAME".log 2>&1
+
 export TEXTDOMAIN=petget___check_deps.sh
 export OUTPUT_CHARSET=UTF-8
 
@@ -91,8 +95,10 @@ echo "$xPKG_NAME_IGNORE" > /tmp/petget_pkg_name_ignore_patterns
 dependcheckfunc() {
  #entered with ex: APKGNAME=abiword-1.2.3
  
- yaf-splash -close never -bg orange -placement center -text "$(gettext 'Checking') ${APKGNAME} $(gettext 'for missing shared library files...')" &
- X1PID=$!
+ if [ ! -f /tmp/install_quietly ]; then
+  /usr/lib/gtkdialog/box_splash -close never -placement center -text "$(gettext 'Checking') ${APKGNAME} $(gettext 'for missing shared library files...')" &
+  X1PID=$!
+ fi
  
  #a hack if OO is installed...
  if [ "`echo -n "$APKGNAME" | grep 'openoffice'`" != "" ];then
@@ -130,18 +136,20 @@ dependcheckfunc() {
   done
   cp -f /tmp/missinglibs_cut.txt /tmp/missinglibs.txt
  fi
- kill $X1PID
+ [ ! -f /tmp/install_quietly ] && kill $X1PID || echo
 }
 
 #searches deps of all user-installed pkgs...
 missingpkgsfunc() {
- yaf-splash -close never -bg orange -text "$(gettext 'Checking all user-installed packages for any missing dependencies...')" &
- X2PID=$!
+ if [ ! -f /tmp/install_quietly ]; then
+  /usr/lib/gtkdialog/box_splash -close never -text "$(gettext 'Checking all user-installed packages for any missing dependencies...')" &
+  X2PID=$!
+ fi
   USER_DB_dependencies="`cat /root/.packages/user-installed-packages | cut -f 9 -d '|' | tr ',' '\n' | sort -u | tr '\n' ','`"
   /usr/local/petget/findmissingpkgs.sh "$USER_DB_dependencies"
   #...returns /tmp/petget_installed_patterns_all, /tmp/petget_pkg_deps_patterns, /tmp/petget_missingpkgs_patterns
   MISSINGDEPS_PATTERNS="`cat /tmp/petget_missingpkgs_patterns`" #v431
-  kill $X2PID
+  [ ! -f /tmp/install_quietly ] && kill $X2PID || echo
 }
 
 if [ $1 ];then
@@ -199,7 +207,12 @@ else
  
 fi
 
-missingpkgsfunc
+if [ -f /tmp/install_pets_quietly ]; then
+ LEFT=$(cat /tmp/pkgs_left_to_install | wc -l)
+ [ "$LEFT" -le 1 ] && missingpkgsfunc
+else
+ missingpkgsfunc
+fi
 
 #present results to user...
 MISSINGMSG1="<text use-markup=\"true\"><label>\"<b>$(gettext 'No missing shared libraries')</b>\"</label></text>"
@@ -224,6 +237,7 @@ PKGS="$APKGNAME"
 [ $1 ] && PKGS="`echo -n "${1}" | tr '|' ' '`"
 
 #120905 vertical scrollbars, fix window too high...
+if [ ! -f /tmp/install_quietly ]; then
 export DEPS_DIALOG="<window title=\"$(gettext 'Puppy Package Manager')\" icon-name=\"gtk-about\">
   <vbox>
    <text><label>$(gettext 'Puppy has searched for any missing shared libraries of these packages:')</label></text>
@@ -243,6 +257,14 @@ export DEPS_DIALOG="<window title=\"$(gettext 'Puppy Package Manager')\" icon-na
  </window>
 " 
  RETPARAMS="`gtkdialog4 --center --program=DEPS_DIALOG`"
-
-
+else
+ RETPARAMS='EXIT="OK"'
+ rm -f /tmp/petget_missing_dbentries-* 2>/dev/null
+ cat /tmp/petget_missingpkgs_patterns_with_versioning >> \
+  /tmp/overall_petget_missingpkgs_patterns.txt
+ rm -f /tmp/petget_missingpkgs_patterns* 2>/dev/null
+ cat /tmp/missinglibs.txt >> /tmp/overall_missing_libs.txt
+ cat /tmp/missinglibs_hidden.txt >> /tmp/overall_missing_libs_hidden.txt
+ rm -f /tmp/missinglibs* 2>/dev/null
+fi
 ###END###

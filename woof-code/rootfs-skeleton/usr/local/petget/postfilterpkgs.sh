@@ -37,7 +37,6 @@ if [ "$DEF_CHK_EXE" = "false" ];then
  mv -f /tmp/petget/filterpkgs.results.post.tmp /tmp/petget/filterpkgs.results.post
 fi
 
-#120817 category field: Document;edit becomes mini-Document-edit...
-sed -i -e 's%|%|mini-%' -e 's%;%-%' /tmp/petget/filterpkgs.results.post
+sed -i 's%;%-%' /tmp/petget/filterpkgs.results.post #make names correspond to /usr/share/icons/hicolor/scalable/categogies/
 
 ###END###

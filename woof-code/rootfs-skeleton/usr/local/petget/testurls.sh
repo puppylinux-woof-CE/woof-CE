@@ -4,8 +4,10 @@
 #repository.slacky.eu|http://repository.slacky.eu/slackware-12.2|Packages-slackware-12.2-slacky
 #...only the first field is of interest in this script.
 
+
 echo '#!/bin/sh' >  /tmp/petget_urltest
 echo 'echo "Testing the URLs:"' >>  /tmp/petget_urltest
+echo '[ "$(cat /var/local/petget/nt_category 2>/dev/null)" != "true" ] && [ -f /tmp/install_quietly ] && set -x' >>  /tmp/petget_urltest
 
 for ONEURLSPEC in `cat /tmp/petget_repos`
 do
@@ -25,6 +27,11 @@ echo 'echo -n "Press ENTER key to exit: "
 read ENDIT'  >>  /tmp/petget_urltest
 
 chmod 777 /tmp/petget_urltest
-rxvt -title "Puppy Package Manager: download" -bg orange -fg black -e /tmp/petget_urltest
+if [ ! -f /tmp/install_quietly ]; then
+ rxvt -title "Puppy Package Manager: download" -bg orange \
+ -fg black -e /tmp/petget_urltest
+else
+ exec /tmp/petget_urltest
+fi
 
 ###END###
