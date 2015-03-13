@@ -42,13 +42,13 @@ report_window () {
  fi
 
  cat << EOF > /tmp/overall_remove_deport
-Removed Packages
+Packages succesfully uninstalled:
 $REMOVED_PGKS
 
-Failed to Remove or Cancelled Packages
+Packages that did not uninstall properly or the user abortded their removal:
 $FAILED_TO_REMOVE
 
-Installed packages that depend on the removed and you my not need anymore
+Installed packages that may not be needed after the removal of the above:
 $MAYBEREM 
 EOF
 
