@@ -88,16 +88,16 @@ report_results () {
  MISSING_LIBS=$(cat /tmp/overall_missing_libs.txt 2>/dev/null | tr ' ' '\n' | sort | uniq )
  NOT_IN_PATH_LIBS=$(cat /tmp/overall_missing_libs_hidden.txt 2>/dev/null | tr ' ' '\n' | sort | uniq )
  cat << EOF > /tmp/overall_install_deport
-Installed or Downloaded Packages
+Packages succesfully Installed or Downloaded 
 $INSTALLED_PGKS
 
-Failed to Install or Download, or aborted Packages
+Packages that failed to be Installed or Downloaded, or were aborted be the user
 $FAILED_TO_INSTALL
 
-Missing Libraries
+Missing Shared Libraries
 $MISSING_LIBS
 
-Existing Libraries but not in Path
+Existing Libraries that may be in a location other than /lib and /usr/lib
 $NOT_IN_PATH_LIBS
 EOF
 
