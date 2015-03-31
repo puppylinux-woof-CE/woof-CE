@@ -261,7 +261,7 @@ if [ ! -f /tmp/petget_installed_patterns_system ];then
  #120822 in precise puppy have a pet 'cups' instead of the ubuntu debs. the latter are various pkgs, including 'libcups2'.
  #we don't want libcups2 showing up as a missing dependency, so have to screen these alternative names out...
  case $DISTRO_BINARY_COMPAT in
-  ubuntu|debian|raspbian)
+  ubuntu|debian|devuan|raspbian)
    #for 'cups' pet, we want to create a pattern '/cups|' so can locate all debs with that DB_path entry '.../cups'
     INSTALLED_PTNS_PET="$(grep '\.pet|' /root/.packages/layers-installed-packages | cut -f 2 -d '|' | sed -e 's%^%/%' -e 's%$%|%' -e 's%\-%\\-%g')"
    if [ "$INSTALLED_PTNS_PET" != "/|" ];then
@@ -284,7 +284,7 @@ if [ -s /root/.packages/user-installed-packages ];then
  echo "$INSTALLED_PATTERNS_USER" >> /tmp/petget_installed_patterns_all
  #120822 find alt names in compat-distro pkgs, for user-installed pets...
  case $DISTRO_BINARY_COMPAT in
-  ubuntu|debian|raspbian)
+  ubuntu|debian|devuan|raspbian)
    #120904 bugfix, was very slow...
    MODIF1=`stat --format=%Y /root/.packages/user-installed-packages` #seconds since epoch.
    MODIF2=0
