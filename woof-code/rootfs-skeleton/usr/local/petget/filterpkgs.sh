@@ -93,7 +93,7 @@ categoryPATTERN="|${fltrCATEGORY}[;|]"
 #w460 filter out all 'language-' pkgs, too many (ubuntu/debian)...
 if [ ! -f /tmp/petget_fltrd_repo_${PKG_FIRST_CHAR}_${fltrCATEGORY}_${xDEFGUIFILTER}_Packages-${fltrREPO_TRIAD} ];then
  case $DISTRO_BINARY_COMPAT in
-  ubuntu|debian|raspbian)
+  ubuntu|debian|devuan|raspbian)
    FLTRD_REPO="`printcols $REPO_FILE 1 2 3 5 10 6 9 | grep -v -E '^lib|^language\\-' | grep -i "^[${PKG_FIRST_CHAR}]" | grep "$categoryPATTERN" | grep -i ${EXCPARAM} -E "$guiPTN" | sed -e 's%||$%|unknown|%'`" #130330  130331 ignore case.
   ;;
   *)

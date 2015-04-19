@@ -637,7 +637,7 @@ if [ -f /usr/local/petget/categories.dat ];then #precaution, but it will be ther
   DBCOMPILEDDISTRO="$(echo -n "$DB_ENTRY" | cut -f 11 -d '|')"
   [ ! "$DBCOMPILEDDISTRO" ] && DBCOMPILEDDISTRO='puppy' #any name will do here.
   case $DBCOMPILEDDISTRO in
-   debian|ubuntu|raspbian)
+   debian|devuan|ubuntu|raspbian)
     if [ "$DBPATH" ];then #precaution
      xNAMEONLY="$(basename ${DBPATH})"
     else

@@ -62,6 +62,9 @@ case $DB_DISTRO in
  debian|raspbian)
   nohup defaulthtmlviewer http://packages.debian.org/${DB_RELEASE}/${DB_nameonly} &
  ;;
+ devuan)
+  nohup defaulthtmlviewer http://packages.devuan.org/ &
+ ;;
  ubuntu)
   nohup defaulthtmlviewer http://packages.ubuntu.com/${DB_RELEASE}/${DB_nameonly} &
  ;;
