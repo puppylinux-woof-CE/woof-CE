@@ -13,7 +13,7 @@ if [ "$1" = "clean" ];then
 	echo "Hit ENTER to clean"
 	read clean
 	echo "Please wait..."
-	rm -rfI ./{dist,aufs*,kernel*,build.log*} #interactive chance to keep sources.xz/bz2 archives.
+	rm -rf ./{dist,aufs*,kernel*,build.log*}
 	echo "Cleaning complete"
 	exit 0
 fi
@@ -72,7 +72,7 @@ if [ ! $Chosen ];then
 	echo -e "\033[1;31m""ERROR: you didn't choose, start again!""\033[0m" \
 	&& exit
 else
-    Choice=$(grep "^$Chosen\." /tmp/kernel_configs|cut -d ' ' -f2)
+    Choice=$(grep ^$Chosen /tmp/kernel_configs|cut -d ' ' -f2)
     [ ! $Choice ] && \
     echo -e "\033[1;31m""ERROR: your choice is not sane ..quiting""\033[0m" \
     && exit
@@ -319,20 +319,20 @@ mkdir -p linux_kernel-$kernel_major_version-$package_name_suffix/etc/modules
 cp .config linux_kernel-$kernel_major_version-$package_name_suffix/etc/modules/DOTconfig-$kernel_version-$today
 cp arch/x86/boot/bzImage linux_kernel-$kernel_major_version-$package_name_suffix/boot/vmlinuz
 BZIMAGE=`find . -type f -name bzImage`
-cp System.map linux_kernel-$kernel_major_version-$package_name_suffix/boot/
-cp $BZIMAGE linux_kernel-$kernel_major_version-$package_name_suffix/boot/vmlinuz
+cp System.map linux_kernel-$kernel_major_version-$package_name_suffix/boot
+cp $BZIMAGE linux_kernel-$kernel_major_version-$package_name_suffix/boot
 cp linux_kernel-$kernel_major_version-$package_name_suffix/lib/modules/${kernel_major_version}$custom_suffix/{modules.builtin,modules.order} \
  linux_kernel-$kernel_major_version-$package_name_suffix/etc/modules/
 [ "$FD" = "1" ] || \
-#rm linux_kernel-$kernel_major_version-$package_name_suffix/lib/modules/${kernel_major_version}$custom_suffix/modules*
+rm linux_kernel-$kernel_major_version-$package_name_suffix/lib/modules/${kernel_major_version}$custom_suffix/modules*
 mv linux_kernel-$kernel_major_version-$package_name_suffix ../dist/packages
 
 if [ "$FD" = "1" ];then #make fatdog kernel module package
 	mv ../dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix/boot/vmlinuz ../dist/packages/vmlinuz-$kernel_major_version-$package_name_suffix
 	#gzip -9 ../dist/packages/vmlinuz-$kernel_major_version-$package_name_suffix
-	[ -f ../dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix/boot/vmlinuz ] &&
-rm -f ../dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix/boot/vmlinuz
-	echo "Huge kernel $kernel_major_version-$package_name_suffix is ready in dist"
+	[ -f ../dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix/boot/bzImage ] &&
+rm -f ../dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix/boot/bzImage
+	echo "FatDog compatible kernel is ready in dist"
 fi
 
 echo "Cleaning the kernel sources"
@@ -360,7 +360,7 @@ if [ ! -f dist/sources/vanilla/aufs-util${today}.tar.bz2 ];then
 	
 	cd aufs-util
 	
-	git branch -a | grep 'aufs3' |grep -v 'rcN' | cut -d '.' -f2 > /tmp/aufs-util-version #we go for stable only
+	git branch -a | grep 'aufs4' |grep -v 'rcN' | cut -d '.' -f2 > /tmp/aufs-util-version #we go for stable only
 	while read line
 	  do 
 	    if [ "$kernel_branch" = "$line" ];then branch=$line
@@ -371,7 +371,7 @@ if [ ! -f dist/sources/vanilla/aufs-util${today}.tar.bz2 ];then
 	        done 
 	    fi
 	  done < /tmp/aufs-util-version
-	git checkout origin/aufs3.${branch} >> ../build.log 2>&1
+	git checkout origin/aufs4.${branch} >> ../build.log 2>&1
 	
 	[ $? -ne 0 ] && echo "Failed to get aufs-util from git, do it manually. Kernel is compiled OK :)" && exit
 	# patch Makefile for static build
@@ -413,15 +413,7 @@ if [ "$FD" = "1" ];then #shift aufs-utils to kernel-modules.sfs
 	echo "hit ENTER to continue"
 	read firm
 	mksquashfs dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix dist/packages/kernel-modules.sfs-$kernel_major_version-$package_name_suffix $COMP
-	[ "$?" = 0 ] && echo "Huge compatible kernel packages are ready to package./" || exit 1
-	echo "Packaging huge-$kernel_major_version-$package_name_suffix kernel"
-	cd dist/packages/
-	tar -cjvf huge-$kernel_major_version-${package_name_suffix}.tar.bz2 \
-	vmlinuz-$kernel_major_version-$package_name_suffix kernel-modules.sfs-$kernel_major_version-$package_name_suffix
-	[ "$?" = 0 ] && echo "huge-$kernel_major_version-${package_name_suffix}.tar.bz2 is in dist/packages" || exit 1
-	md5sum huge-$kernel_major_version-${package_name_suffix}.tar.bz2 > huge-$kernel_major_version-${package_name_suffix}.tar.bz2.md5.txt
-	echo
-	cd -
+	[ "$?" = 0 ] && echo "FatDog compatible kernel packages are ready in dist/" || exit 1
 fi
 tar -c aufs-util | bzip2 -9 > dist/sources/vanilla/aufs-util$today-$arch.tar.bz2
 
@@ -430,4 +422,4 @@ bzip2 -9 build.log
 cp build.log.bz2 dist/sources
 
 echo "Done!"
-[ -f /usr/share/sounds/2barks.au ] && aplay /usr/share/sounds/2barks.au
+aplay /usr/share/sounds/2barks.au
