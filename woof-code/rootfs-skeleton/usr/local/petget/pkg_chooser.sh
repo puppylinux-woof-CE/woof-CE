@@ -458,7 +458,7 @@ S='<window title="'$(gettext 'Puppy Package Manager v')''${VERSION}'" width-requ
       
         <text space-expand="true" space-fill="true"><label>""</label></text>
 
-        <entry width-request="80" activates-default="true" is-focus="true" secondary-icon-stock="gtk-find">
+        <entry width-request="80" activates-default="true" is-focus="true" primary-icon-stock="gtk-clear" secondary-icon-stock="gtk-find">
           <variable>ENTRY1</variable>
           <action signal="activate">/usr/local/petget/findnames.sh all</action>
           <action signal="activate">refresh:TREE1</action>
@@ -466,6 +466,7 @@ S='<window title="'$(gettext 'Puppy Package Manager v')''${VERSION}'" width-requ
           <action signal="secondary-icon-release">/usr/local/petget/findnames.sh all</action>
           <action signal="secondary-icon-release">refresh:TREE1</action>
           <action signal="secondary-icon-release">/usr/local/petget/show_installed_version_diffs.sh & </action>
+          <action signal="primary-icon-release">clear:ENTRY1</action>
         </entry>
       
         <text space-expand="true" space-fill="true"><label>""</label></text>
