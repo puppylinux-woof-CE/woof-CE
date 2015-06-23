@@ -92,6 +92,8 @@
 #130629 need directory /tmp/pup_event_ipc, to support new pup_event IPC.
 #130630 bring back tmpfs on /tmp for full HD installation.
 
+PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/X11R7/bin
+
 #unset TZ #100319 busybox hwclock gives priority to this (rather than /etc/localtime) and 'init' has set it wrong.
 #...comment-out for now. note, TZ now set in rc.country.
 ORIGLANG="`grep '^LANG=' /etc/profile | cut -f 2 -d '=' | cut -f 1 -d ' '`" #120217
@@ -101,6 +103,11 @@ export LANG=C
 . /etc/rc.d/functions4puppy4
 . /etc/DISTRO_SPECS
 . /etc/rc.d/BOOTCONSTRAINED #120704 has BOOT_DISABLESWAP, BOOT_ATIME, BOOT_DIRTYWRITE.
+. /etc/rc.d/MODULESCONFIG   #modules loading configuration.
+
+[ $loglevel ] && LOGLEVEL=$loglevel #boot param.
+[ $pmedia ] && PMEDIA=$pmedia #boot parameter, broad category of boot media. ex: cd.
+[ $pdev1 ] && PDEV1=$pdev1    #boot parameter, partition have booted off. ex: hda3
 
 status_func() {
  if [ $1 -eq 0 ];then
@@ -147,12 +154,6 @@ loadswap_func() { #w481 made into a function.
 #if have just done a switch_root, output a 'done' message...
 [ -d /initrd ] && status_func 0 #note, /initrd does not exist when a full-hd installation.
 
-. /etc/rc.d/MODULESCONFIG #modules loading configuration.
-PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/X11R7/bin
-[ $loglevel ] && LOGLEVEL=$loglevel #boot param.
-[ $pmedia ] && PMEDIA=$pmedia #boot parameter, broad category of boot media. ex: cd.
-[ $pdev1 ] && PDEV1=$pdev1    #boot parameter, partition have booted off. ex: hda3
-
 #120301 a problem if initrd has kernel default font, switching here changes all o/p from initrd to partial garbage.
 #workaround, clear the screen...
 if [ -d /initrd ];then #120313 fix...
@@ -170,51 +171,25 @@ STATUS=0
 echo -n "Making the filesystem usable..." >/dev/console #making filesystem usable. need this redirection!
 busybox mount -t proc none /proc ;STATUS=$((STATUS+$?))
 
+FREERAM=`free | grep -o 'Mem: .*' | tr -s ' ' | cut -f 4 -d ' '` #w481 110405
+QTRFREERAM=`expr $FREERAM \/ 4`
+
 if [ ! -d /initrd ];then #w468
  if [ "$BOOT_ATIME" ];then #120704 see /etc/rc.d/BOOTCONSTRAINED, variable set in 3builddistro.
   busybox mount -o remount,rw,${BOOT_ATIME} / #have set this to 'relatime'.
  else
   busybox mount -o remount,rw /
  fi
+ STATUS=$((STATUS+$?))
  #120409 no longer deleting /tmp/* in rc.shutdown... (note, init script in initrd.gz wipes it)
  rm -rf /tmp/*
  rm -rf /tmp/.[0-9a-zA-Z]*
- echo 'PUPMODE=2' > /etc/rc.d/PUPSTATE
- if [ "$ORIGLANG1" != "en" ];then #120217
-  echo "OUTPUT_CHARSET=UTF-8
-export OUTPUT_CHARSET" >> /etc/rc.d/PUPSTATE
- fi
-fi
-. /etc/rc.d/PUPSTATE #variables created at bootup by init script in initrd.
-
-if [ "$BOOT_DIRTYWRITE" ];then #120704 see /etc/rc.d/BOOTCONSTRAINED, variable set in 3builddistro.
- #i have set this as 1500 which is 15 seconds (default is 5 seconds).
- echo $BOOT_DIRTYWRITE > /proc/sys/vm/dirty_writeback_centisecs #refer: http://www.lesswatts.org/tips/disks.php
-fi
-
-#v409 mount/umount scripts no longer write to /etc/mtab, as gparted failed to create a
-#ext3 partition -- dunno why. Instead, now have /etc/mtab a symlink to /proc/mounts...
-rm -f /etc/mtab
-ln -s /proc/mounts /etc/mtab
-
-#redirect all output to a log file (must do after remount rw)...
-[ ! "$LOGLEVEL" ] && exec 1>/tmp/bootsysinit.log 2>&1
-
-mkdir -p /dev/pts #120503 if kernel mounts a f.s. on /dev, removes my skeleton /dev
-busybox mount /dev/pts ;STATUS=$((STATUS+$?))
-mkdir /sys 2>/dev/null
-busybox mount -t sysfs none /sys ;STATUS=$((STATUS+$?))
-
-##v2.20 some apps need shm (shared memory) (ex: xfdiff)... 100319 do this always...
-FREERAM=`free | grep -o 'Mem: .*' | tr -s ' ' | cut -f 4 -d ' '` #w481 110405
-QTRFREERAM=`expr $FREERAM \/ 4`
-mkdir -p /dev/shm #120503 if kernel mounts a f.s. on /dev, removes my skeleton /dev
-mount -t tmpfs -o size=${QTRFREERAM}k shmfs /dev/shm ;STATUS=$((STATUS+$?))
-
-if [ ! -d /initrd ];then
+ STATUS=$((STATUS+$?))
+ if [ ! -d /initrd ];then
  #130630 restore tmpfs on /tmp...
  #120717 this is not so good on raspi with only 256MB RAM, but saves flash writes and faster...
  mount -t tmpfs -o size=${QTRFREERAM}k tmpfs /tmp ;STATUS=$((STATUS+$?))
+ STATUS=$((STATUS+$?))
  #120716 /sbin/init needs to know ramdisk size, before /sys mounted...
  [ ! -f /var/local/ram_size_bytes ] && [ -e /sys/block/ram0/size ] && cat /sys/block/ram0/size > /var/local/ram_size_bytes
  #120717 log maximal mount counts, potentially rc.shutdown can then not delete /fsckme.flg...
@@ -223,8 +198,40 @@ if [ ! -d /initrd ];then
  #example lines:
  #EXT3-fs (sda9): warning: mounting fs with errors, running e2fsck is recommended
  #EXT3-fs (sda10): warning: maximal mount count reached, running e2fsck is recommended
+ fi
+
+ echo 'PUPMODE=2' > /etc/rc.d/PUPSTATE
+ if [ "$ORIGLANG1" != "en" ];then #120217
+  echo "OUTPUT_CHARSET=UTF-8
+export OUTPUT_CHARSET" >> /etc/rc.d/PUPSTATE
+ fi
 fi
 
+#redirect all output to a log file (must do after remount rw)...
+[ ! "$LOGLEVEL" ] && exec 1>/tmp/bootsysinit.log 2>&1
+
+#v409 mount/umount scripts no longer write to /etc/mtab, as gparted failed to create a
+#ext3 partition -- dunno why. Instead, now have /etc/mtab a symlink to /proc/mounts...
+rm -f /etc/mtab
+ln -s /proc/mounts /etc/mtab
+STATUS=$((STATUS+$?))
+
+. /etc/rc.d/PUPSTATE #variables created at bootup by init script in initrd.
+
+if [ "$BOOT_DIRTYWRITE" ];then #120704 see /etc/rc.d/BOOTCONSTRAINED, variable set in 3builddistro.
+ #i have set this as 1500 which is 15 seconds (default is 5 seconds).
+ echo $BOOT_DIRTYWRITE > /proc/sys/vm/dirty_writeback_centisecs #refer: http://www.lesswatts.org/tips/disks.php
+fi
+
+mkdir -p /dev/pts #120503 if kernel mounts a f.s. on /dev, removes my skeleton /dev
+busybox mount /dev/pts ;STATUS=$((STATUS+$?))
+mkdir -p /sys
+busybox mount -t sysfs none /sys ;STATUS=$((STATUS+$?))
+
+##v2.20 some apps need shm (shared memory) (ex: xfdiff)... 100319 do this always...
+mkdir -p /dev/shm #120503 if kernel mounts a f.s. on /dev, removes my skeleton /dev
+mount -t tmpfs -o size=${QTRFREERAM}k shmfs /dev/shm ;STATUS=$((STATUS+$?))
+STATUS=$((STATUS+$?))
 #w478 moved this code above call to rc.update...
 KERNVER="`uname -r`"
 #w469 may need to run 'depmod'...
@@ -239,11 +246,14 @@ elif [ -d /lib/modules/${KERNVER}/initrd ];then
    NEEDDEPMOD="yes" #w469 files may not be there to save space.
    NEEDGUNZIP="yes"
   fi
+else true
 fi
+STATUS=$((STATUS+$?))
 if [ "$NEEDGUNZIP" = "yes" ];then
  gunzip -f -r /lib/modules/${KERNVER}/initrd #w482 shinobar.
+else true
 fi
-
+STATUS=$((STATUS+$?))
 #101012 have restored depmod-FULL name to 'depmod'...
 if [ "$NEEDDEPMOD" = "yes" ];then
  echo -n ' depmod' >/dev/console
@@ -263,12 +273,21 @@ if [ "$NEEDDEPMOD" = "yes" ];then
    depmod
   fi
  fi
+else true
 fi
+STATUS=$((STATUS+$?))
 
-
-[ $layerfs ] && LAYERFS=$layerfs #boot param.
-[ ! $LAYERFS ] && LAYERFS=aufs #aufs or unionfs
-[ "`modinfo aufs 2>/dev/null`" = "" ] && LAYERFS=unionfs #precaution.
+#note : layerfs only exported to /sbin/init script,
+#which before Lupu-5 was symlink to /bin/busybox and likely was recognized here
+for fs in $layerfs aufs unionfs
+do
+grep -q "[[:blank:]]\+${fs}$" /proc/filesystems && { LAYERFS=$fs; break; }
+grep -q ".*/${fs}\.ko[\.[:alnum:]]*: " /lib/modules/${KERNVER}/modules.dep && { LAYERFS=$fs; break; }
+done
+STATUS=$((STATUS+$?))
+#[ $layerfs ] && LAYERFS=$layerfs #boot param.
+#[ ! $LAYERFS ] && LAYERFS=aufs #aufs or unionfs
+#[ "`modinfo aufs 2>/dev/null`" = "" ] && LAYERFS=unionfs #precaution.
 
 status_func $STATUS
 
@@ -547,7 +566,7 @@ else
 # #110302 wasn't getting the right uevents for my 3g modem...
 # udevadm trigger --action=add --subsystem-match=usb
 # #TODO i think need this:
- udevadm trigger --action=add --subsystem-match="pcmcia*" --subsystem-match="usb*" 
+ udevadm trigger --action=add --subsystem-match="pcmcia*" --subsystem-match="usb*"
 fi
 
 if [ "$USBBUILTIN" = "no" ];then #110712
@@ -855,11 +874,11 @@ fi
 rfkill list | grep -q "yes"
 BLOCKED="$?"
 if [ "$BLOCKED" = 0 ];then
-	rfkill unblock wlan
+    rfkill unblock wlan
 fi
 # SFR hack for IO bug http://murga-linux.com/puppy/viewtopic.php?p=681383#681383
 KERNVER=${KERNVER%%-*} # just for appending "-4g","-PAE" or whatever
-if [ ! "$PUPMODE" = 5 ];then  
+if [ ! "$PUPMODE" = 5 ];then
   if vercmp $KERNVER ge 3.2 ;then
     if vercmp $KERNVER lt 3.8 ;then
       if [ "${PUPSAVE##*.}" = "2fs" ] || [ ${PUPMODE} -eq 3 -o ${PUPMODE} -eq 7 -o ${PUPMODE} -eq 13 ] ; then
