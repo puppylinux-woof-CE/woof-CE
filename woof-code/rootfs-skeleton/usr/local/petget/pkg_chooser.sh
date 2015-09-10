@@ -50,6 +50,9 @@ options_status () {
 	[ "$(cat /var/local/petget/nt_category)" = "true" ] && \
 	 MSG_NOTERM="$(gettext 'Do NOT show terminal with PPM activity.')
 	 $(gettext '')"
+	[ "$(cat /var/local/petget/db_verbose)" = "false" ] && \
+	 MSG_NODBTERM="$(gettext 'No user input during database updating.')
+	 $(gettext '')" 
 	[ "$(cat /var/local/petget/rd_category)" = "true" ] && \
 	 MSG_REDOWNL="$(gettext 'Redownload packages when already downloaded.')
 	 $(gettext '')"
@@ -57,9 +60,9 @@ options_status () {
 	 MSG_SAVEPKG="$(gettext 'Do NOT delete packages after installation.')
 	 $(gettext '')"
 	[ "$MSG_SPACE" -o "$MSG_DPATH" -o "$MSG_TEMPFS" -o "$MSG_NOTERM" -o \
-	 "$MSG_REDOWNL" -o "$MSG_SAVEPKG" ] && \
+	 "$MSG_REDOWNL" -o "$MSG_SAVEPKG" -o "$MSG_NODBTERM" ] && \
 	  /usr/lib/gtkdialog/box_ok "$(gettext 'PPM config options')" info "$(gettext 'PPM is currently running with these configuration options:')
-	 ${MSG_SPACE}${MSG_DPATH}${MSG_NOTERM}${MSG_REDOWNL}${MSG_SAVEPKG}${MSG_TEMPFS}"
+	 ${MSG_SPACE}${MSG_DPATH}${MSG_NOTERM}${MSG_NODBTERM}${MSG_REDOWNL}${MSG_SAVEPKG}${MSG_TEMPFS}"
 }
 export -f options_status
 
@@ -78,6 +81,7 @@ clean_flags () {
 	rm -f /tmp/force{,d}_install 2>/dev/null
 	rm -f /tmp/pkgs_to_install* 2>/dev/null
 	rm -f /tmp/pkgs_DL_BAD_LIST 2>/dev/null
+	unset SETUPCALLEDFROM
 }
 export -f clean_flags
 

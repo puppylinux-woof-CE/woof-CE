@@ -14,6 +14,7 @@
 
 export TEXTDOMAIN=petget___configure.sh
 export OUTPUT_CHARSET=UTF-8
+. gettext.sh
 
 #export LANG=C
 . /etc/DISTRO_SPECS #has DISTRO_BINARY_COMPAT, DISTRO_COMPAT_VERSION
@@ -86,6 +87,18 @@ else
  DL_PATH=/root
 fi
 
+DBmethod="$(cat /var/local/petget/db_verbose)"
+if [ "$DBmethod" = "" ]; then
+ echo true > /var/local/petget/db_verbose
+ DBmethod=true
+fi
+if [ "$DBmethod" = "false" ]; then
+ RXVT="rxvt -title Update_Databases -geometry 110x12+0+200 -bg gray -e "
+else
+ RXVT="rxvt -bg yellow -title Upadate_Databases -e "
+fi
+
+export SETUPCALLEDFROM='ppm'
 
 S='<window title="'$(gettext 'Puppy Package Manager - Configure')'" icon-name="gtk-about">
 <vbox space-expand="true" space-fill="true">
@@ -120,7 +133,9 @@ S='<window title="'$(gettext 'Puppy Package Manager - Configure')'" icon-name="g
         <button image-position="2" space-expand="false" space-fill="false">
           '"`/usr/lib/gtkdialog/xml_button-icon refresh`"'
           <label>'$(gettext 'Update now')'</label>
-          <action>rxvt -bg yellow -title "download databases" -e /usr/local/petget/0setup</action>
+          <action>'${RXVT}' /usr/local/petget/0setup</action>
+          <action>/usr/local/petget/configure.sh &</action>
+          <action>exit:QUIT</action>
         </button>
       </hbox>
       <text space-expand="true" space-fill="true"><label>""</label></text>
@@ -199,6 +214,16 @@ S='<window title="'$(gettext 'Puppy Package Manager - Configure')'" icon-name="g
         <variable>CATEGORY_ND</variable>'
         [ "$(</var/local/petget/nd_category)" = "true" ] && S=$S'<default>true</default>'
       S=$S'</checkbox>
+      <checkbox tooltip-text="'$(gettext "Verbose method = the user indicates the package databases to update.
++Silent method = all package databases are automatically updated.")'">
+        <label>'$(gettext "Use verbose method during update of the package databases")'</label>
+        <default>'$DBmethod'</default>
+		<variable>DBmethod</variable>
+		<action>if true echo true > /var/local/petget/db_verbose</action>
+        <action>if false echo false > /var/local/petget/db_verbose</action>
+		<action>/usr/local/petget/configure.sh &</action>
+		<action>exit:QUIT</action>
+      </checkbox>
       <hbox>
         <text width-request="100"><label>'$(gettext "Save PKGs in:")'</label></text>
         <entry accept="folder" width-request="200" tooltip-text="'$(gettext "To change, type a path to a folder or use the button to select a folder. Delete the present path to default back to /root")'"><default>'${DL_PATH}'</default><variable>SAVEPATH</variable></entry>

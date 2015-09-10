@@ -35,6 +35,20 @@
 LANGORG="$(locale | grep '^LANG=' | cut -d '=' -f 2)" #121116
 export LANG=C #faster.
 
+if [ "$SETUPCALLEDFROM" = "ppm" ];then
+ DBmethod="`cat /var/local/petget/db_verbose`"
+ [ "$DBmethod" = "" ] && DBmethod=true
+ if [ "$DBmethod" = "false" ]; then
+  yaf-splash -icon gtk-info -bg white -placement top -close never -text "Updating packages database.
+The update takes several minutes.
+Please wait...
+" &
+  XPID=$!
+ fi
+else
+ DBmethod=true
+fi
+
 if [ -f ./DISTRO_SPECS ];then
 . ./DISTRO_SPECS
 [ ! "$DISTRO_DB_SUBNAME" ] && DISTRO_DB_SUBNAME="$DISTRO_COMPAT_VERSION" #121102 fallback if DISTRO_DB_SUBNAME not defined in file DISTRO_SPECS.
@@ -144,25 +158,31 @@ do
  PKGLISTURI="`echo -n "$PKGLISTSPEC" | cut -f 2 -d '|'`"
  [ "$PKGLISTURI" = "" ] && continue #w478 no url, pkg db file only kept in woof.
  skipdl=""
- if [ "$RUNNINGPUP" = "no" -a -f $PKGLISTFILE ];then
+ if [ "$RUNNINGPUP" = "no" -a -f $PKGLISTFILE -a "$DBmethod" = "true" ];then
   echo
   echo "Local db file '${PKGLISTFILE}' already exists."
   echo "Press ENTER key only to upgrade it,"
   echo -n "or any other printable char to skip: "
   read skipdl
+ else
+  skipdl=""
  fi
- if [ "$skipdl" = "" ];then
-  echo
-  LANG=${LANGORG} echo "A package information database file needs to be downloaded."
-  LANG=${LANGORG} echo "This will be downloaded from:"
-  echo "$PKGLISTURI"
-  LANG=${LANGORG} echo "and will be processed and named: ${PKGLISTFILE}"
-  LANG=${LANGORG} echo -n "Press ENTER key to download, any other to skip it: " #120126
-  read downloadit
+ if [ "$skipdl" = "" ];then 
+  if [ "$DBmethod" = "true" ];then
+   echo
+   LANG=${LANGORG} echo "A package information database file needs to be downloaded."
+   LANG=${LANGORG} echo "This will be downloaded from:"
+   echo "$PKGLISTURI"
+   LANG=${LANGORG} echo "and will be processed and named: ${PKGLISTFILE}"
+   LANG=${LANGORG} echo -n "Press ENTER key to download, any other to skip it: " #120126
+   read downloadit
+  else
+   downloadit=""
+  fi
   if [ "$downloadit" = "" ] ; then #120126
    DLFILE="`basename $PKGLISTURI`"
    [ -f $DLFILE ] && mv -f $DLFILE /tmp/${DLFILE}-backup1 #v431 otherwise wget creates a new file ${DLFILE}.1
-   rxvt -name pet -bg orange -geometry 80x10 -e wget $PKGLISTURI
+   [ "$DBmethod" = "true" ] && rxvt -name pet -bg orange -geometry 80x10 -e wget $PKGLISTURI || wget $PKGLISTURI
    sync
    xDLFILE="$DLFILE"
    if [ -f $DLFILE ];then
@@ -288,6 +308,11 @@ do
      LANG=${LANGORG} echo "Downloaded file is corrupted. Deleting file and aborting."
      rm -f $xDLFILE 2>/dev/null
      rm -f $DLFILE 2>/dev/null
+     if [ "$DBmethod" = "false" ];then
+      kill $XPID
+      Xdialog --title "$(gettext 'PPM database')" --left --msgbox "$(gettext 'PPM database failed. Chech /var/woof/0setup_fail_report_')$RUNNINGPUP $(gettext 'for details.')" 0 100
+     fi
+     unset OSETUP_CALLED_FROM
      exit
     fi
    else
@@ -296,6 +321,11 @@ do
 Failed to download db file: 
  ${PKGLISTURI}
 ...exited from 0setup script." >> /var/woof/0setup_fail_report_$RUNNINGPUP
+    if [ "$DBmethod" = "false" ];then
+     kill $XPID
+     Xdialog --title "$(gettext 'PPM database')" --left --msgbox "$(gettext 'PPM database failed. Chech /var/woof/0setup_fail_report_')$RUNNINGPUP $(gettext 'for details.')" 0 100
+    fi
+    unset OSETUP_CALLED_FROM
     exit
    fi
   else #120126
@@ -309,15 +339,19 @@ DBUPDATEFLAG='invalid' #121130
 PKGLISTS_COMPAT_UPDATES=""
 case $DISTRO_BINARY_COMPAT in
  ubuntu|debian) #130319 removed |raspbian
-  echo
-  LANG=${LANGORG} echo "Do you want to download the ${DISTRO_BINARY_COMPAT}-updates package databases?"
-  LANG=${LANGORG} echo "Accept, they will be downloaded and merged,"
-  LANG=${LANGORG} echo "such that only the updated pkg db entries are kept."
-  LANG=${LANGORG} echo "Example: as at August 31, 2012, Ubuntu Precise Pangolin 12.04 has the first
+  if [ "$DBmethod" = "true" ]; then
+   echo
+   LANG=${LANGORG} echo "Do you want to download the ${DISTRO_BINARY_COMPAT}-updates package databases?"
+   LANG=${LANGORG} echo "Accept, they will be downloaded and merged,"
+   LANG=${LANGORG} echo "such that only the updated pkg db entries are kept."
+   LANG=${LANGORG} echo "Example: as at August 31, 2012, Ubuntu Precise Pangolin 12.04 has the first
 'Service Pack' which is version 12.04.1 -- accepting here will obtain the
 package lists for 12.04.1 -- it is generally recommended to accept."
-  LANG=${LANGORG} echo -n "ENTER key only to accept, any other printable char then ENTER to decline: "
-  read DBUPDATEFLAG
+   LANG=${LANGORG} echo -n "ENTER key only to accept, any other printable char then ENTER to decline: "
+   read DBUPDATEFLAG
+  else
+   DBUPDATEFLAG=""
+  fi
   if [ "$DBUPDATEFLAG" = "" ];then #121113
    #basically same code as above, slight mods...
    for PKGLISTSPEC in $PKG_DOCS_DISTRO_COMPAT
@@ -329,25 +363,31 @@ package lists for 12.04.1 -- it is generally recommended to accept."
     [ "$PKGLISTURI" = "" ] && continue #w478 no url, pkg db file only kept in woof.
     PKGLISTS_COMPAT_UPDATES="${PKGLISTS_COMPAT_UPDATES} ${PKGLISTFILE}" #see further down.
     skipdl=""
-    if [ "$RUNNINGPUP" = "no" -a -f $PKGLISTFILE ];then
+    if [ "$RUNNINGPUP" = "no" -a -f $PKGLISTFILE -a "$DBmethod" = "true" ];then
      echo
      echo "Local db file '${PKGLISTFILE}' already exists."
      echo "Press ENTER key only to upgrade it,"
      echo -n "or any other printable char to skip: "
      read skipdl
+    else
+     skipdl=""
     fi
-    if [ "$skipdl" = "" ];then
-     echo
-     LANG=${LANGORG} echo "A package information database file needs to be downloaded."
-     LANG=${LANGORG} echo "This will be downloaded from:"
-     echo "$PKGLISTURI"
-     LANG=${LANGORG} echo "and will be processed and named: ${PKGLISTFILE}"
-     LANG=${LANGORG} echo -n "Press ENTER key to download, any other to skip it: " #120126
-     read downloadit
+    if [ "$skipdl" = "" ]; then
+     if [ "$DBmethod" = "true" ];then
+      echo
+      LANG=${LANGORG} echo "A package information database file needs to be downloaded."
+      LANG=${LANGORG} echo "This will be downloaded from:"
+      echo "$PKGLISTURI"
+      LANG=${LANGORG} echo "and will be processed and named: ${PKGLISTFILE}"
+      LANG=${LANGORG} echo -n "Press ENTER key to download, any other to skip it: " #120126
+      read downloadit
+     else
+      downloadit=""
+     fi
      if [ "$downloadit" = "" ] ; then #120126
       DLFILE="`basename $PKGLISTURI`"
       [ -f $DLFILE ] && mv -f $DLFILE /tmp/${DLFILE}-backup1 #v431 otherwise wget creates a new file ${DLFILE}.1
-      rxvt -name pet -bg orange -geometry 80x10 -e wget $PKGLISTURI
+      [ "$DBmethod" = "true" ] && rxvt -name pet -bg orange -geometry 80x10 -e wget $PKGLISTURI || wget $PKGLISTURI
       sync
       xDLFILE="$DLFILE"
       if [ -f $DLFILE ];then
@@ -365,6 +405,11 @@ package lists for 12.04.1 -- it is generally recommended to accept."
         LANG=${LANGORG} echo "Downloaded file is corrupted. Deleting file and aborting."
         rm -f $xDLFILE 2>/dev/null
         rm -f $DLFILE 2>/dev/null
+        if [ "$DBmethod" = "false" ];then
+         kill $XPID
+         Xdialog --title "$(gettext 'PPM database')" --left --msgbox "$(gettext 'PPM database failed. Chech /var/woof/0setup_fail_report_')$RUNNINGPUP $(gettext 'for details.')" 0 100
+        fi
+        unset OSETUP_CALLED_FROM
         exit
        fi
       else
@@ -373,6 +418,11 @@ package lists for 12.04.1 -- it is generally recommended to accept."
 Failed to download db file: 
  $PKGLISTURI
 ...exited from 0setup script." >> /var/woof/0setup_fail_report_$RUNNINGPUP
+       if [ "$DBmethod" = "false" ];then
+        kill $XPID
+        Xdialog --title "$(gettext 'PPM database')" --left --msgbox "$(gettext 'PPM database failed. Chech /var/woof/0setup_fail_report_')$RUNNINGPUP $(gettext 'for details.')" 0 100
+       fi
+       unset OSETUP_CALLED_FROM
        exit
       fi
      else #120126
@@ -391,17 +441,21 @@ do
  PKGLISTFILE="`echo -n "$PKGLISTSPEC" | cut -f 3 -d '|'`"
  PKGLISTURI="`echo -n "$PKGLISTSPEC" | cut -f 2 -d '|'`"
  if [ "$RUNNINGPUP" = "yes" -o ! -f $PKGLISTFILE ];then
-  echo
-  LANG=${LANGORG} echo "A package information database file needs to be downloaded."
-  LANG=${LANGORG} echo "This will be downloaded from:"
-  echo "$PKGLISTURI"
-  LANG=${LANGORG} echo "and will be named: ${PKGLISTFILE}"
-  LANG=${LANGORG} echo -n "Press ENTER key to download, any other to skip it: " #120126
-  read downloadit
+  if [ "$DBmethod" = "true" ];then
+   echo
+   LANG=${LANGORG} echo "A package information database file needs to be downloaded."
+   LANG=${LANGORG} echo "This will be downloaded from:"
+   echo "$PKGLISTURI"
+   LANG=${LANGORG} echo "and will be named: ${PKGLISTFILE}"
+   LANG=${LANGORG} echo -n "Press ENTER key to download, any other to skip it: " #120126
+   read downloadit
+  else
+   downloadit=""
+  fi
   if [ "$downloadit" = "" ] ; then #120126
    DLFILE="`basename $PKGLISTURI`"
    [ -f $DLFILE ] && mv -f $DLFILE /tmp/${DLFILE}-backup1 #v431 otherwise wget creates a new file ${DLFILE}.1 111129 prevent error msg.
-   rxvt -name pet -bg orange -geometry 80x10 -e wget $PKGLISTURI
+   [ "$DBmethod" = "true" ] && rxvt -name pet -bg orange -geometry 80x10 -e wget $PKGLISTURI || wget $PKGLISTURI
    sync
    [ -f $DLFILE ] && LANG=${LANGORG} echo "...success"
   else #120126
@@ -605,13 +659,23 @@ fi
 sync
 
 #120909 moved down...
-if [ "$RUNNINGPUP" = "yes" ];then
+if [ "$RUNNINGPUP" = "yes" -a "$DBmethod" = "true" ];then
  echo
  LANG=${LANGORG} echo "FINISHED"
  LANG=${LANGORG} echo "After restarting Puppy Package Manager (PPM),"
  LANG=${LANGORG} echo "it will be reading the updated database files."
  LANG=${LANGORG} echo -n "Press ENTER key to exit: "
  read enditnow
+ DATE="`date +%Y%m%d `"
+ echo "$DATE" > /root/.packages/db-date
+ unset OSETUP_CALLED_FROM
+ exit
+elif [ "$RUNNINGPUP" = "yes" ];then
+ kill $XPID
+ Xdialog --title "$(gettext 'PPM database')" --left --msgbox "$(gettext 'PPM database was successfully completed.')" 0 100
+ DATE="`date +%Y%m%d `"
+ echo "$DATE" > /root/.packages/db-date
+ unset OSETUP_CALLED_FROM
  exit
 fi
 
@@ -695,17 +759,34 @@ Search for suitable packages in these files:
 Or, search online. In the case of Debian or Ubuntu, you can search
 at packages.debian.org or packages.ubuntu.com.
 After you have fixed PKGS_SPECS_TABLE, run this script again."  >> /var/woof/0setup_fail_report_$RUNNINGPUP
+ if [ "$DBmethod" = "false" ];then
+  kill $XPID
+  Xdialog --title "$(gettext 'PPM database')" --left --msgbox "$(gettext 'PPM database failed. Chech /var/woof/0setup_fail_report_')$RUNNINGPUP $(gettext 'for details.')" 0 100
+ fi
+ unset OSETUP_CALLED_FROM
 else
  echo
  echo "Finished, successful."
  echo "...finished, successful."  >> /var/woof/0setup_fail_report_$RUNNINGPUP
+ DATE="`date +%Y%m%d `"
+ echo "$DATE" > /root/.packages/db-date
 fi
 
-echo
-echo "The log of '0setup', as reported above, is saved for future reference."
-echo "(In file /var/woof/0setup_fail_report_${RUNNINGPUP})"
-echo "In the Woof GUI, tab 'Download dbs', click the 'REPORT' button to"
-echo "retrieve this log."
-echo -n "Press ENTER key to finish '0setup' script: "
-read yepgetout
+if [ "$DBmethod" = "true" ]; then
+ echo
+ echo "The log of '0setup', as reported above, is saved for future reference."
+ echo "(In file /var/woof/0setup_fail_report_${RUNNINGPUP})"
+ echo "In the Woof GUI, tab 'Download dbs', click the 'REPORT' button to"
+ echo "retrieve this log."
+ echo -n "Press ENTER key to finish '0setup' script: "
+ read yepgetout
+else
+ kill $XPID
+ if [ "$(grep -e 'FAIL|exited|failures' /var/woof/0setup_fail_report_$RUNNINGPUP)" = "" ]; then
+  Xdialog --title "$(gettext 'PPM database')" --left --msgbox "$(gettext 'PPM database was successfully completed.')" 0 100
+ else
+  Xdialog --title "$(gettext 'PPM database')" --left --msgbox "$(gettext 'PPM database failed. Chech /var/woof/0setup_fail_report_')$RUNNINGPUP $(gettext 'for details.')" 0 100
+ fi
+fi
+unset OSETUP_CALLED_FROM
 ###END###
