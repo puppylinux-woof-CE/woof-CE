@@ -100,7 +100,8 @@ aufs_version=${kernel_version%%.*}
 read -p "Press ENTER to begin" dummy
 
 # get the major version (2.6.32 in the case of 2.6.32.40)
-kernel_major_version=$kernel_version #blah, hack for 3.x
+kernel_major_version=${kernel_version%.*}
+kernel_minor_version=${kernel_version##*.}
 # get the kernel branch (32 in the case of 2.6.32.40; needed to download Aufs)
 kernel_branch=`echo $kernel_major_version | cut -f 2 -d .` #3.x kernels
 
@@ -140,6 +141,19 @@ if [ ! -f dist/sources/vanilla/linux-$kernel_version.tar.* ]; then
 	fi
 fi
 
+# download Linux-libre scripts
+if [ $LIBRE -eq 1 ]; then
+	minor_version=${kernel_version##*.}
+	for i in deblob-$kernel_major_version deblob-check; do
+		if [ ! -f dist/sources/vanilla/$i ]; then
+			wget -O dist/sources/vanilla/$i http://linux-libre.fsfla.org/pub/linux-libre/releases/LATEST-$kernel_major_version.N/$i
+			if [ $? -ne 0 ]; then
+				echo "Error: failed to download $i."
+				exit 1
+			fi
+		fi
+	done
+fi
 
 # download Aufs
 if [ ! -f dist/sources/vanilla/aufs$aufs_version-$kernel_branch-git$today.tar.bz2 ]; then
@@ -206,6 +220,10 @@ fi
 cd linux-$kernel_version
 
 echo "Adding Aufs to the kernel sources"
+if [ "$kernel_major_version" = "3.14" ] && [ "$kernel_minor_version" -ge 21 ];then
+	# hack - Aufs adds this file in the mmap patch, but it's already in mainline
+	rm -f mm/prfile.c
+fi
 for i in kbuild base standalone mmap; do
 	patch -N -p1 < ../aufs$aufs_version-$kernel_branch-git$today/aufs$aufs_version-$i.patch >> ../build.log 2>&1
 	if [ $? -ne 0 ]; then
@@ -223,6 +241,18 @@ cp ../aufs$aufs_version-$kernel_branch-git$today/include/uapi/linux/aufs_type.h 
 cp -r ../aufs$aufs_version-$kernel_branch-git$today/include/uapi/linux/aufs_type.h include/uapi/linux
 #cat ../aufs$aufs_version-1-git$today/include/linux/Kbuild >> include/Kbuild
 ################################################################################
+
+# deblob the kernel
+if [ $LIBRE -eq 1 ]; then
+	cd ..
+	cp -r linux-$kernel_version linux-$kernel_version-orig
+	cd linux-$kernel_version
+	sh ../dist/sources/vanilla/deblob-$kernel_major_version 2>&1 | tee -a ../build.log
+	cd ..
+	diff -rupN linux-$kernel_version-orig linux-$kernel_version > dist/sources/patches/deblob.patch
+	rm -rf linux-$kernel_version-orig
+	cd linux-$kernel_version
+fi
 
 echo "Resetting the minor version number"
 cp Makefile Makefile-orig
