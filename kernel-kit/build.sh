@@ -255,12 +255,13 @@ if [ $LIBRE -eq 1 ]; then
 fi
 
 echo "Resetting the minor version number"
+cp Makefile Makefile-orig
+sed -i "s/^SUBLEVEL =.*/SUBLEVEL =/" Makefile
 if [ -n "$custom_suffix" ] || [ $LIBRE -eq 1 ]; then
-	cp Makefile Makefile-orig
 	sed -i "s/^EXTRAVERSION =.*/EXTRAVERSION = $custom_suffix/" Makefile
-	diff -up Makefile-orig Makefile > ../dist/sources/patches/extra-version.patch
-	rm Makefile-orig
 fi
+diff -up Makefile-orig Makefile > ../dist/sources/patches/version.patch
+rm Makefile-orig
 
 echo "Reducing the number of consoles"
 if [ "$kernel_branch" -ge 12 ];then
@@ -342,9 +343,9 @@ read goon
 
 echo "Creating the kernel headers package"
 make headers_check >> ../build.log 2>&1
-make INSTALL_HDR_PATH=kernel_headers-$kernel_major_version-$package_name_suffix/usr headers_install >> ../build.log 2>&1
-find kernel_headers-$kernel_major_version-$package_name_suffix/usr/include \( -name .install -o -name ..install.cmd \) -delete
-mv kernel_headers-$kernel_major_version-$package_name_suffix ../dist/packages
+make INSTALL_HDR_PATH=kernel_headers-$kernel_version-$package_name_suffix/usr headers_install >> ../build.log 2>&1
+find kernel_headers-$kernel_version-$package_name_suffix/usr/include \( -name .install -o -name ..install.cmd \) -delete
+mv kernel_headers-$kernel_version-$package_name_suffix ../dist/packages
 
 echo "Compiling the kernel"
 make ${JOBS} bzImage modules >> ../build.log 2>&1
@@ -355,28 +356,28 @@ fi
 cp .config ../dist/sources/DOTconfig-$kernel_version-$today
 
 echo "Creating the kernel package"
-make INSTALL_MOD_PATH=linux_kernel-$kernel_major_version-$package_name_suffix modules_install >> ../build.log 2>&1
-rm -f linux_kernel-$kernel_major_version-$package_name_suffix/lib/modules/${kernel_major_version}$custom_suffix/{build,source}
-#(cd linux_kernel-$kernel_major_version-$package_name_suffix/lib/modules/; ln -s ${kernel_major_version}$custom_suffix $kernel_major_version)
-mkdir -p linux_kernel-$kernel_major_version-$package_name_suffix/boot
-mkdir -p linux_kernel-$kernel_major_version-$package_name_suffix/etc/modules
-cp .config linux_kernel-$kernel_major_version-$package_name_suffix/etc/modules/DOTconfig-$kernel_version-$today
-cp arch/x86/boot/bzImage linux_kernel-$kernel_major_version-$package_name_suffix/boot/vmlinuz
+make INSTALL_MOD_PATH=linux_kernel-$kernel_version-$package_name_suffix modules_install >> ../build.log 2>&1
+rm -f linux_kernel-$kernel_version-$package_name_suffix/lib/modules/${kernel_major_version}$custom_suffix/{build,source}
+#(cd linux_kernel-$kernel_version-$package_name_suffix/lib/modules/; ln -s ${kernel_major_version}$custom_suffix $kernel_major_version)
+mkdir -p linux_kernel-$kernel_version-$package_name_suffix/boot
+mkdir -p linux_kernel-$kernel_version-$package_name_suffix/etc/modules
+cp .config linux_kernel-$kernel_version-$package_name_suffix/etc/modules/DOTconfig-$kernel_version-$today
+cp arch/x86/boot/bzImage linux_kernel-$kernel_version-$package_name_suffix/boot/vmlinuz
 BZIMAGE=`find . -type f -name bzImage`
-cp System.map linux_kernel-$kernel_major_version-$package_name_suffix/boot
-cp $BZIMAGE linux_kernel-$kernel_major_version-$package_name_suffix/boot
-cp linux_kernel-$kernel_major_version-$package_name_suffix/lib/modules/${kernel_major_version}$custom_suffix/{modules.builtin,modules.order} \
- linux_kernel-$kernel_major_version-$package_name_suffix/etc/modules/
+cp System.map linux_kernel-$kernel_version-$package_name_suffix/boot
+cp $BZIMAGE linux_kernel-$kernel_version-$package_name_suffix/boot
+cp linux_kernel-$kernel_version-$package_name_suffix/lib/modules/${kernel_major_version}$custom_suffix/{modules.builtin,modules.order} \
+ linux_kernel-$kernel_version-$package_name_suffix/etc/modules/
 [ "$FD" = "1" ] || \
-rm linux_kernel-$kernel_major_version-$package_name_suffix/lib/modules/${kernel_major_version}$custom_suffix/modules*
-mv linux_kernel-$kernel_major_version-$package_name_suffix ../dist/packages
+rm linux_kernel-$kernel_version-$package_name_suffix/lib/modules/${kernel_major_version}$custom_suffix/modules*
+mv linux_kernel-$kernel_version-$package_name_suffix ../dist/packages
 
 if [ "$FD" = "1" ];then #make fatdog kernel module package
-	mv ../dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix/boot/vmlinuz ../dist/packages/vmlinuz-$kernel_major_version-$package_name_suffix
-	#gzip -9 ../dist/packages/vmlinuz-$kernel_major_version-$package_name_suffix
-	[ -f ../dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix/boot/bzImage ] &&
-rm -f ../dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix/boot/bzImage
-	echo "Huge kernel $kernel_major_version-$package_name_suffix is ready in dist"
+	mv ../dist/packages/linux_kernel-$kernel_version-$package_name_suffix/boot/vmlinuz ../dist/packages/vmlinuz-$kernel_version-$package_name_suffix
+	#gzip -9 ../dist/packages/vmlinuz-$kernel_version-$package_name_suffix
+	[ -f ../dist/packages/linux_kernel-$kernel_version-$package_name_suffix/boot/bzImage ] &&
+rm -f ../dist/packages/linux_kernel-$kernel_version-$package_name_suffix/boot/bzImage
+	echo "Huge kernel $kernel_version-$package_name_suffix is ready in dist"
 fi
 
 echo "Cleaning the kernel sources"
@@ -386,14 +387,14 @@ make prepare >> ../build.log 2>&1
 cd ..
 
 echo "Creating a kernel sources SFS"
-mkdir -p kernel_sources-$kernel_major_version-$package_name_suffix/usr/src
-mv linux-$kernel_version kernel_sources-$kernel_major_version-$package_name_suffix/usr/src/linux
-mkdir -p kernel_sources-$kernel_major_version-$package_name_suffix/lib/modules/${kernel_major_version}$custom_suffix
-ln -s /usr/src/linux kernel_sources-$kernel_major_version-$package_name_suffix/lib/modules/${kernel_major_version}$custom_suffix/build
-[ ! -f kernel_sources-${kernel_major_version}-$package_name_suffix/usr/src/linux/include/linux/version.h ] && \
-ln -s /usr/src/linux/include/generated/uapi/linux/version.h kernel_sources-${kernel_major_version}-$package_name_suffix/usr/src/linux/include/linux/version.h 
-ln -s /usr/src/linux kernel_sources-$kernel_major_version-$package_name_suffix/lib/modules/${kernel_major_version}$custom_suffix/source
-mksquashfs kernel_sources-$kernel_major_version-$package_name_suffix dist/sources/kernel_sources-$kernel_major_version-$package_name_suffix.sfs $COMP
+mkdir -p kernel_sources-$kernel_version-$package_name_suffix/usr/src
+mv linux-$kernel_version kernel_sources-$kernel_version-$package_name_suffix/usr/src/linux
+mkdir -p kernel_sources-$kernel_version-$package_name_suffix/lib/modules/${kernel_major_version}$custom_suffix
+ln -s /usr/src/linux kernel_sources-$kernel_version-$package_name_suffix/lib/modules/${kernel_major_version}$custom_suffix/build
+[ ! -f kernel_sources-${kernel_version}-$package_name_suffix/usr/src/linux/include/linux/version.h ] && \
+ln -s /usr/src/linux/include/generated/uapi/linux/version.h kernel_sources-${kernel_version}-$package_name_suffix/usr/src/linux/include/linux/version.h 
+ln -s /usr/src/linux kernel_sources-$kernel_version-$package_name_suffix/lib/modules/${kernel_major_version}$custom_suffix/source
+mksquashfs kernel_sources-$kernel_version-$package_name_suffix dist/sources/kernel_sources-$kernel_version-$package_name_suffix.sfs $COMP
 
 # build aufs-utils userspace modules
 echo "Now to build the aufs-utils for userspace"
@@ -456,7 +457,7 @@ cd ..
 if [ "$FD" = "1" ];then #shift aufs-utils to kernel-modules.sfs
 	echo "Installing aufs-utils into kernel package"
 	cp -a --remove-destination dist/packages/aufs-util-$kernel_version-$arch/* \
-	dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix
+	dist/packages/linux_kernel-$kernel_version-$package_name_suffix
 
 	if [ $LIBRE -eq 0 ];then
 		echo "Pausing hereto add extra firmware."
@@ -481,7 +482,7 @@ if [ "$FD" = "1" ];then #shift aufs-utils to kernel-modules.sfs
 	    if [ "$fw" -gt "$x" ];then "error, wrong number" && exit
 		elif [ "$fw" = "$x" ];then
 			echo "once you have manually added firmware to "
-			echo "dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix/lib/firmware"
+			echo "dist/packages/linux_kernel-$kernel_version-$package_name_suffix/lib/firmware"
 			echo "hit ENTER to continue"
 			read firm
 		else
@@ -491,7 +492,7 @@ if [ "$FD" = "1" ];then #shift aufs-utils to kernel-modules.sfs
 			echo "downloading $FW_URL/${fw_pkg}"
 			wget -t0 -c $FW_URL/${fw_pkg} -P dist/packages
 			[ $? -ne 0 ] && echo "failed to download ${fw_pkg##* }" && exit 1
-			tar -xjf dist/packages/${fw_pkg} -C dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix/lib/
+			tar -xjf dist/packages/${fw_pkg} -C dist/packages/linux_kernel-$kernel_version-$package_name_suffix/lib/
 			[ $? -ne 0 ] && echo "failed to unpack ${fw_pkg}" && exit 1
 			echo "Successfully extracted ${fw_pkg}."
 		fi
@@ -502,8 +503,8 @@ if [ "$FD" = "1" ];then #shift aufs-utils to kernel-modules.sfs
 			[ -d ../kernel-skeleton ] && AFpath="../kernel-skeleton" ||
 			 AFpath="../woof-code/kernel-skeleton"
 			cp -aR -f "$AFpath"/* \
-			 dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix/
-			cd dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix/
+			 dist/packages/linux_kernel-$kernel_version-$package_name_suffix/
+			cd dist/packages/linux_kernel-$kernel_version-$package_name_suffix/
 			./pinstall.sh
 			rm -f pinstall.sh
 			mv -f etc/modules/firmware.dep etc/modules/firmware.dep.$kernel_major_version
@@ -513,14 +514,14 @@ if [ "$FD" = "1" ];then #shift aufs-utils to kernel-modules.sfs
 		rm ${tmpfw}
 	fi
 
-	mksquashfs dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix dist/packages/kernel-modules.sfs-$kernel_major_version-$package_name_suffix $COMP
+	mksquashfs dist/packages/linux_kernel-$kernel_version-$package_name_suffix dist/packages/kernel-modules.sfs-$kernel_version-$package_name_suffix $COMP
 	[ "$?" = 0 ] && echo "Huge compatible kernel packages are ready to package./" || exit 1
-	echo "Packaging huge-$kernel_major_version-$package_name_suffix kernel"
+	echo "Packaging huge-$kernel_version-$package_name_suffix kernel"
 	cd dist/packages/
-	tar -cjvf huge-$kernel_major_version-${package_name_suffix}.tar.bz2 \
-	vmlinuz-$kernel_major_version-$package_name_suffix kernel-modules.sfs-$kernel_major_version-$package_name_suffix
-	[ "$?" = 0 ] && echo "huge-$kernel_major_version-${package_name_suffix}.tar.bz2 is in dist/packages" || exit 1
-	md5sum huge-$kernel_major_version-${package_name_suffix}.tar.bz2 > huge-$kernel_major_version-${package_name_suffix}.tar.bz2.md5.txt
+	tar -cjvf huge-$kernel_version-${package_name_suffix}.tar.bz2 \
+	vmlinuz-$kernel_version-$package_name_suffix kernel-modules.sfs-$kernel_version-$package_name_suffix
+	[ "$?" = 0 ] && echo "huge-$kernel_version-${package_name_suffix}.tar.bz2 is in dist/packages" || exit 1
+	md5sum huge-$kernel_version-${package_name_suffix}.tar.bz2 > huge-$kernel_version-${package_name_suffix}.tar.bz2.md5.txt
 	echo
 	cd -
 fi
