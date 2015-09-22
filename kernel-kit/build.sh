@@ -455,54 +455,58 @@ if [ "$FD" = "1" ];then #shift aufs-utils to kernel-modules.sfs
 	echo "Installing aufs-utils into kernel package"
 	cp -a --remove-destination dist/packages/aufs-util-$kernel_version-$arch/* \
 	dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix
-	echo "Pausing hereto add extra firmware."
-	echo "Choose an option:"
-	# download the fw or offer to copy
-	tmpfw=/tmp/fw$$
-	x=1
-	wget -q $FW_URL -O - |\
-        sed '/href/!d; /\.tar\./!d; /md5\.txt/d; s/.*href="//; s/".*//' |\
-        while read f;do
-             [ "$f" ] && echo "$x $f" >> ${tmpfw}
-             x=$(($x + 1 ))
-        done
-    y=`cat ${tmpfw}|wc -l `
-    [ "$y" = 0 ] && echo "error, no firmware at that URL" && exit 1
-    x=$(($x + $y))
-    echo "$x I'll copy in my own." >> ${tmpfw}
-    cat ${tmpfw}
-    echo -n "Enter a number, 1 to $x:  "
-    read fw
-    if [ "$fw" -gt "$x" ];then "error, wrong number" && exit
-	elif [ "$fw" = "$x" ];then
-		echo "once you have manually added firmware to "
-		echo "dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix/lib/firmware"
-		echo "hit ENTER to continue"
-		read firm
-	else
-		fw_pkg=`grep ^$fw ${tmpfw}`
-		fw_pkg=${fw_pkg##* }
-		echo "You chose ${fw_pkg}. If that isn't correct change it manually later."
-		echo "downloading $FW_URL/${fw_pkg}"
-		wget -t0 -c $FW_URL/${fw_pkg} -P dist/packages
-		[ $? -ne 0 ] && echo "failed to download ${fw_pkg##* }" && exit 1
-		tar -xjf dist/packages/${fw_pkg} -C dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix/lib/
-		[ $? -ne 0 ] && echo "failed to unpack ${fw_pkg}" && exit 1
-		echo "Successfully extracted ${fw_pkg}."
-	fi
 
-	if  [ ! -d ../kernel-skeleton -a ! -d ../woof-code/kernel-skeleton ]; then
-		echo "Error: all-firmware folder was not found" >> ../build.log
-	else
-		[ -d ../kernel-skeleton ] && AFpath="../kernel-skeleton" ||
-		 AFpath="../woof-code/kernel-skeleton"
-		cp -aR -f "$AFpath"/* \
-		 dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix/
-		cd dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix/
-		./pinstall.sh
-		rm -f pinstall.sh
-		mv -f etc/modules/firmware.dep etc/modules/firmware.dep.$kernel_major_version
-		cd -
+	if [ $LIBRE -eq 0 ];then
+		echo "Pausing hereto add extra firmware."
+		echo "Choose an option:"
+		# download the fw or offer to copy
+		tmpfw=/tmp/fw$$
+		x=1
+		wget -q $FW_URL -O - |\
+		sed '/href/!d; /\.tar\./!d; /md5\.txt/d; s/.*href="//; s/".*//' |\
+		while read f;do
+		     [ "$f" ] && echo "$x $f" >> ${tmpfw}
+		     x=$(($x + 1 ))
+		done
+
+	    y=`cat ${tmpfw}|wc -l `
+	    [ "$y" = 0 ] && echo "error, no firmware at that URL" && exit 1
+	    x=$(($x + $y))
+	    echo "$x I'll copy in my own." >> ${tmpfw}
+	    cat ${tmpfw}
+	    echo -n "Enter a number, 1 to $x:  "
+	    read fw
+	    if [ "$fw" -gt "$x" ];then "error, wrong number" && exit
+		elif [ "$fw" = "$x" ];then
+			echo "once you have manually added firmware to "
+			echo "dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix/lib/firmware"
+			echo "hit ENTER to continue"
+			read firm
+		else
+			fw_pkg=`grep ^$fw ${tmpfw}`
+			fw_pkg=${fw_pkg##* }
+			echo "You chose ${fw_pkg}. If that isn't correct change it manually later."
+			echo "downloading $FW_URL/${fw_pkg}"
+			wget -t0 -c $FW_URL/${fw_pkg} -P dist/packages
+			[ $? -ne 0 ] && echo "failed to download ${fw_pkg##* }" && exit 1
+			tar -xjf dist/packages/${fw_pkg} -C dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix/lib/
+			[ $? -ne 0 ] && echo "failed to unpack ${fw_pkg}" && exit 1
+			echo "Successfully extracted ${fw_pkg}."
+		fi
+	
+		if  [ ! -d ../kernel-skeleton -a ! -d ../woof-code/kernel-skeleton ]; then
+			echo "Error: all-firmware folder was not found" >> ../build.log
+		else
+			[ -d ../kernel-skeleton ] && AFpath="../kernel-skeleton" ||
+			 AFpath="../woof-code/kernel-skeleton"
+			cp -aR -f "$AFpath"/* \
+			 dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix/
+			cd dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix/
+			./pinstall.sh
+			rm -f pinstall.sh
+			mv -f etc/modules/firmware.dep etc/modules/firmware.dep.$kernel_major_version
+			cd -
+		fi
 	fi
 
 	rm ${tmpfw}
