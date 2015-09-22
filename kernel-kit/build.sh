@@ -509,9 +509,10 @@ if [ "$FD" = "1" ];then #shift aufs-utils to kernel-modules.sfs
 			mv -f etc/modules/firmware.dep etc/modules/firmware.dep.$kernel_major_version
 			cd -
 		fi
+
+		rm ${tmpfw}
 	fi
 
-	rm ${tmpfw}
 	mksquashfs dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix dist/packages/kernel-modules.sfs-$kernel_major_version-$package_name_suffix $COMP
 	[ "$?" = 0 ] && echo "Huge compatible kernel packages are ready to package./" || exit 1
 	echo "Packaging huge-$kernel_major_version-$package_name_suffix kernel"
