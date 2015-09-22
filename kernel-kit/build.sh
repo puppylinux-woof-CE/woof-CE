@@ -13,7 +13,7 @@ if [ "$1" = "clean" ];then
 	echo "Hit ENTER to clean"
 	read clean
 	echo "Please wait..."
-	rm -rf ./{dist,aufs*,kernel*,build.log*}
+	rm -rf ./{dist,aufs*,kernel*,build.log*,linux-*}
 	echo "Cleaning complete"
 	exit 0
 fi
@@ -255,10 +255,12 @@ if [ $LIBRE -eq 1 ]; then
 fi
 
 echo "Resetting the minor version number"
-cp Makefile Makefile-orig
-sed -i "s/^EXTRAVERSION =/EXTRAVERSION = $custom_suffix/" Makefile
-diff -up Makefile-orig Makefile > ../dist/sources/patches/extra-version.patch
-rm Makefile-orig
+if [ -n "$custom_suffix" ] || [ $LIBRE -eq 1 ]; then
+	cp Makefile Makefile-orig
+	sed -i "s/^EXTRAVERSION =.*/EXTRAVERSION = $custom_suffix/" Makefile
+	diff -up Makefile-orig Makefile > ../dist/sources/patches/extra-version.patch
+	rm Makefile-orig
+fi
 
 echo "Reducing the number of consoles"
 if [ "$kernel_branch" -ge 12 ];then
