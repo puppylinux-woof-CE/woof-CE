@@ -5,6 +5,8 @@
 Designed for use in the Puppy Package Manager, puppylinux.com
 Compile statically:
 # diet gcc -nostdinc printcols.c -o printcols
+* OR
+* musl-gcc -static printcols.c -o printcols
 */
 
 #include <stdio.h>
