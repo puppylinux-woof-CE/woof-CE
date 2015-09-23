@@ -100,6 +100,7 @@ aufs_version=${kernel_version%%.*}
 read -p "Press ENTER to begin" dummy
 
 # get the major version (2.6.32 in the case of 2.6.32.40)
+kernel_series=${kernel_version:0:1}
 kernel_major_version=${kernel_version%.*}
 kernel_minor_version=${kernel_version##*.}
 # get the kernel branch (32 in the case of 2.6.32.40; needed to download Aufs)
@@ -264,12 +265,8 @@ diff -up Makefile-orig Makefile > ../dist/sources/patches/version.patch
 rm Makefile-orig
 
 echo "Reducing the number of consoles"
-if [ "$kernel_branch" -ge 12 ];then
- if [ "${kernel_version%%.*}" -ge 3 -a "$kernel_branch" -ge 16 ];then
-	 cp kernel/printk/printk.c kernel/printk/printk.c.orig
-	 sed -i s/'#define MAX_CMDLINECONSOLES 8'/'#define MAX_CMDLINECONSOLES 5'/ kernel/printk/printk.c
-	 diff -up kernel/printk/printk.c.orig kernel/printk/printk.c > ../dist/sources/patches/less-consoles.patch
-	
+if [ $kernel_series -gt 3 ] || [ $kernel_series -eq 3 -a $kernel_branch -ge 12 ];then
+ if [ $kernel_series -gt 3 ] || [ $kernel_series -eq 3 -a $kernel_branch -ge 16 ];then
 	 echo "Reducing the verbosity level"
 	 cp -f include/linux/printk.h include/linux/printk.h.orig
 	 sed -i s/'#define CONSOLE_LOGLEVEL_DEFAULT 7 \/\* anything MORE serious than KERN_DEBUG \*\/'/'#define CONSOLE_LOGLEVEL_DEFAULT 3 \/\* anything MORE serious than KERN_ERR \*\/'/ include/linux/printk.h
@@ -283,7 +280,7 @@ if [ "$kernel_branch" -ge 12 ];then
 	 cp -f kernel/printk/printk.c kernel/printk/printk.c.orig
 	 sed -i s/'#define DEFAULT_CONSOLE_LOGLEVEL 7 \/\* anything MORE serious than KERN_DEBUG \*\/'/'#define DEFAULT_CONSOLE_LOGLEVEL 3 \/\* anything MORE serious than KERN_ERR \*\/'/ kernel/printk/printk.c
 	 diff -up kernel/printk/printk.c.orig kernel/printk/printk.c > ../dist/sources/patches/lower-verbosity.patch
-  fi
+ fi
 else
  cp kernel/printk.c kernel/printk.c.orig
  sed -i s/'#define MAX_CMDLINECONSOLES 8'/'#define MAX_CMDLINECONSOLES 5'/ kernel/printk.c
@@ -405,7 +402,7 @@ if [ ! -f dist/sources/vanilla/aufs-util${today}.tar.bz2 ];then
 	
 	cd aufs-util
 	
-	git branch -a | grep 'aufs3' |grep -v 'rcN' | cut -d '.' -f2 > /tmp/aufs-util-version #we go for stable only
+	git branch -a | grep "aufs$kernel_series" |grep -v 'rcN' | cut -d '.' -f2 > /tmp/aufs-util-version #we go for stable only
 	while read line
 	  do 
 	    if [ "$kernel_branch" = "$line" ];then branch=$line
@@ -416,7 +413,7 @@ if [ ! -f dist/sources/vanilla/aufs-util${today}.tar.bz2 ];then
 	        done 
 	    fi
 	  done < /tmp/aufs-util-version
-	git checkout origin/aufs3.${branch} >> ../build.log 2>&1
+	git checkout origin/aufs${kernel_series}.${branch} >> ../build.log 2>&1
 	
 	[ $? -ne 0 ] && echo "Failed to get aufs-util from git, do it manually. Kernel is compiled OK :)" && exit
 	# patch Makefile for static build
