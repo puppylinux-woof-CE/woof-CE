@@ -4,9 +4,12 @@
      handles up to 15 columns.
 Designed for use in the Puppy Package Manager, puppylinux.com
 Compile statically:
-# diet gcc -nostdinc printcols.c -o printcols
+# diet gcc -nostdinc -O3 -fomit-frame-pointer -ffunction-sections -fdata-sections -fmerge-all-constants -Wl,--sort-common -Wl,-gc-sections -o printcols -o printcols printcols.c
 * OR
-* musl-gcc -static printcols.c -o printcols
+* musl-gcc -static -O3 -fomit-frame-pointer -ffunction-sections -fdata-sections -fmerge-all-constants -Wl,--sort-common -Wl,-gc-sections -o printcols printcols.c
+*
+* then:
+* strip --strip-all -R .note -R .comment
 */
 
 #include <stdio.h>
@@ -54,13 +57,13 @@ int main (int argc, char ** argv) {
   }
 
 		/*print the fields in requested order...*/
-		setbuffer(stdout, buffer2, BUF_SIZE);
 		for (cntargs=2;cntargs<argc;++cntargs) {
 
 			nextarg=args[cntargs];
 
 			if ( nextarg >= cnt ) { putc('|', stdout); continue; } /*in case of lines with less fields*/
-			printf("%s|",ptokens[nextarg - 1]);
+			fputs(ptokens[nextarg - 1], stdout);
+			putc('|', stdout);
 	 }
 		putc('\n', stdout);
  }
