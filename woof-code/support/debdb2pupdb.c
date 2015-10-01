@@ -50,11 +50,12 @@ static void trim_ver(char *ver, regex_t *preg, char **outver, char *rev)
 	if (UNLIKELY(sep != NULL)) sep[0] = '\0';
 
 	/* kick "-1ubuntu3" from "1:2.0.10-1ubuntu3" */
-	if (UNLIKELY(regexec(preg, *outver, 1, &pmatch, 0) == 0)) {
+	if (UNLIKELY(regexec(preg, *outver, 1, &pmatch, 0) == REG_NOMATCH)) {
+		if (NULL != rev) rev[0] = '\0';
+	} else {
 		(*outver + pmatch.rm_so)[0] = '\0';
-		if (NULL != rev) {
+		if (NULL != rev)
 			memcpy(rev, *outver + pmatch.rm_so + 1, pmatch.rm_eo - pmatch.rm_so);
-		}
 	}
 }
 
