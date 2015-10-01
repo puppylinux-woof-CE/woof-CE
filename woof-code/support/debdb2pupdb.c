@@ -264,10 +264,8 @@ print:
 		if (('\0' == fields[FIELD_DESC][0]) ||
 		    ('\0' == fields[FIELD_PATH][0]) ||
 		    ('\0' == fields[FIELD_NAME][0]) ||
-		    ('\0' == fields[FIELD_SIZE][0]) ||
 		    ('\0' == fields[FIELD_ARCH][0]) ||
 		    ('\0' == fields[FIELD_VER][0]) ||
-		    ('\0' == fields[FIELD_DEPS][0]) ||
 		    ('\0' == fields[FIELD_SECT][0]))
 			continue;
 
