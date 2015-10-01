@@ -215,8 +215,8 @@ int main(int argc, char *argv[])
 	else {
 		/* when running via PPM, just drop the missing dependencies */
 		baddeps = list_pkgs("/usr/local/petget/invaliddepslist", initcrc, buf, &nbaddeps);
-		baddepf = NULL;
 		pkgs = NULL;
+		baddepf = NULL;
 		npkgs = 0;
 	}
 
@@ -257,10 +257,20 @@ next:
 		}
 
 		/* if the end of a package hasn't been reached yet, continue */
-		if (0 != strcmp(buf, "STARTMARKER") || ('\0' == fields[FIELD_NAME][0]))
-			continue;
+		if (0 != strcmp(buf, "STARTMARKER")) continue;
 
 print:
+		/* make sure all mandatory fields are present */
+		if (('\0' == fields[FIELD_DESC][0]) ||
+		    ('\0' == fields[FIELD_PATH][0]) ||
+		    ('\0' == fields[FIELD_NAME][0]) ||
+		    ('\0' == fields[FIELD_SIZE][0]) ||
+		    ('\0' == fields[FIELD_ARCH][0]) ||
+		    ('\0' == fields[FIELD_VER][0]) ||
+		    ('\0' == fields[FIELD_DEPS][0]) ||
+		    ('\0' == fields[FIELD_SECT][0]))
+			continue;
+
 		/* skip debugging symbol packages */
 		if (UNLIKELY(NULL != strstr(fields[FIELD_NAME], "-dbg"))) goto cleanup;
 
@@ -415,11 +425,11 @@ cleanup:
 	for (i = sizeof(fields) / sizeof(fields[0]) - 1 ; 0 <= i; --i)
 		free(fields[i]);
 
-	if (NULL == baddeps)
-		free(pkgs);
-	else {
+	if (NULL != baddeps)
 		free(baddeps);
+	else {
 		fclose(baddepf);
+		free(pkgs);
 	}
 
 	free(buf);
