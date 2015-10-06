@@ -404,6 +404,10 @@ wait_func () {
 }
 export -f wait_func
 
+# ATTENTION TRANSLATORS: The translation in the variables below must be *IDENTICAL*
+# to the point of spacing, capitalization and punctuation, with the ones used in
+# pkg_chooser.sh, or PPM will break.
+# It is highly recommended to copy/paste the corresponding strings from there.
 case "$1" in
 	check_total_size)
 		touch /tmp/install_quietly #avoid splashes

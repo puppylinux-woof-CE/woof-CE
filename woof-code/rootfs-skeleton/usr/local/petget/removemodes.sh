@@ -186,6 +186,10 @@ delete_out_entry () {
 }
 export -f delete_out_entry
 
+# ATTENTION TRANSLATORS: The translation in the variables below must be *IDENTICAL*
+# to the point of spacing, capitalization and punctuation, with the ones used in
+# pkg_chooser.sh, or PPM will break.
+# It is highly recommended to copy/paste the corresponding strings from there.
 case "$1" in
 	"$(gettext 'Auto remove')") auto_remove;;
 	"$(gettext 'Step by step remove (classic mode)')") classic_remove;;
