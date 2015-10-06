@@ -111,7 +111,7 @@ add_repo() {
 function fixdepends(s) {
 	split(s,a,","); s="";
 	for (p in a) {
-		sub(/[ \t]*\(.*\)|[ \t]\|.*|:any/,"",a[p]); s=s "," a[p]
+		gsub(/[ \t]*\(.*\)|[ \t]\|.*|:any/,"",a[p]); s=s "," a[p]
 	}
 	sub(/^,/,"",s); return s;
 }
