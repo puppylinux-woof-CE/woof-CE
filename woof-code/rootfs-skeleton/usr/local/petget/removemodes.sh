@@ -2,7 +2,7 @@
 
 #set -x ; mkdir -p /root/LOGs; NAME=$(basename "$0"); exec 1>> /root/LOGs/"$NAME".log 2>&1
 
-export TEXTDOMAIN=petget__removemodes.sh
+export TEXTDOMAIN=petget___pkg_chooser.sh
 export OUTPUT_CHARSET=UTF-8
 
 [ "`whoami`" != "root" ] && exec sudo -A ${0} ${@} #110505
@@ -186,10 +186,6 @@ delete_out_entry () {
 }
 export -f delete_out_entry
 
-# ATTENTION TRANSLATORS: The translation in the variables below must be *IDENTICAL*
-# to the point of spacing, capitalization and punctuation, with the ones used in
-# pkg_chooser.sh, or PPM will break.
-# It is highly recommended to copy/paste the corresponding strings from there.
 case "$1" in
 	"$(gettext 'Auto remove')") auto_remove;;
 	"$(gettext 'Step by step remove (classic mode)')") classic_remove;;
