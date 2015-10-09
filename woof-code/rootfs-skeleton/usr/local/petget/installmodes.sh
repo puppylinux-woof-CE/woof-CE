@@ -202,7 +202,7 @@ check_total_size () {
   [ "$DL_PATH" ] && DOWN_PATH="$DL_PATH" || DOWN_PATH="/root"
   ACTION_MSG="$(gettext 'This is not enough space to download the packages (including dependencies) you have selected in ')${DOWN_PATH}."
  fi
- if [ "$(cat /var/local/petget/nd_category)" = "true" ]; then
+ if [ "$(cat /var/local/petget/nd_category 2>/dev/null)" = "true" ]; then
   NEEDEDKDOWN=$( expr $NEEDEDK / 3 )
  else
   NEEDEDKDOWN="$NEEDEDK" # so will not trigger warning
@@ -219,7 +219,7 @@ check_total_size () {
  AVAILABLE=$(cat /tmp/pup_event_sizefreem | head -n 1 )
  if [ "$DL_PATH" -a ! "$DL_PATH" = "/root" ]; then
   if [ -f /tmp/download_pets_quietly -o -f /tmp/download_only_pet_quietly \
-   -o "$(cat /var/local/petget/nd_category)" = "true" ]; then
+   -o "$(cat /var/local/petget/nd_category 2>/dev/null)" = "true" ]; then
    SAVEAVAILABLE=$(df -m "$DL_PATH"| awk 'END {print $4}')
   else
    SAVEAVAILABLE="$AVAILABLE" # so will not trigger warning
@@ -244,7 +244,7 @@ check_total_size () {
  else
   cat /tmp/pkgs_to_install | cut -f1 -d '|' > /tmp/pkgs_to_install_bar
   if [ -f /tmp/install_pets_quietly -o -f /tmp/install_classic ]; then
-   if [ "$(cat /var/local/petget/nd_category)" != "true" ]; then
+   if [ "$(cat /var/local/petget/nd_category 2>/dev/null)" != "true" ]; then
     BARNEEDEDK=$( expr 2 \* ${NEEDEDK} \/ 3 )
     BARMSG="$(gettext 'to install')"
    else

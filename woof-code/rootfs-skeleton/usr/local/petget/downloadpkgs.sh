@@ -51,7 +51,7 @@ else
  DL_PATH=/root
 fi
 
-DL_SAVE_FLAG=$(cat /var/local/petget/nd_category)
+DL_SAVE_FLAG=$(cat /var/local/petget/nd_category 2>/dev/null)
 
 echo -n "" > /tmp/petget-installed-pkgs-log
 

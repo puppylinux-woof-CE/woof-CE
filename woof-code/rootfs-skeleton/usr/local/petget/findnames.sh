@@ -42,7 +42,7 @@ CURRENTREPO="`cat /tmp/petget/current-repo-triad`" #search here first.
 ALLACTIVEREPOS="`cat /tmp/petget_active_repo_list`"
 SEARCH_REPOS_FLAG=$1
 
-if [ "$(cat /var/local/petget/ui_choice)" = "Classic" ]; then
+if [ "$(cat /var/local/petget/ui_choice 2>/dev/null)" = "Classic" ]; then
  #120504 ask which repos...
  export ASKREPO_DIALOG="<window title=\"$(gettext 'PPM: search')\" icon-name=\"gtk-about\">
  <vbox>

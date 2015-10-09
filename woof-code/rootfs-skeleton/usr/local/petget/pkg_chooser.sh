@@ -23,7 +23,7 @@ sleep 0.3
 		&& exit 0
 
 # Set the skip-space flag
-if [ "$(cat /var/local/petget/sc_category)" = "true" ] && \
+if [ "$(cat /var/local/petget/sc_category 2>/dev/null)" = "true" ] && \
 	[ "$(cat /tmp/pup_event_sizefreem | head -n 1 )" -gt 4000 ]; then
 	touch /root/.packages/skip_space_check
 else
@@ -44,19 +44,19 @@ options_status () {
 	[ -f /root/.packages/download_path ] && [ "$DL_PATH" != "/root" ] && \
 	 MSG_DPATH="$(gettext 'Download packages in ')${DL_PATH}.
 	 $(gettext '')"
-	[ "$(cat /var/local/petget/install_mode)" = "true" ] && \
+	[ "$(cat /var/local/petget/install_mode 2>/dev/null)" = "true" ] && \
 	 MSG_TEMPFS="$(gettext 'Save istalled programs when we save to savefile.')
 	 $(gettext '')"
-	[ "$(cat /var/local/petget/nt_category)" = "true" ] && \
+	[ "$(cat /var/local/petget/nt_category 2>/dev/null)" = "true" ] && \
 	 MSG_NOTERM="$(gettext 'Do NOT show terminal with PPM activity.')
 	 $(gettext '')"
-	[ "$(cat /var/local/petget/db_verbose)" = "false" ] && \
+	[ "$(cat /var/local/petget/db_verbose 2>/dev/null)" = "false" ] && \
 	 MSG_NODBTERM="$(gettext 'No user input during database updating.')
 	 $(gettext '')" 
-	[ "$(cat /var/local/petget/rd_category)" = "true" ] && \
+	[ "$(cat /var/local/petget/rd_category 2>/dev/null)" = "true" ] && \
 	 MSG_REDOWNL="$(gettext 'Redownload packages when already downloaded.')
 	 $(gettext '')"
-	[ "$(cat /var/local/petget/nd_category)" = "true" ] && \
+	[ "$(cat /var/local/petget/nd_category 2>/dev/null)" = "true" ] && \
 	 MSG_SAVEPKG="$(gettext 'Do NOT delete packages after installation.')
 	 $(gettext '')"
 	[ "$MSG_SPACE" -o "$MSG_DPATH" -o "$MSG_TEMPFS" -o "$MSG_NOTERM" -o \
@@ -66,7 +66,7 @@ options_status () {
 }
 export -f options_status
 
-[ "$(cat /var/local/petget/si_category)" = "true" ] && options_status
+[ "$(cat /var/local/petget/si_category 2>/dev/null)" = "true" ] && options_status
 
 /usr/lib/gtkdialog/box_splash -close never -text "$(gettext 'Loading Puppy Package Manager...')" &
 SPID=$!
@@ -390,13 +390,13 @@ echo $1 > /tmp/petget/current-repo-triad
 chmod 777 /tmp/filterversion.sh
 
 #run the traditional ui if set in config
-if [ "$(</var/local/petget/ui_choice)" = "Classic" ]; then
+if [ "$(</var/local/petget/ui_choice 2>/dev/null)" = "Classic" ]; then
 	. /usr/local/petget/ui_Classic
 	exit 0
 fi
 
 #tall or wide orientation in the Ziggy UI
-UI_ORIENT="$(cat /var/local/petget/uo_choice)"
+UI_ORIENT="$(cat /var/local/petget/uo_choice 2>/dev/null)"
 [ "$UI_ORIENT" != "" ] && UI_ORIENT="$UI_ORIENT" || UI_ORIENT="wide"
 if [ "$UI_ORIENT" = "tall" ]; then
 	UO_1="800"
@@ -623,7 +623,7 @@ S='<window title="'$(gettext 'Puppy Package Manager v')''${VERSION}'" width-requ
               <item stock="gtk-Internet">'$(gettext 'Internet')'|Internet</item>
               <item stock="gtk-Multimedia">'$(gettext 'Multimedia')'|Multimedia</item>
               <item stock="gtk-Fun">'$(gettext 'Fun')'|Fun</item>'
-              [ "$(</var/local/petget/bb_category)" = "true" ] && S=$S'<item stock="gtk-BB">'$(gettext 'BuildingBlock')'|BuildingBlock</item>'
+              [ "$(</var/local/petget/bb_category 2>/dev/null)" = "true" ] && S=$S'<item stock="gtk-BB">'$(gettext 'BuildingBlock')'|BuildingBlock</item>'
               S=$S'<width>140</width><height>112</height>
               <action signal="changed">/usr/local/petget/filterpkgs.sh $CATEGORY</action>
               <action signal="changed">refresh:TREE1</action>
