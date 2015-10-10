@@ -11,7 +11,7 @@ build() {
 		tar -xzvf dist/sources/vanilla/chromiumos_kernel-chromeos-3.14-git$TODAY.tar.gz
 	else
 		git clone --depth 1 -b chromeos-3.14 https://chromium.googlesource.com/chromiumos/third_party/kernel chromiumos_kernel-chromeos-3.14-git$TODAY
-		tar -c chromiumos_kernel-chromeos-3.14-git$TODAY | gzip -1 > dist/sources/vanilla/chromiumos_kernel-chromeos-3.14-git$TODAY.tar.gz
+		tar -c chromiumos_kernel-chromeos-3.14-git$TODAY | gzip -9 > dist/sources/vanilla/chromiumos_kernel-chromeos-3.14-git$TODAY.tar.gz
 	fi
 
 	if [ -f dist/sources/vanilla/aufs3-standalone-aufs3.14-git$TODAY ]
@@ -19,7 +19,7 @@ build() {
 		tar -xzvf dist/sources/vanilla/aufs3-standalone-aufs3.14-git$TODAY.tar.gz
 	else
 		git clone --depth 1 -b aufs3.14 git://git.code.sf.net/p/aufs/aufs3-standalone aufs3-standalone-aufs3.14-git$TODAY
-		tar -c aufs3-standalone-aufs3.14-git$TODAY | gzip -1 > dist/sources/vanilla/aufs3-standalone-aufs3.14-git$TODAY.tar.gz
+		tar -c aufs3-standalone-aufs3.14-git$TODAY | gzip -9 > dist/sources/vanilla/aufs3-standalone-aufs3.14-git$TODAY.tar.gz
 	fi
 
 	[ ! -f dist/sources/vanilla/deblob-3.14 ] && wget -O dist/sources/vanilla/deblob-3.14 http://linux-libre.fsfla.org/pub/linux-libre/releases/LATEST-3.14.N/deblob-3.14
@@ -63,18 +63,25 @@ build() {
 	$MAKE zImage modules dtbs
 
 	# install the kernel modules
-	make INSTALL_MOD_PATH=../dist/packages/linux_kernel-3.14-git$TODAY$package_name_suffix
+	make INSTALL_MOD_PATH=../dist/packages/linux_kernel-3.14-git$TODAY$package_name_suffix modules_install
 	mkdir ../dist/packages/linux_kernel-3.14-git$TODAY$package_name_suffix/boot
 
 	# pack the kernel image
-	export PATH="`pwd`:$PATH"
+	export PATH="`pwd`/scripts/dtc:$PATH"
+	cp -f ../kernel.its .
 	mkimage -D "-I dts -O dtb -p 2048" -f kernel.its vmlinux.uimg
 	dd if=/dev/zero of=bootloader.bin bs=512 count=1
-	vbutil_kernel --pack ../dist/packages/linux_kernel-3.14-git$TODAY$package_name_suffix/boot/vmlinux.kpart --version 1 --vmlinuz vmlinux.uimg --arch arm --config ../cmdline --bootloader bootloader.bin --keyblock /usr/share/vboot/devkeys/kernel.keyblock --signprivate /usr/share/vboot/devkeys/kernel_data_key.vbprivk
+	vbutil_kernel --pack ../dist/packages/linux_kernel-3.14-git$TODAY$package_name_suffix/boot/vmlinuz --version 1 --vmlinuz vmlinux.uimg --arch arm --config ../cmdline --bootloader bootloader.bin --keyblock /usr/share/vboot/devkeys/kernel.keyblock --signprivate /usr/share/vboot/devkeys/kernel_data_key.vbprivk
+
+	# create a PET package
+	cd ../dist/packages
+	dir2pet -x -s -w="Linux-libre for Rockchip RK3288" -p=linux_kernel-3.14-git$TODAY$package_name_suffix
+	rm -rf linux_kernel-3.14-git$TODAY$package_name_suffix
 }
 
 cleanup() {
 	rm -rf aufs3-standalone-aufs3.14-git* chromiumos_kernel-chromeos-3.14-git*
+	:
 }
 
 trap cleanup EXIT
