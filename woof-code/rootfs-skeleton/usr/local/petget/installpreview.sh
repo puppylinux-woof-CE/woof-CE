@@ -157,19 +157,19 @@ export PREVIEW_DIALOG="<window title=\"$(gettext 'Puppy Package Manager: preinst
  <frame>
   <hbox>
    <text><label>$(gettext 'If you would like more information about') '${TREE1}', $(gettext 'such as what it is for and the dependencies, this button will download and display detailed information:')</label></text>
-   <button><label>More info</label><action>/usr/local/petget/fetchinfo.sh ${TREE1} & </action></button>
+   <button><label>$(gettext 'More info')</label><action>/usr/local/petget/fetchinfo.sh ${TREE1} & </action></button>
   </hbox>
  </frame>
  
  <hbox>
   ${DEPBUTTON}
   <button>
-   <label>Install ${TREE1}${ONLYMSG}</label>
+   <label>$(gettext 'Install') ${TREE1}${ONLYMSG}</label>
    <action>echo \"${TREE1}\" > /tmp/petget_installpreview_pkgname</action>
    <action type=\"exit\">BUTTON_INSTALL</action>
   </button>
   <button>
-   <label>Download-only</label>
+   <label>$(gettext 'Download-only')</label>
    <action type=\"exit\">BUTTON_PKGS_DOWNLOADONLY</action>
   </button>
   <button cancel></button>
