@@ -191,7 +191,7 @@ do
   yaf-splash -bg '#FFD600' -close never -fontsize large -text "$(gettext 'Please wait, testing that packages exist in repository...')" &
   testPID=$!
  else
-  echo "Testing that packages exist in repository" > /tmp/petget/install_status
+  echo "$(gettext 'Testing that packages exist in repository')" > /tmp/petget/install_status
  fi
  DL_BAD_LIST=''
  for ONEFILE in `cat $ONELIST | cut -f 7,8,13 -d '|'` #path|fullfilename|repo-id

@@ -156,7 +156,7 @@ $(gettext 'These needed libraries exist but are not in the library search path (
         <eventbox name="bg_report" space-expand="true" space-fill="true">
           <vbox margin="5" hscrollbar-policy="2" vscrollbar-policy="2" space-expand="true" space-fill="true">
             '"`/usr/lib/gtkdialog/xml_pixmap building_block.svg 32`"'
-            <text angle="90" wrap="false" yalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"<big><b><span color='"'#bbb'"'>Libs</span></b></big> "</label></text>
+            <text angle="90" wrap="false" yalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"<big><b><span color='"'#bbb'"'>'$(gettext 'Libs')'</span></b></big> "</label></text>
           </vbox>
         </eventbox>
       </hbox>
@@ -353,7 +353,7 @@ install_package () {
      if [ "$(cat /var/local/petget/nt_category 2>/dev/null)" = "true" ]; then
      /usr/local/petget/installpreview.sh
      else
-	  rxvt -title "$VTTITLE... Do NOT close" \
+	  rxvt -title "$VTTITLE... $(gettext 'Do NOT close')" \
 	  -fn -misc-fixed-medium-r-semicondensed--13-120-75-75-c-60-*-* -bg black \
       -fg grey -geometry 80x5+50+50 -e /usr/local/petget/installpreview.sh
      fi
@@ -361,7 +361,7 @@ install_package () {
      if [ "$(cat /var/local/petget/nt_category 2>/dev/null)" = "true" ]; then
      /usr/local/petget/installpreview.sh
      else
-	  rxvt -title "$VTTITLE... Do NOT close" \
+	  rxvt -title "$VTTITLE... $(gettext 'Do NOT close')" \
 	  -fn -misc-fixed-medium-r-semicondensed--13-120-75-75-c-60-*-* -bg black \
       -fg grey -geometry 80x5+50+50 -e /usr/local/petget/installpreview.sh
      fi

@@ -201,7 +201,7 @@ elif [ $PUPMODE -eq 3 -o $PUPMODE -eq 7 -o $PUPMODE -eq 13 ];then
 fi
 
 if [ $DISPLAY -a ! -f /tmp/install_quietly ];then #131222
- /usr/lib/gtkdialog/box_splash -close never -fontsize large -text "$(gettext 'Please wait, processing...')" &
+ . /usr/lib/gtkdialog/box_splash -close never -fontsize large -text "$(gettext 'Please wait, processing...')" &
  YAFPID1=$!
  trap 'pupkill $YAFPID1' EXIT #140318
 fi
