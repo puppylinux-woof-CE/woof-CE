@@ -33,7 +33,7 @@ export OUTPUT_CHARSET=UTF-8
 . /root/.packages/DISTRO_PKGS_SPECS
 
 if [ ! -f /tmp/install_quietly ]; then
- /usr/lib/gtkdialog/box_splash -close never -text "$(gettext 'Please wait, processing package database files...')" &
+ . /usr/lib/gtkdialog/box_splash -close never -text "$(gettext 'Please wait, processing package database files...')" &
  X1PID=$!
 fi
 

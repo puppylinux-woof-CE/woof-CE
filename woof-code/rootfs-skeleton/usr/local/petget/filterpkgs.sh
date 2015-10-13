@@ -61,7 +61,7 @@ esac
 xDEFGUIFILTER="$(echo -n "$DEFGUIFILTER" | tr -d ' ' | tr -d '-' | tr -d '+' | tr -d ',')" #ex, translate 'Qt4 GUI apps only' to 'Qt4GUIappsonly'
 
 PKG_FIRST_CHAR='a-z0-9'
-/usr/lib/gtkdialog/box_splash -close never -text "$(gettext 'Please wait, processing all entries may take awhile...')" &
+. /usr/lib/gtkdialog/box_splash -close never -text "$(gettext 'Please wait, processing all entries may take awhile...')" &
 X1PID=$!
 
 #which repo...
