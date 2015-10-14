@@ -302,7 +302,7 @@ check_total_size () {
    clean_up
    mv $MODE.bak $MODE
   else
-   . /usr/lib/gtkdialog/box_yesno "$(gettext 'Last warning')" "$NEEDEDK $(gettext 'of the ') $AVAILABLE $(gettext ' available MB will be used to install the package(s) you selected.')" "<b>$(gettext 'It is NOT sufficent. Please exit now.')</b>"  "$(gettext 'However, if you are sure about the spep-by-step process, take a risk.')" "$(gettext 'Do you want to cancel installation?')"
+    . /usr/lib/gtkdialog/box_yesno "$(gettext 'Last warning')" "$(eval echo $(gettext '$NEEDEDK of the $AVAILABLE  available MB will be used to install the package\(s\) you selected.'))" "<b>$(gettext 'It is NOT sufficent. Please exit now.')</b>"  "$(gettext 'However, if you are sure about the spep-by-step process, take a risk.')" "$(gettext 'Do you want to cancel installation?')"
    if [ "$EXIT" = "yes" ]; then
     echo 0 > /tmp/petget/install_status_percent
     echo "" > /tmp/petget/install_status
