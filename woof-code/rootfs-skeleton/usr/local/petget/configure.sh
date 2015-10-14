@@ -93,9 +93,9 @@ if [ "$DBmethod" = "" ]; then
  DBmethod=true
 fi
 if [ "$DBmethod" = "false" ]; then
- RXVT="rxvt -title Update_Databases -geometry 110x12+0+200 -bg gray -e "
+ RXVT="rxvt -title \"$(gettext 'Updating Databases')\" -geometry 110x12+0+200 -bg gray -e "
 else
- RXVT="rxvt -bg yellow -title Upadate_Databases -e "
+ RXVT="rxvt -bg yellow -title \"$(gettext 'Databases Update')\"  -e "
 fi
 
 export SETUPCALLEDFROM='ppm'

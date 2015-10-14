@@ -134,7 +134,7 @@ if [ "`grep "$PTN1" /root/.packages/user-installed-packages`" != "" ];then
  if [ ! $DISPLAY ];then
   dialog ${DISPTIME1} --msgbox "$(gettext 'Sorry, this package is already installed. Aborting.')" 0 0
  else
-  pupmessage -bg '#ff8080' -fg black ${DISPTIME2} -title "$(gettext 'Package:') ${DLPKG_NAME}" "$(gettext 'Sorry, but this package is already installed. Cannot install it twice.')"
+  . pupmessage -bg '#ff8080' -fg black ${DISPTIME2} -title "$(gettext 'Package:') ${DLPKG_NAME}" "$(gettext 'Sorry, but this package is already installed. Cannot install it twice.')"
   echo ${DLPKG_NAME} >> /tmp/pgks_failed_to_install_forced
  fi
  exit 1
@@ -168,7 +168,7 @@ if [ $NEEDK -gt $PARTK ];then
  ABORTMSG1="$(gettext 'Package:') ${DLPKG_BASE}"
  ABORTMSG2="$(gettext 'Sorry, there is not enough free space in the partition to install this package')"
  if [ $DISPLAY ];then
-  pupmessage -bg pink -fg black -title "${ABORTMSG1}" "${ABORTMSG2}"
+  . pupmessage -bg pink -fg black -title "${ABORTMSG1}" "${ABORTMSG2}"
  else
   echo "${ABORTMSG1}
 ${ABORTMSG2}"

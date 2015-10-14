@@ -209,7 +209,7 @@ if [ "$EXIT" = "BUTTON_EXAMINE_DEPS" ];then
  #120904
  FNDMISSINGDBENTRYFILE="`ls -1 /tmp/petget_missing_dbentries-* 2>/dev/null`"
  if [ "$FNDMISSINGDBENTRYFILE" = "" -a ! -f /tmp/install_quietly ];then
-  pupdialog --title "$(gettext 'PPM: examine dependencies')" --background LightYellow --msgbox "$(gettext 'There seem to be no missing dependencies.')
+  . pupdialog --title "$(gettext 'PPM: examine dependencies')" --background LightYellow --msgbox "$(gettext 'There seem to be no missing dependencies.')
 
 $(gettext 'Note: if the previous window indicated that there are missing dependencies, they were not found. Sometimes, a package database lists a dependency that does not actually exist anymore and is not required.')" 0 0
   exec /usr/local/petget/installpreview.sh #reenter.
@@ -224,7 +224,7 @@ $(gettext 'Note: if the previous window indicated that there are missing depende
    DEVXNAME="devx_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION}.sfs"
    echo "#!/bin/sh
 sleep 3
-pupdialog --background pink --colors --ok-label \"$(gettext 'OK')\" --backtitle \"$(gettext 'WARNING: devx not installed')\" --msgbox \"$(gettext 'Package:')  \Zb${TREE1}\ZB
+. pupdialog --background pink --colors --ok-label \"$(gettext 'OK')\" --backtitle \"$(gettext 'WARNING: devx not installed')\" --msgbox \"$(gettext 'Package:')  \Zb${TREE1}\ZB
 $(gettext "This package has dependencies that are in the 'devx' SFS file, which is Puppy's C/C++/Vala/Genie/BaCon mega-package, a complete compiling environment.")
 
 $(gettext 'The devx file is named:') \Zb${DEVXNAME}\ZB

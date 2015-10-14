@@ -213,7 +213,7 @@ check_total_size () {
   sleep 1
   [ ! -f /tmp/pup_event_sizefreem ]&& echo "Free space estimation error. Exiting" \
     > /tmp/petget/install_status && \
-	/usr/lib/gtkdialog/box_ok "$(gettext 'Pup_event_error')" error "$(gettext 'This is a rare pup_even error that fails to report the available free space. Just click on the free memory applet at the tray and try again. It should be OK after that.')" \
+	. /usr/lib/gtkdialog/box_ok "$(gettext 'Pup_event_error')" error "$(gettext 'This is a rare pup_even error that fails to report the available free space. Just click on the free memory applet at the tray and try again. It should be OK after that.')" \
 	&& clean_up && exit 1
  fi
  AVAILABLE=$(cat /tmp/pup_event_sizefreem | head -n 1 )
@@ -393,7 +393,7 @@ recalculate_sizes () {
 export -f recalculate_sizes
 
 wait_func () {
-	/usr/lib/gtkdialog/box_splash -close never -text "$(gettext 'Please wait, calculating total required space for the installation...')" &
+	. /usr/lib/gtkdialog/box_splash -close never -text "$(gettext 'Please wait, calculating total required space for the installation...')" &
 	X1PID=$!
 	recalculate_sizes
 	while true ; do
