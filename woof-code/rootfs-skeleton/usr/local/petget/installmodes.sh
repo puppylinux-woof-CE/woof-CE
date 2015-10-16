@@ -156,7 +156,7 @@ $(gettext 'These needed libraries exist but are not in the library search path (
         <eventbox name="bg_report" space-expand="true" space-fill="true">
           <vbox margin="5" hscrollbar-policy="2" vscrollbar-policy="2" space-expand="true" space-fill="true">
             '"`/usr/lib/gtkdialog/xml_pixmap building_block.svg 32`"'
-            <text angle="90" wrap="false" yalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"<big><b><span color='"'#bbb'"'>Libs</span></b></big> "</label></text>
+            <text angle="90" wrap="false" yalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"<big><b><span color='"'#bbb'"'>'$(gettext 'Libs')'</span></b></big> "</label></text>
           </vbox>
         </eventbox>
       </hbox>
@@ -213,7 +213,7 @@ check_total_size () {
   sleep 1
   [ ! -f /tmp/pup_event_sizefreem ]&& echo "Free space estimation error. Exiting" \
     > /tmp/petget/install_status && \
-	/usr/lib/gtkdialog/box_ok "$(gettext 'Pup_event_error')" error "$(gettext 'This is a rare pup_even error that fails to report the available free space. Just click on the free memory applet at the tray and try again. It should be OK after that.')" \
+	. /usr/lib/gtkdialog/box_ok "$(gettext 'Pup_event_error')" error "$(gettext 'This is a rare pup_even error that fails to report the available free space. Just click on the free memory applet at the tray and try again. It should be OK after that.')" \
 	&& clean_up && exit 1
  fi
  AVAILABLE=$(cat /tmp/pup_event_sizefreem | head -n 1 )
@@ -302,7 +302,7 @@ check_total_size () {
    clean_up
    mv $MODE.bak $MODE
   else
-   . /usr/lib/gtkdialog/box_yesno "$(gettext 'Last warning')" "$NEEDEDK $(gettext 'of the ') $AVAILABLE $(gettext ' available MB will be used to install the package(s) you selected.')" "<b>$(gettext 'It is NOT sufficent. Please exit now.')</b>"  "$(gettext 'However, if you are sure about the spep-by-step process, take a risk.')" "$(gettext 'Do you want to cancel installation?')"
+    . /usr/lib/gtkdialog/box_yesno "$(gettext 'Last warning')" "$(eval echo $(gettext '$NEEDEDK of the $AVAILABLE  available MB will be used to install the package\(s\) you selected.'))" "<b>$(gettext 'It is NOT sufficent. Please exit now.')</b>"  "$(gettext 'However, if you are sure about the spep-by-step process, take a risk.')" "$(gettext 'Do you want to cancel installation?')"
    if [ "$EXIT" = "yes" ]; then
     echo 0 > /tmp/petget/install_status_percent
     echo "" > /tmp/petget/install_status
@@ -353,7 +353,7 @@ install_package () {
      if [ "$(cat /var/local/petget/nt_category 2>/dev/null)" = "true" ]; then
      /usr/local/petget/installpreview.sh
      else
-	  rxvt -title "$VTTITLE... Do NOT close" \
+	  rxvt -title "$VTTITLE... $(gettext 'Do NOT close')" \
 	  -fn -misc-fixed-medium-r-semicondensed--13-120-75-75-c-60-*-* -bg black \
       -fg grey -geometry 80x5+50+50 -e /usr/local/petget/installpreview.sh
      fi
@@ -361,7 +361,7 @@ install_package () {
      if [ "$(cat /var/local/petget/nt_category 2>/dev/null)" = "true" ]; then
      /usr/local/petget/installpreview.sh
      else
-	  rxvt -title "$VTTITLE... Do NOT close" \
+	  rxvt -title "$VTTITLE... $(gettext 'Do NOT close')" \
 	  -fn -misc-fixed-medium-r-semicondensed--13-120-75-75-c-60-*-* -bg black \
       -fg grey -geometry 80x5+50+50 -e /usr/local/petget/installpreview.sh
      fi
@@ -393,7 +393,7 @@ recalculate_sizes () {
 export -f recalculate_sizes
 
 wait_func () {
-	/usr/lib/gtkdialog/box_splash -close never -text "$(gettext 'Please wait, calculating total required space for the installation...')" &
+	. /usr/lib/gtkdialog/box_splash -close never -text "$(gettext 'Please wait, calculating total required space for the installation...')" &
 	X1PID=$!
 	recalculate_sizes
 	while true ; do
