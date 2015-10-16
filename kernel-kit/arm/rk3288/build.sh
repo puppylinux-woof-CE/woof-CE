@@ -103,7 +103,7 @@ build() {
 }
 
 cleanup() {
-	rm -rf aufs3-standalone-aufs3.14-git* chromiumos_kernel-chromeos-3.14-git*
+	rm -rf open-ath9k-htc-firmware-git* aufs3-standalone-aufs3.14-git* chromiumos_kernel-chromeos-3.14-git*
 }
 
 trap cleanup EXIT
