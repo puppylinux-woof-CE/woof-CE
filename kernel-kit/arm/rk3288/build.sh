@@ -40,7 +40,12 @@ build() {
 		export CROSS_COMPILE=arm-linux-gnueabihf-
 	fi
 
-	cd chromiumos_kernel-chromeos-3.14-git$TODAY
+	# patch Aufs
+	cd aufs3-standalone-aufs3.14-git$TODAY
+	patch -N -p1 < ../dist/sources/patches/aufs-prfile.patch
+	patch -N -p1 < ../dist/sources/patches/aufs-compat.patch
+
+	cd ../chromiumos_kernel-chromeos-3.14-git$TODAY
 
 	# clean the sources tree
 	$MAKE clean
@@ -59,12 +64,12 @@ build() {
 	rm -f Makefile-orig
 
 	# add Aufs
+	rm -f mm/prfile.c
 	for i in kbuild base standalone mmap
 	do
 		patch -N -p1 < ../aufs3-standalone-aufs3.14-git$TODAY/aufs3-$i.patch
 	done
 	cp -rf ../aufs3-standalone-aufs3.14-git$TODAY/fs .
-	patch -N -p1 < ../dist/sources/patches/aufs-compat.patch
 	cp -f ../aufs3-standalone-aufs3.14-git$TODAY/include/uapi/linux/aufs_type.h include/uapi/linux/
 
 	# lower the kernel verbosity
