@@ -18,12 +18,20 @@ build() {
 	then
 		tar -xzvf dist/sources/vanilla/aufs3-standalone-aufs3.14-git$TODAY.tar.gz
 	else
-		git clone --depth 1 -b aufs3.14 git://git.code.sf.net/p/aufs/aufs3-standalone aufs3-standalone-aufs3.14-git$TODAY
+		git clone --depth 1 -b aufs3.14.40+ git://git.code.sf.net/p/aufs/aufs3-standalone aufs3-standalone-aufs3.14-git$TODAY
 		tar -c aufs3-standalone-aufs3.14-git$TODAY | gzip -9 > dist/sources/vanilla/aufs3-standalone-aufs3.14-git$TODAY.tar.gz
 	fi
 
 	[ ! -f dist/sources/vanilla/deblob-3.14 ] && wget -O dist/sources/vanilla/deblob-3.14 http://linux-libre.fsfla.org/pub/linux-libre/releases/LATEST-3.14.N/deblob-3.14
 	[ ! -f dist/sources/vanilla/deblob-check ] && wget -O dist/sources/vanilla/deblob-check http://linux-libre.fsfla.org/pub/linux-libre/releases/LATEST-3.14.N/deblob-check
+
+	if [ -f dist/sources/vanilla/open-ath9k-htc-firmware-git$TODAY.tar.gz ]
+	then
+		tar -xzvf dist/sources/vanilla/open-ath9k-htc-firmware-git$TODAY.tar.gz
+	else
+		git clone --depth 1 https://github.com/qca/open-ath9k-htc-firmware open-ath9k-htc-firmware-git$TODAY
+		tar -c open-ath9k-htc-firmware-git$TODAY | gzip -9 > dist/sources/vanilla/open-ath9k-htc-firmware-git$TODAY.tar.gz
+	fi
 
 	export WIFIVERSION=-3.8
 	if [ "`uname -m`" != "armv7l" ]
@@ -56,7 +64,11 @@ build() {
 		patch -N -p1 < ../aufs3-standalone-aufs3.14-git$TODAY/aufs3-$i.patch
 	done
 	cp -rf ../aufs3-standalone-aufs3.14-git$TODAY/fs .
-	cp -f ../aufs3-standalone-aufs3.14-git101015/include/uapi/linux/aufs_type.h include/uapi/linux/
+	patch -N -p1 < ../dist/sources/patches/aufs-compat.patch
+	cp -f ../aufs3-standalone-aufs3.14-git$TODAY/include/uapi/linux/aufs_type.h include/uapi/linux/
+
+	# lower the kernel verbosity
+	patch -N -p1 < ../dist/sources/patches/lower-verbosity.patch
 
 	# build the kernel
 	cp ../DOTconfig .config
@@ -73,6 +85,17 @@ build() {
 	dd if=/dev/zero of=bootloader.bin bs=512 count=1
 	vbutil_kernel --pack ../dist/packages/linux_kernel-3.14-git$TODAY$package_name_suffix/boot/vmlinuz --version 1 --vmlinuz vmlinux.uimg --arch arm --config ../cmdline --bootloader bootloader.bin --keyblock /usr/share/vboot/devkeys/kernel.keyblock --signprivate /usr/share/vboot/devkeys/kernel_data_key.vbprivk
 
+	# add the kernel configuration to the package, required by 3builddistro
+	install -D -m 644 .config ../dist/packages/linux_kernel-3.14-git$TODAY$package_name_suffix/etc/modules/DOTconfig
+
+	# build the ath9k_htc firmware
+	cd ../open-ath9k-htc-firmware-git$TODAY
+	unset CC CFLAGS LDFLAGS
+	$MAKE toolchain
+	$MAKE -C target_firmware
+	install -D -m 755 target_firmware/htc_7010.fw ../dist/packages/linux_kernel-3.14-git$TODAY$package_name_suffix/lib/firmware/htc_7010.fw
+	install -m 755 target_firmware/htc_9271.fw ../dist/packages/linux_kernel-3.14-git$TODAY$package_name_suffix/lib/firmware/htc_9271.fw
+
 	# create a PET package
 	cd ../dist/packages
 	dir2pet -x -s -w="Linux-libre for Rockchip RK3288" -p=linux_kernel-3.14-git$TODAY$package_name_suffix
@@ -81,7 +104,6 @@ build() {
 
 cleanup() {
 	rm -rf aufs3-standalone-aufs3.14-git* chromiumos_kernel-chromeos-3.14-git*
-	:
 }
 
 trap cleanup EXIT
@@ -90,7 +112,7 @@ trap cleanup INT
 
 if [ "$1" = "clean" ]
 then
-	rm -rf dist/sources/*/* dist/packages/* dist/sources/build.log
+	rm -rf dist/sources/patches/version.patch dist/sources/vanilla/* dist/packages/* dist/sources/build.log
 else
 	build 2>&1 | tee dist/sources/build.log
 fi
