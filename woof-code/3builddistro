@@ -307,11 +307,13 @@ if [ "$SDFLAG" != "" ];then
  echo "Type number of board that you are building for: 
 1 Raspberry Pi
 2 Mele A1000 or A2000 (or other A10 board)
-3 ODROID-X (or other Exynos 4412 board)"
+3 Rockchip RK3288
+4 ODROID-X (or other Exynos 4412 board)"
  read boardnum
  case $boardnum in
   1) BOOT_BOARD='raspi' ;;
   2) BOOT_BOARD='mele' ;;
+  3) BOOT_BOARD='rk3288' ;;
   *) BOOT_BOARD='odroidx' ;;
  esac
  echo "...you chose $BOOT_BOARD"
@@ -418,7 +420,11 @@ if [ "$MKSQUASHFS" = "mksquashfs4.2" ];then #110713
  read XZCHOICE
  if [ "$XZCHOICE" ];then
   echo "...xz chosen"
-  COMPCHOICE='-comp xz -Xbcj x86 -b 512K'
+  if [ "$WOOF_TARGETARCH" = "arm" ];then
+   COMPCHOICE='-comp xz -Xbcj arm,armthumb -b 512K'
+  else
+   COMPCHOICE='-comp xz -Xbcj x86 -b 512K'
+  fi
  else
   echo "...gzip chosen"
   COMPCHOICE=''
@@ -1502,7 +1508,7 @@ fi
 #130612 if kernel has CONFIG_DEVTMPFS=y (and CONFIG_DEVTMPFS_MOUNT=y) then empty /dev...
 DEVTMPFSFLG=0
 if [ "`grep 'CONFIG_DEVTMPFS.*=y' rootfs-complete/etc/modules/DOTconfig*`" != "" ];then
- UDEV3=`grep -E '^udev[_-][0-9]' ../woof-installed-packages | cut -f 3 -d '|' | cut -c 1-3 | head -n 1`
+ UDEV3=`grep -E '^e*udev[_-][0-9]' ../woof-installed-packages | cut -f 3 -d '|' | cut -c 1-3 | head -n 1`
  [ ! $UDEV3 ] && UDEV3=200 #eudev
  if [ $UDEV3 -ge 176 ];then #175 is last version that creates device nodes.
   #modify 'init' script in initrd...
@@ -3482,7 +3488,7 @@ else #120506 sd image
  #need to know uncompressed size of image...
  echo "Uncompressing image, please wait..."
  [ -f ../${WOOF_OUTPUT}/${PUPIMG} ] && rm -f ../${WOOF_OUTPUT}/${PUPIMG}
- unxz --stdout ../sd-skeleton-images/${SDIMAGE} > ../${WOOF_OUTPUT}/${PUPIMG}
+ unxz --stdout --no-sparse ../sd-skeleton-images/${SDIMAGE} > ../${WOOF_OUTPUT}/${PUPIMG}
  if [ $? -ne 0 ];then
   [ -f ../${WOOF_OUTPUT}/${PUPIMG} ] && rm -f ../${WOOF_OUTPUT}/${PUPIMG}
   echo "Uncompress fail. Aborting."
@@ -3501,42 +3507,57 @@ else #120506 sd image
    exit
   ;;
  esac
- 
+
  #130530 better to write everything to the image file first, then write to sd afterward...
  #need to know the offsets of the filesystems...
- P1BYTES=`echo "$SDIMGINFO" | grep '^Partition 1:' | cut -f 2 -d '(' | cut -f 1 -d ' '`
- P1SECTORS=`echo "$SDIMGINFO" | grep '^Partition 1:' | cut -f 2 -d '(' | cut -f 3 -d ' '`
- P1STARTSECTORS=`echo "$SDIMGINFO" | grep '^Partition 1:' | rev | cut -f 1 -d ' ' | rev | cut -f 1 -d ')'`
+ case $SDBASEBASE in
+  rk3288-*)
+   P1BYTES=`echo "$SDIMGINFO" | grep '^Partition 1:' | tail -n 1 | cut -f 2 -d '(' | cut -f 1 -d ' '`
+   P1SECTORS=`echo "$SDIMGINFO" | grep 'Partition 1' | tail -n 1 | cut -f 2 -d '(' | cut -f 3 -d ' '`
+   P1STARTSECTORS=`echo "$SDIMGINFO" | grep '^Partition 1:' | tail -n 1 | rev | cut -f 1 -d ' ' | rev | cut -f 1 -d ')'`
+  ;;
+  *)
+   P1BYTES=`echo "$SDIMGINFO" | grep '^Partition 1:' | cut -f 2 -d '(' | cut -f 1 -d ' '`
+   P1SECTORS=`echo "$SDIMGINFO" | grep '^Partition 1:' | cut -f 2 -d '(' | cut -f 3 -d ' '`
+   P1STARTSECTORS=`echo "$SDIMGINFO" | grep '^Partition 1:' | rev | cut -f 1 -d ' ' | rev | cut -f 1 -d ')'`
+  ;;
+ esac
  BYTESPERSECTOR=`expr $P1BYTES \/ $P1SECTORS` #normally 512.
- P1STARTBYTES=`expr $P1STARTSECTORS \* $BYTESPERSECTOR`
- 
  P2BYTES=`echo "$SDIMGINFO" | grep '^Partition 2:' | cut -f 2 -d '(' | cut -f 1 -d ' '`
  P2SECTORS=`echo "$SDIMGINFO" | grep '^Partition 2:' | cut -f 2 -d '(' | cut -f 3 -d ' '`
  P2STARTSECTORS=`echo "$SDIMGINFO" | grep '^Partition 2:' | rev | cut -f 1 -d ' ' | rev | cut -f 1 -d ')'`
+
+ P1STARTBYTES=`expr $P1STARTSECTORS \* $BYTESPERSECTOR`
  P2STARTBYTES=`expr $P2STARTSECTORS \* $BYTESPERSECTOR`
  
  echo
  echo "Copying Linux kernel to SD image file..."
- mkdir -p /mnt/sdimagep1
- mkdir -p /mnt/sdimagep2
- mount-FULL -t vfat -o loop,offset=${P1STARTBYTES} ../${WOOF_OUTPUT}/${PUPIMG} /mnt/sdimagep1
- if [ $? -ne 0 ];then
-  echo "Sorry, mounting vfat partition 1 (at offset ${P1STARTBYTES}) of ${PUPIMG} failed. Aborting script."
-  exit 1
+ if [ "$BOOT_BOARD" = "rk3288" ];then
+  # depthcharge reads the kernel image directly from the "kernel" partition, without a file system
+  dd if=build/vmlinuz of=../${WOOF_OUTPUT}/${PUPIMG} obs=${P1STARTBYTES} seek=1 conv=notrunc
+  sync
+ else
+  mkdir -p /mnt/sdimagep1
+  mount-FULL -t vfat -o loop,offset=${P1STARTBYTES} ../${WOOF_OUTPUT}/${PUPIMG} /mnt/sdimagep1
+  if [ $? -ne 0 ];then
+   echo "Sorry, mounting vfat partition 1 (at offset ${P1STARTBYTES}) of ${PUPIMG} failed. Aborting script."
+   exit 1
+  fi
+  #120613 restore correct kernel image name...
+  case $REALKERNAME in
+   uImage)     cp -f build/vmlinuz /mnt/sdimagep1/uImage ;;
+   kernel.img) cp -f build/vmlinuz /mnt/sdimagep1/kernel.img ;;
+   *)          cp -f build/vmlinuz /mnt/sdimagep1/ ;;
+  esac
+  echo -n "$REALKERNAME" > /mnt/sdimagep1/REALKERNAME #just in case need to know, in a running puppy.
+  sync
+  busybox umount /mnt/sdimagep1 2>/dev/null
  fi
- #120613 restore correct kernel image name...
- case $REALKERNAME in
-  uImage)     cp -f build/vmlinuz /mnt/sdimagep1/uImage ;;
-  kernel.img) cp -f build/vmlinuz /mnt/sdimagep1/kernel.img ;;
-  *)          cp -f build/vmlinuz /mnt/sdimagep1/ ;;
- esac
- echo -n "$REALKERNAME" > /mnt/sdimagep1/REALKERNAME #just in case need to know, in a running puppy.
- sync
- busybox umount /mnt/sdimagep1 2>/dev/null
  echo "...done"
  
  echo
  echo "Copying Puppy filesystem to SD image file, please wait..."
+ mkdir -p /mnt/sdimagep2
  mount-FULL -t ${SDFS2} -o loop,offset=${P2STARTBYTES} ../${WOOF_OUTPUT}/${PUPIMG} /mnt/sdimagep2
  if [ $? -ne 0 ];then
   echo "Sorry, mounting ${SDFS2} partition 2 (at offset ${P2STARTBYTES}) of ${PUPIMG} failed. Aborting script."
