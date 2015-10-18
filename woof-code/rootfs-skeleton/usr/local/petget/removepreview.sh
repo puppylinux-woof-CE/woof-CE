@@ -26,7 +26,7 @@
 
 export TEXTDOMAIN=petget___removepreview.sh
 export OUTPUT_CHARSET=UTF-8
-
+[ "$(locale | grep '^LANG=' | cut -d '=' -f 2)" ] && ORIGLANG="$(locale | grep '^LANG=' | cut -d '=' -f 2)"
 . /etc/rc.d/PUPSTATE  #111228 this has PUPMODE and SAVE_LAYER.
 . /etc/DISTRO_SPECS #has DISTRO_BINARY_COMPAT, DISTRO_COMPAT_VERSION
 . /root/.packages/DISTRO_PKGS_SPECS
@@ -114,7 +114,7 @@ $(gettext 'The first 5 are')
 $possible5"
  fi
  if [ "$DISPLAY" ];then
-  pupmessage -bg red "$(gettext 'WARNING:')
+  . pupmessage -bg red "$(gettext 'WARNING:')
 $(gettext 'No file named') ${DB_pkgname}.files $(gettext 'found in')
 /root/.packages/ $(gettext 'folder.')
  
@@ -159,7 +159,7 @@ do
 done
 if [ -s /tmp/petget/other-installed-deps ];then
  OTHERDEPS="$(sort -u /tmp/petget/other-installed-deps | tr '\n' ' ')"
- pupmessage -bg '#ff8080' -fg black -title "Cannot uninstall: ${DB_pkgname}" "Sorry, but these other installed packages depend on the package that you want to uninstall:
+ . pupmessage -bg '#ff8080' -fg black -title "Cannot uninstall: ${DB_pkgname}" "Sorry, but these other installed packages depend on the package that you want to uninstall:
 
 ${OTHERDEPS}
 

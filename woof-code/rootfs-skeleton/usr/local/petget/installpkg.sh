@@ -132,9 +132,11 @@ if [ "`grep "$PTN1" /root/.packages/user-installed-packages`" != "" ];then
   DISPTIME2="-timeout 3"
  fi
  if [ ! $DISPLAY ];then
-  dialog ${DISPTIME1} --msgbox "$(gettext 'Sorry, this package is already installed. Aborting.')" 0 0
+  LANG=$LANG_USER
+  . dialog ${DISPTIME1} --msgbox "$(gettext 'Sorry, this package is already installed. Aborting.')" 0 0
  else
-  pupmessage -bg '#ff8080' -fg black ${DISPTIME2} -title "$(gettext 'Package:') ${DLPKG_NAME}" "$(gettext 'Sorry, but this package is already installed. Cannot install it twice.')"
+  LANG=$LANG_USER
+  . pupmessage -bg '#ff8080' -fg black ${DISPTIME2} -title "$(gettext 'Package:') ${DLPKG_NAME}" "$(gettext 'Sorry, but this package is already installed. Cannot install it twice.')"
   echo ${DLPKG_NAME} >> /tmp/pgks_failed_to_install_forced
  fi
  exit 1
@@ -165,10 +167,11 @@ fi
 #as the pkg gets expanded to an intermediate dir, maybe in main f.s...
 PARTK=`df -k / | grep '/$' | tr -s ' ' | cut -f 4 -d ' '` #free space in partition.
 if [ $NEEDK -gt $PARTK ];then
+ LANG=$LANG_USER
  ABORTMSG1="$(gettext 'Package:') ${DLPKG_BASE}"
  ABORTMSG2="$(gettext 'Sorry, there is not enough free space in the partition to install this package')"
  if [ $DISPLAY ];then
-  pupmessage -bg pink -fg black -title "${ABORTMSG1}" "${ABORTMSG2}"
+  . pupmessage -bg pink -fg black -title "${ABORTMSG1}" "${ABORTMSG2}"
  else
   echo "${ABORTMSG1}
 ${ABORTMSG2}"
@@ -201,7 +204,8 @@ elif [ $PUPMODE -eq 3 -o $PUPMODE -eq 7 -o $PUPMODE -eq 13 ];then
 fi
 
 if [ $DISPLAY -a ! -f /tmp/install_quietly ];then #131222
- /usr/lib/gtkdialog/box_splash -close never -fontsize large -text "$(gettext 'Please wait, processing...')" &
+ LANG=$LANG_USER
+ . /usr/lib/gtkdialog/box_splash -close never -fontsize large -text "$(gettext 'Please wait, processing...')" &
  YAFPID1=$!
  trap 'pupkill $YAFPID1' EXIT #140318
 fi
@@ -227,10 +231,11 @@ case $DLPKG_BASE in
   [ "$PETFOLDER" = "" ] && PETFOLDER=$(echo "${PETFILES}" | cut -f 1 -d '/' | head -n 1)
   if [ "${DLPKG_MAIN}" != "${PETFOLDER}" ]; then
    pupkill $YAFPID1
+   LANG=$LANG_USER
    if [ "$DISPLAY" ]; then
-    /usr/lib/gtkdialog/box_ok "$(gettext 'Puppy Package Manager')" error "<b>${DLPKG_MAIN}.pet</b> $(gettext 'is named') <b>${PETFOLDER}</b> $(gettext 'inside the pet file. Will not install it!')"
+    . /usr/lib/gtkdialog/box_ok "$(gettext 'Puppy Package Manager')" error "<b>${DLPKG_MAIN}.pet</b> $(gettext 'is named') <b>${PETFOLDER}</b> $(gettext 'inside the pet file. Will not install it!')"
    else
-    dialog --msgbox "$DLPKG_MAIN.pet $(gettext 'is named') $PETFOLDER $(gettext 'inside the pet file. Will not install it!')" 0 0
+    . dialog --msgbox "$DLPKG_MAIN.pet $(gettext 'is named') $PETFOLDER $(gettext 'inside the pet file. Will not install it!')" 0 0
    fi
    exit 1
   fi

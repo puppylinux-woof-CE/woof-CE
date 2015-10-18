@@ -151,7 +151,7 @@ if [ $? -eq 0 ];then
   petget /root/$DLPET #install the PET
   rm -f /root/$DLPET
  else
-  pupmessage -bg '#FF8080' -title "$(gettext 'Download failed')" "$(gettext 'Sorry, the PET did not download. Perhaps try later.')"
+  . pupmessage -bg '#FF8080' -title "$(gettext 'Download failed')" "$(gettext 'Sorry, the PET did not download. Perhaps try later.')"
   exit 6
  fi
 fi
