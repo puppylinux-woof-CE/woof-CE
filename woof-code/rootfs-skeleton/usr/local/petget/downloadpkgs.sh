@@ -27,6 +27,10 @@
 #121123 first test that all pkgs exist online before downloading any.
 #121130 fix 121123.
 
+[ "$(cat /var/local/petget/nt_category 2>/dev/null)" != "true" ] && \
+ [ -f /tmp/install_quietly ] && set -x
+ #; mkdir -p /tmp/PPM_LOGs ; NAME=$(basename "$0"); exec 1>> /tmp/PPM_LOGs/"$NAME".log 2>&1
+
 export TEXTDOMAIN=petget___downloadpkgs.sh
 export OUTPUT_CHARSET=UTF-8
 
@@ -39,6 +43,15 @@ FLAGPET="" #101016
 . /root/.packages/DISTRO_PKGS_SPECS #
 . /root/.packages/DISTRO_PET_REPOS #has PET_REPOS, PACKAGELISTS_PET_ORDER
 . /root/.packages/DISTRO_COMPAT_REPOS #v431 has REPOS_DISTRO_COMPAT
+
+if [ -f /root/.packages/download_path ]; then
+ . /root/.packages/download_path
+ [ -d "$DL_PATH" -a -w "$DL_PATH" ] && DL_PATH="$DL_PATH" || DL_PATH=/root
+else
+ DL_PATH=/root
+fi
+
+DL_SAVE_FLAG=$(cat /var/local/petget/nd_category 2>/dev/null)
 
 echo -n "" > /tmp/petget-installed-pkgs-log
 
@@ -102,7 +115,8 @@ do
  [ "$PKGNAMES" = "" -o "$PKGNAMES" = " " ] && continue #100921
   
  #120907 scrollbar...
- export DEPS_DIALOG="<window title=\"$(gettext 'Puppy Package Manager: download')\" icon-name=\"gtk-about\">
+ if [ ! -f /tmp/install_quietly ]; then
+  export PPM_DEPS_DIALOG="<window title=\"$(gettext 'Puppy Package Manager: download')\" icon-name=\"gtk-about\">
 <vbox>
  <text><label>$(gettext 'You have chosen to download these packages:')</label></text>
  <vbox scrollable=\"true\" height=\"100\">
@@ -130,7 +144,10 @@ do
 </window>
 " 
 
- RETPARAMS="`gtkdialog4 --program=DEPS_DIALOG`"
+  RETPARAMS="`gtkdialog -p PPM_DEPS_DIALOG`"
+ else
+  RETPARAMS='EXIT="BUTTON_PKGS_DOWNLOAD"'
+ fi
  #RETPARAMS ex:
  #RADIO_URL_LOCAL="false"
  #RADIO_URL_repository.slacky.eu="true"
@@ -157,16 +174,25 @@ do
   fi
   DOWNLOADFROM="file://${LOCALDIR}"
  else
-  URL_BASIC="`echo "$RETPARAMS" | grep 'RADIO_URL_' | grep '"true"' | cut -f 1 -d '=' | cut -f 3 -d '_'`"
-  DOWNLOADFROM="`cat /tmp/petget_repos | grep "$URL_BASIC" | head -n 1 | cut -f 2 -d '|'`"
+  if [ ! -f /tmp/install_quietly ]; then
+   URL_BASIC="`echo "$RETPARAMS" | grep 'RADIO_URL_' | grep '"true"' | cut -f 1 -d '=' | cut -f 3 -d '_'`"
+   DOWNLOADFROM="`cat /tmp/petget_repos | grep "$URL_BASIC" | head -n 1 | cut -f 2 -d '|'`"
+  else
+   DOWNLOADFROM="`awk '{ if (NR==1) print $0 }' /tmp/petget_repos | cut -f 2 -d '|'`"
+   DOWNLOADFROM_ALT="`awk '{ if (NR==2) print $0 }' /tmp/petget_repos | cut -f 2 -d '|'`"
+  fi
  fi
  
  #now download and install them...
- cd /root
+ cd "$DL_PATH"
  
  #121123 first test that they all exist online...
- yaf-splash -bg '#FFD600' -close never -fontsize large -text "$(gettext 'Please wait, testing that packages exist in repository...')" &
- testPID=$!
+ if [ ! -f /tmp/install_quietly ];then
+  . yaf-splash -bg '#FFD600' -close never -fontsize large -text "$(gettext 'Please wait, testing that packages exist in repository...')" &
+  testPID=$!
+ else
+  echo "$(gettext 'Testing that packages exist in repository')" > /tmp/petget/install_status
+ fi
  DL_BAD_LIST=''
  for ONEFILE in `cat $ONELIST | cut -f 7,8,13 -d '|'` #path|fullfilename|repo-id
  do
@@ -187,27 +213,32 @@ do
      ONEFILE="pet_packages-${REPO_DEFAULT_SUBSUBDIR}${ONEFILE}"
     fi
    fi
-   LANG=C wget -4 -t 2 -T 20 --waitretry=20 --spider -S "${DOWNLOADFROM}/${ONEFILE}" > /tmp/download_file_spider.log0 2>&1 #
-   if [ $? -ne 0 ];then
-    DL_BAD_LIST="${DL_BAD_LIST} ${ONEPKGNAME}"
+   if [ ! -f /tmp/install_quietly ]; then
+    LANG=C wget -4 -t 2 -T 20 --waitretry=20 --spider -S "${DOWNLOADFROM}/${ONEFILE}" > /tmp/download_file_spider.log0 2>&1 #
+    if [ $? -ne 0 ];then
+     DL_BAD_LIST="${DL_BAD_LIST} ${ONEPKGNAME}"
+    fi
+   else
+    LANG=C wget -4 -t 2 -T 20 --waitretry=20 --spider -S "${DOWNLOADFROM}/${ONEFILE}" > /tmp/download_file_spider.log0 2>&1 #
+    if [ $? -ne 0 ];then
+     DOWNLOADFROM="${DOWNLOADFROM_ALT}"
+     LANG=C wget -4 -t 2 -T 20 --waitretry=20 --spider -S "${DOWNLOADFROM}/${ONEFILE}" > /tmp/download_file_spider.log0 2>&1 
+     if [ $? -ne 0 ];then
+      DL_BAD_LIST="${DL_BAD_LIST} ${ONEPKGNAME}"
+     fi
+    fi
    fi
   fi 
  done
- pupkill $testPID
+ [ ! -f /tmp/install_quietly ] && pupkill $testPID || echo
  if [ "$DL_BAD_LIST" ];then
-  BADTITLE="$(gettext 'ERROR: Packages not available')"
   BADMSG1="$(gettext 'Unfortunately, these packages are not available:')"
   BADMSG2="$(gettext "It may be that the local package database needs to be updated. In some cases, the packages in the online package repository change, so you may be trying to download a package that no longer exists.")"
   BADMSG3="$(gettext "SOLUTION: From the main PPM window, click the 'Configure' BUTTON and click the 'Update' button to update the local package database.")"
   BADMSG4="$(gettext 'The installation has been aborted!')"
   
-  pupmessage -bg '#FF8080' -title "${BADTITLE}" "${BADMSG1}
-${DL_BAD_LIST}
-
-${BADMSG4}
-
-${BADMSG2}
-${BADMSG3}"
+  /usr/lib/gtkdialog/box_ok "$(gettext 'Packages not available')" error "${BADMSG1}" "<b>${DL_BAD_LIST}</b>" "${BADMSG4}" "${BADMSG2} ${BADMSG3}"
+  echo ${DL_BAD_LIST} >> /tmp/pkgs_DL_BAD_LIST
   exit 1
  fi
  
@@ -233,50 +264,39 @@ ${BADMSG3}"
     fi
    fi
    #101116 now have a download utility...
+   echo "$(gettext 'downloading'): ${ONEFILE}" > /tmp/petget/install_status
    export DL_F_CALLED_FROM='ppm' #121019
    download_file ${DOWNLOADFROM}/${ONEFILE}
    if [ $? -ne 0 ];then #101116
     DLPKG="`basename $ONEFILE`"
-    [ -f $DLPKG ] && rm -f $DLPKG
+    [ -f "${DL_PATH}"/$DLPKG ] && rm -f "${DL_PATH}"/$DLPKG
    fi
    unset DL_F_CALLED_FROM
   fi
   sync
   DLPKG="`basename $ONEFILE`"
-  if [ -f $DLPKG -a "$DLPKG" != "" ];then
+  if [ -f "${DL_PATH}"/$DLPKG -a "$DLPKG" != "" ];then
    if [ "$PASSEDPARAM" = "DOWNLOADONLY" ];then
-    /usr/local/petget/verifypkg.sh /root/$DLPKG
+    echo "$(gettext 'Verifying'): ${ONEFILE}" > /tmp/petget/install_status
+    /usr/local/petget/verifypkg.sh $DLPKG
    else
-    /usr/local/petget/installpkg.sh /root/$DLPKG
+    echo "$(gettext 'Installing'): ${ONEFILE}" > /tmp/petget/install_status
+    /usr/local/petget/installpkg.sh $DLPKG
     #...appends pkgname and category to /tmp/petget-installed-pkgs-log if successful.
    fi
    if [ $? -ne 0 ];then
-    export FAIL_DIALOG="<window title=\"$(gettext 'Puppy Package Manager')\" icon-name=\"gtk-about\">
-  <vbox>
-  <pixmap><input file>/usr/local/lib/X11/pixmaps/error.xpm</input></pixmap>
-   <text use-markup=\"true\"><label>\"<b>$(gettext 'Error, faulty download of') ${DLPKG}</b>\"</label></text>
-   <hbox>
-    <button ok></button>
-   </hbox>
-  </vbox>
- </window>" 
-    gtkdialog3 --program=FAIL_DIALOG
-    FAILCNT=`expr $FAILCNT + 1` #101118
+    LASTPKG=$(tail -n 1 /tmp/pgks_failed_to_install_forced)
+    if [ $(echo ${DLPKG} | grep ${LASTPKG}) = "" ]; then
+     /usr/lib/gtkdialog/box_ok "$(gettext 'Puppy Package Manager')" error "<b>$(gettext 'Faulty download of') ${DLPKG}</b>"
+     FAILCNT=`expr $FAILCNT + 1` #101118
+    fi
    fi
    #already removed, but take precautions...
-   [ "$PASSEDPARAM" != "DOWNLOADONLY" ] && rm -f /root/$DLPKG 2>/dev/null
+  [ "$PASSEDPARAM" != "DOWNLOADONLY" -a "$DL_SAVE_FLAG" != "true" \
+   -a "$(grep ${DLPKG} /tmp/pkg_preexists)" = "" ] && rm -f $DLPKG 2>/dev/null
+   rm -f /tmp/pkg_preexists 2>/dev/null
   else
-   export FAIL_DIALOG="<window title=\"$(gettext 'Puppy Package Manager')\" icon-name=\"gtk-about\">
-  <vbox>
-  <pixmap><input file>/usr/local/lib/X11/pixmaps/error.xpm</input></pixmap>
-   <text use-markup=\"true\"><label>\"<b>$(gettext 'Error, failed to download') ${DLPKG}</b>\"</label></text>
-   <hbox>
-    <button ok></button>
-   </hbox>
-  </vbox>
- </window>
-" 
-   gtkdialog3 --program=FAIL_DIALOG
+   /usr/lib/gtkdialog/box_ok "$(gettext 'Puppy Package Manager')" error "<b>$(gettext 'Failed to download') ${DLPKG}</b>"
    FAILCNT=`expr $FAILCNT + 1` #101118
   fi
  done
@@ -286,24 +306,16 @@ done
 #101118 exit 1 if all pkgs failed to download...
 [ $FAILCNT -ne 0 ] && [ $FAILCNT -eq $PKGCNT ] && EXITVAL=1
 
-if [ "$PASSEDPARAM" = "DOWNLOADONLY" ];then
- export DL_DIALOG="<window title=\"$(gettext 'Puppy Package Manager')\" icon-name=\"gtk-about\">
-  <vbox>
-  <pixmap><input file>/usr/local/lib/X11/pixmaps/ok.xpm</input></pixmap>
-   <text><label>$(gettext 'Finished. The packages have been downloaded to') /root $(gettext 'directory.')</label></text>
-   <hbox>
-    <button ok></button>
-   </hbox>
-  </vbox>
- </window>
-" 
- gtkdialog3 --program=DL_DIALOG
+if [ "$PASSEDPARAM" = "DOWNLOADONLY" -a ! -f /tmp/download_pets_quietly \
+ -a ! -f /tmp/download_only_pet_quietly ];then
+ /usr/lib/gtkdialog/box_ok "$(gettext 'Puppy Package Manager')" complete "$(gettext 'Finished. The packages have been downloaded to') $PWD $(gettext 'directory.')"
  exit $EXITVAL
 fi
 
 #announce summary of successfully installed pkgs...
 #installpkg.sh will have logged to /tmp/petget-installed-pkgs-log
 if [ -s /tmp/petget-installed-pkgs-log ];then
+ [ -f /tmp/install_quietly ] && FLAGPET='yes'
  if [ "$FLAGPET" != "yes" ];then #101016 do not offer to trim-the-fat if pet pkg(s)
   BUTTONS9="<text><label>$(gettext "NOTE: If you are concerned about the large size of the installed packages, Puppy has some clever code to delete files that are not likely to be needed for the application to actually run. If you would like to try this, click 'Trim the fat' button (otherwise just click 'OK'):")</label></text>
    <hbox>
@@ -357,9 +369,10 @@ if [ -s /tmp/petget-installed-pkgs-log ];then
  CAT_MSG="$(gettext 'Note: the package(s) do not have a menu entry.')"
  [ "`echo "$INSTALLEDMSG" | grep -o 'CATEGORY.*' | grep -v 'none'`" != "" ] && CAT_MSG="$(gettext '...look in the appropriate category in the menu (bottom-left of screen) to run the application. Note, some packages do not have a menu entry.')" #424 fix. 101016 fix.
  #120904 vertical scrollbar...
- export INSTALL_DIALOG="<window title=\"$(gettext 'Puppy Package Manager')\" icon-name=\"gtk-about\">
+if [ ! -f /tmp/install_quietly ]; then
+ export PPM_INSTALL="<window title=\"$(gettext 'Puppy Package Manager')\" icon-name=\"gtk-about\">
   <vbox>
-   <pixmap><input file>/usr/local/lib/X11/pixmaps/ok.xpm</input></pixmap>
+   <pixmap><input file>/usr/share/pixmaps/puppy/dialog-complete.svg</input></pixmap>
    <text><label>$(gettext 'The following packages have been successfully installed:')</label></text>
    <vbox scrollable=\"true\" height=\"100\">
     <text wrap=\"false\" use-markup=\"true\"><label>\"<b>${ZINSTALLEDMSG}</b>\"</label></text>
@@ -369,18 +382,21 @@ if [ -s /tmp/petget-installed-pkgs-log ];then
   </vbox>
  </window>
 " 
- RETPARAMS="`gtkdialog4 --program=INSTALL_DIALOG`"
+ RETPARAMS="`gtkdialog -p PPM_INSTALL`"
  eval "$RETPARAMS"
- 
+else
+ RETPARAMS='EXIT="OK"'
+fi
+
  #trim the fat...
  if [ "$EXIT" = "BUTTON_TRIM_FAT" ];then
   INSTALLEDPKGNAMES="`echo "$INSTALLEDMSG" | cut -f 2 -d ' ' | tr '\n' ' '`"
   #101013 improvement suggested by L18L...
   CURRLOCALES="`locale -a | grep _ | cut -d '_' -f 1`"
   LISTLOCALES="`echo -e -n "en\n${CURRLOCALES}" | sort -u | tr -s '\n' | tr '\n' ',' | sed -e 's%,$%%'`"
-  export TRIM_DIALOG="<window title=\"$(gettext 'Puppy Package Manager')\" icon-name=\"gtk-about\">
+  export PPM_TRIM_DIALOG="<window title=\"$(gettext 'Puppy Package Manager')\" icon-name=\"gtk-about\">
   <vbox>
-   <pixmap><input file>/usr/local/lib/X11/pixmaps/question.xpm</input></pixmap>
+   <pixmap><input file>/usr/share/pixmaps/puppy/dialog-question.svg</input></pixmap>
    <text><label>$(gettext "You have chosen to 'trim the fat' of these installed packages:")</label></text>
    <text use-markup=\"true\"><label>\"<b>${INSTALLEDPKGNAMES}</b>\"</label></text>
    <frame Locale>
@@ -401,11 +417,13 @@ if [ -s /tmp/petget-installed-pkgs-log ];then
    </hbox>
   </vbox>
   </window>"
-  RETPARAMS="`gtkdialog3 --program=TRIM_DIALOG`"
+  RETPARAMS="`gtkdialog -p PPM_TRIM_DIALOG`"
   eval "$RETPARAMS"
   [ "$EXIT" != "OK" ] && exit $EXITVAL
-  yaf-splash -bg orange -text "$(gettext 'Please wait, trimming fat from packages...')" &
-  X4PID=$!
+  if [ ! -f /tmp/install_quietly ]; then
+   /usr/lib/gtkdialog/box_splash -text "$(gettext 'Please wait, trimming fat from packages...')" &
+   X4PID=$!
+  fi
   elPATTERN="`echo -n "$ENTRY_LOCALE" | tr ',' '\n' | sed -e 's%^%/%' -e 's%$%/%' | tr '\n' '|'`"
   for PKGNAME in $INSTALLEDPKGNAMES
   do
@@ -449,7 +467,7 @@ if [ -s /tmp/petget-installed-pkgs-log ];then
     fi
    done
   done
-  kill $X4PID
+  [ ! -f /tmp/install_quietly ] && kill $X4PID || echo
  fi
 
 fi

@@ -51,6 +51,10 @@
 #130314 install arch linux pkgs. run arch linux pkg post-install script.
 #131122 support xz compressed pets (see dir2pet, pet2tgz), changed file test
 
+[ "$(cat /var/local/petget/nt_category 2>/dev/null)" != "true" ] && \
+ [ -f /tmp/install_quietly ] && set -x
+ #; mkdir -p /tmp/PPM_LOGs ; NAME=$(basename "$0"); exec 1>> /tmp/PPM_LOGs/"$NAME".log 2>&1
+
 export TEXTDOMAIN=petget___installpkg.sh
 export OUTPUT_CHARSET=UTF-8
 
@@ -66,8 +70,9 @@ export LANG=C
 [ "$PUPMODE" = "2" ] && [ ! -d /audit ] && mkdir -p /audit
 
 DLPKG="$1"
-DLPKG_BASE="`basename $DLPKG`" #ex: scite-1.77-i686-2as.tgz
-DLPKG_PATH="`dirname $DLPKG`"  #ex: /root
+DLPKG_BASE="`basename "$DLPKG"`" #ex: scite-1.77-i686-2as.tgz
+DLPKG_PATH="`dirname "$DLPKG"`"  #ex: /root
+DL_SAVE_FLAG=$(cat /var/local/petget/nd_category 2>/dev/null)
 
 clean_and_die () {
   rm -f /root/.packages/${DLPKG_NAME}.files
@@ -103,7 +108,7 @@ install_path_check() {
   </hbox>
   </vbox>
   </window>"
-  RETPARAMS=`gtkdialog3 --program=DIALOG` || echo "$DIALOG" >&2
+  RETPARAMS=`gtkdialog -p DIALOG` || echo "$DIALOG" >&2
   eval "$RETPARAMS"
   LANG=C
   [ "$EXIT" = "INSTALL" ]  && return 0
@@ -121,10 +126,18 @@ DLPKG_NAME="`cat /tmp/petget_missing_dbentries-Packages-* | grep "$dbPATTERN" | 
 #131222 do not allow duplicate installs...
 PTN1='^'"$DLPKG_NAME"'|'
 if [ "`grep "$PTN1" /root/.packages/user-installed-packages`" != "" ];then
+ DISPTIME1='' ; DISPTIME2=''
+ if [ -f /tmp/install_quietly ];then
+  DISPTIME1="--timeout 3"
+  DISPTIME2="-timeout 3"
+ fi
  if [ ! $DISPLAY ];then
-  echo "$(gettext 'Sorry, this package is already installed. Aborting.')"
+  LANG=$LANG_USER
+  . dialog ${DISPTIME1} --msgbox "$(gettext 'Sorry, this package is already installed. Aborting.')" 0 0
  else
-  pupmessage -bg '#ff8080' -fg black -title "$(gettext 'Package:') ${DLPKG_NAME}" "$(gettext 'Sorry, but this package is already installed. Cannot install it twice.')"
+  LANG=$LANG_USER
+  . pupmessage -bg '#ff8080' -fg black ${DISPTIME2} -title "$(gettext 'Package:') ${DLPKG_NAME}" "$(gettext 'Sorry, but this package is already installed. Cannot install it twice.')"
+  echo ${DLPKG_NAME} >> /tmp/pgks_failed_to_install_forced
  fi
  exit 1
 fi
@@ -136,7 +149,7 @@ if [ "$PUPMODE" = "2" ]; then # from BK's quirky6.1
 
 #131220  131229 detect if not enough room in /tmp...
 DIRECTSAVEPATH="/tmp/petget/directsavepath"
-SIZEB=`stat --format=%s ${DLPKG_PATH}/${DLPKG_BASE}`
+SIZEB=`stat --format=%s "${DLPKG_PATH}"/${DLPKG_BASE}`
 SIZEK=`expr $SIZEB \/ 1024`
 EXPK=`expr $SIZEK \* 5` #estimated worst-case expanded size.
 NEEDK=$EXPK
@@ -154,15 +167,16 @@ fi
 #as the pkg gets expanded to an intermediate dir, maybe in main f.s...
 PARTK=`df -k / | grep '/$' | tr -s ' ' | cut -f 4 -d ' '` #free space in partition.
 if [ $NEEDK -gt $PARTK ];then
+ LANG=$LANG_USER
  ABORTMSG1="$(gettext 'Package:') ${DLPKG_BASE}"
  ABORTMSG2="$(gettext 'Sorry, there is not enough free space in the partition to install this package')"
  if [ $DISPLAY ];then
-  pupmessage -bg pink -fg black -title "${ABORTMSG1}" "${ABORTMSG2}"
+  . pupmessage -bg pink -fg black -title "${ABORTMSG1}" "${ABORTMSG2}"
  else
   echo "${ABORTMSG1}
 ${ABORTMSG2}"
  fi
- [ "$DLPKG_PATH" = "/root" ] && rm -f ${DLPKG_PATH}/${DLPKG_BASE}
+ [ "$DLPKG_PATH" != "" ] && rm -f "${DLPKG_PATH}"/${DLPKG_BASE}
  exit 1
 fi
 
@@ -189,13 +203,14 @@ elif [ $PUPMODE -eq 3 -o $PUPMODE -eq 7 -o $PUPMODE -eq 13 ];then
   fi
 fi
 
-if [ $DISPLAY ];then #131222
- yaf-splash -bg orange -fg black -close never -fontsize large -text "$(gettext 'Please wait, processing...')" &
+if [ $DISPLAY -a ! -f /tmp/install_quietly ];then #131222
+ LANG=$LANG_USER
+ . /usr/lib/gtkdialog/box_splash -close never -fontsize large -text "$(gettext 'Please wait, processing...')" &
  YAFPID1=$!
  trap 'pupkill $YAFPID1' EXIT #140318
 fi
 
-cd $DLPKG_PATH
+cd "$DLPKG_PATH"
 
 case $DLPKG_BASE in
  *.pet)
@@ -211,6 +226,19 @@ case $DLPKG_BASE in
   PETFILES="`tar --list ${OPT} -f ${DLPKG_MAIN}.tar.${EXT}`"
   #slackware pkg, got a case where passed the above test but failed here...
   [ $? -ne 0 ] && exit 1
+  #check for renamed pets. Will produce an empty ${DLPKG_NAME}.files file
+  PETFOLDER=$(echo "${PETFILES}" | cut -f 2 -d '/' | head -n 1)
+  [ "$PETFOLDER" = "" ] && PETFOLDER=$(echo "${PETFILES}" | cut -f 1 -d '/' | head -n 1)
+  if [ "${DLPKG_MAIN}" != "${PETFOLDER}" ]; then
+   pupkill $YAFPID1
+   LANG=$LANG_USER
+   if [ "$DISPLAY" ]; then
+    . /usr/lib/gtkdialog/box_ok "$(gettext 'Puppy Package Manager')" error "<b>${DLPKG_MAIN}.pet</b> $(gettext 'is named') <b>${PETFOLDER}</b> $(gettext 'inside the pet file. Will not install it!')"
+   else
+    . dialog --msgbox "$DLPKG_MAIN.pet $(gettext 'is named') $PETFOLDER $(gettext 'inside the pet file. Will not install it!')" 0 0
+   fi
+   exit 1
+  fi
   if [ "`echo "$PETFILES" | grep '^\\./'`" != "" ];then
    #ttuuxx has created some pets with './' prefix...
    pPATTERN="s%^\\./${DLPKG_NAME}%%"
@@ -386,7 +414,7 @@ if [ "$PUPMODE" = "2" ]; then #from BK's quirky6.1
  #end 131220
  rm -rf ${DIRECTSAVEPATH} #131229 131230
 
-rm -f $DLPKG_BASE 2>/dev/null
+[ "$DL_SAVE_FLAG" != "true" ] && rm -f $DLPKG_BASE 2>/dev/null
 rm -f $DLPKG_MAIN.tar.gz 2>/dev/null
 
 #pkgname.files may need to be fixed...
@@ -396,7 +424,7 @@ echo "$FIXEDFILES" > /root/.packages/${DLPKG_NAME}.files
 else
 
 
-rm -f $DLPKG_BASE 2>/dev/null
+[ "$DL_SAVE_FLAG" != "true" ] &&  rm -f $DLPKG_BASE 2>/dev/null
 rm -f $DLPKG_MAIN.tar.${EXT} 2>/dev/null #131122
 
 #pkgname.files may need to be fixed...
@@ -521,18 +549,21 @@ ls -dl /tmp | grep -q '^drwxrwxrwt' || chmod 1777 /tmp #130305 rerwin.
 if [ -f /pinstall.sh ];then #pet pkgs.
  chmod +x /pinstall.sh
  cd /
-  LANG=$LANG_USER sh /pinstall.sh
+  LANG=$LANG_USER nohup sh /pinstall.sh &
+  sleep 0.2
  rm -f /pinstall.sh
 fi
 if [ -f /install/doinst.sh ];then #slackware pkgs.
  chmod +x /install/doinst.sh
  cd /
- LANG=$LANG_USER sh /install/doinst.sh
+ LANG=$LANG_USER nohup sh /install/doinst.sh &
+ sleep 0.2
  rm -rf /install
 fi
 if [ -e /DEBIAN/postinst ];then #130112 deb post-install script.
  cd /
- LANG=$LANG_USER sh DEBIAN/postinst
+ LANG=$LANG_USER nohup sh DEBIAN/postinst &
+ sleep 0.2
  rm -rf /DEBIAN
 fi
 #130314 run arch linux pkg post-install script...
@@ -572,14 +603,9 @@ else
  dlPATTERN='|'"`echo -n "$DLPKG_BASE" | sed -e 's%\\-%\\\\-%'`"'|'
  DB_ENTRY="`cat /tmp/petget_missing_dbentries-Packages-* | grep "$dlPATTERN" | head -n 1`"
 fi
-echo DLPKG_BASE=$DLPKG_BASE
-echo DLPKG_NAME=$DLPKG_NAME
-echo DB_ENTRY=$DB_ENTRY
 ##+++2011-12-27 KRG check if $DLPKG_BASE matches DB_ENTRY 1 so uninstallation works :Ooops:
 db_pkg_name=`echo "$DB_ENTRY" |cut -f 1 -d '|'`
-echo db_pkg_name=$db_pkg_name
 if [ "$db_pkg_name" != "$DLPKG_NAME" ];then
- echo not equal sed ing now
  DB_ENTRY=`echo "$DB_ENTRY" |sed "s#$db_pkg_name#$DLPKG_NAME#"`
 fi
 ##+++2011-12-27 KRG
@@ -616,7 +642,7 @@ if [ -f /usr/local/petget/categories.dat ];then #precaution, but it will be ther
   DBCOMPILEDDISTRO="$(echo -n "$DB_ENTRY" | cut -f 11 -d '|')"
   [ ! "$DBCOMPILEDDISTRO" ] && DBCOMPILEDDISTRO='puppy' #any name will do here.
   case $DBCOMPILEDDISTRO in
-   debian|ubuntu|raspbian)
+   debian|devuan|ubuntu|raspbian)
     if [ "$DBPATH" ];then #precaution
      xNAMEONLY="$(basename ${DBPATH})"
     else
@@ -834,5 +860,7 @@ fi
 if [ "`grep '/usr/lib/gio/modules' /root/.packages/${DLPKG_NAME}.files`" != "" ];then
  [ -e /usr/bin/gio-querymodules ] && /usr/bin/gio-querymodules /usr/lib/gio/modules
 fi
+
+rm -f $HOME/nohup.out
 
 ###END###
