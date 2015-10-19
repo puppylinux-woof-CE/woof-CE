@@ -9,6 +9,10 @@
 #120515 support gentoo arm distro (built from bin tarballs from a gentoo sd image).
 #120719 support raspbian.
 
+[ "$(cat /var/local/petget/nt_category 2>/dev/null)" != "true" ] && \
+ [ -f /tmp/install_quietly ] && set -x
+ #; mkdir -p /tmp/PPM_LOGs ; NAME=$(basename "$0"); exec 1>> /tmp/PPM_LOGs/"$NAME".log 2>&1
+
 export TEXTDOMAIN=petget___fetchinfo.sh
 export OUTPUT_CHARSET=UTF-8
 
@@ -33,9 +37,11 @@ DB_SUB="`echo -n "$DB_FILE" | cut -f 4 -d '-'`"     #exs: official   extra    un
 case $DB_DISTRO in
  slackware)
   if [ ! -f /root/.packages/PACKAGES.TXT-${DB_SUB} ];then
-#   /usr/X11R7/bin/yaf-splash -font "8x16" -outline 0 -margin 4 -bg orange -text "Please wait, downloading database file to /root/.packages/PACKAGES.TXT-${DB_SUB}..." &
-   yaf-splash -close never -bg orange -text "$(gettext 'Please wait, downloading database file to') /root/.packages/PACKAGES.TXT-${DB_SUB}..." &
-   X5PID=$!
+#  /usr/lib/gtkdialog/box_splash -font "8x16" -outline 0 -margin 4 -text "Please wait, downloading database file to /root/.packages/PACKAGES.TXT-${DB_SUB}..." &
+   if [ ! -f /tmp/install_quietly ]; then
+    /usr/lib/gtkdialog/box_splash -close never -text "$(gettext 'Please wait, downloading database file to') /root/.packages/PACKAGES.TXT-${DB_SUB}..." &
+    X5PID=$!
+   fi
    cd /root/.packages
    case $DB_SUB in
     official)
@@ -47,7 +53,7 @@ case $DB_DISTRO in
    esac
    sync
    mv -f PACKAGES.TXT PACKAGES.TXT-${DB_SUB}
-   kill $X5PID
+   [ ! -f /tmp/install_quietly ] && kill $X5PID || echo
   fi
   cat /root/.packages/PACKAGES.TXT-${DB_SUB} | tr -s ' ' | sed -e 's% $%%' | tr '%' ' ' | tr '\n' '%' | sed -e 's/%%/@/g' | grep -o "PACKAGE NAME: ${DB_fullfilename}[^@]*" | tr '%' '\n' > /tmp/petget_slackware_pkg_extra_info
   sync
@@ -55,6 +61,9 @@ case $DB_DISTRO in
  ;;
  debian|raspbian)
   nohup defaulthtmlviewer http://packages.debian.org/${DB_RELEASE}/${DB_nameonly} &
+ ;;
+ devuan)
+  nohup defaulthtmlviewer http://packages.devuan.org/ &
  ;;
  ubuntu)
   nohup defaulthtmlviewer http://packages.ubuntu.com/${DB_RELEASE}/${DB_nameonly} &
@@ -77,13 +86,15 @@ case $DB_DISTRO in
  scientific) #110523
   ###THIS IS INCOMPLETE###
   if [ ! -f /root/.packages/primary.xml ];then
-   yaf-splash -close never -bg orange -text "$(gettext 'Please wait, downloading database file to') /root/.packages/primary.xml..." &
-   X5PID=$!
+   if [ ! -f /tmp/install_quietly ];then
+    /usr/lib/gtkdialog/box_splash -close never -text "$(gettext 'Please wait, downloading database file to') /root/.packages/primary.xml..." &
+    X5PID=$!
+   fi
    cd /root/.packages
    wget http://ftp.scientificlinux.org/linux/scientific/${DISTRO_COMPAT_VERSION}/i386/os/repodata/primary.xml.gz
    sync
    gunzip primary.xml.gz
-   kill $X5PID
+   [ ! -f /tmp/install_quietly ] && kill $X5PID || echo
   fi
   sync
   ###TODO: NEED TO EXTRACT INFO ON ONE PKG ONLY###

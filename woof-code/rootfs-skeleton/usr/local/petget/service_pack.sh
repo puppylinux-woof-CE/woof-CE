@@ -48,7 +48,7 @@ FNDPETURLS="$(grep -o "$PTN1" /tmp/petget/service_pack_probe | grep -v '\*' | tr
 spPTN1="|service_pack.*\.pet|"
 
 #121217 precaution, check highest already installed...
-INSTBIGGEST='0.0'
+INSTBIGGEST="$DISTRO_VERSION" #140106
 INSTALLEDVERS="$(grep "$spPTN1" /root/.packages/user-installed-packages /root/.packages/woof-installed-packages | cut -f 3 -d '|' | cut -f 3 -d '_' | cut -f 1 -d '-' | tr '\n' ' ')"
 for ONEIN in $INSTALLEDVERS
 do
@@ -56,6 +56,9 @@ do
   INSTBIGGEST="$ONEIN"
  fi
 done
+
+#140106 run devx_service_pack.sh as separate process...
+/usr/local/petget/devx_service_pack.sh ${DISTRO_VERSION} &
 
 CNT=0; RADIOXML=''; STARTVER=0.0; ENDVER='0.0'; ENDVERbiggest='0.0'; PETbest=''
 #echo -n "" > /tmp/petget/service_pack_hack
@@ -65,7 +68,7 @@ do
  STARTVER="$(echo -n "$ABASE" | cut -f 2 -d '-' | cut -f 1 -d '_')" #ex: extract 5.4.1 from service_pack-5.4.1_TO_5.4.1.1_precise.pet
  ENDVER="$(echo -n "$ABASE" | cut -f 2 -d '-' | cut -f 3 -d '_' | cut -f 1 -d '-' | sed -e 's%\.pet$%%')"   #ex: extract 5.4.1.1  121217 fix.
  if vercmp $ENDVER gt $INSTBIGGEST;then #121217 precaution
-  if vercmp $STARTVER le $DISTRO_VERSION;then
+  if vercmp $STARTVER eq $DISTRO_VERSION;then #140106 changed from 'le'
    if vercmp $ENDVER gt $DISTRO_VERSION;then #121129
     #check whether already installed...
     spPTN2="_TO_${ENDVER}"
@@ -148,7 +151,7 @@ if [ $? -eq 0 ];then
   petget /root/$DLPET #install the PET
   rm -f /root/$DLPET
  else
-  pupmessage -bg '#FF8080' -title "$(gettext 'Download failed')" "$(gettext 'Sorry, the PET did not download. Perhaps try later.')"
+    /usr/lib/gtkdialog/box_ok "$(gettext 'Download failed')" error "$(gettext 'Sorry, the PET did not download. Perhaps try later.')"
   exit 6
  fi
 fi

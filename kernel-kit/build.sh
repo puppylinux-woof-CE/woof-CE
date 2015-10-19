@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 # originally by Iguleder
 # hacked to DEATH by 01micko
 # see /usr/share/doc/legal NO WARRANTY, NO resposibility accepted
@@ -13,7 +13,7 @@ if [ "$1" = "clean" ];then
 	echo "Hit ENTER to clean"
 	read clean
 	echo "Please wait..."
-	rm -rf ./{dist,aufs*,kernel*,build.log*}
+	rm -rf ./{dist,aufs*,kernel*,build.log*,linux-*}
 	echo "Cleaning complete"
 	exit 0
 fi
@@ -100,7 +100,9 @@ aufs_version=${kernel_version%%.*}
 read -p "Press ENTER to begin" dummy
 
 # get the major version (2.6.32 in the case of 2.6.32.40)
-kernel_major_version=$kernel_version #blah, hack for 3.x
+kernel_series=${kernel_version:0:1}
+kernel_major_version=${kernel_version%.*}
+kernel_minor_version=${kernel_version##*.}
 # get the kernel branch (32 in the case of 2.6.32.40; needed to download Aufs)
 kernel_branch=`echo $kernel_major_version | cut -f 2 -d .` #3.x kernels
 
@@ -140,6 +142,19 @@ if [ ! -f dist/sources/vanilla/linux-$kernel_version.tar.* ]; then
 	fi
 fi
 
+# download Linux-libre scripts
+if [ $LIBRE -eq 1 ]; then
+	minor_version=${kernel_version##*.}
+	for i in deblob-$kernel_major_version deblob-check; do
+		if [ ! -f dist/sources/vanilla/$i ]; then
+			wget -O dist/sources/vanilla/$i http://linux-libre.fsfla.org/pub/linux-libre/releases/LATEST-$kernel_major_version.N/$i
+			if [ $? -ne 0 ]; then
+				echo "Error: failed to download $i."
+				exit 1
+			fi
+		fi
+	done
+fi
 
 # download Aufs
 if [ ! -f dist/sources/vanilla/aufs$aufs_version-$kernel_branch-git$today.tar.bz2 ]; then
@@ -206,6 +221,10 @@ fi
 cd linux-$kernel_version
 
 echo "Adding Aufs to the kernel sources"
+if [ "$kernel_major_version" = "3.14" ] && [ "$kernel_minor_version" -ge 21 ];then
+	# hack - Aufs adds this file in the mmap patch, but it's already in mainline
+	rm -f mm/prfile.c
+fi
 for i in kbuild base standalone mmap; do
 	patch -N -p1 < ../aufs$aufs_version-$kernel_branch-git$today/aufs$aufs_version-$i.patch >> ../build.log 2>&1
 	if [ $? -ne 0 ]; then
@@ -224,31 +243,55 @@ cp -r ../aufs$aufs_version-$kernel_branch-git$today/include/uapi/linux/aufs_type
 #cat ../aufs$aufs_version-1-git$today/include/linux/Kbuild >> include/Kbuild
 ################################################################################
 
+# deblob the kernel
+if [ $LIBRE -eq 1 ]; then
+	cd ..
+	cp -r linux-$kernel_version linux-$kernel_version-orig
+	cd linux-$kernel_version
+	sh ../dist/sources/vanilla/deblob-$kernel_major_version 2>&1 | tee -a ../build.log
+	cd ..
+	diff -rupN linux-$kernel_version-orig linux-$kernel_version > dist/sources/patches/deblob.patch
+	rm -rf linux-$kernel_version-orig
+	cd linux-$kernel_version
+fi
+
 echo "Resetting the minor version number"
 cp Makefile Makefile-orig
-sed -i "s/^EXTRAVERSION =/EXTRAVERSION = $custom_suffix/" Makefile
-diff -up Makefile-orig Makefile > ../dist/sources/patches/extra-version.patch
+if [ "$sublevel" = "yes" ];then
+	sed -i "s/^SUBLEVEL =.*/SUBLEVEL =/" Makefile
+fi
+if [ -n "$custom_suffix" ] || [ $LIBRE -eq 1 ]; then
+	sed -i "s/^EXTRAVERSION =.*/EXTRAVERSION = $custom_suffix/" Makefile
+fi
+diff -up Makefile-orig Makefile > ../dist/sources/patches/version.patch
 rm Makefile-orig
 
 echo "Reducing the number of consoles"
-if [ "$kernel_branch" -ge 12 ];then
- cp kernel/printk/printk.c kernel/printk/printk.c-orig
- sed -i s/'#define MAX_CMDLINECONSOLES 8'/'#define MAX_CMDLINECONSOLES 5'/ kernel/printk/printk.c
- diff -up kernel/printk/printk.c-orig kernel/printk/printk.c > ../dist/sources/patches/less-consoles.patch
-
- echo "Reducing the verbosity level"
- cp -f kernel/printk/printk.c kernel/printk/printk.c-orig
- sed -i s/'#define DEFAULT_CONSOLE_LOGLEVEL 7 \/\* anything MORE serious than KERN_DEBUG \*\/'/'#define DEFAULT_CONSOLE_LOGLEVEL 3 \/\* anything MORE serious than KERN_ERR \*\/'/ kernel/printk/printk.c
- diff -up kernel/printk/printk.c-orig kernel/printk/printk.c > ../dist/sources/patches/lower-verbosity.patch
+if [ $kernel_series -gt 3 ] || [ $kernel_series -eq 3 -a $kernel_branch -ge 12 ];then
+ if [ $kernel_series -gt 3 ] || [ $kernel_series -eq 3 -a $kernel_branch -ge 16 ];then
+	 echo "Reducing the verbosity level"
+	 cp -f include/linux/printk.h include/linux/printk.h.orig
+	 sed -i s/'#define CONSOLE_LOGLEVEL_DEFAULT 7 \/\* anything MORE serious than KERN_DEBUG \*\/'/'#define CONSOLE_LOGLEVEL_DEFAULT 3 \/\* anything MORE serious than KERN_ERR \*\/'/ include/linux/printk.h
+	 diff -up include/linux/printk.h.orig include/linux/printk.h > ../dist/sources/patches/lower-verbosity.patch
+ else
+	 cp kernel/printk/printk.c kernel/printk/printk.c.orig
+	 sed -i s/'#define MAX_CMDLINECONSOLES 8'/'#define MAX_CMDLINECONSOLES 5'/ kernel/printk/printk.c
+	 diff -up kernel/printk/printk.c.orig kernel/printk/printk.c > ../dist/sources/patches/less-consoles.patch
+	
+	 echo "Reducing the verbosity level"
+	 cp -f kernel/printk/printk.c kernel/printk/printk.c.orig
+	 sed -i s/'#define DEFAULT_CONSOLE_LOGLEVEL 7 \/\* anything MORE serious than KERN_DEBUG \*\/'/'#define DEFAULT_CONSOLE_LOGLEVEL 3 \/\* anything MORE serious than KERN_ERR \*\/'/ kernel/printk/printk.c
+	 diff -up kernel/printk/printk.c.orig kernel/printk/printk.c > ../dist/sources/patches/lower-verbosity.patch
+ fi
 else
- cp kernel/printk.c kernel/printk.c-orig
+ cp kernel/printk.c kernel/printk.c.orig
  sed -i s/'#define MAX_CMDLINECONSOLES 8'/'#define MAX_CMDLINECONSOLES 5'/ kernel/printk.c
- diff -up kernel/printk.c-orig kernel/printk.c > ../dist/sources/patches/less-consoles.patch
+ diff -up kernel/printk.c.orig kernel/printk.c > ../dist/sources/patches/less-consoles.patch
 
  echo "Reducing the verbosity level"
- cp -f kernel/printk.c kernel/printk.c-orig
- sed -i s/'#define DEFAULT_CONSOLE_LOGLEVEL 7 \/\* anything MORE serious than KERN_DEBUG \*\/'/'#define DEFAULT_CONSOLE_LOGLEVEL 3 \/\* anything MORE serious than KERN_ERR \*\/'/ kernel/printk.c
- diff -up kernel/printk.c-orig kernel/printk.c > ../dist/sources/patches/lower-verbosity.patch
+ cp -f kernel/printk.c kernel/printk.c.orig
+ sed -i s/'#define DEFAULT_CONSOLE_LOGLEVEL 7 \/\* anything MORE serious than KERN_DEBUG \*\/'/'#define DEFAULT_CONSOLE_LOGLEVEL 3 \/\* Puppy linux hack \*\/'/ kernel/printk.c
+ diff -up kernel/printk.c.orig kernel/printk.c > ../dist/sources/patches/lower-verbosity.patch
 fi
 
 for patch in ../patches/*; do
@@ -295,13 +338,13 @@ echo
 echo "Ok, kernel is configured. hit ENTER to continue, CTRL+C to quit"
 read goon
 
-[ ! -d ../dist/packages ] && mkdir ../dist/packages
+[ ! -d ../dist/packages ] && mkdir -p ../dist/packages
 
 echo "Creating the kernel headers package"
 make headers_check >> ../build.log 2>&1
-make INSTALL_HDR_PATH=kernel_headers-$kernel_major_version-$package_name_suffix/usr headers_install >> ../build.log 2>&1
-find kernel_headers-$kernel_major_version-$package_name_suffix/usr/include \( -name .install -o -name ..install.cmd \) -delete
-mv kernel_headers-$kernel_major_version-$package_name_suffix ../dist/packages
+make INSTALL_HDR_PATH=kernel_headers-$kernel_version-$package_name_suffix/usr headers_install >> ../build.log 2>&1
+find kernel_headers-$kernel_version-$package_name_suffix/usr/include \( -name .install -o -name ..install.cmd \) -delete
+mv kernel_headers-$kernel_version-$package_name_suffix ../dist/packages
 
 echo "Compiling the kernel"
 make ${JOBS} bzImage modules >> ../build.log 2>&1
@@ -312,28 +355,28 @@ fi
 cp .config ../dist/sources/DOTconfig-$kernel_version-$today
 
 echo "Creating the kernel package"
-make INSTALL_MOD_PATH=linux_kernel-$kernel_major_version-$package_name_suffix modules_install >> ../build.log 2>&1
-rm -f linux_kernel-$kernel_major_version-$package_name_suffix/lib/modules/${kernel_major_version}$custom_suffix/{build,source}
-#(cd linux_kernel-$kernel_major_version-$package_name_suffix/lib/modules/; ln -s ${kernel_major_version}$custom_suffix $kernel_major_version)
-mkdir linux_kernel-$kernel_major_version-$package_name_suffix/boot
-mkdir -p linux_kernel-$kernel_major_version-$package_name_suffix/etc/modules
-cp .config linux_kernel-$kernel_major_version-$package_name_suffix/etc/modules/DOTconfig-$kernel_version-$today
-cp arch/x86/boot/bzImage linux_kernel-$kernel_major_version-$package_name_suffix/boot/vmlinuz
+make INSTALL_MOD_PATH=linux_kernel-$kernel_version-$package_name_suffix modules_install >> ../build.log 2>&1
+rm -f linux_kernel-$kernel_version-$package_name_suffix/lib/modules/${kernel_major_version}$custom_suffix/{build,source}
+#(cd linux_kernel-$kernel_version-$package_name_suffix/lib/modules/; ln -s ${kernel_major_version}$custom_suffix $kernel_major_version)
+mkdir -p linux_kernel-$kernel_version-$package_name_suffix/boot
+mkdir -p linux_kernel-$kernel_version-$package_name_suffix/etc/modules
+cp .config linux_kernel-$kernel_version-$package_name_suffix/etc/modules/DOTconfig-$kernel_version-$today
+cp arch/x86/boot/bzImage linux_kernel-$kernel_version-$package_name_suffix/boot/vmlinuz
 BZIMAGE=`find . -type f -name bzImage`
-cp System.map linux_kernel-$kernel_major_version-$package_name_suffix/boot
-cp $BZIMAGE linux_kernel-$kernel_major_version-$package_name_suffix/boot
-cp linux_kernel-$kernel_major_version-$package_name_suffix/lib/modules/${kernel_major_version}$custom_suffix/{modules.builtin,modules.order} \
- linux_kernel-$kernel_major_version-$package_name_suffix/etc/modules/
+cp System.map linux_kernel-$kernel_version-$package_name_suffix/boot
+cp $BZIMAGE linux_kernel-$kernel_version-$package_name_suffix/boot
+cp linux_kernel-$kernel_version-$package_name_suffix/lib/modules/${kernel_major_version}$custom_suffix/{modules.builtin,modules.order} \
+ linux_kernel-$kernel_version-$package_name_suffix/etc/modules/
 [ "$FD" = "1" ] || \
-rm linux_kernel-$kernel_major_version-$package_name_suffix/lib/modules/${kernel_major_version}$custom_suffix/modules*
-mv linux_kernel-$kernel_major_version-$package_name_suffix ../dist/packages
+rm linux_kernel-$kernel_version-$package_name_suffix/lib/modules/${kernel_major_version}$custom_suffix/modules*
+mv linux_kernel-$kernel_version-$package_name_suffix ../dist/packages
 
 if [ "$FD" = "1" ];then #make fatdog kernel module package
-	mv ../dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix/boot/vmlinuz ../dist/packages/vmlinuz-$kernel_major_version-$package_name_suffix
-	#gzip -9 ../dist/packages/vmlinuz-$kernel_major_version-$package_name_suffix
-	[ -f ../dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix/boot/bzImage ] &&
-rm -f ../dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix/boot/bzImage
-	echo "Huge kernel $kernel_major_version-$package_name_suffix is ready in dist"
+	mv ../dist/packages/linux_kernel-$kernel_version-$package_name_suffix/boot/vmlinuz ../dist/packages/vmlinuz-$kernel_version-$package_name_suffix
+	#gzip -9 ../dist/packages/vmlinuz-$kernel_version-$package_name_suffix
+	[ -f ../dist/packages/linux_kernel-$kernel_version-$package_name_suffix/boot/bzImage ] &&
+rm -f ../dist/packages/linux_kernel-$kernel_version-$package_name_suffix/boot/bzImage
+	echo "Huge kernel $kernel_version-$package_name_suffix is ready in dist"
 fi
 
 echo "Cleaning the kernel sources"
@@ -343,14 +386,14 @@ make prepare >> ../build.log 2>&1
 cd ..
 
 echo "Creating a kernel sources SFS"
-mkdir -p kernel_sources-$kernel_major_version-$package_name_suffix/usr/src
-mv linux-$kernel_version kernel_sources-$kernel_major_version-$package_name_suffix/usr/src/linux
-mkdir -p kernel_sources-$kernel_major_version-$package_name_suffix/lib/modules/${kernel_major_version}$custom_suffix
-ln -s /usr/src/linux kernel_sources-$kernel_major_version-$package_name_suffix/lib/modules/${kernel_major_version}$custom_suffix/build
-[ ! -f kernel_sources-${kernel_major_version}-$package_name_suffix/usr/src/linux/include/linux/version.h ] && \
-ln -s /usr/src/linux/include/generated/uapi/linux/version.h kernel_sources-${kernel_major_version}-$package_name_suffix/usr/src/linux/include/linux/version.h 
-ln -s /usr/src/linux kernel_sources-$kernel_major_version-$package_name_suffix/lib/modules/${kernel_major_version}$custom_suffix/source
-mksquashfs kernel_sources-$kernel_major_version-$package_name_suffix dist/sources/kernel_sources-$kernel_major_version-$package_name_suffix.sfs $COMP
+mkdir -p kernel_sources-$kernel_version-$package_name_suffix/usr/src
+mv linux-$kernel_version kernel_sources-$kernel_version-$package_name_suffix/usr/src/linux
+mkdir -p kernel_sources-$kernel_version-$package_name_suffix/lib/modules/${kernel_major_version}$custom_suffix
+ln -s /usr/src/linux kernel_sources-$kernel_version-$package_name_suffix/lib/modules/${kernel_major_version}$custom_suffix/build
+[ ! -f kernel_sources-${kernel_version}-$package_name_suffix/usr/src/linux/include/linux/version.h ] && \
+ln -s /usr/src/linux/include/generated/uapi/linux/version.h kernel_sources-${kernel_version}-$package_name_suffix/usr/src/linux/include/linux/version.h 
+ln -s /usr/src/linux kernel_sources-$kernel_version-$package_name_suffix/lib/modules/${kernel_major_version}$custom_suffix/source
+mksquashfs kernel_sources-$kernel_version-$package_name_suffix dist/sources/kernel_sources-$kernel_version-$package_name_suffix.sfs $COMP
 
 # build aufs-utils userspace modules
 echo "Now to build the aufs-utils for userspace"
@@ -361,7 +404,7 @@ if [ ! -f dist/sources/vanilla/aufs-util${today}.tar.bz2 ];then
 	
 	cd aufs-util
 	
-	git branch -a | grep 'aufs3' |grep -v 'rcN' | cut -d '.' -f2 > /tmp/aufs-util-version #we go for stable only
+	git branch -a | grep "aufs$kernel_series" |grep -v 'rcN' | cut -d '.' -f2 > /tmp/aufs-util-version #we go for stable only
 	while read line
 	  do 
 	    if [ "$kernel_branch" = "$line" ];then branch=$line
@@ -372,7 +415,7 @@ if [ ! -f dist/sources/vanilla/aufs-util${today}.tar.bz2 ];then
 	        done 
 	    fi
 	  done < /tmp/aufs-util-version
-	git checkout origin/aufs3.${branch} >> ../build.log 2>&1
+	git checkout origin/aufs${kernel_series}.${branch} >> ../build.log 2>&1
 	
 	[ $? -ne 0 ] && echo "Failed to get aufs-util from git, do it manually. Kernel is compiled OK :)" && exit
 	# patch Makefile for static build
@@ -393,9 +436,14 @@ if [ ! -f dist/sources/vanilla/aufs-util${today}.tar.bz2 ];then
 	[ "$?" -ne 0 ] && echo "Failed to patch the aufs-util sources, do it manually. Kernel is compiled ok" && exit
 fi
 arch=`uname -m`
-LinuxSrc=../dist/packages/kernel_headers*
+#LinuxSrc=../dist/packages/kernel_headers*
+# see if fhsm is enabled in kernel config
+CONFIG=`find $CWD/dist/sources -type f -name 'DOTconfig*'`
+grep -q 'CONFIG_AUFS_FHSM=y' $CONFIG
+[ "$?" -eq 0 ] && export MAKE=make || export MAKE="make BuildFHSM=no"
+LinuxSrc=`find $CWD -type d -name 'kernel_headers*'`
 export CPPFLAGS="-I $LinuxSrc/usr/include"
-make >> ../build.log 2>&1
+$MAKE >> ../build.log 2>&1
 [ $? -ne 0 ] && echo "Failed to compile aufs-util, do it manually. Kernel is compiled OK :)" && exit
 make DESTDIR=$CWD/dist/packages/aufs-util-$kernel_version-$arch install >> ../build.log 2>&1 #maybe needs absolute path
 make clean >> ../build.log 2>&1
@@ -408,51 +456,71 @@ cd ..
 if [ "$FD" = "1" ];then #shift aufs-utils to kernel-modules.sfs
 	echo "Installing aufs-utils into kernel package"
 	cp -a --remove-destination dist/packages/aufs-util-$kernel_version-$arch/* \
-	dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix
-	echo "Pausing hereto add extra firmware."
-	echo "Choose an option:"
-	# download the fw or offer to copy
-	tmpfw=/tmp/fw$$
-	x=1
-	wget -q $FW_URL -O - |\
-        sed '/href/!d; /\.tar\./!d; /md5\.txt/d; s/.*href="//; s/".*//' |\
-        while read f;do
-             [ "$f" ] && echo "$x $f" >> ${tmpfw}
-             x=$(($x + 1 ))
-        done
-    y=`cat ${tmpfw}|wc -l `
-    [ "$y" = 0 ] && echo "error, no firmware at that URL" && exit 1
-    x=$(($x + $y))
-    echo "$x I'll copy in my own." >> ${tmpfw}
-    cat ${tmpfw}
-    echo -n "Enter a number, 1 to $x:  "
-    read fw
-    if [ "$fw" -gt "$x" ];then "error, wrong number" && exit
-	elif [ "$fw" = "$x" ];then
-		echo "once you have manually added firmware to "
-		echo "dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix/lib/firmware"
-		echo "hit ENTER to continue"
-		read firm
-	else
-		fw_pkg=`grep ^$fw ${tmpfw}`
-		fw_pkg=${fw_pkg##* }
-		echo "You chose ${fw_pkg}. If that isn't correct change it manually later."
-		echo "downloading $FW_URL/${fw_pkg}"
-		wget -t0 -c $FW_URL/${fw_pkg} -P dist/packages
-		[ $? -ne 0 ] && echo "failed to download ${fw_pkg##* }" && exit 1
-		tar -xjf dist/packages/${fw_pkg} -C dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix/lib/
-		[ $? -ne 0 ] && echo "failed to unpack ${fw_pkg}" && exit 1
-		echo "Successfully extracted ${fw_pkg}."
+	dist/packages/linux_kernel-$kernel_version-$package_name_suffix
+
+	if [ $LIBRE -eq 0 ];then
+		echo "Pausing hereto add extra firmware."
+		echo "Choose an option:"
+		# download the fw or offer to copy
+		tmpfw=/tmp/fw$$
+		x=1
+		wget -q $FW_URL -O - |\
+		sed '/href/!d; /\.tar\./!d; /md5\.txt/d; s/.*href="//; s/".*//' |\
+		while read f;do
+		     [ "$f" ] && echo "$x $f" >> ${tmpfw}
+		     x=$(($x + 1 ))
+		done
+
+	    y=`cat ${tmpfw}|wc -l `
+	    [ "$y" = 0 ] && echo "error, no firmware at that URL" && exit 1
+	    x=$(($x + $y))
+	    echo "$x I'll copy in my own." >> ${tmpfw}
+	    cat ${tmpfw}
+	    echo -n "Enter a number, 1 to $x:  "
+	    read fw
+	    if [ "$fw" -gt "$x" ];then "error, wrong number" && exit
+		elif [ "$fw" = "$x" ];then
+			echo "once you have manually added firmware to "
+			echo "dist/packages/linux_kernel-$kernel_version-$package_name_suffix/lib/firmware"
+			echo "hit ENTER to continue"
+			read firm
+		else
+			fw_pkg=`grep ^$fw ${tmpfw}`
+			fw_pkg=${fw_pkg##* }
+			echo "You chose ${fw_pkg}. If that isn't correct change it manually later."
+			echo "downloading $FW_URL/${fw_pkg}"
+			wget -t0 -c $FW_URL/${fw_pkg} -P dist/packages
+			[ $? -ne 0 ] && echo "failed to download ${fw_pkg##* }" && exit 1
+			tar -xjf dist/packages/${fw_pkg} -C dist/packages/linux_kernel-$kernel_version-$package_name_suffix/lib/
+			[ $? -ne 0 ] && echo "failed to unpack ${fw_pkg}" && exit 1
+			echo "Successfully extracted ${fw_pkg}."
+		fi
+	
+		if  [ ! -d ../kernel-skeleton -a ! -d ../woof-code/kernel-skeleton ]; then
+			echo "Error: all-firmware folder was not found" >> ../build.log
+		else
+			[ -d ../kernel-skeleton ] && AFpath="../kernel-skeleton" ||
+			 AFpath="../woof-code/kernel-skeleton"
+			cp -aR -f "$AFpath"/* \
+			 dist/packages/linux_kernel-$kernel_version-$package_name_suffix/
+			cd dist/packages/linux_kernel-$kernel_version-$package_name_suffix/
+			./pinstall.sh
+			rm -f pinstall.sh
+			mv -f etc/modules/firmware.dep etc/modules/firmware.dep.$kernel_major_version
+			cd -
+		fi
+
+		rm ${tmpfw}
 	fi
-	rm ${tmpfw}
-	mksquashfs dist/packages/linux_kernel-$kernel_major_version-$package_name_suffix dist/packages/kernel-modules.sfs-$kernel_major_version-$package_name_suffix $COMP
+
+	mksquashfs dist/packages/linux_kernel-$kernel_version-$package_name_suffix dist/packages/kernel-modules.sfs-$kernel_version-$package_name_suffix $COMP
 	[ "$?" = 0 ] && echo "Huge compatible kernel packages are ready to package./" || exit 1
-	echo "Packaging huge-$kernel_major_version-$package_name_suffix kernel"
+	echo "Packaging huge-$kernel_version-$package_name_suffix kernel"
 	cd dist/packages/
-	tar -cjvf huge-$kernel_major_version-${package_name_suffix}.tar.bz2 \
-	vmlinuz-$kernel_major_version-$package_name_suffix kernel-modules.sfs-$kernel_major_version-$package_name_suffix
-	[ "$?" = 0 ] && echo "huge-$kernel_major_version-${package_name_suffix}.tar.bz2 is in dist/packages" || exit 1
-	md5sum huge-$kernel_major_version-${package_name_suffix}.tar.bz2 > huge-$kernel_major_version-${package_name_suffix}.tar.bz2.md5.txt
+	tar -cjvf huge-$kernel_version-${package_name_suffix}.tar.bz2 \
+	vmlinuz-$kernel_version-$package_name_suffix kernel-modules.sfs-$kernel_version-$package_name_suffix
+	[ "$?" = 0 ] && echo "huge-$kernel_version-${package_name_suffix}.tar.bz2 is in dist/packages" || exit 1
+	md5sum huge-$kernel_version-${package_name_suffix}.tar.bz2 > huge-$kernel_version-${package_name_suffix}.tar.bz2.md5.txt
 	echo
 	cd -
 fi

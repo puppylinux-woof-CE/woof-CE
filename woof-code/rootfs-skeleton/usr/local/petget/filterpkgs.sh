@@ -37,7 +37,7 @@ export OUTPUT_CHARSET=UTF-8
 . /root/.packages/PKGS_MANAGEMENT #has PKG_ALIASES_INSTALLED, PKG_NAME_ALIASES
 
 #130330 GUI filtering...
-DEFGUIFILTER="$(cat /var/local/petget/gui_filter)"
+DEFGUIFILTER="$(cat /var/local/petget/gui_filter 2>/dev/null)"
 #$GUIONLYSTR $ANYTYPESTR are exported from pkg_chooser.sh ... 130331 need backslashes...
 guigtk2PTN='\+libgtk2|\+libgtk\+2|\+libgtkmm-2|\+gtk\+2|\+gtk\+,|\+gtkdialog|\+xdialog|\+python-gtk2'
 guigtk3PTN='\+libgtk-3|\+libgtk\+3|\+libgtkmm-3|\+gtk\+3'
@@ -60,15 +60,9 @@ esac
 #130507
 xDEFGUIFILTER="$(echo -n "$DEFGUIFILTER" | tr -d ' ' | tr -d '-' | tr -d '+' | tr -d ',')" #ex, translate 'Qt4 GUI apps only' to 'Qt4GUIappsonly'
 
-#alphabetic group...
-PKG_FIRST_CHAR="`cat /tmp/petget_pkg_first_char`" #written in pkg_chooser.sh, ex: 'mn'
-[ "$PKG_FIRST_CHAR" = "ALL" ] && PKG_FIRST_CHAR='a-z0-9'
-
-X1PID=0
-if [ "`cat /tmp/petget_pkg_first_char`" = "ALL" ];then
- yaf-splash -close never -bg orange -text "$(gettext 'Please wait, processing all entries may take awhile...')" &
- X1PID=$!
-fi
+PKG_FIRST_CHAR='a-z0-9'
+. /usr/lib/gtkdialog/box_splash -close never -text "$(gettext 'Please wait, processing all entries may take awhile...')" &
+X1PID=$!
 
 #which repo...
 FIRST_DB="`ls -1 /root/.packages/Packages-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}* | head -n 1 | rev | cut -f 1 -d '/' | rev | cut -f 2-4 -d '-'`"
@@ -79,14 +73,13 @@ fltrREPO_TRIAD="$FIRST_DB" #ex: slackware-12.2-official
 REPO_FILE="`find /root/.packages -type f -name "Packages-${fltrREPO_TRIAD}*" | head -n 1`"
 
 #choose a category in the repo...
-#$1 exs: Document, Internet, Graphic, Setup, Desktop
-fltrCATEGORY="Desktop" #show Desktop category pkgs.
-if [ $1 ];then
+if [ $1 ];then #$1 exs: Document, Internet, Graphic, Setup, Desktop
  fltrCATEGORY="$1"
  echo "$1" > /tmp/petget_filtercategory
+elif [ -f /tmp/petget_filtercategory ]; then #or, a selection was made in the main gui (pkg_chooser.sh)...
+ fltrCATEGORY="`cat /tmp/petget_filtercategory`"
 else
- #or, a selection was made in the main gui (pkg_chooser.sh)...
- [ -f /tmp/petget_filtercategory ] && fltrCATEGORY="`cat /tmp/petget_filtercategory`"
+ fltrCATEGORY="Desktop" #show Desktop category pkgs.
 fi
 #120813 there may be optional subcategory, put ; into pattern...
 categoryPATTERN="|${fltrCATEGORY}[;|]"
@@ -100,7 +93,7 @@ categoryPATTERN="|${fltrCATEGORY}[;|]"
 #w460 filter out all 'language-' pkgs, too many (ubuntu/debian)...
 if [ ! -f /tmp/petget_fltrd_repo_${PKG_FIRST_CHAR}_${fltrCATEGORY}_${xDEFGUIFILTER}_Packages-${fltrREPO_TRIAD} ];then
  case $DISTRO_BINARY_COMPAT in
-  ubuntu|debian|raspbian)
+  ubuntu|debian|devuan|raspbian)
    FLTRD_REPO="`printcols $REPO_FILE 1 2 3 5 10 6 9 | grep -v -E '^lib|^language\\-' | grep -i "^[${PKG_FIRST_CHAR}]" | grep "$categoryPATTERN" | grep -i ${EXCPARAM} -E "$guiPTN" | sed -e 's%||$%|unknown|%'`" #130330  130331 ignore case.
   ;;
   *)
