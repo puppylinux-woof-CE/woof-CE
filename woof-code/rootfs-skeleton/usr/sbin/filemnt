@@ -63,7 +63,7 @@ fi
 MntPt='/mnt/'"`echo "$imgFile" |sed "s#^\.##g" |sed "s#/#+#g" | tr ' ' '_'`"	# SFR, added 'tr'
 
 #130223 BK is it already mounted?
-MNTEDLOOP="$(cat /proc/mounts | grep -F "$MntPt" | cut -f 1 -d ' ')"
+MNTEDLOOP="$(cat /proc/mounts | grep "$MntPt" | cut -f 1 -d ' ')"
 
 imgFileBASE="`basename "$imgFile"`" #BK
 imgFileDEV_INODE="`stat -L -c "%d_%i" "$imgFile"`" || exit #120220
@@ -87,16 +87,19 @@ on \$MNTDIMG_MNT_PT from \$MNTDIMG")"    #120220 121105 add gettext.
     fi
   done
 
-  Ext=${imgFile##*.} #get file extension   ## Ext=`echo "$imgFile" |sed 's/^.*\.//'`
-  Ext=${Ext,,}       #convert to lowercase ## Ext=`echo $Ext | tr [:upper:] [:lower:]`
-  Type=${Ext}        #file extension is the mount type/filesystem
-  case $Ext in           #exceptions
-    2fs) Type='ext2'     ;;
-    3fs) Type='ext3'     ;;
-    4fs) Type='ext4'     ;;
-    sfs) Type='squashfs' ;;
-    iso) Type='iso'      ;;
-  esac
+  Ext=`echo "$imgFile" |sed 's/^.*\.//'`	# get file type from extention
+  Ext="`echo $Ext | tr [:upper:] [:lower:]`" 	# SFR: extension to lowercase (If Bash >= 4 it could be just Ext=${Ext,,} )
+  if [ "$Ext" = '2fs' ] ;then
+   Type='ext2'
+  elif [ "$Ext" = '3fs' ] ;then
+   Type='ext3'
+  elif [ "$Ext" = '4fs' ] ;then #v423 planning for the future!
+   Type='ext4'
+  elif [ "$Ext" = 'sfs' ] ;then
+   Type='squashfs'
+  elif [ "$Ext" = 'iso' ] ;then
+   Type='iso9660'
+  fi
 
   #v423 detect wrong squashfs version...
   if [ "$Type" = "squashfs" ];then
@@ -117,18 +120,9 @@ Note, there is an SFS-version-converter in the Utility menu, run that first.\"`"
 
    #120525 take into account shinobar's load-on-the-fly pet...
    if [ "`which sfs_load`" != "" ];then
-	  . /etc/rc.d/BOOTCONFIG # 140609 add contextual Install/Uninstall button
-	  echo $EXTRASFSLIST > /tmp/sfsloaded
-		 if [ "`grep $imgFileBASE /tmp/sfsloaded`" != "" ];then
-		 LABELINSTALL="$(gettext 'Uninstall')"
-		 TEXTINSTALL="$(gettext 'uninstall it')"
-		    else
-			   LABELINSTALL="$(gettext 'Install')"
-			   TEXTINSTALL="$(gettext 'install it')"
-		 fi
-	SFSMSG1a="$(eval_gettext "You can choose to mount the \${imgFileBASE} file to view it's contents (read-only), or you can \${TEXTINSTALL}.")" #'geany
-	SFSMSG1b="${SFSMSG1a}\n\n$(gettext 'Regarding the latter, traditionally SFS files are selected by the \ZbBootManager\ZB for loading at bootup (see System menu), which you can do, or you can choose to install (load) it now (which will not require a reboot).\n\nNote1: If you want to edit the contents of an SFS file, you have to use the commandline utilities \Zbunsquashfs\ZB and \Zbmksquashfs\ZB.\nNote2: In the case of a full HD installation, without a layered filesystem, installation is irreversible. For all other installation modes, the BootManager can be used to unload an installed (loaded) SFS file.')"
-    pupdialog --colors --background '#FFFF80' --backtitle "${imgFileBASE}" --extra-button --yes-label "$(gettext 'View contents')" --no-label "$LABELINSTALL" --extra-label "$(gettext 'Cancel')"  --yesno "${SFSMSG1b}" 0 0
+    SFSMSG1a="$(eval_gettext "You can choose to mount the \${imgFileBASE} file to view it's contents (read-only), or you can install it.")" #'geany
+    SFSMSG1b="${SFSMSG1a}\n\n$(gettext 'Regarding the latter, traditionally SFS files are selected by the \ZbBootManager\ZB for loading at bootup (see System menu), which you can do, or you can choose to install (load) it now (which will not require a reboot).\n\nNote1: If you want to edit the contents of an SFS file, you have to use the commandline utilities \Zbunsquashfs\ZB and \Zbmksquashfs\ZB.\nNote2: In the case of a full HD installation, without a layered filesystem, installation is irreversible. For all other installation modes, the BootManager can be used to unload an installed (loaded) SFS file.')"
+    pupdialog --colors --background '#FFFF80' --backtitle "${imgFileBASE}" --extra-button --yes-label "$(gettext 'View contents')" --no-label "$(gettext 'Install SFS')" --extra-label "$(gettext 'Cancel')"  --yesno "${SFSMSG1b}" 0 0
     RETVAL=$?
     [ $RETVAL -eq 1 ] && exec sfs_load "$1"
     [ $RETVAL -ne 0 ] && exit #120527
@@ -174,21 +168,8 @@ Note, there is an SFS-version-converter in the Utility menu, run that first.\"`"
    [ $Err -eq 0 ] && mount -t $Type $DEVLOOP "$MntPt"
    Err=$?
   else #normal, no encryption... 130204 mavrothal: fix spaces in imgFile...
-    case $Type in 
-      iso)
-        #20150502 handle pure UDF iso images
-        mount -t udf -o loop "$imgFile" "$MntPt"
-        Err=$?
-        if [ $Err -ne 0 ] ; then
-          mount -t iso9660 -o loop "$imgFile" "$MntPt"
-		  Err=$?
-        fi
-        ;;
-      *)
-        mount -t $Type -o loop "$imgFile" "$MntPt"
-        Err=$?
-        ;;
-    esac
+   mount -t $Type -o loop "$imgFile" "$MntPt"
+   Err=$?
   fi
 
   if [ $Err -eq 0 ] ;then
@@ -196,7 +177,6 @@ Note, there is an SFS-version-converter in the Utility menu, run that first.\"`"
    rox -x "$MntPt" -d "$MntPt" # mount good, run rox filer
    /usr/lib/gtkdialog/box_splash -timeout 6 -bg green -text "`eval_gettext \"SUCCESS! Click \\\$imgFileBASE icon again to unmount it\"`" & #BK
   else
-   [ "$CRYPTO" ] && losetup-FULL -d $DEVLOOP
    rmdir "$MntPt" #121203
   fi
 

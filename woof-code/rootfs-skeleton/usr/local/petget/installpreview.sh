@@ -20,10 +20,6 @@
 #120907 max frames increase 5 to 10. Note, precise puppy gave 72 deps for vlc, which would require 10 frames.
 #130511 popup warning if a dep in devx but devx not loaded.
 
-[ "$(cat /var/local/petget/nt_category 2>/dev/null)" != "true" ] && \
- [ -f /tmp/install_quietly ] && set -x
- #; mkdir -p /tmp/PPM_LOGs ; NAME=$(basename "$0"); exec 1>> /tmp/PPM_LOGs/"$NAME".log 2>&1
-
 export TEXTDOMAIN=petget___installpreview.sh
 export OUTPUT_CHARSET=UTF-8
 
@@ -32,10 +28,9 @@ export OUTPUT_CHARSET=UTF-8
 . /etc/DISTRO_SPECS #has DISTRO_BINARY_COMPAT, DISTRO_COMPAT_VERSION
 . /root/.packages/DISTRO_PKGS_SPECS
 
-if [ ! -f /tmp/install_quietly ]; then
- . /usr/lib/gtkdialog/box_splash -close never -text "$(gettext 'Please wait, processing package database files...')" &
- X1PID=$!
-fi
+#/usr/X11R7/bin/yaf-splash -font "8x16" -outline 0 -margin 4 -bg orange -text "Please wait, processing package database files..." &
+yaf-splash -close never -bg orange -text "$(gettext 'Please wait, processing package database files...')" &
+X1PID=$!
 
 #ex: TREE1=abiword-1.2.4 (first field in database entry).
 DB_FILE=Packages-`cat /tmp/petget/current-repo-triad` #ex: Packages-slackware-12.2-official
@@ -144,8 +139,8 @@ else
  fi 
 fi
 
-[ ! -f /tmp/install_quietly ] && kill $X1PID || echo
-if [ ! -f /tmp/install_quietly ]; then
+kill $X1PID
+
 export PREVIEW_DIALOG="<window title=\"$(gettext 'Puppy Package Manager: preinstall')\" icon-name=\"gtk-about\">
 <vbox>
  <text><label>$(gettext 'You have chosen to install package') '${TREE1}'. $(gettext 'A short description of this package is:')</label></text>
@@ -157,19 +152,19 @@ export PREVIEW_DIALOG="<window title=\"$(gettext 'Puppy Package Manager: preinst
  <frame>
   <hbox>
    <text><label>$(gettext 'If you would like more information about') '${TREE1}', $(gettext 'such as what it is for and the dependencies, this button will download and display detailed information:')</label></text>
-   <button><label>$(gettext 'More info')</label><action>/usr/local/petget/fetchinfo.sh ${TREE1} & </action></button>
+   <button><label>More info</label><action>/usr/local/petget/fetchinfo.sh ${TREE1} & </action></button>
   </hbox>
  </frame>
  
  <hbox>
   ${DEPBUTTON}
   <button>
-   <label>$(gettext 'Install') ${TREE1}${ONLYMSG}</label>
+   <label>Install ${TREE1}${ONLYMSG}</label>
    <action>echo \"${TREE1}\" > /tmp/petget_installpreview_pkgname</action>
    <action type=\"exit\">BUTTON_INSTALL</action>
   </button>
   <button>
-   <label>$(gettext 'Download-only')</label>
+   <label>Download-only</label>
    <action type=\"exit\">BUTTON_PKGS_DOWNLOADONLY</action>
   </button>
   <button cancel></button>
@@ -179,17 +174,6 @@ export PREVIEW_DIALOG="<window title=\"$(gettext 'Puppy Package Manager: preinst
 "
 
 RETPARAMS="`gtkdialog3 --center --program=PREVIEW_DIALOG`"
-else
- if [ -f /tmp/download_only_pet_quietly ]; then
-  RETPARAMS='EXIT="BUTTON_PKGS_DOWNLOADONLY"'
- elif [ "$MISSINGDEPS_PATTERNS" != "" ];then
-  RETPARAMS='EXIT="BUTTON_EXAMINE_DEPS"'
- elif [ -f /tmp/download_pets_quietly ]; then
-  RETPARAMS='EXIT="BUTTON_PKGS_DOWNLOADONLY"'
- else
-  RETPARAMS='EXIT="BUTTON_INSTALL"'
- fi
-fi
 
 eval "$RETPARAMS"
 if [ "$EXIT" != "BUTTON_INSTALL" -a "$EXIT" != "BUTTON_EXAMINE_DEPS" -a "$EXIT" != "BUTTON_PKGS_DOWNLOADONLY" ];then
@@ -208,8 +192,8 @@ if [ "$EXIT" = "BUTTON_EXAMINE_DEPS" ];then
  
  #120904
  FNDMISSINGDBENTRYFILE="`ls -1 /tmp/petget_missing_dbentries-* 2>/dev/null`"
- if [ "$FNDMISSINGDBENTRYFILE" = "" -a ! -f /tmp/install_quietly ];then
-  . pupdialog --title "$(gettext 'PPM: examine dependencies')" --background LightYellow --msgbox "$(gettext 'There seem to be no missing dependencies.')
+ if [ "$FNDMISSINGDBENTRYFILE" = "" ];then
+  pupdialog --title "$(gettext 'PPM: examine dependencies')" --background LightYellow --msgbox "$(gettext 'There seem to be no missing dependencies.')
 
 $(gettext 'Note: if the previous window indicated that there are missing dependencies, they were not found. Sometimes, a package database lists a dependency that does not actually exist anymore and is not required.')" 0 0
   exec /usr/local/petget/installpreview.sh #reenter.
@@ -224,7 +208,7 @@ $(gettext 'Note: if the previous window indicated that there are missing depende
    DEVXNAME="devx_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION}.sfs"
    echo "#!/bin/sh
 sleep 3
-. pupdialog --background pink --colors --ok-label \"$(gettext 'OK')\" --backtitle \"$(gettext 'WARNING: devx not installed')\" --msgbox \"$(gettext 'Package:')  \Zb${TREE1}\ZB
+pupdialog --background pink --colors --ok-label \"$(gettext 'OK')\" --backtitle \"$(gettext 'WARNING: devx not installed')\" --msgbox \"$(gettext 'Package:')  \Zb${TREE1}\ZB
 $(gettext "This package has dependencies that are in the 'devx' SFS file, which is Puppy's C/C++/Vala/Genie/BaCon mega-package, a complete compiling environment.")
 
 $(gettext 'The devx file is named:') \Zb${DEVXNAME}\ZB
@@ -313,7 +297,7 @@ $(gettext "Please cancel installation, close the Puppy Package Manager, then cli
  testSIZEK=`expr $INSTALLEDSIZEK + $testSIZEK`
  testSIZEK=`expr $testSIZEK + 8000`
  [ $testSIZEK -gt $SIZEFREEK ] && MSGWARN2="$(gettext "Not too good! recommend that you make more space before installing -- see 'Resize personal storage file' in the 'Utility' menu.")"
-if [ ! -f /tmp/install_quietly ]; then
+ 
  export DEPS_DIALOG="<window title=\"$(gettext 'Puppy Package Manager: dependencies')\" icon-name=\"gtk-about\">
 <vbox>
  
@@ -360,23 +344,7 @@ if [ ! -f /tmp/install_quietly ]; then
 </window>
 "
 
-RETPARAMS="`gtkdialog3 --center --program=DEPS_DIALOG`"
-else
- if [ ! -f /tmp/download_pets_quietly ]; then
- xEXIT="BUTTON_PKGS_INSTALL"
- else
- xEXIT="BUTTON_PKGS_DOWNLOADONLY"
- fi
-  DEPS_TOINSTALL=$(sed 's/<variable>/\n/g' /tmp/petget_moreframes \
-   |grep ^CHECK_PKG_ | cut -f1 -d '<' | sed 's/$/=\"true\"/')
-  PKG_TOINSTALL=CHECK_PKG_${MAIN_REPO}_${MAINPKG_NAME}="true"
-  RETPARAMS="$DEPS_TOINSTALL
-$PKG_TOINSTALL
-EXIT=$xEXIT"
-  [ "$DEPS_TOINSTALL" != "" ] && echo "$DEPS_TOINSTALL"  | cut -f 1 -d '=' \
-   | cut -f 4-10 -d '_'  >> /tmp/pkgs_to_install_done
-  rm -f /tmp/petget_moreframes
-fi
+ RETPARAMS="`gtkdialog3 --center --program=DEPS_DIALOG`"
 
  #example if 'Install' button clicked:
  #CHECK_PKG_slackware-12.2-official_libtermcap-1.2.3="true"
@@ -403,6 +371,7 @@ fi
   exit
  fi
 fi
+
 #come here, want to install pkg(s)...
 
 #DB_ENTRY has the database entry of the main package that we want to install.
@@ -418,7 +387,7 @@ fi
 
 #now do the actual install...
 PASSEDPRM=""
-[ "`echo "$RETPARAMS" | grep '^EXIT' | grep 'BUTTON_PKGS_DOWNLOADONLY'`" != "" ] && PASSEDPRM="DOWNLOADONLY" && touch /tmp/manual_pkg_download
+[ "`echo "$RETPARAMS" | grep '^EXIT' | grep 'BUTTON_PKGS_DOWNLOADONLY'`" != "" ] && PASSEDPRM="DOWNLOADONLY"
 /usr/local/petget/downloadpkgs.sh $PASSEDPRM
 if [ $? -ne 0 ];then
  [ -f /tmp/petget/current-repo-triad.previous ] && mv -f /tmp/petget/current-repo-triad.previous /tmp/petget/current-repo-triad #120504
@@ -426,14 +395,6 @@ if [ $? -ne 0 ];then
 fi
 [ "$PASSEDPRM" = "DOWNLOADONLY" ] && exit
 
-if [ -f /tmp/install_pets_quietly ]; then
- LEFT=$(cat /tmp/pkgs_left_to_install | wc -l)
- [ "$LEFT" -le 1 ] && UPDATE_MENUS=yes
-else
-  UPDATE_MENUS=yes
-fi
-
-if [ "$UPDATE_MENUS" = "yes" ]; then
 #w482 adjust msg as appropriate, restart jwm and update menu if required...
 INSTALLEDCAT="menu" #any string.
 [ "`cat /tmp/petget-installed-pkgs-log | grep -o 'CATEGORY' | grep -v 'none'`" = "" ] && INSTALLEDCAT="none"
@@ -444,32 +405,26 @@ if [ "`pidof jwm`" != "" ];then #120101
   RESTARTMSG="$(gettext 'Please wait, updating help page and menu (the screen will flicker!)...')"
  fi
 fi
-[ "$INSTALLEDCAT" = "none" ] &&  RESTARTMSG="$(gettext 'Please wait, updating help page...')"
- if [ ! -f /tmp/install_quietly ]; then
-  /usr/lib/gtkdialog/box_splash -text "${RESTARTMSG}" &
-  X3PID=$!
- fi
-fi
+[ "$INSTALLEDCAT" = "none" ] && RESTARTMSG="$(gettext 'Please wait, updating help page...')"
+yaf-splash -bg orange -text "${RESTARTMSG}" &
+X3PID=$!
 
 #w091019 update image cache...
 iUPDATE='no'
 for iONE in `cat /tmp/petget_missing_dbentries-* | cut -f 1 -d '|' | tr '\n' ' '`
 do
- if [ -f /root/.packages/${iONE}.files ]; then
-  [ "`grep 'usr/share/icons/hicolor' /root/.packages/${iONE}.files`" != "" ] \
-   && echo yes >> /tmp/iUPDATE
+ if [ -f /root/.packages/${iONE}.files ];then
+  [ "`grep 'usr/share/icons/hicolor' /root/.packages/${iONE}.files`" != "" ] && iUPDATE='yes'
  fi
 done
-if [ "$UPDATE_MENUS" = "yes" ]; then
- if [ "$(grep yes /tmp/iUPDATE)" != "" ]; then \
-  gtk-update-icon-cache -f /usr/share/icons/hicolor/
-  rm -f /tmp/iUPDATE
- fi
-fi
+[ "$iUPDATE" = "yes" ] && gtk-update-icon-cache -f /usr/share/icons/hicolor/
 
+#master help index has to be updated...
+##to speed things up, find the help files in the new pkg only...
+/usr/sbin/indexgen.sh #${WKGDIR}/${APKGNAME}
 #Reconstruct configuration files for JWM, Fvwm95, IceWM...
-if [ "$UPDATE_MENUS" = "yes" -a "$INSTALLEDCAT" != "none" ];then
- nohup /usr/sbin/fixmenus
+if [ "$INSTALLEDCAT" != "none" ];then
+ /usr/sbin/fixmenus
  if [ "`pidof jwm`" != "" ];then #120101
   if vercmp $JWMVER lt 574;then #120116 547 to 574.
    jwm -restart #w482
@@ -478,7 +433,7 @@ if [ "$UPDATE_MENUS" = "yes" -a "$INSTALLEDCAT" != "none" ];then
   fi
  fi
 fi
-[ ! -f /tmp/install_quietly ] && kill $X3PID || echo
+kill $X3PID
 
 #120905 restore...
 #120903 ubuntu, have lots pkgs installed, this takes ages. remove for now, need to rewrite in C...
@@ -488,5 +443,4 @@ PKGS="`cat /tmp/petget_missing_dbentries-* | cut -f 1 -d '|' | tr '\n' '|'`"
 
 [ -f /tmp/petget/current-repo-triad.previous ] && mv -f /tmp/petget/current-repo-triad.previous /tmp/petget/current-repo-triad #120504
 
-rm -f nohup.out 2>/dev/null
 ###END###

@@ -54,7 +54,7 @@ if [ -s /root/.packages/user-installed-packages ];then
  echo "$INSTALLED_PATTERNS_USER" >> /tmp/petget_installed_patterns_all
  #120822 this code also in pkg_chooser.sh, find alt deb names...
  case $DISTRO_BINARY_COMPAT in
-  ubuntu|debian|devuan|raspbian)
+  ubuntu|debian|raspbian)
    #120904 bugfix, was very slow...
    MODIF1=`stat --format=%Y /root/.packages/user-installed-packages` #seconds since epoch.
    MODIF2=0
