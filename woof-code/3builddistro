@@ -443,7 +443,6 @@ KERNEL3CHARS="`echo -n "$KERNELVER" | tr -d '.' | tr -d '\-' | tr -d '[a-z]' | r
 #110422 new traditional names...
 tradPUPPYSFS="puppy_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION}.sfs"
 tradZDRVSFS="zdrv_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION}.sfs"
-tradFDRVSFS="fdrv_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION}.sfs"
 tradADRVSFS="adrv_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION}.sfs"
 tradYDRVSFS="ydrv_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION}.sfs"
 tradDEVXSFS="devx_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION}.sfs"
@@ -473,7 +472,6 @@ if [ "$CHK_SIMPLE_FILENAMES" = "true" ];then
  echo '...simple chosen'
  PUPPYSFS='puppy.sfs'
  ZDRVSFS='zdrv.sfs'
- FDRVSFS='fdrv.sfs'
  ADRVSFS='adrv.sfs'
  YDRVSFS='ydrv.sfs'
  DEVXSFS='devx.sfs'
@@ -481,7 +479,6 @@ else
  echo '...traditional chosen'
  PUPPYSFS="$tradPUPPYSFS"
  ZDRVSFS="$tradZDRVSFS"
- FDRVSFS="$tradFDRVSFS"
  ADRVSFS="$tradADRVSFS"
  YDRVSFS="$tradYDRVSFS" 
  DEVXSFS="$tradDEVXSFS"
@@ -536,6 +533,7 @@ export GUIC="<window title=\"Choose extra packages\">
 </window>"
 gtkdialog -p GUIC -c > $CHOICE
 . $CHOICE
+[ -f /tmp/rootfs-packages.specs ] && rm /tmp/rootfs-packages.specs # in case we baled out on last build
 if [ "$EXIT" = "OK" ];then
 	while read line
 	do 
@@ -543,18 +541,21 @@ if [ "$EXIT" = "OK" ];then
 			echo "copying ${line%%=*}"
 			cp -a rootfs-packages/${line%%=*}/* sandbox3/rootfs-complete/
 			cat sandbox3/rootfs-complete/pinstall.sh >> sandbox3/pinstall.sh
+			cat sandbox3/rootfs-complete/pet.specs >> /tmp/rootfs-packages.specs
 		else
 			continue
 		fi
 	done < $CHOICE
 fi
 rm $CHOICE
+./findwoofinstalledpkgs # moved to here so we can add /tmp/rootfs-packages.specs
 
 echo "Continuing... please wait"
 
 rm -f sandbox3/rootfs-complete/pinstall.sh
 
 rm -f /tmp/3builddistro_removed_alt 2>/dev/null #101013
+
 
 #120315 Ubuntu Precise Pangolin has done a big move of files from /lib to /lib/i386-linux-gnu and /usr/lib to /usr/lib/i386-linuxgnu
 #well, i want to move them back. symlinks will do it (cp below does not destroy them)...
@@ -1409,7 +1410,6 @@ DISTRO_IDSTRING='${IDSTRING}'
 #for the partition, path and actual files loaded, see PUPSFS and ZDRV in /etc/rc.d/PUPSTATE
 DISTRO_PUPPYSFS='${PUPPYSFS}'
 DISTRO_ZDRVSFS='${ZDRVSFS}'
-DISTRO_FDRVSFS='${FDRVSFS}'
 DISTRO_ADRVSFS='${ADRVSFS}'
 DISTRO_YDRVSFS='${YDRVSFS}'"
 #DISTRO_DEVXSFS='${DEVXSFS}'"
@@ -2653,6 +2653,38 @@ do
  done
 done
 
+# do the same for rootfs-packages
+if [ -f /tmp/rootfs-packages.specs ];then
+	while read line ; do
+		PKGL=`echo $line | cut -d '|'  -f 2`
+		echo -n "${PKGL} "
+		ogPATTERN="s%^\\.\\./rootfs-packages/${PKGL}/%/%"
+		find ../rootfs-packages/$PKGL | sed -e "$ogPATTERN" | sort > /tmp/0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}/${PKGL}.files
+		sync
+		mkdir -p 0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}/root/.packages/builtin_files
+		PREVPATH=''; PREVPATH0=''
+		cat /tmp/0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}/${PKGL}.files |
+		while read ONELINE
+			 do
+				[ "`echo "$ONELINE" | cut -c 1`" == "." ] && continue #catch ex: ../packages-qrky/abiword
+				if [ -d "rootfs-complete${ONELINE}" ];then
+					PREVPATH="$ONELINE"
+					echo "$ONELINE" >> 0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}/root/.packages/builtin_files/${PKGL}
+				else
+					NEWPATH="`dirname "$ONELINE"`"
+					[ "$NEWPATH" == "/" ] && continue #ignore top-level files.
+					NEWFILE="`basename "$ONELINE"`"
+					if [ -e "rootfs-complete${ONELINE}" ];then #sanity check.
+						if [ "$PREVPATH" == "$NEWPATH" -o "$PREVPATH0" == "$NEWPATH" ];then #sanity check. 121010
+							echo " ${NEWFILE}" >> 0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}/root/.packages/builtin_files/${PKGL}
+						fi
+					fi
+				fi
+		done
+	done < /tmp/rootfs-packages.specs
+	rm -f /tmp/rootfs-packages.specs
+fi
+echo
 echo "0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}|0builtin_files_${DISTRO_FILE_PREFIX}|${DISTRO_VERSION}||BuildingBlock|||0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}.pet||Lists of files built-in to the SFS file||||
 " > 0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}/pet.specs
 rm -f 0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}.pet 2>/dev/null
@@ -3999,6 +4031,24 @@ rm -f sandbox3/devx/etc/profile.d/*.csh
 # cp -a -f --remove-destination sandbox3/devx/usr/bin/multiarch-i386-linux/* sandbox3/devx/usr/bin/
 # rm -rf sandbox3/devx/usr/bin/multiarch-i386-linux
 #fi
+
+# 151019 - delete duplicate symlinks
+echo "deleting duplicate symlinks"
+find sandbox3/devx -type l |
+while read ONESYMLINK
+do
+  # if the symlink exists in sandbox3/rootfs-complete we delete it
+ ESYMLINK=$(echo "$ONESYMLINK" | sed 's%devx%rootfs-complete%')
+ [ -h "$ESYMLINK" ] && echo -n "deleted $ONESYMLINK " && rm -f "$ONESYMLINK"
+ 
+done
+
+sync
+
+
+# 151019 - delete whiteouts
+echo "cleaning out whiteouts"
+find sandbox3/devx -name '.wh*' -delete
 
 echo "Now creating ${DEVXSFS} ..."
 ./support/${MKSQUASHFS} sandbox3/devx ./${WOOF_OUTPUT}/${DEVXSFS} ${COMPCHOICE} #100911 110713
