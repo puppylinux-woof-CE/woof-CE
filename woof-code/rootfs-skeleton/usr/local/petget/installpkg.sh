@@ -126,17 +126,18 @@ DLPKG_NAME="`cat /tmp/petget_missing_dbentries-Packages-* | grep "$dbPATTERN" | 
 #131222 do not allow duplicate installs...
 PTN1='^'"$DLPKG_NAME"'|'
 if [ "`grep "$PTN1" /root/.packages/user-installed-packages`" != "" ];then
- DISPTIME1='' ; DISPTIME2=''
- if [ -f /tmp/install_quietly ];then
-  DISPTIME1="--timeout 3"
-  DISPTIME2="-timeout 3"
- fi
  if [ ! $DISPLAY ];then
+  [ -f /tmp/install_quietly ] && DISPTIME1="--timeout 3" || DISPTIME1=''
   LANG=$LANG_USER
-  . dialog ${DISPTIME1} --msgbox "$(gettext 'Sorry, this package is already installed. Aborting.')" 0 0
+  . dialog ${DISPTIME1} --msgbox "$(gettext 'This package is already installed. Cannot install it twice:') ${DLPKG_NAME}" 0 0
  else
   LANG=$LANG_USER
-  . pupmessage -bg '#ff8080' -fg black ${DISPTIME2} -title "$(gettext 'Package:') ${DLPKG_NAME}" "$(gettext 'Sorry, but this package is already installed. Cannot install it twice.')"
+   if [ -f /tmp/install_quietly ]; then
+    /usr/lib/gtkdialog/box_ok "$(gettext 'Puppy package manager')" error "$(gettext 'This package is already installed. Cannot install it twice:')" "<i>${DLPKG_NAME}</i>" & 
+    XPID=$!
+    sleep 3
+    pkill -P $XPID
+   fi
   echo ${DLPKG_NAME} >> /tmp/pgks_failed_to_install_forced
  fi
  exit 1
@@ -168,13 +169,10 @@ fi
 PARTK=`df -k / | grep '/$' | tr -s ' ' | cut -f 4 -d ' '` #free space in partition.
 if [ $NEEDK -gt $PARTK ];then
  LANG=$LANG_USER
- ABORTMSG1="$(gettext 'Package:') ${DLPKG_BASE}"
- ABORTMSG2="$(gettext 'Sorry, there is not enough free space in the partition to install this package')"
  if [ $DISPLAY ];then
-  . pupmessage -bg pink -fg black -title "${ABORTMSG1}" "${ABORTMSG2}"
+  /usr/lib/gtkdialog/box_ok "$(gettext 'Puppy package manager')" error "$(gettext 'Not enough free space in the partition to install this package'):" "<i>${DLPKG_BASE}</i>"
  else
-  echo "${ABORTMSG1}
-${ABORTMSG2}"
+  echo -e "$(gettext 'Not enough free space in the partition to install this package'):\n${DLPKG_BASE}"
  fi
  [ "$DLPKG_PATH" != "" ] && rm -f "${DLPKG_PATH}"/${DLPKG_BASE}
  exit 1
