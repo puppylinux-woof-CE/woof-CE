@@ -258,7 +258,7 @@ fi
 echo "Resetting the minor version number"
 cp Makefile Makefile-orig
 if [ "$sublevel" = "yes" ];then
-	sed -i "s/^SUBLEVEL =.*/SUBLEVEL =/" Makefile
+	sed -i "s/^SUBLEVEL =.*/SUBLEVEL = 0/" Makefile
 fi
 if [ -n "$custom_suffix" ] || [ $LIBRE -eq 1 ]; then
 	sed -i "s/^EXTRAVERSION =.*/EXTRAVERSION = $custom_suffix/" Makefile
