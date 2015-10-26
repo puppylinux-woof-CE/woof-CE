@@ -186,6 +186,7 @@ case $fw_flag in
 		# now move the extras to / lib/firmware & make sfs
 		mv $not_dir ${src}
 	    mksquashfs workdir $fw_sfs -comp xz
+	    md5sum $fw_sfs > ${fw_sfs}.md5.txt
 		SFS=FDRV
 		;;
 esac
