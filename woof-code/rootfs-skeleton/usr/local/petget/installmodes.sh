@@ -218,7 +218,7 @@ check_total_size () {
 	 5|6) AVAILABLE=$(df -m | grep pup_rw | awk '{print $4}');;
 	 7|13) AVAILABLE=$(df -m | grep pup_ro1 | awk '{print $4}');;
 	 12) AVAILABLE=$(df -m | grep pup_rw | awk '{print $4}')
-		[ "$AVAILABLE" = "" ] && AVAILABLE=$(df | grep dev_save | awk '{print $4}');;
+		[ "$AVAILABLE" = "" ] && AVAILABLE=$(df -m | grep dev_save | awk '{print $4}');;
    esac
    if [ ! "$AVAILABLE" ]; then
     echo "Free space estimation error. Exiting" > /tmp/petget/install_status
