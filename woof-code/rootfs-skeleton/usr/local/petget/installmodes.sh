@@ -211,12 +211,29 @@ check_total_size () {
  if [ ! -f /tmp/pup_event_sizefreem ]; then
   /usr/local/pup_event/frontend_timeout &
   sleep 1
-  [ ! -f /tmp/pup_event_sizefreem ]&& echo "Free space estimation error. Exiting" \
-    > /tmp/petget/install_status && \
-	. /usr/lib/gtkdialog/box_ok "$(gettext 'Pup_event_error')" error "$(gettext 'This is a rare pup_even error that fails to report the available free space. Just click on the free memory applet at the tray and try again. It should be OK after that.')" \
-	&& clean_up && exit 1
+  if [ ! -f /tmp/pup_event_sizefreem ]; then
+   . /etc/rc.d/PUPSTATE
+   case $PUPMODE in
+	 2) AVAILABLE=$(df -m | grep / | head -n 1 | awk '{print $4}');;
+	 5|6) AVAILABLE=$(df -m | grep pup_rw | awk '{print $4}');;
+	 7|13) AVAILABLE=$(df -m | grep pup_ro1 | awk '{print $4}');;
+	 12) AVAILABLE=$(df -m | grep pup_rw | awk '{print $4}')
+		[ "$AVAILABLE" = "" ] && AVAILABLE=$(df | grep dev_save | awk '{print $4}');;
+   esac
+   if [ ! "$AVAILABLE" ]; then
+    echo "Free space estimation error. Exiting" > /tmp/petget/install_status
+	. /usr/lib/gtkdialog/box_ok "$(gettext 'Free space error')" error "$(gettext 'This is a rare error that fails to report the available free space. It should be OK after a restart')"
+	clean_up
+	exit 1
+   else
+	AVAILABLE="$AVAILABLE"
+   fi
+  else
+   AVAILABLE=$(cat /tmp/pup_event_sizefreem | head -n 1 )
+  fi
+ else
+  AVAILABLE=$(cat /tmp/pup_event_sizefreem | head -n 1 )
  fi
- AVAILABLE=$(cat /tmp/pup_event_sizefreem | head -n 1 )
  if [ "$DL_PATH" -a ! "$DL_PATH" = "/root" ]; then
   if [ -f /tmp/download_pets_quietly -o -f /tmp/download_only_pet_quietly \
    -o "$(cat /var/local/petget/nd_category 2>/dev/null)" = "true" ]; then
