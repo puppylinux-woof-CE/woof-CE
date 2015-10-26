@@ -461,6 +461,7 @@ ln -s /usr/src/linux kernel_sources-$kernel_version-$package_name_suffix/lib/mod
 ln -s /usr/src/linux/include/generated/uapi/linux/version.h kernel_sources-${kernel_version}-$package_name_suffix/usr/src/linux/include/linux/version.h 
 ln -s /usr/src/linux kernel_sources-$kernel_version-$package_name_suffix/lib/modules/${kernel_srcsfs_version}$custom_suffix/source
 mksquashfs kernel_sources-$kernel_version-$package_name_suffix dist/sources/kernel_sources-$kernel_version-$package_name_suffix.sfs $COMP
+md5sum dist/sources/kernel_sources-$kernel_version-$package_name_suffix.sfs > dist/sources/kernel_sources-$kernel_version-$package_name_suffix.sfs.md5.txt
 
 # build aufs-utils userspace modules
 echo "Now to build the aufs-utils for userspace"
