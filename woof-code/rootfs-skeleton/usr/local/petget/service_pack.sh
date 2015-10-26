@@ -10,10 +10,10 @@
 
 IFCONFIG="`ifconfig | grep '^[pwe]' | grep -v 'wmaster'`"
 [ ! "$IFCONFIG" ] && exit 1 #no network connection.
-ping -4 -c 1 www.google.com
+ping -4 -c 1 www.duckduckgo.com
 if [ $? -ne 0 ];then
  sleep 1
- ping -4 -c 1 www.google.com
+ ping -4 -c 1 www.duckduckgo.com
  [ $? -ne 0 ] && exit 1 #no internet.
 fi
 
