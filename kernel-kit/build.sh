@@ -294,10 +294,13 @@ if [ $LIBRE -eq 1 ]; then
 	cd linux-$kernel_version
 fi
 
+kernel_srcsfs_version=$kernel_version
+
 echo "Resetting the minor version number"
 cp Makefile Makefile-orig
 if [ "$sublevel" = "yes" ];then
-	sed -i "s/^SUBLEVEL =.*/SUBLEVEL =/" Makefile
+	sed -i "s/^SUBLEVEL =.*/SUBLEVEL = 0/" Makefile
+	kernel_srcsfs_version=${kernel_major_version}.0
 fi
 if [ -n "$custom_suffix" ] || [ $LIBRE -eq 1 ]; then
 	sed -i "s/^EXTRAVERSION =.*/EXTRAVERSION = $custom_suffix/" Makefile
@@ -420,7 +423,7 @@ else
 fi
 echo "Creating the kernel package"
 make INSTALL_MOD_PATH=linux_kernel-$kernel_version-$package_name_suffix modules_install >> ../build.log 2>&1
-rm -f linux_kernel-$kernel_version-$package_name_suffix/lib/modules/${kernel_major_version}$custom_suffix/{build,source}
+rm -f linux_kernel-$kernel_version-$package_name_suffix/lib/modules/${kernel_srcsfs_version}$custom_suffix/{build,source}
 #(cd linux_kernel-$kernel_version-$package_name_suffix/lib/modules/; ln -s ${kernel_major_version}$custom_suffix $kernel_major_version)
 mkdir -p linux_kernel-$kernel_version-$package_name_suffix/boot
 mkdir -p linux_kernel-$kernel_version-$package_name_suffix/etc/modules
@@ -429,10 +432,10 @@ cp arch/x86/boot/bzImage linux_kernel-$kernel_version-$package_name_suffix/boot/
 BZIMAGE=`find . -type f -name bzImage`
 cp System.map linux_kernel-$kernel_version-$package_name_suffix/boot
 cp $BZIMAGE linux_kernel-$kernel_version-$package_name_suffix/boot
-cp linux_kernel-$kernel_version-$package_name_suffix/lib/modules/${kernel_major_version}$custom_suffix/{modules.builtin,modules.order} \
+cp linux_kernel-$kernel_version-$package_name_suffix/lib/modules/${kernel_srcsfs_version}$custom_suffix/{modules.builtin,modules.order} \
  linux_kernel-$kernel_version-$package_name_suffix/etc/modules/
 [ "$FD" = "1" ] || \
-rm linux_kernel-$kernel_version-$package_name_suffix/lib/modules/${kernel_major_version}$custom_suffix/modules*
+rm linux_kernel-$kernel_version-$package_name_suffix/lib/modules/${kernel_srcsfs_version}$custom_suffix/modules*
 mv linux_kernel-$kernel_version-$package_name_suffix ../dist/packages
 
 if [ "$FD" = "1" ];then #make fatdog kernel module package
@@ -452,11 +455,11 @@ cd ..
 echo "Creating a kernel sources SFS"
 mkdir -p kernel_sources-$kernel_version-$package_name_suffix/usr/src
 mv linux-$kernel_version kernel_sources-$kernel_version-$package_name_suffix/usr/src/linux
-mkdir -p kernel_sources-$kernel_version-$package_name_suffix/lib/modules/${kernel_major_version}$custom_suffix
-ln -s /usr/src/linux kernel_sources-$kernel_version-$package_name_suffix/lib/modules/${kernel_major_version}$custom_suffix/build
+mkdir -p kernel_sources-$kernel_version-$package_name_suffix/lib/modules/${kernel_srcsfs_version}$custom_suffix
+ln -s /usr/src/linux kernel_sources-$kernel_version-$package_name_suffix/lib/modules/${kernel_srcsfs_version}$custom_suffix/build
 [ ! -f kernel_sources-${kernel_version}-$package_name_suffix/usr/src/linux/include/linux/version.h ] && \
 ln -s /usr/src/linux/include/generated/uapi/linux/version.h kernel_sources-${kernel_version}-$package_name_suffix/usr/src/linux/include/linux/version.h 
-ln -s /usr/src/linux kernel_sources-$kernel_version-$package_name_suffix/lib/modules/${kernel_major_version}$custom_suffix/source
+ln -s /usr/src/linux kernel_sources-$kernel_version-$package_name_suffix/lib/modules/${kernel_srcsfs_version}$custom_suffix/source
 mksquashfs kernel_sources-$kernel_version-$package_name_suffix dist/sources/kernel_sources-$kernel_version-$package_name_suffix.sfs $COMP
 
 # build aufs-utils userspace modules
