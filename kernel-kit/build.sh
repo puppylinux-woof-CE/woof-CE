@@ -197,11 +197,7 @@ fi
 # download Aufs
 if [ ! -f dist/sources/vanilla/aufs$aufs_version-$kernel_branch-git$today.tar.bz2 ]; then
 	echo "Downloading the Aufs sources"
-	if [ $aufs_version -eq 4 ];then
-		git clone $aufs_git aufs${aufs_version}-$kernel_branch-git$today >> build.log 2>&1
-	else
-		git clone $aufs_git aufs${aufs_version}-$kernel_branch-git$today >> build.log 2>&1
-	fi
+	git clone $aufs_git aufs$aufs_version-$kernel_branch-git$today >> build.log 2>&1
 	if [ $? -ne 0 ]; then
 		echo "Error: failed to download the Aufs sources."
 		exit 1
