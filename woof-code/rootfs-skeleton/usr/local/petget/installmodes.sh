@@ -33,7 +33,7 @@ clean_up () {
  rm -f /tmp/pgks_failed_to_install 2>/dev/null
  rm -f /tmp/overall_petget_missingpkgs_patterns.txt 2>/dev/null
  rm -f /tmp/overall_missing_libs.txt 2>/dev/null
- rm -f /tmp/overall_install_deport 2>/dev/null
+ rm -f /tmp/overall_install_report 2>/dev/null
  rm -f /tmp/pkgs_to_install_bar 2>/dev/null
  rm -f /tmp/manual_pkg_download 2>/dev/null
  rm -f /tmp/ppm_reporting 2>/dev/null
@@ -87,7 +87,7 @@ report_results () {
  #MISSING_PKGS=$(cat /tmp/overall_petget_missingpkgs_patterns.txt |sort|uniq )
  MISSING_LIBS=$(cat /tmp/overall_missing_libs.txt 2>/dev/null | tr ' ' '\n' | sort | uniq )
  NOT_IN_PATH_LIBS=$(cat /tmp/overall_missing_libs_hidden.txt 2>/dev/null | tr ' ' '\n' | sort | uniq )
- cat << EOF > /tmp/overall_install_deport
+ cat << EOF > /tmp/overall_install_report
 Packages succesfully Installed or Downloaded 
 $INSTALLED_PGKS
 
@@ -170,7 +170,7 @@ $(gettext 'These needed libraries exist but are not in the library search path (
     <button>
       <label>'$(gettext 'View details')'</label>
       '"`/usr/lib/gtkdialog/xml_button-icon document_viewer`"'
-      <action>defaulttextviewer /tmp/overall_install_deport &</action>
+      <action>defaulttextviewer /tmp/overall_install_report &</action>
      </button>
      <button ok></button>
      '"`/usr/lib/gtkdialog/xml_scalegrip`"'
