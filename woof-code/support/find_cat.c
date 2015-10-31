@@ -93,12 +93,12 @@ int main(int argc, char *argv[])
 	unsigned long *pkgs[MAX_CATS];
 	char **kwds[MAX_CATS];
 	int npkgs[MAX_CATS], nkwds[MAX_CATS];
-	char *fields[11];
+	char *fields[12];
 	char name[NAME_SIZE];
 	unsigned long initcrc, crc;
 	FILE *infp, *catf;
 	char *buf, *pos, *nextpos, *iobuf;
-	int nnamecats, nkwdcats, i, j, len;
+	int nnamecats, nkwdcats, i, j, len, isdeb;
 
 	iobuf = malloc(BUF_SIZE);
 
@@ -174,68 +174,48 @@ int main(int argc, char *argv[])
 
 	while (NULL != fgets(buf, BUF_SIZE, infp)) {
 		pos = buf;
-		for (i = 0; 11 > i; ++i) {
+		fields[0] = pos;
+		for (i = 1; 12 > i; ++i) {
 			pos = strchr(pos, '|');
-			if (NULL == pos) goto next;
+			if (NULL == pos) break;
 			pos[0] = '\0';
 			++pos;
 			fields[i] = pos;
 		}
 
-		/* try the most naive method first - look for known categories */
-		len = strlen(fields[3]);
-		if (len >= 3) {
-			if (0 == strncmp(fields[3] + len - 3, "vcs", 3)) {
-				fields[3] = "Utility;development";
-				goto print;
-			} else if (0 == strncmp(fields[3] + len - 3, "doc", 3)) {
-				fields[3] = "Help";
-				goto print;
-			} else if (len >= 5) {
-				if (0 == strncmp(fields[3] + len - 5, "admin", 5)) {
-					fields[3] = "Setup";
-					goto print;
-				} else if (0 == strncmp(fields[3] + len - 5, "games", 5)) {
-					fields[3] = "Fun";
-					goto print;
-				} else if (len >= 7) {
-					if (0 == strncmp(fields[3] + len - 7, "science", 7)) {
-						fields[3] = "Fun";
-						goto print;
-					}
-				}
-			}
-		}
-
-		if ((0 == strcmp(fields[9], "ubuntu")) ||
-		    (0 == strcmp(fields[9], "trisquel")) ||
-		    (0 == strcmp(fields[9], "debian")) ||
-		    (0 == strcmp(fields[9], "raspbian"))) {
+		if ((0 == strcmp(fields[10], "ubuntu")) ||
+		    (0 == strcmp(fields[10], "trisquel")) ||
+		    (0 == strcmp(fields[10], "debian")) ||
+		    (0 == strcmp(fields[10], "devuan")) ||
+		    (0 == strcmp(fields[10], "raspbian"))) {
 			pos = strrchr(fields[5], '/');
 			if (NULL == pos)
-				strcpy(name, fields[5]);
+				strcpy(name, fields[6]);
 			else
 				strcpy(name, pos + 1);
-		} else
+			isdeb = 1;
+		} else {
 			strcpy(name, fields[1]);
+			isdeb = 0;
+		}
 
 		/* convert the package name to lowercase */
 		len = strlen(name);
 		for (j = 0; len > j; ++j) name[j] = tolower(name[j]);
-		crc = crc32(initcrc, (unsigned char *) name, len);
 
 		/* libraries are always in the BuildingBlock section */
 		if (0 == strncmp(name, "lib", 3)) {
-			fields[3] = "BuildingBlock";
+			fields[4] = "BuildingBlock";
 			goto print;
 		}
 
 		/* then, check if the package belongs to a category by name - we compare
 		 * hashes, so it's not that slow */
+		crc = crc32(initcrc, (unsigned char *) name, len);
 		for (i = 0; nnamecats > i; ++i) {
 			for (j = 0; npkgs[i] > j; ++j) {
 				if (crc == pkgs[i][j]) {
-					fields[3] = namecats[i];
+					fields[4] = namecats[i];
 					goto print;
 				}
 			}
@@ -248,23 +228,47 @@ int main(int argc, char *argv[])
 		for (i = 0; nkwdcats > i; ++i) {
 			for (j = 0; nkwds[i] > j; ++j) {
 				if (NULL != strstr(desc, kwds[i][j])) {
-					fields[3] = kwdcats[i];
+					fields[4] = kwdcats[i];
 					goto print;
 				}
 			}
 		}
 
-print:
-		fputs(fields[0], stdout);
-		putc('_', stdout);
-		fputs(fields[1], stdout);
-		putc('|', stdout);
+		/* finally, as fallback, try the most naive method first - look for
+		 * known categories */
+		if (isdeb) {
+			len = strlen(fields[4]);
+			if (len >= 3) {
+				if (0 == strncmp(fields[4] + len - 3, "vcs", 3)) {
+					fields[4] = "Utility;development";
+					goto print;
+				} else if (0 == strncmp(fields[4] + len - 3, "doc", 3)) {
+					fields[4] = "Help";
+					goto print;
+				} else if (len >= 5) {
+					if (0 == strncmp(fields[4] + len - 5, "admin", 5)) {
+						fields[4] = "Setup";
+						goto print;
+					} else if (0 == strncmp(fields[4] + len - 5, "games", 5)) {
+						fields[4] = "Fun";
+						goto print;
+					} else if (len >= 7) {
+						if (0 == strncmp(fields[4] + len - 7, "science", 7)) {
+							fields[4] = "Fun";
+							goto print;
+						}
+					}
+				}
+			}
+		}
+		fields[4] = "BuildingBlock";
 
-		for (i = 0; 10 > i; ++i) {
+print:
+		for (i = 0; 11 > i; ++i) {
 			fputs(fields[i], stdout);
 			putc('|', stdout);
 		}
-		fputs(fields[10], stdout);
+		fputs(fields[11], stdout);
 
 next:
 		;
