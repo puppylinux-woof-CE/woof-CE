@@ -256,7 +256,7 @@ int main(int argc, char *argv[])
 
 print:
 		fputs(fields[0], stdout);
-		putc('_', stdout);
+		putc('-', stdout);
 		fputs(fields[1], stdout);
 		putc('|', stdout);
 
