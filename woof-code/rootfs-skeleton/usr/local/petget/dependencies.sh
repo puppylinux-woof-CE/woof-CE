@@ -234,6 +234,25 @@ do
  fi
 done
 
+#Give priority to Slackware patches over official over salix and slacky
+if [ "$DISTRO_FILE_PREFIX" = "slacko64" -o "$DISTRO_FILE_PREFIX" = "slacko" ]; then
+ PATCHES=/tmp/petget_missing_dbentries-Packages-*lackware*-patches
+ OFFICIAL=/tmp/petget_missing_dbentries-Packages-*lackware*-official
+ SALIX=/tmp/petget_missing_dbentries-Packages-*lackware*-salix
+ SLACKY=/tmp/petget_missing_dbentries-Packages-*lackware*-slacky
+ cat ${PATCHES} | while read LINE
+ do
+  COMMON=$(echo $LINE |cut -f 2 -d '|')
+  sed -i "/|$COMMON|/d" ${OFFICIAL}
+ done
+ cat ${OFFICIAL} | while read LINE
+ do
+  COMMON=$(echo $LINE |cut -f 2 -d '|')
+  sed -i "/|$COMMON|/d" ${SALIX}
+  sed -i "/|$COMMON|/d" ${SLACKY}
+ done
+fi
+
 [ ! -f /tmp/install_quietly ] && kill $X1PID || exit 0
 
 ###END###

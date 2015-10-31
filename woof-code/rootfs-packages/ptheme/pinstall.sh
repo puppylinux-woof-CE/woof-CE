@@ -1,2 +1,8 @@
-[ -f usr/share/applications/switch2.desktop ] && rm usr/share/applications/switch2.desktop
-[ -f usr/share/applications/GTK-chtheme.desktop ] && rm usr/share/applications/GTK-chtheme.desktop
+#!/bin/sh
+for dtop in switch2 GTK-Chtheme icon_switcher; do
+    if grep -q "^NoDisplay" usr/share/applications/${dtop}.desktop; then
+        sed -i 's%NoDisplay=.*%NoDisplay=true%' usr/share/applications/${dtop}.desktop
+    else
+        echo 'NoDisplay=true' >> usr/share/applications/${dtop}.desktop
+    fi
+done
