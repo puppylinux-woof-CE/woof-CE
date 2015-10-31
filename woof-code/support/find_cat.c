@@ -174,7 +174,8 @@ int main(int argc, char *argv[])
 
 	while (NULL != fgets(buf, BUF_SIZE, infp)) {
 		pos = buf;
-		for (i = 0; 11 > i; ++i) {
+		fields[0] = pos;
+		for (i = 1; 11 > i; ++i) {
 			pos = strchr(pos, '|');
 			if (NULL == pos) goto next;
 			pos[0] = '\0';
@@ -263,11 +264,6 @@ int main(int argc, char *argv[])
 		fields[3] = "BuildingBlock";
 
 print:
-		fputs(fields[0], stdout);
-		putc('_', stdout);
-		fputs(fields[1], stdout);
-		putc('|', stdout);
-
 		for (i = 0; 10 > i; ++i) {
 			fputs(fields[i], stdout);
 			putc('|', stdout);
