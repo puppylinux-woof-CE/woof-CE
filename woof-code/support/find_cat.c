@@ -185,6 +185,7 @@ int main(int argc, char *argv[])
 		if ((0 == strcmp(fields[9], "ubuntu")) ||
 		    (0 == strcmp(fields[9], "trisquel")) ||
 		    (0 == strcmp(fields[9], "debian")) ||
+		    (0 == strcmp(fields[9], "devuan")) ||
 		    (0 == strcmp(fields[9], "raspbian"))) {
 			pos = strrchr(fields[5], '/');
 			if (NULL == pos)
