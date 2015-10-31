@@ -98,7 +98,7 @@ int main(int argc, char *argv[])
 	unsigned long initcrc, crc;
 	FILE *infp, *catf;
 	char *buf, *pos, *nextpos, *iobuf;
-	int nnamecats, nkwdcats, i, j, len;
+	int nnamecats, nkwdcats, i, j, len, isdeb;
 
 	iobuf = malloc(BUF_SIZE);
 
@@ -182,31 +182,6 @@ int main(int argc, char *argv[])
 			fields[i] = pos;
 		}
 
-		/* try the most naive method first - look for known categories */
-		len = strlen(fields[3]);
-		if (len >= 3) {
-			if (0 == strncmp(fields[3] + len - 3, "vcs", 3)) {
-				fields[3] = "Utility;development";
-				goto print;
-			} else if (0 == strncmp(fields[3] + len - 3, "doc", 3)) {
-				fields[3] = "Help";
-				goto print;
-			} else if (len >= 5) {
-				if (0 == strncmp(fields[3] + len - 5, "admin", 5)) {
-					fields[3] = "Setup";
-					goto print;
-				} else if (0 == strncmp(fields[3] + len - 5, "games", 5)) {
-					fields[3] = "Fun";
-					goto print;
-				} else if (len >= 7) {
-					if (0 == strncmp(fields[3] + len - 7, "science", 7)) {
-						fields[3] = "Fun";
-						goto print;
-					}
-				}
-			}
-		}
-
 		if ((0 == strcmp(fields[9], "ubuntu")) ||
 		    (0 == strcmp(fields[9], "trisquel")) ||
 		    (0 == strcmp(fields[9], "debian")) ||
@@ -216,13 +191,15 @@ int main(int argc, char *argv[])
 				strcpy(name, fields[5]);
 			else
 				strcpy(name, pos + 1);
-		} else
+			isdeb = 1;
+		} else {
 			strcpy(name, fields[1]);
+			isdeb = 0;
+		}
 
 		/* convert the package name to lowercase */
 		len = strlen(name);
 		for (j = 0; len > j; ++j) name[j] = tolower(name[j]);
-		crc = crc32(initcrc, (unsigned char *) name, len);
 
 		/* libraries are always in the BuildingBlock section */
 		if (0 == strncmp(name, "lib", 3)) {
@@ -232,6 +209,7 @@ int main(int argc, char *argv[])
 
 		/* then, check if the package belongs to a category by name - we compare
 		 * hashes, so it's not that slow */
+		crc = crc32(initcrc, (unsigned char *) name, len);
 		for (i = 0; nnamecats > i; ++i) {
 			for (j = 0; npkgs[i] > j; ++j) {
 				if (crc == pkgs[i][j]) {
@@ -253,6 +231,35 @@ int main(int argc, char *argv[])
 				}
 			}
 		}
+
+		/* finally, as fallback, try the most naive method first - look for
+		 * known categories */
+		if (isdeb) {
+			len = strlen(fields[3]);
+			if (len >= 3) {
+				if (0 == strncmp(fields[3] + len - 3, "vcs", 3)) {
+					fields[3] = "Utility;development";
+					goto print;
+				} else if (0 == strncmp(fields[3] + len - 3, "doc", 3)) {
+					fields[3] = "Help";
+					goto print;
+				} else if (len >= 5) {
+					if (0 == strncmp(fields[3] + len - 5, "admin", 5)) {
+						fields[3] = "Setup";
+						goto print;
+					} else if (0 == strncmp(fields[3] + len - 5, "games", 5)) {
+						fields[3] = "Fun";
+						goto print;
+					} else if (len >= 7) {
+						if (0 == strncmp(fields[3] + len - 7, "science", 7)) {
+							fields[3] = "Fun";
+							goto print;
+						}
+					}
+				}
+			}
+		}
+		fields[3] = "BuildingBlock";
 
 print:
 		fputs(fields[0], stdout);
