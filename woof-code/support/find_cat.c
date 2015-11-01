@@ -93,7 +93,7 @@ int main(int argc, char *argv[])
 	unsigned long *pkgs[MAX_CATS];
 	char **kwds[MAX_CATS];
 	int npkgs[MAX_CATS], nkwds[MAX_CATS];
-	char *fields[12];
+	char *fields[11];
 	char name[NAME_SIZE];
 	unsigned long initcrc, crc;
 	FILE *infp, *catf;
@@ -174,23 +174,22 @@ int main(int argc, char *argv[])
 
 	while (NULL != fgets(buf, BUF_SIZE, infp)) {
 		pos = buf;
-		fields[0] = pos;
-		for (i = 1; 12 > i; ++i) {
+		for (i = 0; 11 > i; ++i) {
 			pos = strchr(pos, '|');
-			if (NULL == pos) break;
+			if (NULL == pos) goto next;
 			pos[0] = '\0';
 			++pos;
 			fields[i] = pos;
 		}
 
-		if ((0 == strcmp(fields[10], "ubuntu")) ||
-		    (0 == strcmp(fields[10], "trisquel")) ||
-		    (0 == strcmp(fields[10], "debian")) ||
-		    (0 == strcmp(fields[10], "devuan")) ||
-		    (0 == strcmp(fields[10], "raspbian"))) {
+		if ((0 == strcmp(fields[9], "ubuntu")) ||
+		    (0 == strcmp(fields[9], "trisquel")) ||
+		    (0 == strcmp(fields[9], "debian")) ||
+		    (0 == strcmp(fields[9], "devuan")) ||
+		    (0 == strcmp(fields[9], "raspbian"))) {
 			pos = strrchr(fields[5], '/');
 			if (NULL == pos)
-				strcpy(name, fields[6]);
+				strcpy(name, fields[5]);
 			else
 				strcpy(name, pos + 1);
 			isdeb = 1;
@@ -205,7 +204,7 @@ int main(int argc, char *argv[])
 
 		/* libraries are always in the BuildingBlock section */
 		if (0 == strncmp(name, "lib", 3)) {
-			fields[4] = "BuildingBlock";
+			fields[3] = "BuildingBlock";
 			goto print;
 		}
 
@@ -215,7 +214,7 @@ int main(int argc, char *argv[])
 		for (i = 0; nnamecats > i; ++i) {
 			for (j = 0; npkgs[i] > j; ++j) {
 				if (crc == pkgs[i][j]) {
-					fields[4] = namecats[i];
+					fields[3] = namecats[i];
 					goto print;
 				}
 			}
@@ -228,7 +227,7 @@ int main(int argc, char *argv[])
 		for (i = 0; nkwdcats > i; ++i) {
 			for (j = 0; nkwds[i] > j; ++j) {
 				if (NULL != strstr(desc, kwds[i][j])) {
-					fields[4] = kwdcats[i];
+					fields[3] = kwdcats[i];
 					goto print;
 				}
 			}
@@ -237,38 +236,50 @@ int main(int argc, char *argv[])
 		/* finally, as fallback, try the most naive method first - look for
 		 * known categories */
 		if (isdeb) {
-			len = strlen(fields[4]);
+			len = strlen(fields[3]);
 			if (len >= 3) {
-				if (0 == strncmp(fields[4] + len - 3, "vcs", 3)) {
-					fields[4] = "Utility;development";
+				if (0 == strncmp(fields[3] + len - 3, "vcs", 3)) {
+					fields[3] = "Utility;development";
 					goto print;
-				} else if (0 == strncmp(fields[4] + len - 3, "doc", 3)) {
-					fields[4] = "Help";
+				} else if (0 == strncmp(fields[3] + len - 3, "doc", 3)) {
+					fields[3] = "Help";
 					goto print;
 				} else if (len >= 5) {
-					if (0 == strncmp(fields[4] + len - 5, "admin", 5)) {
-						fields[4] = "Setup";
+					if (0 == strncmp(fields[3] + len - 5, "admin", 5)) {
+						fields[3] = "Setup";
 						goto print;
-					} else if (0 == strncmp(fields[4] + len - 5, "games", 5)) {
-						fields[4] = "Fun";
+					} else if (0 == strncmp(fields[3] + len - 5, "games", 5)) {
+						fields[3] = "Fun";
 						goto print;
 					} else if (len >= 7) {
-						if (0 == strncmp(fields[4] + len - 7, "science", 7)) {
-							fields[4] = "Fun";
+						if (0 == strncmp(fields[3] + len - 7, "science", 7)) {
+							fields[3] = "Fun";
 							goto print;
 						}
 					}
 				}
 			}
 		}
-		fields[4] = "BuildingBlock";
+		fields[3] = "BuildingBlock";
 
 print:
-		for (i = 0; 11 > i; ++i) {
+		fputs(fields[0], stdout);
+		if ((0 == strcmp(fields[9], "ubuntu")) ||
+		    (0 == strcmp(fields[9], "trisquel")) ||
+		    (0 == strcmp(fields[9], "debian")) ||
+		    (0 == strcmp(fields[9], "devuan")) ||
+		    (0 == strcmp(fields[9], "raspbian")))
+			putc('_', stdout);
+		else
+			putc('-', stdout);
+		fputs(fields[1], stdout);
+		putc('|', stdout);
+
+		for (i = 0; 10 > i; ++i) {
 			fputs(fields[i], stdout);
 			putc('|', stdout);
 		}
-		fputs(fields[11], stdout);
+		fputs(fields[10], stdout);
 
 next:
 		;
