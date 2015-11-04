@@ -132,7 +132,6 @@ sleep 1 # reading time
 
 ##### ICONS
 echo -n "${PTHEME_ICONS}" > etc/desktop_icon_theme
-export ${PTHEME_ICONS}
 echo "icons: ${PTHEME_ICONS}"
 sleep 1 # reading time
 
