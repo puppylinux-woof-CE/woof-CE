@@ -111,7 +111,7 @@ sleep 1 # reading time
 
 
 ##### WALLPAPER
-ext="${my_wall##*.}"
+ext="${PTHEME_WALL##*.}"
 mv -f usr/share/backgrounds/"${PTHEME_WALL}" usr/share/backgrounds/default.${ext}
 echo "wallpaper: ${PTHEME_WALL}"
 sleep 1 # reading time
