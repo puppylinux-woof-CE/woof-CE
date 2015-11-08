@@ -390,7 +390,7 @@ echo $1 > /tmp/petget/current-repo-triad
 chmod 777 /tmp/filterversion.sh
 
 #run the traditional ui if set in config
-if [ "$(</var/local/petget/ui_choice 2>/dev/null)" = "Classic" ]; then
+if [ "$(cat /var/local/petget/ui_choice 2>/dev/null)" = "Classic" ]; then
 	. /usr/local/petget/ui_Classic
 	exit 0
 fi
