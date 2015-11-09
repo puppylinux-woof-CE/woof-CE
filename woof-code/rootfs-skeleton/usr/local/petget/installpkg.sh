@@ -132,7 +132,7 @@ if [ "`grep "$PTN1" /root/.packages/user-installed-packages`" != "" ];then
   . dialog ${DISPTIME1} --msgbox "$(gettext 'This package is already installed. Cannot install it twice:') ${DLPKG_NAME}" 0 0
  else
   LANG=$LANG_USER
-   if [ -f /tmp/install_quietly ]; then
+   if [ ! -f /tmp/install_quietly ]; then
     /usr/lib/gtkdialog/box_ok "$(gettext 'Puppy package manager')" error "$(gettext 'This package is already installed. Cannot install it twice:')" "<i>${DLPKG_NAME}</i>" & 
     XPID=$!
     sleep 3
