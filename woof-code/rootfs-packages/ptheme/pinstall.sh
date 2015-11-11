@@ -68,6 +68,7 @@ small) rm root/.jwm/menuheights;;
 normal) echo "MENHEIGHT=24" > root/.jwm/menuheights;;
 large) echo "MENHEIGHT=32" > root/.jwm/menuheights;;
 huge) echo "MENHEIGHT=40" > root/.jwm/menuheights;;
+*) echo "MENHEIGHT=24" > root/.jwm/menuheights;; # default
 esac
 echo "jwm size: ${PTHEME_JWM_SIZE}"
 
@@ -110,9 +111,9 @@ sleep 1 # reading time
 
 
 
-##### WALLPAPER
+##### WALLPAPER #copy it as mv messes the themes
 ext="${PTHEME_WALL##*.}"
-mv -f usr/share/backgrounds/"${PTHEME_WALL}" usr/share/backgrounds/default.${ext}
+cp -af usr/share/backgrounds/"${PTHEME_WALL}" usr/share/backgrounds/default.${ext}
 echo "wallpaper: ${PTHEME_WALL}"
 sleep 1 # reading time
 
