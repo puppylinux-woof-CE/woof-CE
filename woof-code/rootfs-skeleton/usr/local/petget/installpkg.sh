@@ -129,16 +129,19 @@ if [ "`grep "$PTN1" /root/.packages/user-installed-packages`" != "" ];then
  if [ ! $DISPLAY ];then
   [ -f /tmp/install_quietly ] && DISPTIME1="--timeout 3" || DISPTIME1=''
   LANG=$LANG_USER
-  . dialog ${DISPTIME1} --msgbox "$(gettext 'This package is already installed. Cannot install it twice:') ${DLPKG_NAME}" 0 0
+  dialog ${DISPTIME1} --msgbox "$(gettext 'This package is already installed. Cannot install it twice:') ${DLPKG_NAME}" 0 0
  else
   LANG=$LANG_USER
-   if [ -f /tmp/install_quietly ]; then
-    /usr/lib/gtkdialog/box_ok "$(gettext 'Puppy package manager')" error "$(gettext 'This package is already installed. Cannot install it twice:')" "<i>${DLPKG_NAME}</i>" & 
-    XPID=$!
-    sleep 3
-    pkill -P $XPID
-   fi
-  echo ${DLPKG_NAME} >> /tmp/pgks_failed_to_install_forced
+  if [ "$(</var/local/petget/ui_choice)" = "Classic" -o -f /tmp/install_classic ]; then
+   /usr/lib/gtkdialog/box_ok "$(gettext 'Puppy package manager')" error "$(gettext 'This package is already installed. Cannot install it twice:')" "<i>${DLPKG_NAME}</i>"
+   [ -f /tmp/install_classic ] && echo ${DLPKG_NAME} >> /tmp/pgks_failed_to_install_forced
+  else
+   /usr/lib/gtkdialog/box_ok "$(gettext 'Puppy package manager')" error "$(gettext 'This package is already installed. Cannot install it twice:')" "<i>${DLPKG_NAME}</i>" & 
+   XPID=$!
+   sleep 3
+   pkill -P $XPID
+   echo ${DLPKG_NAME} >> /tmp/pgks_failed_to_install_forced
+  fi
  fi
  exit 1
 fi

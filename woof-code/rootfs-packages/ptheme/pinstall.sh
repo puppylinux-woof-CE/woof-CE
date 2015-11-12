@@ -68,6 +68,7 @@ small) rm root/.jwm/menuheights;;
 normal) echo "MENHEIGHT=24" > root/.jwm/menuheights;;
 large) echo "MENHEIGHT=32" > root/.jwm/menuheights;;
 huge) echo "MENHEIGHT=40" > root/.jwm/menuheights;;
+*) echo "MENHEIGHT=24" > root/.jwm/menuheights;; # default
 esac
 echo "jwm size: ${PTHEME_JWM_SIZE}"
 
@@ -110,9 +111,9 @@ sleep 1 # reading time
 
 
 
-##### WALLPAPER
+##### WALLPAPER #copy it as mv messes the themes
 ext="${PTHEME_WALL##*.}"
-mv -f usr/share/backgrounds/"${PTHEME_WALL}" usr/share/backgrounds/default.${ext}
+cp -af usr/share/backgrounds/"${PTHEME_WALL}" usr/share/backgrounds/default.${ext}
 echo "wallpaper: ${PTHEME_WALL}"
 sleep 1 # reading time
 
@@ -157,6 +158,7 @@ JWMRCVER=$(grep JWMRC_VERSION etc/xdg/templates/_root_.jwmrc | cut -f 4 -d '_' |
 UPDATEVER=$(grep JWMRC_VERSION etc/rc.d/rc.update | cut -f 3 -d '_' | cut -f 1 -d ' ')
 [ "$JWMRCVER" != "$UPDATEVER" ] && sed -i "s/$UPDATEVER/$JWMRCVER/" etc/rc.d/rc.update
 
+sync
 echo "done"
 echo
 echo

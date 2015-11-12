@@ -390,7 +390,7 @@ echo $1 > /tmp/petget/current-repo-triad
 chmod 777 /tmp/filterversion.sh
 
 #run the traditional ui if set in config
-if [ "$(</var/local/petget/ui_choice 2>/dev/null)" = "Classic" ]; then
+if [ "$(cat /var/local/petget/ui_choice 2>/dev/null)" = "Classic" ]; then
 	. /usr/local/petget/ui_Classic
 	exit 0
 fi
@@ -623,7 +623,7 @@ S='<window title="'$(gettext 'Puppy Package Manager v')''${VERSION}'" width-requ
               <item stock="gtk-Internet">'$(gettext 'Internet')'|Internet</item>
               <item stock="gtk-Multimedia">'$(gettext 'Multimedia')'|Multimedia</item>
               <item stock="gtk-Fun">'$(gettext 'Fun')'|Fun</item>'
-              [ "$(</var/local/petget/bb_category 2>/dev/null)" = "true" ] && S=$S'<item stock="gtk-BB">'$(gettext 'BuildingBlock')'|BuildingBlock</item>'
+              [ "$(cat /var/local/petget/bb_category 2>/dev/null)" = "true" ] && S=$S'<item stock="gtk-BB">'$(gettext 'BuildingBlock')'|BuildingBlock</item>'
               S=$S'<width>140</width><height>112</height>
               <action signal="changed">/usr/local/petget/filterpkgs.sh $CATEGORY</action>
               <action signal="changed">refresh:TREE1</action>
