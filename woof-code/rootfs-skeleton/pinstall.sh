@@ -52,6 +52,25 @@ fi
 if [ ! -e usr/share/doc/release-${cutDISTRONAME}-${RIGHTVER}.htm ];then
  ln -s release-${cutDISTRONAME}-${DISTRO_VERSION}.htm usr/share/doc/release-${cutDISTRONAME}-${RIGHTVER}.htm
 fi
+# write extra stuff for release notes
+. etc/DISTRO_SPECS
+if [ -f ../../support/release_extras/"${DISTRO_FILE_PREFIX}.htm" ];then
+	echo "Customising ${cutDISTRONAME}-${DISTRO_VERSION}.htm"
+	[ -f /tmp/release.htm ] && rm /tmp/release.*m
+	ctrl=0
+	while read htmline;do
+		if [ $ctrl -lt 45 ];then # must be updated if the skeleton released notes are altered
+			echo  "$htmline" >> /tmp/release.htm
+		else
+			echo  "$htmline" >> /tmp/release.bottom
+		fi
+		ctrl=$(($ctrl + 1))
+	done < usr/share/doc/release-${cutDISTRONAME}-${DISTRO_VERSION}.htm
+	cat "../../support/release_extras/${DISTRO_FILE_PREFIX}.htm" >> /tmp/release.htm
+	sed -i "s/DISTRO_VERSION/$DISTRO_VERSION/g" /tmp/release.htm
+	cat /tmp/release.bottom >> /tmp/release.htm
+	cp -af /tmp/release.htm usr/share/doc/release-${cutDISTRONAME}-${DISTRO_VERSION}.htm
+fi
 
 #ln -snf release-${cutDISTRONAME}-${DISTRO_VERSION}.htm usr/share/doc/release-notes.htm #120225
 
