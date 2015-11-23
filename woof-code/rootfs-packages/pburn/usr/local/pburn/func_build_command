@@ -1,0 +1,535 @@
+#!/bin/sh
+export TEXTDOMAIN=pburn
+
+#this script builds the burn command.
+[ "$2" = "-quick" ] && QUICK_BUILD=true #the advanced tab runs this script each sec. some code are too slow for that
+[ ! "$BURN" ] && BURN="`cat $WORKDIR/BURN`"
+[ "$MEDIATYPE" = "Blu-ray" ] && MEDIATYPE="DVD" #growisofs supports both
+if [ "$DUMMY_BURN" = "true" ]; then
+	CDRECORD="$CDRECORD -dummy"
+	GROWISOFS='growisofs -use-the-force-luke=dummy'
+else
+	#CDRECORD is already set
+	GROWISOFS='growisofs'
+fi
+TMP=`readlink -f $INDRIVE > /dev/null 2>&1`; [ "$TMP" ] && INDRIVE=$TMP #/dev/cdrom is a link to the actual driver
+TMP=`readlink -f $BURNDEV > /dev/null 2>&1`; [ "$TMP" ] && BURNDEV=$TMP
+
+echo -n > $WORKDIR/exec
+echo -n > $WORKDIR/exec_preburn
+#set nice
+case $CPU_PRIORITY in
+	low)	PRIORITY="nice -n 18 ";;
+	normal)	PRIORITY="";;
+	high)	PRIORITY="nice -n -18 ";;
+esac
+############################   COPY   ###############################
+if [ $BURN = copy ]; then
+	INDRIVE="${INDRIVE%%|*}"
+	if [ "$ON_THE_FLY" = "false" ]; then
+		echo "TXT1=\"$(gettext 'Please insert the disk you want to copy in') $INDRIVE. $(gettext 'Since you are using the same drive for both read and write this will be done in two stages.')\"; FRAME=\"$(gettext 'Copy data disc')\"; IMG=\"cdrom\""'; .'" $APPDIR/box > /dev/null 2>&1" >> $WORKDIR/exec_preburn
+		echo "$PRIORITY""dd if=$INDRIVE of=\"$OUTDIR/Pburn.iso\"" >> $WORKDIR/exec_preburn
+		[ "$INDRIVE" = "$BURNDEV" ] && echo "eject $BURNDEV" >> $WORKDIR/exec_preburn
+		echo "TXT1=\"$(gettext 'Insert a blank disc in') $BURNDEV\"; FRAME=\"$(gettext 'Copy data disc')\"; IMG=\"cdrom\"; "'.'" $APPDIR/box > /dev/null 2>&1" >> $WORKDIR/exec_preburn
+		#---
+		ISOFILE="$OUTDIR"/Pburn.iso
+		BURNMULTI=false
+		[ "$MEDIATYPE" = "DVD" ] && MEDIATYPE=DVD_ISO
+		echo -e "\c$PRIORITY" >> $WORKDIR/exec
+		COPY_BURN_ISO=true
+	else
+		case $MEDIATYPE in
+			CD)		if [ "$CDSPEED" = "Auto" ]; then SPEED=""; else SPEED="speed=$CDSPEED"; fi;;
+			DVD)	if [ "$DVDSPEED" = "Auto" ]; then SPEED=""; else SPEED="speed=$DVDSPEED"; fi;;
+		esac
+	 	echo "$PRIORITY""$CDRECORD -v dev=$BURNDEV fs=8m driveropts=burnfree $SPEED -isosize $INDRIVE" >> $WORKDIR/exec 
+	 	COPY_BURN_ISO=false
+	fi
+	echo "$COPY_BURN_ISO" > $WORKDIR/COPY_BURN_ISO
+fi
+
+############################   COPY AUDIO  ###############################
+if [ $BURN = copy_audio ]; then
+	INDRIVE="${INDRIVE%%|*}"
+	if [ "$CDSPEED" = "Auto" ]; then SPEED=""; else SPEED="speed=$CDSPEED"; fi
+	if [ -s $WORKDIR/cdtext ]; then CDTEXT="-useinfo -text -raw96r"; else CDTEXT="-raw96r"; fi
+	if [ "$ON_THE_FLY" = "false" ]; then
+		echo "cd \"$OUTDIR\"" >> $WORKDIR/exec_preburn
+		echo "TXT1=\"$(gettext 'Please insert the disk you want to copy in') $INDRIVE. $(gettext 'Since you are using the same drive for both read and write this will be done in two stages.')\"; FRAME=\"$(gettext 'Copy data disc')\"; IMG=\"cdrom\""'; .'" $APPDIR/box > /dev/null 2>&1" >> $WORKDIR/exec_preburn
+		if [ -s $WORKDIR/cdtext ]; then
+			echo "$PRIORITY""$CDDA2WAV dev=$INDRIVE -no-infofile -B -Oraw pburn"  >> $WORKDIR/exec_preburn
+		else
+			echo "$PRIORITY""$CDDA2WAV dev=$INDRIVE -vall -B -Oraw pburn" >> $WORKDIR/exec_preburn
+			echo "rm -f /"$OUTDIR/"/pburn*.inf" >> $WORKDIR/exec_preburn
+		fi
+		[ "$INDRIVE" = "$BURNDEV" ] && echo "eject $BURNDEV" >> $WORKDIR/exec_preburn
+		echo "TXT1=\"$(gettext 'Insert a blank disc in') $BURNDEV\"; FRAME=\"$(gettext 'Copy data disc')\"; IMG=\"cdrom\"; "'.'" $APPDIR/box > /dev/null 2>&1" >> $WORKDIR/exec_preburn
+		echo "cd \"$OUTDIR\"" >> $WORKDIR/exec
+		echo "$PRIORITY""$CDRECORD dev=$BURNDEV driveropts=burnfree -v $SPEED -shorttrack -audio $CDTEXT pburn*.raw" >> $WORKDIR/exec
+	else
+		echo "$PRIORITY""$CDDA2WAV dev=$INDRIVE -no-infofile -B -Oraw - | $CDRECORD dev=$BURNDEV -v fs=32m driveropts=burnfree $SPEED -pad -audio $CDTEXT $OUTDIR/pburn*.inf" >> $WORKDIR/exec
+	fi
+fi
+
+############################   COPY VIDEO  ###############################
+if [ $BURN = copy_video ]; then
+	if ! type dvdauthor >/dev/null; then TXT1="$(gettext '<b>dvdauthor</b> must be installed to support Video DVD.')"; . $APPDIR/box; exit; fi
+	INDRIVE="${INDRIVE%%|*}"
+	if [ "$COPY_VIDEO_MIRROR" = "true" ]; then #copy complete filesystem on disc
+		#vobcopy
+		if ! type vobcopy >/dev/null; then TXT1="$(gettext '<b>vobcopy</b> must be installed to copy Video DVD.')"; . $APPDIR/box; exit; fi
+		echo "$PRIORITY""vobcopy -i $INDRIVE -m -o \"$OUTDIR/pburn-DVD\" -v -l -f" >> $WORKDIR/exec_preburn
+	else
+		if ! type vamps >/dev/null; then TXT1="$(gettext '<b>vamps</b> must be installed to shrink Video DVD.')"; . $APPDIR/box; exit; fi
+		if [ "$DO_VOBCOPY" = "true" ]; then
+			echo "$PRIORITY""vobcopy -i $INDRIVE -n $COPY_VIDEO_TITLE -t the_video_you_wanted -o \"$OUTDIR\" -v -l -f" >> $WORKDIR/exec_preburn #use the_video_you_wanted because vobcopy use this name if it fails
+			echo "mv -f \"$OUTDIR/the_video_you_wanted$COPY_VIDEO_TITLE.vob\" \"$OUTDIR/$COPY_VIDEO_NAME$COPY_VIDEO_TITLE.vob\"" >> $WORKDIR/exec_preburn
+			#shrink if necessary
+			COPY_VIDEO_SUBTITLE=$(($COPY_VIDEO_SUBTITLE+1)) #vamps first subtitle streams is 1 (commonly 0)
+			if ! type vamps > /dev/null 2>&1; then TXT1="$(gettext '<b>vamps</b> must be installed to shrink Video DVD.')"; . "$APPDIR"/box; exit; fi
+			echo "VIDEO_SIZE=\`du \"$OUTDIR/$COPY_VIDEO_NAME$COPY_VIDEO_TITLE.vob\" | cut -f 1\`" >> $WORKDIR/exec_preburn
+			echo "SHRINK_FACTOR=\`echo \"(( \$VIDEO_SIZE / 4222000 ))\" | bc -l\`" >> $WORKDIR/exec_preburn
+			echo "if [ \"\`echo \"\$SHRINK_FACTOR\" | cut -f 1 -d '.'\`\" = \"1\" ]; then" >> $WORKDIR/exec_preburn
+			echo "	echo -e \"\n\nvamps -e \$SHRINK_FACTOR -a $COPY_VIDEO_AUDIOSTREAM -s $COPY_VIDEO_SUBTITLE < \"$OUTDIR/$COPY_VIDEO_NAME$COPY_VIDEO_TITLE.vob\" > \"$OUTDIR/$COPY_VIDEO_NAME$COPY_VIDEO_TITLE-shrank.vob\"\"" >> $WORKDIR/exec_preburn
+			echo "	echo -e \"Now shrinking...Time will pass.\n\"" >> $WORKDIR/exec_preburn
+			echo "	$PRIORITY""vamps -e \$SHRINK_FACTOR -a $COPY_VIDEO_AUDIOSTREAM -s $COPY_VIDEO_SUBTITLE < \"$OUTDIR/$COPY_VIDEO_NAME$COPY_VIDEO_TITLE.vob\" > \"$OUTDIR/$COPY_VIDEO_NAME$COPY_VIDEO_TITLE-shrank.vob\"" >> $WORKDIR/exec_preburn
+			echo "	rm \"$OUTDIR/$COPY_VIDEO_NAME$COPY_VIDEO_TITLE.vob\"" >> $WORKDIR/exec_preburn
+			echo "else" >> $WORKDIR/exec_preburn
+			echo "	mv -f \"$OUTDIR/$COPY_VIDEO_NAME$COPY_VIDEO_TITLE.vob\" \"$OUTDIR/$COPY_VIDEO_NAME$COPY_VIDEO_TITLE-shrank.vob\"" >> $WORKDIR/exec_preburn
+			echo "fi" >> $WORKDIR/exec_preburn
+		fi
+		#encode settings
+		if [ $PAL = true ]; then TV=pal; else TV=ntsc; fi
+		if [ $ASPECT43 = true ]; then RATIO="4:3"; else RATIO="16:9"; fi
+		###
+		echo "export VIDEO_FORMAT=$TV" >> $WORKDIR/exec_preburn #for dvdauthor
+		echo "$PRIORITY""ffmpeg -i \"$OUTDIR/$COPY_VIDEO_NAME$COPY_VIDEO_TITLE-shrank.vob\" -acodec mp2 -vcodec copy -target $TV-dvd - | dvdauthor -o \"$OUTDIR/pburn-DVD\" -t --video=$TV+$RATIO --audio=mp2 -" >> $WORKDIR/exec_preburn
+#		echo "$PRIORITY""dvdauthor -o \"$OUTDIR/pburn-DVD\" -t \"$OUTDIR/$COPY_VIDEO_NAME$COPY_VIDEO_TITLE-shrank.vob\"" >> $WORKDIR/exec_preburn
+		echo "$PRIORITY""dvdauthor -o \"$OUTDIR/pburn-DVD\" -T" >> $WORKDIR/exec_preburn
+	fi
+	#eject
+	if [ "$INDRIVE" = "$BURNDEV" ]; then
+		echo "eject $BURNDEV" >> $WORKDIR/exec_preburn
+		echo "TXT1=\"<b>$(gettext 'Insert a blank disc in') ${BURNDEV}.</b>\"; FRAME=\"$(gettext 'Copy/shrink video DVD')\"; IMG=\"cdrom\"; "'.'" $APPDIR/box > /dev/null 2>&1" >> $WORKDIR/exec_preburn
+	fi
+	#burn
+	if [ "$DVDSPEED" = "Auto" ]; then SPEED=""; else SPEED="-speed=$DVDSPEED"; fi
+	echo "$GROWISOFS -use-the-force-luke=notray -use-the-force-luke=tty -dvd-compat $SPEED -Z $BURNDEV -dvd-video \"$OUTDIR/pburn-DVD\""  >> $WORKDIR/exec
+fi
+
+############################   BLANK   ###############################
+if [ $BURN = blank ]; then
+	if [ "$MEDIATYPE" = "CD" ];then
+		if [ "$COMPLETE" = "true" ]; then COMMAND="all"; else COMMAND="fast"; fi
+		case $BURNDEV in \/dev\/hd*) DEV="ATAPI:$BURNDEV";; *) DEV="$BURNDEV";; esac #use atapi in older kernels
+		if [ "$CDSPEED" = "Auto" ]; then SPEED=""; else SPEED="speed=$CDSPEED"; fi
+		echo "$PRIORITY""$CDRECORD blank=$COMMAND -v $SPEED dev=$DEV driveropts=burnfree" >> $WORKDIR/exec
+	else #dvd / Blu-Ray
+		if [ "$DVDSPEED" = "Auto" ]; then SPEED=""; else SPEED="-speed=$DVDSPEED"; fi
+		if [ "$COMPLETE" = "true" ]; then
+			echo "$GROWISOFS -use-the-force-luke=notray -use-the-force-luke=tty $SPEED -Z $BURNDEV=/dev/zero" >> $WORKDIR/exec
+		else
+			case "$(<$WORKDIR/MEDIATYPE_FULL)" in
+				'DVD-rom (DVD-RW)')	echo "$PRIORITY""dvd+rw-format -force $BURNDEV" >> $WORKDIR/exec;;
+				'DVD-rom (DVD+RW)')	echo -e "$PRIORITY""dvd+rw-format -force $BURNDEV\n#""$PRIORITY""dd if=/dev/zero of=$BURNDEV bs=32k count=32 #" >> $WORKDIR/exec;; #DVD+RW works with quick blanking using dd - not always
+				'Blu-ray (BD-RE)')	echo "$PRIORITY""dvd+rw-format -force $BURNDEV" >> $WORKDIR/exec;;
+			esac
+		fi
+	fi
+fi
+
+############################   AUDIO   ###############################
+if [ $BURN = audio ]; then
+	if ! type ffmpeg >/dev/null; then TXT1="<b>ffmpeg</b> $(gettext 'must be installed to burn Audio and convert Video.')"; . $APPDIR/box; exit; fi
+	######   ENCODING   ######
+	AUDIODIR="`echo "$OUTDIR/pburn_tmp/" | sed -e "s/\/\//\//g"`" #in case //
+	rm -fr "$AUDIODIR" > /dev/null 2>&1 #in case something there
+	mkdir "$AUDIODIR" > /dev/null 2>&1
+	ls -1 "$TMPDIR" | grep -iE "$AUDIO_FORMATS" > $WORKDIR/tmp
+	echo "cd \"$AUDIODIR\"" >> $WORKDIR/exec_preburn
+	cd "$AUDIODIR" #audiodir
+	while read I; do
+		TMP=`echo "$I" | sed "s/ /_/g" | tr -d ')' | tr -d '(' | tr -d "'" | tr -d '\`' | tr -d '&' | tr -d '#' | tr -d ','` #remove ()'&` .... #`
+		ln -s "${TMPDIR}/${I}" "$AUDIODIR/$TMP" #move all files to the tempdir
+		BASENAME="`basename "$TMP" | sed -e 's/\.[^\.]*$//'`"
+		#Normalize
+		if [ $NORMALIZE = true ]; then
+			if [ "$QUICK_BUILD" = "true" ]; then #the advanced tab runs this script each sec. This code is too slow for that
+				ffmpeg -i "${AUDIODIR}${TMP}" -af volumedetect -t 60 -f null - 2> $WORKDIR/tmp_normalize
+				NORMALIZE_LEVEL="`grep -F max_volume $WORKDIR/tmp_normalize | cut -d: -f2 | cut -d' ' -f2 | cut -d'-' -f2`"
+				[ "$NORMALIZE_LEVEL" ] && NORMALIZE_TXT="-af \"volume=${NORMALIZE_LEVEL}dB\""
+			else
+				NORMALIZE_TXT="-af \"volume=0.0dB\""
+			fi
+		fi
+		#---
+		echo "$PRIORITY""ffmpeg -i $TMP -ac 2 -ar 44100 $NORMALIZE_TXT -y $BASENAME"'_pburn.wav' >> $WORKDIR/exec_preburn
+	done < $WORKDIR/tmp
+	
+	######   CD-TEXT   ######
+	MODE="-tao "
+	CDTEXT=""
+	if [ "$BURNRAW" = "true" ]; then MODE="-raw96r "; fi
+	if [ "$DISC_AT_ONCE" = "true" ]; then MODE="-dao "; fi
+	if [ "$CDSPEED" = "Auto" ]; then SPEED=""; else SPEED="speed=$CDSPEED "; fi
+	if [ "$CHK_CDTEXT" = "true" ]; then
+		if [ "$MODE" = "-tao " ]; then MODE="-dao "; fi #cd-text can't use -tao
+		CDTEXT="-useinfo -text "
+		echo "$CDTEXT_INFO" | grep -v "^$" > $WORKDIR/tmp
+		COUNT=0
+		while read I; do
+			COUNT=$((COUNT+1)); NR=$COUNT
+			[ ${#COUNT} -eq 1 ] && NR="0$COUNT"
+			#find filename
+			FILE="`ls -1 "$AUDIODIR" | grep "$NR"_ |  sed -e 's/\.[^\.]*$//'`.wav"
+			#write .inf file for cd-text information
+			I=${I/ - /-}
+			TITLE=`echo "$I" | cut -d '-' -f 2`
+			PERFORMER="${I%%-*}"
+			echo "echo \"Albumtitle=	'$CDTEXT_ALBUM_TITLE'
+Albumperformer=	'$CDTEXT_ALBUM_ARTIST'
+Performer='$PERFORMER'
+Tracktitle=	'$TITLE'\" > $AUDIODIR$FILE" | sed "s%.wav%.inf%g" > $WORKDIR/tmp2
+			chmod 700 $WORKDIR/tmp2
+			. $WORKDIR/tmp2
+		done < $WORKDIR/tmp
+	fi
+	echo "$PRIORITY""$CDRECORD -v dev=$BURNDEV driveropts=burnfree -pad $MODE$SPEED$CDTEXT$OUTDIR/pburn_tmp/*_pburn.wav" >> $WORKDIR/exec
+fi
+
+###########################   VIDEO_TS  ###############################
+if [ $BURN = video_ts ]; then
+	if ! type dvdauthor >/dev/null; then TXT1="$(gettext '<b>dvdauthor</b> must be installed to support Video DVD.')"; . $APPDIR/box; exit; fi
+	if [ "$DVDSPEED" = "Auto" ]; then SPEED=""; else SPEED="-speed=$DVDSPEED"; fi
+	TMP="`cut -d'=' -f2 $WORKDIR/graft_points | head -n1`" #don't use graftpoints. point directly on root dir
+	TMP1="`dirname "$TMP"`"
+	echo "$PRIORITY""$GROWISOFS -use-the-force-luke=notray -use-the-force-luke=tty -dvd-compat -Z $BURNDEV $SPEED -dvd-video \"$TMP1\"" >> $WORKDIR/exec
+fi
+
+############################   VIDEO   ###############################
+if [ $BURN = video ]; then
+	if ! type dvdauthor >/dev/null; then TXT1="$(gettext '<b>dvdauthor</b> must be installed to support Video DVD.')"; . $APPDIR/box; exit; fi
+	if ! type ffmpeg >/dev/null; then TXT1="$(gettext '<b>ffmpeg</b> must be installed to burn Audio and convert Video.')"; . $APPDIR/box; exit; fi
+	if [ $MEDIATYPE_VIDEO = VCD ]; then MEDIATYPE_VIDEO=VCD2; fi # vcdimager compatible
+	######   ENCODING   ######
+	# encode tracks to vob
+	VIDEODIR="`echo "$OUTDIR/pburn_tmp/" | sed -e "s/\/\//\//g"`" #in case //
+	rm -fr "$VIDEODIR" > /dev/null 2>&1 #in case there's something there
+	mkdir "$VIDEODIR" > /dev/null 2>&1
+	# move all files to the tempdir
+	ls -1 "$TMPDIR" | grep -iE "$VIDEO_FORMATS|$IMAGE_FORMATS" > $WORKDIR/tmp
+	while read I; do
+		ln -s "${TMPDIR}/${I}" "$VIDEODIR"
+	done < $WORKDIR/tmp
+	echo "cd \"$VIDEODIR\"" >> $WORKDIR/exec_preburn
+	cd "$VIDEODIR" #audiodir
+	# convert spaces in filename with _ 
+	TMP=`ls`
+	TMP=`echo "$TMP" | sed -e "s/ /{ð®SSSđþ}/g"` 
+	for I in $TMP; do
+		FILE_OLD=`echo "$I" | sed -e "s/{ð®SSSđþ}/ /g"`
+		FILE_NEW=`echo "$I" | sed -e "s/{ð®SSSđþ}/_/g" | sed -e "s/(//g" | sed -e "s/)//g" | sed -e "s%'%%g" | sed -e "s%&%%g"` #remove ()'&
+		mv "$FILE_OLD" $FILE_NEW
+	done
+	#encode settings
+	if [ $PAL = true ]; then
+		case $MEDIATYPE_VIDEO in
+			DVD)	TV="pal-dvd";;
+			VCD2)	TV="pal-vcd";;
+			SVCD)	TV="pal-svcd";;
+		esac
+	else
+		case $MEDIATYPE_VIDEO in
+			DVD)	TV="ntsc-dvd";;
+			VCD2)	TV="ntsc-vcd";;
+			SVCD)	TV="ntsc-svcd";;
+		esac
+	fi
+	if [ $ASPECT43 = true ]; then RATIO="4:3"; else RATIO="16:9"; fi
+	if [ "$PAUSE_VIDEO" ]; then PAUSE="pause=\"$PAUSE_VIDEO\""; else PAUSE=""; fi
+	echo -n > $WORKDIR/dvdauthor #xml-code
+	echo "<dvdauthor>
+ <vmgm />
+ <titleset>
+  <titles>
+   <pgc>" > $WORKDIR/dvdauthor
+	#convert format to vob and add to xml-file
+	if [ "`cat $WORKDIR/CHK_SLIDESHOW`" = "true" ]; then #Slideshow mode
+		NR=100
+		DURATION=0
+		echo -n > $WORKDIR/tmp
+		for I in `ls`; do
+#			if [ $NR = 100 ]; then #start with 100% compatible file to help dvd-drive
+#				echo "$PRIORITY""ffmpeg -loop_input -f image2 -i \"$I\" -vframes 25 -an -aspect $RATIO -target $TV$MEDIATYPE_VIDEO $NR.mpg" >> $WORKDIR/exec
+#			fi
+			NR=$(($NR+1))
+			case $I in *.bmp|*.gif|*.jpeg|*jpg|*.png|*.xpm)
+				echo "$PRIORITY""ffmpeg -loop_input -r 1 -t $SLIDETIME -f image2 -i \"$I\" -an -aspect $RATIO -target $TV $NR.m2v" >> $WORKDIR/exec_preburn
+				echo -n "$NR.m2v " >> $WORKDIR/tmp
+				;;
+			esac
+		done
+		TMP=$(($NR-100))
+		DURATION=$((SLIDETIME*TMP)) #calculate total duration to stop audio at slideshow end
+		TMP="`cat $WORKDIR/tmp`"
+		echo "$PRIORITY""cat $TMP > slideshow.m2v" >> $WORKDIR/exec_preburn
+		[ "$BACKGROUND_MUSIC" ] && BACKGROUND_MUSIC_1="-i \"$BACKGROUND_MUSIC\""
+		echo "$PRIORITY""ffmpeg -t $DURATION -i slideshow.m2v $BACKGROUND_MUSIC_1 -aspect $RATIO -target $TV slideshow.mpg" >> $WORKDIR/exec_preburn
+		echo "    <vob file=\"$VIDEODIR""slideshow.mpg\" />" >> $WORKDIR/dvdauthor
+	else
+		NR=100
+		for I in `ls`; do
+			NR=$(($NR+1))
+			case I in
+			*.bmp|*.gif|*.jpeg|*.jpg|*.png|*.xpm)
+				echo "$PRIORITY""ffmpeg -loop_input -r 1 -t $PIC_VIEWTIME -f image2 -i \"$I\" -aspect $RATIO -f s16le -i /dev/zero -target $TV $NR.mpg" >> $WORKDIR/exec_preburn
+				;;
+			*) #movie
+				echo "$PRIORITY""ffmpeg -i \"$I\" -aspect $RATIO -target $TV $NR.mpg" >> $WORKDIR/exec_preburn
+				;;
+			esac
+			echo "    <vob file=\"$VIDEODIR$NR.mpg\" $PAUSE/>" >> $WORKDIR/dvdauthor
+		done
+	fi
+	#---
+	echo "   </pgc>
+  </titles>
+ </titleset>
+</dvdauthor>" >> $WORKDIR/dvdauthor
+	#---
+	if [ "$CHK_EXPORT_SLIDESHOW" != "true" ]; then #BURN (else export slideshow)
+		if [ "$MEDIATYPE_VIDEO" = "VCD2" ] || [ "$MEDIATYPE_VIDEO" = "SVCD" ]; then ########  VCD  ########
+			if ! type vcdimager > /dev/null; then TXT1="$(gettext '<b>vcdimager</b> must be installed to support Video CD (VCD/SVCD).')"; . $APPDIR/box; exit; fi
+			if [ "`cat $WORKDIR/CHK_SLIDESHOW`" = "true" ]; then #slideshow
+				echo "$PRIORITY""vcdimager -t $MEDIATYPE_VIDEO -c $VIDEODIR/videocd.cue -b $VIDEODIR/videocd.bin slideshow.mpg" >> $WORKDIR/exec_preburn
+			else
+				echo -n "$PRIORITY""vcdimager -t $MEDIATYPE_VIDEO -c $VIDEODIR/videocd.cue -b $VIDEODIR/videocd.bin " >> $WORKDIR/exec_preburn
+				#add file by file
+				NR2=101
+				echo -n > $WORKDIR/tmp
+				for I in `ls`; do
+					echo -n "$VIDEODIR/$NR2.mpg " >> $WORKDIR/tmp
+					[ $NR2 = $NR] && break
+					NR2=$(($NR2+1))
+				done
+				cat $WORKDIR/tmp >> $WORKDIR/exec_preburn
+				echo >> $WORKDIR/exec_preburn #end with new line
+			fi
+			if [ "$CDSPEED" = "Auto" ]; then SPEED=""; else SPEED="speed=$CDSPEED"; fi
+			echo "$CDRECORD dev=$BURNDEV -dao $SPEED -v cuefile=$VIDEODIR/videocd.cue" >> $WORKDIR/exec
+	
+		else ######  DVD  ######
+			if ! type dvdauthor > /dev/null 2>&1; then TXT1="$(gettext '<b>dvdauthor</b> must be installed to support Video DVD.')"; . $APPDIR/box; exit; fi
+			echo "export VIDEO_FORMAT=${TV%-*}" >> $WORKDIR/exec_preburn #for dvdauthor
+			echo "$PRIORITY""dvdauthor -o $OUTDIR/pburn-DVD -x $WORKDIR/dvdauthor" >> $WORKDIR/exec_preburn
+			#export to iso
+			if [ "$EXPORT_ISO" = "true" ]; then
+				read ISOFILE < $WORKDIR/isofile
+				[ -d "$ISOFILE" ] && ISOFILE="$(<$WORKDIR/isofile)/Pburn.iso"
+				NR=1; while [ -f "$ISOFILE" ]; do ISOFILE="$HOME/Pburn_${NR}.iso"; NR=$(($NR+1)); done #incase filename is taken
+				echo -n "mkisofs -o \"$ISOFILE\" -dvd-video \"$OUTDIR\"/pburn-DVD" >> $WORKDIR/exec
+			elif [ "$EXPORT_VIDEO_TS" = "true" ]; then
+				echo -n "mv \"$OUTDIR\"/pburn-DVD/* \"$VIDEO_TS_FOLDER\"" >> $WORKDIR/exec #point it to exec to get error-box if fails.
+			else
+				#do the burning
+				echo "$PRIORITY""$GROWISOFS -use-the-force-luke=notray -use-the-force-luke=tty -dvd-compat -Z $BURNDEV -dvd-video $OUTDIR/pburn-DVD" >> $WORKDIR/exec
+			fi
+		fi
+	fi
+fi
+
+############################   ISO   ###############################
+if [ $BURN = iso ]; then
+	TMP=`cut -d "|" -f 2 $WORKDIR/burn`
+	if [ `cat $WORKDIR/burn | wc -l` -gt 1 ]; then
+		TXT1="$(gettext 'Specify only one iso-file.')"
+		. $APPDIR/box #error
+		exit
+	fi
+	ISOFILE="`readlink "$TMPDIR/$TMP"`"
+	#check if NRG-file --> add convertion
+	if [ "`echo "$ISOFILE" | grep -iE "nrg$"`" ]; then
+		echo "nrg2iso \"$ISOFILE\" \"$OUTDIR/Pburn.iso\"" >> $WORKDIR/exec_preburn
+		ISOFILE="$OUTDIR/Pburn.iso"
+	fi
+	#---
+	[ ! "$ISOFILE" ] && ISOFILE="$TMP" #in case 'pburn ./file.iso' 
+	ON_THE_FLY=false
+	[ "$MEDIATYPE" = "DVD" ] && MEDIATYPE=DVD_ISO
+fi
+############################   COPY ISO   ###############################
+if [ $BURN = copy_iso ]; then
+	ISOFILE="$OUTDIR"/Pburn.iso
+	BURNMULTI=false
+	[ "$MEDIATYPE" = "DVD" ] && MEDIATYPE=DVD_ISO
+	echo -e "\c$PRIORITY" >> $WORKDIR/exec
+fi
+
+############################   DATA   ###############################
+if [ $BURN = data ]; then
+	echo -n > $WORKDIR/parameters
+	if [ "$RAW_BURNMODE" = "true" ]; then
+		FOLLOW_SYMLINK=true
+		INPUT="\"$TMPDIR\""
+	else #use graftpoints (default)
+		INPUT="-exclude-list $WORKDIR/exclude -graft-points -path-list=$WORKDIR/graft_points"
+	fi
+	#set mkisofs parameters
+	[ "$FOLLOW_SYMLINK" = "true" ] && echo -n "-f " >> $WORKDIR/parameters
+	[ "$ISOLEVEL1" = "true" ] && ISOLEVEL=1
+	[ "$ISOLEVEL3" = "true" ] && ISOLEVEL=3
+	[ "$ISOLEVEL4" = "true" ] && ISOLEVEL=4
+	case $ISOLEVEL in
+		1)	echo -n "-r " >> $WORKDIR/parameters;;
+		3)	echo -n "-iso-level 3 -r -D -J -joliet-long " >> $WORKDIR/parameters;;
+		4)	echo -n "-iso-level 4 -r -D " >> $WORKDIR/parameters;;
+		*)	if [ "$MEDIASIZE_FREE" != "$MEDIASIZE" ] && [ type cd-info > /dev/null 2>&1 ]; then #disc is not blank and not recognized as a valid pBurn disc. cd-type is part of libcdio and is stated as recommended - not required
+				echo 100 > $WORKDIR/splash #reset progress bar
+				. $APPDIR/box -quest_isolevel $MEDIATYPE
+				case $EXIT in
+					overwrite)
+						echo true > $WORKDIR/CHK_OVERWRITE
+						WRITE_PUBLISH=true
+						;;
+					blank)
+						echo "<b><span color='"'#FF0000'"'>$(gettext "Blanking disc, please wait")...</span></b>
+
+$(gettext "This operation runs a fast blank. If it for some reason fails to blank your disc, please use the 'blank complete' function from menu 'Burn'.")" > $WORKDIR/splashtext
+						$APPDIR/box_splash &
+						. $APPDIR/func -check_media
+						case $BURNDEV in \/dev\/hd*) DEV="ATAPI:$BURNDEV";; *) DEV="$BURNDEV";; esac #atapi for old kernels
+						$CDRECORD blank=fast dev=$DEV
+						. $APPDIR/func -check_media #read disc info second time to get blanked info
+						. $APPDIR/func_build_command
+						;;
+					do_nothing)
+						echo
+						;;
+					*)
+						exit
+						;;
+				esac
+			elif [ "$MEDIASIZE_FREE" = "$MEDIASIZE" ]; then #first session - add publish information
+				WRITE_PUBLISH=true
+			fi
+			ISOLEVEL=4
+			echo -n "-iso-level 4 -R -D " >> $WORKDIR/parameters;;
+	esac
+	#Only include publish information for first session
+	[ ! "$ISOLEVEL" ] && WRITE_PUBLISH=true
+	if [ $MEDIATYPE != CD ] && [ $CHK_OVERWRITE = true ]; then WRITE_PUBLISH=true; fi
+	if [ "$WRITE_PUBLISH" = "true" ]; then
+		if [ $MEDIATYPE = CD ]; then
+			VOLUME="${VOLUME// /_}" #Cds doesn't support spaces in publish strings
+			PUBLISHER="${PUBLISHER// /_}"
+		fi
+		[ "$VOLUME" ] && echo -n "-V \"$VOLUME\" " >> $WORKDIR/parameters
+		[ "$PUBLISHER" ] && echo -n "-publisher \"$PUBLISHER\" " >> $WORKDIR/parameters
+		echo -n "-p pBurn$(cut -c1 <<< "$VERSION")_$ISOLEVEL " >> $WORKDIR/parameters
+	fi
+	#---
+	PARAMETERS2=`cat $WORKDIR/parameters`
+
+	#---	
+	ISOFILE="$OUTDIR"/Pburn.iso
+	rm -f "$ISOFILE"
+	#build mkisofs command
+	case $MEDIATYPE in
+	CD)	echo -n "$PRIORITY""$MKISOFS $PARAMETERS2 " >> $WORKDIR/exec_preburn
+		#make only image
+		if [ "$EXPORT_ISO" = "true" ]; then
+			read ISOFILE < $WORKDIR/isofile
+			[ -d "$ISOFILE" ] && ISOFILE="$(<$WORKDIR/isofile)/Pburn.iso"
+			NR=1; while [ -f "$ISOFILE" ]; do ISOFILE="$HOME/Pburn_${NR}.iso"; NR=$(($NR+1)); done #incase filename is taken
+			echo -n "-o \"$ISOFILE\" $INPUT" >> $WORKDIR/exec_preburn
+			return
+		else
+			#on-the-fly
+			[ $ON_THE_FLY = false ] && echo -n "-o \"$ISOFILE\" " >> $WORKDIR/exec_preburn
+			#check for multisession
+			if [ "$SECTIONS" ]; then # older session exist
+				echo -n "-C $SECTIONS -M $BURNDEV $INPUT" >> $WORKDIR/exec_preburn
+			else
+				echo -n "$INPUT" >> $WORKDIR/exec_preburn
+			fi
+		
+		fi;;
+	DVD) echo -e "\c$PRIORITY" >> $WORKDIR/exec
+		if [ $ON_THE_FLY = false ]; then
+			if [ "$SECTIONS" ]; then # older session exist
+				echo "$PRIORITY""$MKISOFS $PARAMETERS2 -o \"$ISOFILE\" -C $SECTIONS -M $BURNDEV $INPUT" >> $WORKDIR/exec_preburn
+			else
+				echo "$PRIORITY""$MKISOFS $PARAMETERS2 -o \"$ISOFILE\" $INPUT" >> $WORKDIR/exec_preburn
+			fi
+			MEDIATYPE="DVD_ISO"
+		fi
+		;;
+	esac
+fi
+
+############################   BURN   ###############################
+if [ $BURN = data ] || [ $BURN = iso ] || [ $BURN = copy_iso ] || [ "$COPY_BURN_ISO" = "true" ]; then
+	if [ "$CHK_OVERBURN" = "true" ]; then
+		[ "$(<$WORKDIR/MEDIATYPE)" = "Blu-ray" ] && OVERBURN='-use-the-force-luke=spare:none -overburn' || OVERBURN='-overburn'
+	fi
+	if [ "$MEDIATYPE" = "CD" ]; then
+		if [ $BURN = iso ] || [ "$CHK_OVERBURN" = "true" ]; then DAOTAO="-dao"; else DAOTAO="-tao"; fi #dao gives correct copy (md5sum).
+		if [ "$BURNMULTI" = "false" ]; then BURNMULTI="$DAOTAO"; else BURNMULTI="-multi -tao"; fi #not all devices accept dao with multisession. Overburning requires dao. This conflict is the reason why you can't store overburn in pburnrc. 
+		if [ "$CDSPEED" = "Auto" ]; then SPEED=""; else SPEED="speed=$CDSPEED"; fi
+		case $BURNDEV in \/dev\/hd*) DEV="ATAPI:$BURNDEV";; *)DEV="$BURNDEV";; esac #use atapi in older kernels
+		if [ $ON_THE_FLY = false ] ; then
+			echo -e "\n$PRIORITY""$CDRECORD $BURNMULTI -v $SPEED dev=$DEV $OVERBURN driveropts=burnfree \"$ISOFILE\"" >> $WORKDIR/exec
+		else
+			TSIZE=`$MKISOFS -print-size $PARAMETERS2 $INPUT | tail -n 1` #calculate block size
+			echo " | $CDRECORD $BURNMULTI -v $SPEED fs=8m dev=$DEV $OVERBURN driveropts=burnfree tsize=${TSIZE}s -" >> $WORKDIR/exec
+		fi
+	else #dvd
+		CLOSE_DISK=false
+		if [ "$BURNMULTI" = "false" ]; then
+			if [ "$SECTIONS" ]; then #something there, multisession should be closed
+				PARAMETERS1="-C $SECTIONS -M" #-C is needed when using mkisofs for multisession
+				CLOSE_DISK=true
+			else
+				PARAMETERS1="-dvd-compat -Z" #ordinary burn
+			fi
+		else
+			if [ "$SECTIONS" ] && [ "$CHK_OVERWRITE" = false ]; then #something there, - older burn
+				PARAMETERS1="-C $SECTIONS -M" #-C is needed when using mkisofs for multisession
+			else
+				PARAMETERS1="-Z"
+			fi
+		fi
+		if [ "$DVDSPEED" = "Auto" ]; then SPEED=""; else SPEED="-speed=$DVDSPEED"; fi
+		if [ "$MEDIATYPE" = "DVD_ISO" ]; then #burn existing iso-file
+			echo "$PRIORITY""$GROWISOFS -use-the-force-luke=notray -use-the-force-luke=tty $OVERBURN $SPEED $PARAMETERS1 $BURNDEV=\"$ISOFILE\"" >> $WORKDIR/exec
+		else
+			# no iso-file available
+			echo "$PRIORITY""$GROWISOFS -use-the-force-luke=notray -use-the-force-luke=tty $OVERBURN $PARAMETERS1 $BURNDEV $SPEED $PARAMETERS2 $INPUT"  >> $WORKDIR/exec
+		fi
+ 		
+ 		if [ "$CLOSE_DISK" = "true" ]; then #close disc
+			echo "$PRIORITY""$GROWISOFS -use-the-force-luke=notray -use-the-force-luke=tty -M $BURNDEV=/dev/zero" >> $WORKDIR/exec
+		fi
+	fi
+fi
+sed -i -e "s/\/\//\//g" -e 's/(/\\(/g' -e 's/)/\\)/g' $WORKDIR/exec #in case //. ) and ( are changed because gtkdialog suffers without \( - remove \ in func_exec
+sed -i -e "s/\/\//\//g" -e 's/(/\\(/g' -e 's/)/\\)/g' $WORKDIR/exec_preburn
+#if running content of <edit> (manipulate command), we need a extra \ in front of every " and '
+if [ "$EDIT_COMMAND" = "true" ]; then
+	sed -i -e 's/\"/\\\"/g' -e 's/`/\\`/g' -e 's/\$/\\\$/g' $WORKDIR/exec
+	sed -i -e 's/\"/\\\"/g' -e 's/`/\\`/g' -e 's/\$/\\\$/g' $WORKDIR/exec_preburn
+fi
+#if burn CD on-the-fly --> move mkisofs from preburn
+if [ "`grep -F "| $CDRECORD" $WORKDIR/exec`" ]; then
+	TMP="`cat $WORKDIR/exec`"
+	TMP2="`cat $WORKDIR/exec_preburn`"
+	echo "$TMP2 $TMP" > $WORKDIR/exec
+	echo -n > $WORKDIR/exec_preburn
+fi
+#remove empty lines
+TMP="`grep -v "^$" $WORKDIR/exec`"
+echo "$TMP" > $WORKDIR/exec
+if [ -s $WORKDIR/exec_preburn ]; then
+	TMP="`grep -v "^$" $WORKDIR/exec_preburn`"
+	echo -e "#!/bin/sh\n$TMP" > $WORKDIR/exec_preburn #ffmpeg requires sh definition to work
+fi

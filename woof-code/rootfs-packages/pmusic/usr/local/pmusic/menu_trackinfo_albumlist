@@ -1,0 +1,108 @@
+#!/bin/bash
+#pMusic - external menu
+#Copyright 2013,2014
+#Sigmund Berglund
+
+
+template(){
+if [ ! "$ALBUM_LIST" ] && [ "`grep "global-option" <<< "$*"`" ] && [ ! "$(grep -F "cdda:" $WORKDIR/ALBUM_LIST_PRESS_EVENT)" ]; then
+	echo #we accept global options for list in general as long as it is not a CD
+elif [ ! "$(grep -E "^/|$(gettext 'CD audio')" $WORKDIR/trackinfo${MYPID}_album_source)" ] || [ `wc -l < $WORKDIR/trackinfo${MYPID}_album` -le 1 ] || [ ! "$ALBUM_LIST" ]; then #no file
+	SENSITIVE='<sensitive>false</sensitive>'
+elif [ "`grep -F 'single-selection' <<< "$*"`" ] && [ "`echo "$ALBUM_LIST" | wc -l`" -gt 1 ]; then
+	SENSITIVE='<sensitive>false</sensitive>'
+elif [ "`grep -E "global-option|set_source" <<< "$*"`" ] && [ "$(grep -F "cdda:" $WORKDIR/ALBUM_LIST_PRESS_EVENT)" ]; then
+	SENSITIVE='<sensitive>false</sensitive>'
+elif [ "`grep -E "add_tail|add_next" <<< "$*"`" ] && [ ! "$(grep -F ' /' $WORKDIR/ALBUM_LIST_PRESS_EVENT)" ]; then
+	SENSITIVE='<sensitive>false</sensitive>'
+fi
+echo '<hbox spacing="0">
+ <pixmap height-request="20" icon_size="1" space-expand="false" space-fill="false"><input file stock="gtk-'$3'"></input></pixmap>
+ <button height-request="20" xalign="0" can-focus="no" relief="2" space-expand="true" space-fill="true">
+  <label>" '$1'"</label>
+  '$SENSITIVE'
+  <action>echo '$2' > '$WORKDIR'/OUTPUT</action>
+  <action>EXIT:exit</action>
+ </button>
+</hbox>'
+}
+
+echo -n > $WORKDIR/OUTPUT
+
+export gtkdialog_menu='
+<window decorated="false" skip_taskbar_hint="true" resizable="false" height-request="168" width-request="330"  modal="true">
+  <hbox scrollable="true" hscrollbar-policy="2" vscrollbar-policy="2" space-expand="true" space-fill="true">
+  <text width-request="1" space-expand="false" space-fill="false"><label>""</label></text>
+  <vbox spacing="2">
+   <text height-request="2" space-expand="false" space-fill="false"><label>""</label></text>
+   '"
+  $(template " $(gettext 'Add Album to playque')" add_album add_playque global-option)
+  <hseparator></hseparator>
+  $(template " $(gettext 'Add to playque')" add_tail add_playque)
+  $(template " $(gettext 'Add as next playing track(s)')" add_next add_next)
+  $(template " $(gettext '(Re)set track source')" set_source refresh single-selection)
+  <hseparator></hseparator>
+  $(template " $(gettext 'Send all info to masstagger')" tag go-forward global-option)
+  $(template " $(gettext 'Edit album list in text-editor')" edit edit global-option)
+ "'</vbox></hbox>
+ <action signal="focus-out-event">EXIT:exit</action>
+</window>'
+
+$GTKDIALOG -p gtkdialog_menu -G +"$(($PTR_X_ROOT-5))"+"$(($PTR_Y_ROOT-5))" > /dev/null
+
+OUTPUT=($(<"$WORKDIR/OUTPUT"))
+export PTR_BTN=""
+case "$OUTPUT" in
+	add_album)
+		[ ! -s $WORKDIR/ALBUM_LIST_PRESS_EVENT ] && continue
+		cut -d'|' -f2-4 $WORKDIR/trackinfo${MYPID}_album > $WORKDIR/tmp.add
+		$APPDIR/func_add -add $WORKDIR/tmp.add
+		;;
+	add_tail)
+		[ ! -s $WORKDIR/ALBUM_LIST_PRESS_EVENT ] && continue
+		[ "$(grep "^[0-9]" $WORKDIR/ALBUM_LIST_PRESS_EVENT)" ] && cut -c 21- $WORKDIR/ALBUM_LIST_PRESS_EVENT | sed "s/^/||/g" > $WORKDIR/tmp.add
+		$APPDIR/func_add -add $WORKDIR/tmp.add
+		;;
+	add_next)
+		echo next > $WORKDIR/ADDMODE
+		[ ! -s $WORKDIR/ALBUM_LIST_PRESS_EVENT ] && continue
+		[ "$(grep "^[0-9]" $WORKDIR/ALBUM_LIST_PRESS_EVENT)" ] && tac $WORKDIR/ALBUM_LIST_PRESS_EVENT | cut -c 21- | sed "s/^/||/g" > $WORKDIR/tmp.add
+		$APPDIR/func_add -add $WORKDIR/tmp.add
+		;;
+	set_source)
+		$APPDIR/box_open track $HOME "$(<$WORKDIR/ALBUM_LIST_PRESS_EVENT)" #$1=mode $2=default_dir $3=window_title
+		if [ -s $WORKDIR/open_output ]; then
+			NEW_PATH="$(<$WORKDIR/open_output)"
+			ACTIVE_PLAYLIST="$(<$WORKDIR/trackinfo${MYPID}_album_source)"
+			ACTIVE_PATH="$(cut -d' ' -f2- $WORKDIR/ALBUM_LIST_PRESS_EVENT)"
+			ACTIVE_NAME="$(grep -F "$(<$WORKDIR/ALBUM_LIST_PRESS_EVENT)" "$ACTIVE_PLAYLIST" | cut -d'|' -f3)"
+			#now, let's replace
+			grep -FB200 -m1 "|$(<$WORKDIR/ALBUM_LIST_PRESS_EVENT)" "$ACTIVE_PLAYLIST" | grep -vF "|$(<$WORKDIR/ALBUM_LIST_PRESS_EVENT)" > $WORKDIR/tmp_trackinfo_album
+			ffmpeg -i "${NEW_PATH}" 2> $WORKDIR/tmp_trackinfo_album2
+			LENGTH=`grep -F Duration $WORKDIR/tmp_trackinfo_album2 | awk '{print $2}' | cut -d"." -f1 | cut -d":" -f2-`
+			echo "|$LENGTH|$ACTIVE_NAME|$NEW_PATH|`date +%s%N` $NEW_PATH" >> $WORKDIR/tmp_trackinfo_album
+			grep -FA200 "|$(<$WORKDIR/ALBUM_LIST_PRESS_EVENT)" "$ACTIVE_PLAYLIST" | grep -vF "|$(<$WORKDIR/ALBUM_LIST_PRESS_EVENT)" >> $WORKDIR/tmp_trackinfo_album
+			cp -f $WORKDIR/tmp_trackinfo_album "$ACTIVE_PLAYLIST"
+			mv $WORKDIR/tmp_trackinfo_album $WORKDIR/trackinfo${MYPID}_album
+			echo true > $WORKDIR/UPDATE_TRACKINFO${MYPID} #update gui
+		fi
+		;;
+	tag)
+		cut -d'|' -f4 $WORKDIR/trackinfo${MYPID}_album | grep -vE "http:|cdda:|^$" > $WORKDIR/id3tagger
+		[ ! "$(grep -E "$TXT_SEARCHING|$TXT_NO_CONNECTION" <<< "$ID3_ARTIST")" ] && ARTIST="$ID3_ARTIST"
+		[ ! "$(grep -E "$TXT_SEARCHING|$TXT_NO_CONNECTION" <<< "$ID3_ALBUM")" ] && ALBUM="$ID3_ALBUM"
+		[ ! "$(grep -E "$TXT_SEARCHING|$TXT_NO_CONNECTION" <<< "$ID3_YEAR")" ] && YEAR="$ID3_YEAR"
+		[ ! "$(grep -E "$TXT_SEARCHING|$TXT_NO_CONNECTION" <<< "$ID3_GENRE")" ] && GENRE="$ID3_GENRE"
+		#do not set up track tagging if album is not complete and locally
+		[ "`cut -d'|' -f4 $WORKDIR/trackinfo${MYPID}_album | grep -cE "http:|cdda:|^$"`" = 0 ] && echo "exe:printf \"%01d\" COUNT" > $WORKDIR/tmp_id3tagger_track || echo '' > $WORKDIR/tmp_id3tagger_track
+		#run tagger
+		. $APPDIR/func_id3tagger
+		;;
+	edit)
+		if [ ! "$(<$WORKDIR/trackinfo${MYPID}_album_source)" ]; then
+			TXT1="<b>$(gettext 'Album tracklist is not editable')</b>"
+			. $APPDIR/box_ok
+		fi
+		$TEXT_EDITOR "$(<$WORKDIR/trackinfo${MYPID}_album_source)" &
+		;;
+esac

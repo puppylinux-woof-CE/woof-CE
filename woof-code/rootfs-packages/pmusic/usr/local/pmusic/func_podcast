@@ -1,0 +1,239 @@
+#!/bin/bash
+
+. $CONFIG #update in case user changed value for max downloads
+. $APPDIR/func -reset_gtk
+export TEXTDOMAIN=pmusic
+
+[ ! -f $WORKDIR/podcastlist ] && echo "CNN News|1|http://edition.cnn.com/services/podcasting/newscast/rss.xml
+Floss Weekly|7|http://leo.am/podcasts/floss
+Handel on the law|2|http://kfi640.com/podcast/BillHandel.xml" > $WORKDIR/podcastlist
+
+
+podcast_update(){
+	#update podcast storage directory 
+	[ ! "`grep -F "$STORAGE_DIR/podcasts" "$STORAGE_DIR/favorites"`" ] && echo "$STORAGE_DIR/podcasts|$(gettext 'Podcast Storage')|||||||||||||gtk-directory_podcast" >> "$STORAGE_DIR/favorites"
+	[ ! -d  "$STORAGE_DIR/podcasts" ] && mkdir "$STORAGE_DIR/podcasts"
+	#check internet connection
+	LANG=C wget --spider --tries 1 -T 1 $PING_SERVER 2> $WORKDIR/tmp_podcast
+	if [ ! "`grep 'connected' $WORKDIR/tmp_podcast`" ]; then
+		sleep 0.2
+		TXT1="<b>$(gettext 'Not able to connect to internet')</b>"
+		. $APPDIR/box_ok
+		echo 100 > $WORKDIR/splash #reset progress bar
+		exit
+	fi
+	#show podcast directory in main window
+	SOURCE="$STORAGE_DIR/podcasts"
+	. $APPDIR/func -browse
+	echo true > $WORKDIR/UPDATE_SOURCELIST
+	#---
+	[ ! -e "${WORKDIR}/podcasts_done" ] && echo -n > $WORKDIR/podcasts_done
+	[ ! -e "${WORKDIR}/podcasts_gone" ] && echo -n > $WORKDIR/podcasts_gone
+	COUNT1=0 #for progressbar
+	TOTAL=`grep -c "^" $WORKDIR/podcastlist` #for progressbar
+	#read urls
+	while read I ; do
+		NAME="`echo $I | cut -d'|' -f1`"
+		KEEP_DAYS="`echo $I | cut -d'|' -f2`"
+		URL="`echo $I | cut -d'|' -f3`"
+		#If the line in $WORKDIR/podcastlist is a comment or blank goto next
+		if [[ $(expr index "# " "$URL") > 0 ]] && [[ $(expr index "# " "$URL") < 2 ]] || [[ $URL == "" ]] ; then
+			continue
+		fi
+		#update progressbar
+		echo "100 * $COUNT1 / $TOTAL" | bc > $WORKDIR/splash 
+		echo "$NAME" > $WORKDIR/progresstext
+		COUNT1=$(($COUNT1+1))
+		#Get filelist from RSS feed (Bash Podder)
+		SOURCEFILE=$(xsltproc parse_enclosure.xsl $URL 2> $STDERR || wget -q $URL -O - | tr '\r' '\n' | tr \' \" | sed -n 's/.*url="\([^"]*\)".*/\1/p') 
+		#read rss
+		COUNT=0
+		for URL in $SOURCEFILE; do
+			COUNT=$(($COUNT+1)) #COUNT is the number of files downloaded so far
+			[ "$COUNT" -gt "$PODCAST_MAX_DL" ] && continue 2 # Back out to main while loop
+			sleep 1
+			#Check in $WORKDIR/podcasts_done to see if file has been downloaded yet
+			[ "`grep -F "$URL" $WORKDIR/podcasts_done`" ] && continue #Not a new file goto next podcast 
+			[ ! -e "$STORAGE_DIR/podcasts/$NAME/" ] && mkdir -p "$STORAGE_DIR/podcasts/$NAME/" #If the dir for the podcast files is not there create it
+			FILENAME=$(echo $URL | sed -e 's/.*\/\([^\/]\+\)/\1/' -e 's/%20/ /g') # Get the Podcast file name ie something.mp3 ...
+			echo "$(gettext 'Downloading'): $NAME" > $WORKDIR/progresstext
+			wget -q -c -nH --progress=bar:force -P "$STORAGE_DIR/podcasts/$NAME/" "$URL" | tr '\r' '\n' # Lets get the file
+			echo $URL $(($((`date +%s`))+($KEEP_DAYS*86400))) "${STORAGE_DIR}/podcasts/${NAME}/${FILENAME}" >> $WORKDIR/podcasts_done # Rember we downloaded it so we dont re download
+			#metatag if not already tagged
+			. $APPDIR/func_id3io "${STORAGE_DIR}/podcasts/${NAME}/${FILENAME}" -read
+			if [ ! "$ID3_TITLE" ] || [ "`echo "$ID3_TITLE" | grep -iE "^ $|unknown"`" ]; then 
+				if [ "$(echo $FILENAME | grep -iE "\.ape|\.mp3|\.ogg|\.wma")" != "" ]; then
+					# Rename in case name is screwed up
+					FILENAME2=$(echo $FILENAME | cut -d "." -f 1)
+					[ "`echo "$URL" | grep '.mp3'`" ] && EXT=mp3
+					[ "`echo "$URL" | grep '.ogg'`" ] && EXT=ogg
+					[ "`echo "$URL" | grep '.wma'`" ] && EXT=wma
+					[ "`echo "$URL" | grep '.ape'`" ] && EXT=ape
+					mv "${STORAGE_DIR}/podcasts/${NAME}/${FILENAME}" "${STORAGE_DIR}/podcasts/${NAME}/${FILENAME2}.${EXT}" 2> $STDERR
+					# Set id3 tag 
+					ID3_TITLE="${NAME}"
+					ID3_ARTIST="`date +"%d.%b (%H:%M)"`"
+					ID3_YEAR=''; ID3_TRACK=''; ID3_YEAR=''
+					. $APPDIR/func_id3io "${STORAGE_DIR}/podcasts/${NAME}/${FILENAME2}.${EXT}" -write
+				fi
+			fi
+		done
+		echo true > $WORKDIR/UPDATE_SOURCELIST
+	done < $WORKDIR/podcastlist
+
+	#clean up -- delete old podcasts
+	while read URL TIME FILE; do
+		if [ "$TIME" -lt "`date +%s`" ] && [ ! "`grep "$FILE" $WORKDIR/podcasts_gone`" ]; then
+			rm "$FILE"
+			echo "$FILE" >> $WORKDIR/podcasts_gone
+		fi
+	done < $WORKDIR/podcasts_done
+	
+	echo 100 > $WORKDIR/splash
+}
+
+delete_pod (){
+	if [ "$PODCASTLIST" ]; then
+		export gui_delete_pod='
+		<window title="Pmusic" icon-name="pmusic" window_position="2" allow-grow="false">
+		 <vbox>
+		  <frame '$(gettext 'Delete podcast')'>
+		   <pixmap icon_size="6"><input file stock="gtk-dialog-question"></input></pixmap>
+		   <text use-markup="true"><label>"'$(gettext 'Do you want to delete the Podcast')': '$PODCASTLIST'?"</label></text>
+		   <checkbox>
+			<label>"'$(gettext 'Delete already downloaded podcasts')'"</label>
+			<variable>CHK_DELETE_FULL</variable>
+		   </checkbox>
+		  </frame>
+		  <hbox>
+		   <button cancel></button>
+		   <button has-focus="true">
+			<input file icon="gtk-delete"></input>
+			<label>'$(gettext 'Delete')'</label>
+			<action type="exit">delete</action>
+		   </button>
+		  </hbox>
+		 </vbox>
+		</window>'
+		I=$IFS; IFS=""
+		for STATEMENTS in  $($GTKDIALOG -p gui_delete_pod --center); do
+			eval $STATEMENTS
+		done
+		IFS=$I
+		if [ $EXIT = delete ]; then
+			[ "$CHK_DELETE_FULL" = "true" ] && rm -rf "$STORAGE_DIR/podcasts/$PODCASTLIST"
+			grep -v "$PODCASTLIST" $WORKDIR/podcastlist > $WORKDIR/tmp
+			mv -f $WORKDIR/tmp $WORKDIR/podcastlist
+		fi
+	fi
+}
+
+export -f podcast_update delete_pod 
+
+export GUI_ADD_PODCAST='
+<window title="pMusic - '$(gettext 'Add podcast')'" icon-name="pmusic">
+ <hbox>
+  <vbox space-expand="true" space-fill="true">
+   <hbox space-expand="true" space-fill="true">
+	<hbox  width-request="100" space-expand="false" space-fill="false">
+	 <text space-expand="false" space-fill="false"><label>"'$(gettext 'URL')'"</label></text>
+     <text space-expand="true" space-fill="true"><label>""</label></text>
+	 <button tooltip-text="'$(gettext 'Find a podcast on the web')'" space-expand="false" space-fill="false">
+	  <label>www</label>
+	  <action>export GTK2_RC_FILES='$HOME'/.gtkrc-2.0; '$BROWSER' http://www.podcastalley.com &</action>
+	 </button>
+	</hbox>
+	<entry space-expand="true" space-fill="true"><variable>PODCAST_URL</variable><default>"http://"</default></entry>
+   </hbox>
+   <hbox space-expand="true" space-fill="true">
+	<text width-request="100" space-expand="false" space-fill="false"><label>"'$(gettext 'Name')'"</label></text>
+	<entry space-expand="true" space-fill="true"><variable>PODCAST_NAME</variable><default>'$(gettext 'Name')'</default></entry>
+   </hbox>
+  <hbox space-expand="false" space-fill="false">
+   <text use-markup="true"><label>"  '$(gettext 'Keep podcast in X days before destruction')'"</label></text>
+   <hbox width-request="30">
+    <entry width-request="30"><variable>PODCAST_DAYS</variable><default>7</default></entry>
+   </hbox>
+  </hbox>
+ </vbox>
+    <button width-request="80" tooltip-text="'$(gettext 'Add new Podcast to list')'" space-expand="false" space-fill="false"> 
+     <input file stock="gtk-add"></input>
+     <action>echo "$PODCAST_NAME|$PODCAST_DAYS|$PODCAST_URL" >> '$WORKDIR'/podcastlist</action>
+     <action>refresh:PODCASTLIST</action>
+    </button>
+ </hbox>
+</window>'
+
+if [ "$1" = "-u" ]; then #run quiet 
+	podcast_update
+	exit
+else
+	S='
+	<window title="pMusic - '$(gettext 'Podcast setup')'" icon-name="pmusic">
+	<vbox>
+	 '"$($APPDIR/func_svg -heading "$(gettext 'Podcast Grabber')")"'
+	 <hbox>
+	  <spinbutton width-request="40" editable="false" range-max="99" range-min="1" space-expand="false" space-fill="false">
+	   <variable>PODCAST_MAX_DL</variable>
+	   <default>'$PODCAST_MAX_DL'</default>
+	   <action signal="value-changed">$APPDIR/func_config -write_config</action>
+	  </spinbutton>
+	  <text xalign="0" space-expand="true" space-fill="true"><label>'$(gettext 'Max NEW podcasts to download from a url')'</label></text>
+	  <button tooltip-text="'$(gettext 'Manually edit podcast list in text editor')'">
+	   <input file stock="gtk-edit"></input>
+	   <action>defaulttexteditor '$WORKDIR'/podcastlist &</action>
+	  </button>
+	  <button tooltip-text="'$(gettext 'Remove selected Podcast from list')'">
+	   <input file stock="gtk-remove"></input>
+	   <variable>BUTTON_REMOVE</variable>
+	   <visible>disabled</visible>
+	   <action>delete_pod</action>
+	   <action>refresh:PODCASTLIST</action>
+	  </button>
+	  <button tooltip-text="'$(gettext 'Add new Podcast to list')'">
+	   <input file stock="gtk-add"></input>
+	   <action type="launch">GUI_ADD_PODCAST</action>
+	  </button>
+	 </hbox>
+	 <tree>
+	  <label>'$(gettext 'Name')'|'$(gettext 'Days')'|URL</label>
+	  <variable>PODCASTLIST</variable>
+	  <height>200</height><width>400</width>
+	  <input>cat '$WORKDIR'/podcastlist</input>
+	  <action signal="button-release-event">enable:BUTTON_REMOVE</action>
+	  <action signal="button-release-event">SOURCE="'$STORAGE_DIR'/podcasts"; . '$APPDIR'/func -browse</action>
+	  <action signal="button-release-event">echo true > '$WORKDIR'/UPDATE_SOURCELIST</action>
+	 </tree>
+	 <hbox>
+	  <button space-expand="false" space-fill="false"><input file stock="gtk-quit"></input></button>
+      <text space-expand="true" space-fill="true"><label>""</label></text>
+	   ## S H E D U L E ##
+	   <button height-request="30">
+	    <label>" '$(gettext 'Schedule Podcast checking')' "</label>
+	    <input file>/usr/share/pixmaps/puppy/clock_interval.svg</input>
+	    <height>22</height>'
+	    ! type pschedule > /dev/null 2>&1 && S=$S'<visible>disabled</visible>'	    
+	    S=$S'<action>echo "'$(gettext 'Building schedule template')'... '$(gettext 'Please wait')'..." > '$WORKDIR'/splashtext</action>
+	    <action>'$APPDIR'/box_splash &</action>
+	    <action>pschedule -s -n "pmusic -u" "'$(gettext 'Check for new podcasts NOW')'" &</action>
+	    <action>sleep 2</action>
+	    <action>echo 100 > $WORKDIR/splash</action>
+	   </button>
+	   ## U P D A T E   N O W ##  
+	   <button height-request="30">
+	    <label>"'$(gettext 'Check for new podcasts NOW')' "</label>
+	    <input file stock="gtk-go-down"></input>
+	    <action>echo "'$(gettext 'Check for new podcasts NOW')'..." > '$WORKDIR'/splashtext</action>
+	    <action>'$APPDIR'/box_splash progress &</action>
+	    <action>podcast_update</action>
+	   </button>
+	 </hbox>
+	</vbox>
+	<action signal="delete-event" type="closewindow">GUI_ADD_PODCAST</action>
+	</window>'
+	[ $TOOLTIPS = false ] && S="`echo "$S" | sed 's%tooltip-text%tooltipXXXtext%g'`" #deactivate tooltips
+	export pmusic_podcast="`echo "$S" | sed 's/##.*//'`" #I use double hash (##) for comments. --> as #FF0000
+
+	$GTKDIALOG -p pmusic_podcast
+fi
+
