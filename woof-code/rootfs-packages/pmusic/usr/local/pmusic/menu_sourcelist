@@ -1,0 +1,680 @@
+#!/bin/bash
+#pMusic - external menu
+#GPL - Copyright Sigmund Berglund
+
+[ $PTR_BTN != 3 ] && exit
+
+template(){
+if [ "`grep -F 'single-selection' <<< "$*"`" ] && [ "`echo "$SOURCE" | wc -l`" -gt 1 ]; then
+	SENSITIVE='<sensitive>false</sensitive>'
+fi
+if [ "`grep -F 'tooltip' <<< "$*"`" ]; then
+	TMP="`echo "$*" | awk -F 'tooltip=' '{print $2}' | cut -d'"' -f1`" #'
+	TOOLTIP="tooltip-text=\"$TMP\""
+fi
+
+echo '<hbox spacing="0">
+ <pixmap height-request="20" icon_size="1" space-expand="false" space-fill="false"><input file stock="gtk-'$3'"></input></pixmap>
+ <button height-request="20" xalign="0" can-focus="no" relief="2" '$TOOLTIP' space-expand="true" space-fill="true">
+  '$SENSITIVE'
+  <label>" '$1'"</label>
+  <action>echo '$2' > '$WORKDIR'/OUTPUT</action>
+  <action>EXIT:exit</action>
+ </button>
+</hbox>'
+}
+
+
+SOURCE="$(<$WORKDIR/SOURCE_PRESS_EVENT)"
+#remove idnr
+if [ "`grep -E "^[0-9]|^pmusic" <<< "$SOURCE"`" ]; then
+	SOURCE2="$(cut -d: -f2- <<< "$SOURCE")"
+else #we want to keep http:// as is
+	SOURCE2="$SOURCE"
+fi
+if [ "$SOURCE2" ] && [ "`grep -F "$SOURCE2" "$STORAGE_DIR"/index_radio`" ]; then RADIO_STREAM=true; fi
+#---
+echo -n > $WORKDIR/OUTPUT
+echo -n > $WORKDIR/tmp_favorite_list
+#are we in favorites?
+if [ "$SOURCE" ] && [ "`grep -FB 10000 -m1 'pmusic_rating' $WORKDIR/sourcelist | grep -vF 'pmusic_rating' | grep -FA 10000 'pmusic_favorite_lists' | grep -F "$SOURCE"`" ]; then
+	#what favorite list are we working in ?
+	if [ "`grep -FB 10000 'pmusic_favorite_marks' $WORKDIR/sourcelist | grep -F "$SOURCE"`" ] && [ "`grep -iE "$AUDIO_FORMATS|^http|^cdda:" $WORKDIR/SOURCE_PRESS_EVENT`" ] && [ "`grep -FB 1000 "$SOURCE" $WORKDIR/sourcelist | grep -m1 "\.pmd|"`" ]; then
+		export FAV_LIST="`grep -FB 1000 "$SOURCE" $WORKDIR/sourcelist | tac | grep -m1 "\.pmd|" | cut -d'|' -f1 |  sed -e 's/pmusicbrowse_expand://g' -e 's/pmusicbrowse_collapse://g'`"
+	fi
+	#---
+	export FAV=true
+fi
+#remove internal commands
+[ "`grep "^pmusicbrowse_parent:pmusicbrowse_favorites:" <<< "$SOURCE"`" ] && SOURCE="`cut -d: -f3- <<< "$SOURCE"`" 
+#---
+Y=30 #menu height
+if [ "$PMUSIC_FRONTEND" = "$APPDIR/frontends/.Radio" ]; then
+	if [ "`grep -F http $WORKDIR/SOURCE_PRESS_EVENT`" ] && [ ! "`grep -F .Radio $WORKDIR/sourcelist`" ]; then #.Radio tells us we are already inside favorites
+		S=$S"
+		$(template " $(gettext 'Add to Favorites')" add_favorites favorites_add)"
+		Y=$(($Y+22))
+	fi
+elif [ "`grep -iE "$AUDIO_FORMATS|http|cdda:|^+[0-9]:/" $WORKDIR/SOURCE_PRESS_EVENT`" ]; then #only tracks can be placed inside a favorite list
+	MENUITEMS="`find "$STORAGE_DIR/favorite_lists/" -type f -printf "<menuitem><label>\\\"%f\\\"</label><action>echo \\\"%f\\\" > $WORKDIR/tmp_favorite_list</action><action>refresh:FAVORITE_LIST</action></menuitem>\n" | sed 's%.pmd%%g' | sort`"
+	[ ! "$MENUITEMS" ] && MENUITEMS="<menuitem><label>".."</label></menuitem>"
+	 
+	gettext 'My favorite list' > $WORKDIR/tmp_favorite_list #default value
+	S=$S'
+	<hbox spacing="2">
+	 <pixmap height-request="20" icon_size="1" space-expand="false" space-fill="false"><input file stock="gtk-favorites_add"></input></pixmap>
+	 <togglebutton height-request="20" xalign="0" can-focus="no" relief="2" space-expand="true" space-fill="true">
+	  <label>" '$(gettext 'Add to Favorites')'"</label>
+	  <action>if true show:HBOX_FAV</action>
+	  <action>if false hide:HBOX_FAV</action>
+	 </togglebutton>
+	</hbox>
+	<hbox height-request="22" visible="false" spacing="2" tooltip-text="'$(gettext 'What favorite list should the item be added to?
+An empty field adds a favorite Mark')'">
+	 <text width-request="18"><label>""</label></text>
+	 <entry secondary-icon-stock="gtk-clear">
+	  <variable>FAVORITE_LIST</variable>
+	  <input file>'$WORKDIR'/tmp_favorite_list</input>
+	  <output file>'$WORKDIR'/tmp_favorite_list</output>
+	  <action signal="secondary-icon-release">clear:FAVORITE_LIST</action>
+	  <action signal="activate">save:FAVORITE_LIST</action>
+	  <action signal="activate">echo add_favorites > '$WORKDIR'/OUTPUT</action>
+	  <action signal="activate">EXIT:exit</action>
+	 </entry>
+	 <menubar>
+	  <menu>
+	  '"$MENUITEMS"'
+	  <label>..</label>
+	  </menu>
+	 </menubar>
+	 <button height-request="20" stock-icon-size="1">
+	  <input file stock="gtk-favorites_add"></input>
+	  <action>echo add_favorites > '$WORKDIR'/OUTPUT</action>
+	  <action>save:FAVORITE_LIST</action>
+	  <action>EXIT:exit</action>
+	 </button>
+	 <variable>HBOX_FAV</variable>
+	</hbox>'
+	Y=$(($Y+22))
+elif [ ! "`grep -F "$STORAGE_DIR/favorite_lists/" $WORKDIR/SOURCE_PRESS_EVENT`" ] && [ -d "$SOURCE" ] || [ "`grep -iE "\.pmu$|\.m3u$|\.pls$" $WORKDIR/SOURCE_PRESS_EVENT`" ]; then
+	S=$S"
+	$(template " $(gettext 'Add to Favorites')" add_favorites favorites_add)"
+	Y=$(($Y+22))
+fi
+if [ "$FAV" = "true" ]; then
+	if [ "$(grep "\.pmd$" <<< "$SOURCE")" ]; then
+		MENUITEMS="`find "$STORAGE_DIR/favorite_lists/" -mindepth 1 -type d -printf "<menuitem><label>\\\"%f\\\"</label><action>echo \\\"%f\\\" > $WORKDIR/tmp_favorite_group</action><action>refresh:FAVORITE_GROUP</action></menuitem>\n"`"
+		[ ! "$MENUITEMS" ] && MENUITEMS="<menuitem><label>".."</label></menuitem>"
+		gettext 'My favorite group' > $WORKDIR/tmp_favorite_group #default value
+		S=$S'
+		<hbox spacing="2">
+		 <pixmap height-request="20" icon_size="1" space-expand="false" space-fill="false"><input file stock="gtk-favorites_group"></input></pixmap>
+		 <togglebutton height-request="20" xalign="0" can-focus="no" relief="2" space-expand="true" space-fill="true">
+		  <label>" '$(gettext 'Move favorite list to group')'"</label>
+		  <action>if true show:HBOX_FAV_GROUP</action>
+		  <action>if false hide:HBOX_FAV_GROUP</action>
+		 </togglebutton>
+		</hbox>
+		<hbox height-request="22" visible="false" spacing="2">
+		 <text width-request="18"><label>""</label></text>
+		 <entry secondary-icon-stock="gtk-clear" secondary-icon-tooltip-text="'$(gettext 'Remove text in field')'">
+		  <variable>FAVORITE_GROUP</variable>
+		  <input file>'$WORKDIR'/tmp_favorite_group</input>
+		  <output file>'$WORKDIR'/tmp_favorite_group</output>
+		  <action signal="secondary-icon-release">clear:FAVORITE_GROUP</action>
+		  <action signal="activate">save:FAVORITE_GROUP</action>
+		  <action signal="activate">echo group_favorites > '$WORKDIR'/OUTPUT</action>
+		  <action signal="activate">EXIT:exit</action>
+		 </entry>
+		 <menubar>
+		  <menu>
+		  '"$MENUITEMS"'
+		  <label>..</label>
+		  </menu>
+		 </menubar>
+		 <button height-request="20" stock-icon-size="1">
+		  <input file stock="gtk-favorites_group"></input>
+		  <action>echo group_favorites > '$WORKDIR'/OUTPUT</action>
+		  <action>save:FAVORITE_GROUP</action>
+		  <action>EXIT:exit</action>
+		 </button>
+		 <variable>HBOX_FAV_GROUP</variable>
+		</hbox>'
+
+
+		S=$S"
+		$(template " $(gettext 'Expand Favorite list')" expand audio_playlist_favorites)"
+		Y=$(($Y+44))
+	fi
+	if [ -d "$SOURCE" ] && [ "`grep -F "$STORAGE_DIR/favorite_lists/" $WORKDIR/SOURCE_PRESS_EVENT`" ]; then S=$S"
+		$(template " $(gettext 'Ungroup')" favorites_ungroup favorites_ungroup)"
+		Y=$(($Y+22))
+	fi
+	if [ "$(grep -vE "^pmusic_favorite|^pmusic_rating" <<< "$SOURCE")" ]; then S=$S"
+		$(template " $(gettext 'Remove from Favorites')" favorites_remove favorites_remove)"
+		if [ "`grep -F "$(<$WORKDIR/SOURCE_PRESS_EVENT)" "$STORAGE_DIR/favorites"`" ]; then
+			S=$S"
+			$(template " $(gettext 'Edit Marks')" edit_marks edit)"
+			Y=$(($Y+22))
+		fi
+		S=$S"<hseparator></hseparator>"
+		Y=$(($Y+26))
+	fi
+fi
+
+###    A D D
+
+if [ "$RADIO_STREAM" = "true" ]; then S=$S"
+		$(template " $(gettext 'Play')" add_tail media-play)"
+		Y=$(($Y+22))
+else
+	if [ -d "$SOURCE" ] || [ "`grep -iE "$AUDIO_FORMATS|\.pmd$|\.pmu$|\.m3u$|\.pls$|http|cdda:|^+[0-9]:/" $WORKDIR/SOURCE_PRESS_EVENT`" ]; then S=$S"
+		$(template " $(gettext 'Add to play queue')" add_tail add_playque)
+		$(template " $(gettext 'Add as next playing track(s)')" add_next add_next)"
+		Y=$(($Y+44))
+	fi
+	if [ -d "$SOURCE" ]; then S=$S"
+		$(template " $(gettext 'Add recursively to play queue')" add_tail_recursively add_playque)
+		$(template " $(gettext 'Add recursively as next track(s)')" add_next_recursively add_next)"
+		Y=$(($Y+44))
+	fi
+
+	###    T R A C K S   I N   P L A Y L I S T   /   A L B U M 
+
+	#are we inside an expanded playlist
+	if [ "`grep -ivE "\.pmu$|\.m3u$|\.pls$" $WORKDIR/SOURCE_PRESS_EVENT`" ] && [ "`grep -Fm 1 -B 1000 "$(<$WORKDIR/SOURCE_PRESS_EVENT)" $WORKDIR/sourcelist | tac | grep -iE -m1 "\.m3u\||\.pmu\||\.pls\||pmusic_expand_end" | grep -F 'pmusicbrowse_collapse'`" ]; then S=$S"
+		$(template " $(gettext 'Remove track from album / list')" remove_track_from_playlist pmusic_remove)"
+		Y=$(($Y+22))
+	fi
+	#are we inside an expanded pmu
+	if [ "`grep -iv "\.pmu$" $WORKDIR/SOURCE_PRESS_EVENT`" ] && [ "`grep -Fm 1 -B 1000 "$(<$WORKDIR/SOURCE_PRESS_EVENT)" $WORKDIR/sourcelist | tac | grep -iE -m1 "\.pmu\||pmusic_expand_end" | grep -F 'pmusicbrowse_collapse'`" ]; then S=$S"
+		$(template " $(gettext '(Re)set source of track')" reset_source refresh )"
+		Y=$(($Y+22))
+	fi
+	if [ -d "$SOURCE" ] || [ "`grep -iE "$AUDIO_FORMATS|\.pmd$|\.pmu$|\.m3u$|\.pls$|^http|^cdda:" $WORKDIR/SOURCE_PRESS_EVENT`" ]; then S=$S'
+		<hseparator></hseparator>'
+		Y=$(($Y+4))
+	fi
+
+	###    P L A Y L I S T   T O O L S
+
+	if [ "`grep -iE "\.pmu$|\.pmd$|\.m3u$|\.pls$" $WORKDIR/SOURCE_PRESS_EVENT`" ]; then
+		if [ "`grep -iE "\.pmu$|\.m3u$|\.pls$" $WORKDIR/SOURCE_PRESS_EVENT`" ]; then S=$S"
+			$(template " $(gettext 'Expand album / list')" expand audio_playlist)"
+			Y=$(($Y+22))
+		fi
+		S=$S"$(template " $(gettext 'Open in text editor')" edit_text edit)
+		<hseparator></hseparator>"
+		Y=$(($Y+26))
+		if [ "`grep "\.pmu$" $WORKDIR/SOURCE_PRESS_EVENT`" ]; then S=$S"
+			$(template " $(gettext 'Research non-existing tracks')" fix_album audio_playlist_setup single-selection tooltip="$(gettext 'This will not touch already defined tracks in list')")"
+			Y=$(($Y+22))
+		fi
+		if [ "`grep -F "$STORAGE_DIR/pmu/" $WORKDIR/SOURCE_PRESS_EVENT`" ]; then S=$S"
+			$(template " $(gettext 'Rebuild complete album')" rebuild_album audio_playlist_setup single-selection tooltip="$(gettext 'This will delete list and build a new based on internet information')")"
+			Y=$(($Y+22))
+		fi
+		if [ "`grep -iE "\.pmu$|\.m3u$" $WORKDIR/SOURCE_PRESS_EVENT`" ]; then
+			S=$S"$(template " $(gettext 'Edit DB entry')" edit_db edit)
+			<hseparator></hseparator>"
+			Y=$(($Y+26))
+		fi
+	fi
+
+	###   T R A C K
+
+	if [ "`grep -iE "$AUDIO_FORMATS|http|^+[0-9]:/" $WORKDIR/SOURCE_PRESS_EVENT`" ]; then
+		S=$S"
+		$(template " $(gettext 'Track info')" track_info info single-selection)"
+		Y=$(($Y+22))
+		if [ "`grep -iE "$AUDIO_FORMATS" $WORKDIR/SOURCE_PRESS_EVENT`" ]; then
+			S=$S"
+			$(template " $(gettext 'Send to masstagger')" masstagger go-forward)
+			$(template " $(gettext 'Edit DB entry')" edit_db edit)
+			<hseparator></hseparator>
+			"
+			Y=$(($Y+48))
+		fi
+	fi
+
+	###   F I L E
+	if [ "`grep "^/" <<< "$SOURCE2"`" ]; then
+		S=$S"
+		$(template " $(gettext 'Copy source file')" copy copy)
+		$(template " $(gettext 'Delete source file')" delete delete)
+		"
+		Y=$(($Y+44))
+	fi
+
+	if [ -s "$SOURCE2" ]; then
+		S=$S"
+		$(template " $(gettext 'Show location')" show_location open single-selection)
+		$(template " $(gettext 'Rename source file/directory')" rename convert single-selection)
+		"
+		Y=$(($Y+44))
+	elif [ "`grep "^/" <<< "$SOURCE2"`" ] && [ "`grep -c "^" <<< "$SOURCE2"`" = "1" ]; then
+		S=$S"
+		$(template " $(gettext 'Fix corrupted file in db')" fix_db audio single-selection)
+		"
+		Y=$(($Y+22))
+	fi
+fi
+
+
+[ ! "`grep -F '<label>' <<< "$S"`" ] && exit
+export gtkdialog_menu='
+<window decorated="false" skip_taskbar_hint="true" resizable="false" height-request="'$Y'" width-request="280" modal="true" space-expand="true" space-fill="true">
+ <hbox scrollable="true" hscrollbar-policy="2" vscrollbar-policy="2" space-expand="true" space-fill="true">
+  <text width-request="1" space-expand="false" space-fill="false"><label>""</label></text>
+  <vbox spacing="2">
+   <text height-request="2" space-expand="false" space-fill="false"><label>""</label></text>
+   '$S'
+  </vbox>
+ </hbox>
+ <action signal="focus-out-event">EXIT:exit</action>
+</window>'
+
+$GTKDIALOG -p gtkdialog_menu -G +"$(($PTR_X_ROOT-5))"+"$(($PTR_Y_ROOT-5))" > /dev/null
+
+OUTPUT=($(<"$WORKDIR/OUTPUT"))
+#remove internal commands for favorite groups (actually nothing else than a ordinary directory)
+sed -i 's/pmusicbrowse_parent:pmusicbrowse_favorites://g' $WORKDIR/SOURCE_PRESS_EVENT
+
+export PTR_BTN=""
+[ $UTF8 = false ] && export LC_ALL=C
+case "$OUTPUT" in
+	add_tail*)
+		[ ! -s $WORKDIR/SOURCE_PRESS_EVENT ] && continue
+		echo -n > $WORKDIR/tmp.add
+		while read I; do
+			if [ "$(grep -F "http://" <<< $I)" ] || [ "$(grep ":+[0-9]" <<< $I)" ]; then #stream
+				TMP="`cut -d'|' -f3 <<< $I`"
+				$APPDIR/func_add -add "$TMP"
+			elif [ "$(grep "^[0-9]" <<< $I)" ]; then
+				grep "^[0-9]" <<< $I | sed "s/^.*\:/||/g" >> $WORKDIR/tmp.add
+			elif [ -d "$I" ]; then #add all songs in directory 
+				echo "$(gettext 'Importing tracks from directory')" > $WORKDIR/splashtext
+				$APPDIR/box_splash &
+				[ $OUTPUT = add_tail ] && DEPTH="1" || DEPTH="99"
+				find "$I" -maxdepth "$DEPTH" -printf "||%p\n" | grep -iE "$AUDIO_FORMATS" | sort >> $WORKDIR/tmp.add
+				echo 100 > $WORKDIR/splash
+			else
+				TMP="`cut -d'|' -f3 <<< $I | cut -d: -f2-`"
+				$APPDIR/func_add -add "$TMP"
+			fi
+		done < $WORKDIR/SOURCE_PRESS_EVENT
+		[ -s $WORKDIR/tmp.add ] && $APPDIR/func_add -add $WORKDIR/tmp.add
+		;;
+	add_next*)
+		[ ! -s $WORKDIR/SOURCE_PRESS_EVENT ] && continue
+		echo -n > $WORKDIR/tmp.add
+		while read I; do
+			echo next > $WORKDIR/ADDMODE
+			if [ "$(grep "http://" <<< $I)" ] || [ "$(grep ":+[0-9]" <<< $I)" ]; then
+				TMP="`cut -d'|' -f3 <<< $I`"
+				$APPDIR/func_add -add "$TMP"
+			elif [ "$(grep "^[0-9]" <<< $I)" ]; then
+				grep "^[0-9]" <<< $I | tac | sed "s/^.*\:/||/g" >> $WORKDIR/tmp.add
+			elif [ -d "$I" ]; then #add all songs in directory 
+				echo "$(gettext 'Importing tracks from directory')" > $WORKDIR/splashtext
+				$APPDIR/box_splash &
+				[ $OUTPUT = add_next ] && DEPTH="1" || DEPTH="99"
+				find "$I" -maxdepth $DEPTH -printf "||%p\n" | grep -iE "$AUDIO_FORMATS" >> $WORKDIR/tmp.add
+				echo 100 > $WORKDIR/splash
+			else
+				TMP="`cut -d'|' -f3 $WORKDIR/SOURCE_PRESS_EVENT | cut -d: -f2-`"
+				$APPDIR/func_add -add "$TMP"
+			fi
+		done < $WORKDIR/SOURCE_PRESS_EVENT
+		[ -s $WORKDIR/tmp.add ] && $APPDIR/func_add -add $WORKDIR/tmp.add
+		;;
+	expand)
+		while read SOURCE; do
+			[ "$(grep "^[0-9]" <<< "$SOURCE")" ] && SOURCE="$(cut -d: -f2- <<< "$SOURCE")" #remove unique source-nr 
+			$APPDIR/func -browse
+			echo true > $WORKDIR/UPDATE_SOURCELIST #we are now calling from external source, and can use the snappier /UPDATE_SOURCELIST2
+		done < $WORKDIR/SOURCE_PRESS_EVENT
+		;;
+	remove_track_from_playlist)
+		while read I; do
+			ACTIVE_PLAYLIST="`grep -Fm 1 -B 1000 "$I" $WORKDIR/sourcelist | tac | grep -iE -m1 "\.m3u\||\.pmu\||\.pls\|" | grep -F 'pmusicbrowse_collapse' | cut -d'|' -f14`"
+			ACTIVE_TRACK="`cut -d':' -f2 <<< "$I"`"
+			[ ! "$ACTIVE_TRACK" ] && ACTIVE_TRACK="`grep -F "$I" $WORKDIR/sourcelist | cut -d'|' -f2 | cut -c5-`" #if dead item in pmu file
+			#For albums (found by pMusic), we want to keep the track-name. Else album list is not complete.
+			if [ "`grep -F "$STORAGE_DIR/pmu/" <<< "$ACTIVE_PLAYLIST"`" ]; then
+				if [ "`grep -F '/' <<< "$ACTIVE_TRACK"`" ]; then
+					ACTIVE_TRACK_NAME="`basename "$ACTIVE_TRACK" | sed -e 's/\.[^\.]*$//'`"
+					TMP="`grep "|${ACTIVE_TRACK}|" "$ACTIVE_PLAYLIST"`"
+					sed -i "s%${TMP}%||${ACTIVE_TRACK_NAME}||||||||||%" "$ACTIVE_PLAYLIST"
+				fi
+			elif [ "`grep ".pls$" <<< "$ACTIVE_PLAYLIST"`" ]; then
+				NR="`grep "${ACTIVE_TRACK}$" "$ACTIVE_PLAYLIST" | cut -d= -f1 | cut -d'e' -f2`"
+				grep -v "^File${NR}=" "$ACTIVE_PLAYLIST" | grep -v "^Title${NR}=" | grep -v "^Length${NR}=" > $WORKDIR/tmp_pls
+				#build new playlist
+				COUNT=0
+				echo -n -e "[playlist]\nNumberOfEntries=" > $WORKDIR/tmp2_pls
+				grep -c "^File" $WORKDIR/tmp_pls >> $WORKDIR/tmp2_pls
+				while read I; do
+					if [ "`grep "^File" <<< "$I"`" ]; then
+						COUNT=$(($COUNT+1))
+						echo -n "File${COUNT}=" >> $WORKDIR/tmp2_pls
+						cut -d'=' -f2 <<< "$I" >> $WORKDIR/tmp2_pls
+					elif [ "`grep "^Title" <<< "$I"`" ]; then
+						echo -n "Title${COUNT}=" >> $WORKDIR/tmp2_pls
+						cut -d'=' -f2 <<< "$I" >> $WORKDIR/tmp2_pls
+					elif [ "`grep "^Length" <<< "$I"`" ]; then
+						echo -n "Length${COUNT}=" >> $WORKDIR/tmp2_pls
+						cut -d'=' -f2 <<< "$I" >> $WORKDIR/tmp2_pls
+					fi
+				done < $WORKDIR/tmp_pls
+				mv $WORKDIR/tmp2_pls "$ACTIVE_PLAYLIST"
+			else
+				grep -v "^${ACTIVE_TRACK}$" "$ACTIVE_PLAYLIST" > $WORKDIR/tmp_sourcelist
+				mv $WORKDIR/tmp_sourcelist "$ACTIVE_PLAYLIST"
+			fi
+		done < $WORKDIR/SOURCE_PRESS_EVENT
+		$APPDIR/func -playlist_collapse "$ACTIVE_PLAYLIST"
+		$APPDIR/func -playlist_expand "$ACTIVE_PLAYLIST"
+		echo true > $WORKDIR/UPDATE_SOURCELIST
+		;;
+	reset_source) #only inside pmu files
+		TITLE="`grep -Fm1 "$SOURCE" $WORKDIR/sourcelist | cut -d'|' -f3`"
+		ARTIST="`grep -Fm1 "$SOURCE" $WORKDIR/sourcelist | cut -d'|' -f2`"
+		[ "$TITLE" ] && TMP="$ARTIST - $TITLE" || TMP="$ARTIST"
+		$APPDIR/box_open track $HOME "$TMP" #$1=mode $2=default_dir $3=window_titlw
+		if [ -s $WORKDIR/open_output ]; then
+			NEW_PATH="$(<$WORKDIR/open_output)"
+			ACTIVE_PLAYLIST="`grep -Fm 1 -B 1000 "$(<$WORKDIR/SOURCE_PRESS_EVENT)" $WORKDIR/sourcelist | tac | grep -F 'pmusicbrowse_collapse' | cut -d'|' -f14`"
+			ACTIVE_TRACK="`cut -d':' -f2 $WORKDIR/SOURCE_PRESS_EVENT`"
+			[ ! "$ACTIVE_TRACK" ] && ACTIVE_TRACK="`grep -Fm1 "$(<$WORKDIR/SOURCE_PRESS_EVENT)" $WORKDIR/sourcelist | cut -d'|' -f2 | cut -c 5-`" #if dead item in pmu file
+			#now, let's replace
+			grep -FB1000 "|${ACTIVE_TRACK}|" "$ACTIVE_PLAYLIST" | grep -vF "|${ACTIVE_TRACK}|" > $WORKDIR/tmp_sourcelist
+			LENGTH="`grep -F "${ACTIVE_TRACK}|" "$STORAGE_DIR/index_mymusic" | cut -d'|' -f12`"
+			ARTIST="`grep -F "${ACTIVE_TRACK}|" "$STORAGE_DIR/index_mymusic" | cut -d'|' -f2`"
+			TITLE="`grep -F "${ACTIVE_TRACK}|" "$STORAGE_DIR/index_mymusic" | cut -d'|' -f3`"
+			INFO="$ARTIST - $TITLE"
+			[ ! "$INFO" ] && INFO="`basename "$ACTIVE_TRACK"`"
+			echo "|$LENGTH|    $INFO|$NEW_PATH|`date +%s%N` $NEW_PATH" >> $WORKDIR/tmp_sourcelist
+			grep -FA1000 "|${ACTIVE_TRACK}|" "$ACTIVE_PLAYLIST" | grep -vF "|${ACTIVE_TRACK}|" >> $WORKDIR/tmp_sourcelist
+			mv -f  $WORKDIR/tmp_sourcelist "$ACTIVE_PLAYLIST"
+			#update sourcelist
+			$APPDIR/func -playlist_collapse "$ACTIVE_PLAYLIST"
+			$APPDIR/func -playlist_expand "$ACTIVE_PLAYLIST"
+			echo true > $WORKDIR/UPDATE_SOURCELIST
+		fi
+		;;
+	add_favorites)
+		gettext 'Add to Favorites' > $WORKDIR/splashtext
+		$APPDIR/box_splash &
+		while read I; do
+			[ ! "$I" ] && continue
+			[ "$(<$WORKDIR/tmp_favorite_list)" ] && LIST="$(<$WORKDIR/tmp_favorite_list).pmd"
+			[ "$(grep "^[0-9]" <<< "$I")" ] && I="$(cut -d: -f2- <<< "$I")" #remove unique source-nr 
+			$APPDIR/func_favorites -add_favorites "$I" "$LIST"
+		done < $WORKDIR/SOURCE_PRESS_EVENT
+		#---
+		sleep 0.5
+		echo 100 > $WORKDIR/splash
+		;;
+	group_favorites)
+		gettext 'Move favorite list to group' > $WORKDIR/splashtext
+		$APPDIR/box_splash &
+		while read I; do
+			[ ! "$I" ] && continue
+			I="$(cut -d: -f2- <<< "$I")"
+			I="`basename "$I"`"
+			if [ ! "$(<$WORKDIR/tmp_favorite_group)" ]; then
+				sleep 0.5 #to get rid of initial splash
+				echo 100 > $WORKDIR/splash
+				TXT1="$(gettext 'No group is defined')"
+				. $APPDIR/box_ok
+				exit
+			else
+				GROUP="$(<$WORKDIR/tmp_favorite_group)"
+			fi
+			if [ ! -d "$STORAGE_DIR/favorite_lists/$GROUP" ]; then
+				mkdir "$STORAGE_DIR/favorite_lists/$GROUP"
+				#add group to sourcelist
+				tac $WORKDIR/sourcelist | head -n-1 | tac > $WORKDIR/tmp_sourcelist
+				echo "pmusic_favorite_lists|__ $(gettext 'F A V O R I T E   L I S T S') __" > $WORKDIR/sourcelist
+				echo "$STORAGE_DIR/favorite_lists/$GROUP|$GROUP||||||||||||$STORAGE_DIR/favorite_lists/$GROUP|gtk-favorites_group" >> $WORKDIR/sourcelist
+				cat $WORKDIR/tmp_sourcelist >> $WORKDIR/sourcelist
+			fi
+			mv "$STORAGE_DIR/favorite_lists/$I" "$STORAGE_DIR/favorite_lists/$GROUP/$I"
+			grep -v "$STORAGE_DIR/favorite_lists/$I" $WORKDIR/sourcelist > $WORKDIR/tmp_sourcelist
+			mv -f $WORKDIR/tmp_sourcelist $WORKDIR/sourcelist
+			echo true > $WORKDIR/UPDATE_SOURCELIST
+		done < $WORKDIR/SOURCE_PRESS_EVENT
+		#---
+		sleep 0.5
+		echo 100 > $WORKDIR/splash
+		
+		;;
+	favorites_remove)
+		while read I; do
+			[ ! "$I" ] && continue
+			if [ "`echo "$I" | grep "\.pmd$"`" ]; then
+				FILE="`echo "$I" | sed -e 's/pmusicbrowse_expand://g' -e 's/pmusicbrowse_collapse://g'`"
+				FRAME="$(gettext 'Delete')"; IMG="delete"; 
+				TXT1="<b>`gettext 'Do you really want to delete the complete Favorite list'`</b>"
+				TXT2="$FILE"
+				. $APPDIR/box_yesno
+				if [ $EXIT = "yes" ]; then
+					#we need to check if list is expanded, and if yes, also remove its tracks from sourcelist
+					grep -FB 10000 "$FILE" $WORKDIR/sourcelist | grep -v "$FILE" > $WORKDIR/tmp_favorites1
+					if [ "`grep -F "pmusicbrowse_collapse:$FILE" $WORKDIR/sourcelist`" ]; then #list is expanded
+						grep -FA 10000 "$FILE" $WORKDIR/sourcelist | grep -FA 10000 'pmusic_expand_end|' | tac | head -n-1 | tac > $WORKDIR/tmp_favorites2
+					else #list is NOT expanded
+						grep -FA 10000 "$FILE" $WORKDIR/sourcelist | grep -v "$FILE" > $WORKDIR/tmp_favorites2
+					fi
+					cat $WORKDIR/tmp_favorites1 $WORKDIR/tmp_favorites2 > $WORKDIR/sourcelist
+					#---
+					rm "$FILE"
+				fi
+			elif [ -d "$I" ] && [ "`grep -F favorite_lists <<< "$I"`" ]; then
+				GROUP="$I"
+				FRAME="$(gettext 'Delete')"; IMG="delete"; 
+				TXT1="<b>`gettext 'Do you really want to delete the complete Favorite group'`</b>"
+				TXT2="$GROUP"
+				. $APPDIR/box_yesno
+				if [ $EXIT = "yes" ]; then
+					grep -FB 10000 "${GROUP}|" $WORKDIR/sourcelist | grep -v "${GROUP}|" > $WORKDIR/tmp_favorites1
+					grep -FA 10000 "${GROUP}|" $WORKDIR/sourcelist | grep -v "${GROUP}|" > $WORKDIR/tmp_favorites2
+					cat $WORKDIR/tmp_favorites1 $WORKDIR/tmp_favorites2 > $WORKDIR/sourcelist
+					#---
+					rm "$GROUP"/*
+					rmdir "$GROUP"
+				fi
+			elif [ "$FAV_LIST" ]; then #inside favorite list
+				#remove from sourcelist - we grep both unique source-id and source-path
+				grep -vF "$I" $WORKDIR/sourcelist > $WORKDIR/tmp_favorites
+				mv -f $WORKDIR/tmp_favorites $WORKDIR/sourcelist
+				#---
+				[ "$(grep "^[0-9]" <<< "$I")" ] && I="$(cut -d: -f2- <<< "$I")" #remove unique source-nr 
+				grep -vF "$I" "$FAV_LIST" > $WORKDIR/tmp_favorites
+				mv -f $WORKDIR/tmp_favorites "$FAV_LIST"
+			else #a favorite mark
+				#remove from sourcelist - we grep both unique source-id and source-path
+				grep -vF "$I" $WORKDIR/sourcelist > $WORKDIR/tmp_favorites
+				mv -f $WORKDIR/tmp_favorites $WORKDIR/sourcelist
+				#---
+				[ "$(grep "^[0-9]" <<< "$I")" ] && I="$(cut -d: -f2- <<< "$I")" #remove unique source-nr 
+				grep -vF "$I" "$STORAGE_DIR/favorites" > $WORKDIR/tmp_favorites
+				mv -f $WORKDIR/tmp_favorites "$STORAGE_DIR/favorites"
+			fi
+		done < $WORKDIR/SOURCE_PRESS_EVENT
+		echo true > $WORKDIR/UPDATE_SOURCELIST
+		;;
+	favorites_ungroup)
+		echo -n > $WORKDIR/tmp_favorites
+		tac $WORKDIR/sourcelist | head -n-1 | tac > $WORKDIR/tmp_favorites1 #see updating of sourcelist
+		while read I; do
+			#update sourcelist
+			ls -1 "$I" | awk -F '\n' '{print "pmusicbrowse_expand:$STORAGE_DIR/favorite_lists/" $1 "|" $1 "||||||||||||$STORAGE_DIR/favorite_lists/" $1 "|gtk-audio_playlist_favorites" }' >> $WORKDIR/tmp_favorites
+			grep -vF "$I|" $WORKDIR/tmp_favorites1 > $WORKDIR/tmp_favorites2
+			mv $WORKDIR/tmp_favorites2 $WORKDIR/tmp_favorites1
+			#---
+			mv "$I"/* "$STORAGE_DIR/favorite_lists/"
+			rmdir "$I"
+		done < $WORKDIR/SOURCE_PRESS_EVENT
+		#update sourcelist
+		echo "pmusic_favorite_lists|__ $(gettext 'F A V O R I T E   L I S T S') __" > $WORKDIR/sourcelist
+		cat $WORKDIR/tmp_favorites >> $WORKDIR/sourcelist
+		cat $WORKDIR/tmp_favorites1 >> $WORKDIR/sourcelist
+		#---
+		echo true > $WORKDIR/UPDATE_SOURCELIST
+		;;
+	rebuild_album)
+		#this code is based on func_trackinfo - refresh album
+		#splash
+		echo "$(gettext 'Rebuilding album.')" > $WORKDIR/splashtext
+		$APPDIR/box_splash progress &
+		#check internet connection
+		LANG=C wget --spider --tries 1 -T 3  -F --max-redirect 0 $PING_SERVER 2> $WORKDIR/tmp_rebuild_album
+		if [ ! "`grep 'connected' $WORKDIR/tmp_rebuild_album`" ]; then
+			echo 100 > $WORKDIR/splash
+			TXT1="<b>$(gettext 'Not able to connect to internet')</b>"
+			. $APPDIR/box_ok
+			exit
+		fi
+		#---
+		FILENAME="`cut -d':' -f2 $WORKDIR/SOURCE_PRESS_EVENT`"
+		ARTIST="`basename "$FILENAME" | awk -F ' - ' '{print $1}'`"
+		ALBUM="`basename "$FILENAME" | awk -F ' - ' '{print $2}' | sed 's/\.[^\.]*$//'`"
+		#We need disc-ID from DB to retrieve track-list from musicbrainz
+		ID_DISC="`grep -F "|${ARTIST}|" "$STORAGE_DIR/index_mymusic" | grep -vE "\.pmu\||\.m3u\||\.pls\|" | grep -Fm1 "|${ALBUM}|" | cut -d'|' -f16`"
+		if [ ! "$ID_DISC" ]; then
+			echo 100 > $WORKDIR/splash
+			TXT1="<b>$(gettext 'Missing album ID')</b>"
+			. $APPDIR/box_ok
+			exit
+		fi
+		#---
+		XML="$(wget -q "http://musicbrainz.org/ws/1/release/$ID_DISC?type=xml&inc=tracks+release-events+url-rels" -O- | sed "s/\&amp\;/\&/g;s/\&quot\;/\"/g;s/\&apos;/\'/g;s/\&lt\;/</g;s/\&gt\;/>/g" | tr '>' '\n')"
+		TRACKS="`echo "$XML" | tr '>' '\n' | grep -F -A3 '<track id=' | grep -F '</title' | cut -d '<' -f 1`"
+		echo "$TRACKS" > $WORKDIR/tmp_rebuild_album
+		echo -n > $WORKDIR/tmp_rebuild_album.pmu
+		COUNT=0
+		TOTAL=`grep -c ^ $WORKDIR/tmp_rebuild_album`
+		while read TITLE; do
+			TITLE2="`echo "$TITLE" | awk -F "(" '{print $1}' | sed "s/ $//"`" #remove info in ()
+			FILE_PATH="`cut -d'|' -f1-3 "$STORAGE_DIR/index_mymusic" | grep -iF "|${TITLE}|" | grep -Fi "|${ARTIST}|" | cut -d'|' -f1 | grep -iEm1 "$AUDIO_FORMATS"`"
+			[ ! "$FILE_PATH" ] && FILE_PATH="`cut -d'|' -f1-3 "$STORAGE_DIR/index_mymusic" | grep -iF "${TITLE}" | grep -Fi "${ARTIST}" | cut -d'|' -f1 | grep -iEm1 "$AUDIO_FORMATS"`"
+			LENGTH=''
+			[ "$FILE_PATH" ] && LENGTH="`grep -Fm1 "${FILE_PATH}|" "$STORAGE_DIR/index_mymusic" | cut -d'|' -f12`"
+			TMP=`date +%s%N`
+			echo "|$LENGTH|$ARTIST - $TITLE2|$FILE_PATH|$TMP $FILE_PATH" >> $WORKDIR/tmp_rebuild_album.pmu
+			echo "100 * $COUNT / $TOTAL" | bc > $WORKDIR/splash 
+			COUNT=$(($COUNT+1))
+		done < $WORKDIR/tmp_rebuild_album
+		
+		#save
+		if [ `cat $WORKDIR/tmp_rebuild_album.pmu | wc -l` -gt 1 ]; then
+			mv -f $WORKDIR/tmp_rebuild_album.pmu "$STORAGE_DIR/pmu/$ARTIST - ${ALBUM}.pmu"
+			#if expanded --> update 
+			if [ "`grep -F "pmusicbrowse_collapse:$STORAGE_DIR/pmu/$ARTIST - ${ALBUM}.pmu" $WORKDIR/sourcelist`" ]; then
+				$APPDIR/func -playlist_collapse "$STORAGE_DIR/pmu/$ARTIST - ${ALBUM}.pmu"
+				$APPDIR/func -playlist_expand "$STORAGE_DIR/pmu/$ARTIST - ${ALBUM}.pmu"
+				echo true > $WORKDIR/UPDATE_SOURCELIST
+			fi
+		fi
+		echo 100 > $WORKDIR/splash
+		;;
+	fix_album)
+		#this code is based on func_trackinfo - refresh album
+		#splash
+		echo "$(gettext 'Fix album.')" > $WORKDIR/splashtext
+		$APPDIR/box_splash progress &
+		SOURCE="$(cut -d: -f2- <<< "$SOURCE")"
+		
+		echo -n > $WORKDIR/tmp_rebuild_album.pmu
+		COUNT=0
+		TOTAL=`grep -c ^ "$SOURCE"`
+		while read I; do
+			LENGTH="`cut -d'|' -f2 <<< "$I"`"
+			FILE_PATH="`cut -d'|' -f4 <<< "$I"`"
+			ARTIST="`cut -d'|' -f3 <<< "$I" | awk -F ' - ' '{print $1}'`"
+			TITLE="`cut -d'|' -f3 <<< "$I" | awk -F ' - ' '{print $2}'`"
+			if [ ! -f "$FILE_PATH" ]; then
+				TITLE2="`echo "$TITLE" | awk -F "(" '{print $1}' | sed "s/ $//"`" #remove info in ()
+				FILE_PATH="`cut -d'|' -f1-3 "$STORAGE_DIR/index_mymusic" | grep -iF "|${TITLE}|" | grep -Fi "|${ARTIST}|" | cut -d'|' -f1 | grep -iEm1 "$AUDIO_FORMATS"`"
+				[ ! "$FILE_PATH" ] && FILE_PATH="`cut -d'|' -f1-3 "$STORAGE_DIR/index_mymusic" | grep -iF "${TITLE2}" | grep -Fi "${ARTIST}" | cut -d'|' -f1 | grep -iEm1 "$AUDIO_FORMATS"`"
+				LENGTH=''
+				if [ "$FILE_PATH" ]; then
+					LENGTH="`grep -Fm1 "${FILE_PATH}|" "$STORAGE_DIR/index_mymusic" | cut -d'|' -f12`"
+					TITLE="$TITLE2"
+				fi
+			fi
+			TMP=`date +%s%N`
+			echo "|$LENGTH|$ARTIST - $TITLE|$FILE_PATH|$TMP $FILE_PATH" >> $WORKDIR/tmp_rebuild_album.pmu
+			echo "100 * $COUNT / $TOTAL" | bc > $WORKDIR/splash 
+			COUNT=$(($COUNT+1))
+		done < "$SOURCE"
+		
+		#save
+		if [ `cat $WORKDIR/tmp_rebuild_album.pmu | wc -l` -gt 1 ]; then
+			mv -f $WORKDIR/tmp_rebuild_album.pmu "$SOURCE"
+			#if expanded --> update 
+			if [ "`grep -F "pmusicbrowse_collapse:$SOURCE" $WORKDIR/sourcelist`" ]; then
+				$APPDIR/func -playlist_collapse "$SOURCE"
+				$APPDIR/func -playlist_expand "$SOURCE"
+				echo true > $WORKDIR/UPDATE_SOURCELIST
+			fi
+		fi
+		echo 100 > $WORKDIR/splash
+		;;
+	edit_text)
+		export GTK2_RC_FILES="`grep -m 1 gtkrc $HOME/.gtkrc-2.0 | cut -d'\"' -f2 2> $STDERR`" #use global gtk-theme for browser
+		$TEXT_EDITOR "$(cut -d: -f2- <<< "$SOURCE")" &
+		;;
+	track_info)
+		[ "$(grep "^[0-9]" <<< "$SOURCE")" ] && SOURCE="$(cut -d: -f2- <<< "$SOURCE")" #remove unique source-nr 
+		SOURCE="`echo "$SOURCE" | sed -e 's/pmusicbrowse_expand://g' -e 's/pmusicbrowse_collapse://g'`"
+		$APPDIR/func_trackinfo "$SOURCE" -norefresh &
+		;;
+	masstagger)
+		TMP="`ps -eo pid,command`"
+		if [ "`echo "$TMP" | grep -F pmusic | grep -F func_id3tagger`" ]; then #already running --> add to list
+			cut -d: -f2- $WORKDIR/SOURCE_PRESS_EVENT >> $WORKDIR/id3tagger
+		else
+			$APPDIR/func_id3tagger &
+			sleep 0.1
+			cut -d: -f2- $WORKDIR/SOURCE_PRESS_EVENT | grep -iE "$AUDIO_FORMATS" > $WORKDIR/id3tagger
+		fi
+		;;
+	edit_db)
+		echo -n > "$STORAGE_DIR"/index_mymusic.editor
+		while read I; do
+			echo "$(grep -Fm1 "${I}|" "$WORKDIR/sourcelist" | cut -d: -f2-)" >> "$STORAGE_DIR"/index_mymusic.editor
+		done <<< "$SOURCE2"
+		$APPDIR/func_index -update_index not_empty editor & #not_empty means we ship data 
+		;;
+	rename)
+		[ "$(grep "^[0-9]" <<< "$SOURCE")" ] && SOURCE="$(cut -d: -f2- <<< "$SOURCE")" #remove unique source-nr 
+		SOURCE="`echo "$SOURCE" | sed -e 's/pmusicbrowse_expand://g' -e 's/pmusicbrowse_collapse://g'`"
+		$APPDIR/func -rename "$SOURCE"
+		;;
+	copy)
+		[ "$(grep "^[0-9]" <<< "$SOURCE")" ] && SOURCE="$(cut -d: -f2- <<< "$SOURCE")" #remove unique source-nr 
+		SOURCE="`echo "$SOURCE" | sed -e 's/pmusicbrowse_expand://g' -e 's/pmusicbrowse_collapse://g'`"
+		$APPDIR/func -copy "$SOURCE"
+		;;
+	delete)
+		[ "$(grep "^[0-9]" <<< "$SOURCE")" ] && SOURCE="$(cut -d: -f2- <<< "$SOURCE")" #remove unique source-nr 
+		SOURCE="`echo "$SOURCE" | sed -e 's/pmusicbrowse_expand://g' -e 's/pmusicbrowse_collapse://g'`"
+		$APPDIR/func -delete "$SOURCE"
+		;;
+	show_location)
+		[ "$(grep "^[0-9]" <<< "$SOURCE")" ] && SOURCE="$(cut -d: -f2- <<< "$SOURCE")" #remove unique source-nr 
+		SOURCE="`echo "$SOURCE" | sed -e 's/pmusicbrowse_expand://g' -e 's/pmusicbrowse_collapse://g'`"
+		$APPDIR/func -show_location "$SOURCE" &
+		;;
+	fix_db)
+		[ "$(grep "^[0-9]" <<< "$SOURCE")" ] && SOURCE="$(cut -d: -f2- <<< "$SOURCE")" #remove unique source-nr 
+		SOURCE="`echo "$SOURCE" | sed -e 's/pmusicbrowse_expand://g' -e 's/pmusicbrowse_collapse://g'`"
+		$APPDIR/func_add -fix_db &
+		;;
+	edit_marks)
+		$TEXT_EDITOR "$STORAGE_DIR"/favorites &
+		;;
+esac

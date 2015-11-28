@@ -1,0 +1,526 @@
+#!/bin/bash
+#pMusic
+#Copyright, Sigmund Berglund
+
+export TEXTDOMAIN=pmusic
+
+. $APPDIR/func -reset_gtk
+
+export THEMES=`ls "$APPDIR"/themes | awk '{print "<item>"$1"</item>"}'` #make theme list
+export LANGUAGES=`find /usr/share/locale -name 'pmusic.mo' | cut -d'/' -f5 | awk '{print "<item>"$1"</item>"}' | sort`
+export PMUSIC_FRONTENDS=`ls -1 "$APPDIR"/frontends | awk '{print "<item>"$1"</item>"}' | grep -vF '.pre</item>'`
+export CD_DEVICES="<item>/dev/`ls -1 /sys/block 2> $STDERR | grep -E '^scd|^sr' | tr '\n' ' '`</item>"
+export SOUND_DEVICES="<item>auto</item>`aplay -l | grep -F 'card ' | awk '{print "<item>"$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$9" "$10"</item>"}'`"
+#To find available speakers, we must first detect soundcard number
+if [ "$SOUND_DEVICE" = "auto" ]; then
+	if [ -f /etc/asound.conf ]; then #see if MultipleSoundCardWizard was used
+		TMP=$(head -1 /etc/asound.conf)
+		CARD_NR=${TMP##* } 
+	fi
+	if [ ! "$CARD_NR" ]; then
+		TMP="`aplay -l | grep -m 1 -F card`" #grab the first card
+		CARD_NR="`echo $TMP | cut -d':' -f1 | cut -d' ' -f2`"
+	fi
+else
+	CARD_NR="`echo $SOUND_DEVICE | cut -d':' -f1 | cut -d' ' -f2`"
+fi
+export SPEAKERS=`amixer -c $CARD_NR controls | grep 'Playback Volume' | cut -d "'" -f 2 | sed -e "s/ Playback Volume//g" | tr -s ' ' '_' | awk '{print "<item>"$1"</item>"}' | tr -s '_' ' '`
+
+write_config (){
+	#running pMusic with the -j switch should NOT save PMUSIC_FRONTEND/geometry settings
+	[ -s $WORKDIR/window_title ] && XWININFO="`xwininfo -stats -name "$(<$WORKDIR/window_title)"`"
+	if [ "$DONT_SAVE_PMUSIC_FRONTEND" ] || [ ! "$XWININFO" ]; then #keep original values
+		PMUSIC_FRONTEND="`grep -F 'PMUSIC_FRONTEND=' $CONFIG | cut -d= -f2`"
+		HEIGHT="`grep -F -m1 ' HEIGHT=' $CONFIG | cut -d= -f2 | tr -d '"'`" #'
+		WIDTH="`grep -F -m1 ' WIDTH=' $CONFIG | cut -d= -f2 | tr -d '"'`" #'
+		X="`grep -F -m1 'X=' $CONFIG | cut -d= -f2 | tr -d '"'`" #'
+		Y="`grep -F -m1 'Y=' $CONFIG | cut -d= -f2 | tr -d '"'`" #'
+	else #save geometry
+		HEIGHT=`echo "$XWININFO" | grep 'Height:' | awk '{print $2}'`
+		WIDTH=`echo "$XWININFO" | grep 'Width:' | awk '{print $2}'`
+		X1=`echo "$XWININFO" | grep 'Absolute upper-left X' | awk '{print $4}'`
+		Y1=`echo "$XWININFO" | grep 'Absolute upper-left Y' | awk '{print $4}'`
+		X2=`echo "$XWININFO" | grep 'Relative upper-left X' | awk '{print $4}'`
+		Y2=`echo "$XWININFO" | grep 'Relative upper-left Y' | awk '{print $4}'`
+		X=$(($X1-$X2))
+		Y=$(($Y1-$Y2))
+	fi
+	#---
+	echo "#pMusic config
+export VERSION=$VERSION
+
+#Values found in the main preferences window
+export STORAGE_DIR=\"$STORAGE_DIR\"
+export BROWSERDIR=\"$BROWSERDIR\"
+export TOOLTIPS=$TOOLTIPS
+export THEME=\"$THEME\"
+export MY_LANGUAGE=$MY_LANGUAGE
+export PMUSIC_FRONTEND=$PMUSIC_FRONTEND
+export AUDIO_EDITOR=$AUDIO_EDITOR
+export BROWSER=$BROWSER
+export TEXT_EDITOR=$TEXT_EDITOR
+export IMAGE_EDITOR=$IMAGE_EDITOR
+export SOUND_DEVICE=\"$SOUND_DEVICE\"
+export SPEAKER=\"$SPEAKER\"
+export HIGH_CPU=$HIGH_CPU
+export NORMALIZE=$NORMALIZE
+export GAP=$GAP
+export CD_DEVICE=$CD_DEVICE
+export VIEW_SEARCH_OPTIONS=$VIEW_SEARCH_OPTIONS
+export VIEW_ADD_OPTIONS=$VIEW_ADD_OPTIONS
+export USE_META=$USE_META
+export LYRICS_LOCAL=$LYRICS_LOCAL
+export ALBUMART_LOCAL=$ALBUMART_LOCAL
+export PMU_LOCAL=$PMU_LOCAL
+export CDDB=$CDDB
+
+#Values set elsewhere
+export PODCAST_MAX_DL=$PODCAST_MAX_DL
+#search
+export SEARCH_MYMUSIC=$SEARCH_MYMUSIC
+export SEARCH_COLLECTIONS=$SEARCH_COLLECTIONS
+export SEARCH_ALBUMART=$SEARCH_ALBUMART
+export SEARCH_WEBMUSIC=$SEARCH_WEBMUSIC
+export SEARCH_RADIO=$SEARCH_RADIO
+export SEARCH_FILES=$SEARCH_FILES
+export SEARCHPATH=\"$SEARCHPATH\"
+#smartadd
+export SMARTADD_NR=$SMARTADD_NR
+export SMARTADD_RANDOM=$SMARTADD_RANDOM
+export SMARTADD_RATE=$SMARTADD_RATE
+export SMARTADD_SOURCE=\"$SMARTADD_SOURCE\"
+#trackinfo
+export ALBUMART_SEARCH_HEIGHT=$ALBUMART_SEARCH_HEIGHT #how many pixels should the albumart pic be
+export ALBUMART_SEARCH_NR=$ALBUMART_SEARCH_NR #how many pics should be shown
+
+#The variables below are not set in any preferences gui
+export FIRST_RUN=false
+export UPDATE_INTERVAL=$UPDATE_INTERVAL
+export RATING_PERIODE=$RATING_PERIODE
+export SEARCH_WHILE_TYPING=$SEARCH_WHILE_TYPING
+
+#Geometry
+export HEIGHT=\"$HEIGHT\"
+export WIDTH=\"$WIDTH\"
+export X=\"$X\"
+export Y=\"$Y\"" > $CONFIG
+}
+
+#build tab playback. This is used alone in the .CD preset
+. $APPDIR/gui_mixer #normalize
+S='
+<frame '$(gettext 'Playback')'>
+ <text height-request="5"><label>""</label></text>
+ <hbox tooltip-text="'$(gettext 'Master volum most often is a mono channel, and does not support different level for left and right speaker. You must specify correct channel for your system to get mixer volume to work as a balance controller.')'">
+  <text><label>'$(gettext 'Speaker channel')'</label></text>
+  <comboboxtext width-request="150">
+   <variable>SPEAKER</variable>
+   <item>'$SPEAKER'</item>
+   '$SPEAKERS'
+  </comboboxtext>
+ </hbox>
+ <hbox tooltip-text="'$(gettext 'Auto is the recommended choice , but there are 3
+reasons for setting your soundcard:
+1. If there is installed more than 1 card you might
+want to define which one to use.
+2. If you struggles with bad sound quality, defining
+your card could improve playback.
+3. If you NOT want to send audio signal through the equalizer (Bypass).
+
+NOTE!
+You must restart preferences window to rebuild speaker list
+for your chosen soundcard.
+
+NOTE!
+By setting the souncard you also bound the alsa driver to
+pMusic. This means other programs will not play audio as long
+as pMusic is active. On the other hand, pMusic will not
+play if sound driver is in use by other program.
+
+NOTE!
+The equalizer requires soundcard set to Auto.')'">
+  <text><label>'$(gettext 'Sound card')'</label></text>
+  <comboboxtext width-request="150">
+   <variable>SOUND_DEVICE</variable>
+   <item>'$SOUND_DEVICE'</item>
+   '$SOUND_DEVICES'
+  </comboboxtext>
+ </hbox>
+ <hbox>
+  <text><label>'$(gettext 'CD device')'</label></text>
+  <comboboxtext width-request="150">
+   <variable>CD_DEVICE</variable>'
+   [ "$CD_DEV" = false ] && S=$S'<visible>disabled</visible>'
+   S=$S'<item>'$CD_DEVICE'</item>
+   '$CD_DEVICES'
+  </comboboxtext>
+ </hbox>
+ <vbox space-expand="true" space-fill="true">
+  <text><label>""</label></text>
+ </vbox>
+ <vbox space-expand="false" space-fill="false">
+ <checkbox>
+  <label>'$(gettext 'Give pMusic higher CPU-priority (to avoid stutter)')'</label>
+  <variable>HIGH_CPU</variable>
+  <default>'$HIGH_CPU'</default>
+ </checkbox>
+ '$GUI_NORMALIZE'
+ <text height-request="5"><label>""</label></text>
+ <hbox>
+  <hbox space-expand="false" space-fill="false">
+   <entry width-request="30">
+    <variable>GAP</variable>
+    <default>"'$GAP'"</default>
+   </entry>
+  </hbox>
+  <text space-expand="false" space-fill="false"><label>'$(gettext 'Gap between tracks (in seconds)')'</label></text>
+  <text space-expand="true" space-fill="true"><label>""</label></text>
+ </hbox>
+ </vbox>
+</frame>'
+TAB_PLAYBACK="$S"
+
+
+TAB_CDDB='
+<frame '$(gettext 'Track info')'>
+ <checkbox>
+  <label>'$(gettext 'Grab online Artist/Title info if exist')'</label>
+  <variable>CDDB</variable>
+  <default>'$CDDB'</default>
+ </checkbox>
+ <text height-request="1"><label>""</label></text>
+ <text xalign="0"><label>'$(gettext 'If your CD is not registrated in the worldwide cddb database, it would probably use info for another random album. If so, please deactivate this option.')'</label></text>
+</frame>'
+
+
+
+
+
+case "$1" in
+-cd)
+	export pmusic_preferences='
+	<window title="pMusic - '$(gettext 'CD Preferences')'" icon-name="pmusic">
+	 <vbox>
+	  '"$($APPDIR/func_svg -heading "$(gettext 'CD Preferences')")"'
+	  <notebook tab-pos="0" labels="'$(gettext 'Playback')'|'$(gettext 'Trackinfo')'" space-expand="true" space-fill="true">
+	   '$TAB_PLAYBACK'
+	   '$TAB_CDDB'
+	  </notebook>
+	  <hbox space-expand="false" space-fill="false">
+	   <button cancel></button>
+	   <button ok></button>
+	  </hbox>
+	 </vbox>
+	</window>'
+	[ $TOOLTIPS = false ] && pmusic_preferences="`echo "$pmusic_preferences" | sed 's%tooltip-text%tooltipXXXtext%g'`" #deactivate tooltips
+	I=$IFS; IFS=""
+	for STATEMENTS in $($GTKDIALOG -p pmusic_preferences); do
+		eval $STATEMENTS
+	done
+	IFS=$I
+	export CDDB=$CDDB
+	[ "$EXIT" = "OK" ] && write_config
+	;;
+-radio)
+	. $APPDIR/gui_misc #grab gtkdialog xml-code for radio-index install
+	export pmusic_preferences='
+	<window title="pMusic - '$(gettext 'Radio Preferences')'" icon-name="pmusic">
+	 <vbox>
+	  '"$($APPDIR/func_svg -heading "$(gettext 'Radio Preferences')")"'
+	  <notebook tab-pos="0" labels="'$(gettext 'Radio')'|'$(gettext 'Playback')'" space-expand="true" space-fill="true">
+	   <vbox>
+	    <hbox margin="10">
+	     <button>
+	      <input file stock="gtk-go-down"></input>
+	      <label>'$(gettext 'Setup Radio stations')'</label>
+	      <action>'$APPDIR'/func_radio</action>
+	     </button>
+	    </hbox>
+	   </vbox>
+	   '$TAB_PLAYBACK'
+	  </notebook>
+	  <hbox space-expand="false" space-fill="false">
+	   <button cancel></button>
+	   <button ok></button>
+	  </hbox>
+	 </vbox>
+	</window>'
+	[ $TOOLTIPS = false ] && pmusic_preferences="`echo "$pmusic_preferences" | sed 's%tooltip-text%tooltipXXXtext%g'`" #deactivate tooltips
+	I=$IFS; IFS=""
+	for STATEMENTS in $($GTKDIALOG -p pmusic_preferences); do
+		eval $STATEMENTS
+	done
+	IFS=$I
+	[ "$EXIT" = "OK" ] && write_config
+	;;
+-playback)
+	export pmusic_preferences='
+	<window title="pMusic - '$(gettext 'Preferences')'" icon-name="pmusic">
+	 <vbox>
+	  '"$($APPDIR/func_svg -heading "$(gettext 'Preferences')")"'
+	  '$TAB_PLAYBACK'
+	  <hbox>
+	   <button cancel></button>
+	   <button ok></button>
+	  </hbox>
+	 </vbox>
+	</window>'
+	[ $TOOLTIPS = false ] && pmusic_preferences="`echo "$pmusic_preferences" | sed 's%tooltip-text%tooltipXXXtext%g'`" #deactivate tooltips
+	I=$IFS; IFS=""
+	for STATEMENTS in $($GTKDIALOG -p pmusic_preferences); do
+		eval $STATEMENTS
+	done
+	IFS=$I
+	[ "$EXIT" = "OK" ] && write_config
+	;;
+-preferences)
+	. $APPDIR/gui_mixer #normalize
+	case $2 in
+		-playback)		PAGE_NR=1;;
+		-lyrics)		PAGE_NR=2;;
+		*)				PAGE_NR=0;;
+	esac
+	S='
+<window title="pMusic - '$(gettext 'Preferences')'" icon-name="pmusic">
+<vbox>
+ '"$($APPDIR/func_svg -heading "$(gettext 'Preferences')")"'
+ <notebook tab-pos="0" page="'$PAGE_NR'" labels="pMusic|'$(gettext 'Playback')'|'$(gettext 'Track info')'" space-expand="true" space-fill="true">
+
+  <vbox>
+   <notebook tab-pos="2" labels="'$(gettext 'General')'|'$(gettext 'External progams')'" space-expand="true" space-fill="true">
+    <frame '$(gettext 'General')'>
+     <text width-chars="1" height-request="5"><label>""</label></text>
+     <hbox>
+      <text><label>'$(gettext 'Default file-browser path')'</label></text>
+      <entry accept="directory">
+       <variable>BROWSERDIR</variable>
+       <input>echo $BROWSERDIR</input>
+      </entry>
+      <button>
+       <input file stock="gtk-open"></input>
+       <action type="fileselect">BROWSERDIR</action>
+      </button>
+     </hbox>
+     <text><label>""</label></text>
+     <hbox>
+      <text><label>'$(gettext 'Language')'</label></text>
+      <comboboxtext width-request="150">
+       <variable>MY_LANGUAGE</variable>
+       <item>'$MY_LANGUAGE'</item>
+       <item>auto</item>
+       '$LANGUAGES'
+      </comboboxtext>
+      <button width-request="45">
+       <label>www</label>
+       <action>export GTK2_RC_FILES='$HOME'/.gtkrc-2.0; '$BROWSER' http://www.murga-linux.com/puppy/viewtopic.php?p=259090 &</action>
+      </button>
+     </hbox>
+     <hbox>
+      <text><label>'$(gettext 'Theme')'</label></text>
+      <comboboxtext width-request="150">
+       <variable>THEME</variable>
+       <item>'$THEME'</item>
+       '$THEMES'
+      </comboboxtext>
+      <button width-request="45">
+       <label>www</label>
+       <action>export GTK2_RC_FILES='$HOME'/.gtkrc-2.0; '$BROWSER' http://www.murga-linux.com/puppy/viewtopic.php?t=47639 &</action>
+      </button>
+     </hbox>
+     <hbox>
+      <text><label>'$(gettext 'Frontend (window preset)')'</label></text>
+      <comboboxtext width-request="150">
+       <variable>PMUSIC_FRONTEND</variable>
+       <item>'$PMUSIC_FRONTEND'</item>
+       '$PMUSIC_FRONTENDS'
+      </comboboxtext>
+      <button width-request="45">
+       <label>www</label>
+       <action>export GTK2_RC_FILES='$HOME'/.gtkrc-2.0; '$BROWSER' http://www.murga-linux.com/puppy/viewtopic.php?p=313250#313250 &</action>
+      </button>
+     </hbox>
+     <text><label>""</label></text>
+     <checkbox><label>'$(gettext 'Show tooltips')'</label><variable>TOOLTIPS</variable><default>'$TOOLTIPS'</default></checkbox>
+     <vbox space-expand="true" space-fill="true">
+      <text><label>""</label></text>
+     </vbox>
+    </frame>
+   
+    <frame '$(gettext 'External progams')'>
+     <hbox>
+      <text><label>'$(gettext 'Web browser')'</label></text>
+      <entry width-request="200" space-expand="false" space-fill="false"><variable>BROWSER</variable><default>"'$BROWSER'"</default></entry>
+     </hbox>
+     <hbox>
+      <text><label>'$(gettext 'Audio editor')'</label></text>
+      <entry width-request="200" space-expand="false" space-fill="false"><variable>AUDIO_EDITOR</variable><default>"'$AUDIO_EDITOR'"</default></entry>
+     </hbox>
+     <hbox>
+      <text><label>'$(gettext 'Text editor')'</label></text>
+      <entry width-request="200" space-expand="false" space-fill="false"><variable>TEXT_EDITOR</variable><default>"'$TEXT_EDITOR'"</default></entry>
+     </hbox>
+     <hbox>
+      <text><label>'$(gettext 'Image editor')'</label></text>
+      <entry width-request="200" space-expand="false" space-fill="false"><variable>IMAGE_EDITOR</variable><default>"'$IMAGE_EDITOR'"</default></entry>
+     </hbox>
+    </frame>
+   </notebook>
+  </vbox>
+
+
+
+  '$TAB_PLAYBACK'
+
+
+
+ <vbox>
+  <notebook tab-pos="2" labels="'$(gettext 'Audio files')'|'$(gettext 'CD audio')'" space-expand="true" space-fill="true">
+   <vbox>
+    <frame '$(gettext 'Track info')'>
+     <checkbox>
+      <label>'$(gettext 'Extended track info   (Resource hungry for low powered systems)')'</label>
+      <variable>USE_META</variable>
+      <default>'$USE_META'</default>
+     </checkbox>
+     <text xalign="1" wrap="false"><label>'$(gettext 'Album art in main window')'</label></text>
+     <text xalign="1" wrap="false"><label>'$(gettext 'Update info for playing track')'</label></text>
+     <text xalign="1" wrap="false"><label>'$(gettext 'Fetch trackinfo to db for later use')'</label></text>'
+     if type streamripper > /dev/null 2>&1; then S=$S'<text xalign="1" wrap="false"><label>'$(gettext 'Name of playing track for radio streams')'</label></text>'; fi
+     S=$S'</frame>
+    <frame '$(gettext 'Local storage')'>
+     <vbox>
+      <hbox space-expand="true" space-fill="true">
+       <text space-expand="false" space-fill="false"><label>"'$(gettext 'Save track info on harddrive for later use.')'"</label></text>
+       <text space-expand="true" space-fill="true"><label>""</label></text>
+      </hbox>
+      <expander>
+       <hbox space-expand="true" space-fill="true">
+        <text space-expand="false" space-fill="false"><label>"   "</label></text>
+        <text space-expand="false" space-fill="false"><label>"'$(gettext 'pMusic will prefer track-info stored locally over grabbing from internet. This is faster and not depending on connection to the website.
+
+pMusic detects most of the track-info, but depends on meta-tags for at least artist and track-title. Check out the mass-tagger tool in the Music-sources menu.
+
+Album list checks if you got tracks of the matching album, and builds a *.pmu file for later use. This adds new features, but is also the most cpu-consuming option.')'"</label></text>
+        <text space-expand="true" space-fill="true"><label>""</label></text>
+       </hbox>
+       <label>'$(gettext 'More info')'</label>
+      </expander>
+      <vbox space-expand="true" space-fill="true">
+       <text><label>""</label></text>
+      </vbox>
+      <vbox space-expand="false" space-fill="false">
+       <checkbox>
+        <variable>LYRICS_LOCAL</variable>
+        <default>'$LYRICS_LOCAL'</default>
+        <label>'$(gettext 'Lyrics')'</label>
+       </checkbox>
+       <checkbox>
+        <variable>ALBUMART_LOCAL</variable>
+        <default>'$ALBUMART_LOCAL'</default>
+        <label>'$(gettext 'Album artwork')'</label>
+       </checkbox>
+       <checkbox>
+        <variable>PMU_LOCAL</variable>
+        <default>'$PMU_LOCAL'</default>
+        <label>'$(gettext 'Album list')'</label>
+       </checkbox>
+      </vbox>
+     </vbox>
+    </frame>
+   </vbox>
+   <vbox>
+    '$TAB_CDDB'
+   </vbox>
+  </notebook>
+ </vbox>
+
+  </notebook>
+
+ 
+  <vbox space-expand="false" space-fill="false">
+   <hbox space-expand="true" space-fill="true">
+    <hbox space-expand="true" space-fill="true" tooltip-text="'$(gettext 'Depending of how you set up pMusic, it may require some disk space. Please point Data storage to a suitable location.')'">
+     <text use-markup="true" space-expand="false" space-fill="false"><label>"<b><big>'$(gettext 'Data storage')'</big></b>"</label></text>
+     <entry accept="directory" fs-title="pMusic - '$(gettext 'Data storage')'" space-expand="true" space-fill="true">
+      <variable>STORAGE_DIR_NEW</variable>
+      <default>"'$STORAGE_DIR'"</default>
+     </entry>
+     <button space-expand="false" space-fill="false">
+      <input file stock="gtk-open"></input>
+      <action type="fileselect">STORAGE_DIR_NEW</action>
+     </button>
+    </hbox>
+    <text width-request="50"><label>""</label></text>
+    <hbox space-expand="false" space-fill="false">
+     <button cancel></button>
+     <button ok></button>
+     <statusbar width-request="22"></statusbar>
+    </hbox>
+   </hbox>
+  </vbox>
+ </vbox>
+</window>'
+	[ $TOOLTIPS = false ] && S="`echo "$S" | sed 's%tooltip-text%tooltipXXXtext%g'`" #deactivate tooltips
+	echo "$S" | sed 's/##.*//' > $WORKDIR/xml_pmusic_preferences #I use double hash (##) for comments. --> as #FF0000
+	I=$IFS; IFS=""
+	for STATEMENTS in $($GTKDIALOG -f $WORKDIR/xml_pmusic_preferences); do
+		eval $STATEMENTS
+	done
+	IFS=$I
+	if [ "$EXIT" = "OK" ]; then
+		if [ "$STORAGE_DIR" != "$STORAGE_DIR_NEW" ]; then #data storage has change. We need to move. 
+			if [ ! -d "$STORAGE_DIR_NEW"/history_files ]; then
+				mkdir "$STORAGE_DIR_NEW"/history_files
+				mkdir "$STORAGE_DIR_NEW"/albumart
+				mkdir "$STORAGE_DIR_NEW"/lyrics
+				mkdir "$STORAGE_DIR_NEW"/pmu
+				mkdir "$STORAGE_DIR_NEW"/podcasts
+				mkdir "$STORAGE_DIR_NEW"/favorite_lists
+			fi
+			mv "$STORAGE_DIR"/albumart/* "$STORAGE_DIR_NEW"/albumart/
+			mv "$STORAGE_DIR"/lyrics/* "$STORAGE_DIR_NEW"/lyrics/
+			mv "$STORAGE_DIR"/pmu/* "$STORAGE_DIR_NEW"/pmu/
+			mv "$STORAGE_DIR"/podcasts/* "$STORAGE_DIR_NEW"/podcasts/
+			mv "$STORAGE_DIR"/history_files/* "$STORAGE_DIR_NEW"/history_files/
+			#update favorites
+			while read I; do
+				[ ! "`grep -F "$I" "$STORAGE_DIR_NEW"/favorites`" ] && echo "$I" >> "$STORAGE_DIR_NEW"/favorites
+			done < "$STORAGE_DIR"/favorites
+			#update index
+			if [ -s "$STORAGE_DIR"/index_mymusic ] && [ ! -s "$STORAGE_DIR_NEW"/index_mymusic ]; then
+				mv "$STORAGE_DIR"/index_* "$STORAGE_DIR_NEW"/
+			fi
+			#update pmu-path in db
+			( flock -e 200
+				sed -i "s|$STORAGE_DIR|$STORAGE_DIR_NEW|g" "$STORAGE_DIR_NEW/index_mymusic"
+			) 200>$WORKDIR/mymusic_db.lockfile 
+		fi
+		STORAGE_DIR="$STORAGE_DIR_NEW"
+		write_config
+		#if USE_META is changed, clear old info
+		if [ $USE_META = false ]; then
+			$APPDIR/func_svg -nowplaying "pMusic $VERSION" &
+			echo "pMusic $VERSION" > $WORKDIR/window_title
+			cp -f $APPDIR/themes/$THEME/album_art.svg $WORKDIR/albumart.jpg 2> $STDERR
+			cp -f $APPDIR/themes/$THEME/album_art.svg $HOME/.pmusic/nowplaying_albumart.jpg 2> $STDERR
+		else
+			rm $HOME/.pmusic/nowplaying
+		fi
+		#---
+		rm -f $WORKDIR/xml_pmusic* #remove xml-files to force fresh load of all guis (langauge change) 
+		pmusic #new start to load changed settings
+		exit 0
+	fi
+	;;
+
+-write_config) 
+	write_config
+	;;
+
+-version_upgrade) 
+	#these must be changed
+	export VERSION=`grep -F VERSION $APPDIR/pmusicrc| cut -d= -f2`
+	write_config
+	;;
+
+esac

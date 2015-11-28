@@ -57,11 +57,15 @@ echo "Setting $theme to default"
 
 ##### JWM
 cp -af usr/share/jwm/themes/"${PTHEME_JWM_COLOR}-jwmrc" root/.jwm/jwmrc-theme
-cp -af usr/share/jwm/themes/"${PTHEME_JWM_COLOR}-colors" root/.jwm/jwm_colors
+#cp -af usr/share/jwm/themes/"${PTHEME_JWM_COLOR}-colors" root/.jwm/jwm_colors
 echo "jwm colors: ${PTHEME_JWM_COLOR}"
 
 cp -f usr/share/jwm/tray_templates/"$PTHEME_JWM_TRAY"/jwmrc-tray* root/.jwm/
 echo "jwm tray: ${PTHEME_JWM_TRAY}"
+
+# make new default the backup
+cp -af root/.jwm/jwmrc-tray* root/.jwm/backup/
+cp -af root/.jwm/jwmrc-theme root/.jwm/backup/
 
 case $PTHEME_JWM_SIZE in
 small) rm root/.jwm/menuheights;;
