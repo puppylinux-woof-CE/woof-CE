@@ -61,8 +61,8 @@ cp -af usr/share/jwm/themes/"${PTHEME_JWM_COLOR}-jwmrc" root/.jwm/jwmrc-theme
 echo "jwm colors: ${PTHEME_JWM_COLOR}"
 
 cp -f usr/share/jwm/tray_templates/"$PTHEME_JWM_TRAY"/jwmrc-tray* root/.jwm/
-[ ! -d root/.jwm/tmp ] && mkdir root/.jwm/tmp
-echo "$PTHEME_JWM_TRAY" > root/.jwm/tmp/tray_active_preset
+[ ! -d root/.jwm ] && mkdir root/.jwm
+echo "$PTHEME_JWM_TRAY" > root/.jwm/tray_active_preset
 echo "jwm tray: ${PTHEME_JWM_TRAY}"
 
 # make new default the backup
