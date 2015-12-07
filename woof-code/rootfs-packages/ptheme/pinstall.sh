@@ -62,6 +62,14 @@ echo "jwm colors: ${PTHEME_JWM_COLOR}"
 
 cp -f usr/share/jwm/tray_templates/"$PTHEME_JWM_TRAY"/jwmrc-tray* root/.jwm/
 [ ! -d root/.jwm ] && mkdir root/.jwm
+#hybrid
+rm root/.jwm/jwmrc-tray*_hybrid
+for I in 1 2 3 4; do
+	if [ "`grep -F '_hybrid</Include>' root/.jwm/jwmrc-tray$I`" ]; then
+		grep -vF '_hybrid</Include>' root/.jwm/jwmrc-tray$I | sed -e 's%autohide="\(top\|bottom\|left\|right\)" %autohide="off"%' -e "s%layer=\"above\"%layer=\"below\"%" > root/.jwm/jwmrc-tray${I}_hybrid
+	fi
+done
+#---
 echo "$PTHEME_JWM_TRAY" > root/.jwm/tray_active_preset
 echo "jwm tray: ${PTHEME_JWM_TRAY}"
 
