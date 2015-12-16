@@ -57,9 +57,9 @@ echo '<center>
 
 EXCLLISTsd="${EXCLLISTsd,,}"
 
-#/////
+####################################################################
+# the ouput of the code below is redirected to /tmp/newinfoindex.xml
 (
-
 echo "$PKGINFO1" |
 while read ONEINFO
 do
@@ -87,7 +87,7 @@ echo '<p>Complete list of packages (in Puppy or not):</p>
 <select name="site2" size="1" onchange="javascript:formHandler2()">
 '
 
-awk '{ print "<option value=\"" $2 "\">" $1 }' /root/.packages/PKGS_HOMEPAGES #>>/tmp/newinfoindex.xml
+awk '{ print "<option value=\"" $2 "\">" $1 }' /root/.packages/PKGS_HOMEPAGES
 
 echo '</select>
 </form>
@@ -98,7 +98,7 @@ echo '</select>
 cat /usr/share/doc/index.html.bottom
 
 ) >> /tmp/newinfoindex.xml
-#\\\\\
+####################################################################
 
 mv -f /tmp/newinfoindex.xml /usr/share/doc/index.html
 
