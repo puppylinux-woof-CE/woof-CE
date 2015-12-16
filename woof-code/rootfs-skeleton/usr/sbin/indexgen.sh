@@ -63,52 +63,39 @@ EXCLLISTsd="${EXCLLISTsd,,}"
 echo "$PKGINFO1" |
 while read ONEINFO
 do
-  #NAMEONLY="`echo "$ONEINFO" | cut -f 1 -d ' ' | tr [A-Z] [a-z]`"
   NAMEONLY="${ONEINFO%% *}"
   NAMEONLY="${NAMEONLY,,}"
-
   EXPATTERN=" $NAMEONLY "
   nEXPATTERN="^$NAMEONLY "
-
-  #[ "`echo "$EXCLLISTsd" | grep -i "$EXPATTERN"`" != "" ] && continue
   [[ "${EXCLLISTsd}" == *${EXPATTERN}* ]] && continue
-
   HOMESITE="http://en.wikipedia.org/wiki/${NAMEONLY}"
-
-  #REALHOME="`cat /root/.packages/PKGS_HOMEPAGES | grep -i "$nEXPATTERN" | head -n 1 | cut -f 2 -d ' '`"
   PKGHOME="`grep -i -m1 "$nEXPATTERN" /root/.packages/PKGS_HOMEPAGES`"
   REALHOME=${PKGHOME#* } ## this assumes: name url
-  #read -r one two three <<< "$PKGHOME" ; REALHOME="$two" ## cut -f 2 -d ' '
   [ "$REALHOME" != "" ] && HOMESITE="$REALHOME"
-
-  echo "<option value=\"${HOMESITE}\">${ONEINFO}" #>> /tmp/newinfoindex.xml
+  echo "<option value=\"${HOMESITE}\">${ONEINFO}"
 done
-#) >> /tmp/newinfoindex.xml
 
-#(
 echo '</select>
 </form>
 </center>
-' #>> /tmp/newinfoindex.xml
+'
 
 #w464 dropdown list of all builtin pkgs...
 echo '<p>Complete list of packages (in Puppy or not):</p>
 <center>
 <form name="form2">
 <select name="site2" size="1" onchange="javascript:formHandler2()">
-' #>>/tmp/newinfoindex.xml
+'
 
-#sed -e 's% %|%' -e 's%$%|%' /root/.packages/PKGS_HOMEPAGES > /tmp/pkgs_homepages_mod
-#printcols /tmp/pkgs_homepages_mod 2 1 | sed -e 's%^%<option value="%' -e 's%|$%#%' -e 's%|%">%' -e 's%#$%%' #>>/tmp/newinfoindex.xml
 awk '{ print "<option value=\"" $2 "\">" $1 }' /root/.packages/PKGS_HOMEPAGES #>>/tmp/newinfoindex.xml
 
 echo '</select>
 </form>
 </center>
-' #>> /tmp/newinfoindex.xml
+'
 
 #now complete the index.html file...
-cat /usr/share/doc/index.html.bottom #>> /tmp/newinfoindex.xml
+cat /usr/share/doc/index.html.bottom
 
 ) >> /tmp/newinfoindex.xml
 #\\\\\
