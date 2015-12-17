@@ -31,11 +31,11 @@ SUNITS="$1" #allowed params are '-k' or '-m'.
 OUTPUT=""
 
 if [ -f /root/.usb-drive-log-probepart ];then #force /proc upate mechanism
- for ONEUSBDRV in `cat /root/.usb-drive-log-probepart | tr '\n' ' '`
- do
-  #disktype /dev/$ONEUSBDRV > /dev/null 2>&1
-  dd if=/dev/$ONEUSBDRV of=/dev/null bs=512 count=1 >/dev/null 2>&1 #v3.97 faster.
- done
+  for ONEUSBDRV in `cat /root/.usb-drive-log-probepart | tr '\n' ' '`
+  do
+    #disktype /dev/$ONEUSBDRV > /dev/null 2>&1
+    dd if=/dev/$ONEUSBDRV of=/dev/null bs=512 count=1 >/dev/null 2>&1 #v3.97 faster.
+  done
 fi
 
 #devices that have partitions... 
@@ -55,19 +55,17 @@ ALLDRVS="`ls -1 /sys/block | grep -E '^scd|^sd|^mmc|^sr'`"
 #120516 sort in old coreutils (as in wary/racy) does not have -V option...
 COREUTILSVER="$(sort --version | head -n 1 | rev | cut -f 1 -d ' ' | rev)"
 if vercmp $COREUTILSVER le 6.12;then
- ALLDEVS="`echo "${PARTNAMES}
-${ALLDRVS}" | tr '\n' ' '`"
+  ALLDEVS="`echo -e "${PARTNAMES}\n${ALLDRVS}" | tr '\n' ' '`"
 else
- ALLDEVS="`echo "${PARTNAMES}
-${ALLDRVS}" | sort -V -u | tr '\n' ' '`"
+  ALLDEVS="`echo -e "${PARTNAMES}\n${ALLDRVS}" | sort -V -u | tr '\n' ' '`"
 fi
 
 # guess_fstype really sucks for extended partitions - use fdisk but not in the main loop - too slow #140714
 EXTD=''
-printf "$ALLDRVS"|while read DISK
+printf "$ALLDRVS" | while read DISK
 do
   FDISK="`fdisk -l /dev/"$DISK"`"
-  EXTD="`echo "$FDISK"|grep -w 'Extended'|grep "$DISK"|awk '{print $1}'`" 
+  EXTD="`echo "$FDISK" | grep -w 'Extended' | grep "$DISK" | awk '{ print $1 }'`"
   EXTD=${EXTD##*/}
   [ "$EXTD" ] && echo -n "$EXTD " >> /tmp/extended_parts
 done
@@ -76,89 +74,92 @@ rm /tmp/extended_parts 2>/dev/null
 
 for ONEDEV in $ALLDEVS
 do
- MEDIATYPE="" #130128
- FSTYPE="unknown"
- DPATTERN=' '${ONEDEV}'$'
- SIZE=`echo "$PARTITIONS" | grep "$DPATTERN" | cut -f 1 -d ' '`
- DEVICE="`echo "$PARTITIONS" | grep "$DPATTERN" | cut -f 2 -d ' '`"
- if [ ! $SIZE ];then
-  [ "`echo "$PARTITIONS" | grep "$ONEDEV"`" != "" ] && continue
-  #must be a device without partitions...
-  SIZE=0
-  DEVICE="$ONEDEV"
+
+  MEDIATYPE="" #130128
+  FSTYPE="unknown"
+  DPATTERN=" ${ONEDEV}\$"
+  SIZE=`echo "$PARTITIONS" | grep "$DPATTERN" | cut -f 1 -d ' '`
+  DEVICE="`echo "$PARTITIONS" | grep "$DPATTERN" | cut -f 2 -d ' '`"
+
+  if [ ! $SIZE ];then
+    [ "`echo "$PARTITIONS" | grep "$ONEDEV"`" != "" ] && continue
+    #must be a device without partitions...
+    SIZE=0
+    DEVICE="$ONEDEV"
+    case $DEVICE in
+      hd*)
+        [ "`cat /proc/ide/$DEVICE/media`" = "cdrom" ] && MEDIATYPE="optical" #130128
+        ;;
+      scd*|sr*) #usb,sata,scsi cd/dvd drive.
+        MEDIATYPE="optical" #130128
+        ;;
+    esac
+    if [ -e /sys/block/${DEVICE}/size ];then
+      SIZE=`cat /sys/block/${DEVICE}/size`
+      SIZE=$(($SIZE/2)) #get KB.
+    fi
+    #for hd* or sd* superfloppy, determine size (avoid probing optical drive)...
+    if [ "$MEDIATYPE" = "" -a $SIZE -eq 0 ];then #130128
+      BSIZE=`disktype /dev/$DEVICE 2>/dev/null | grep '^Block device' | cut -f 2 -d '(' | cut -f 1 -d ' '`
+      [ $BSIZE ] && SIZE=$(($BSIZE/1024)) #KB
+    fi
+    if [ "$MEDIATYPE" = "optical" ];then #130128
+      opticalPATTERN="^/dev/${DEVICE}"
+      if [ "`grep "$opticalPATTERN" /proc/mounts`" = "" ];then
+        cddetect_quick -d/dev/${DEVICE} >/dev/null 2>&1 #very fast.
+        #...returns 0 if disc inserted, else 255.
+        [ $? -ne 0 ] && continue #130128 go no further, as no media inserted.
+      fi
+    fi
+  fi
+
+  FSTYPE="`guess_fstype /dev/$DEVICE 2>/dev/null`" #130128 note, audio-cd returns "unknown", as no f.s.
+  echo "$EXTD"|grep -q "$DEVICE" && FSTYPE='unknown' #140714 'Extended' partition, gets changed to 'none'
+
+  if [ "$FSTYPE" = "unknown" -a "$MEDIATYPE" = "optical" ];then #130128 probe optical a bit more.
+    cddetect -q -d/dev/${DEVICE} > /dev/null 2>&1
+    case $? in
+      1) FSTYPE="audiocd" ;;
+    esac
+  fi
+ 
+  #v3.97 guess_fstype fails sometimes...
+  #(using makebootfat to setup a USB-FLOPPY/-HDD/-ZIP combined bootable FAT drive).
+  xFSTYPE=''
+  if [ "$FSTYPE" = "unknown" -a "$MEDIATYPE" = "" ];then #130128 not optical.
+    fsPATTERN="^/dev/${DEVICE} "
+    xDEVICE="`echo -n "$DEVICE" | sed -e 's/[0-9]*$//' -e 's%p$%%'`" #"${DEVICE/[0-9]/}" #remove partition number. 120516 remove 'p' from mmcblk0p1
+    xFSTYPE="`fdisk -l /dev/$xDEVICE 2>/dev/null | grep "$fsPATTERN" | head -n 1 | grep -o -E 'FAT|swap|Linux|NTFS'`" #120516 FAT12$|FAT16$|FAT32$
+    case $xFSTYPE in #120516
+      FAT)  FSTYPE='vfat' ;;
+      swap) FSTYPE='swap' ;;
+      NTFS) FSTYPE='ntfs' ;;
+      Linux)
+        FSTYPE=$(blkid -c /dev/null /dev/${DEVICE} | grep -w "${DEVICE}" | grep -o ' TYPE=".*"' | cut -f2 -d'"')
+        [ "$FSTYPE" = "" ] && FSTYPE="unknown"
+        ;;
+    esac
+  fi
+ 
+  [ "$FSTYPE" = "unknown" ] && FSTYPE="none"
+
+  [ "$SUNITS" = "" ] && SIZE=$(($SIZE*2)) #want 512 byte blocks.
+  [ "$SUNITS" = '-m' ] && SIZE=$(($SIZE/1024)) #want MB
+
+  echo "/dev/$DEVICE|$FSTYPE|$SIZE"
+ 
+  #keep record of usb sd*, for forced updating of /proc...
   case $DEVICE in
-   hd*)
-    [ "`cat /proc/ide/$DEVICE/media`" = "cdrom" ] && MEDIATYPE="optical" #130128
-   ;;
-   scd*|sr*) #usb,sata,scsi cd/dvd drive.
-    MEDIATYPE="optical" #130128
-   ;;
+    sd*)
+      #log if usb drive (not a ata drive)...
+      DEVDRV="`echo -n "$DEVICE" | tr -d '[0-9]'`"
+      if [ "`echo "$ATADRIVES" | grep "$DEVDRV"`" = "" ];then #110126
+        echo "$DEVDRV" >> /root/.usb-drive-log-probepart
+        sort -u /root/.usb-drive-log-probepart > /tmp/usb-drive-log-probepart-tmp
+        mv -f /tmp/usb-drive-log-probepart-tmp /root/.usb-drive-log-probepart
+      fi
+      ;;
   esac
-  if [ -e /sys/block/${DEVICE}/size ];then
-   SIZE=`cat /sys/block/${DEVICE}/size`
-   SIZE=$(($SIZE/2)) #get KB.
-  fi
-  #for hd* or sd* superfloppy, determine size (avoid probing optical drive)...
-  if [ "$MEDIATYPE" = "" -a $SIZE -eq 0 ];then #130128
-   BSIZE=`disktype /dev/$DEVICE 2>/dev/null | grep '^Block device' | cut -f 2 -d '(' | cut -f 1 -d ' '`
-   [ $BSIZE ] && SIZE=$(($BSIZE/1024)) #KB
-  fi
-  if [ "$MEDIATYPE" = "optical" ];then #130128
-   opticalPATTERN='^/dev/'"$DEVICE"
-   if [ "`grep "$opticalPATTERN" /proc/mounts`" = "" ];then
-    cddetect_quick -d/dev/${DEVICE} >/dev/null 2>&1 #very fast.
-    #...returns 0 if disc inserted, else 255.
-    [ $? -ne 0 ] && continue #130128 go no further, as no media inserted.
-   fi
-  fi
- fi
- FSTYPE="`guess_fstype /dev/$DEVICE 2>/dev/null`" #130128 note, audio-cd returns "unknown", as no f.s.
- echo "$EXTD"|grep -q "$DEVICE" && FSTYPE='unknown' #140714 'Extended' partition, gets changed to 'none'
-
- if [ "$FSTYPE" = "unknown" -a "$MEDIATYPE" = "optical" ];then #130128 probe optical a bit more.
-  cddetect -q -d/dev/${DEVICE} > /dev/null 2>&1
-  case $? in
-   1) FSTYPE="audiocd" ;;
-  esac
- fi
- 
- #v3.97 guess_fstype fails sometimes...
- #(using makebootfat to setup a USB-FLOPPY/-HDD/-ZIP combined bootable FAT drive).
- xFSTYPE=''
- if [ "$FSTYPE" = "unknown" -a "$MEDIATYPE" = "" ];then #130128 not optical.
-  fsPATTERN='^/dev/'"$DEVICE"' '
-  xDEVICE="`echo -n "$DEVICE" | sed -e 's/[0-9]*$//' -e 's%p$%%'`" #"${DEVICE/[0-9]/}" #remove partition number. 120516 remove 'p' from mmcblk0p1
-  xFSTYPE="`fdisk -l /dev/$xDEVICE 2>/dev/null | grep "$fsPATTERN" | head -n 1 | grep -o -E 'FAT|swap|Linux|NTFS'`" #120516 FAT12$|FAT16$|FAT32$
-  case $xFSTYPE in #120516
-   FAT) FSTYPE='vfat' ;;
-   swap) FSTYPE='swap' ;;
-   NTFS) FSTYPE='ntfs' ;;
-   Linux)
-    FSTYPE=$(blkid -c /dev/null /dev/${DEVICE} | grep -w "${DEVICE}" | grep -o ' TYPE=".*"' | cut -f2 -d'"')
-    [ "$FSTYPE" = "" ] && FSTYPE="unknown"
-   ;;
-  esac
- fi
- 
- [ "$FSTYPE" = "unknown" ] && FSTYPE="none"
-
- [ "$SUNITS" = "" ] && SIZE=$(($SIZE*2)) #want 512 byte blocks.
- [ "$SUNITS" = '-m' ] && SIZE=$(($SIZE/1024)) #want MB
-
- echo "/dev/$DEVICE|$FSTYPE|$SIZE"
- 
- #keep record of usb sd*, for forced updating of /proc...
- case $DEVICE in
-  sd*)
-   #log if usb drive (not a ata drive)...
-   DEVDRV="`echo -n "$DEVICE" | tr -d '[0-9]'`"
-   if [ "`echo "$ATADRIVES" | grep "$DEVDRV"`" = "" ];then #110126
-    echo "$DEVDRV" >> /root/.usb-drive-log-probepart
-    sort -u /root/.usb-drive-log-probepart > /tmp/usb-drive-log-probepart-tmp
-    mv -f /tmp/usb-drive-log-probepart-tmp /root/.usb-drive-log-probepart
-   fi
-   ;;
- esac
  
 done
 
