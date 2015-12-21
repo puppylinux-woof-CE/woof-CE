@@ -6,27 +6,47 @@
 #v406 support for old kernel, /proc/ide, /dev/hd*.
 # DEVICE|TYPE|INFO
 
-if [ -f $HOME/.usb-drive-log-probedisk ] ; then #force /proc upate mechanism
-  while read ONEUSBDRV ; do
-    dd if=/dev/$ONEUSBDRV of=/dev/null bs=512 count=1 &>/dev/null
-  done < $HOME/.usb-drive-log-probedisk
-fi
+output=1
+case $1 in
+	-alt)  output=2 ; shift ;;
+	-type) output=3 ; shift ;;
+	-desc) output=4 ; shift ;;
+	-size) output=5 ; shift ;;
+esac
 
-# mounted drives/partitions...
-MNTDDEVS="`mount | cut -f 1 -d ' ' | cut -f 3 -d '/' | grep -E '^hd|^sd|^scd|^sr|^mmc' | tr '\n' ' '`"
+device=$1
 
-ALLDRVS=$(ls /sys/block | grep -E '^scd|^sd|^mmc|^sr')
-if [ -e /proc/ide ] ; then
-  PROCIDE=1
-  ALLDRVS="$ALLDRVS
+if [ -b "$device"  ] ; then
+	ONLYONE=1
+	[ -e /proc/ide ] && PROCIDE=1
+	ALLDRVS=${device##*/}
+else
+	if [ -f $HOME/.usb-drive-log-probedisk ] ; then #force /proc upate mechanism
+	  while read ONEUSBDRV ; do
+		dd if=/dev/$ONEUSBDRV of=/dev/null bs=512 count=1 &>/dev/null
+	  done < $HOME/.usb-drive-log-probedisk
+	fi
+
+	# mounted drives/partitions...
+	MNTDDEVS="`mount | cut -f 1 -d ' ' | cut -f 3 -d '/' | grep -E '^hd|^sd|^scd|^sr|^mmc' | tr '\n' ' '`"
+
+	ALLDRVS=$(ls /sys/block | grep -E '^scd|^sd|^mmc|^sr')
+	if [ -e /proc/ide ] ; then
+	  PROCIDE=1
+	  ALLDRVS="$ALLDRVS
 $(ls /proc/ide | grep '^hd')"
+	fi
 fi
+
+###############################################################
 
 for p in ${ALLDRVS} ; do
+
 	#case $p in ram*|nbd*|loop*) continue;; esac
 	vendor="" model="" type="drive"
 	[ -f /sys/block/$p/device/vendor ] && read vendor < /sys/block/$p/device/vendor
 	[ -f /sys/block/$p/device/model ] && read model < /sys/block/$p/device/model
+	[ -f /sys/block/$p/size ] && read size < /sys/block/$p/size
 	info="$vendor $model"
 	case $p in
 		hd*) ## ide device, look in /proc/ide for info
@@ -34,11 +54,10 @@ for p in ${ALLDRVS} ; do
 			[ "$media" = "cdrom" ] && type="optical"
 			[ -f /proc/ide/$p/model ] && read info < /proc/ide/$p/model
 			;;
-		sd*) [ "$PROCIDE" ] && type=usbdrv ;; ## /proc/ide: flash drives appear as sdX)
+		sd*) [ "$PROCIDE" ] && type=usbdrv ;; ## /proc/ide: usb drives appear as sdX)
 		fd*)      type=floppy  ;;
 		scd*|sr*) type=optical ;; #scd*: probably old stuff
 		mmc*)     type=card ; info="MMC/SD: $info" ;;
-
 	esac
 	readlink /sys/block/$p | grep -q usb && type=usbdrv
 
@@ -47,7 +66,7 @@ for p in ${ALLDRVS} ; do
 		echo "$p" >> $HOME/.usb-drive-log-probedisk
 		sorted="$(sort -u $HOME/.usb-drive-log-probedisk)"
 		echo "$sorted" > $HOME/.usb-drive-log-probedisk
-			# find out if a usb floppy drive...
+		# find out if a usb floppy drive...
 		if [ -e /sys/block/${p}/size ];then
 			[ "`cat /sys/block/${p}/size`" = "2880" ] && type=floppy
 		fi
@@ -66,20 +85,31 @@ for p in ${ALLDRVS} ; do
 		esac
 	fi
 
-	echo "/dev/$p|$type|$info"
+	case $output in
+		1) echo "/dev/$p|$type|$info" ;;
+		2) echo "/dev/$p $type $size $info" ;;
+		3) echo "$type" ;;
+		4) echo "$info" ;;
+		5) echo "$size" ;;
+	esac
+
 done
 
-# find out if a mounted device has been unplugged...
-# for hotplug drives, remove it and it will disappear from /sys/block, however
-# still shows up in 'mount' if hasn't been unmounted.
-for ONEMNTD in $MNTDDEVS ; do
-	case $ONEMNTD in
-		hd*|sd*|sr*) MNTDDRVs="`echo -n "$ONEMNTD" | cut -b 1-3` " ;;
-		scd*) MNTDDRVs="`echo -n "$ONEMNTD" | cut -b 1-4` " ;;
-		mmc*) MNTDDRVs="`echo -n "$ONEMNTD" | cut -b 1-7` " ;;
-	esac
-	#prints to system log and to stderr...
-	[ "`echo $ALLDRVS | grep "$MNTDDRVs"`" = "" ] && logger -s "PROBEDISK ERROR: MOUNTED UNPLUGGED $ONEMNTD"
-done
+###############################################################
+
+if [ ! "$ONLYONE" ] ; then
+	# find out if a mounted device has been unplugged...
+	# for hotplug drives, remove it and it will disappear from /sys/block, however
+	# still shows up in 'mount' if hasn't been unmounted.
+	for ONEMNTD in $MNTDDEVS ; do
+		case $ONEMNTD in
+			hd*|sd*|sr*) MNTDDRVs="`echo -n "$ONEMNTD" | cut -b 1-3` " ;;
+			scd*) MNTDDRVs="`echo -n "$ONEMNTD" | cut -b 1-4` " ;;
+			mmc*) MNTDDRVs="`echo -n "$ONEMNTD" | cut -b 1-7` " ;;
+		esac
+		#prints to system log and to stderr...
+		[ "`echo $ALLDRVS | grep "$MNTDDRVs"`" = "" ] && logger -s "PROBEDISK ERROR: MOUNTED UNPLUGGED $ONEMNTD"
+	done
+fi
 
 ### END ###
