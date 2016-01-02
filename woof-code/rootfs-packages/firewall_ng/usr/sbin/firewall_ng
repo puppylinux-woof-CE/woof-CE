@@ -3,24 +3,206 @@
 # A very simple firewall based on Alienbob's script
 # at http://www.slackware.com/~alien/efg/
 
-#version 0.2
+version=0.4
 
 # gettext : only the GUI
 export TEXTDOMAIN=firewall_ng
 export OUTPUT_CHARSET=UTF-8
 
+# firewall test
+wall_state() {
+	if [ `iptables -L -n |wc -l` -gt 10 ];then
+		return 1
+	else
+		return 0
+	fi
+}
+
+# error splash
+error_cond() {
+	col=crimson
+	[ -n "$2" ] && col=green
+	gtkdialog-splash -bg $col -timeout 2 -close box -text "$1" &
+	exit
+}
+export -f error_cond
+
+# custom settings
+export FILE=/tmp/firewall_extras
+[ -f "$FILE" ] && rm $FILE
+
+# add entry to firewall
+mk_entry() {
+	PORT=$1
+	PROTO=$2
+	DIRECTION=$3
+	IPRANGE=$4
+	echo $DIRECTION | grep -q 'inbound' && DOPT=--destination-port || DOPT=--source-port
+	echo -e "\$IPT -A $DIRECTION -p $PROTO -s $IPRANGE $DOPT $PORT -j ACCEPT" \
+		>> $FILE
+}
+export -f mk_entry
+
+# parse input from extras gui
+add_extras() {
+	if echo $1|grep -q ',';then
+		IFS=',' read -r a1 a2 a3 a4 a5 <<< "$1"
+		echo $a1|grep -q '[a-zA-Z\!@\$%\^\&\*\(\)_+\-\=\.]' && \
+			error_cond "Error: illegal characters! Must be a port number."
+		case $a2 in
+			TCP|UDP): ;;
+			*)error_cond "Error: 2nd arg must be 'TCP' or 'UDP'." ;;
+		esac
+		echo "# Custom entry for port $a1" >> $FILE
+		if [ -n "$a3" ];then
+			case $a3 in
+				TCP|UDP): ;;
+				[1-9]*[0-9])echo ;;
+				*)error_cond \
+				"Error: 3rd arg must be 'TCP', 'UDP' or an IP or range." ;;
+			esac
+		fi
+		[ -n "$a4" ] && echo $a4|grep -q '[a-zA-Z\!@\$%\^\&\*\(\)_+\-\=]' && \
+			error_cond "Error: illegal characters! Must be an IP or range."
+		[ -z "$a3" -o -z "$a4" ] && IP=0/0
+		[ -n "$a3" ] && echo $a3 | grep '^[1-9]' | grep -q '[0-9]$' && IP=$a3
+		[ -n "$a4" ] && echo $a4 | grep '^[1-9]' | grep -q '[0-9]$' && IP=$a4
+		if [ -z "$a3" ];then
+			b2=${a2,,}
+			mk_entry $a1 $a2 ${b2}_inbound 0/0
+		elif [ -n "$a3" -a -z "$a4" ];then
+			#sort out if a3 is a proto or IP
+			case $a3 in
+			TCP|UDP)
+				b2=${a2,,}
+				b3=${a3,,}
+				mk_entry $a1 $a2 ${b2}_inbound 0/0
+				mk_entry $a1 $a3 ${b3}_inbound 0/0
+				;;
+			*)
+				b2=${a2,,}
+				mk_entry $a1 $a2 ${b2}_inbound $a3 #a3 must be IP		
+			;;
+			esac
+		else
+			#full house
+			b2=${a2,,}
+			b3=${a3,,}
+			mk_entry $a1 $a2 ${b2}_inbound $a4 #a4 must be IP
+			mk_entry $a1 $a3 ${b3}_inbound $a4 #a4 must be IP
+		fi
+	else
+		echo $1|grep -q '[a-zA-Z\!@\$%\^\&\*\(\)_+\-\=\.]' && \
+			error_cond "Error: illegal characters! Must be a port number."
+		echo "# Custom entry for port $1" >> $FILE
+		mk_entry $1 UDP udp_inbound "0/0"
+		mk_entry $1 TCP tcp_inbound "0/0"
+	fi
+}
+export -f add_extras
+
+# extra ports gui
+extras_gui() {
+	TEXT1="$(gettext "Place a space delimited array of ports and options in the 
+	box below. Up to 10 can be specified. You must comma 
+	delimit the options. You can't use ports below 1024.
+	Specifying the port number only allows inbound TCP
+	and UDP traffic from any source.")"
+	TEXT2="$(gettext "Example:")"
+	TEXT3=51200,TCP
+	TEXT4="$(gettext "Or:")"
+	TEXT5=5100,TCP,UDP,192.168.1.0/16
+
+	export extras="<window title=\"Extra ports\">
+	<vbox>
+		<hbox space-expand=\"true\" space-fill=\"true\" width-request=\"500\">
+			<vbox>
+				<text space-expand=\"true\" space-fill=\"true\">
+					<label>\"$TEXT1\"</label>
+				</text>
+				<text space-expand=\"true\" space-fill=\"true\" xalign=\"0\">
+					<label>\"$TEXT2\"</label>
+				</text>
+				<text space-expand=\"true\" space-fill=\"true\" use-markup=\"true\">
+					<label>\"<i>$TEXT3</i>\"</label>
+				</text>
+				<text space-expand=\"true\" space-fill=\"true\" xalign=\"0\">
+					<label>\"$TEXT4\"</label>
+				</text>
+				<text space-expand=\"true\" space-fill=\"true\" use-markup=\"true\">
+					<label>\"<i>$TEXT5</i>\"</label>
+				</text>
+			</vbox>
+		</hbox>
+		<hbox space-expand=\"true\" space-fill=\"true\" width-request=\"500\">
+			<entry>
+				<variable>extra_ports</variable>
+				<default>Place extra ports here</default>
+			</entry>
+		</hbox>
+		<hbox><button ok></button></hbox>
+	</vbox>
+</window>"
+	eval $(gtkdialog -p extras)
+	[ "$EXIT" = "abort" ] && return
+	[ "$extra_ports" = "Place extra ports here" ] && error_cond \
+		"Error: No rules set!"
+	read -a name <<< "$extra_ports"
+	for ((z=0; z<10; z++));do
+		[ -z "${name[z]}" ] && break
+		add_extras ${name[z]}
+	done
+	error_cond "Setting custom rules" z
+}
+export -f extras_gui
+
+# get the current network interface
+IFACE=`/sbin/route|grep default|rev|cut -d ' ' -f1|rev`
+
+# setup
+sens=false
+CONFDIR="$HOME/.config/firewall"
+CONF="$CONFDIR/fw.conf"
+[ -d "$CONFDIR" ] || mkdir -p "$CONFDIR"
+if [ -f "$CONF" ];then
+	. "$CONF"
+	defgen=$GENERIC
+	defmain=$MAIN
+	CB_MAINTXT="$(gettext "Your firewall is configured. Change it to open ports if you have added extra services.")"
+	CB_TTTXT="$(gettext "Your firewall is configured. Change it if you wish.")"
+else
+	def=false
+	defgen=true
+	defmain=true
+	CB_MAINTXT="$(gettext "The default setting is that all ports are blocked. Uncheck to allow you to check some ports.")"
+	CB_TTTXT="$(gettext "If you do not need to connect to any incoming services then the default setting is recommended")"
+fi
+[ "$MAIN" == 'false' ] && sens=true
 
 # gui
-if [ `iptables -L -n |wc -l` -gt 10 ];then
+wall_state
+state=$?
+if [ "$state" = '1' ];then
 	IMAGEFILE=/usr/share/pixmaps/puppy/shield_yes.svg
 	msg=$(gettext "Firewall On")
 	winicon=gtk-connect
 	ttmsg=$(gettext "Your firewall is configured and running. You can cancel or abort this program if you wish, or change the settings now.")
+	btn_label="$(gettext "Reload")"
 else
 	IMAGEFILE=/usr/share/pixmaps/puppy/shield_no.svg
 	msg=$(gettext "Firewall Off")
 	winicon=gtk-dialog-warning
 	ttmsg=$(gettext "Your firewall is not running. You can should configure it now!")
+	btn_label="$(gettext "Resume")"
+fi
+# resume/reload button
+if [ -x /etc/init.d/rc.firewall ];then
+	RESUME="<button tooltip-text=\"$(gettext "Restart Firewall with current settings")\">
+				<label>$btn_label</label>
+				<input file stock=\"gtk-refresh\"></input>
+				<action type=\"exit\">Redo</action>
+			</button>
+"
 fi
 export url="http://www.slackware.com/~alien/efg/" 
 TEXT='<b><u><span color='"'blue'"'>'"$(gettext "Alien Bob's Easy Firewall Generator for IPTables")"'</span></u></b>' 
@@ -28,26 +210,26 @@ URL="<eventbox hover-selection=\"true\" homogeneous=\"true\" tooltip-text=\"$(ge
       <text justify=\"2\" use-markup=\"true\"><label>\"$TEXT\"</label></text> 
 <action signal=\"button-press-event\">defaultbrowser $url &</action> 
 </eventbox>"
-for i in SSH CUPS Samba Minidlna NTP ftp http DNS DHCP NFS ;do
+for i in SSH CUPS Samba DLNA NTP ftp http DNS DHCP NFS ;do
 
 	case $i in 
-		Samba)var=CONFIG_SAMBA desc=$(gettext "Share files with Windows") x=true;;
-		Minidlna)var=CONFIG_DLNA  desc=$(gettext "Media Server") x=true;;
-		ftp)var=CONFIG_FTP desc=$(gettext "File transfer protocol") x=false;;
-		http)var=CONFIG_HTTP desc=$(gettext "Web Server") x=false;;
-		SSH)var=CONFIG_${i} desc=$(gettext "Remote secure shell access") x=true;;
-		CUPS)var=CONFIG_${i} desc=$(gettext "Printer server") x=true;;
-		NTP)var=CONFIG_${i} desc=$(gettext "Time server") x=false;;
-		DHCP)var=CONFIG_${i} desc=$(gettext "DHCP Server") x=false;;
-		DNS)var=CONFIG_${i} desc=$(gettext "Domain Name Services") x=false;;
-		NFS)var=CONFIG_${i} desc=$(gettext "Network File Sharing Protocol (UNIX)") x=false;;
+		Samba)var=CONFIG_SAMBA desc=$(gettext "Share files with Windows");[ -f "$CONF" ] &&  def=$CONFIG_SAMBA || def=false;;
+		DLNA)var=CONFIG_DLNA  desc=$(gettext "Media Server");[ -f "$CONF" ] &&  def=$CONFIG_DLNA || def=false;;
+		ftp)var=CONFIG_FTP desc=$(gettext "File transfer protocol");[ -f "$CONF" ] &&  def=$CONFIG_FTP || def=false;;
+		http)var=CONFIG_HTTP desc=$(gettext "Web Server");[ -f "$CONF" ] &&  def=$CONFIG_HTTP || def=false;;
+		SSH)var=CONFIG_${i} desc=$(gettext "Remote secure shell access");[ -f "$CONF" ] &&  def=$CONFIG_SSH || def=false;;
+		CUPS)var=CONFIG_${i} desc=$(gettext "Printer server");[ -f "$CONF" ] &&  def=$CONFIG_CUPS || def=false;;
+		NTP)var=CONFIG_${i} desc=$(gettext "Time server");[ -f "$CONF" ] &&  def=$CONFIG_NTP || def=false;;
+		DHCP)var=CONFIG_${i} desc=$(gettext "DHCP Server");[ -f "$CONF" ] &&  def=$CONFIG_DHCP || def=false;;
+		DNS)var=CONFIG_${i} desc=$(gettext "Domain Name Services");[ -f "$CONF" ] &&  def=$CONFIG_DNS || def=false;;
+		NFS)var=CONFIG_${i} desc=$(gettext "Network File Sharing Protocol (UNIX)");[ -f "$CONF" ] &&  def=$CONFIG_NFS || def=false ;;
 	esac
 	CB="$CB""<hbox space-expand=\"true\" space-fill=\"true\">
 		<checkbox>
 			<label>$i - $desc</label>
-			<default>false</default>
+			<default>$def</default>
 			<variable>$var</variable>
-			<sensitive>false</sensitive>
+			<sensitive>$sens</sensitive>
 		</checkbox>
 	</hbox>"
 	case $var in 
@@ -62,8 +244,7 @@ for i in SSH CUPS Samba Minidlna NTP ftp http DNS DHCP NFS ;do
 		
 done
 
-
-export GUI="<window title=\"Firewall Setup\" icon-name=\"$winicon\">
+export GUI="<window title=\"Firewall Setup $version\" icon-name=\"$winicon\">
 	<vbox>
 		<hbox space-expand=\"true\" space-fill=\"true\">
 			<vbox>
@@ -88,13 +269,21 @@ export GUI="<window title=\"Firewall Setup\" icon-name=\"$winicon\">
 				<hbox space-expand=\"true\" space-fill=\"true\">
 					$URL
 				</hbox>
+				<hbox space-expand=\"true\" space-fill=\"true\">
+					<checkbox>
+						<label>\"$(gettext "When this button is checked a generic firewall is generated on no specific interface.")\"</label>
+						<default>$defgen</default>
+						<variable>GENERIC</variable>
+					</checkbox>
+				</hbox>
 			</vbox>
 		</hbox>
 		<frame>
 			<hbox space-expand=\"true\" space-fill=\"true\">
-				<checkbox tooltip-text=\"$(gettext "If you do not need to connect to any incoming services then the default setting is recommended")\">
-					<label>$(gettext "The default setting is that all ports are blocked. Uncheck to allow you to check some ports.")</label>
-					<default>true</default>
+				<checkbox tooltip-text=\"$CB_TTTXT\">
+					<label>\"$CB_MAINTXT\"</label>
+					<default>$defmain</default>
+					<variable>MAIN</variable>
 					$DEF
 					<action>if false enable:EX</action>
 					<action>if true disable:EX</action>
@@ -116,12 +305,57 @@ export GUI="<window title=\"Firewall Setup\" icon-name=\"$winicon\">
 		</vbox>
 		<hbox>
 			<button cancel></button>
-			<button ok></button>
+			$RESUME
+			<button tooltip-text=\"$(gettext "Option to choose custom ports")\">
+				<label>$(gettext "Extras")</label>
+				<input file stock=\"gtk-add\"></input>
+				<action>extras_gui</action>
+			</button>
+			<button has-focus=\"true\">
+				<label>$(gettext "Apply")</label>
+				<input file stock=\"gtk-apply\"></input>
+				<action type=\"exit\">Doit</action>
+			</button>
 		</hbox>
 	</vbox>
 </window>"
 eval $(gtkdialog -p GUI -c 2>/dev/null) 2>/dev/null
-[ "$EXIT" != "OK" ] && echo aborting && exit
+echo $EXIT
+case "$EXIT" in
+	Doit)echo "GENERIC=$GENERIC
+MAIN=$MAIN
+EX=$EX
+CONFIG_SSH=$CONFIG_SSH
+CONFIG_CUPS=$CONFIG_CUPS
+CONFIG_SAMBA=$CONFIG_SAMBA
+CONFIG_DLNA=$CONFIG_DLNA
+CONFIG_NTP=$CONFIG_NTP
+CONFIG_FTP=$CONFIG_FTP
+CONFIG_HTTP=$CONFIG_HTTP
+CONFIG_DNS=$CONFIG_DNS
+CONFIG_DHCP=$CONFIG_DHCP
+CONFIG_NFS=$CONFIG_NFS" > $CONF # (re)write config
+	;;
+	Redo)
+	if [ -f "$CONF" ];then
+		if [ -x /etc/init.d/rc.firewall ];then
+			if [ $state -eq 0 ];then
+				/etc/init.d/rc.firewall start
+				echo 'starting firewall using previous config' && exit
+			else
+				/etc/init.d/rc.firewall restart
+				echo 'restarting firewall using previous config' && exit
+			fi
+		else
+			echo 'aborting' && exit
+		fi
+	else
+		echo 'aborting' && exit
+	fi
+	;;
+	*)echo 'aborting' && exit
+	;;
+esac
 
 # build the firewall
 TMPFW=/tmp/firewall_gen$$
@@ -174,8 +408,18 @@ IPTS="/usr/sbin/iptables-save"
 IPTR="/usr/sbin/iptables-restore"
 EOF_FWSTART
 
-# get the current network interface
-IFACE=`/sbin/route|grep default|rev|cut -d ' ' -f1|rev`
+# generic or interface
+case $GENERIC in
+	true) IFACE=generic
+			IOPT=""
+			OOPT=""
+	;;
+	false) IFACE=$IFACE
+			IOPT="-i \$INET_IFACE"
+			OOPT="-o \$INET_IFACE"	
+	;;
+esac
+
 cat >> $TMPFW << EOF_FWNEXT
 # Internet Interface
 INET_IFACE="$IFACE"
@@ -485,7 +729,7 @@ echo "Create and populate custom rule chains ..."
 
 # Drop INVALID packets immediately
 \$IPT -A bad_packets -p ALL -m conntrack --ctstate INVALID -j LOG \
-    --log-prefix "Invalid packet: "
+--log-prefix "Invalid packet: "
 
 \$IPT -A bad_packets -p ALL -m conntrack --ctstate INVALID -j DROP
 
@@ -505,31 +749,31 @@ echo "Create and populate custom rule chains ..."
 
 
 \$IPT -A bad_tcp_packets -p tcp ! --syn -m conntrack --ctstate NEW -j LOG \
-    --log-prefix "New not syn: "
+--log-prefix "New not syn: "
 \$IPT -A bad_tcp_packets -p tcp ! --syn -m conntrack --ctstate NEW -j DROP
 
 \$IPT -A bad_tcp_packets -p tcp --tcp-flags ALL NONE -j LOG \
-    --log-prefix "Stealth scan: "
+--log-prefix "Stealth scan: "
 \$IPT -A bad_tcp_packets -p tcp --tcp-flags ALL NONE -j DROP
 
 \$IPT -A bad_tcp_packets -p tcp --tcp-flags ALL ALL -j LOG \
-    --log-prefix "Stealth scan: "
+--log-prefix "Stealth scan: "
 \$IPT -A bad_tcp_packets -p tcp --tcp-flags ALL ALL -j DROP
 
 \$IPT -A bad_tcp_packets -p tcp --tcp-flags ALL FIN,URG,PSH -j LOG \
-    --log-prefix "Stealth scan: "
+--log-prefix "Stealth scan: "
 \$IPT -A bad_tcp_packets -p tcp --tcp-flags ALL FIN,URG,PSH -j DROP
 
 \$IPT -A bad_tcp_packets -p tcp --tcp-flags ALL SYN,RST,ACK,FIN,URG -j LOG \
-    --log-prefix "Stealth scan: "
+--log-prefix "Stealth scan: "
 \$IPT -A bad_tcp_packets -p tcp --tcp-flags ALL SYN,RST,ACK,FIN,URG -j DROP
 
 \$IPT -A bad_tcp_packets -p tcp --tcp-flags SYN,RST SYN,RST -j LOG \
-    --log-prefix "Stealth scan: "
+--log-prefix "Stealth scan: "
 \$IPT -A bad_tcp_packets -p tcp --tcp-flags SYN,RST SYN,RST -j DROP
 
 \$IPT -A bad_tcp_packets -p tcp --tcp-flags SYN,FIN SYN,FIN -j LOG \
-    --log-prefix "Stealth scan: "
+--log-prefix "Stealth scan: "
 \$IPT -A bad_tcp_packets -p tcp --tcp-flags SYN,FIN SYN,FIN -j DROP
 
 # All good, so return
@@ -554,14 +798,14 @@ echo "Create and populate custom rule chains ..."
 # never be fragmented.  Fragmented ICMP packets are a typical sign
 # of a denial of service attack.
 \$IPT -A icmp_packets --fragment -p ICMP -j LOG \
-    --log-prefix "ICMP Fragment: "
+--log-prefix "ICMP Fragment: "
 \$IPT -A icmp_packets --fragment -p ICMP -j DROP
 
 # Echo - uncomment to allow your system to be pinged.
 # Uncomment the LOG command if you also want to log PING attempts
 # 
 # \$IPT -A icmp_packets -p ICMP -s 0/0 --icmp-type 8 -j LOG \
-#    --log-prefix "Ping detected: "
+#--log-prefix "Ping detected: "
 # \$IPT -A icmp_packets -p ICMP -s 0/0 --icmp-type 8 -j ACCEPT
 
 # By default, however, drop pings without logging. Blaster
@@ -605,6 +849,9 @@ echo "Create and populate custom rule chains ..."
 EOF_FWNEXT
 
 # From here is where Puppy edits
+echo "
+############################### Puppy Rules ###################################
+" >> $TMPFW
 if [ "$CONFIG_SAMBA" != "true" ];then
 	cat >> $TMPFW << EOF_SAMBA_NOT
 	
@@ -622,7 +869,7 @@ cat >> $TMPFW << EOF_FWCOMMENT
 # If you receive your dynamic address by a different means, you
 # can probably comment this line.
 \$IPT -A udp_inbound -p UDP -s 0/0 --source-port 67 --destination-port 68 \
-     -j ACCEPT
+-j ACCEPT
 # User specified allowed UDP protocol
 EOF_FWCOMMENT
 
@@ -676,7 +923,7 @@ if [ "$CONFIG_DHCP" == "true" ];then
 # External DHCP Server
 # Allow DHCP client request packets inbound from external network
 \$IPT -A udp_inbound -p UDP -s 0/0 --source-port 68 --destination-port 67 \
-     -j ACCEPT
+-j ACCEPT
 
 # Dynamic Address
 # If DHCP, the initial request is a broadcast. The response
@@ -685,7 +932,7 @@ if [ "$CONFIG_DHCP" == "true" ];then
 # If you receive your dynamic address by a different means, you
 # can probably comment this line.
 \$IPT -A udp_inbound -p UDP -s 0/0 --source-port 67 --destination-port 68 \
-     -j ACCEPT
+-j ACCEPT
 EOF_DHCP
 fi
 
@@ -783,10 +1030,19 @@ fi
 if [ "$CONFIG_DLNA" == "true" ];then
 	cat >> $TMPFW << EOF_CUPS_DLNA
 
-# allow minidlna multimedia server
+# allow dlna multimedia server
 \$IPT -A tcp_inbound -p TCP -s 0/0 --destination-port 8200 -j ACCEPT
 EOF_CUPS_DLNA
 fi
+
+# custom extras
+[ -f "$FILE" ] && echo "
+############################### Custom Extras #################################
+" >> $TMPFW
+[ -f "$FILE" ] && cat $FILE >> $TMPFW
+[ -f "$FILE" ] && echo "
+############################## END Custom Extras ##############################
+" >> $TMPFW
 
 # The rest!
 
@@ -838,13 +1094,13 @@ echo "Process INPUT chain ..."
 # Inbound Internet Packet Rules
 
 # Accept Established Connections
-\$IPT -A INPUT -p ALL -i \$INET_IFACE -m conntrack --ctstate ESTABLISHED,RELATED \
-     -j ACCEPT
+\$IPT -A INPUT -p ALL $IOPT -m conntrack --ctstate ESTABLISHED,RELATED \
+-j ACCEPT
 
 # Route the rest to the appropriate user chain
-\$IPT -A INPUT -p TCP -i \$INET_IFACE -j tcp_inbound
-\$IPT -A INPUT -p UDP -i \$INET_IFACE -j udp_inbound
-\$IPT -A INPUT -p ICMP -i \$INET_IFACE -j icmp_packets
+\$IPT -A INPUT -p TCP $IOPT -j tcp_inbound
+\$IPT -A INPUT -p UDP $IOPT -j udp_inbound
+\$IPT -A INPUT -p ICMP $IOPT -j icmp_packets
 
 # Drop without logging broadcasts that get this far.
 # Cuts down on log clutter.
@@ -854,7 +1110,7 @@ echo "Process INPUT chain ..."
 
 # Log packets that still don't match
 \$IPT -A INPUT -m limit --limit 3/minute --limit-burst 3 -j LOG \
-    --log-prefix "INPUT packet died: "
+--log-prefix "INPUT packet died: "
 
 ###############################################################################
 #
@@ -884,11 +1140,11 @@ echo "Process OUTPUT chain ..."
 \$IPT -A OUTPUT -p ALL -o \$LO_IFACE -j ACCEPT
 
 # To internet
-\$IPT -A OUTPUT -p ALL -o \$INET_IFACE -j ACCEPT
+\$IPT -A OUTPUT -p ALL $OOPT -j ACCEPT
 
 # Log packets that still don't match
 \$IPT -A OUTPUT -m limit --limit 3/minute --limit-burst 3 -j LOG \
-    --log-prefix "OUTPUT packet died: "
+--log-prefix "OUTPUT packet died: "
 
 ###############################################################################
 #
@@ -938,6 +1194,7 @@ echo "Load rules for mangle table ..."
 EOF_REST
 
 if [ -f "$TMPFW" ];then
+	[ $state = 1 ] && /etc/init.d/rc.firewall stop && sleep 1
 	echo "copying firewall"
 	cp -af "$TMPFW" /etc/init.d/rc.firewall
 	chmod 755 /etc/init.d/rc.firewall
@@ -948,10 +1205,10 @@ else
 fi
 
 # run it!
-xmessage -bg yellow -c -timeout 2 "Starting firewall"
+gtkdialog-splash -bg yellow -timeout 2 -text "Starting firewall" &
 urxvt -bg yellow -fg black -geometry 60X10+1+1 --hold -e /etc/init.d/rc.firewall start &
 p=$!
-sleep 8
+sleep 6
 kill -9 $p
 
 # start the status icon
