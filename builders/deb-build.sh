@@ -469,7 +469,7 @@ list_dependency() {
 	[ -z "$PKGDEP" ] && return
 	local depfile=$(mktemp -p /tmp dep.XXXXXXXX)
 	echo $PKGDEP | tr ',' '\n' | while read -r p; do
-		[ -z $p ] && continue
+		[ -z "$p" ] && continue
 		! grep -m1 -q "^${p}$" $TRACKER && echo $p
 	done > $depfile
 	[ -s $depfile ] && ( flatten_pkglist $depfile; )
