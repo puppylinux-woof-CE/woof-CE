@@ -13,6 +13,7 @@ DISTRO_PREFIX=${DISTRO_PREFIX:-puppy}
 DISTRO_VERSION=${DISTRO_VERSION:-700} # informative only
 
 DEFAULT_REPOS=${REPO_URLS:-http://mirrors.slackware.com/slackware|$VERSION|slackware:extra|CHECKSUMS.md5}
+#KEEP_DUPLICATES=1 # keep multiple versions of package in pkgdb
 
 INSTALLPKG=${INSTALLER:-installpkg}
 REMOVEPKG=${INSTALLER:-removepkg}
@@ -119,6 +120,7 @@ add_repo() {
 }
 '
 			# remove duplicates, use the "later" version if duplicate packages are found
+			[ -z $KEEP_DUPLICATES ] &&
 			< $REPO_DIR/$LOCAL_PKGDB > /tmp/t.$$ \
 			awk -F"|" '{if (!a[$1]) b[n++]=$1; a[$1]=$0} END {for (i=0;i<n;i++) {print a[b[i]]}}'
 			mv /tmp/t.$$ $REPO_DIR/$LOCAL_PKGDB
@@ -138,10 +140,11 @@ add_multiple_repos() {
 # $1-pkg returns PKG PKGVER PKGFILE PKGPATH PKGPRIO PKGMD5 PKGSECTION PKGDEP
 # format: pkg|pkgver|pkgfile|pkgpath|pkgprio|pkgsection|pkgmd5|pkgdep
 get_pkg_info() {
+	local pkg="$1"
 	OIFS="$IFS"; IFS="|"
-	set -- $(grep -m1 "^${1}|" $REPO_DIR/$LOCAL_PKGDB)
-	IFS="$OIFS"
-	PKG="$1" PKGVER="$2" PKGFILE="$3" PKGPATH="$4" PKGPRIO="$5" PKGSECTION="$6" PKGMD5="$7" PKGDEP="$8"
+	set -- $(grep -m1 "^$pkg|" $REPO_DIR/$LOCAL_PKGDB)
+    [ -z "$1" ] && set --  $(grep -m1 "|${pkg}.t.z|" $REPO_DIR/$LOCAL_PKGDB)
+    IFS="$OIFS"	PKG="$1" PKGVER="$2" PKGFILE="$3" PKGPATH="$4" PKGPRIO="$5" PKGSECTION="$6" PKGMD5="$7" PKGDEP="$8"
 	#echo $PKG $PKGVER $PKGFILE $PKGPATH $PKGPRIO $PKGSECTION $PKGMD5 $PKGDEP
 }
 
