@@ -325,10 +325,10 @@ cutdown() {
 			dev)
 				# recreates dir structure, move headers and static libs to devx dir
 				rm -rf $DEVX_DIR
-				find $CHROOT_DIR -type d | sed "s|$CHROOT_DIR|$DEVX_DIR|" | xargs mkdir -p
+				find $CHROOT_DIR -type d | sed "s|$CHROOT_DIR|$DEVX_DIR|" | xargs -I '{}' mkdir -p '{}'
 				rm -rf $DEVX_DIR/usr/include; mv $CHROOT_DIR/usr/include $DEVX_DIR/usr
 				find $CHROOT_DIR -name "*.a" -type f | while read -r pp; do
-					mv $pp $DEVX_DIR/${pp#$CHROOT_DIR/}
+					mv "$pp" $DEVX_DIR/"${pp#$CHROOT_DIR/}"
 				done
 
 				# clean up empty dirs
