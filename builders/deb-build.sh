@@ -437,6 +437,8 @@ flatten_pkglist() {
 				[ "$2" ] && flatten_pkglist "$2" ;;
 			%dpkg|%dpkgchroot|%bootstrap|%bblinks|%makesfs|%remove|%addbase|%addpkg|%dummy|%dpkg_configure|%lock|%cutdown|%import)
 				echo "$pp" ;;
+			%symlink|%rm|%mkdir|%touch|%chroot)
+				echo "$pp" ;;
 			%depend)
 				track_dependency() { list_dependency; } ;;
 			%nodepend)
@@ -540,7 +542,41 @@ process_pkglist() {
 			%import)
 				shift # $@ dirs to import
 				import_dir "$@" ;;
-			*)  # anything else
+				
+			### filesystem operations
+			%symlink)
+				shift # $1 source $2 target
+				rm -f $CHROOT_DIR/$2
+				ln -s $1 $CHROOT_DIR/$2
+				;;
+			%rm)
+				shift # $@ files to remove
+				while [ "$1" ]; do
+					rm -rf $CHROOT_DIR/$1
+					shift
+				done
+				;;
+			%mkdir)
+				shift # $@ dirs to make
+				while [ "$1" ]; do
+					mkdir -p $CHROOT_DIR/$1
+					shift
+				done
+				;;
+			%touch)
+				shift # $@ files to create
+				while [ "$1" ]; do
+					> $CHROOT_DIR/$1
+					shift
+				done
+				;;
+			%chroot)
+				shift # $@ commands
+				chroot $CHROOT_DIR "$@"
+				;;
+
+			# anything else - install package
+			*)
 				get_pkg_info $p
 				[ -z "$PKG" ] && echo Cannot find ${p}. && continue
 				download_pkg || { echo Download $p failed. && exit 1; }

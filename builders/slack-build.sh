@@ -264,6 +264,14 @@ install_bb_links() {
 }
 
 ###
+# $1-src $2-target
+fs_symlink() {
+	rm -f $CHROOT_DIR/$2
+	ln -s $1 $CHROOT_DIR/$2
+}
+
+
+###
 # $1-output $2 onwards - squashfs_param
 make_sfs() {
 	local output="$1" dir=${1%/*}
@@ -344,6 +352,8 @@ flatten_pkglist() {
 				[ "$2" ] && flatten_pkglist "$2" ;;
 			%bblinks|%makesfs|%remove|%addbase|%addpkg|%dummy|%cutdown|%import)
 				echo "$pp" ;;
+			%symlink|%rm|%mkdir|%touch|%chroot)
+				echo "$pp" ;;
 			%repo)
 				shift # $1-url $2-version $3-repos to use $4-pkgdb
 				add_repo "$@" 1>&2 ;;
@@ -422,7 +432,41 @@ process_pkglist() {
 			%import)
 				shift # $@ dirs to import
 				import_dir "$@" ;;
-			*)  # anything else
+
+			### filesystem operations
+			%symlink)
+				shift # $1 source $2 target
+				rm -f $CHROOT_DIR/$2
+				ln -s $1 $CHROOT_DIR/$2
+				;;
+			%rm)
+				shift # $@ files to remove
+				while [ "$1" ]; do
+					rm -rf $CHROOT_DIR/$1
+					shift
+				done
+				;;
+			%mkdir)
+				shift # $@ dirs to make
+				while [ "$1" ]; do
+					mkdir -p $CHROOT_DIR/$1
+					shift
+				done
+				;;
+			%touch)
+				shift # $@ files to create
+				while [ "$1" ]; do
+					> $CHROOT_DIR/$1
+					shift
+				done
+				;;
+			%chroot)
+				shift # $@ commands
+				chroot $CHROOT_DIR "$@"
+				;;
+
+			# anything else - install package
+			*)
 				get_pkg_info $p
 				[ -z "$PKG" ] && echo Cannot find ${p}. && continue
 				download_pkg || { echo Download $p failed. && exit 1; }
