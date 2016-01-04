@@ -157,7 +157,7 @@ get_pkg_info() {
 ###
 # $1-priority $2-inclusion list $3-exclusion list
 get_pkgs_by_priority() {
-	local include=".*" exclude="^evertyhing"
+	local include=".*" exclude="^everything"
 	[ "$2" ] && include="$2"
 	[ "$3" ] && exclude="$3"
 	# format: pkg|pkgver|pkgfile|pkgpath|pkgprio|pkgsection|pkgmd5|pkgdep
