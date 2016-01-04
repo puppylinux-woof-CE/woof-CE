@@ -13,6 +13,7 @@ DISTRO_PREFIX=${DISTRO_PREFIX:-puppy}
 DISTRO_VERSION=${DISTRO_VERSION:-700} # informative only
 
 DEFAULT_REPOS=${REPO_URLS:-http://mirrors.slackware.com/slackware|$VERSION|slackware:extra|CHECKSUMS.md5}
+#KEEP_DUPLICATES=1 # keep multiple versions of package in pkgdb
 
 INSTALLPKG=${INSTALLER:-installpkg}
 REMOVEPKG=${INSTALLER:-removepkg}
@@ -119,6 +120,7 @@ add_repo() {
 }
 '
 			# remove duplicates, use the "later" version if duplicate packages are found
+			[ -z "$KEEP_DUPLICATES" ] &&
 			< $REPO_DIR/$LOCAL_PKGDB > /tmp/t.$$ \
 			awk -F"|" '{if (!a[$1]) b[n++]=$1; a[$1]=$0} END {for (i=0;i<n;i++) {print a[b[i]]}}'
 			mv /tmp/t.$$ $REPO_DIR/$LOCAL_PKGDB
@@ -138,10 +140,11 @@ add_multiple_repos() {
 # $1-pkg returns PKG PKGVER PKGFILE PKGPATH PKGPRIO PKGMD5 PKGSECTION PKGDEP
 # format: pkg|pkgver|pkgfile|pkgpath|pkgprio|pkgsection|pkgmd5|pkgdep
 get_pkg_info() {
+	local pkg="$1"
 	OIFS="$IFS"; IFS="|"
-	set -- $(grep -m1 "^${1}|" $REPO_DIR/$LOCAL_PKGDB)
-	IFS="$OIFS"
-	PKG="$1" PKGVER="$2" PKGFILE="$3" PKGPATH="$4" PKGPRIO="$5" PKGSECTION="$6" PKGMD5="$7" PKGDEP="$8"
+	set -- $(grep -m1 "^$pkg|" $REPO_DIR/$LOCAL_PKGDB)
+    [ -z "$1" ] && set --  $(grep -m1 "|${pkg}.t.z|" $REPO_DIR/$LOCAL_PKGDB)
+    IFS="$OIFS"	PKG="$1" PKGVER="$2" PKGFILE="$3" PKGPATH="$4" PKGPRIO="$5" PKGSECTION="$6" PKGMD5="$7" PKGDEP="$8"
 	#echo $PKG $PKGVER $PKGFILE $PKGPATH $PKGPRIO $PKGSECTION $PKGMD5 $PKGDEP
 }
 
@@ -264,6 +267,14 @@ install_bb_links() {
 }
 
 ###
+# $1-src $2-target
+fs_symlink() {
+	rm -f $CHROOT_DIR/$2
+	ln -s $1 $CHROOT_DIR/$2
+}
+
+
+###
 # $1-output $2 onwards - squashfs_param
 make_sfs() {
 	local output="$1" dir=${1%/*}
@@ -314,10 +325,10 @@ cutdown() {
 			dev)
 				# recreates dir structure, move headers and static libs to devx dir
 				rm -rf $DEVX_DIR
-				find $CHROOT_DIR -type d | sed "s|$CHROOT_DIR|$DEVX_DIR|" | xargs mkdir -p
+				find $CHROOT_DIR -type d | sed "s|$CHROOT_DIR|$DEVX_DIR|" | xargs -I '{}' mkdir -p '{}'
 				rm -rf $DEVX_DIR/usr/include; mv $CHROOT_DIR/usr/include $DEVX_DIR/usr
 				find $CHROOT_DIR -name "*.a" -type f | while read -r pp; do
-					mv $pp $DEVX_DIR/${pp#$CHROOT_DIR/}
+					mv "$pp" $DEVX_DIR/"${pp#$CHROOT_DIR/}"
 				done
 
 				# clean up empty dirs
@@ -343,6 +354,8 @@ flatten_pkglist() {
 			%include)
 				[ "$2" ] && flatten_pkglist "$2" ;;
 			%bblinks|%makesfs|%remove|%addbase|%addpkg|%dummy|%cutdown|%import)
+				echo "$pp" ;;
+			%symlink|%rm|%mkdir|%touch|%chroot)
 				echo "$pp" ;;
 			%repo)
 				shift # $1-url $2-version $3-repos to use $4-pkgdb
@@ -422,7 +435,41 @@ process_pkglist() {
 			%import)
 				shift # $@ dirs to import
 				import_dir "$@" ;;
-			*)  # anything else
+
+			### filesystem operations
+			%symlink)
+				shift # $1 source $2 target
+				rm -f $CHROOT_DIR/$2
+				ln -s $1 $CHROOT_DIR/$2
+				;;
+			%rm)
+				shift # $@ files to remove
+				while [ "$1" ]; do
+					rm -rf $CHROOT_DIR/$1
+					shift
+				done
+				;;
+			%mkdir)
+				shift # $@ dirs to make
+				while [ "$1" ]; do
+					mkdir -p $CHROOT_DIR/$1
+					shift
+				done
+				;;
+			%touch)
+				shift # $@ files to create
+				while [ "$1" ]; do
+					> $CHROOT_DIR/$1
+					shift
+				done
+				;;
+			%chroot)
+				shift # $@ commands
+				chroot $CHROOT_DIR "$@"
+				;;
+
+			# anything else - install package
+			*)
 				get_pkg_info $p
 				[ -z "$PKG" ] && echo Cannot find ${p}. && continue
 				download_pkg || { echo Download $p failed. && exit 1; }

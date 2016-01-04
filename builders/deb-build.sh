@@ -17,6 +17,7 @@ DISTRO_PREFIX=${DISTRO_PREFIX:-puppy}
 DISTRO_VERSION=${DISTRO_VERSION:-700} # informative only
 
 DEFAULT_REPOS=${REPO_URLS:-http://archive.ubuntu.com/ubuntu|$VERSION|main:universe|Packages.bz2}
+#KEEP_DUPLICATES=1 # keep multiple versions of package in pkgdb
 #WITH_APT_DB= # default is don't include apt-db
 
 # dirs
@@ -111,7 +112,7 @@ add_repo() {
 function fixdepends(s) {
 	split(s,a,","); s="";
 	for (p in a) {
-		sub(/[ \t]*\(.*\)|[ \t]\|.*|:any/,"",a[p]); s=s "," a[p]
+		gsub(/[ \t]*\(.*\)|[ \t]\|.*|:any/,"",a[p]); s=s "," a[p]
 	}
 	sub(/^,/,"",s); return s;
 }
@@ -147,8 +148,10 @@ add_multiple_repos() {
 # $1-pkg returns PKG PKGVER PKGFILE PKGPATH PKGPRIO PKGMD5 PKGSECTION PKGDEP
 # format: pkg|pkgver|pkgfile|pkgpath|pkgprio|pkgsection|pkgmd5|pkgdep
 get_pkg_info() {
+	local pkg="$1"	
 	OIFS="$IFS"; IFS="|"
-	set -- $(grep -m1 "^${1}|" $REPO_DIR/$LOCAL_PKGDB)
+	set -- $(grep -m1 "^$pkg|" $REPO_DIR/$LOCAL_PKGDB)
+    [ -z "$1" ] && set --  $(grep -m1 "|${pkg}.t.z|" $REPO_DIR/$LOCAL_PKGDB)
 	IFS="$OIFS"
 	PKG="$1" PKGVER="$2" PKGFILE="$3" PKGPATH="$4" PKGPRIO="$5" PKGSECTION="$6" PKGMD5="$7" PKGDEP="$8"
 	#echo $PKG $PKGVER $PKGFILE $PKGPATH $PKGPRIO $PKGSECTION $PKGMD5 $PKGDEP
@@ -157,7 +160,7 @@ get_pkg_info() {
 ###
 # $1-priority $2-inclusion list $3-exclusion list
 get_pkgs_by_priority() {
-	local include=".*" exclude="^evertyhing"
+	local include=".*" exclude="^everything"
 	[ "$2" ] && include="$2"
 	[ "$3" ] && exclude="$3"
 	# format: pkg|pkgver|pkgfile|pkgpath|pkgprio|pkgsection|pkgmd5|pkgdep
@@ -226,10 +229,10 @@ cutdown() {
 			dev)
 				# recreates dir structure, move headers and static libs to devx dir
 				rm -rf $DEVX_DIR
-				find $CHROOT_DIR -type d | sed "s|$CHROOT_DIR|$DEVX_DIR|" | xargs mkdir -p
+				find $CHROOT_DIR -type d | sed "s|$CHROOT_DIR|$DEVX_DIR|" | xargs -I '{}' mkdir -p '{}'
 				rm -rf $DEVX_DIR/usr/include; mv $CHROOT_DIR/usr/include $DEVX_DIR/usr
 				find $CHROOT_DIR -name "*.a" -type f | while read -r pp; do
-					mv $pp $DEVX_DIR/${pp#$CHROOT_DIR/}
+					mv "$pp" $DEVX_DIR/"${pp#$CHROOT_DIR/}"
 				done
 
 				# clean up empty dirs
@@ -437,6 +440,8 @@ flatten_pkglist() {
 				[ "$2" ] && flatten_pkglist "$2" ;;
 			%dpkg|%dpkgchroot|%bootstrap|%bblinks|%makesfs|%remove|%addbase|%addpkg|%dummy|%dpkg_configure|%lock|%cutdown|%import)
 				echo "$pp" ;;
+			%symlink|%rm|%mkdir|%touch|%chroot)
+				echo "$pp" ;;
 			%depend)
 				track_dependency() { list_dependency; } ;;
 			%nodepend)
@@ -469,7 +474,7 @@ list_dependency() {
 	[ -z "$PKGDEP" ] && return
 	local depfile=$(mktemp -p /tmp dep.XXXXXXXX)
 	echo $PKGDEP | tr ',' '\n' | while read -r p; do
-		[ -z $p ] && continue
+		[ -z "$p" ] && continue
 		! grep -m1 -q "^${p}$" $TRACKER && echo $p
 	done > $depfile
 	[ -s $depfile ] && ( flatten_pkglist $depfile; )
@@ -540,7 +545,41 @@ process_pkglist() {
 			%import)
 				shift # $@ dirs to import
 				import_dir "$@" ;;
-			*)  # anything else
+				
+			### filesystem operations
+			%symlink)
+				shift # $1 source $2 target
+				rm -f $CHROOT_DIR/$2
+				ln -s $1 $CHROOT_DIR/$2
+				;;
+			%rm)
+				shift # $@ files to remove
+				while [ "$1" ]; do
+					rm -rf $CHROOT_DIR/$1
+					shift
+				done
+				;;
+			%mkdir)
+				shift # $@ dirs to make
+				while [ "$1" ]; do
+					mkdir -p $CHROOT_DIR/$1
+					shift
+				done
+				;;
+			%touch)
+				shift # $@ files to create
+				while [ "$1" ]; do
+					> $CHROOT_DIR/$1
+					shift
+				done
+				;;
+			%chroot)
+				shift # $@ commands
+				chroot $CHROOT_DIR "$@"
+				;;
+
+			# anything else - install package
+			*)
 				get_pkg_info $p
 				[ -z "$PKG" ] && echo Cannot find ${p}. && continue
 				download_pkg || { echo Download $p failed. && exit 1; }

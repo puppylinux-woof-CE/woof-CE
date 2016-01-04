@@ -1,6 +1,10 @@
 #!/bin/sh
 # Slackware remove package script
 #
+# James 2015 - partial ability to deal with quotes (and spaces) in doinst.sh
+# It still has trouble for filenames with trailing spaces, but what the heck
+# March 2015 - Add uninstall script support.
+#
 # Sat Apr 25 21:18:53 UTC 2009 (12.34567890b)
 # Converted to use new pkgbase() function to remove pathname and
 # valid package extensions.
@@ -93,6 +97,12 @@
 #  ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
 
+# choose the best awk
+type busybox > /dev/null && AWK='busybox awk'
+type awk > /dev/null && AWK=awk
+type gawk > /dev/null && AWK=gawk
+type mawk > /dev/null && AWK=mawk
+
 # Return a package name that has been stripped of the dirname portion
 # and any of the valid extensions (only):
 pkgbase() {
@@ -142,14 +152,22 @@ PRES_DIR=$TMP/preserved_packages
 # removed when ROOT= is used:
 cat_except() {
   ( cd "$1" && \
-    if [ $(find . -maxdepth 1 -type f | wc -l) -ne 1 ]; then
-      cat $(find . -maxdepth 1 -type f | grep -v "$2")
+    if [ $(find . -maxdepth 1 -type f ! -name '*.uninstall' | wc -l) -ne 1 ]; then
+      cat $(find . -maxdepth 1 -type f ! -name '*.uninstall' | grep -v "$2")
     fi
   )
 }
 
 extract_links() {
- sed -n 's,^( *cd \([^ ;][^ ;]*\) *; *rm -rf \([^ )][^ )]*\) *) *$,\1/\2,p'
+ #sed -n 's,^( *cd \([^ ;][^ ;]*\) *; *rm -rf \([^ )][^ )]*\) *) *$,\1/\2,p'
+ # strip quotes
+ $AWK -F";" '$1~/^\( *cd/ && $2~/rm -rf.*\) *$/ {
+	sub(/^\( *cd */,"",$1); sub(/ *$/,"",$1); 
+	sub(/ *rm -rf */,"",$2); sub(/ *\) *$/,"",$2);
+	sub(/^"/,"",$1); sub(/"$/,"",$1);
+	sub(/^"/,"",$2); sub(/"$/,"",$2);
+	print $1 "/" $2
+}'
 }
 
 preserve_file() {
@@ -228,7 +246,7 @@ delete_links() {
   if [ -L "$ROOT/$LINK" ]; then
    if [ ! "$WARN" = "true" ]; then
     echo "  --> Deleting symlink $ROOT/$LINK"
-    rm -f $ROOT/$LINK
+    rm -f "$ROOT/$LINK"
    else
     echo "  --> $ROOT/$LINK (symlink) would be deleted"
    fi
@@ -262,7 +280,7 @@ delete_cats() {
    if [ -f "$ROOT/$FILE" ]; then
      if [ ! "$WARN" = "true" ]; then
        echo "  --> Deleting $ROOT/$FILE (fmt man page)"
-       rm -f $ROOT/$FILE
+       rm -f "$ROOT/$FILE"
      else
        echo "  --> $ROOT/$FILE (fmt man page) would be deleted"
      fi
@@ -381,8 +399,19 @@ remove_packages() {
      fi
      cp -p $ADM_DIR/scripts/$PKGNAME $PRES_DIR/$PKGNAME/install/doinst.sh
     fi
+    if [ -r $ADM_DIR/scripts/$PKGNAME.uninstall ]; then
+     if [ ! -d "$PRES_DIR/$PKGNAME/install" ]; then
+      mkdir -p "$PRES_DIR/$PKGNAME/install"
+     fi
+     cp -p $ADM_DIR/scripts/$PKGNAME.uninstall $PRES_DIR/$PKGNAME/install/slack-uninstall.sh
+    fi    
    fi
    if [ ! "$WARN" = "true" ]; then
+    # run uninstall script last
+    if [ -r $ADM_DIR/scripts/$PKGNAME.uninstall ]; then
+     echo "Executing uninstall script for $PKGNAME"
+     ( cd $ROOT/; sh ./${ADM_DIR#$ROOT/}/scripts/$PKGNAME.uninstall -uninstall; )
+    fi
     for DIR in $ADM_DIR/removed_packages $ADM_DIR/removed_scripts ; do
      if [ ! -d $DIR ] ; then mkdir -p $DIR ; chmod 755 $DIR ; fi
     done
@@ -390,6 +419,9 @@ remove_packages() {
     if [ -r $ADM_DIR/scripts/$PKGNAME ]; then
      mv $ADM_DIR/scripts/$PKGNAME $ADM_DIR/removed_scripts
     fi
+    if [ -r $ADM_DIR/scripts/$PKGNAME.uninstall ]; then
+     mv $ADM_DIR/scripts/$PKGNAME.uninstall $ADM_DIR/removed_scripts
+    fi    
    fi
   else
    echo "No such package: $ADM_DIR/packages/$PKGNAME. Can't remove."
