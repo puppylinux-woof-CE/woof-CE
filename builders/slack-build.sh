@@ -120,7 +120,7 @@ add_repo() {
 }
 '
 			# remove duplicates, use the "later" version if duplicate packages are found
-			[ -z $KEEP_DUPLICATES ] &&
+			[ -z "$KEEP_DUPLICATES" ] &&
 			< $REPO_DIR/$LOCAL_PKGDB > /tmp/t.$$ \
 			awk -F"|" '{if (!a[$1]) b[n++]=$1; a[$1]=$0} END {for (i=0;i<n;i++) {print a[b[i]]}}'
 			mv /tmp/t.$$ $REPO_DIR/$LOCAL_PKGDB

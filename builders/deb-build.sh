@@ -17,6 +17,7 @@ DISTRO_PREFIX=${DISTRO_PREFIX:-puppy}
 DISTRO_VERSION=${DISTRO_VERSION:-700} # informative only
 
 DEFAULT_REPOS=${REPO_URLS:-http://archive.ubuntu.com/ubuntu|$VERSION|main:universe|Packages.bz2}
+#KEEP_DUPLICATES=1 # keep multiple versions of package in pkgdb
 #WITH_APT_DB= # default is don't include apt-db
 
 # dirs
@@ -147,8 +148,10 @@ add_multiple_repos() {
 # $1-pkg returns PKG PKGVER PKGFILE PKGPATH PKGPRIO PKGMD5 PKGSECTION PKGDEP
 # format: pkg|pkgver|pkgfile|pkgpath|pkgprio|pkgsection|pkgmd5|pkgdep
 get_pkg_info() {
+	local pkg="$1"	
 	OIFS="$IFS"; IFS="|"
-	set -- $(grep -m1 "^${1}|" $REPO_DIR/$LOCAL_PKGDB)
+	set -- $(grep -m1 "^$pkg|" $REPO_DIR/$LOCAL_PKGDB)
+    [ -z "$1" ] && set --  $(grep -m1 "|${pkg}.t.z|" $REPO_DIR/$LOCAL_PKGDB)
 	IFS="$OIFS"
 	PKG="$1" PKGVER="$2" PKGFILE="$3" PKGPATH="$4" PKGPRIO="$5" PKGSECTION="$6" PKGMD5="$7" PKGDEP="$8"
 	#echo $PKG $PKGVER $PKGFILE $PKGPATH $PKGPRIO $PKGSECTION $PKGMD5 $PKGDEP
