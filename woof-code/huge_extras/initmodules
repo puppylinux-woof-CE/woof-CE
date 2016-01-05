@@ -1,0 +1,68 @@
+#!/bin/ash
+
+. /etc/rc.d/PUPSTATE
+
+if [ "$PUPMODE" = "5" ];then
+	Xdialog --wmclass "module16" --title "$(gettext 'Initmodules: Modules to load in init script')" --msgbox "$(gettext 'You must shutdown and create a personal save file first.')" 0 0
+	exit
+fi
+
+INITMNPT="$(grep -m1 "$PDEV1" /proc/mounts | cut -f 2 -d ' ')"
+if [ "$INITMNPT" = "" ]; then
+	mount -t $DEV1FS /dev/$PDEV1 /mnt/data
+	if [ $? -eq 0 ]; then
+		ISTHERE="$(gunzip -c /mnt/data${PSUBDIR}/initrd.gz | grep -s pimod | grep matches)"
+		umount /mnt/data
+	fi
+else
+	ISTHERE="$(gunzip -c ${INITMNPT}${PSUBDIR}/initrd.gz | grep -s pimod | grep matches)"
+fi
+
+if [ "$ISTHERE" = "" ]; then
+	Xdialog --wmclass "module16" --title "$(gettext 'Initmodules: Modules to load in init script')" --msgbox "$(gettext 'The initrd.gz file of your current puppy does not support module loading in the init script.\nSince any configuration file written by initmodules would be ignored at boot time,\ninitmodules will exit at this point.')" 0 0
+	exit 1
+fi
+
+if [ "`cat /sys/block/$PDEV1/device/type`" = "5" ]; then
+	PUPSAVEDEV="`echo -n $PUPSAVE | cut -f1 -d,`"
+	ZDRVDEV="`echo -n $ZDRV | cut -f1 -d,`"
+	if [ "`cat /sys/block/$PUPSAVEDEV/device/type`" = "5" -o "`cat /sys/block/$ZDRVDEV/device/type`" = "5" ]; then
+		Xdialog --wmclass "module16" --title "$(gettext 'Initmodules: Modules to load in init script')" --msgbox "$(gettext 'You have booted from a CD or DVD.\n\nUnfortunaely initmodules does not support writing the config file to a CD or DVD,\nor reading a zdrv...sfs file that is not in the same directory as the savefile/savefolder.\n\nTo use initmodules, you need to ensure that there is a savefile/savefolder on a disk partition,\nand a copy of the zdrv...sfs file in the same directory as contains the savefile/savefolder.\n\nAlternatively, you could specify the required module as a "pimod=" boot parameter,\nor you could setup isoBooter to boot the original iso file from a usb stick.\n\nSince initmodules cannot work with the current puppy setup, it will exit at this point.')" 0 0
+		exit 1
+	fi
+fi
+
+MODLIST=""
+LOADEDMODULES="`lsmod | grep -v '^Module' | cut -f 1 -d ' ' | sort | tr '\n' ' '`"
+for ONEMOD in $LOADEDMODULES; do
+	MODLIST="$MODLIST $ONEMOD $ONEMOD off"
+done
+
+EXECME="Xdialog --wmclass \"module16\" --title \"$(gettext 'Initmodules: Modules to load in init script')\" --left --stdout --separator \" \" --buildlist \"$(gettext 'The left pane shows the modules that are currently loaded.\nThe right pane is initially empty.\n\nMove the module(s) that need to be loaded by init to the right pane.\nWhen the list in the right pane is complete, click the OK button.\nOn reboot, these modules will be loaded by the init script,\nso devices required by the init script will now work. For example,\nthe keyboard might now work to select a savefile/savefolder.\n\nIf you do not know which module(s) need to be loaded by init,\ncheck each modules description, as shown by modinfo or hardinfo.')\" 0 0 8 $MODLIST >/tmp/yesrettags.txt"
+eval $EXECME
+[ ! $? -eq 0 ] && exit 1
+
+. /etc/DISTRO_SPECS
+
+KERNELVER="`uname -r`"
+PIMODFILE="/mnt/home${PSUBDIR}/${DISTRO_FILE_PREFIX}initmodules.txt"
+MODSPATH="/lib/modules/$KERNELVER"
+
+LDLIST=""
+for ONEMOD in `head -n1 /tmp/yesrettags.txt`; do
+	CURMOD="`modinfo $ONEMOD | grep 'filename:'`"
+	if [ "$CURMOD" != "" ]; then
+		CURMOD="${CURMOD#*/}"
+		CURMOD="${CURMOD#*/}"
+		CURMOD="${CURMOD#*/}"
+		CURMOD="${CURMOD#*/}"
+	fi
+	if [ "$CURMOD" != "" ]; then
+		if [ "$LDLIST" = "" ]; then
+			LDLIST="$CURMOD"
+		else
+			LDLIST="$LDLIST,$CURMOD"
+		fi
+	fi
+done
+echo "$LDLIST" > $PIMODFILE

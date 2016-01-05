@@ -2,7 +2,7 @@
 ############################################################################
 echo
 
-for dtop in switch2 GTK-Chtheme icon_switcher; do
+for dtop in switch2 GTK-Chtheme icon_switcher Desktop-drive-icons; do
     [ -f "usr/share/applications/${dtop}.desktop" ] || continue
     if grep -q "^NoDisplay" usr/share/applications/${dtop}.desktop; then
         sed -i 's%NoDisplay=.*%NoDisplay=true%' usr/share/applications/${dtop}.desktop
@@ -61,6 +61,16 @@ cp -af usr/share/jwm/themes/"${PTHEME_JWM_COLOR}-jwmrc" root/.jwm/jwmrc-theme
 echo "jwm colors: ${PTHEME_JWM_COLOR}"
 
 cp -f usr/share/jwm/tray_templates/"$PTHEME_JWM_TRAY"/jwmrc-tray* root/.jwm/
+[ ! -d root/.jwm ] && mkdir root/.jwm
+#hybrid
+rm root/.jwm/jwmrc-tray*_hybrid
+for I in 1 2 3 4; do
+	if [ "`grep -F '_hybrid</Include>' root/.jwm/jwmrc-tray$I`" ]; then
+		grep -vF '_hybrid</Include>' root/.jwm/jwmrc-tray$I | sed -e 's%autohide="\(top\|bottom\|left\|right\)" %autohide="off"%' -e "s%layer=\"above\"%layer=\"below\"%" > root/.jwm/jwmrc-tray${I}_hybrid
+	fi
+done
+#---
+echo "$PTHEME_JWM_TRAY" > root/.jwm/tray_active_preset
 echo "jwm tray: ${PTHEME_JWM_TRAY}"
 
 # make new default the backup
@@ -130,7 +140,19 @@ echo "$BACKDROP" >> /tmp/newpin
 cat usr/share/ptheme/rox_pinboard/"${PTHEME_ROX_PIN}" >> /tmp/newpin
 echo '</pinboard>' >> /tmp/newpin
 cp -a /tmp/newpin root/Choices/ROX-Filer/PuppyPin
-echo "rox: ${PTHEME_ROX_PIN}"
+echo "rox icons arrangement (apps): ${PTHEME_ROX_PIN}"
+sleep 1 # reading time
+
+#drive icons
+if [ "$PTHEME_ROX_DRIVEICONS" ]; then
+	for I in ICONDESK ICONPARTITIONS LABELPARTITIONS ICON_PLACE_EDGE_GAP ICON_PLACE_START_GAP ICON_PLACE_SPACING ICON_PLACE_ORIENTATION; do
+		TMP="`grep "^$I" etc/eventmanager`"
+		VALUE="`grep "^$I" "usr/share/ptheme/eventmanager_driveicons/${PTHEME_ROX_DRIVEICONS}" | cut -d= -f2`"
+		[ ! "$VALUE" ] && continue
+		sed -i "s/${TMP}/${I}=${VALUE}/" etc/eventmanager
+	done
+fi
+echo "rox icons arrangement (drives): ${PTHEME_ROX_DRIVEICONS}"
 sleep 1 # reading time
 
 

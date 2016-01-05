@@ -20,7 +20,7 @@
 #define BUF_SIZE (32 * 1024)
 #define MAX_PKGS (60000)
 #define MAX_CATS (128)
-#define NAME_SIZE (64)
+#define NAME_SIZE (128)
 #define DESC_SIZE (512)
 #define MAX_KWDS (512)
 
