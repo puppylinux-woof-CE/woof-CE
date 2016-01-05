@@ -6,6 +6,7 @@ set -a #export all functions and variables
 export TEXTDOMAIN=puppyapps
 export OUTPUT_CHARSET=UTF-8
 DEFAULTAPPS=""
+IGNORE_ALREADY_SET=""
 APPS_DEFAULT_EXEC="$(gettext 'Autodetect')"
 [ ! -d /tmp/puppyapps ] && mkdir -p /tmp/puppyapps
 
@@ -35,6 +36,9 @@ get_default () {
 		echo '###'
 		return 1
 	fi
+	if [ "$IGNORE_ALREADY_SET" ] ; then
+		read -r P < /tmp/puppyapps/puppyapps_items_$APP ; echo $P ; return 5
+	fi
 	#strip out 'exec ', ' "$@"', and all whitespace from the end of the last line of the file
 	#P=$(grep -m 1 '^[^#]*exec ' "$F" | sed -e 's/^.*exec[ ]//' -e 's/.\$@.*$//')
 	while read line ; do
@@ -62,23 +66,13 @@ default_apps() {
 	echo 'archiver audioeditor audiomixer audioplayer barehtmlviewer browser calendar cdplayer cdrecorder chat chmviewer connect contact draw email filemanager htmleditor htmlviewer imageeditor imageviewer mediaplayer musicplayer paint pdfviewer processmanager screenshot run search spreadsheet terminal texteditor textviewer wordprocessor '
 }
 
+remove_desktop() {
+	grep -viE "$1" /tmp/puppyapps/puppyapps_desktop_output
+}
 search_desktop() {
 	grep -iE "$1" /tmp/puppyapps/puppyapps_desktop_output | cut -f1 -d':' | uniq 
 }
-
-build_items (){ #for comboboxes - to make startup faster, this is backgrounded and refreshed in gui when done.
-	local appz
-	if [ "$DEFAULTAPPS" ] ; then
-		appz=$DEFAULTAPPS
-	else
-		appz=$(default_apps)
-	fi
-	for I in $appz ; do
-		( echo "$APPS_DEFAULT_EXEC" ; apps_array $I ) > /tmp/puppyapps/puppyapps_items_$I
-		#[ ! "`grep -vF "$(gettext 'Autodetect')" /tmp/puppyapps/puppyapps_items_$APP`" ] && return #skip if no matching apps are installed
-	done
-	echo true > /tmp/puppyapps/puppyapps_refreshitems
-}
+search_desktop2() { grep -iE "$1" | cut -f1 -d':' | uniq ; }
 
 apps_array() {
 	#if no target is set in /usr/local/bin/default*, we gbrab the first existing executable in the list echoed from here.
@@ -103,17 +97,17 @@ apps_array() {
 		$(search_desktop '(audio|media).*player')"
 		;;
 	barehtmlviewer)
-		APPLIST="`echo -e "mozstart\ngtkmoz\nPuppyBrowser\ndillo\nhv3\nmini-web\nskipstone\nmidori\noperamini\nelinks\nicecat\nxlynx\nw3m\nw3m-term"`"
+		APPLIST="`echo -e "dillo\nPuppyBrowser\nhv3\nmini-web\nskipstone\nmidori\noperamini\nelinks\nicecat\nxlynx\nw3m\nw3m-term"`"
 		;;
 	browser)
-		APPLIST="`echo -e "opera\npalemoon\nfirefox\nchromium\nchrome\nicecat\nmidori\nseamonkey\ndillo\n"`
+		APPLIST="`echo -e "opera\npalemoon\nfirefox\nchromium\nchrome\nicecat\nmidori\nseamonkey\nqtweb\ndillo\n"`
 		$(search_desktop 'web.*browser')"
 		;;
 	calendar)
-		APPLIST="`echo -e "osmo\nical\ncalcurse\nnotecase"`"
+		APPLIST="`echo -e "osmo\nical\ncalcurse\nnotecase\yad --calendar"`"
 		;;
 	cdplayer)
-		APPLIST="`echo -e "pmusic_CD\npmusic -c\npcd\n"`
+		APPLIST="`echo -e "\ndeadbeef all.cda\npmusic_CD\npmusic -c\npcd\n"`
 		$(search_desktop 'cd.*player')"
 		;;
 	cdrecorder)
@@ -139,7 +133,7 @@ apps_array() {
 		;;
 	email)
 		APPLIST="`echo -e "thunderbird\nsylpheed\n"`
-		$(search_desktop 'mail')"
+		$(remove_desktop 'libfm' | search_desktop2 'mail')"
 		;;
 	filemanager)
 		APPLIST="`echo -e "spacefm\npcmanfm\nthunar\nrox\n"`
@@ -150,7 +144,7 @@ apps_array() {
 		$(search_desktop '(html|web|text).*editor')"
 		;;
 	htmlviewer)
-		APPLIST="`echo -e "mozstart\ngtkmoz\nPuppyBrowser\ndillo\nhv3\nmini-web\nskipstone\nmidori\noperamini\nelinks\nicecat\nxlynx\nw3m\nw3m-term"`
+		APPLIST="`echo -e "qtweb\ndillo\nmozstart\nmidori\noperamini\nelinks\nicecat\nxlynx\nw3m"`
 		$(search_desktop '(html|web)')"
 		;;
 	imageeditor)
@@ -215,10 +209,12 @@ apps_array() {
 	esac
 	(
 	while read J; do
+		[ ! "$J" ] && continue
 		#grep exec from *.desktop file
 		if [ -f "$J" ] ; then
 			P="`grep -iFm 1 'exec=' "$J"`"
 			P="${P#*=}" # | cut -f2 -d'='
+			P="${P%% \%*}" # remove %* [pcmanfm %U -> pcmanfm]
 		else
 			P="$J"
 		fi
@@ -233,54 +229,8 @@ apps_array() {
 			ZZ="${E%% *}" #"$(cut -f1 -d' ' <<< "$E")"
 			${prefix}which "$ZZ" &>/dev/null && echo "$P" ## echo
 		fi
-	done <<< "`grep -Fv 'default' <<< "$APPLIST"`"
+	done <<< "$APPLIST" #<<< "`grep -Fv 'default' <<< "$APPLIST"`" ###see desktop_output ()
 	) | awk '!a[$0]++' #awk removes duplicate lines without sorting
-}
-
-make_item() {
-	TOP=$@
-	[ "$TOP" ] || TOP='@'
-	#avoid the default is set to itself
-	(echo "$TOP"; grep -vw "$TOP") | grep -vw "default$APP" | sed -e 's|\(..*\)|<item>\1</item>|' | sed -e 's/>@</></'
-}
-
-make_box() {
-	LABEL=$1
-	VARIABLE=$2
-	APP="${VARIABLE,,}" ##lowercase #APP="`echo $2 | tr [A-Z] [a-z]`"
-	ICON=$3
-	#find default executable
-	DEFAULT_EXEC=$(get_default $APP)
-	retval=$?
-	#echo $DEFAULT_EXEC $retval >&2 ## DEBUG
-	case $retval in
-		1) return ;; #[ "$DEFAULT_EXEC" = '###' ] && return #skip if no default* is available
-		5) DEFAULT_EXEC="$APPS_DEFAULT_EXEC" ;;
-	esac
-	[ ! "$DEFAULT_EXEC" ] && return #do not allow empty $DEFAULT_EXEC
-	#new frame
-	N="$(</tmp/puppyapps/puppyapps_count)"
-	if [ "$N" -gt 14 ]; then
-		N=0
-		echo '</frame><frame>'
-	fi
-	N=$(($N + 1))
-	echo -n $N > /tmp/puppyapps/puppyapps_count
-	#---
-	echo '
-	<vbox space-expand="false" space-fill="false">
-	  <hbox margin="5" space-expand="true" space-fill="true">
-	    '$(/usr/lib/gtkdialog/xml_pixmap $ICON icon)'
-	    <vbox space-expand="true" space-fill="true">
-	      <text xalign="0" space-expand="true" space-fill="true"><label>"'$LABEL'"</label></text>
-	      <comboboxentry space-expand="false" space-fill="false" tooltip-text="'$(gettext 'Choose your preferred default program, or type command.')'">
-		    <variable>'$VARIABLE'</variable>
-		    <default>'$DEFAULT_EXEC'</default>
-		    <input file>/tmp/puppyapps/puppyapps_items_'$APP'</input>
-	      </comboboxentry>
-	    </vbox>
-	  </hbox>
-	</vbox>'
 }
 
 update_defaults () {
@@ -355,14 +305,6 @@ change_default () {
 	else #the default* file given was not found
 		echo "The file '$newroot/usr/local/bin/default$TYPE' not found."
 	fi
-}
-
-list_active (){
-	/usr/lib/gtkdialog/box_splash -close never -fontsize large -icon_width 60 -icon /usr/share/pixmaps/puppy/puppy_config.svg -text "$(gettext 'Default Applications Chooser...')" &
-	XPID=$!
-	puppyapps -l > /tmp/puppyapps/puppyapps_tmp
-	kill "$XPID"
-	defaulttextviewer /tmp/puppyapps/puppyapps_tmp &
 }
 
 
@@ -461,10 +403,24 @@ for arg in "$@" ; do
 				echo "default${app} > $file"
 			done
 			dc="$(which defaults-chooser 2>/dev/null)"
-			if [ "$dc" ] ; then
-				rm -f $dc
-				ln -sv $0 $dc
-			fi
+			if [ "$dc" ] ; then rm -f $dc ; ln -sv $0 $dc ; fi
+			exit
+			;;
+		-setdefs)
+			IGNORE_ALREADY_SET=1
+			for app in $(default_apps) ; do
+				file=/usr/local/bin/default${app}
+				apps_array $app > /tmp/puppyapps/puppyapps_items_$app
+				RUNAPP_EXEC=$(get_default "$app")
+				if [ $? -eq 1 -o ! "$RUNAPP_EXEC" ] ; then
+					echo -e "#!/bin/sh\nexec puppyapps default${app} \"\$@\"" > $file
+					echo "[autodetect] > $file"
+				else
+					echo -e "#!/bin/sh\nexec $RUNAPP_EXEC \"\$@\"" > $file
+					echo "$RUNAPP_EXEC > $file"
+				fi
+				chmod +x $file
+			done
 			exit
 			;;
 		-h|--help)
@@ -498,6 +454,11 @@ for arg in "$@" ; do
                  Puppyapps will decide what to run first, and will look
                  in the system for alternatives making the system
                  work in different scenarios
+  -setdefs       Set defaults for all default apps.
+                 Puppyapps will determine what programs are present
+                 and choose one of them and will write it to the defaultapp.
+                 If no program is found for a specific default app,
+                 then puppyapps will manage it.
   -h, --help     Show this help message
   
   
@@ -527,13 +488,78 @@ fi
 
 #splash
 if [ ! "$DEFAULTAPPS" ]; then
-	/usr/lib/gtkdialog/box_splash -close never -fontsize large -icon_width 60 -icon /usr/share/pixmaps/puppy/puppy_config.svg -text " $(gettext 'Default Applications Chooser...')" &
+	/usr/lib/gtkdialog/box_splash -close never -fontsize large -text " $(gettext 'Default Applications Chooser...')" &
 	XPID=$!
 fi
 
-#for I in $(default_apps); do echo "$(gettext 'Autodetect')" > /tmp/puppyapps/puppyapps_items_$I; done #ensure files to exist when loading gui - build_items run in background
-#build_items &
+build_items (){ #for comboboxes - to make startup faster, this is backgrounded and refreshed in gui when done.
+	local appz
+	if [ "$DEFAULTAPPS" ] ; then
+		appz=$DEFAULTAPPS
+	else
+		appz=$(default_apps)
+	fi
+	for I in $appz ; do
+		( echo "$APPS_DEFAULT_EXEC" ; apps_array $I ) > /tmp/puppyapps/puppyapps_items_$I
+		#[ ! "`grep -vF "$(gettext 'Autodetect')" /tmp/puppyapps/puppyapps_items_$APP`" ] && return #skip if no matching apps are installed
+	done
+	echo true > /tmp/puppyapps/puppyapps_refreshitems
+}
 build_items
+
+make_item() {
+	TOP=$@
+	[ "$TOP" ] || TOP='@'
+	#avoid the default is set to itself
+	(echo "$TOP"; grep -vw "$TOP") | grep -vw "default$APP" | sed -e 's|\(..*\)|<item>\1</item>|' | sed -e 's/>@</></'
+}
+
+make_box() {
+	LABEL=$1
+	VARIABLE=$2
+	APP="${VARIABLE,,}" ##lowercase #APP="`echo $2 | tr [A-Z] [a-z]`"
+	ICON=$3
+	#find default executable
+	DEFAULT_EXEC=$(get_default $APP)
+	retval=$?
+	#echo $DEFAULT_EXEC $retval >&2 ## DEBUG
+	case $retval in
+		1) return ;; #[ "$DEFAULT_EXEC" = '###' ] && return #skip if no default* is available
+		5) DEFAULT_EXEC="$APPS_DEFAULT_EXEC" ;;
+	esac
+	[ ! "$DEFAULT_EXEC" ] && return #do not allow empty $DEFAULT_EXEC
+	#new frame
+	N="$(</tmp/puppyapps/puppyapps_count)"
+	if [ "$N" -gt 10 ]; then
+		N=0
+		echo '</frame><frame>'
+	fi
+	N=$(($N + 1))
+	echo -n $N > /tmp/puppyapps/puppyapps_count
+	#---
+	echo '
+	<vbox space-expand="false" space-fill="false">
+	  <hbox margin="5" space-expand="true" space-fill="true">
+	    '$(/usr/lib/gtkdialog/xml_pixmap $ICON icon)'
+	    <vbox space-expand="true" space-fill="true">
+	      <text xalign="0" space-expand="true" space-fill="true"><label>"'$LABEL'"</label></text>
+	      <comboboxentry space-expand="false" space-fill="false" tooltip-text="'$(gettext 'Choose your preferred default program, or type command.')'">
+		    <variable>'$VARIABLE'</variable>
+		    <default>'$DEFAULT_EXEC'</default>
+		    <input file>/tmp/puppyapps/puppyapps_items_'$APP'</input>
+	      </comboboxentry>
+	    </vbox>
+	  </hbox>
+	</vbox>'
+}
+
+list_active (){
+	/usr/lib/gtkdialog/box_splash -close never -fontsize large -icon_width 60 -icon /usr/share/pixmaps/puppy/puppy_config.svg -text "$(gettext 'Default Applications Chooser...')" &
+	XPID=$!
+	puppyapps -l > /tmp/puppyapps/puppyapps_tmp
+	kill "$XPID"
+	defaulttextviewer /tmp/puppyapps/puppyapps_tmp &
+}
 
 #build help GUI
 gettext "<b>Helpful Tips</b>
@@ -541,10 +567,11 @@ You can add custom commands, parameters and options by typing the desired comman
 
 Example: 'rxvt -e mp' will load the terminal based editor, called MP." > /tmp/puppyapps/box_help
 
+#'"`/usr/lib/gtkdialog/xml_info fixed none 60 "$(gettext 'Choose your preferred default programs and applications, which you can then launch from your start menu or desktop.')"`"'
+
 export GUI='
-<window title="'$(gettext 'Default Applications Chooser')'" default-height="500">
+<window title="'$(gettext 'Default Applications Chooser')'" default-height="500" image-name="/usr/share/pixmaps/puppy/execute.svg">
 <vbox space-expand="true" space-fill="true">
-  '"`/usr/lib/gtkdialog/xml_info fixed puppy_config.svg 60 "$(gettext 'Choose your preferred default programs and applications, which you can then launch from your start menu or desktop.')"`"'        
   <vbox space-expand="true" space-fill="true">
     <hbox shadow-type="0" scrollable="true" space-expand="true" space-fill="true">
       <frame>
