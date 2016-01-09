@@ -201,6 +201,7 @@ DEVTMPFSFLG=1 #130618 set it from 3builddistro.
 
 #100911 simple filenames specified in DISTRO_SPECS: DISTRO_ZDRVSFS, DISTRO_PUPPYSFS...
 ZDRVSFS="$DISTRO_ZDRVSFS"
+FDRVSFS="$DISTRO_FDRVSFS"
 ADRVSFS="$DISTRO_ADRVSFS"
 YDRVSFS="$DISTRO_YDRVSFS"
 PUPXXXSFS="$DISTRO_PUPPYSFS"
@@ -497,6 +498,25 @@ search_func() { #110425
      fi
     done
    fi
+
+   if [ "$FDRV" = "" -a "$EXTRAFW" = "yes" ];then
+    FND_FILES="`find /mnt/data${PSUBDIR} -maxdepth ${SEARCHDEPTH} -xdev -type f -iname ${FDRVSFS} | grep -v ' ' | sed -e 's%^/mnt/data%%' | tr '\n' ' '`"
+    for ONEPUPFILE in $FND_FILES
+    do
+     if [ "$NAMETYPE" = "traditional" ];then
+      ONEIDSTRING="$IDSTRING" #found file based on it's name only.
+     else
+      ONEFULLSIZE=`stat -c %s /mnt/data${ONEPUPFILE}`
+      ONEORIGSIZE=`expr $ONEFULLSIZE - 32` #110422
+      ONEIDSTRING="`dd if=/mnt/data${ONEPUPFILE} bs=1 skip=${ONEORIGSIZE} 2>/dev/null | sed -e 's%[^a-zA-Z0-9\.]%%g'`"
+     fi
+     if [ "$ONEIDSTRING" = "$IDSTRING" ];then
+      FDRV="${ONEDEV},${ONEFS},${ONEPUPFILE}"
+      echo -n " fdrive" > /dev/console
+      break
+     fi
+    done
+   fi
   
   fi #101103 moved up.
   echo "  IGNORE=$IGNORE PSUBDIR=$PSUBDIR SAVEPART=$SAVEPART VMLINUZ=$VMLINUZ PDEV1=$PDEV1 PUPSFS=$PUPSFS" >> /tmp/puppy-file-search.log #101127 for debugging.
@@ -657,6 +677,7 @@ mnt_enc_pupsave_func() {
 #100915 requested by technosaurus (formats get changed further down)...
 [ $pupsfs ] && PUPSFS=$pupsfs #format partition:<path><filename> ex: sda2:/wary071/wary_071.sfs
 [ $zdrv ] && ZDRV=$zdrv #ex: sda2:/wary071/zdrv_071.sfs
+[ $fdrv ] && FDRV=$fdrv
 [ $adrv ] && ADRV=$adrv
 [ $ydrv ] && YDRV=$ydrv
 
@@ -681,10 +702,13 @@ if [ "$pfix" ];then
    copy)    PCOPY="yes";;         #copy .sfs files into ram.
    nocopy)  PNOCOPY="yes";;        #do not copy .sfs files into ram (default is copy if enough ram).
    fsck)    PFSCK="yes";;         #do a fsck of ${DISTRO_FILE_PREFIX}save file.
+   fw_drv)  EXTRAFW="yes";;       #Load sfs with additional firmware
    [0-9]*)  PIGNORELAST=$ONEFIX;; #blacklist last $ONEFIX folders (multisession).
   esac
  done
 fi
+
+[ "$EXTRAFW" = "yes" ] && FDRVSFS="$DISTRO_FDRVSFS" || FDRVSFS=""
 
 #for backwards naming compatibility... ex: idehd becomes atahd 101021: atacd,scsicd,usbcd to become just cd...
 PMEDIA="`echo -n "$PMEDIA" | sed -e 's%ide%ata%' -e 's%sata%ata%' -e 's%.*cd$%cd%'`"
@@ -847,6 +871,14 @@ if [ "$ZDRV" ];then
  ZDRV="${DEV},${FS},${SPEC}"
 fi
 
+if [ "$FDRV" -a "$EXTRAFW" = "yes" ];then
+ DEV="`echo "$FDRV" | cut -f 1 -d ':'`"
+ FS="`echo "$PCPARTS0" | grep "${DEV}|" | cut -f 2 -d '|'`"
+ SPEC="`echo -n "$FDRV" | cut -f 2 -d ':'`"
+ FDRVSFS="`basename $SPEC`"
+ FDRV="${DEV},${FS},${SPEC}"
+fi
+
 if [ "$ADRV" ];then
  DEV="`echo "$ADRV" | cut -f 1 -d ':'`"
  FS="`echo "$PCPARTS0" | grep "${DEV}|" | cut -f 2 -d '|'`"
@@ -866,6 +898,7 @@ fi
 #first look inside initrd...
 [ -f /${PUPXXXSFS} ] && PUPSFS="rootfs,rootfs,/${PUPXXXSFS}"
 [ -f /${ZDRVSFS} ] && ZDRV="rootfs,rootfs,/${ZDRVSFS}"
+[ "$EXTRAFW" = "yes" -a -f /${FDRVSFS} ] && FDRV="rootfs,rootfs,/${FDRVSFS}"
 [ -f /${ADRVSFS} ] && ADRV="rootfs,rootfs,/${ADRVSFS}"
 [ -f /${YDRVSFS} ] && YDRV="rootfs,rootfs,/${YDRVSFS}"
 
@@ -1632,6 +1665,35 @@ if [ "$YDRV" != "" ];then
   fi
 fi
 
+FLAYER=''
+FFACTOR=''
+if [ "$FDRV" != "" ];then
+  FDEV="`echo "$FDRV" | cut -f 1 -d ','`"
+  FFS="`echo "$FDRV" | cut -f 2 -d ','`"
+  FFILE="`echo "$FDRV" | cut -f 3 -d ','`"
+  MNT_FFILE=""
+  fPATTERN="/dev/$FDEV "
+  MNT_FFILE="`mount | grep -m1 "$fPATTERN" | cut -f 3 -d ' '`"
+  FBASENAME="`basename $FFILE`" #v426 moved up.
+  if [ "$MNT_FFILE" != "" ];then
+   if [ "$COPY2RAM" = "yes" ];then
+    SIZEZK=`du -k ${MNT_FFILE}${FFILE} | cut -f 1`
+    SIZEZK=`expr $SIZEZK + 1000` #some slack.
+    mount -t tmpfs -o size=${SIZEZK}k tmpfs /mnt/tmpfs5
+    cp -af ${MNT_FFILE}${FFILE} /mnt/tmpfs5/
+    sync
+    losetup /dev/loop5 /mnt/tmpfs5/${FBASENAME}
+   else
+    losetup /dev/loop5 ${MNT_FFILE}${FFILE}
+   fi
+   mount -r -t squashfs -o noatime /dev/loop5 /pup_f > /dev/console 2>&1
+   if [ $? -eq 0 ];then
+    FLAYER=':/pup_f=ro'
+    FFACTOR="$FBASENAME" #v426
+   fi
+  fi
+fi
+
 [ "$UMOUNTME" != "" ] && umntfunc $UMOUNTME #101013 puppy.sfs was copied to tmpfs so can unmount partition.
 
 check_status 0 #$?
@@ -1665,6 +1727,7 @@ echo "PUP_LAYER='$NEWFILESMNTPT'" >> /pup_rw/etc/rc.d/PUPSTATE
 #fi
 echo '#this file has extra kernel drivers and firmware...' >> /pup_rw/etc/rc.d/PUPSTATE
 echo "ZDRV='$ZDRV'" >> /pup_rw/etc/rc.d/PUPSTATE #v2.22
+echo "FDRV='$FDRV'" >> /pup_rw/etc/rc.d/PUPSTATE
 echo "ADRV='$ADRV'" >> /pup_rw/etc/rc.d/PUPSTATE 
 echo "YDRV='$YDRV'" >> /pup_rw/etc/rc.d/PUPSTATE
 echo '#complete set of modules in the initrd (moved to main f.s.)...' >> /pup_rw/etc/rc.d/PUPSTATE
@@ -1738,7 +1801,7 @@ if [ "$PUPSAVE" != "" ];then
   SAVEFILENAMEONLY="`basename $SAVEFILE`"
   SFSFILE="`echo -n "$PUPSFS" | cut -f 3 -d ','`"
   SFSFILENAMEONLY="`basename $SFSFILE`"
-  RECORDLIST="$SAVEFILENAMEONLY $AFACTOR $YFACTOR $SFSFILENAMEONLY $ZFACTOR $EXTRASFSLIST" #v426
+  RECORDLIST="$SAVEFILENAMEONLY $AFACTOR $YFACTOR $SFSFILENAMEONLY $ZFACTOR $FFACTOR $EXTRASFSLIST" #v426
   NEWUNIONRECORD="`echo "$RECORDLIST" | tr -s ' '  | sed -e 's/ $//'`"
 
   #120130 bring back Underdog Linux...
@@ -1941,7 +2004,7 @@ fi
 [ "$RDSH" = "6" ] && exec /bin/sh >/dev/console 2>&1 #w091027
 
 #create the layered f.s.... ***THE BIG EVENT***
-mount -t aufs -o udba=reval,diropq=w,dirs=${UMNTRW}${UMNTRO0}${ALAYER}${YLAYER}${UMNTRO1}${ZLAYER}${UMNTRO} unionfs /pup_new 
+mount -t aufs -o udba=reval,diropq=w,dirs=${UMNTRW}${UMNTRO0}${ALAYER}${YLAYER}${UMNTRO1}${FLAYER}${ZLAYER}${UMNTRO} unionfs /pup_new
 check_status $? #END STEP FIVE
 #######################END SETUP UNIONFS LAYERED FILESYSTEM###################
 
@@ -1986,6 +2049,7 @@ mkdir -p /pup_new/initrd/pup_ro8
 mkdir -p /pup_new/initrd/pup_ro9
 mkdir -p /pup_new/initrd/pup_rw
 mkdir -p /pup_new/initrd/pup_z
+[ "$EXTRAFW" = "yes" ] && mkdir -p /pup_new/initrd/pup_f
 mkdir -p /pup_new/initrd/pup_a
 mkdir -p /pup_new/initrd/pup_y
 mkdir -p /pup_new/initrd/mnt
@@ -1998,7 +2062,9 @@ mkdir -p /pup_new/initrd/mnt/tmpfs
 mkdir -p /pup_new/initrd/mnt/tmpfs2
 mkdir -p /pup_new/initrd/mnt/tmpfs3
 mkdir -p /pup_new/initrd/mnt/tmpfs4
+[ "$EXTRAFW" = "yes" ] && mkdir -p /pup_new/initrd/mnt/tmpfs5
 mkdir -p /pup_new/initrd/mnt/zdrv
+[ "$EXTRAFW" = "yes" ] && mkdir -p /pup_new/initrd/mnt/fdrv
 mkdir -p /pup_new/initrd/mnt/adrv
 mkdir -p /pup_new/initrd/mnt/ydrv
 mkdir -p /pup_new/initrd/tmp

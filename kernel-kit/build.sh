@@ -80,7 +80,7 @@ else
     echo -e "You chose $Choice. If this is ok hit ENTER, \
     \nif not hit CTRL|C to quit" 
     read oknow
-    if [[ "$Choice" = "Default" || "$Choice" = "Custom" ]];then
+    if [ "$Choice" = "Default" -o "$Choice" = "Custom" ];then
     echo $Choice
     else
       cp -af configs_extra/$Choice DOTconfig
@@ -94,6 +94,53 @@ fi
 # the aufs major version
 #aufs_version=${kernel_version%.*.*} #
 aufs_version=${kernel_version%%.*}
+
+if [ "$FD" = "1" ];then
+tail -n10 README
+echo ""
+sleep 4
+x=0
+	for i in CONFIG_AUFS_FS=y CONFIG_NLS_CODEPAGE_850=y;do
+		if grep -q "$i" DOTconfig;then 
+			echo "$i is ok"
+		else
+			echo -e "\033[1;31m""\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!   WARNING     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n""\033[0m"
+			echo -e "\033[0m"
+			echo
+			if [ "$i" = "CONFIG_AUFS_FS=y" ];then
+				echo "For your kernel to boot AUFS as a built in is required:"
+				fs_msg="Pseudo filesystems"
+			else
+				echo "For NLS to work at boot some configs are required:"
+				fs_msg="NLS Support"
+			fi
+			echo "$i"
+	echo "$i"|grep -q "CONFIG_NLS_CODEPAGE_850=y" && echo "CONFIG_NLS_CODEPAGE_852=y"
+	
+	echo "Make sure you enable this when you are given the opportunity after
+the kernel has downloaded and been patched.
+Look under 'Filesystems > $fs_msg'
+"		
+			sleep 5
+		fi
+		[ $x -gt 0 ] && sleep 10
+	#if grep -q CONFIG_NLS_CODEPAGE_850=m DOTconfig;then 
+		#[ -z "$f" ] || sleep 10 #reading time in case the next one pops up
+		#echo -e "\033[1;31m""\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!   WARNING     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n""\033[0m"
+		#echo -e "\033[0m"
+		#echo
+		#echo "For NLS to work at boot some configs are required:
+		
+#CONFIG_NLS_CODEPAGE_850=y
+#CONFIG_NLS_CODEPAGE_852=y
+
+#Make sure you enable these when you are given the opportunity after
+#the kernel has downloaded and been patched.
+#Look under 'Filesystems > NLS Support'
+#"
+	#fi
+	done
+fi
 
 # fail-safe switch in case someone clicks the script in ROX (real story! not 
 # fun at all!!!!) :p
@@ -111,16 +158,7 @@ kernel_branch=`echo $kernel_major_version | cut -f 2 -d .` #3.x kernels
 	#*.*.*.*) kernel_minor_version=`echo $kernel_version | cut -f 4 -d .` ;;
 #esac
 
-# old 2 series info
-# the package name suffix (-40 in the case of 2.6.32.40); Woof assumes the 
-# package version is identical to the kernel version and uses paths that 
-# contain the package version, so use $kernel_major version as the version and
-# "-$kernel_minor_version" as the suffix
-#case "$kernel_minor_version" in
-	#*) package_name_suffix="-$kernel_minor_version";;
-#esac
-
-# create directories for the results
+#create directories for the results
 [ ! -d dist/sources/vanilla ] && mkdir -p dist/sources/{patches,vanilla}
 
 # get today's date
@@ -159,9 +197,6 @@ fi
 # download Aufs
 if [ ! -f dist/sources/vanilla/aufs$aufs_version-$kernel_branch-git$today.tar.bz2 ]; then
 	echo "Downloading the Aufs sources"
-	#git clone http://git.c3sl.ufpr.br/pub/scm/aufs/aufs2-standalone.git aufs$aufs_version-$kernel_branch-git$today >> build.log 2>&1
-	#git clone git://aufs.git.sourceforge.net/gitroot/aufs/aufs3-standalone.git aufs$aufs_version-$kernel_branch-git$today >> build.log 2>&1
-	#git clone git://github.com/sfjro/aufs3-linux.git aufs$aufs_version-$kernel_branch-git$today >> build.log 2>&1
 	git clone $aufs_git aufs$aufs_version-$kernel_branch-git$today >> build.log 2>&1
 	if [ $? -ne 0 ]; then
 		echo "Error: failed to download the Aufs sources."
@@ -315,8 +350,6 @@ find . -name '*.rej' -delete
 find . -name '*~' -delete
 cp ../DOTconfig .config
 
-#echo "exiting for config" #uncomment this to change .config #nah, pause routine
-#exit #uncomment this to change .config
 #pause to configure
 echo -en "You now should configure your kernel. The supplied .config\nis \
 already configured but you may want to make changes, plus the date \
@@ -351,12 +384,39 @@ mv kernel_headers-$kernel_version-$package_name_suffix ../dist/packages
 
 echo "Compiling the kernel"
 make ${JOBS} bzImage modules >> ../build.log 2>&1
-if [[ ! -f arch/x86/boot/bzImage || ! -f System.map ]]; then
-	echo "Error: failed to compile the kernel sources."
-	exit 1
-fi
 cp .config ../dist/sources/DOTconfig-$kernel_version-$today
-
+CONFIG=../dist/sources/DOTconfig-$kernel_version-$today
+# we need the arch of the system being built
+if grep -q 'CONFIG_X86_64=y' ${CONFIG};then
+	arch=x86_64
+	karch=x86
+elif grep -q 'CONFIG_X86_32=y' ${CONFIG};then
+	if grep -q 'CONFIG_X86_32_SMP=y' ${CONFIG};then
+		arch=i686
+		karch=x86
+	else
+		arch=i486 #gross assumption
+		karch=x86
+	fi
+elif grep -q 'CONFIG_ARM=y' ${CONFIG};then
+	arch=arm
+	karch=arm
+else
+	echo "Your arch is unsupported."
+	arch=unknown #allow build anyway
+	karch=arm
+fi
+if [ $karch == 'x86' ];then
+	if [ ! -f arch/x86/boot/bzImage -o ! -f System.map ]; then
+		echo "Error: failed to compile the kernel sources."
+		exit 1
+	fi
+else
+	if [ ! -f arch/arm/boot/zImage ]; then #needs work
+		echo "Error: failed to compile the kernel sources."
+		exit 1
+	fi
+fi
 echo "Creating the kernel package"
 make INSTALL_MOD_PATH=linux_kernel-$kernel_version-$package_name_suffix modules_install >> ../build.log 2>&1
 rm -f linux_kernel-$kernel_version-$package_name_suffix/lib/modules/${kernel_srcsfs_version}$custom_suffix/{build,source}
@@ -402,8 +462,7 @@ md5sum dist/sources/kernel_sources-$kernel_version-$package_name_suffix.sfs > di
 # build aufs-utils userspace modules
 echo "Now to build the aufs-utils for userspace"
 if [ ! -f dist/sources/vanilla/aufs-util${today}.tar.bz2 ];then
-	#git clone git://aufs.git.sourceforge.net/gitroot/aufs/aufs-util.git aufs-util >> build.log 2>&1
-	git clone git://git.code.sf.net/p/aufs/aufs-util aufs-util
+	git clone ${aufs_utils_git} aufs-util
 	[ $? -ne 0 ] && echo "Failed to get aufs-util from git, do it manually. Kernel is compiled OK :)" && exit
 	
 	cd aufs-util
@@ -439,17 +498,14 @@ if [ ! -f dist/sources/vanilla/aufs-util${today}.tar.bz2 ];then
 	patch -p1 < ../dist/sources/patches/aufs-util-dynamic.patch >> ../build.log 2>&1
 	[ "$?" -ne 0 ] && echo "Failed to patch the aufs-util sources, do it manually. Kernel is compiled ok" && exit
 fi
-arch=`uname -m`
-#LinuxSrc=../dist/packages/kernel_headers*
 # see if fhsm is enabled in kernel config
-CONFIG=`find $CWD/dist/sources -type f -name 'DOTconfig*'`
 grep -q 'CONFIG_AUFS_FHSM=y' $CONFIG
 [ "$?" -eq 0 ] && export MAKE=make || export MAKE="make BuildFHSM=no"
 LinuxSrc=`find $CWD -type d -name 'kernel_headers*'`
 export CPPFLAGS="-I $LinuxSrc/usr/include"
 $MAKE >> ../build.log 2>&1
 [ $? -ne 0 ] && echo "Failed to compile aufs-util, do it manually. Kernel is compiled OK :)" && exit
-make DESTDIR=$CWD/dist/packages/aufs-util-$kernel_version-$arch install >> ../build.log 2>&1 #maybe needs absolute path
+make DESTDIR=$CWD/dist/packages/aufs-util-$kernel_version-$arch install >> ../build.log 2>&1 #needs absolute path
 make clean >> ../build.log 2>&1
 if [ "$arch" = "x86_64" ];then
  mv $CWD/dist/packages/aufs-util-$kernel_version-$arch/usr/lib \
@@ -463,31 +519,49 @@ if [ "$FD" = "1" ];then #shift aufs-utils to kernel-modules.sfs
 	dist/packages/linux_kernel-$kernel_version-$package_name_suffix
 
 	if [ $LIBRE -eq 0 ];then
-		echo "Pausing hereto add extra firmware."
+		echo "Pausing here to add extra firmware."
 		echo "Choose an option:"
 		# download the fw or offer to copy
 		tmpfw=/tmp/fw$$
 		x=1
 		wget -q $FW_URL -O - |\
-		sed '/href/!d; /\.tar\./!d; /md5\.txt/d; s/.*href="//; s/".*//' |\
-		while read f;do
-		     [ "$f" ] && echo "$x $f" >> ${tmpfw}
-		     x=$(($x + 1 ))
-		done
-
+	        sed '/href/!d; /\.tar\./!d; /md5\.txt/d; s/.*href="//; s/".*//' |\
+	        while read f;do
+	             [ "$f" ] && echo "$x $f" >> ${tmpfw}
+	             x=$(($x + 1 ))
+	        done
 	    y=`cat ${tmpfw}|wc -l `
-	    [ "$y" = 0 ] && echo "error, no firmware at that URL" && exit 1
+	    [ "$y" = 0 ] && echo "WARNING: no firmware at that URL" # we carry on
 	    x=$(($x + $y))
 	    echo "$x I'll copy in my own." >> ${tmpfw}
+	    x=$(($x + 1))
+	    echo "$x I'll grab the latest firmware form kernel.org. (slow)" >> ${tmpfw}
 	    cat ${tmpfw}
 	    echo -n "Enter a number, 1 to $x:  "
 	    read fw
-	    if [ "$fw" -gt "$x" ];then "error, wrong number" && exit
-		elif [ "$fw" = "$x" ];then
+	    if [ "$fw" -gt "$x" ];then echo "error, wrong number" && exit
+		elif [ "$fw" = "$(($x - 1))" ];then
 			echo "once you have manually added firmware to "
 			echo "dist/packages/linux_kernel-$kernel_version-$package_name_suffix/lib/firmware"
 			echo "hit ENTER to continue"
 			read firm
+		elif [ "$fw" = "$x" ];then
+			echo "You have chosen to get the latest firware from kernel.org"
+			if [ -d ../linux-firmware ];then
+				echo "'git pull' will run so it wont take long to update the"
+				echo "firmware repository"
+			else
+				"This may take a long time as the firmware repository is around 180MB"
+			fi
+			# run the firmware script and re-enter here
+			./fw.sh ${fw_flag} # optonal param; see fw.sh and build.conf
+			ret=$?
+			if [ $ret -eq 0 ];then 
+				echo "Extracting firmware from the kernel.org git repo has succeeded."
+			else
+				echo "WARNING: Extracting firmware from the kernel.org git repo has failed."
+				echo "While your kernel is built, your firmware is incomplete."
+			fi
 		else
 			fw_pkg=`grep ^$fw ${tmpfw}`
 			fw_pkg=${fw_pkg##* }
@@ -499,22 +573,6 @@ if [ "$FD" = "1" ];then #shift aufs-utils to kernel-modules.sfs
 			[ $? -ne 0 ] && echo "failed to unpack ${fw_pkg}" && exit 1
 			echo "Successfully extracted ${fw_pkg}."
 		fi
-	
-		if  [ ! -d ../kernel-skeleton -a ! -d ../woof-code/kernel-skeleton ]; then
-			echo "Error: all-firmware folder was not found" >> ../build.log
-		else
-			[ -d ../kernel-skeleton ] && AFpath="../kernel-skeleton" ||
-			 AFpath="../woof-code/kernel-skeleton"
-			cp -aR -f "$AFpath"/* \
-			 dist/packages/linux_kernel-$kernel_version-$package_name_suffix/
-			cd dist/packages/linux_kernel-$kernel_version-$package_name_suffix/
-			./pinstall.sh
-			rm -f pinstall.sh
-			mv -f etc/modules/firmware.dep etc/modules/firmware.dep.$kernel_major_version
-			cd -
-		fi
-
-		rm ${tmpfw}
 	fi
 
 	mksquashfs dist/packages/linux_kernel-$kernel_version-$package_name_suffix dist/packages/kernel-modules.sfs-$kernel_version-$package_name_suffix $COMP
