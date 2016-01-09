@@ -48,30 +48,9 @@ r8180/r8180.ko
 RAWLIST="$OFFICIALLIST
 $EXTRALIST"
 
-get_type() {
-	local type
-	while read line ; do
-		case $line in "alias:"*)
-			read -r alias type <<< "$line"
-			type=${type%%:*}
-			break
-		esac
-	done
-	echo $type
-}
-
-get_desc() {
-	while read line ; do
-		case $line in "description:"*)
-			read -r zz desc <<< "$line"
-			break
-		esac
-	done
-	echo $desc
-}
-
 #the list has to be cutdown to genuine network interfaces only...
 echo -n "" > /tmp/networkmodules
+(
 echo "$RAWLIST" |
 while read ONERAW
 do
@@ -86,19 +65,23 @@ do
  #ONETYPE="`echo "$ONEINFO" | grep '^alias:' | head -n 1 | cut -f 2 -d ' ' | cut -f 1 -d ':'`"
  #ONEDESCR="`echo "$ONEINFO" | grep '^description:' | head -n 1 | cut -f 2 -d ':'`"
 
- ONEINFO="`modinfo $ONEBASE 2>/dev/null`"
- ONEDESCR="`echo "$ONEINFO" | get_desc`"
- ONETYPE="`echo "$ONEINFO" | get_type`"
-
+ ONETYPE=""; ONEDESCR=""
+ while read line ; do
+	case $line in
+		"description:"*) read -r zz ONEDESCR <<< "$line" ;;
+		"alias:"*) read -r alias ONETYPE <<< "$line" ; break ;;
+	esac
+ done <<< "$(modinfo $ONEBASE 2>/dev/null)"
+ 
+ ONETYPE=${ONETYPE%%:*}
  case "$ONETYPE" in
 	#ssb=b43legacy.ko...  sdio=sdio interfaces...
 	pci|pcmcia|usb|ssb|sdio)
-	  echo "Adding $ONEBASE"
-	  echo -e "$ONEBASE \"$ONETYPE:  $ONEDESCR\"" >> /tmp/networkmodules
+	  echo "Adding $ONEBASE" >&2
+	  echo -e "$ONEBASE \"$ONETYPE:  $ONEDESCR\"" #>> /tmp/networkmodules
  esac
 
 done
-
-sort -u /tmp/networkmodules > /etc/networkmodules
+) | sort -u > /etc/networkmodules
 
 ### END ###
