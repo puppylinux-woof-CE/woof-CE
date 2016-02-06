@@ -401,6 +401,46 @@ if [ "$(cat /var/local/petget/ui_choice 2>/dev/null)" = "Classic" ]; then
 	exit 0
 fi
 
+progressbar_info () {
+	if [ "$(cat /tmp/overall_dependencies | wc -l)" -ge 1 ];then
+		NEEDED_PGKS="$(</tmp/overall_dependencies)"
+		# Info window/dialogue (display and option to save "missing" info)
+		export NEEDED_DIALOG='
+		<window title="'$(gettext 'Puppy Package Manager')'" icon-name="gtk-about" default_height="350">
+		 <vbox space-expand="true" space-fill="true">
+		 '"`/usr/lib/gtkdialog/xml_info fixed package_add.svg 60 " " "$(gettext "Dependencies needed")"`"'
+		 <hbox space-expand="true" space-fill="true">
+		  <hbox scrollable="true" hscrollbar-policy="2" vscrollbar-policy="2" space-expand="true" space-fill="true">
+		   <hbox space-expand="false" space-fill="false">
+            <eventbox name="bg_report" space-expand="true" space-fill="true">
+             <vbox margin="5" hscrollbar-policy="2" vscrollbar-policy="2" space-expand="true" space-fill="true">
+              '"`/usr/lib/gtkdialog/xml_pixmap dialog-info.svg 32`"'
+              <text angle="90" wrap="false" yalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"<big><b><span color='"'#15BC15'"'>'$(gettext 'Needed')'</span></b></big> "</label></text>
+            </vbox>
+           </eventbox>
+          </hbox>
+         <vbox scrollable="true" shadow-type="0" hscrollbar-policy="2" vscrollbar-policy="1" space-expand="true" space-fill="true">
+          <text ypad="5" xpad="5" yalign="0" xalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"<i><b>'${NEEDED_PGKS}' </b></i>"</label></text>
+         </vbox>
+        </hbox>
+       </hbox>
+
+       <hbox space-expand="false" space-fill="false">
+        <button>
+         <label>'$(gettext 'View details')'</label>
+         '"`/usr/lib/gtkdialog/xml_button-icon document_viewer`"'
+         <action>defaulttextviewer /tmp/overall_dependencies &</action>
+        </button>
+        <button ok></button>
+        '"`/usr/lib/gtkdialog/xml_scalegrip`"'
+       </hbox>
+      </vbox>
+     </window>'
+     RETPARAMS="`gtkdialog --center -p NEEDED_DIALOG`"
+	fi
+}
+export -f progressbar_info
+
 #tall or wide orientation in the Ziggy UI
 UI_ORIENT="$(cat /var/local/petget/uo_choice 2>/dev/null)"
 [ "$UI_ORIENT" != "" ] && UI_ORIENT="$UI_ORIENT" || UI_ORIENT="wide"
@@ -664,6 +704,7 @@ S='<window title="'$(gettext 'Puppy Package Manager v')''${VERSION}'" width-requ
     <variable>VBOX_MAIN</variable>
   </vbox>
   <hbox space-expand="false" space-fill="false">
+   <eventbox space-expand="true" space-fill="true" tooltip-text="'$(gettext 'Click to get a list of the needed dependencies')'">
     <progressbar height-request="25" space-expand="true" space-fill="true">
       <input>while [ -s /tmp/petget/install_status -a "$(ps aux|grep PPM_GUI|grep gtkdialog|wc -l)" -gt 2 ]; do cat /tmp/petget/install_status_percent; cat /tmp/petget/install_status; sleep 0.5; done</input>
       <action>enable:VBOX_MAIN</action>
@@ -678,6 +719,8 @@ S='<window title="'$(gettext 'Puppy Package Manager v')''${VERSION}'" width-requ
       <action>echo "" > /tmp/petget/install_status</action>
     </progressbar>
     '"`/usr/lib/gtkdialog/xml_scalegrip`"'
+    <action signal="button-release-event">progressbar_info</action>
+   </eventbox>
   </hbox>
 </vbox>
 <action signal="show">kill -9 '$SPID'</action>
