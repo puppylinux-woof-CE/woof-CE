@@ -535,11 +535,13 @@ S='<window title="'$(gettext 'Puppy Package Manager v')''${VERSION}'" width-requ
           <label>" '$(gettext 'Do it!')' "</label>
           <sensitive>false</sensitive>
           <action condition="command_is_true(if [ \"$(cat /tmp/pkgs_to_install)\" != \"\" ];then echo true;fi)">disable:VBOX_MAIN</action>
+          <action condition="command_is_true(if [ \"$(cat /tmp/pkgs_to_install)\" != \"\" ];then echo true;fi)">disable:DEP_INFO</action>
           <action>if [ "$(cat /tmp/forced_install 2>/dev/null)" != "" ]; then touch /tmp/force_install; else rm -f /tmp/force_install; fi </action>
           <action>cut -d"|" -f1,4 /tmp/pkgs_to_install > /tmp/pkgs_to_install_tmp; mv -f /tmp/pkgs_to_install_tmp /tmp/pkgs_to_install</action>
           <action condition="command_is_true(if [ -f /tmp/force_install -a -f /tmp/install_pets_quietly ]; then echo false; else echo true; fi )">/usr/local/petget/installmodes.sh "$INSTALL_MODE" &</action>
           <action condition="command_is_false(if [ -f /tmp/force_install -a -f /tmp/install_pets_quietly ]; then echo false; else echo true; fi )">installed_warning &</action>
           <action condition="command_is_false(if [ -f /tmp/force_install -a -f /tmp/install_pets_quietly ]; then echo false; else echo true; fi )">enable:VBOX_MAIN</action>
+          <action condition="command_is_false(if [ -f /tmp/force_install -a -f /tmp/install_pets_quietly ]; then echo false; else echo true; fi )">enable:DEP_INFO</action>
         </button>
       </hbox>
     </vbox>
@@ -704,10 +706,11 @@ S='<window title="'$(gettext 'Puppy Package Manager v')''${VERSION}'" width-requ
     <variable>VBOX_MAIN</variable>
   </vbox>
   <hbox space-expand="false" space-fill="false">
-   <eventbox space-expand="true" space-fill="true" tooltip-text="'$(gettext 'Click to get a list of the needed dependencies')'">
+   <eventbox name="dependency_info" space-expand="true" space-fill="true" tooltip-text="'$(gettext 'Click to get a list of the needed dependencies')'">
     <progressbar height-request="25" space-expand="true" space-fill="true">
       <input>while [ -s /tmp/petget/install_status -a "$(ps aux|grep PPM_GUI|grep gtkdialog|wc -l)" -gt 2 ]; do cat /tmp/petget/install_status_percent; cat /tmp/petget/install_status; sleep 0.5; done</input>
       <action>enable:VBOX_MAIN</action>
+      <action>enable:DEP_INFO</action>
       <action>disable:BUTTON_INSTALL</action>
       <action>rm /tmp/pkgs_to_install</action>
       <action>refresh:TREE_INSTALL</action>
@@ -721,6 +724,7 @@ S='<window title="'$(gettext 'Puppy Package Manager v')''${VERSION}'" width-requ
     '"`/usr/lib/gtkdialog/xml_scalegrip`"'
     <action signal="button-release-event">progressbar_info</action>
    </eventbox>
+   <variable>DEP_INFO</variable>
   </hbox>
 </vbox>
 <action signal="show">kill -9 '$SPID'</action>
