@@ -18,6 +18,9 @@ esac
 #                          FUNCTIONS                          #
 ###############################################################
 
+function ncards() { grep '^ [0-9]' /proc/asound/cards | grep -v 'pcsp' | wc -l ; }
+function ndevs() { grep -v 'pcspeaker' /proc/asound/pcm | wc -l ; }
+
 function is_valid_device() {
 	case $1 in 0|1|2|3|4|5|6|7|8|9) return 0 ;;
 		*) return 1 ;;
@@ -40,28 +43,22 @@ function write_asound_config() { #card device
 	echo "defaults.pcm.card $1"   #line 1
 	echo "defaults.pcm.device $2" #line 2
 	echo "defaults.ctl.card $1"   #line 3
-	) > /etc/asound.conf
-	cp -f /etc/asound.conf $HOME/.asoundrc #make sure both files have the same config
+	) > $HOME/.asoundrc
+	cp -f $HOME/.asoundrc /etc/asound.conf  #make sure both files have the same config
 	write_retrovol_card $1
 }
 
 function asound_conf_values() { #returns: card device cardmixer
-	if [ -f /etc/asound.conf ] ; then
-		xfile="/etc/asound.conf"
-	elif [ -f $HOME/.asoundrc ] ; then
+	if [ -f $HOME/.asoundrc ] ; then
 		xfile="$HOME/.asoundrc"
+	elif [ -f /etc/asound.conf ] ; then
+		xfile="/etc/asound.conf"
 	else
 		return 1
 	fi
-	x=1 ; while read line ; do
-		value=${line#* }
-		[ $x -gt 3 ] && break
-		echo -n "$value "
-		let x++
-	done < $xfile
-	#{
-	#	for x in 1 2 3 ; do read a b ; echo -n "$b " ; done
-	#}< $xfile
+	{
+		for x in 1 2 3 ; do read a b ; echo -n "$b " ; done
+	} < $xfile
 }
 
 function check_asound_conf() {
@@ -80,15 +77,20 @@ function check_asound_conf() {
 }
 
 function print_asound_conf() {
-	if [ -f /etc/asound.conf ] ; then
+	if [ -f $HOME/.asoundrc ] ; then
+		local xfile="$HOME/.asoundrc"
+	elif [ -f /etc/asound.conf ] ; then
+		local xfile="/etc/asound.conf"
+	fi
+	if [ "$xfile" ] ; then
 		echo
-		echo "------------ asound.conf ------------"
-		cat /etc/asound.conf
+		echo "------------- ${xfile##*/} ------------"
+		cat $xfile
 		echo "-------------------------------------"
-		echo
 	fi
 	if [ -f $HOME/.retrovolrc ] ; then
-		echo "---------- HOME/.retrovolrc ---------"
+		echo
+		echo "------------ .retrovolrc ------------"
 		grep 'card=' $HOME/.retrovolrc
 		echo "-------------------------------------"
 		echo
@@ -148,12 +150,18 @@ function CheckHDMI() {
 		echo "	$BLACKLISTED"
 		echo
 	fi
-	echo "Writing default config (card 0 device 0)"
-	write_asound_config 0 0
+	case $(ndevs) in 0|1)
+		echo "Writing default config (card 0 device 0)"
+		write_asound_config 0 0
+	esac
 }
 
-function ncards() { grep '^ [0-9]' /proc/asound/cards | grep -v 'pcsp' | wc -l ; }
-function ndevs() { grep -v 'pcspeaker' /proc/asound/pcm | wc -l ; }
+function get_card_device() {
+	local devstr="$@"
+	local card=$(echo "$devstr" | grep -o 'card [0-9]')
+	local device=$(echo "$devstr" | grep -o 'device [0-9]')
+	echo ${card#card } ${device#device }
+}
 
 function start_quiet() { ## PUPMODE=5
 	. /etc/rc.d/PUPSTATE
@@ -243,43 +251,44 @@ function start_service_proc() {
 			echo "Found: /var/lib/mscw/selected" ; echo
 			[ "$(busybox pidof 10alsa)" ] && sleep 1
 			#card 0: V8235 [VIA 8235], device 0: VIA 8235
-			acard="$(cat /var/lib/mscw/selected)"
-			read -r c card desc <<< "$acard"
-			card=${card%:}
+			acard="$(< /var/lib/mscw/selected)"
+			read -r z zz desc <<< "$acard"
+			read card device <<< "$(get_card_device "$acard")"
 			active_device=$(echo $desc | sed -e 's|\[||g' -e 's|\]||g' -e 's|\,||g' -e 's|\:||g' -e 's|\/||g' -e 's|\\||g' -e 's|\-||g')
 			device_list=$(aplay -l | grep card | sed -e 's|\[||g' -e 's|\]||g' -e 's|\,||g' -e 's|\:||g' -e 's|\/||g' -e 's|\-||g')
 			echo "Active Card (from log):"
 			echo "	$acard" ; echo
+			xcard=0
+			xdevice=0
+			zdevs=$(ndevs)
 			if [ $scards -eq 0 ] ; then
 				echo "No cards detected, safe to apply default 0"
-			elif [ $scards -eq 1 ] ; then
-				echo "There is only one card, safe to apply default 0"
-				xcard=0
-			else
-				## more than 1 card, this requires processing
+			elif [ $zdevs -eq 1 ] ; then
+				echo "Only one playback device, safe to apply default 0"
+			elif [ $zdevs -gt 1 ] ; then
+				## more than 1 device, this requires processing
 				results=$(echo "$device_list" | grep "$active_device")
 				if [ "$results" ] ; then
-					read -r c2 card2 desc2 <<< "$results"
-					card2=${card2%:}
+					read card2 device2 <<< "$(get_card_device "$results")"
 					echo "Match:"
 					echo "	${results}" ; echo
-					if [ "$card" = "$card2" ] ; then
-						echo "Same position (${card} = ${card2})"
-						xcard=$card
+					xcard=$card2
+					xdevice=$device2
+					if [ "$card" = "$card2" -a "$device" = "$device2" ] ; then
+						echo "Same position (${card}:${device} = ${card2}:${device2})"
 					else
-						echo "Card has changed position (${card} -> ${card2})"
-						xcard=$card2
+						echo "Card has changed position (${card}:${device} != ${card2}:${device2})"
 					fi
+				else ## no results ##
+					echo "No matches"
+					echo ; echo "*** not doing anything ***"
+					xcard=""
 				fi
 			fi
 			## apply changes
-			echo ; echo "Applying default card: $xcard"
-			if [ -f /etc/asound.conf ] ; then
-				sed -i "s|defaults.pcm.card.*|defaults.pcm.card $xcard|" /etc/asound.conf
-				sed -i "s|defaults.ctl.card.*|defaults.ctl.card $xcard|" /etc/asound.conf
-				write_retrovol_card $xcard
-			else
-				write_asound_config $xcard 0
+			if [ "$xcard" ] ; then
+				echo ; echo "Applying default card: ${xcard}:${xdevice}"
+				write_asound_config $xcard $xdevice
 			fi
 		else
 			## No soundcard device selected in MSCW GUI...
@@ -330,7 +339,6 @@ if [ "$START_PROC" ] ; then ### start ###
 		echo "mscw service is disabled..." >&2
 		start_quiet
 		exit
-		#continue to dialog...
 	else
 		start_service_proc
 		exit
@@ -401,8 +409,8 @@ fi
 if [ ! -f /etc/asound.conf -o ! -f $HOME/.asoundrc ] ; then
 	check_asound_conf
 fi
-ACTIVE_CARD=`awk 'FNR == 1 {print $2}' /etc/asound.conf`
-ACTIVE_DEVICE=`awk 'FNR == 2 {print $2}' /etc/asound.conf`
+
+read ACTIVE_CARD ACTIVE_DEVICE A_CMIXER <<< "$(asound_conf_values)"
 ACTIVEN=`echo "$DEVICES" | grep -n -w "card $ACTIVE_CARD" | grep -w "device $ACTIVE_DEVICE"`
 ACTIVEN=${ACTIVEN%%:*}
 
