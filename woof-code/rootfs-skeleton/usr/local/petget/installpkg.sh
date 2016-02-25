@@ -72,7 +72,7 @@ export LANG=C
 DLPKG="$1"
 DLPKG_BASE="`basename "$DLPKG"`" #ex: scite-1.77-i686-2as.tgz
 DLPKG_PATH="`dirname "$DLPKG"`"  #ex: /root
-DL_SAVE_FLAG=$(cat /var/local/petget/nd_category)
+DL_SAVE_FLAG=$(cat /var/local/petget/nd_category 2>/dev/null)
 
 clean_and_die () {
   rm -f /root/.packages/${DLPKG_NAME}.files
@@ -126,16 +126,22 @@ DLPKG_NAME="`cat /tmp/petget_missing_dbentries-Packages-* | grep "$dbPATTERN" | 
 #131222 do not allow duplicate installs...
 PTN1='^'"$DLPKG_NAME"'|'
 if [ "`grep "$PTN1" /root/.packages/user-installed-packages`" != "" ];then
- DISPTIME1='' ; DISPTIME2=''
- if [ -f /tmp/install_quietly ];then
-  DISPTIME1="--timeout 3"
-  DISPTIME2="-timeout 3"
- fi
  if [ ! $DISPLAY ];then
-  dialog ${DISPTIME1} --msgbox "$(gettext 'Sorry, this package is already installed. Aborting.')" 0 0
+  [ -f /tmp/install_quietly ] && DISPTIME1="--timeout 3" || DISPTIME1=''
+  LANG=$LANG_USER
+  dialog ${DISPTIME1} --msgbox "$(gettext 'This package is already installed. Cannot install it twice:') ${DLPKG_NAME}" 0 0
  else
-  pupmessage -bg '#ff8080' -fg black ${DISPTIME2} -title "$(gettext 'Package:') ${DLPKG_NAME}" "$(gettext 'Sorry, but this package is already installed. Cannot install it twice.')"
-  echo ${DLPKG_NAME} >> /tmp/pgks_failed_to_install_forced
+  LANG=$LANG_USER
+  if [ "$(</var/local/petget/ui_choice)" = "Classic" -o -f /tmp/install_classic ]; then
+   /usr/lib/gtkdialog/box_ok "$(gettext 'Puppy package manager')" error "$(gettext 'This package is already installed. Cannot install it twice:')" "<i>${DLPKG_NAME}</i>"
+   [ -f /tmp/install_classic ] && echo ${DLPKG_NAME} >> /tmp/pgks_failed_to_install_forced
+  else
+   /usr/lib/gtkdialog/box_ok "$(gettext 'Puppy package manager')" error "$(gettext 'This package is already installed. Cannot install it twice:')" "<i>${DLPKG_NAME}</i>" & 
+   XPID=$!
+   sleep 3
+   pkill -P $XPID
+   echo ${DLPKG_NAME} >> /tmp/pgks_failed_to_install_forced
+  fi
  fi
  exit 1
 fi
@@ -165,13 +171,11 @@ fi
 #as the pkg gets expanded to an intermediate dir, maybe in main f.s...
 PARTK=`df -k / | grep '/$' | tr -s ' ' | cut -f 4 -d ' '` #free space in partition.
 if [ $NEEDK -gt $PARTK ];then
- ABORTMSG1="$(gettext 'Package:') ${DLPKG_BASE}"
- ABORTMSG2="$(gettext 'Sorry, there is not enough free space in the partition to install this package')"
+ LANG=$LANG_USER
  if [ $DISPLAY ];then
-  pupmessage -bg pink -fg black -title "${ABORTMSG1}" "${ABORTMSG2}"
+  /usr/lib/gtkdialog/box_ok "$(gettext 'Puppy package manager')" error "$(gettext 'Not enough free space in the partition to install this package'):" "<i>${DLPKG_BASE}</i>"
  else
-  echo "${ABORTMSG1}
-${ABORTMSG2}"
+  echo -e "$(gettext 'Not enough free space in the partition to install this package'):\n${DLPKG_BASE}"
  fi
  [ "$DLPKG_PATH" != "" ] && rm -f "${DLPKG_PATH}"/${DLPKG_BASE}
  exit 1
@@ -201,7 +205,8 @@ elif [ $PUPMODE -eq 3 -o $PUPMODE -eq 7 -o $PUPMODE -eq 13 ];then
 fi
 
 if [ $DISPLAY -a ! -f /tmp/install_quietly ];then #131222
- /usr/lib/gtkdialog/box_splash -close never -fontsize large -text "$(gettext 'Please wait, processing...')" &
+ LANG=$LANG_USER
+ . /usr/lib/gtkdialog/box_splash -close never -fontsize large -text "$(gettext 'Please wait, processing...')" &
  YAFPID1=$!
  trap 'pupkill $YAFPID1' EXIT #140318
 fi
@@ -227,10 +232,11 @@ case $DLPKG_BASE in
   [ "$PETFOLDER" = "" ] && PETFOLDER=$(echo "${PETFILES}" | cut -f 1 -d '/' | head -n 1)
   if [ "${DLPKG_MAIN}" != "${PETFOLDER}" ]; then
    pupkill $YAFPID1
+   LANG=$LANG_USER
    if [ "$DISPLAY" ]; then
-    /usr/lib/gtkdialog/box_ok "$(gettext 'Puppy Package Manager')" error "<b>${DLPKG_MAIN}.pet</b> $(gettext 'is named') <b>${PETFOLDER}</b> $(gettext 'inside the pet file. Will not install it!')"
+    . /usr/lib/gtkdialog/box_ok "$(gettext 'Puppy Package Manager')" error "<b>${DLPKG_MAIN}.pet</b> $(gettext 'is named') <b>${PETFOLDER}</b> $(gettext 'inside the pet file. Will not install it!')"
    else
-    dialog --msgbox "$DLPKG_MAIN.pet $(gettext 'is named') $PETFOLDER $(gettext 'inside the pet file. Will not install it!')" 0 0
+    . dialog --msgbox "$DLPKG_MAIN.pet $(gettext 'is named') $PETFOLDER $(gettext 'inside the pet file. Will not install it!')" 0 0
    fi
    exit 1
   fi

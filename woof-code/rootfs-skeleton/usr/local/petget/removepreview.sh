@@ -26,7 +26,7 @@
 
 export TEXTDOMAIN=petget___removepreview.sh
 export OUTPUT_CHARSET=UTF-8
-
+[ "$(locale | grep '^LANG=' | cut -d '=' -f 2)" ] && ORIGLANG="$(locale | grep '^LANG=' | cut -d '=' -f 2)"
 . /etc/rc.d/PUPSTATE  #111228 this has PUPMODE and SAVE_LAYER.
 . /etc/DISTRO_SPECS #has DISTRO_BINARY_COMPAT, DISTRO_COMPAT_VERSION
 . /root/.packages/DISTRO_PKGS_SPECS
@@ -114,20 +114,7 @@ $(gettext 'The first 5 are')
 $possible5"
  fi
  if [ "$DISPLAY" ];then
-  pupmessage -bg red "$(gettext 'WARNING:')
-$(gettext 'No file named') ${DB_pkgname}.files $(gettext 'found in')
-/root/.packages/ $(gettext 'folder.')
- 
-$0
-$(gettext 'refusing cowardly to remove the package.')
-
-$(gettext 'Possible suggestions are')
-$WARNMSG
-
-$(gettext 'Possible solution:')
-$(gettext 'Edit') /root/.packages/user-installed-packages $(gettext 'to match the pkgname')
-$(gettext 'and start again.')
-"
+  /usr/lib/gtkdialog/box_ok "$(gettext 'Puppy package manager')" warning "<b>$(gettext 'No file named') ${DB_pkgname}.files $(gettext 'found in') /root/.packages/ $(gettext 'folder.')</b>" "$0 $(gettext 'refusing cowardly to remove the package.')" " " "<b>$(gettext 'Possible suggestions:')</b> $WARNMSG" "<b>$(gettext 'Possible solution:')</b> $(gettext 'Edit') <i>/root/.packages/user-installed-packages</i> $(gettext 'to match the pkgname') $(gettext 'and start again.')"
   rox /root/.packages
   geany /root/.packages/user-installed-packages
   exit 101
@@ -159,11 +146,7 @@ do
 done
 if [ -s /tmp/petget/other-installed-deps ];then
  OTHERDEPS="$(sort -u /tmp/petget/other-installed-deps | tr '\n' ' ')"
- pupmessage -bg '#ff8080' -fg black -title "Cannot uninstall: ${DB_pkgname}" "Sorry, but these other installed packages depend on the package that you want to uninstall:
-
-${OTHERDEPS}
-
-Aborting uninstall operation."
+ /usr/lib/gtkdialog/box_ok "$(gettext 'Puppy Package Manager')" error "<b>$(gettext 'Cannot uninstall'): <i>${DB_pkgname}</i></b>" "$(gettext 'Sorry, but these other installed packages depend on the package that you want to uninstall'):" "<i>${OTHERDEPS}</i>" "$(gettext 'Aborting uninstall operation.')"
  exit 1
 fi
 

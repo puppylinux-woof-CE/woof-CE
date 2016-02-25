@@ -7,10 +7,6 @@
 
 . /etc/rc.d/PUPSTATE
 
-if [ -f /root/.jwm/jwm_colors ];then #v3.96
-. /root/.jwm/jwm_colors
-fi
-
 #v4.01 BK daemon to handle kernel uevents...
 /sbin/clean_desk_icons #v4.02 tidy up drive icons first.
 #/sbin/pup_event_frontend_d &
@@ -155,14 +151,8 @@ if [ "$CURRENTWM" = "xfwm4" ];then
  fi
 fi
 
-#v3.91 volume tray applet, thanks to hairywill... v3.96 MENU_BG variable...
-if [ -f /usr/bin/absvolume ];then
- if [ "$MENU_BG" = "" ];then
-  absvolume &
- else
-  absvolume -bg $MENU_BG &
- fi
-fi
+#v3.91 volume tray applet, thanks to hairywill...
+[ -f /usr/bin/absvolume ] && absvolume &
 
 #v3.95 support fbpanel tray/taskbar...
 #only launch tray for w.m. without inbuilt tray...

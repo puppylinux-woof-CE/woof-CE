@@ -205,6 +205,8 @@ if [ "`which xorriso`" != "" ];then
 fi
 export CDRECORD MKISOFS
 
+RARCH=`uname -m` #running arch
+
 . ./DISTRO_SPECS      #this has DISTRO_VERSION.
 #140619
 if [ "$DISTRO_KERNEL_PET" = "Huge_Kernel" ];then
@@ -497,14 +499,85 @@ cp DISTRO_SPECS sandbox3/rootfs-complete/etc/
 #copy the skeleton...
 cp -a rootfs-skeleton/* sandbox3/rootfs-complete/
 cat sandbox3/rootfs-complete/pinstall.sh >> sandbox3/pinstall.sh
+# extra packages
+# extra packages
 for d in $(ls rootfs-packages)
 do  
-       cp -a rootfs-packages/$d/* sandbox3/rootfs-complete/
-       cat sandbox3/rootfs-complete/pinstall.sh >> sandbox3/pinstall.sh
+       [ "$d" = "change_kernels" ] && continue # can't work in legacy build
+       state=true
+       LIST="sfs_load|pfilesearch|pfind|firewall_ng"
+       echo "$d" | egrep -q "$LIST" && def=true || def=false 
+       case "$d" in
+		jwm_config|ptheme)
+			if grep 'jwmconfig' DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} |\
+			grep -q '^yes' ;then
+				state=false #cant choose them if jwmconfig is in specs.
+			else
+				def=true
+			fi
+			;;
+	   *)
+			if grep "$d" DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} |\
+			grep -q '^yes' ;then
+				state=false # don't overwrite user chosen specs
+				def=false
+			fi
+			;;	
+	   esac
+       CBOXES="$CBOXES""<hbox space-expand=\"true\" space-fill=\"true\">
+		<checkbox>
+			<label>$d</label>
+			<default>$def</default>
+			<variable>$d</variable>
+			<sensitive>$state</sensitive>
+		</checkbox>
+	</hbox>"
 done
+CHOICE=/tmp/rootfs_choice$$	
+export GUIC="<window title=\"Choose extra packages\">
+	<vbox>
+		<hbox>
+			<text>
+				<label>Here you can choose what extra packages to install. It is recommended that you leave the checked boxes checked as these are usually dependencies of installed programs in puppy. If the checkbox for a program is disabled then it means that a coressponding program is in DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}</label>
+			</text>
+		</hbox>
+		<hbox space-expand=\"true\" space-fill=\"true\">	
+			<text use-markup=\"true\">
+				<label>\"<b>These are maintained as part of woof.</b>\"</label>
+			</text>
+		</hbox>
+		<vbox scrollable=\"true\" height=\"160\" width=\"380\">
+			$CBOXES
+		</vbox>
+		<hbox><button ok></button></hbox>
+	</vbox>
+</window>"
+gtkdialog -p GUIC -c > $CHOICE
+. $CHOICE
+[ -f /tmp/rootfs-packages.specs ] && rm /tmp/rootfs-packages.specs # in case we baled out on last build
+if [ "$EXIT" = "OK" ];then
+	while read line
+	do 
+		if echo $line|grep -q "true" ;then
+			echo "copying ${line%%=*}"
+			cp -a rootfs-packages/${line%%=*}/* sandbox3/rootfs-complete/
+			[ -f rootfs-packages/${line%%=*}/pinstall.sh ] &&\
+				cat rootfs-packages/${line%%=*}/pinstall.sh >> sandbox3/pinstall.sh
+			cat sandbox3/rootfs-complete/pet.specs >> /tmp/rootfs-packages.specs
+		else
+			continue
+		fi
+	done < $CHOICE
+fi
+rm $CHOICE
+./findwoofinstalledpkgs # moved to here so we can add /tmp/rootfs-packages.specs
+
+echo "Continuing... please wait"
+
 rm -f sandbox3/rootfs-complete/pinstall.sh
 
 rm -f /tmp/3builddistro_removed_alt 2>/dev/null #101013
+
 
 #120315 Ubuntu Precise Pangolin has done a big move of files from /lib to /lib/i386-linux-gnu and /usr/lib to /usr/lib/i386-linuxgnu
 #well, i want to move them back. symlinks will do it (cp below does not destroy them)...
@@ -541,9 +614,9 @@ rm -f /tmp/3builddistro_removed_alt 2>/dev/null #101013
 #fi
 #121210 fix, ARCHDIR was not getting set...
 ARCHDIR=''
-if [ "$WOOF_COMPATDISTRO" = "ubuntu" ];then
+if [ "$WOOF_COMPATDISTRO" = "ubuntu" ] || [ "$WOOF_COMPATDISTRO" = "trisquel" ];then
  case $WOOF_COMPATVERSION in
-  jaunty|karmic|lucid) #old releases.
+  jaunty|karmic|lucid|dwyn|awen|taranis) #old releases.
    true
   ;;
   *)
@@ -592,9 +665,9 @@ case $WOOF_TARGETARCH in
    devuan)
     ARCHDIR='arm-linux-gnueabihf'
    ;;
-   ubuntu)
+   ubuntu|trisquel)
     case $WOOF_COMPATVERSION in
-     jaunty|karmic|lucid) true ;; #old releases.
+     jaunty|karmic|lucid|dwyn|awen|taranis) true ;; #old releases.
      *) ARCHDIR='arm-linux-gnueabihf' ;;
     esac
    ;;
@@ -754,7 +827,7 @@ echo "Removing extra documentation"
 for i in sandbox3/rootfs-complete/usr/share/doc/*; do
    if [ -d $i ]; then
       keep=0
-      for j in legal pmusic pburn pbackup help wvdial ffconvert cups nls; do #140128 added back legal, 01micko
+      for j in legal pmusic pburn pbackup mtpaint help wvdial ffconvert cups nls puplogos notecase didiwiki; do #140128 added back legal, 01micko
          case `basename $i` in
             $j)
                keep=1
@@ -765,7 +838,7 @@ for i in sandbox3/rootfs-complete/usr/share/doc/*; do
       [ $keep -eq 0 ] && rm -rf $i
    fi
 done
-echo "Removing extra documentation"
+echo "Removing extra locales"
 for i in sandbox3/rootfs-complete/usr/share/locale/*; do
    if [ -d $i ]; then
       keep=0
@@ -1864,7 +1937,7 @@ fNUM1=`echo -n "$DISTRO_COMPAT_VERSION" | wc -c`
 
 #120831 above code ok, but really just want these...
 case $DISTRO_BINARY_COMPAT in
- ubuntu)
+ ubuntu|trisquel)
   xPUPPYREPOS="Packages-puppy-${DISTRO_DB_SUBNAME}-official Packages-puppy-noarch-official" #Packages-puppy-common-official 
   xCOMPATREPOS="$(ls -1 rootfs-complete/root/.packages/Packages-[^p]* | grep -E '\-main$|\-universe$|\-multiverse$' | rev | cut -f 1 -d '/' | rev | tr '\n' ' ')"
   #130330 would like universe first...
@@ -1918,7 +1991,7 @@ cp -f ../PKGS_HOMEPAGES rootfs-complete/root/.packages/
 
 #130316 see 0setup and debdb2pupdb...
 case ${DISTRO_BINARY_COMPAT} in
- debian|devuan|ubuntu|raspbian)
+ debian|devuan|ubuntu|trisquel|raspbian)
   if [ ! -f ../invaliddepslist ];then
    echo "WARNING WARNING"
    echo "File 'invaliddepslist' does not exist.
@@ -2065,6 +2138,11 @@ if [ "$EXIT" = "OK" ];then
    sed -i -e 's%default\.jpg%default.png%' rootfs-complete/root/Choices/ROX-Filer/PuppyPin
    #i don't know what uses this, but change it anyway...
    sed -i -e 's%default\.jpg%default.png%' rootfs-complete/etc/Puppybackgroundpicture
+  ;;
+  *.svg)
+   mv -f rootfs-complete/usr/share/backgrounds/$BACKGROUNDIMAGE rootfs-complete/usr/share/backgrounds/default.svg
+   sed -i -e 's%default\.jpg%default.svg%' rootfs-complete/root/Choices/ROX-Filer/PuppyPin
+   sed -i -e 's%default\.jpg%default.svg%' rootfs-complete/etc/Puppybackgroundpicture
   ;;
   *)
    mv -f rootfs-complete/usr/share/backgrounds/$BACKGROUNDIMAGE rootfs-complete/usr/share/backgrounds/default.jpg
@@ -2597,6 +2675,38 @@ do
  done
 done
 
+# do the same for rootfs-packages
+if [ -f /tmp/rootfs-packages.specs ];then
+	while read line ; do
+		PKGL=`echo $line | cut -d '|'  -f 2`
+		echo -n "${PKGL} "
+		ogPATTERN="s%^\\.\\./rootfs-packages/${PKGL}/%/%"
+		find ../rootfs-packages/$PKGL | sed -e "$ogPATTERN" | sort > /tmp/0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}/${PKGL}.files
+		sync
+		mkdir -p 0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}/root/.packages/builtin_files
+		PREVPATH=''; PREVPATH0=''
+		cat /tmp/0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}/${PKGL}.files |
+		while read ONELINE
+			 do
+				[ "`echo "$ONELINE" | cut -c 1`" == "." ] && continue #catch ex: ../packages-qrky/abiword
+				if [ -d "rootfs-complete${ONELINE}" ];then
+					PREVPATH="$ONELINE"
+					echo "$ONELINE" >> 0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}/root/.packages/builtin_files/${PKGL}
+				else
+					NEWPATH="`dirname "$ONELINE"`"
+					[ "$NEWPATH" == "/" ] && continue #ignore top-level files.
+					NEWFILE="`basename "$ONELINE"`"
+					if [ -e "rootfs-complete${ONELINE}" ];then #sanity check.
+						if [ "$PREVPATH" == "$NEWPATH" -o "$PREVPATH0" == "$NEWPATH" ];then #sanity check. 121010
+							echo " ${NEWFILE}" >> 0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}/root/.packages/builtin_files/${PKGL}
+						fi
+					fi
+				fi
+		done
+	done < /tmp/rootfs-packages.specs
+	rm -f /tmp/rootfs-packages.specs
+fi
+echo
 echo "0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}|0builtin_files_${DISTRO_FILE_PREFIX}|${DISTRO_VERSION}||BuildingBlock|||0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}.pet||Lists of files built-in to the SFS file||||
 " > 0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}/pet.specs
 rm -f 0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}.pet 2>/dev/null
@@ -3943,6 +4053,24 @@ rm -f sandbox3/devx/etc/profile.d/*.csh
 # cp -a -f --remove-destination sandbox3/devx/usr/bin/multiarch-i386-linux/* sandbox3/devx/usr/bin/
 # rm -rf sandbox3/devx/usr/bin/multiarch-i386-linux
 #fi
+
+# 151019 - delete duplicate symlinks
+echo "deleting duplicate symlinks"
+find sandbox3/devx -type l |
+while read ONESYMLINK
+do
+  # if the symlink exists in sandbox3/rootfs-complete we delete it
+ ESYMLINK=$(echo "$ONESYMLINK" | sed 's%devx%rootfs-complete%')
+ [ -h "$ESYMLINK" ] && echo -n "deleted $ONESYMLINK " && rm -f "$ONESYMLINK"
+ 
+done
+
+sync
+
+
+# 151019 - delete whiteouts
+echo "cleaning out whiteouts"
+find sandbox3/devx -name '.wh*' -delete
 
 echo "Now creating ${DEVXSFS} ..."
 ./support/${MKSQUASHFS} sandbox3/devx ./${WOOF_OUTPUT}/${DEVXSFS} ${COMPCHOICE} #100911 110713

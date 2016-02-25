@@ -10,10 +10,10 @@
 
 IFCONFIG="`ifconfig | grep '^[pwe]' | grep -v 'wmaster'`"
 [ ! "$IFCONFIG" ] && exit 1 #no network connection.
-ping -4 -c 1 www.google.com
+ping -4 -c 1 www.duckduckgo.com
 if [ $? -ne 0 ];then
  sleep 1
- ping -4 -c 1 www.google.com
+ ping -4 -c 1 www.duckduckgo.com
  [ $? -ne 0 ] && exit 1 #no internet.
 fi
 
@@ -151,7 +151,7 @@ if [ $? -eq 0 ];then
   petget /root/$DLPET #install the PET
   rm -f /root/$DLPET
  else
-  pupmessage -bg '#FF8080' -title "$(gettext 'Download failed')" "$(gettext 'Sorry, the PET did not download. Perhaps try later.')"
+    /usr/lib/gtkdialog/box_ok "$(gettext 'Download failed')" error "$(gettext 'Sorry, the PET did not download. Perhaps try later.')"
   exit 6
  fi
 fi

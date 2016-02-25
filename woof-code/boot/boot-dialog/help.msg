@@ -1,7 +1,6 @@
 
 0bPress <F3> key to go to advanced help07
 For boot options, type0d BOOTLABEL07 then a space, then each option. Some options:
-
 0dacpi=off07     Default on for PCs >2001, may give boot/shutdown probs.
 0dpfix=ram07     Run totally in RAM ignore saved sessions,
 0dpfix=<n>07     number of saved sessions to ignore (multisession-CD),
@@ -9,6 +8,7 @@ For boot options, type0d BOOTLABEL07 then a space, then each option. Some opti
 0dpfix=copy07    copy .sfs files to RAM (slower boot, faster running),
 0dpfix=nocopy07  do not copy .sfs files to RAM (faster boot, slower running),
 0dpfix=fsck07    do filesystem check on DISTRO_FILE_PREFIXsave (and host partition),
+0dpfix=fw_drv07  Load extra firmware. Use if some of your hardware is not recognised
 0dpfix=clean07   file cleanup (simulate version upgrade),
 0dpfix=purge07   more radical file cleanup (to fix broken system).
 0dplang=<xxxx>07 Locale -- not normally required as asked after bootup.

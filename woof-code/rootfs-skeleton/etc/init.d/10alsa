@@ -11,27 +11,15 @@
 #120222 revert 111229. 120223 shinobar: better fix.
 #120226 01micko: added 'Master Front' entries. 120318 bumped it up, 75% to 100%.
 
-case "$1" in
- start|restart)
-  #110217 remove this test, seems to be a problem some people report file not created but snd ok...
-  #if [ -f /tmp/rc_d_rc_services_alsa_ok ];then #101121 see rc.services.
-   #if [ "`lsmod | grep '^snd_'`" != "" ];then
-   rm -f /var/lock/subsys/alsasound 2> /dev/null #or alsa will not start.
-   #sometimes these don't all load...
-   modprobe snd-mixer-oss
-   modprobe snd-seq-oss
-   modprobe snd-pcm-oss
-   for I in $(seq 4); do #110111 shinobar: for reliable sound detection on HP Compac nc4010.
-    sleep 0.5 #110113 reduce 1 to 0.5. 110216 move up.
-    [ -c /dev/mixer ] && break #note, /dev/mixer is deleted in /etc/rc.d/rc.sysinit.
-   done 
-   if [ ! -f /etc/asound.state ];then
-    #try and set all levels workable...
-    #set_mixers #in functions4puppy4
-    #101015 BK had to add ,0 after Front...
-    #110823 pemasu: add this set Speaker 75 % unmute
-    #120226 01micko: added 'Master Front' entries...
-	amixer -s -q <<EOF
+function set_volume_levels() { #card
+	local card="$1"
+	echo
+	echo "For card $1"
+	#try and set all levels workable...
+	#101015 BK had to add ,0 after Front...
+	#110823 pemasu: add this set Speaker 75 % unmute
+	#120226 01micko: added 'Master Front' entries...
+	amixer -c $card -d -s <<EOF
 set Master 75% unmute
 set Master -12dB
 set 'Master Mono' 75% unmute
@@ -66,40 +54,144 @@ set "SB Live Analog/Digital Output Jack" off
 set "Audigy Analog/Digital Output Jack" off
 set Speaker 75% unmute
 EOF
-	[ $? -eq 0 ] && alsactl -f /etc/asound.state store #120223 shinobar
-   else
-    alsactl -f /etc/asound.state restore #from /etc/asound.state.
-   fi
-  #fi
- ;;
+	if [ $? -eq 0 ] ; then
+		echo "Successfully set volume levels"
+		echo "# alsactl -d -f /etc/asound.state store $card"
+		alsactl -d -f /etc/asound.state store $card #120223 shinobar
+		echo "alsactl: exit code $?"
+	else
+		echo "Failed to set volume levels"
+	fi
+}
+
+case "$1" in
+ start|restart)
+	mkdir -p /tmp/services
+	logfile=/tmp/services/10alsa.start.log
+	if [ "$1" = "restart" ] ; then
+		logfile=/tmp/services/10alsa.restart.log
+		#might want to restart retrovol (ex: fix muted sound, the first start failed to set volume levels (timing issues), etc)
+		[ "$(busybox pidof retrovol)" ] && retrovol=1
+	fi
+
+	(
+	rm -f /var/lock/subsys/alsasound 2> /dev/null #or alsa will not start.
+	#sometimes these don't all load... oss-compat
+	modprobe snd-mixer-oss #/dev/mixer http://alsa.opensrc.org/Snd-mixer-oss
+	modprobe snd-seq-oss   #oss midi   http://alsa.opensrc.org/Snd-seq-oss
+	modprobe snd-pcm-oss   #/dev/dsp /dev/audio http://alsa.opensrc.org/Snd-pcm-oss
+
+	. /etc/DISTRO_SPECS
+	echo "$DISTRO_NAME $DISTRO_VERSION"
+	uname -a ; echo
+
+	if [ "$1" = "start" ] ; then #only done at boot
+		wt=0.5
+		for I in $(seq 10); do #110111 shinobar: for reliable sound detection on HP Compac nc4010.
+			[ -c /dev/mixer ] && break #note, /dev/mixer is deleted in /etc/rc.d/rc.sysinit.
+			echo "Waiting $wt seconds"
+			sleep $wt
+			WAITING=1
+		done
+		[ "$WAITING" ] && echo
+	fi
+
+	#https://forum.openwrt.org/viewtopic.php?id=10132
+	if [ -c /dev/controlC0 ] ; then #controlC0 in /dev like the one found in puppy431
+		cd /dev ; mkdir -p /dev/snd #/dev/snd/* is deleted in /etc/rc.d/rc.sysinit
+		for file in controlC* pcmC* ; do
+			ln -sv /dev/$file /dev/snd/$file #place symlinks in /dev/snd, the alsa tools want file(s) from there..
+		done
+		echo
+	fi
+
+	#/dev/snd/controlC0 [ /dev/mixer associates with this ]
+	#/dev/snd/pcmC0D0p is a play back device
+	#/dev/snd/pcmC0D0c is a recording device
+
+	[ ! -c /dev/mixer ] && echo "/dev/mixer is missing" && echo
+	if [ ! -c /dev/snd/controlC0 ] ; then
+		echo "/dev/snd/controlC0 is missing"
+		echo "ERROR: alsa is not usable.."
+		echo
+	fi
+
+	cards=""
+	if [ -e /sys/class/sound/card0/device ] ; then #symlink
+		for dev in /sys/class/sound/card[0-9]/device ; do
+			card=${dev%/*}
+			card=${card##*/}
+			cards="$cards ${card#card}"
+			driver=$(readlink ${dev}/driver)
+			case $driver in *'../../../bus/'*)
+				realpath=/sys/${driver#../../../}
+				[ -e "${realpath}/module" ] && driver=$(readlink "${realpath}/module")
+			esac
+			driver=${driver##*/}
+			echo "${card}: ${driver//_/-}"
+		done
+		echo
+	fi
+
+	echo "###################################################"
+	cat /proc/asound/cards
+	echo "###################################################"
+	echo
+	echo "###################################################"
+	lsmod | grep snd
+	echo "###################################################"
+	echo
+
+	if [ ! -f /etc/asound.state ];then
+		echo "=================================="
+		echo "/etc/asound.state: not found"
+		echo "Try and set all levels workable..."
+		for card in $cards ; do
+			set_volume_levels $card
+		done
+		echo "=================================="
+	else
+		#for cardx in $cards ; do
+			echo "# alsactl -d -f /etc/asound.state restore $cardx"
+			alsactl -d -f /etc/asound.state restore $cardx #from /etc/asound.state.
+			echo "alsactl: exit code $?"
+		#done
+	fi
+	if [ "$1" = "restart" -a "$retrovol" ] ; then
+		killall -9 retrovol
+		retrovol --hide &
+	fi
+	) &> ${logfile}
+	;;
+
  stop)
-  [ -f /etc/asound.state ] && alsactl -f /etc/asound.state store #saves to /etc/asound.state. 111229 add test file exists. 120222 revert. 120223 restore.
-  # Kill processes holding open sound devices...
-  fuser -k /dev/admmidi? /dev/adsp? /dev/amidi? /dev/audio* /dev/dmfm* /dev/dmmidi? /dev/dsp* /dev/dspW* /dev/midi0? /dev/mixer? /dev/music /dev/patmgr? /dev/sequencer* /dev/sndstat >/dev/null 2>&1
-  [ -d /proc/asound/dev ] && fuser -k /proc/asound/dev/* >/dev/null 2>&1
-  [ -d /dev/snd ] && fuser -k /dev/snd/* >/dev/null 2>&1
-  # remove all sequencer connections if any
-  [ -f /proc/asound/seq/clients -a -x aconnect ] && aconnect --removeall
-  # mute master to avoid clicks at unload
-  amixer set Master mute >/dev/null 2>&1
-  # remove all sound modules... 120103...
-  #lsmod | grep "^snd" | grep -Ev "(snd-page-alloc|snd_page_alloc)" |
-  c=0
-  while [ "`lsmod | grep 'snd_'`" ];do
-   lsmod | grep "^snd" | grep '0 $' | grep -Ev "(snd-page-alloc|snd_page_alloc)" |
-   while read line
-   do
-    #rmmod `echo $line | cut -d ' ' -f 1`
-    modprobe -rv `echo $line | cut -d ' ' -f 1`
-   done
-   c=$((c+1));[ "$c" = '6' ] && break #precaution if neverending loop
-  done
-  # remove the 2.2 soundcore module (if possible)
-  rmmod soundcore 2> /dev/null
-  rmmod gameport 2> /dev/null
-  # remove lockfile if lockdir exists
-  [ -d /var/lock/subsys ] && rm -f /var/lock/subsys/alsasound
- ;;
+	mkdir -p /tmp/services
+	(
+	[ -f /etc/asound.state ] && alsactl -d -f /etc/asound.state store #saves to /etc/asound.state. 111229 add test file exists. 120222 revert. 120223 restore.
+	# Kill processes holding open sound devices...
+	fuser -kv /dev/admmidi? /dev/adsp? /dev/amidi? /dev/audio* /dev/dmfm* /dev/dmmidi? /dev/dsp* /dev/dspW* /dev/midi0? /dev/mixer? /dev/music /dev/patmgr? /dev/sequencer* /dev/sndstat >/dev/null 2>&1
+	[ -d /proc/asound/dev ] && fuser -kv /proc/asound/dev/*
+	[ -d /dev/snd ] && fuser -kv /dev/snd/*
+	# remove all sequencer connections if any
+	[ -f /proc/asound/seq/clients -a -x aconnect ] && aconnect --removeall
+	# mute master to avoid clicks at unload
+	amixer set Master mute
+	# remove all sound modules... 120103...
+	c=0
+	while [ "`lsmod | grep 'snd_'`" ];do
+		lsmod | grep "^snd" | grep -E '0 $|0$' | grep -Ev "(snd-page-alloc|snd_page_alloc)" |
+		while read line ;do
+			modprobe -rv `echo $line | cut -d ' ' -f 1`
+		done
+		c=$((c+1));[ "$c" = '6' ] && break #precaution if neverending loop
+	done
+	# remove the 2.2 soundcore module (if possible)
+	rmmod soundcore
+	rmmod gameport
+	# remove lockfile if lockdir exists
+	[ -d /var/lock/subsys ] && rm -fv /var/lock/subsys/alsasound
+	) &> /tmp/services/10alsa.stop.log
+	;;
 esac
 
-###END###
+### END ###

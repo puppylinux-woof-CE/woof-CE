@@ -33,7 +33,7 @@ export OUTPUT_CHARSET=UTF-8
 . /root/.packages/DISTRO_PKGS_SPECS
 
 if [ ! -f /tmp/install_quietly ]; then
- /usr/lib/gtkdialog/box_splash -close never -text "$(gettext 'Please wait, processing package database files...')" &
+ . /usr/lib/gtkdialog/box_splash -close never -text "$(gettext 'Please wait, processing package database files...')" &
  X1PID=$!
 fi
 
@@ -157,19 +157,19 @@ export PREVIEW_DIALOG="<window title=\"$(gettext 'Puppy Package Manager: preinst
  <frame>
   <hbox>
    <text><label>$(gettext 'If you would like more information about') '${TREE1}', $(gettext 'such as what it is for and the dependencies, this button will download and display detailed information:')</label></text>
-   <button><label>More info</label><action>/usr/local/petget/fetchinfo.sh ${TREE1} & </action></button>
+   <button><label>$(gettext 'More info')</label><action>/usr/local/petget/fetchinfo.sh ${TREE1} & </action></button>
   </hbox>
  </frame>
  
  <hbox>
   ${DEPBUTTON}
   <button>
-   <label>Install ${TREE1}${ONLYMSG}</label>
+   <label>$(gettext 'Install') ${TREE1}${ONLYMSG}</label>
    <action>echo \"${TREE1}\" > /tmp/petget_installpreview_pkgname</action>
    <action type=\"exit\">BUTTON_INSTALL</action>
   </button>
   <button>
-   <label>Download-only</label>
+   <label>$(gettext 'Download-only')</label>
    <action type=\"exit\">BUTTON_PKGS_DOWNLOADONLY</action>
   </button>
   <button cancel></button>
@@ -209,7 +209,7 @@ if [ "$EXIT" = "BUTTON_EXAMINE_DEPS" ];then
  #120904
  FNDMISSINGDBENTRYFILE="`ls -1 /tmp/petget_missing_dbentries-* 2>/dev/null`"
  if [ "$FNDMISSINGDBENTRYFILE" = "" -a ! -f /tmp/install_quietly ];then
-  pupdialog --title "$(gettext 'PPM: examine dependencies')" --background LightYellow --msgbox "$(gettext 'There seem to be no missing dependencies.')
+  . pupdialog --title "$(gettext 'PPM: examine dependencies')" --background LightYellow --msgbox "$(gettext 'There seem to be no missing dependencies.')
 
 $(gettext 'Note: if the previous window indicated that there are missing dependencies, they were not found. Sometimes, a package database lists a dependency that does not actually exist anymore and is not required.')" 0 0
   exec /usr/local/petget/installpreview.sh #reenter.
@@ -224,7 +224,7 @@ $(gettext 'Note: if the previous window indicated that there are missing depende
    DEVXNAME="devx_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION}.sfs"
    echo "#!/bin/sh
 sleep 3
-pupdialog --background pink --colors --ok-label \"$(gettext 'OK')\" --backtitle \"$(gettext 'WARNING: devx not installed')\" --msgbox \"$(gettext 'Package:')  \Zb${TREE1}\ZB
+. pupdialog --background pink --colors --ok-label \"$(gettext 'OK')\" --backtitle \"$(gettext 'WARNING: devx not installed')\" --msgbox \"$(gettext 'Package:')  \Zb${TREE1}\ZB
 $(gettext "This package has dependencies that are in the 'devx' SFS file, which is Puppy's C/C++/Vala/Genie/BaCon mega-package, a complete compiling environment.")
 
 $(gettext 'The devx file is named:') \Zb${DEVXNAME}\ZB

@@ -148,8 +148,8 @@
 #140102 better font for Russian, font is added to /lib/consolefont (in rootfs-skeleton)
 #140102 rodin.s: added utf8-option to VFAT_OUT_PARAM for flash drive to be mounted with utf-8 if boot is done from flash drive 
 
-#Unionfs layers setup by this script...
-#unionfs layers:            RW (top)      RO1             RO2              PUPMODE
+#Aufs layers setup by this script...
+#aufs layers:            RW (top)      RO1             RO2              PUPMODE
 #full install, flash drive: tmpfs         PDEV1                            3
 #First boot (or pfix=ram):  tmpfs                         pup_xxx.sfs      5
 #pup_save is a partition:   PDEV1                         pup_xxx.sfs      6
@@ -161,6 +161,7 @@
 #/bin/hotplug2stdout_notimeout > /tmp/pup_event_uevents_initrd &
 
 #120215 internationalize... (based on work by L18L)
+[ "$(echo $1 | grep '_' | grep '\.')" = "" ] && shift
 if [ ! $1 ];then
  mount -t proc none /proc
  mount -t sysfs none /sys
@@ -186,6 +187,14 @@ else #2nd entry, running /init2
  PLANG=${1}
 fi
 
+#Some bootloaders can pass arguments to init!
+if [ "$(ls /proc)" = "" ]; then
+ mount -t proc none /proc
+ mount -t sysfs none /sys
+ mount -t rootfs -o remount,rw rootfs /
+ ln -s /proc/mounts /etc/mtab
+fi
+
 export LANG=C #w004
 . /DISTRO_SPECS #v412 has DISTRO_VERSION, DISTRO_FILE_PREFIX
 [ ! "$DISTRO_DB_SUBNAME" ] && DISTRO_DB_SUBNAME="$DISTRO_COMPAT_VERSION" #121102 fallback if DISTRO_DB_SUBNAME not defined in file DISTRO_SPECS.
@@ -201,15 +210,12 @@ DEVTMPFSFLG=1 #130618 set it from 3builddistro.
 
 #100911 simple filenames specified in DISTRO_SPECS: DISTRO_ZDRVSFS, DISTRO_PUPPYSFS...
 ZDRVSFS="$DISTRO_ZDRVSFS"
+FDRVSFS="$DISTRO_FDRVSFS"
 ADRVSFS="$DISTRO_ADRVSFS"
 YDRVSFS="$DISTRO_YDRVSFS"
 PUPXXXSFS="$DISTRO_PUPPYSFS"
 IDSTRING="$DISTRO_IDSTRING" #from DISTRO_SPECS, string appended to kernel.qky, vmlinuz, puppy.sfs, zdrv.sfs, devx.sfs (see 3builddistro).
 [ "`echo "$PUPXXXSFS" | grep '[0-9]\.sfs'`" != "" ] && NAMETYPE='traditional' #110422 has version info.
-
-[ $layerfs ] && LAYERFS=$layerfs
-[ ! $LAYERFS ] && LAYERFS=aufs #aufs or unionfs
-#[ "`modinfo aufs 2>/dev/null`" = "" ] && LAYERFS=unionfs #precaution. #james no longer needed.
 
 [ $loglevel ] && LOGLEVEL=$loglevel #v2.22
 
@@ -344,7 +350,14 @@ search_func() { #110425
    ;;
    *)
     #note: a mistake if have PDEV1 on usb booting, as it can change.
-    [ "$PDEV1" ] && LESSPARTS0="`echo "$LESSPARTS0" | grep "${PDEV1}|"`" #kernel boot param.
+    if [ "$PDEV1" ];then #kernel boot param
+     LESSPAT="$PDEV1"
+     if [ "$PSAVEMARK" ];then #kernel boot param
+      BOOTDRV="`echo -n "$PDEV1" | grep -o -f /tmp/ALLDRVS0`" #ex: sda1 becomes sda
+      LESSPAT="${PDEV1}|${BOOTDRV}${PSAVEMARK}"
+     fi
+     LESSPARTS0="`echo "$LESSPARTS0" | grep -E "$LESSPAT"`"
+    fi
    ;;
   esac
  fi
@@ -501,10 +514,84 @@ search_func() { #110425
      fi
     done
    fi
+
+   if [ "$FDRV" = "" -a "$EXTRAFW" = "yes" ];then
+    FND_FILES="`find /mnt/data${PSUBDIR} -maxdepth ${SEARCHDEPTH} -xdev -type f -iname ${FDRVSFS} | grep -v ' ' | sed -e 's%^/mnt/data%%' | tr '\n' ' '`"
+    for ONEPUPFILE in $FND_FILES
+    do
+     if [ "$NAMETYPE" = "traditional" ];then
+      ONEIDSTRING="$IDSTRING" #found file based on it's name only.
+     else
+      ONEFULLSIZE=`stat -c %s /mnt/data${ONEPUPFILE}`
+      ONEORIGSIZE=`expr $ONEFULLSIZE - 32` #110422
+      ONEIDSTRING="`dd if=/mnt/data${ONEPUPFILE} bs=1 skip=${ONEORIGSIZE} 2>/dev/null | sed -e 's%[^a-zA-Z0-9\.]%%g'`"
+     fi
+     if [ "$ONEIDSTRING" = "$IDSTRING" ];then
+      FDRV="${ONEDEV},${ONEFS},${ONEPUPFILE}"
+      echo -n " fdrive" > /dev/console
+      break
+     fi
+    done
+   fi
   
   fi #101103 moved up.
   echo "  IGNORE=$IGNORE PSUBDIR=$PSUBDIR SAVEPART=$SAVEPART VMLINUZ=$VMLINUZ PDEV1=$PDEV1 PUPSFS=$PUPSFS" >> /tmp/puppy-file-search.log #101127 for debugging.
         
+  if [ "$ZDRV" != "" -a "`echo "$ZDRV" | cut -f 1 -d ','`" = "$ONEDEV" ];then
+   if [ "$PIMOD" = "" ];then
+     PIMODFILE="/mnt/data${PSUBDIR}/${DISTRO_FILE_PREFIX}initmodules.txt"
+     [ -f "$PIMODFILE" ] && PIMOD="`head -n1 "$PIMODFILE" | tr -d '\r\n'`" 
+   fi
+   if [ "$PIMOD" = ""  -a "$SAVEPART" != "" ];then
+    PIMODFS="`echo "$LESSPARTS0" | grep "$SAVEPART" | cut -f 2 -d '|'`"
+    if [ "$PIMODFS" ];then
+     [ -d /mnt/dataSMARK ] || mkdir /mnt/dataSMARK
+     mntfunc $PIMODFS /dev/$SAVEPART /mnt/dataSMARK
+     if [ $? -eq 0 ];then
+      PIMODFILE="/mnt/dataSMARK${PSUBDIR}/${DISTRO_FILE_PREFIX}initmodules.txt"
+      [ -f "$PIMODFILE" ] && PIMOD="`head -n1 "$PIMODFILE" | tr -d '\r\n'`" 
+      umount /mnt/dataSMARK
+     fi
+    fi
+   fi
+   if [ "$PIMOD" != "" ];then
+    ZDRVPATH="/mnt/data`echo "$ZDRV" | cut -f 3 -d ','`"
+    if [ -f "$ZDRVPATH" ];then
+     [ -d /mnt/dataZDRV ] || mkdir /mnt/dataZDRV
+     ZDRVLOOP="`losetup -f`"
+     losetup $ZDRVLOOP $ZDRVPATH
+     mount -r -t squashfs -o noatime $ZDRVLOOP /mnt/dataZDRV
+     if [ $? -eq 0 ];then
+      MODNEWLN="yes"
+      MODSPATH="/mnt/dataZDRV/lib/modules/$KERNELVER"
+      for ONEMOD in `echo -n "$PIMOD" | tr ',' ' '`;do
+       CURMOD=""
+       if [ -f "${MODSPATH}/${ONEMOD}" ];then
+        CURMOD="$ONEMOD"
+       else
+        CURMOD="`grep -m1 $ONEMOD $MODSPATH/modules.order`"
+        if [ "$CURMOD" = "" ];then
+         MODPATN="`echo -n "$ONEMOD" | tr '_' '-'`"
+         CURMOD="`grep -m1 "$MODPATN" $MODSPATH/modules.order`"
+        fi
+        [ -f "${MODSPATH}/${CURMOD}" ] || CURMOD=""
+       fi
+       if [ "$CURMOD" != "" ];then
+        if [ "$MODNEWLN" = "yes" ];then
+         echo "" > /dev/console
+         MODNEWLN=""
+        fi
+        echo "Adding module $CURMOD" > /dev/console
+        insmod "${MODSPATH}/${CURMOD}" > /dev/console 2>&1
+       fi
+      done
+      umount /mnt/dataZDRV
+     fi
+     losetup -d $ZDRVLOOP
+    fi   
+   fi
+  fi
+
   FND_PUPSAVES=""
   ONEFS_IS_LINUX=""
   case $ONEFS in
@@ -585,12 +672,12 @@ mnt_enc_pupsave_func() {
     echo -e "\\033[1;36m" >/dev/console #aqua-blue
     echo -n "Password: " >/dev/console
     echo -en "\\033[0;39m" >/dev/console
+    read -s MYPASS
     if [ "$CRYPTO" = "-e aes" ];then #v3.98
-     read -s MYPASS #< /dev/console v403
      echo "$MYPASS" | losetup -p 0 -e aes /dev/loop1 /mnt/dev_save$PUPSAVEFILE
     else
      #losetup does not accept -p param for xor encryption... may not work...
-     losetup $CRYPTO /dev/loop1 /mnt/dev_save$PUPSAVEFILE
+     echo "$MYPASS" | losetup -p 0 $CRYPTO /dev/loop1 /mnt/dev_save$PUPSAVEFILE
     fi
 }
 
@@ -606,8 +693,12 @@ mnt_enc_pupsave_func() {
 #100915 requested by technosaurus (formats get changed further down)...
 [ $pupsfs ] && PUPSFS=$pupsfs #format partition:<path><filename> ex: sda2:/wary071/wary_071.sfs
 [ $zdrv ] && ZDRV=$zdrv #ex: sda2:/wary071/zdrv_071.sfs
+[ $fdrv ] && FDRV=$fdrv
 [ $adrv ] && ADRV=$adrv
 [ $ydrv ] && YDRV=$ydrv
+
+#list of kernel modules to load, ex: pimod=hid-logitech-dj.ko,kernel/drivers/hid/hid-multitouch.ko 
+[ $pimod ] && PIMOD=$pimod
 
 [ $underdog ] && UNDERDOG=$underdog #120130 specify partition for Underdog Linux (refer also underdog.lnx).
 
@@ -620,17 +711,20 @@ if [ "$pfix" ];then
    ram)     PRAMONLY="yes";;      #run in ram only (do not load ${DISTRO_FILE_PREFIX}save).
    rdsh)    RDSH="yes";;          #exit to shell in initial ramdisk.
    rdsh0)   RDSH="0";;            #drop out early, before loading drivers.
-   rdsh6)   RDSH="6";;            #w091027 drop out just before mount layerfs.
+   rdsh6)   RDSH="6";;            #w091027 drop out just before mount aufs.
    nox)     PNOX="yes";;          #do not start X.
    clean)   PCLEAN="yes";;        #force version upgrade and cleanup.
    purge)   PPURGE="yes";;        #radical cleanup for broken system.
    copy)    PCOPY="yes";;         #copy .sfs files into ram.
    nocopy)  PNOCOPY="yes";;        #do not copy .sfs files into ram (default is copy if enough ram).
    fsck)    PFSCK="yes";;         #do a fsck of ${DISTRO_FILE_PREFIX}save file.
+   fw_drv)  EXTRAFW="yes";;       #Load sfs with additional firmware
    [0-9]*)  PIGNORELAST=$ONEFIX;; #blacklist last $ONEFIX folders (multisession).
   esac
  done
 fi
+
+[ "$EXTRAFW" = "yes" ] && FDRVSFS="$DISTRO_FDRVSFS" || FDRVSFS=""
 
 #for backwards naming compatibility... ex: idehd becomes atahd 101021: atacd,scsicd,usbcd to become just cd...
 PMEDIA="`echo -n "$PMEDIA" | sed -e 's%ide%ata%' -e 's%sata%ata%' -e 's%.*cd$%cd%'`"
@@ -793,6 +887,14 @@ if [ "$ZDRV" ];then
  ZDRV="${DEV},${FS},${SPEC}"
 fi
 
+if [ "$FDRV" -a "$EXTRAFW" = "yes" ];then
+ DEV="`echo "$FDRV" | cut -f 1 -d ':'`"
+ FS="`echo "$PCPARTS0" | grep "${DEV}|" | cut -f 2 -d '|'`"
+ SPEC="`echo -n "$FDRV" | cut -f 2 -d ':'`"
+ FDRVSFS="`basename $SPEC`"
+ FDRV="${DEV},${FS},${SPEC}"
+fi
+
 if [ "$ADRV" ];then
  DEV="`echo "$ADRV" | cut -f 1 -d ':'`"
  FS="`echo "$PCPARTS0" | grep "${DEV}|" | cut -f 2 -d '|'`"
@@ -812,6 +914,7 @@ fi
 #first look inside initrd...
 [ -f /${PUPXXXSFS} ] && PUPSFS="rootfs,rootfs,/${PUPXXXSFS}"
 [ -f /${ZDRVSFS} ] && ZDRV="rootfs,rootfs,/${ZDRVSFS}"
+[ "$EXTRAFW" = "yes" -a -f /${FDRVSFS} ] && FDRV="rootfs,rootfs,/${FDRVSFS}"
 [ -f /${ADRVSFS} ] && ADRV="rootfs,rootfs,/${ADRVSFS}"
 [ -f /${YDRVSFS} ] && YDRV="rootfs,rootfs,/${YDRVSFS}"
 
@@ -1029,7 +1132,7 @@ if [ "$CREATEPUPSAVE2FS" != "" ];then
      ;;
    esac
   fi
-  if [ -d /mnt/dev_save$PUPSAVEFILE ]; then
+  if [ -d /mnt/dev_save${PUPSAVEFILE} ]; then
    # Check partition if user calls for savefile check
    if [ "$PFSCK" = "yes" -a "$pdev1" = "" ]; then
     umount /mnt/dev_save
@@ -1041,7 +1144,7 @@ if [ "$CREATEPUPSAVE2FS" != "" ];then
     mntfunc $PUPSAVEFS /dev/$PUPSAVEDEV $MOUNTED $MNTOPT
     mntfunc $PUPSAVEFS /dev/$PUPSAVEDEV /mnt/dev_save noatime
    fi
-   rm -r -f $CREATEPUPSAVE2FS
+   rm -r -f "$CREATEPUPSAVE2FS"
    ln -s /mnt/dev_save${PUPSAVEFILE} $CREATEPUPSAVE2FS
   elif [ "$CRYPTO" != "" ] ; then
    echo "" >/dev/console
@@ -1124,6 +1227,7 @@ if [ "$CREATEPUPSAVE2FS" != "" ];then
  if [ $STATUS -eq 0 ];then
   if [ $PUPMODE -eq 12 -o $PUPMODE -eq 13  ];then #4+8 or 4+8+1
    OLDDISTRO_VERSION="`grep '^DISTRO_VERSION' $CREATEPUPSAVE2FS/etc/DISTRO_SPECS | cut -f 2 -d '=' | cut -f 2 -d "'" | cut -f 2 -d '"' | cut -f 1 -d ' '`" #110422
+   PUPPY_FOLDER="`grep '^PUPSAVE' $CREATEPUPSAVE2FS/etc/rc.d/PUPSTATE | cut -f 3 -d ','`"
    if vercmp ${DISTRO_VERSION} gt ${OLDDISTRO_VERSION} ;then #110422
     if [ "$NUMPUPSAVES" != "0" ];then #save-file(s) found.
      echo -e "\\033[1;36m" >/dev/console #36=aquablue
@@ -1137,7 +1241,12 @@ if [ "$CREATEPUPSAVE2FS" != "" ];then
       echo "Backing off, not using save-file, booting in RAM only, PUPMODE=5..." >/dev/console
       echo -en "\\033[0;39m" >/dev/console
       sync
-      umount $CREATEPUPSAVE2FS #unmount the save-file.
+      if [ -L "$CREATEPUPSAVE2FS" ]; then
+       rm -f "$CREATEPUPSAVE2FS" #get rid of save-folder
+       mkdir $CREATEPUPSAVE2FS
+      else
+       umount $CREATEPUPSAVE2FS #unmount the save-file.
+      fi
       PUPMODE=5
       CREATETMPFS="";CREATEPDEV1="";CREATEPUPXXXSFS="";CREATEPUPSAVE2FS="";CREATEFOLDERS=""
       CREATETMPFS="/pup_rw";CREATEPUPXXXSFS="/pup_ro2"
@@ -1151,15 +1260,24 @@ if [ "$CREATEPUPSAVE2FS" != "" ];then
       xPUPSFSFS="`echo -n "$PUPSFS" | cut -f 2 -d ','`"
       xPUPSFSFILE="`echo -n "$PUPSFS" | cut -f 3 -d ','`"
       basepupsfs="`basename $xPUPSFSFILE`"
+      [ "`echo $PUPPY_FOLDER | cut -f 3 -d '/'`" = "" ] && dirpupsfs="/" || dirpupsfs="`dirname $PUPPY_FOLDER`"
+      #set update flag
+      touch /tmp/version_update_flag
       if [ "`echo -n "$xPUPSFSDEV" | grep -f /tmp/OPTICALDRIVES0`" != "" ];then #110205
        #it is on the cd, so checkout copying it to hd...
        echo -e "\\033[1;36m" >/dev/console #36=aquablue
-       echo "The main Puppy file '${basepupsfs}' is being loaded off the optical disc." >/dev/console
-       echo "Very slow! Type ENTER key only to copy it to the same partition as the save-file then on next boot it will load fast. Type any printable char not to copy it." >/dev/console
-       echo -n "ENTER key only to copy: " >/dev/console
+       echo "The main Puppy file '${basepupsfs}' is being loaded off an optical" >/dev/console
+       echo "disc. Very slow!" >/dev/console
+       echo "If you are updating an older version in your hard disk, type the" >/dev/console
+       echo "ENTER key only to update all the files in your installation." >/dev/console
+       echo "Or type \"s\" to copy only the SFS(s) at the root of the partition" >/dev/console
+       echo "of your save-file. Then on next boot from the CD puppy will load" >/dev/console
+       echo "the puppy SFSs from there." >/dev/console
+       echo "Type any other printable character not to copy anything." >/dev/console
+       echo -n "ENTER key only to update: " >/dev/console
        echo -en "\\033[0;39m" >/dev/console
        read nocopysfs
-       if [ "$nocopysfs" = "" ];then
+       if [ "$nocopysfs" = "" -o "$nocopysfs" = "s" ];then
         echo -en "\\033[1;35m" >/dev/console #35=purple
         echo "'${basepupsfs}' now copying to hard drive (but only available next boot)..." >/dev/console
         echo -en "\\033[0;39m" >/dev/console
@@ -1171,7 +1289,19 @@ if [ "$CREATEPUPSAVE2FS" != "" ];then
          UMOUNTME="/mnt/dev_ro2" #mark for unmounting.
         fi
         #110424 do not copy puppy*.sfs into a sub-dir...
-        cp -f ${PUPSFSDEVMNTPT}/*.sfs  /mnt/dev_save/
+        if [ "$nocopysfs" = "s" ];then
+         cp -f ${PUPSFSDEVMNTPT}/*.sfs  /mnt/dev_save
+        else
+         if [ -f /mnt/dev_save/"$dirpupsfs"/initrd.gz ]; then # make sure
+          cp -f ${PUPSFSDEVMNTPT}/*.sfs  /mnt/dev_save/"$dirpupsfs"
+          mv /mnt/dev_save/"$dirpupsfs"/initrd.gz /mnt/dev_save/"$dirpupsfs"/initrd.gz.OLD
+          mv /mnt/dev_save/"$dirpupsfs"/vmlinuz /mnt/dev_save/"$dirpupsfs"/vmlinuz.OLD
+          cp -f ${PUPSFSDEVMNTPT}/initrd.gz /mnt/dev_save/"$dirpupsfs"
+          cp -f ${PUPSFSDEVMNTPT}/vmlinuz /mnt/dev_save/"$dirpupsfs"
+         else
+          cp -f ${PUPSFSDEVMNTPT}/*.sfs  /mnt/dev_save
+         fi
+        fi
         sync
        fi
       fi
@@ -1551,6 +1681,35 @@ if [ "$YDRV" != "" ];then
   fi
 fi
 
+FLAYER=''
+FFACTOR=''
+if [ "$FDRV" != "" ];then
+  FDEV="`echo "$FDRV" | cut -f 1 -d ','`"
+  FFS="`echo "$FDRV" | cut -f 2 -d ','`"
+  FFILE="`echo "$FDRV" | cut -f 3 -d ','`"
+  MNT_FFILE=""
+  fPATTERN="/dev/$FDEV "
+  MNT_FFILE="`mount | grep -m1 "$fPATTERN" | cut -f 3 -d ' '`"
+  FBASENAME="`basename $FFILE`" #v426 moved up.
+  if [ "$MNT_FFILE" != "" ];then
+   if [ "$COPY2RAM" = "yes" ];then
+    SIZEZK=`du -k ${MNT_FFILE}${FFILE} | cut -f 1`
+    SIZEZK=`expr $SIZEZK + 1000` #some slack.
+    mount -t tmpfs -o size=${SIZEZK}k tmpfs /mnt/tmpfs5
+    cp -af ${MNT_FFILE}${FFILE} /mnt/tmpfs5/
+    sync
+    losetup /dev/loop5 /mnt/tmpfs5/${FBASENAME}
+   else
+    losetup /dev/loop5 ${MNT_FFILE}${FFILE}
+   fi
+   mount -r -t squashfs -o noatime /dev/loop5 /pup_f > /dev/console 2>&1
+   if [ $? -eq 0 ];then
+    FLAYER=':/pup_f=ro'
+    FFACTOR="$FBASENAME" #v426
+   fi
+  fi
+fi
+
 [ "$UMOUNTME" != "" ] && umntfunc $UMOUNTME #101013 puppy.sfs was copied to tmpfs so can unmount partition.
 
 check_status 0 #$?
@@ -1584,6 +1743,7 @@ echo "PUP_LAYER='$NEWFILESMNTPT'" >> /pup_rw/etc/rc.d/PUPSTATE
 #fi
 echo '#this file has extra kernel drivers and firmware...' >> /pup_rw/etc/rc.d/PUPSTATE
 echo "ZDRV='$ZDRV'" >> /pup_rw/etc/rc.d/PUPSTATE #v2.22
+echo "FDRV='$FDRV'" >> /pup_rw/etc/rc.d/PUPSTATE
 echo "ADRV='$ADRV'" >> /pup_rw/etc/rc.d/PUPSTATE 
 echo "YDRV='$YDRV'" >> /pup_rw/etc/rc.d/PUPSTATE
 echo '#complete set of modules in the initrd (moved to main f.s.)...' >> /pup_rw/etc/rc.d/PUPSTATE
@@ -1657,7 +1817,7 @@ if [ "$PUPSAVE" != "" ];then
   SAVEFILENAMEONLY="`basename $SAVEFILE`"
   SFSFILE="`echo -n "$PUPSFS" | cut -f 3 -d ','`"
   SFSFILENAMEONLY="`basename $SFSFILE`"
-  RECORDLIST="$SAVEFILENAMEONLY $AFACTOR $YFACTOR $SFSFILENAMEONLY $ZFACTOR $EXTRASFSLIST" #v426
+  RECORDLIST="$SAVEFILENAMEONLY $AFACTOR $YFACTOR $SFSFILENAMEONLY $ZFACTOR $FFACTOR $EXTRASFSLIST" #v426
   NEWUNIONRECORD="`echo "$RECORDLIST" | tr -s ' '  | sed -e 's/ $//'`"
 
   #120130 bring back Underdog Linux...
@@ -1717,7 +1877,7 @@ if [ "$OLDFILESMNTPT" != "" ];then
    cp -af $OLDFILESMNTPT/usr/X11R6/* $OLDFILESMNTPT/usr/X11R7/
    rm -rf $OLDFILESMNTPT/usr/X11R6
   fi
-  ln -s X11R7 $OLDFILESMNTPT/usr/X11R6
+  [ -d X11R7 ] && ln -s X11R7 $OLDFILESMNTPT/usr/X11R6
  fi
  rm -rf $OLDFILESMNTPT/root/tmp 2>/dev/null
  rm -f $OLDFILESMNTPT/root/.wh.tmp 2>/dev/null
@@ -1739,6 +1899,8 @@ if [ "$OLDFILESMNTPT" != "" ];then
   rm -f $OLDFILESMNTPT/etc/rc.d/rc.shutdown
   rm -f $OLDFILESMNTPT/etc/rc.d/rc.sysinit
   rm -f $OLDFILESMNTPT/etc/rc.d/rc.update
+  #set update flag
+  touch /tmp/version_update_flag
  fi
  #110422 decrement dotted version number. hard, just set to 0.0...
  [ "$PCLEAN" = "yes" ] && xOLDPVERSION='0.0' #110422
@@ -1761,6 +1923,8 @@ if [ "$OLDFILESMNTPT" != "" ];then
   rm -f $OLDFILESMNTPT/etc/rc.d/rc.shutdown
   rm -f $OLDFILESMNTPT/etc/rc.d/rc.sysinit
   rm -f $OLDFILESMNTPT/etc/rc.d/rc.update
+  #set update flag
+  touch /tmp/version_update_flag
   #i think if a file exists both in OLDFILESMNTPT and in NEWFILESMNTPT, remove
   #it from OLDFILESMNTPT (as OLDFILESMNTPT is upper layer and will hide the
   #'official' file. But, only do it if 'official' file has a newer modify date...
@@ -1856,12 +2020,7 @@ fi
 [ "$RDSH" = "6" ] && exec /bin/sh >/dev/console 2>&1 #w091027
 
 #create the layered f.s.... ***THE BIG EVENT***
-if [ "$LAYERFS" = "aufs" ];then
- mount -t aufs -o udba=reval,diropq=w,dirs=${UMNTRW}${UMNTRO0}${ALAYER}${YLAYER}${UMNTRO1}${ZLAYER}${UMNTRO} unionfs /pup_new 
-else #unionfs
- UMNTRW="`echo -n "$UMNTRW" | sed -e 's/+wh//g'`" #w003 'ro+wh' not accepted by unionfs, change back to 'ro'.
- mount -t unionfs -o dirs=${UMNTRW}${UMNTRO0}${ALAYER}${YLAYER}${UMNTRO1}${ZLAYER}${UMNTRO} unionfs /pup_new
-fi
+mount -t aufs -o udba=reval,diropq=w,dirs=${UMNTRW}${UMNTRO0}${ALAYER}${YLAYER}${UMNTRO1}${FLAYER}${ZLAYER}${UMNTRO} unionfs /pup_new
 check_status $? #END STEP FIVE
 #######################END SETUP UNIONFS LAYERED FILESYSTEM###################
 
@@ -1906,6 +2065,7 @@ mkdir -p /pup_new/initrd/pup_ro8
 mkdir -p /pup_new/initrd/pup_ro9
 mkdir -p /pup_new/initrd/pup_rw
 mkdir -p /pup_new/initrd/pup_z
+[ "$EXTRAFW" = "yes" ] && mkdir -p /pup_new/initrd/pup_f
 mkdir -p /pup_new/initrd/pup_a
 mkdir -p /pup_new/initrd/pup_y
 mkdir -p /pup_new/initrd/mnt
@@ -1918,7 +2078,9 @@ mkdir -p /pup_new/initrd/mnt/tmpfs
 mkdir -p /pup_new/initrd/mnt/tmpfs2
 mkdir -p /pup_new/initrd/mnt/tmpfs3
 mkdir -p /pup_new/initrd/mnt/tmpfs4
+[ "$EXTRAFW" = "yes" ] && mkdir -p /pup_new/initrd/mnt/tmpfs5
 mkdir -p /pup_new/initrd/mnt/zdrv
+[ "$EXTRAFW" = "yes" ] && mkdir -p /pup_new/initrd/mnt/fdrv
 mkdir -p /pup_new/initrd/mnt/adrv
 mkdir -p /pup_new/initrd/mnt/ydrv
 mkdir -p /pup_new/initrd/tmp
@@ -1930,9 +2092,9 @@ for ONEMNT in `mount | cut -f 3 -d ' ' | grep '^/mnt/' | tr '\n' ' '`
 do
  mount -o move $ONEMNT /pup_new/initrd${ONEMNT}
 done
-if [ ${PUPSAVEFILE} -a -d /pup_new/initrd/mnt/dev_save${PUPSAVEFILE} ]; then
- if [ ${CREATEPUPSAVE2FS} -a -L ${CREATEPUPSAVE2FS} ]; then
-  rm -r -f /pup_new/initrd${CREATEPUPSAVE2FS}
+if [ "${PUPSAVEFILE}" -a -d /pup_new/initrd/mnt/dev_save${PUPSAVEFILE} ]; then
+ if [ "${CREATEPUPSAVE2FS}" -a -L "${CREATEPUPSAVE2FS}" ]; then
+  rm -r -f "/pup_new/initrd${CREATEPUPSAVE2FS}"
   ln -s /initrd/mnt/dev_save${PUPSAVEFILE} /pup_new/initrd${CREATEPUPSAVE2FS} #for after the switch root
  fi
 fi

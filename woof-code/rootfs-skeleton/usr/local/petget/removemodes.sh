@@ -2,7 +2,7 @@
 
 #set -x ; mkdir -p /root/LOGs; NAME=$(basename "$0"); exec 1>> /root/LOGs/"$NAME".log 2>&1
 
-export TEXTDOMAIN=petget__removemodes.sh
+export TEXTDOMAIN=petget___pkg_chooser.sh
 export OUTPUT_CHARSET=UTF-8
 
 [ "`whoami`" != "root" ] && exec sudo -A ${0} ${@} #110505
@@ -96,7 +96,7 @@ EOF
          <eventbox name="bg_report" space-expand="true" space-fill="true">
            <vbox margin="5" hscrollbar-policy="2" vscrollbar-policy="2" space-expand="true" space-fill="true">
              '"`/usr/lib/gtkdialog/xml_pixmap building_block.svg 32`"'
-             <text angle="90" wrap="false" yalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"<big><b><span color='"'#bbb'"'>Depends</span></b></big> "</label></text>
+             <text angle="90" wrap="false" yalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"<big><b><span color='"'#bbb'"'>'$(gettext 'Depends')'</span></b></big> "</label></text>
            </vbox>
          </eventbox>
        </hbox>

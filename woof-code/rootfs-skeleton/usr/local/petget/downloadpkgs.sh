@@ -51,7 +51,7 @@ else
  DL_PATH=/root
 fi
 
-DL_SAVE_FLAG=$(cat /var/local/petget/nd_category)
+DL_SAVE_FLAG=$(cat /var/local/petget/nd_category 2>/dev/null)
 
 echo -n "" > /tmp/petget-installed-pkgs-log
 
@@ -188,10 +188,10 @@ do
  
  #121123 first test that they all exist online...
  if [ ! -f /tmp/install_quietly ];then
-  yaf-splash -bg '#FFD600' -close never -fontsize large -text "$(gettext 'Please wait, testing that packages exist in repository...')" &
+  . yaf-splash -bg '#FFD600' -close never -fontsize large -text "$(gettext 'Please wait, testing that packages exist in repository...')" &
   testPID=$!
  else
-  echo "Testing that packages exist in repository" > /tmp/petget/install_status
+  echo "$(gettext 'Testing that packages exist in repository')" > /tmp/petget/install_status
  fi
  DL_BAD_LIST=''
  for ONEFILE in `cat $ONELIST | cut -f 7,8,13 -d '|'` #path|fullfilename|repo-id

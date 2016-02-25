@@ -37,7 +37,7 @@ export OUTPUT_CHARSET=UTF-8
 . /root/.packages/PKGS_MANAGEMENT #has PKG_ALIASES_INSTALLED, PKG_NAME_ALIASES
 
 #130330 GUI filtering...
-DEFGUIFILTER="$(cat /var/local/petget/gui_filter)"
+DEFGUIFILTER="$(cat /var/local/petget/gui_filter 2>/dev/null)"
 #$GUIONLYSTR $ANYTYPESTR are exported from pkg_chooser.sh ... 130331 need backslashes...
 guigtk2PTN='\+libgtk2|\+libgtk\+2|\+libgtkmm-2|\+gtk\+2|\+gtk\+,|\+gtkdialog|\+xdialog|\+python-gtk2'
 guigtk3PTN='\+libgtk-3|\+libgtk\+3|\+libgtkmm-3|\+gtk\+3'
@@ -61,7 +61,7 @@ esac
 xDEFGUIFILTER="$(echo -n "$DEFGUIFILTER" | tr -d ' ' | tr -d '-' | tr -d '+' | tr -d ',')" #ex, translate 'Qt4 GUI apps only' to 'Qt4GUIappsonly'
 
 PKG_FIRST_CHAR='a-z0-9'
-/usr/lib/gtkdialog/box_splash -close never -text "$(gettext 'Please wait, processing all entries may take awhile...')" &
+. /usr/lib/gtkdialog/box_splash -close never -text "$(gettext 'Please wait, processing all entries may take awhile...')" &
 X1PID=$!
 
 #which repo...

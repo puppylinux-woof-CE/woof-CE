@@ -60,7 +60,7 @@ fi
 #dependencies and the dependencies of those have to be looked for.
 
 if [ ! -f /tmp/install_quietly ];then
- /usr/lib/gtkdialog/box_splash -close never -text "$(gettext 'Please wait, processing package database files...')" &
+ . /usr/lib/gtkdialog/box_splash -close never -text "$(gettext 'Please wait, processing package database files...')" &
  X1PID=$!
 fi
 
@@ -233,6 +233,33 @@ do
   rm -f /tmp/petget_missing_dbentries-${DBFILE}-2
  fi
 done
+
+# Give priority to Slackware patches over official
+if [ "$DISTRO_FILE_PREFIX" = "slacko64" -o "$DISTRO_FILE_PREFIX" = "slacko" ]; then
+ PATCHES=/tmp/petget_missing_dbentries-Packages-*lackware*-patches
+ OFFICIAL=/tmp/petget_missing_dbentries-Packages-*lackware*-official
+ SALIX=/tmp/petget_missing_dbentries-Packages-*lackware*-salix
+ SLACKY=/tmp/petget_missing_dbentries-Packages-*lackware*-slacky
+ if [ "$(echo $DB_MAIN | grep patches)" != "" -o "$(echo $DB_MAIN | grep official)" != "" ]; then
+  cat ${PATCHES} | while read LINE
+  do
+   COMMON=$(echo $LINE |cut -f 2 -d '|')
+   sed -i "/|$COMMON|/d" ${OFFICIAL} 2>/dev/null
+   sed -i "/|$COMMON|/d" ${SALIX} 2>/dev/null
+   sed -i "/|$COMMON|/d" ${SLACKY} 2>/dev/null
+  done
+ fi
+ # Get Salix deps preferencially
+ if [ "$(echo $DB_MAIN | grep salix)" != "" ]; then
+  cat ${SALIX} | while read LINE
+  do
+   COMMON=$(echo $LINE |cut -f 2 -d '|')
+   sed -i "/|$COMMON|/d" ${OFFICIAL} 2>/dev/null
+   sed -i "/|$COMMON|/d" ${PATCHES} 2>/dev/null
+   sed -i "/|$COMMON|/d" ${SLACKY} 2>/dev/null
+  done
+ fi
+fi
 
 [ ! -f /tmp/install_quietly ] && kill $X1PID || exit 0
 
