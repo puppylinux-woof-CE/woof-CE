@@ -12,6 +12,7 @@
 #120226 01micko: added 'Master Front' entries. 120318 bumped it up, 75% to 100%.
 
 function set_volume_levels() { #card
+	[ ! "$1" ] && return
 	local card="$1"
 	echo
 	echo "For card $1"
@@ -64,14 +65,19 @@ EOF
 	fi
 }
 
+###################################################################
+
+LOG=1 #1 = use logfile
+
 case "$1" in
  start|restart)
-	mkdir -p /tmp/services
-	logfile=/tmp/services/10alsa.start.log
-	if [ "$1" = "restart" ] ; then
-		logfile=/tmp/services/10alsa.restart.log
-		#might want to restart retrovol (ex: fix muted sound, the first start failed to set volume levels (timing issues), etc)
-		[ "$(busybox pidof retrovol)" ] && retrovol=1
+
+	if [ "$LOG" = "1" ] ; then
+		mkdir -p /tmp/services
+		logfile='/tmp/services/10alsa.start.log'
+		[ "$1" = "restart" ] && logfile='/tmp/services/10alsa.restart.log'
+	else
+		logfile='/dev/null'
 	fi
 
 	(
@@ -81,9 +87,11 @@ case "$1" in
 	modprobe snd-seq-oss   #oss midi   http://alsa.opensrc.org/Snd-seq-oss
 	modprobe snd-pcm-oss   #/dev/dsp /dev/audio http://alsa.opensrc.org/Snd-pcm-oss
 
-	. /etc/DISTRO_SPECS
-	echo "$DISTRO_NAME $DISTRO_VERSION"
-	uname -a ; echo
+	if [ "$LOG" = "1" ] ; then
+		. /etc/DISTRO_SPECS
+		echo "$DISTRO_NAME $DISTRO_VERSION"
+		uname -a ; echo
+	fi
 
 	if [ "$1" = "start" ] ; then #only done at boot
 		wt=0.5
@@ -105,67 +113,59 @@ case "$1" in
 		echo
 	fi
 
-	#/dev/snd/controlC0 [ /dev/mixer associates with this ]
-	#/dev/snd/pcmC0D0p is a play back device
-	#/dev/snd/pcmC0D0c is a recording device
-
-	[ ! -c /dev/mixer ] && echo "/dev/mixer is missing" && echo
-	if [ ! -c /dev/snd/controlC0 ] ; then
-		echo "/dev/snd/controlC0 is missing"
-		echo "ERROR: alsa is not usable.."
+	if [ "$LOG" = "1" ] ; then
+		#/dev/snd/controlC0 [ /dev/mixer associates with this ]
+		#/dev/snd/pcmC0D0p is a play back device
+		#/dev/snd/pcmC0D0c is a recording device
+		if [ ! -c /dev/mixer ] ; then
+			echo "Warning: /dev/mixer is missing" ; echo
+		fi
+		if [ ! -c /dev/snd/controlC0 ] ; then
+			echo "ERROR: /dev/snd/controlC0 is missing" ; echo
+		fi
+		cat /proc/asound/modules
+		echo
+		echo "###################################################"
+		cat /proc/asound/cards
+		echo "###################################################"
+		echo
+		echo "###################################################"
+		lsmod | grep snd
+		echo "###################################################"
 		echo
 	fi
-
-	cards=""
-	if [ -e /sys/class/sound/card0/device ] ; then #symlink
-		for dev in /sys/class/sound/card[0-9]/device ; do
-			card=${dev%/*}
-			card=${card##*/}
-			cards="$cards ${card#card}"
-			driver=$(readlink ${dev}/driver)
-			case $driver in *'../../../bus/'*)
-				realpath=/sys/${driver#../../../}
-				[ -e "${realpath}/module" ] && driver=$(readlink "${realpath}/module")
-			esac
-			driver=${driver##*/}
-			echo "${card}: ${driver//_/-}"
-		done
-		echo
-	fi
-
-	echo "###################################################"
-	cat /proc/asound/cards
-	echo "###################################################"
-	echo
-	echo "###################################################"
-	lsmod | grep snd
-	echo "###################################################"
-	echo
 
 	if [ ! -f /etc/asound.state ];then
 		echo "=================================="
 		echo "/etc/asound.state: not found"
 		echo "Try and set all levels workable..."
-		for card in $cards ; do
-			set_volume_levels $card
+		x=0
+		while [ -e /sys/class/sound/card${x} ] ; do
+			set_volume_levels $x
+			let x++
 		done
 		echo "=================================="
 	else
-		#for cardx in $cards ; do
-			echo "# alsactl -d -f /etc/asound.state restore $cardx"
-			alsactl -d -f /etc/asound.state restore $cardx #from /etc/asound.state.
-			echo "alsactl: exit code $?"
-		#done
+		#this restores settings based on soundcard ID I suppose
+		echo "# alsactl -d -f /etc/asound.state restore"
+		alsactl -d -f /etc/asound.state restore #from /etc/asound.state.
+		echo "alsactl: exit code $?"
 	fi
-	if [ "$1" = "restart" -a "$retrovol" ] ; then
+
+	if [ "$(busybox pidof retrovol)" ] ; then
 		killall -9 retrovol
-		retrovol --hide &
+		retrovol -hide &
 	fi
 	) &> ${logfile}
 	;;
 
  stop)
-	mkdir -p /tmp/services
+	if [ "$LOG" = "1" ] ; then
+		mkdir -p /tmp/services
+		logfile=/tmp/services/10alsa.stop.log
+	else
+		logfile=/dev/null
+	fi
 	(
 	[ -f /etc/asound.state ] && alsactl -d -f /etc/asound.state store #saves to /etc/asound.state. 111229 add test file exists. 120222 revert. 120223 restore.
 	# Kill processes holding open sound devices...
@@ -190,7 +190,7 @@ case "$1" in
 	rmmod gameport
 	# remove lockfile if lockdir exists
 	[ -d /var/lock/subsys ] && rm -fv /var/lock/subsys/alsasound
-	) &> /tmp/services/10alsa.stop.log
+	) &> ${logfile}
 	;;
 esac
 
