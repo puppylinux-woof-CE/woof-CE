@@ -1,10 +1,7 @@
 #!/bin/bash
-#120323 npierce: remove OK button if no cards detected. refer: http://murga-linux.com/puppy/viewtopic.php?t=76182&start=90
-#120815 rodin.s: i18n
-#130216 01micko, BK: fix retrovol.
-#150630 rg66, Geoffrey, change GUI uses buttons, only non active cards selectable, save retrovol mixer settings for each sound card
+#past contributors: npierce, rodin.s, 01micko, rg66, geoffrey
 
-mkdir -p /var/lib/mscw
+[ ! -d /var/lib/mscw ] && mkdir -p /var/lib/mscw
 touch /var/lib/mscw/ce
 
 case $1 in
@@ -12,8 +9,9 @@ case $1 in
 	disable|-disable) rm -f /var/lib/mscw/persistent ; exit ;;
 	report|-report) REPORT=1 ;;
 	start|restart) START_PROC=1 ;; ## /usr/sbin/delayedrun
-	gui|-gui) CMD_GUI=1 ;;
-	cli|-cli) CMD_CLI=1 ;;
+	gui|-gui) CMD_GUI=1 ;;   ## force gui
+	cli|-cli) CMD_CLI=1 ;;   ## force cli
+	check|-check) CHECK=1 ;; ## check_for_new_hardware
 esac
 
 ###############################################################
@@ -142,140 +140,85 @@ function cardinfo() {
 }
 export -f cardinfo
 
-function CheckHDMI() {
-	#https://bbs.archlinux.org/viewtopic.php?id=124380
-	#https://bbs.archlinux.org/viewtopic.php?id=194033
-	BLSTR='HDMI'
-	RPSTR='Analog'
-	echo ; echo "$BLSTR check for card 0 ..."
-	CARD_PBDEVS="$(aplay -l | grep card)"
-	BLACKLISTED=$(echo "$CARD_PBDEVS" | grep 'card 0' | head -1 | grep "$BLSTR")
-	REPLACEMENT=$(echo "$CARD_PBDEVS" | grep "$RPSTR" | head -1)
-	if [ "$BLACKLISTED" -a "$REPLACEMENT" ] ; then
-		echo
-		echo "Found a potentially improper active device for card 0..."
-		echo "	$BLACKLISTED"
-		echo
-		echo "Will replace it with:"
-		echo "	$REPLACEMENT"
-		echo
-		echo "Making <card ${zcard}:device ${zdev}> the active one"
-		read zcard zdev <<< "$(get_card_device "$REPLACEMENT")"
-		write_asound_card $zcard $zdev $zcard
-		touch /tmp/services/mswc.auto.ignore.hdmi.flag
-	elif [ "$BLACKLISTED" ] ; then
-		echo
-		echo "Warning: found a potentially improper active device for card 0 ..."
-		echo "	$BLACKLISTED"
-		echo
-		return 1 #problem
-	else
-		echo "	Not found... OK"
-	fi
+function check_for_new_hardware() {
+	. /etc/init.d/10alsa
+	x=0
+	while [ -e /sys/class/sound/card${x}/id ] ; do
+		id=$(< /sys/class/sound/card${x}/id)
+		if ! grep -q -m1 "$id" /etc/asound.state ; then
+			echo
+			echo "New hardware: $id"
+			echo -n "Setting initial volume levels "
+			set_volume_levels $x
+			echo
+		fi
+		let x++
+	done
 }
 
 function get_card_device() {
 	#card 0: V8235 [VIA 8235], device 0: VIA 8235
-	local devstr="$@"
-	local card=$(echo "$devstr" | grep -o 'card [0-9]')
-	local device=$(echo "$devstr" | grep -o 'device [0-9]')
+	local devstr="$@" xpat='([0-9]|[0-9][0-9])'
+	local card=$(echo "$devstr" | grep -E -o "card $xpat")
+	local device=$(echo "$devstr" | grep -E -o "device $xpat")
 	echo ${card#card } ${device#device }
 }
 
 function retrovol_restart() {
 	if [ "$(busybox pidof retrovol)" ] ; then
-		echo "Retrovol is running" ; echo
+		echo ; echo "Retrovol is running" ; echo
 		killall -9 retrovol
-		sleep 0.3
-		rt="retrovol"
-		[ "$1" ] && rt="retrovol $1"
-		$rt &
+		retrovol $@ &
 		return 0
 	fi
 	return 1
 }
 
-#######
-DEBUG=1
-#######
+#####
+LOG=1 #1 = use logfile
+#####
 
 function start_proc() {
-	[ ! "$PUPMODE" ] && . /etc/rc.d/PUPSTATE
-	mkdir -p /tmp/services
-	logfile=/tmp/services/mscw.start.log
-	if [ -f /tmp/services/mscw.start.log ] ; then
-		logfile=/tmp/services/mscw.restart.log
-	fi
-	if [ "$DEBUG" != "1" ] ; then
+	[ ! -d /tmp/services ] && mkdir -p /tmp/services
+	if [ "$LOG" = "1" ] ; then
+		logfile=/tmp/services/mscw.start.log
+		if [ -f /tmp/services/mscw.start.log ] ; then
+			logfile=/tmp/services/mscw.restart.log
+		fi
+	else
 		logfile=/dev/null
 	fi
 	(
-		if [ $PUPMODE -eq 5 ] ; then
-			start_proc_pm5
+		if [ ! -f /tmp/services/mscw.1st ] ; then
+			touch /tmp/services/mscw.1st
+			[ ! "$PUPMODE" ] && . /etc/rc.d/PUPSTATE
+			if [ $PUPMODE -eq 5 ] ; then
+				echo '*** First Boot ***'
+				rm -f /var/lib/mscw/selected
+			fi
+			if [ -f /etc/asound.conf ] ; then
+				check_asound_card
+				retrovol_restart -hide
+			fi
+			check_for_new_hardware
+			alsactl -f /etc/asound.state restore
+			cardinfo ; echo
+			start_proc_plus first
 		else
+			check_for_new_hardware
 			start_proc_plus
 		fi
 	) &> ${logfile}
 	exit
 }
 
-function start_proc_pm5() {
-	if [ ! -f /tmp/mscw.pm5 ] ; then
-		touch /tmp/mscw.pm5
-		echo '*** First Boot ***'
-		scards=$(ncards)
-		if [ -x /etc/init.d/10alsa ] ; then
-			[ "$(busybox pidof 10alsa)" ] && sleep 1
-			scards_10alsa=$(grep '^card[0-9]' /tmp/services/10alsa.start.log | grep -v pcsp | wc -l)
-			echo "Sound cards: $scards_10alsa [10alsa first run]"
-			echo "Sound cards: $scards"
-			if [ $scards -gt $scards_10alsa ] ; then
-				echo "New cards were loaded..."
-				## if there is more than 1 soundcard
-				## sometimes only 1 card is configured when 10alsa runs for the 1st time (if if takes too much time to load, then it is a total failure)
-				## ensure adjusting volume levels for all soundcards
-				if [ -f /etc/asound.state ] ; then
-					mv -fv /etc/asound.state /etc/asound.state.1st
-				fi
-				echo '/etc/init.d/10alsa restart'
-				/etc/init.d/10alsa restart
-			fi
-		else
-			echo "Sound cards: $scards"
-		fi
-		rm -f /var/lib/mscw/selected
-		if [ -f /etc/asound.conf ] ; then #if file exists, verify
-			echo ; echo "Found: /etc/asound.conf ... checking"
-			check_asound_card
-			retrovol_restart
-		fi
-		CheckHDMI || SHOW_GUI=1 #default HDMI output, no replacement found
-		#[ $scards -gt 1 ] && SHOW_GUI=1  #more than 1 soundcard
-		#[ $(ndevs) -gt 1 ] && SHOW_GUI=1 #more than 1 pcm device (a card usually has more than 1)
-		if [ "$SHOW_GUI" ] ; then 
-			print_asound_card
-			echo 'Running GUI...'
-			$0
-		fi
-		cardinfo
-	else ##
-		echo "Already run once [PUPMODE=5]" ; echo
-		start_proc_plus
-	fi
-	exit
-}
-
 function start_proc_plus() {
-	if [ ! -f /var/lib/mscw/persistent ] ; then
-		echo "Persistence is disabled..."
-		exit
+	[ ! -f /var/lib/mscw/persistent ] && exit
+	if [ "$1" != "first" ] ; then
+		check_asound_card
+		print_asound_card
 	fi
-	check_asound_card
 	scards=$(ncards)
-	scards_10alsa=$(grep '^card[0-9]' /tmp/services/10alsa.start.log | grep -v pcsp | wc -l)
-	echo "Sound cards: $scards_10alsa [10alsa first run]"
-	echo "Sound cards: $scards"
-	print_asound_card
 	if [ -f /var/lib/mscw/selected ] ; then
 		## Multiple Sound Card Wizard
 		## Sometimes cards swap/change positions
@@ -284,7 +227,7 @@ function start_proc_plus() {
 		## - Other reasons
 		## /etc/asound.conf may be wrong
 		## $HOME/.retrovolrc may be using the wrong device
-		## %% Logic to rewrite config for proper use at bootup
+		## %% Logic to rewrite config for proper use
 		echo "Found: /var/lib/mscw/selected" ; echo
 		[ "$(busybox pidof 10alsa)" ] && sleep 1
 		acard="$(< /var/lib/mscw/selected)"
@@ -294,6 +237,7 @@ function start_proc_plus() {
 		device_list=$(aplay -l | grep card | sed -e 's|\[||g' -e 's|\]||g' -e 's|\,||g' -e 's|\:||g' -e 's|\/||g' -e 's|\-||g')
 		echo "Active Card (from log):"
 		echo "	$acard" ; echo
+		SP="yes"
 		xcard=0
 		xdevice=0
 		zdevs=$(ndevs)
@@ -314,6 +258,7 @@ function start_proc_plus() {
 					echo "Same position (${card}:${device} = ${card2}:${device2})"
 				else
 					echo "Card has changed position (${card}:${device} != ${card2}:${device2})"
+					SP=""
 				fi
 			else ## no results ##
 				echo "No matches"
@@ -325,16 +270,17 @@ function start_proc_plus() {
 		if [ "$xcard" ] ; then
 			echo ; echo "Applying default card: ${xcard}:${xdevice}"
 			write_asound_card $xcard $xdevice $xcard
+			retrovol_restart -hide
+			[ "$SP" = "yes" ] && exit
+		fi
+		if [ "$1" != "first" ] ; then
+			echo ; cardinfo
 		fi
 	else
-		echo "-- No selected card in log --"
-		## No soundcard device selected in MSCW GUI...
-		CheckHDMI
+		echo ; echo "-- No selected card in log --"
 	fi
-	cardinfo
-	retrovol_restart -hide
 	exit
-}
+} ######
 
 function MSCW_REPORT() {
 	(
@@ -378,6 +324,11 @@ if [ "$REPORT" ] ; then
 	exit
 fi
 
+if [ "$CHECK" ] ; then
+	check_for_new_hardware
+	exit
+fi
+
 ###############################################################
 #                         DIALOG
 ###############################################################
@@ -389,8 +340,6 @@ else
 fi
 [ "$CMD_GUI" ] && MSCW_GUI=1  && MSCW_CLI=""
 [ "$CMD_CLI" ] && MSCW_GUI="" && MSCW_CLI=1
-
-mkdir -p /tmp/misc
 
 ICON='/usr/share/pixmaps/puppy/card_pci.svg'
 
@@ -446,10 +395,15 @@ ACTIVEN=`echo "$DEVICES" | grep -n -w "card $ACTIVE_CARD" | grep -w "device $ACT
 ACTIVEN=${ACTIVEN%%:*}
 
 ###############################################################
+
 if [ "$MSCW_GUI" ] ; then
 	ITEMS="$(echo "$DEVICES" | sed 's|^|<item>|g' | sed 's|$|</item>|g')"
 	ITEMCOUNT=$(echo "$ITEMS" | wc -l)
-	HEIGHT=$((26*ITEMCOUNT))
+	if [ $ITEMCOUNT -lt 15 ] ; then
+		HEIGHT=$((26*ITEMCOUNT))
+	else
+		HEIGHT=$((26*15))
+	fi
 	XPAT='<item stock-id="gtk-apply">'
 	ITEMS=$(echo "$ITEMS" | sed -e "${ACTIVEN}s%<item>%$XPAT%" )
 	###
@@ -491,15 +445,16 @@ if [ "$MSCW_GUI" ] ; then
 			</button>
 		</hbox>
 	</vbox>
-</window>'" > /tmp/misc/mscw.gui
+</window>'" > /tmp/mscw.gui
 	###
 	. /usr/lib/gtkdialog/xml_info gtk #build bg_pixmap for gtk-theme
-	. /tmp/misc/mscw.gui
+	. /tmp/mscw.gui
 	I=$IFS; IFS=""
 	for STATEMENTS in  $(gtkdialog --center --program MAIN_DIALOG); do
 		eval $STATEMENTS
 	done
 	IFS=$I
+	rm -f /tmp/mscw.gui
 
 else ##### CLI #####
 	ITEMCOUNT=$(echo "$DEVICES" | wc -l)
@@ -540,7 +495,6 @@ fi
 
 case $EXIT in Cancel|abort|EXIT)
 	if [ ! -f /var/lib/mscw/selected ] ; then
-		[ -f /tmp/services/mswc.auto.ignore.hdmi.flag ] && exit
 		if [ $ACTIVE_CARD -ne 0 -o $ACTIVE_DEVICE -ne 0 ] ; then
 			selected=$(echo "$DEVICES" | grep "card $ACTIVE_CARD" | grep "device $ACTIVE_DEVICE")
 			if [ "$selected" ] ; then
@@ -564,12 +518,15 @@ fi
 
 write_asound_card $Card $Device $Card #-- write --#
 
-if [ $Card -eq $ACTIVE_CARD -a $Device -eq $ACTIVE_DEVICE ] ; then
+check_for_new_hardware &>/dev/null
+
+if [ ${Card} -eq ${ACTIVE_CARD} -a ${Device} -eq ${ACTIVE_DEVICE} ] ; then
 	retrovol_restart -hide
 	exit
 fi
 
 ###############################################################
+
 echo "$SELECTED" > /var/lib/mscw/selected
 
 TXT="$L_CARD $Card $L_DEVICE $Device"
