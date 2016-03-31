@@ -1,12 +1,12 @@
 #!/bin/bash
+#pMusic - podcast grabber
+#GPL - Copyright Sigmund Berglund
 
 . $CONFIG #update in case user changed value for max downloads
 . $APPDIR/func -reset_gtk
-export TEXTDOMAIN=pmusic
 
 [ ! -f $WORKDIR/podcastlist ] && echo "CNN News|1|http://edition.cnn.com/services/podcasting/newscast/rss.xml
-Floss Weekly|7|http://leo.am/podcasts/floss
-Handel on the law|2|http://kfi640.com/podcast/BillHandel.xml" > $WORKDIR/podcastlist
+Floss Weekly|7|http://leo.am/podcasts/floss" > $WORKDIR/podcastlist
 
 
 podcast_update(){
@@ -14,38 +14,35 @@ podcast_update(){
 	[ ! "`grep -F "$STORAGE_DIR/podcasts" "$STORAGE_DIR/favorites"`" ] && echo "$STORAGE_DIR/podcasts|$(gettext 'Podcast Storage')|||||||||||||gtk-directory_podcast" >> "$STORAGE_DIR/favorites"
 	[ ! -d  "$STORAGE_DIR/podcasts" ] && mkdir "$STORAGE_DIR/podcasts"
 	#check internet connection
-	LANG=C wget --spider --tries 1 -T 1 $PING_SERVER 2> $WORKDIR/tmp_podcast
-	if [ ! "`grep 'connected' $WORKDIR/tmp_podcast`" ]; then
+	LC_ALL=C wget --spider --tries 1 -T 1 $PING_SERVER 2> $WORKDIR/tmp_podcast
+	if [ ! "`LC_ALL=C grep 'connected' $WORKDIR/tmp_podcast`" ]; then
 		sleep 0.2
 		TXT1="<b>$(gettext 'Not able to connect to internet')</b>"
 		. $APPDIR/box_ok
 		echo 100 > $WORKDIR/splash #reset progress bar
 		exit
 	fi
-	#show podcast directory in main window
-	SOURCE="$STORAGE_DIR/podcasts"
-	. $APPDIR/func -browse
-	echo true > $WORKDIR/UPDATE_SOURCELIST
 	#---
 	[ ! -e "${WORKDIR}/podcasts_done" ] && echo -n > $WORKDIR/podcasts_done
 	[ ! -e "${WORKDIR}/podcasts_gone" ] && echo -n > $WORKDIR/podcasts_gone
 	COUNT1=0 #for progressbar
-	TOTAL=`grep -c "^" $WORKDIR/podcastlist` #for progressbar
+	TOTAL=`grep -c ^ $WORKDIR/podcastlist` #for progressbar
 	#read urls
 	while read I ; do
-		NAME="`echo $I | cut -d'|' -f1`"
-		KEEP_DAYS="`echo $I | cut -d'|' -f2`"
-		URL="`echo $I | cut -d'|' -f3`"
-		#If the line in $WORKDIR/podcastlist is a comment or blank goto next
-		if [[ $(expr index "# " "$URL") > 0 ]] && [[ $(expr index "# " "$URL") < 2 ]] || [[ $URL == "" ]] ; then
-			continue
-		fi
+		IFS='|' read NAME KEEP_DAYS	URL <<< "$I"
+		[[ "$I" = *'#'* || ! $URL ]] && continue #if line in $WORKDIR/podcastlist is a comment or blank goto next
 		#update progressbar
-		echo "100 * $COUNT1 / $TOTAL" | bc > $WORKDIR/splash 
+		echo $((100 * $COUNT1 / $TOTAL)) > $WORKDIR/splash 
 		echo "$NAME" > $WORKDIR/progresstext
 		COUNT1=$(($COUNT1+1))
+		#check if dir exist
+		[ ! -e "$STORAGE_DIR/podcasts/$NAME/" ] && mkdir -p "$STORAGE_DIR/podcasts/$NAME/" #If the dir for the podcast files is not there create it
+		#show podcast directory in main window. keep this inside the loop to show newly created directories
+		SOURCE="$STORAGE_DIR/podcasts"
+		. $APPDIR/func -browse
+		echo true > $WORKDIR/UPDATE_SOURCELIST
 		#Get filelist from RSS feed (Bash Podder)
-		SOURCEFILE=$(xsltproc parse_enclosure.xsl $URL 2> $STDERR || wget -q $URL -O - | tr '\r' '\n' | tr \' \" | sed -n 's/.*url="\([^"]*\)".*/\1/p') 
+		SOURCEFILE=$(wget -q $URL -O - | tr '\r' '\n' | tr \' \" | sed -n 's/.*url="\([^"]*\)".*/\1/p') 
 		#read rss
 		COUNT=0
 		for URL in $SOURCEFILE; do
@@ -54,26 +51,27 @@ podcast_update(){
 			sleep 1
 			#Check in $WORKDIR/podcasts_done to see if file has been downloaded yet
 			[ "`grep -F "$URL" $WORKDIR/podcasts_done`" ] && continue #Not a new file goto next podcast 
-			[ ! -e "$STORAGE_DIR/podcasts/$NAME/" ] && mkdir -p "$STORAGE_DIR/podcasts/$NAME/" #If the dir for the podcast files is not there create it
 			FILENAME=$(echo $URL | sed -e 's/.*\/\([^\/]\+\)/\1/' -e 's/%20/ /g') # Get the Podcast file name ie something.mp3 ...
-			echo "$(gettext 'Downloading'): $NAME" > $WORKDIR/progresstext
+			echo "$(gettext 'Downloading'): $FILENAME" > $WORKDIR/progresstext
 			wget -q -c -nH --progress=bar:force -P "$STORAGE_DIR/podcasts/$NAME/" "$URL" | tr '\r' '\n' # Lets get the file
 			echo $URL $(($((`date +%s`))+($KEEP_DAYS*86400))) "${STORAGE_DIR}/podcasts/${NAME}/${FILENAME}" >> $WORKDIR/podcasts_done # Rember we downloaded it so we dont re download
 			#metatag if not already tagged
 			. $APPDIR/func_id3io "${STORAGE_DIR}/podcasts/${NAME}/${FILENAME}" -read
-			if [ ! "$ID3_TITLE" ] || [ "`echo "$ID3_TITLE" | grep -iE "^ $|unknown"`" ]; then 
-				if [ "$(echo $FILENAME | grep -iE "\.ape|\.mp3|\.ogg|\.wma")" != "" ]; then
+			if [ ! "$TITLE" ] || [ "`grep -iE "^ $|unknown" <<< "$TITLE"`" ]; then 
+				if [[ $FILENAME = @(*.ape|*.mp3|*.ogg|*.wma) ]]; then
 					# Rename in case name is screwed up
-					FILENAME2=$(echo $FILENAME | cut -d "." -f 1)
-					[ "`echo "$URL" | grep '.mp3'`" ] && EXT=mp3
-					[ "`echo "$URL" | grep '.ogg'`" ] && EXT=ogg
-					[ "`echo "$URL" | grep '.wma'`" ] && EXT=wma
-					[ "`echo "$URL" | grep '.ape'`" ] && EXT=ape
-					mv "${STORAGE_DIR}/podcasts/${NAME}/${FILENAME}" "${STORAGE_DIR}/podcasts/${NAME}/${FILENAME2}.${EXT}" 2> $STDERR
+					FILENAME2=${FILENAME%%.*}
+					case $URL in
+						*.ape) EXT=ape;;
+						*.mp3) EXT=mp3;;
+						*.ogg) EXT=ogg;;
+						*.wma) EXT=wma;;
+					esac
+					mv "${STORAGE_DIR}/podcasts/${NAME}/${FILENAME}" "${STORAGE_DIR}/podcasts/${NAME}/${FILENAME2}.${EXT}" 2>> $STDERR
 					# Set id3 tag 
-					ID3_TITLE="${NAME}"
-					ID3_ARTIST="`date +"%d.%b (%H:%M)"`"
-					ID3_YEAR=''; ID3_TRACK=''; ID3_YEAR=''
+					TITLE="${NAME}"
+					ARTIST="`date +"%d.%b (%H:%M)"`"
+					YEAR=''; TRACK=''; YEAR=''
 					. $APPDIR/func_id3io "${STORAGE_DIR}/podcasts/${NAME}/${FILENAME2}.${EXT}" -write
 				fi
 			fi
@@ -88,14 +86,13 @@ podcast_update(){
 			echo "$FILE" >> $WORKDIR/podcasts_gone
 		fi
 	done < $WORKDIR/podcasts_done
-	
 	echo 100 > $WORKDIR/splash
 }
 
 delete_pod (){
 	if [ "$PODCASTLIST" ]; then
 		export gui_delete_pod='
-		<window title="Pmusic" icon-name="pmusic" window_position="2" allow-grow="false">
+		<window title="pMusic" icon-name="pmusic" window_position="2" allow-grow="false">
 		 <vbox>
 		  <frame '$(gettext 'Delete podcast')'>
 		   <pixmap icon_size="6"><input file stock="gtk-dialog-question"></input></pixmap>
@@ -178,7 +175,7 @@ else
 	   <default>'$PODCAST_MAX_DL'</default>
 	   <action signal="value-changed">$APPDIR/func_config -write_config</action>
 	  </spinbutton>
-	  <text xalign="0" space-expand="true" space-fill="true"><label>'$(gettext 'Max NEW podcasts to download from a url')'</label></text>
+	  <text xalign="0" space-expand="true" space-fill="true"><label>'$(gettext 'Max NEW podcasts to download from an url')'</label></text>
 	  <button tooltip-text="'$(gettext 'Manually edit podcast list in text editor')'">
 	   <input file stock="gtk-edit"></input>
 	   <action>defaulttexteditor '$WORKDIR'/podcastlist &</action>
@@ -199,9 +196,9 @@ else
 	  <label>'$(gettext 'Name')'|'$(gettext 'Days')'|URL</label>
 	  <variable>PODCASTLIST</variable>
 	  <height>200</height><width>400</width>
-	  <input>cat '$WORKDIR'/podcastlist</input>
+	  <input file>'$WORKDIR'/podcastlist</input>
 	  <action signal="button-release-event">enable:BUTTON_REMOVE</action>
-	  <action signal="button-release-event">SOURCE="'$STORAGE_DIR'/podcasts"; . '$APPDIR'/func -browse</action>
+	  <action signal="button-release-event">SOURCE="'$STORAGE_DIR'/podcasts/$PODCASTLIST"; . '$APPDIR'/func -browse</action>
 	  <action signal="button-release-event">echo true > '$WORKDIR'/UPDATE_SOURCELIST</action>
 	 </tree>
 	 <hbox>

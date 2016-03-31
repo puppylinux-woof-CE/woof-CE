@@ -1,9 +1,11 @@
-#!/bin/sh
+#!/bin/bash
+
+#uses bashisms
 
 # A very simple firewall based on Alienbob's script
 # at http://www.slackware.com/~alien/efg/
-
-version=0.4
+[ $UID -ne 0 ] && exec sudo -A ${0} ${@}
+version=0.6
 
 # gettext : only the GUI
 export TEXTDOMAIN=firewall_ng
@@ -156,8 +158,53 @@ extras_gui() {
 }
 export -f extras_gui
 
-# get the current network interface
-IFACE=`/sbin/route|grep default|rev|cut -d ' ' -f1|rev`
+warning_func() {
+	title="$(gettext "Warning!")"
+	fr="$(gettext "Information")"
+	message="$(gettext "You don't seem to be connected to a network. You can configure your firewall but some features will not work correctly until you establish a connection and reconfigure the firewall.")"
+	echo "<window title=\"$title\">
+		<vbox>
+			<hbox space-expand=\"true\" space-fill=\"true\">
+				<text height-request=\"50\" use-markup=\"true\"><label>\"<span size='x-large' color='sienna'>$title</span>\"</label></text>
+			</hbox>
+			<frame $fr>
+			<hbox homogeneous=\"true\">
+				<text><label>$message</label></text>
+			</hbox>
+			</frame>
+			<hbox><button ok></button></hbox>
+		</vbox>
+	</window>"|gtkdialog -c -s
+}
+
+# get the current network interface and subnet
+while read -r dest gateway genmask flags metric ref use face;do
+	case $dest in
+		default)iface=$face
+		
+		;;
+	esac
+	case $face in
+		$iface)
+		case $dest in
+			[0-9]*.[0-9]*.[0-9]*.[0-9]*)host=$dest # very lazy regex
+			break;;
+		esac
+		;;
+	esac
+done < <(busybox route)
+
+while read -r inet subnet rest;do
+	case $inet in
+		inet)sub=${subnet#*/} && break;;
+	esac		
+done < <(busybox ip addr show $iface)
+echo ${host}/${sub}
+echo $iface
+IFACE=$iface
+SUBNET=${host}/${sub}
+
+[ -z "$IFACE" ] && warning_func
 
 # setup
 sens=false
@@ -191,8 +238,8 @@ if [ "$state" = '1' ];then
 else
 	IMAGEFILE=/usr/share/pixmaps/puppy/shield_no.svg
 	msg=$(gettext "Firewall Off")
-	winicon=gtk-dialog-warning
-	ttmsg=$(gettext "Your firewall is not running. You can should configure it now!")
+	winicon=gtk-no
+	ttmsg=$(gettext "Your firewall is not running. You should configure it now!")
 	btn_label="$(gettext "Resume")"
 fi
 # resume/reload button
@@ -210,10 +257,11 @@ URL="<eventbox hover-selection=\"true\" homogeneous=\"true\" tooltip-text=\"$(ge
       <text justify=\"2\" use-markup=\"true\"><label>\"$TEXT\"</label></text> 
 <action signal=\"button-press-event\">defaultbrowser $url &</action> 
 </eventbox>"
-for i in SSH CUPS Samba DLNA NTP ftp http DNS DHCP NFS ;do
+for i in SSH CUPS Samba Samba_client DLNA NTP ftp http DNS DHCP NFS ;do
 
 	case $i in 
 		Samba)var=CONFIG_SAMBA desc=$(gettext "Share files with Windows");[ -f "$CONF" ] &&  def=$CONFIG_SAMBA || def=false;;
+		Samba_client)var=CONFIG_SAMBA_CLIENT desc=$(gettext "Browse files on Windows");[ -f "$CONF" ] &&  def=$CONFIG_SAMBA_CLIENT || def=false;;
 		DLNA)var=CONFIG_DLNA  desc=$(gettext "Media Server");[ -f "$CONF" ] &&  def=$CONFIG_DLNA || def=false;;
 		ftp)var=CONFIG_FTP desc=$(gettext "File transfer protocol");[ -f "$CONF" ] &&  def=$CONFIG_FTP || def=false;;
 		http)var=CONFIG_HTTP desc=$(gettext "Web Server");[ -f "$CONF" ] &&  def=$CONFIG_HTTP || def=false;;
@@ -224,9 +272,11 @@ for i in SSH CUPS Samba DLNA NTP ftp http DNS DHCP NFS ;do
 		DNS)var=CONFIG_${i} desc=$(gettext "Domain Name Services");[ -f "$CONF" ] &&  def=$CONFIG_DNS || def=false;;
 		NFS)var=CONFIG_${i} desc=$(gettext "Network File Sharing Protocol (UNIX)");[ -f "$CONF" ] &&  def=$CONFIG_NFS || def=false ;;
 	esac
+	name=$i
+	[ "$name" == 'Samba_client' ] && name="Samba Client"
 	CB="$CB""<hbox space-expand=\"true\" space-fill=\"true\">
 		<checkbox>
-			<label>$i - $desc</label>
+			<label>$name - $desc</label>
 			<default>$def</default>
 			<variable>$var</variable>
 			<sensitive>$sens</sensitive>
@@ -328,6 +378,7 @@ EX=$EX
 CONFIG_SSH=$CONFIG_SSH
 CONFIG_CUPS=$CONFIG_CUPS
 CONFIG_SAMBA=$CONFIG_SAMBA
+CONFIG_SAMBA_CLIENT=$CONFIG_SAMBA_CLIENT
 CONFIG_DLNA=$CONFIG_DLNA
 CONFIG_NTP=$CONFIG_NTP
 CONFIG_FTP=$CONFIG_FTP
@@ -386,6 +437,8 @@ cat > $TMPFW << EOF_FWSTART
 
 
 # Modified for Puppy Linux by Michael Amadio <01micko@gmail.com> 2015
+
+[ \$UID -ne 0 ] && exec sudo -A \${0} \${@}
 
 ###############################################################################
 # 
@@ -852,7 +905,7 @@ EOF_FWNEXT
 echo "
 ############################### Puppy Rules ###################################
 " >> $TMPFW
-if [ "$CONFIG_SAMBA" != "true" ];then
+if [ "$CONFIG_SAMBA" != "true" -a "$CONFIG_SAMBA_CLIENT" != "true" ];then
 	cat >> $TMPFW << EOF_SAMBA_NOT
 	
 # disallow netbios name resolution
@@ -876,10 +929,20 @@ EOF_FWCOMMENT
 if [ "$CONFIG_SAMBA" == "true" ];then
 	cat >> $TMPFW << EOF_SAMBA_UDP
 	
-# allow netbios name resolution for Samba
-\$IPT -A udp_inbound -p UDP -s 0/0 --destination-port 137 -j ACCEPT
-\$IPT -A udp_inbound -p UDP -s 0/0 --destination-port 138 -j ACCEPT
+# allow netbios name resolution for Samba server
+\$IPT -A udp_inbound -p UDP -s $SUBNET --destination-port 137 -j ACCEPT
+\$IPT -A udp_inbound -p UDP -s $SUBNET --destination-port 138 -j ACCEPT
 EOF_SAMBA_UDP
+fi
+if [ "$CONFIG_SAMBA_CLIENT" == "true" ];then
+	cat >> $TMPFW << EOF_SAMBA_UDP_CL
+	
+# allow netbios name resolution for Samba client
+\$IPT -A udp_inbound -p UDP -s $SUBNET --source-port 137 -m state --state NEW,ESTABLISHED -j ACCEPT
+\$IPT -A udp_inbound -p UDP -s $SUBNET --source-port 138 -m state --state NEW,ESTABLISHED -j ACCEPT
+\$IPT -A tcp_inbound -p TCP -s $SUBNET --source-port 139 -m state --state NEW,ESTABLISHED -j ACCEPT
+\$IPT -A tcp_inbound -p TCP -s $SUBNET --source-port 445 -m state --state NEW,ESTABLISHED -j ACCEPT
+EOF_SAMBA_UDP_CL
 fi
 if [ "$CONFIG_CUPS" == "true" ];then
 	cat >> $TMPFW << EOF_CUPS_UDP
@@ -1015,8 +1078,8 @@ if [ "$CONFIG_SAMBA" == "true" ];then
 	cat >> $TMPFW << EOF_SAMBA_TCP
 	
 # allow Samba TCP communication
-\$IPT -A tcp_inbound -p TCP -s 0/0 --destination-port 139 -j ACCEPT
-\$IPT -A tcp_inbound -p TCP -s 0/0 --destination-port 445 -j ACCEPT
+\$IPT -A tcp_inbound -p TCP -s $SUBNET --destination-port 139 -j ACCEPT
+\$IPT -A tcp_inbound -p TCP -s $SUBNET --destination-port 445 -j ACCEPT
 EOF_SAMBA_TCP
 fi
 if [ "$CONFIG_CUPS" == "true" ];then

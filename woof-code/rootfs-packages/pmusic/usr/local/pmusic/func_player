@@ -1,293 +1,224 @@
 #!/bin/bash
-#Pmusic
-#Copyright 2008,2009,2010,2011,2012,2013,2014,2015 GPL
-#Sigmund Berglund
+#pMusic - play engine
+#GPL - Copyright Sigmund Berglund
 
-IFS=$'\n'
-export TEXTDOMAIN=pmusic
+export LC_ALL=C #no gettext in this file
 
 case "$2" in
-	-skip_update|-autoplay)
-		echo
+	-skip_update)
+		false
 		;;
-	*)
+	*)	
 		#in case external call
-		. $HOME/.pmusic/pmusicrc
-		export APPDIR="$(dirname "$0")"
-		[ ! "$WORKDIR" ]	&& export WORKDIR="$HOME/.pmusic/tmp"
-		[ ! "$CD_DEVICE" ]	&& export CD_DEVICE=/dev/cdrom
-		#---
-		PLAYLIST=($(<"$WORKDIR/PLAYLIST"))
-		[ ! "$PLAYLIST" ] && PLAYLIST="`head -n 1 $WORKDIR/playlist | cut -d'|' -f5`" #define first if no is selected
-		grep -Fm1 "$PLAYLIST" $WORKDIR/playlist > $WORKDIR/PLAYLIST_ALL
-		#cdda
-		if [ "`echo "$PLAYLIST" | grep -F 'cdda:'`" ]; then
-			echo "$PLAYLIST" | cut -d: -f2 > $WORKDIR/CDDA_TRACK
-			PLAYLIST="cdda:$(<"$WORKDIR/CDDA_TRACK")"
+		if [ ! "$PMUSIC_FRONTEND" ]; then
+			. $HOME/.pmusic/pmusicrc
+			export APPDIR="${0%/*}/"
+			export WORKDIR="$HOME/.pmusic/tmp"
 		fi
 		#---
-		if [ "$(grep "^[0-9]" <<< "$PLAYLIST")" ]; then #call from buttons, not from playlist
-			echo "$PLAYLIST" | cut -d' ' -f2- > $WORKDIR/PLAYLIST 
-			if [ ! "$(<$WORKDIR/PLAYLIST )" ]; then
-				grep -FA1 "$PLAYLIST" $WORKDIR/playlist | cut -d'|' -f5 | tail -n 1 > $WORKDIR/PLAYLIST
-				grep -FA1 "$PLAYLIST" $WORKDIR/playlist | tail -n 1 > $WORKDIR/PLAYLIST_ALL
-			fi
-		else
-			echo "$PLAYLIST" > $WORKDIR/PLAYLIST
-		fi
+		[ "$2" ] && TMP="${2}" || IFS='|' read A B C D TMP < $WORKDIR/PLAYLIST_ALL
+		grep -Fm1 "$TMP" $WORKDIR/playlist > $WORKDIR/PLAYLIST_ALL
 		;;
 esac
 
+IFS='|' read COL1 LENGTH NAME ADR ID_ADR < $WORKDIR/PLAYLIST_ALL
 
 case $1 in
--jump_to) #start song with given time
-	. $APPDIR/func -reset_gtk
-	#can't jump in a radio-stream
-	if [ "`grep -F '://' $HOME/.pmusic/nowplaying | grep -vE "jamendo|youtube"`" ]; then
-		TXT1="$(gettext 'You can not jump in a stream.')"
-		. $APPDIR/box_ok
-		exit
-	fi
-	cut -d'|' -f2 $HOME/.pmusic/nowplaying > $WORKDIR/PLAYLIST
-	FRAME="$(gettext 'Jump to time')"; IMG=""; TXT1="$(gettext 'Jump in song to time'):"; DEFAULT='0:00'
-	. $APPDIR/box_input
-	if [ $EXIT = "ok" ]; then
-		if [ "`echo $INPUT | grep ':'`" ]; then
-			MIN=`echo $INPUT | cut -d ':' -f 1`
-			SEC=`echo $INPUT | cut -d ':' -f 2`
-			if [ ! $SEC ]; then SEC=0; fi
-		else
-			MIN=0
-			SEC=$INPUT
-		fi
-		echo "$[($MIN*60)+$SEC]" > $WORKDIR/SS
-		$APPDIR/func_kill -audio
-		$APPDIR/func_player -playing -skip_update &
-	fi
-	;;
-
--jump_to_percent) #user moves slider
-	TMP=($(<"$WORKDIR/ffmpeg_length"))
-	echo "($2 * $TMP) / 100" | bc > $WORKDIR/SS
-	cut -d'|' -f2 $HOME/.pmusic/nowplaying > $WORKDIR/PLAYLIST
-	echo true > $WORKDIR/progressbar_refresh
+-jump_to_percent) #move slider
+	echo $3 > $WORKDIR/PERCENT_BAR
+	read TMP < $WORKDIR/ffmpeg_length
+	echo $((($3 * $TMP) / 100)) > $WORKDIR/SS
+	$APPDIR/func_kill -audio
 	$APPDIR/func_player -playing -skip_update &
 	#ensure pause-button in main window - user can start track with this action
-	if [ -f $APPDIR/themes/$THEME/icon_pause.svg ]; then
-		cp $APPDIR/themes/$THEME/icon_pause.svg $WORKDIR/icon_playpause.svg 2> $STDERR 
-		echo true > $WORKDIR/UPDATE_GUI
-	fi
+	ln -sf $APPDIR/themes/$THEME/icon_pause.svg $WORKDIR/icon_playpause.svg 2>> $STDERR 
+	echo true > $WORKDIR/UPDATE_GUI
 	;;
 
 -back)
-	TREE_ITEM="`cut -d'|' -f5 $WORKDIR/PLAYLIST_ALL`"
-	export PLAYLIST="`grep -wF --before-context=1 "$TREE_ITEM" $WORKDIR/playlist | cut -d'|' -f5 | head -n1`"
-	echo "$PLAYLIST" > $WORKDIR/PLAYLIST
-	grep -F "$PLAYLIST" $WORKDIR/playlist > $WORKDIR/PLAYLIST_ALL
-	[ -f $WORKDIR/CDDA_TRACK ] && rm $WORKDIR/CDDA_TRACK
 	#start new process
 	$APPDIR/func_kill
 	echo 0 > $WORKDIR/SS
 	echo 0 > $WORKDIR/PERCENT_BAR
 	#---
-	$APPDIR/func_player -playing &
+	read TMP < $WORKDIR/PLAYLIST_ALL
+	TMP="`grep -FB1 "$TMP" $WORKDIR/playlist | cut -d'|' -f5`"
+	$APPDIR/func_player -playing "$TMP" &
 	;;
 
 -stop)
 	$APPDIR/func_kill
 	rm -f $WORKDIR/ffmpeg_output
 	#if timestamp is set (bookmark or -s switch), SS already has got its value. - Else set to start (0)
-	[ ! -f $WORKDIR/TIMESTAMP ] && echo 0 > $WORKDIR/SS
-	[ -f $WORKDIR/TIMESTAMP ] && rm $WORKDIR/TIMESTAMP
-	[ -f $WORKDIR/CDDA_TRACK ] && rm $WORKDIR/CDDA_TRACK
+	[ ! -f $WORKDIR/TIMESTAMP ] && echo 0 > $WORKDIR/SS || rm $WORKDIR/TIMESTAMP
 	#---
 	echo "pMusic $VERSION" > $WORKDIR/window_title
 	echo true > $WORKDIR/stop #status for progressbar
-	sleep 0.1 #wait for func_progressbar to update 
 	echo 0 > $WORKDIR/PERCENT_BAR
-	echo '' > $WORKDIR/PLAYLIST
 	echo '' > $WORKDIR/input_type
 	;;
 
 -play)
-	ps -eo pid,s,command > $WORKDIR/tmp
-	if [ "$2" = "-autoplay" ]; then
-		#autoplay when adding a track to an empty playlist
+	PS="$(LC_ALL=C ps -eo pid,s,command)"
+	if [ "$3" = "-autoplay" ]; then
+		#autoplay adding track
 		$APPDIR/func_player -stop -skip_update
-		if [ "$3" ]; then
-			echo "$3" > $WORKDIR/PLAYLIST
+		$APPDIR/func_player -playing "$2"
+	elif [[ "$PS" = *aplay* ]]; then #playing --> PAUSE
+		if [[ "$PS" = *' T aplay'* ]]; then #process is paused
+			for I in `grep aplay <<< "$PS" | awk '{print $1}'`; do kill -18 $I; done #continue
+			ln -sf $APPDIR/themes/$THEME/icon_pause.svg $WORKDIR/icon_playpause.svg 2>> $STDERR #refresh play-button in main window
 		else
-			head -n 1 $WORKDIR/playlist | cut -d'|' -f5 > $WORKDIR/PLAYLIST
+			for I in `grep aplay <<< "$PS" | awk '{print $1}'`; do kill -19 $I; done #pause
+			ln -sf $APPDIR/themes/$THEME/icon_play.svg $WORKDIR/icon_playpause.svg 2>> $STDERR #refresh play-button in main window
 		fi
-		$APPDIR/func_player -playing & #autoplay
-	elif [ "`grep aplay $WORKDIR/tmp`" ]; then #playing --> PAUSE
-		if [ "`grep aplay $WORKDIR/tmp | grep ' T '`" ]; then #process is paused
-			for I in `grep aplay $WORKDIR/tmp | awk '{print $1}'`; do kill -18 $I; done #continue
-			cut -d'|' -f2 $HOME/.pmusic/nowplaying > $WORKDIR/PLAYLIST
-			[ -f $APPDIR/themes/$THEME/icon_pause.svg ] && cp -f $APPDIR/themes/$THEME/icon_pause.svg $WORKDIR/icon_playpause.svg #refresh play-button in main window
-		else
-			for I in `grep aplay $WORKDIR/tmp | awk '{print $1}'`; do kill -19 $I; done #pause
-			cut -d'|' -f2 $HOME/.pmusic/nowplaying > $WORKDIR/PLAYLIST
-			[ -f $APPDIR/themes/$THEME/icon_play.svg ] && cp $APPDIR/themes/$THEME/icon_play.svg $WORKDIR/icon_playpause.svg 2> $STDERR #refresh play-button in main window
-		fi
-		[ "`echo $* | grep -F refresh`" ] && echo true > $WORKDIR/UPDATE_GUI
+		case $* in *refresh*) echo true > $WORKDIR/UPDATE_GUI;; esac
 	else 
-		$APPDIR/func_player -playing &
+		$APPDIR/func_player -playing "$2" &
 	fi
 	;;
 
 -playing)
-	PLAYLIST=($(<"$WORKDIR/PLAYLIST"))
-	if [ ! "$PLAYLIST" ]; then #it could be that $PLAYLIST is empty but still there are more songs in list
-		$APPDIR/func_player -next
+	if [ ! "$ADR" ]; then #it could be that $ADR is empty but still there are more songs in list
+		$APPDIR/func_player -next "$ID_ADR"
 		exit
 	fi
-	SS=($(<"$WORKDIR/SS")) || SS=0
+	if [ "$2" != "-skip_update" ]; then #avoid trackinfo update when moving slider. set in jump_to_percent.
+		echo false > $WORKDIR/stop #if stopped it shouldn't start next
+		echo -n > $WORKDIR/ffmpeg_output
+		echo -n > $WORKDIR/ffmpeg_length
+		echo -n > $WORKDIR/aplay_error
+		echo "|$ADR" > $HOME/.pmusic/nowplaying #in case func_progressbar fails
+	fi
+
+	read SS < $WORKDIR/SS
+	NAME=${NAME//_/ }; NAME=${NAME//%20/ } #underscore and %20 to space
 
 	#reset play-button in case paused
-	[ -f $APPDIR/themes/$THEME/icon_pause.svg ] && cp $APPDIR/themes/$THEME/icon_pause.svg $WORKDIR/icon_playpause.svg 2> $STDERR
+	ln -sf $APPDIR/themes/$THEME/icon_pause.svg $WORKDIR/icon_playpause.svg 2>> $STDERR
 	#update icon in playqueue
 	( flock -e 201
-		cat $WORKDIR/playlist | awk -F '|' '{print "|" $2 "|" $3 "|" $4 "|" $5}' > $WORKDIR/tmp_playlist
-		TMP="`cut -d'|' -f2- $WORKDIR/PLAYLIST_ALL`"
-		grep -Fm1 -B1000 "$TMP" $WORKDIR/tmp_playlist | grep -vF "$TMP" > $WORKDIR/playlist
-		echo "gtk-media-play|$TMP" >> $WORKDIR/playlist
-		grep -Fm1 -A1000 "$TMP" $WORKDIR/tmp_playlist | grep -vF "$TMP" >> $WORKDIR/playlist
+		sed -i -e "s/gtk-media-play//" -e "s%|${LENGTH}|${NAME//&/\\&}|${ADR//&/\\&}|${ID_ADR//&/\\&}%gtk-media-play|${LENGTH}|${NAME//&/\\&}|${ADR//&/\\&}|${ID_ADR//&/\\&}%" $WORKDIR/playlist
 	) 201>$WORKDIR/playlist.lockfile 
 
-	#update message in progressbar to connecting...
-	[ "`echo "$PLAYLIST" | grep -F '://'`" ] && echo "pmusic_connect" > $WORKDIR/ffmpeg_output
 	#add to index_recent
-	if [ "$PLAYLIST" ]; then #iso 8859-1 sometimes break $PLAYLIST
-		NAME="`basename "$PLAYLIST"`"
-		#convert underscores and %20
-		NAME="`echo "$NAME" | tr '_' ' ' | sed 's/%20/ /g'`"
-		#Streams/CD has weird names, but is human-readable in playlist
-		[ "`echo "$PLAYLIST" | grep -E "jamendo.com|youtube.com"`" ] && NAME="`grep -Fm1 "$PLAYLIST" $WORKDIR/playlist | cut -d'|' -f3`|(www)"
-		[ "`echo "$NAME" | grep -F 'cdda:'`" ] && NAME="`grep -Fm1 "$NAME" $WORKDIR/playlist | cut -d'|' -f3`|(CD)"
-		#add to index_recent
-		if [ ! "`tail -n 1 "$STORAGE_DIR/index_recent" | grep -F "$PLAYLIST"`" ]; then
-			TMP="`grep -Fm 1 "$PLAYLIST" $WORKDIR/playlist | cut -d'|' -f4`" #seek $WORKDIR/playlist to detect complete info for CD-tracks
-			echo "$TMP|$NAME" >> "$STORAGE_DIR/index_recent"
-		fi
+	if [[ "`tail -n1 "$STORAGE_DIR/index_recent"`" != *"$ADR"* ]]; then
+		case $ADR in
+			*://*)
+				NAME="${NAME}|(www)"
+				echo "pmusic_connect" > $WORKDIR/ffmpeg_output #update message in progressbar to connecting...
+				;;
+			*cdda:*)
+				NAME="${NAME}|(CD)"
+				;;
+		esac
+		echo "$ADR|$NAME" >> "$STORAGE_DIR/index_recent"
 	fi
-	#youtube
-	if [ "`echo "$PLAYLIST" | grep -F youtube.com`" ]; then
-		#youtube requires duration set to exit exec file (go to next track in playlist)
-		if [ "`grep -Fm1 "$PLAYLIST" "$STORAGE_DIR/index_webmusic_youtube"`" ]; then
-			MIN="`grep -Fm1 "$PLAYLIST" "$STORAGE_DIR/index_webmusic_youtube" | cut -d'|' -f9 | cut -d: -f1`"
-			SEC="`grep -Fm1 "$PLAYLIST" "$STORAGE_DIR/index_webmusic_youtube" | cut -d'|' -f9 | cut -d: -f2`"
-			LENGTH="`echo "( $MIN * 60 ) + $SEC - 1" | bc`"
-			DURATION="-t $LENGTH" #will be included into the exec file
-		fi
+
+#	#youtube
+#	case $ADR in *youtube.com*)
+#		#youtube requires duration set to exit exec file (go to next track in playlist)
+#		TIME="`grep -Fm1 "$ADR" "$STORAGE_DIR/index_webmusic_youtube" | cut -d'|' -f9`"
+#		if [ "$TIME" ]; then
+#			LENGTH=$(((${TIME%%:*} * 60) + ${TIME#*:} - 1))
+#			DURATION="-t $LENGTH" #will be included into the exec file
+#		fi
 #now using movgrabber since the builtin grabber fails
 #		 #youtube requires to detect actual playing URL
-#		 . $APPDIR/func_webmusic_youtube -get_youtube_url $PLAYLIST
-#		PLAYLIST=$URL
+#		 . $APPDIR/func_webmusic_youtube -get_youtube_url $ADR
+#		ADR=$URL
 #		echo $URL > $WORKDIR/youtube_url
-	fi 
+#		;;
+#	esac 
 	#Detect soundcard
 	if [ "$SOUND_DEVICE" != "auto" ]; then
 		TMP="`echo $SOUND_DEVICE | cut -d':' -f1 | cut -d' ' -f2`"
 		TMP1="`echo $SOUND_DEVICE | cut -d':' -f2 | cut -d',' -f2 | cut -d' ' -f3`"
 		APLAY_DEVICE="-D plughw:${TMP},$TMP1" #aplay parameter if pmusic takes control over sound-card
  	fi
-	#avoid trackinfo update when moving slider. set in jump_to_percent.
-	if [ ! -s $WORKDIR/progressbar_refresh ]; then
-		echo false > $WORKDIR/stop #if stopped it shouldn't start next
-		echo -n > $WORKDIR/ffmpeg_output
-		echo -n > $WORKDIR/ffmpeg_length
-		echo -n > $WORKDIR/aplay_error
-		echo "|$PLAYLIST" > $HOME/.pmusic/nowplaying #in case func_progressbar fails
-	else
-		rm $WORKDIR/progressbar_refresh
-	fi
 	#---
-	TMP_LENGTH="`cut -d '|' -f 2 $WORKDIR/PLAYLIST_ALL | awk '{print $1}' | head -n 1`"
-	[ "$TMP_LENGTH" = "N/A," ] && TMP_LENGTH='00:00'
-	[ ! "$TMP_LENGTH" ] && TMP_LENGTH='00:00'
+	case $LENGTH in *N/A,*|'') LENGTH='00:00';; esac
 
 	#######   FILTERS   #######
 	#normalize - internal sound filter. set in preferences
-	if [ $NORMALIZE = true ] && [ "`grep -iE "$AUDIO_FORMATS" <<< "$PLAYLIST" | grep -viE "\.kar$|\.mid$"`" ]; then
-		ffmpeg -i "$PLAYLIST" -af volumedetect -t 60 -f null - 2> $WORKDIR/ffmpeg_volumedetect
-		TMP="`grep -F max_volume $WORKDIR/ffmpeg_volumedetect | cut -d: -f2 | cut -d' ' -f2 | cut -d'-' -f2`"
-		#if gain is set higher than 4dB, it is reasonable to believe that the intro is very low compared to what comes after the first min. We need a full check
-		if [ "$(cut -d. -f1 <<< ${TMP})" -gt "4" ]; then
-			ffmpeg -i "$PLAYLIST" -af volumedetect -f null - 2> $WORKDIR/ffmpeg_volumedetect
+	echo -n > $WORKDIR/ffmpeg_filter_NORMALIZE
+	if [ $NORMALIZE = true ]; then
+		if [ "`grep -iE "$AUDIO_FORMATS" <<< "$ADR" | grep -viE "\.kar$|\.mid$"`" ]; then
+			ffmpeg -i "$ADR" -af volumedetect -t 20 -f null - 2> $WORKDIR/ffmpeg_volumedetect
 			TMP="`grep -F max_volume $WORKDIR/ffmpeg_volumedetect | cut -d: -f2 | cut -d' ' -f2 | cut -d'-' -f2`"
+			#if gain is set higher than 4dB, it is reasonable to believe that the intro is very low compared to what comes after the first min. We need a full check
+			if [ "${TMP%%.*}" -gt "4" ]; then
+				ffmpeg -i "$ADR" -af volumedetect -f null - 2> $WORKDIR/ffmpeg_volumedetect
+				TMP="`grep -F max_volume $WORKDIR/ffmpeg_volumedetect | cut -d: -f2 | cut -d' ' -f2 | cut -d'-' -f2`"
+			fi
+			#---
+			[ "$TMP" ] && F1="volume=${TMP}dB,"
 		fi
-		#---
-		[ "$TMP" ] && echo "volume=${TMP}dB," > $WORKDIR/ffmpeg_filter_NORMALIZE
-	else
-		echo -n > $WORKDIR/ffmpeg_filter_NORMALIZE
 	fi
 	#external sound filters - also added to func_export
-	FILTER="`echo -af \\"$(<$WORKDIR/ffmpeg_filter_NORMALIZE)$(<$WORKDIR/ffmpeg_filter_EQ)$(<$WORKDIR/ffmpeg_filter_basic)$(<$WORKDIR/ffmpeg_filter)\\" | sed 's/,"$/"/'`" #_EQ and _SP is used by known plugins. The last is open for external input.
+	read F2 < $WORKDIR/ffmpeg_filter_EQ		#eq plugin
+	read F3 < $WORKDIR/ffmpeg_filter_basic	#plugin: Basic sound filters
+	read F4 < $WORKDIR/ffmpeg_filter		#internal sound processing
+	FILTER="`echo -af \\"$F1$F2$F3$F4\\" | sed 's/,"$/"/'`"
 	[ "$FILTER" = '-af ""' ] && FILTER=""
 	#######
 	
 	#build command --- split echos to ensnure filenames that contains ' will play
 	echo '#!/bin/sh' > $WORKDIR/exec
-	if [ "`echo "$PLAYLIST" | grep -iE "\.kar$|\.mid$"`" ]; then
-		echo -n "LANG=C timidity -Ow -o - '" >> $WORKDIR/exec
-		echo -n "${PLAYLIST}" | sed s/\'/\'\"\'\"\'/g >> $WORKDIR/exec #if filename contains ' this won't play else we put it into ""
-		echo "' | ffmpeg -i pipe:0 -ss $SS $FILTER -f au - 2>> $WORKDIR/ffmpeg_output | aplay $APLAY_DEVICE 2> $WORKDIR/aplay_error" >> $WORKDIR/exec
+	echo 'export LC_ALL=C' >> $WORKDIR/exec
+	#midi
+	if [[ "$ADR" = @(*kar|*KAR|*mid|*MID) ]]; then
+		echo "timidity -Ow -o - \"${ADR}\" | ffmpeg -i pipe:0 -ss $SS $FILTER -f au - 2>> $WORKDIR/ffmpeg_output | aplay $APLAY_DEVICE 2> $WORKDIR/aplay_error" >> $WORKDIR/exec
 		echo 'midi' > $WORKDIR/input_type
-	elif [ "$TMP_LENGTH" = "00:00" ] || [ "$TMP_LENGTH" = "00:01" ] && [ ! "`grep -F '://' $WORKDIR/PLAYLIST`" ] && [ -f "$PLAYLIST" ]; then #if length is under 2 sec --> piping ffmpeg | aplay fails
-		echo -n "ffmpeg -i '" >> $WORKDIR/exec
-		echo -n "${PLAYLIST}" | sed s/\'/\'\"\'\"\'/g >> $WORKDIR/exec #if filename contains ' this won't play else we put it into ""
-		echo "' $FILTER -f au -y $WORKDIR/pmusic.au 2> $STDERR" >> $WORKDIR/exec
-		echo "aplay $APLAY_DEVICE $WORKDIR/pmusic.au 2> $STDERR" >> $WORKDIR/exec
+	#if length is under 2 sec --> piping ffmpeg | aplay may fail
+	elif [[ "$LENGTH" = @(00:00|00:01) ]] && [ -f "$ADR" ]; then
+		echo "ffmpeg -i \"${ADR}\" $FILTER -f au -y $WORKDIR/pmusic.au 2>> $STDERR" >> $WORKDIR/exec
+		echo "aplay $APLAY_DEVICE $WORKDIR/pmusic.au 2>> $STDERR" >> $WORKDIR/exec
 		echo 'sound' > $WORKDIR/input_type
-	else #Normal way
+	else
 		#check if cd-audio
-		[ -f $WORKDIR/CDDA_TRACK ] && CDDA_TRACK=($(<"$WORKDIR/CDDA_TRACK"))
+		case $ADR in cdda:*) IFS=: read C1 CDDA_TRACK C <<< "$ADR";; esac
 		#build exec file
 		if [ "$CDDA_TRACK" ]; then 
 			hdparm -E2 /dev/cdrom > /dev/null 2>&1
 			echo "LANG=C cdda2wav dev=$CD_DEVICE --offset=$(($SS*75)) -t $CDDA_TRACK -Owav - | ffmpeg -i pipe:0 $FILTER -f au - 2>> $WORKDIR/ffmpeg_output | aplay $APLAY_DEVICE 2> $WORKDIR/aplay_error" >> $WORKDIR/exec
 			echo 'cd' > $WORKDIR/input_type
 		else
-			#youtube
-			if [ "`grep -F 'youtube.com' $WORKDIR/PLAYLIST`" ]; then
-				echo "LANG=C movgrab -o - \"$PLAYLIST\" | ffmpeg -i pipe:0 $FILTER -f au - 2>> $WORKDIR/ffmpeg_output | aplay $APLAY_DEVICE 2> $WORKDIR/aplay_error" >> $WORKDIR/exec
-				echo 'youtube' > $WORKDIR/input_type
+#			#youtube
+#			if [[ "$ADR" = *'youtube.com'* ]]; then
+#				echo "movgrab -o - \"$ADR\" | ffmpeg -i pipe:0 $FILTER -f au - 2>> $WORKDIR/ffmpeg_output | aplay $APLAY_DEVICE 2> $WORKDIR/aplay_error" >> $WORKDIR/exec
+#				echo 'youtube' > $WORKDIR/input_type
 			#if radio-stream, use streamripper if present 
-			elif [ "$TMP_LENGTH" = "00:00" ] || [ "$TMP_LENGTH" = "00:01" ] && [ "`grep -F '://' $WORKDIR/PLAYLIST`" ] && [ ! "`grep -F 'localhost' $WORKDIR/PLAYLIST`" ] && type streamripper > /dev/null 2>&1; then
-				echo "streamripper '$PLAYLIST' -A -k 0 -u WinampMPEG/5.0 -r 8002 > $WORKDIR/streamripper_output 2>&1 &" >> $WORKDIR/exec 
-				echo 'while [ ! "`grep -E "\[ripping...|^bye.." '$WORKDIR'/streamripper_output`" ]; do sleep 0.1; done' >> $WORKDIR/exec 
-				echo "LANG=C exec ffmpeg -i http://localhost:8002 $FILTER -f au - 2>> $WORKDIR/ffmpeg_output | aplay $APLAY_DEVICE 2> $WORKDIR/aplay_error" >> $WORKDIR/exec
+			if [[ "$LENGTH" = "00:00" && "$ADR" = *'://'* ]] && type streamripper > /dev/null 2>&1; then
+				echo "streamripper '$ADR' -A -k 0 -u WinampMPEG/5.0 -r 8002 > $WORKDIR/streamripper_output 2>&1 &" >> $WORKDIR/exec 
+				echo 'while [[ "$(<'$WORKDIR'/streamripper_output)" != @(*"[ripping..."*|*"bye.."*) ]]; do sleep 0.1; done' >> $WORKDIR/exec 
+				echo "ffmpeg -i http://localhost:8002 $FILTER -f au - 2>> $WORKDIR/ffmpeg_output | aplay $APLAY_DEVICE 2> $WORKDIR/aplay_error" >> $WORKDIR/exec
 				echo 'radio_streamripper' > $WORKDIR/input_type
 			#We pipe it through wget because ffmpeg does not support https
-			elif [ "`grep -F 'https://' <<< "$PLAYLIST"`" ]; then 
-				echo -n "LANG=C exec wget --no-check-certificate -O - '"  >> $WORKDIR/exec 
-				echo -n "${PLAYLIST}" | sed s/\'/\'\"\'\"\'/g >> $WORKDIR/exec #if filename contains ' this won't play else we put it into ""
-				echo "'| ffmpeg -i pipe:0 -ss $SS $DURATION $FILTER -f au - 2>> $WORKDIR/ffmpeg_output | aplay $APLAY_DEVICE 2> $WORKDIR/aplay_error" >> $WORKDIR/exec
+			elif [[ "$ADR" = *'https://'* ]]; then 
+				echo "wget --no-check-certificate -O - \"${ADR}\" | ffmpeg -i pipe:0 -ss $SS $DURATION $FILTER -f au - 2>> $WORKDIR/ffmpeg_output | aplay $APLAY_DEVICE 2> $WORKDIR/aplay_error" >> $WORKDIR/exec
 				echo 'radio' > $WORKDIR/input_type
 			#local file
 			else
-				echo -n "LANG=C exec ffmpeg -i '" >> $WORKDIR/exec
-				echo -n "${PLAYLIST}" | sed s/\'/\'\"\'\"\'/g >> $WORKDIR/exec #if filename contains ' this won't play else we put it into ""
-				echo "' -ss $SS $DURATION $FILTER -f au - 2>> $WORKDIR/ffmpeg_output | aplay $APLAY_DEVICE 2> $WORKDIR/aplay_error" >> $WORKDIR/exec
+				echo "ffmpeg -i \"${ADR}\" -ss $SS $DURATION $FILTER -f au - 2>> $WORKDIR/ffmpeg_output | aplay $APLAY_DEVICE 2> $WORKDIR/aplay_error" >> $WORKDIR/exec #filename with ' require '\''
 				echo 'file' > $WORKDIR/input_type
 			fi
 		fi
 	fi
-	rm $WORKDIR/AUTOPLAY
+	$APPDIR/func_index -merge_stack_pre &
 	#play
-	chmod 700 $WORKDIR/exec
+	chmod 722 $WORKDIR/exec
+	rm -f $WORKDIR/AUTOPLAY #in case adding several tracks, keep the autoplay flag as long as possible to ensure the flag sticks to the first track
+	[ "$HIGH_CPU" = "true" ] && nice --18 $WORKDIR/exec 2>> $STDERR || $WORKDIR/exec 2>> $STDERR
 
-	if [ "$HIGH_CPU" = "true" ]; then
-		nice --18 $WORKDIR/exec 2> $STDERR
-	else
-		$WORKDIR/exec 2> $STDERR
-	fi
 	if [ -s $WORKDIR/NO_RATING ]; then #when moving slider
 		rm $WORKDIR/NO_RATING
-	elif [ "$(grep false $WORKDIR/stop 2> $STDERR)" ] && ! grep -F 'error' $WORKDIR/aplay_error 2> $STDERR; then 
-		#RATING: User has listen through the complete song, add to rating index
-		. $APPDIR/func_rating -rate_now &
+	elif [ "$(grep false $WORKDIR/stop 2>> $STDERR)" ] && ! grep -F 'error' $WORKDIR/aplay_error 2>> $STDERR; then 
+		#add timestamp
+		( flock -e 202
+			TMP="`grep -Fm1 "${ADR}|" "$STORAGE_DIR/index_mymusic"`"
+			echo "${TMP},$(date +%s)" >> $WORKDIR/mymusic_stack
+		) 202>$WORKDIR/mymusic_stack.lockfile 
 		#run next song in playlist
 		sleep $GAP
 		$APPDIR/func_player -next -skip_update
@@ -295,58 +226,43 @@ case $1 in
 	;;
 
 -next)
-	[ -f $WORKDIR/CDDA_TRACK ] && rm $WORKDIR/CDDA_TRACK
-	if [ $(<"$WORKDIR/PLAYMODE") = "stop" ] && [ "$3" != "-user_action" ]; then #stop
-		$APPDIR/func_player -stop -skip_update
-		#show play-button in main window
-		if [ -f $APPDIR/themes/$THEME/icon_play.svg ]; then
-			cp $APPDIR/themes/$THEME/icon_play.svg $WORKDIR/icon_playpause.svg 2> $STDERR
-			[ -f $WORKDIR/gui_is_running ] && echo true > $WORKDIR/UPDATE_GUI
-		fi
-		#remove existing play icon in playlist
-		( flock -e 201
-			#cat $WORKDIR/playlist | awk -F '|' '{print "|" $2 "|" $3 "|" $4 "|" $5}' > $WORKDIR/playlist
-			sed -i "s/gtk-media-play//" $WORKDIR/playlist
-		) 201>$WORKDIR/playlist.lockfile 
-		#---
-		exit
-	elif [ $(<"$WORKDIR/PLAYMODE") = "shuffle" ]; then #shuffle
+	read PLAYMODE < $WORKDIR/PLAYMODE
+	if [[ $PLAYMODE = stop && "$3" != "-user_action" ]]; then
+		STOP=true
+	elif [ $PLAYMODE = shuffle ]; then #shuffle
 		#get random line in playlist
-		LINES=($(<"$WORKDIR/playlist"))
+		LINES=($(<$WORKDIR/playlist))
 		n=${#LINES[@]}
 		r=$((RANDOM % n))
-		echo "${LINES[r]}" | cut -d'|' -f5 > $WORKDIR/PLAYLIST
+		NEXT="`echo "${LINES[r]}" | cut -d'|' -f5`"
 	else #follow list, item by item
-		NEXT="`cut -d'|' -f5 $WORKDIR/PLAYLIST_ALL`"
-		#if played song is not in playlist - play first song
-		[ ! "$NEXT" ] && NEXT="`head -n 1 $WORKDIR/playlist | cut -d '|' -f5`"
-		if [ "`tail -n 1 $WORKDIR/playlist | grep -F "$NEXT"`" ]; then #if last song
-			if [ $(<"$WORKDIR/PLAYMODE") = "loop" ] > /dev/null; then #loop
-				head -n 1 $WORKDIR/playlist | cut -d'|' -f5 > $WORKDIR/PLAYLIST
-			else
-				$APPDIR/func_player -stop -skip_update
-				#show play-button in main window
-				if [ -f $APPDIR/themes/$THEME/icon_play.svg ]; then
-					cp $APPDIR/themes/$THEME/icon_play.svg $WORKDIR/icon_playpause.svg 2> $STDERR
-					[ -f $WORKDIR/gui_is_running ] && echo true > $WORKDIR/UPDATE_GUI
-				fi
-				#remove existing play icon in playlist
-				( flock -e 201
-					#cat $WORKDIR/playlist | awk -F '|' '{print "|" $2 "|" $3 "|" $4 "|" $5}' > $WORKDIR/playlist
-					sed -i "s/gtk-media-play/d" $WORKDIR/playlist
-				) 201>$WORKDIR/playlist.lockfile 
-				#---
-				exit
-			fi
+		if [[ "$(tail -n1 $WORKDIR/playlist)" = *"$ID_ADR"* ]]; then #if last song - play first song
+			case $PLAYMODE in 
+				loop)	NEXT="`head -n1 $WORKDIR/playlist | cut -d'|' -f5`";;
+				*)		STOP=true;;
+			esac
 		else
-			grep -FA1 "$NEXT" $WORKDIR/playlist | cut -d'|' -f5 | tail -n 1 > $WORKDIR/PLAYLIST
+			NEXT="`grep -FA1 "$ID_ADR" $WORKDIR/playlist | cut -d'|' -f5 | tail -n1`"
 		fi
 	fi
-	#start new process
-	$APPDIR/func_kill
-	echo 0 > $WORKDIR/SS
-	echo 0 > $WORKDIR/PERCENT_BAR
-	#---
-	$APPDIR/func_player -playing &
+
+	if [ "$STOP" = "true" ]; then
+		$APPDIR/func_player -stop -skip_update
+		#show play-button in main window
+		ln -sf $APPDIR/themes/$THEME/icon_play.svg $WORKDIR/icon_playpause.svg 2>> $STDERR
+		#remove existing play icon in playlist
+		( flock -e 201
+			sed -i "s/gtk-media-play//" $WORKDIR/playlist
+		) 201>$WORKDIR/playlist.lockfile
+		[ -f $WORKDIR/gui_is_running ] && echo true > $WORKDIR/UPDATE_GUI
+	else
+		#start new process
+		$APPDIR/func_kill
+		echo 0 > $WORKDIR/SS
+		echo 0 > $WORKDIR/PERCENT_BAR
+		#---
+		$APPDIR/func_player -playing "$NEXT" &
+	fi
 	;;
 esac
+exit 0
