@@ -1,25 +1,63 @@
 #!/bin/sh
-
+# efi.img is thanks to jamesbond
+# basic CD structure is the same as Fatdog64
 # called from 3builddistro-Z
-. ../etc/DISTRO_SPECS
+. ../DISTRO_SPECS
 
+# make an UEFI iso
+mk_iso() {
+	tmp_isoroot=$1 	# input
+	OUTPUT=$2 		# output
+
+	mkisofs -iso-level 4 -D -R -o $OUTPUT -b isolinux.bin -no-emul-boot -boot-load-size 4 -boot-info-table \
+		-eltorito-alt-boot -eltorito-platform efi -b efi.img -no-emul-boot "$tmp_isoroot"		
+	isohybrid -u $OUTPUT
+}
+
+RESOURCES=`find ../ -type d -name UEFI -maxdepth 2`
+ISOLINUX=`find ../sandbox3/rootfs-complete/usr -type f -name 'isolinux.bin' -maxdepth 3`
+VESAMENU=`find ../sandbox3/rootfs-complete/usr -type f -name 'vesamenu.c32' -maxdepth 3`
+BUILD=../sandbox3/build/
+HELP=${BUILD}/help
+MSG1=../boot/boot-dialog/help.msg
+MSG2=../boot/boot-dialog/help2.msg
+BOOTLABEL=puppy
+PPMLABEL=`which ppmlabel`
+TEXT="-text $DISTRO_VERSION"
+GEOM="-x 680 -y 380"
+UFLG=-uefi
+WOOF_OUTPUT="woof-output-${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${SCSIFLAG}${UFLG}"
+[ -d ../$WOOF_OUTPUT ] || mkdir -p ../$WOOF_OUTPUT
+OUT=../${WOOF_OUTPUT}/${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${SCSIFLAG}${UFLG}.iso
+
+[ -z "$ISOLINUX" ] && echo "Can't find isolinux" && exit
+[ -z "$VESAMENU" ] && echo "Can't find vesamenu" && exit
+
+# custom backdrop
 pic=puppy
 case ${DISTRO_FILE_PREFIX} in
-	[Tt]ahr*)pic=tahrpup;;
+	[Tt]ahr*)pic=tahr;;
 	[Ss]lacko*)pic=slacko;;
 esac
 
-cp -a ${pic}.png 	build/
-cp -a efi.img 		build/
-ISOLINUX=`find ../sandbox3/rootfs-complete/usr -type f -name 'isolinux.bin' -maxdepth 3`
-VESAMENU=`find ../sandbox3/rootfs-complete/usr -type f -name 'vesamenu.c32' -maxdepth 3`
-cp -a $ISOLINUX		build/
-cp -a $VESAMENU		build/
-mkdir -p build/help/
-cp -a help.msg 		build/help/
-cp -a help2.msg 	build/help/
+# update and transfer the skeleton files
+if [ -n "$PPMLABEL" ];then # label the image with version
+	pngtopnm < ${RESOURCES}/${pic}.png | \
+	${PPMLABEL} ${GEOM} ${TEXT} | \
+	pnmtopng > ${BUILD}/${pic}.png
+else
+	cp -a ${RESOURCES}/${pic}.png 	$BUILD
+fi
+cp -a ${RESOURCES}/efi.img 		$BUILD
+cp -a $ISOLINUX		$BUILD
+cp -a $VESAMENU		$BUILD
+mkdir -p $HELP
+sed -e "s/DISTRO_FILE_PREFIX/${DISTRO_FILE_PREFIX}/g" \
+	-e "s/BOOTLABEL/${BOOTLABEL}/g"< $MSG1 > $HELP/help.msg
+sed "s/BOOTLABEL/${BOOTLABEL}/g" < $MSG2 > $HELP/help2.msg
 
-cat > build/grub.cfg <<GRUB
+# construct grub.cfg
+cat > ${BUILD}/grub.cfg <<GRUB
 insmod png
 background_image /${pic}.png
 set timeout=10
@@ -51,8 +89,8 @@ menuentry "Reboot" {
 }
 GRUB
 
-cat > build/isolinux.cfg <<ISO
-
+# construct isolinux.cfg
+cat > ${BUILD}/isolinux.cfg <<ISO
 #display help/boot.msg
 default $DISTRO_FILE_PREFIX
 prompt 1
@@ -119,7 +157,15 @@ initrd initrd.gz
 append pfix=ram,nox
 menu label For machines with severe video problems
 text help
-Start ${DISTRO_FILE_PREFIX} without savefile, without KMS, and launch xorgwizard 
+Start ${DISTRO_FILE_PREFIX} without savefile, without KMS, and run xorgwizard 
 to choose video resolutions before starting graphical desktop.
 endtext
 ISO
+
+# build the iso
+sync
+mk_iso $BUILD $OUT
+sync
+(cd ../$WOOF_OUTPUT
+md5sum ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${SCSIFLAG}${UFLG}.iso \
+> ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${SCSIFLAG}${UFLG}.iso.md5.txt)
