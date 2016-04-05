@@ -1,5 +1,5 @@
 #!/bin/sh
-# efi.img is thanks to jamesbond
+# efi.img/grub2 is thanks to jamesbond
 # basic CD structure is the same as Fatdog64
 # called from 3builddistro-Z
 . ../DISTRO_SPECS
@@ -11,13 +11,54 @@ mk_iso() {
 
 	mkisofs -iso-level 4 -D -R -o $OUTPUT -b isolinux.bin -no-emul-boot -boot-load-size 4 -boot-info-table \
 		-eltorito-alt-boot -eltorito-platform efi -b efi.img -no-emul-boot "$tmp_isoroot"		
+	echo "Converting ISO to isohybrid."
 	isohybrid -u $OUTPUT
 }
 
-RESOURCES=`find ../ -type d -name UEFI -maxdepth 2`
+# finds first free loop device
+fn_loop() {
+	cnt=0
+	losetup -a|grep -o 'loop[0-9]*'|grep -o '[0-9]*'|\
+	while read -r free;do
+		echo $free|grep -q $cnt || return $cnt
+		cnt=$(($cnt + 1))
+	done
+}
+
+# make a grub2 efi image
+mk_efi_img() {
+	TGT=$1; GRUB=$2; NEW=$3
+	mkdir -p /tmp/efi_img # mount point
+	echo "making ${TGT}/efi.img"
+	dd if=/dev/zero of=${TGT}/efi.img bs=512 count=8192 || return 1
+	echo "formatting ${TGT}/efi.img - vfat"
+	mkdosfs ${TGT}/efi.img
+	fn_loop; n=$?
+	echo "mounting ${TGT}/efi.img on /tmp/efi_img"
+	losetup /dev/loop${n} ${TGT}/efi.img || return 2
+	mount -t vfat /dev/loop${n} /tmp/efi_img || \
+		(losetup -d /dev/loop${n};return 3)
+	echo "copying files"
+	mkdir -p /tmp/efi_img/EFI/boot/ || return 4
+	tar -xJvf $GRUB -C /tmp/efi_img/EFI/boot/ || return 5
+	mv /tmp/efi_img/EFI/boot/${GRUBNAME} /tmp/efi_img/EFI/boot/${NEW} \
+		|| return 6
+	echo "unmounting /tmp/efi_img"
+	umount /tmp/efi_img || return 7
+	losetup -a | grep -o -q "loop${n}" && losetup -d /dev/loop${n}
+	rm -r /tmp/efi_img
+	return 0
+}
+
+# RESOURCES=`find ../ -type d -name UEFI -maxdepth 2`
+RESOURCES=`find ../sandbox3/rootfs-complete/usr/share/ -type d -name 'grub2-efi' -maxdepth 2`
 ISOLINUX=`find ../sandbox3/rootfs-complete/usr -type f -name 'isolinux.bin' -maxdepth 3`
 VESAMENU=`find ../sandbox3/rootfs-complete/usr -type f -name 'vesamenu.c32' -maxdepth 3`
-BUILD=../sandbox3/build/
+FIXUSB=`find ../sandbox3/rootfs-complete/usr -type f -name 'fix-usb.sh' -maxdepth 2`
+GRUBNAME=grubx64.efi
+NEWNAME=bootx64.efi
+GRUB2=`find ../sandbox3/rootfs-complete/usr/share -type f -name "${GRUBNAME}*" -maxdepth 2`
+BUILD=../sandbox3/build
 HELP=${BUILD}/help
 MSG1=../boot/boot-dialog/help.msg
 MSG2=../boot/boot-dialog/help2.msg
@@ -32,6 +73,7 @@ OUT=../${WOOF_OUTPUT}/${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${SCSIFLAG}${UFLG}.
 
 [ -z "$ISOLINUX" ] && echo "Can't find isolinux" && exit
 [ -z "$VESAMENU" ] && echo "Can't find vesamenu" && exit
+[ -z "$GRUB2" ] && echo "Can't find Grub2" && exit
 
 # custom backdrop
 pic=puppy
@@ -48,13 +90,22 @@ if [ -n "$PPMLABEL" ];then # label the image with version
 else
 	cp -a ${RESOURCES}/${pic}.png 	$BUILD
 fi
-cp -a ${RESOURCES}/efi.img 		$BUILD
+# cp -a ${RESOURCES}/efi.img 		$BUILD
 cp -a $ISOLINUX		$BUILD
 cp -a $VESAMENU		$BUILD
+[ -n "$FIXUSB" ] && cp -a $FIXUSB $BUILD
 mkdir -p $HELP
 sed -e "s/DISTRO_FILE_PREFIX/${DISTRO_FILE_PREFIX}/g" \
 	-e "s/BOOTLABEL/${BOOTLABEL}/g"< $MSG1 > $HELP/help.msg
 sed "s/BOOTLABEL/${BOOTLABEL}/g" < $MSG2 > $HELP/help2.msg
+
+# build the efi image
+mk_efi_img $BUILD $GRUB2 $NEWNAME
+ret=$?
+if [ $ret -ne 0 ];then
+	echo "An error occured and the program is aborting with $ret status."
+	exit $ret
+fi
 
 # construct grub.cfg
 cat > ${BUILD}/grub.cfg <<GRUB
