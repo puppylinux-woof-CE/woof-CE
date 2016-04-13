@@ -80,6 +80,7 @@ pic=puppy
 case ${DISTRO_FILE_PREFIX} in
 	[Tt]ahr*)pic=tahr;;
 	[Ss]lacko*)pic=slacko;;
+	[Xx]enial*)pic=xenial;;
 esac
 
 # update and transfer the skeleton files
