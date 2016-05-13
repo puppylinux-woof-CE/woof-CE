@@ -535,7 +535,7 @@ if [ "$FD" = "1" ];then #shift aufs-utils to kernel-modules.sfs
 	    x=$(($x + $y))
 	    echo "$x I'll copy in my own." >> ${tmpfw}
 	    x=$(($x + 1))
-	    echo "$x I'll grab the latest firmware form kernel.org. (slow)" >> ${tmpfw}
+	    echo "$x I'll grab the latest firmware from kernel.org. (slow)" >> ${tmpfw}
 	    cat ${tmpfw}
 	    echo -n "Enter a number, 1 to $x:  "
 	    read fw
@@ -546,7 +546,7 @@ if [ "$FD" = "1" ];then #shift aufs-utils to kernel-modules.sfs
 			echo "hit ENTER to continue"
 			read firm
 		elif [ "$fw" = "$x" ];then
-			echo "You have chosen to get the latest firware from kernel.org"
+			echo "You have chosen to get the latest firmware from kernel.org"
 			if [ -d ../linux-firmware ];then
 				echo "'git pull' will run so it wont take long to update the"
 				echo "firmware repository"
