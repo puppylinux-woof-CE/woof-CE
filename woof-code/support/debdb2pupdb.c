@@ -184,7 +184,7 @@ int main(int argc, char *argv[])
 	char rev[REV_SIZE];
 	char *fields[FIELD_MAX];
 	unsigned long initcrc, depcrc;
-	char *buf, *iobuf, *sep, *fname, *pos, *ver, *name, *deprel, *depver, *line, *dep;
+	char *buf, *inbuf, *outbuf, *sep, *fname, *pos, *ver, *name, *deprel, *depver, *line, *dep;
 	FILE *db;
 	unsigned long *pkgs, *baddeps;
 	FILE *baddepf, *wwwf;
@@ -195,12 +195,14 @@ int main(int argc, char *argv[])
 	regcomp(&preg, "(\\-|\\+)[0-9\\.]*(ubuntu|trisquel|debian|raspbian|build)[0-9\\.]*$", REG_EXTENDED);
 
 	buf = malloc(BUF_SIZE);
-	iobuf = malloc(BUF_SIZE);
+	inbuf = malloc(BUF_SIZE);
+	outbuf = malloc(BUF_SIZE);
 	wwwf = fopen("/tmp/woof-homepages.acc", "w");
 	db = fopen("/tmp/woof-debdb.in", "r");
-	/* use a huge stdio buffer, to reduce the overhead of read() - we want to
-	 * spend time on output, not input */
-	setbuffer(db, iobuf, BUF_SIZE);
+	/* use a huge stdio buffer, to reduce the overhead of read() and write() -
+	 * we want to spend time on output, not input */
+	setvbuf(db, inbuf, BUF_SIZE, _IOFBF);
+	setvbuf(stdout, outbuf, BUF_SIZE, _IOFBF);
 
 	initcrc = crc32(0, NULL, 0);
 
@@ -432,7 +434,8 @@ cleanup:
 	}
 
 	free(buf);
-	free(iobuf);
+	free(outbuf);
+	free(inbuf);
 	fclose(wwwf);
 	fclose(db);
 

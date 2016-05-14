@@ -97,16 +97,18 @@ int main(int argc, char *argv[])
 	char name[NAME_SIZE];
 	unsigned long initcrc, crc;
 	FILE *infp, *catf;
-	char *buf, *pos, *nextpos, *iobuf;
+	char *buf, *pos, *nextpos, *inbuf, *outbuf;
 	int nnamecats, nkwdcats, i, j, len, isdeb;
 
-	iobuf = malloc(BUF_SIZE);
+	inbuf = malloc(BUF_SIZE);
+	outbuf = malloc(BUF_SIZE);
 
 	if (argc == 1)
 		infp = stdin;
 	else
 		infp = fopen(argv[1], "r");
-	setbuffer(infp, iobuf, BUF_SIZE);
+	setvbuf(infp, inbuf, BUF_SIZE, _IOFBF);
+	setvbuf(stdout, outbuf, BUF_SIZE, _IOFBF);
 
 	buf = malloc(BUF_SIZE);
 	catf = fopen("/usr/local/petget/categories.dat", "r");
@@ -286,7 +288,8 @@ print:
 bail:
 	free(buf);
 	if (argc != 1) fclose(infp);
-	free(iobuf);
+	free(outbuf);
+	free(inbuf);
 
 	return EXIT_SUCCESS;
 }
