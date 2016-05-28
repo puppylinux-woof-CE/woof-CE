@@ -29,10 +29,12 @@ fi
 #Install gprs-editable only if not already present...
 if [ "$(pwd)" = "/" -a -f etc/ppp/peers/gprs-editable ];then
  rm -f etc/ppp/peers/gprs-editable.tmp
- sed -i '/gprs-editable\.tmp/d' root/.packages/pgprs-*.files
+ [ "$(ls root/.packages/pgprs-*.files 2>/dev/null)" ] \
+  && sed -i '/gprs-editable\.tmp/d' root/.packages/pgprs-*.files
 else
  mv -f etc/ppp/peers/gprs-editable.tmp etc/ppp/peers/gprs-editable
- sed -i '/gprs-editable\.tmp/ s/\.tmp//' root/.packages/pgprs-*.files
+ [ "$(ls root/.packages/pgprs-*.files 2>/dev/null)" ] \
+  && sed -i '/gprs-editable\.tmp/ s/\.tmp//' root/.packages/pgprs-*.files
 fi
 
 #Remove old state gprs.conf, to generate new one.
@@ -52,3 +54,13 @@ fi
 ! grep -qs 'X-Network-phone' etc/xdg/menus/puppy-network.menu \
  && grep -qs '>Dialup<' etc/xdg/menus/puppy-network.menu \
  && sed -i 's/X-Network-phone/Dialup/' usr/share/applications/pgprs-connect.desktop
+
+#Change pgprs icon for older puppies.
+rm -f usr/local/lib/X11/mini-icons/pgprs.png
+if [ ! -f usr/share/pixmaps/pgprs.svg ];then
+ rm -f usr/share/pixmaps/pgprs.svg #the link
+ ln usr/local/lib/X11/mini-icons/Pwireless.png usr/share/pixmaps/pgprs.png
+ [ "$(ls root/.packages/pgprs-*.files 2>/dev/null)" ] \
+  && sed -i '/pgprs\.svg/ s/svg/png/' root/.packages/pgprs-*.files
+ sed -i '/pgprs\.svg/ s/svg/png/' usr/share/applications/pgprs-connect.desktop
+fi
