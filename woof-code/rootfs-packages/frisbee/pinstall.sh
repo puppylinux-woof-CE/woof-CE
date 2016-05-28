@@ -132,10 +132,12 @@ fi
 #151227 Install gprs-editable only if not already present...
 if [ -f etc/ppp/peers/gprs-editable ];then
  rm -f etc/ppp/peers/gprs-editable.tmp
- sed -i '/gprs-editable\.tmp/d' root/.packages/frisbee-1.*.files
+ [ "$(ls root/.packages/frisbee-1.*.files 2>/dev/null)" ] \
+  && sed -i '/gprs-editable\.tmp/d' root/.packages/frisbee-1.*.files
 else
  mv -f etc/ppp/peers/gprs-editable.tmp etc/ppp/peers/gprs-editable
- sed -i 's/\(gprs-editable\)\.tmp/\1/' root/.packages/frisbee-1.*.files
+ [ "$(ls root/.packages/frisbee-1.*.files 2>/dev/null)" ] \
+  && sed -i 's/\(gprs-editable\)\.tmp/\1/' root/.packages/frisbee-1.*.files
 fi
 
 #160213 remove files from old locations - for builds, assume updated connectwizard_2nd is present....
@@ -145,7 +147,8 @@ if [ "$(pwd)" != "/" ] \
  rm -f usr/local/bin/frisbee_cli
  rm -f usr/local/frisbee/connect
  rm -f usr/local/frisbee/disconnect
- sed -i -e '/usr\/local\/bin\/frisbee_mode_disable/d' \
+ [ "$(ls root/.packages/frisbee-1.*.files 2>/dev/null)" ] \
+  && sed -i -e '/usr\/local\/bin\/frisbee_mode_disable/d' \
   -e '/usr\/local\/frisbee\/connect/d' \
   -e '/usr\/local\/frisbee\/disconnect/d' \
   root/.packages/frisbee-1.*.files
