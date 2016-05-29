@@ -55,11 +55,13 @@ fi
  && grep -qs '>Dialup<' etc/xdg/menus/puppy-network.menu \
  && sed -i 's/X-Network-phone/Dialup/' usr/share/applications/pgprs-connect.desktop
 
-#Change pgprs icon for older puppies.
-rm -f usr/local/lib/X11/mini-icons/pgprs.png
-if [ ! -f usr/share/pixmaps/pgprs.svg ];then
- rm -f usr/share/pixmaps/pgprs.svg #the link
- ln usr/local/lib/X11/mini-icons/Pwireless.png usr/share/pixmaps/pgprs.png
+#Create link to appropriate window icon.
+rm -f usr/local/lib/X11/mini-icons/pgprs.png #precaution
+rm -f usr/share/pixmaps/pgprs.svg #placeholder
+if [ -f usr/share/pixmaps/puppy/wireless.svg ];then
+ ln -snf puppy/wireless.svg usr/share/pixmaps/pgprs.svg
+else
+ ln -snf /usr/local/lib/X11/mini-icons/Pwireless.png usr/share/pixmaps/pgprs.png
  [ "$(ls root/.packages/pgprs-*.files 2>/dev/null)" ] \
   && sed -i '/pgprs\.svg/ s/svg/png/' root/.packages/pgprs-*.files
  sed -i '/pgprs\.svg/ s/svg/png/' usr/share/applications/pgprs-connect.desktop
