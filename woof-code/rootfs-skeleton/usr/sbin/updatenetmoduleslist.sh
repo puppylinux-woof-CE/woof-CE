@@ -8,23 +8,22 @@
 #120507 improve kernel version test. add 'sdio' interfaces.
 
 KERNVER="`uname -r`"
-#KERNSUBVER=`echo -n $KERNVER | cut -f 3 -d '.' | cut -f 1 -d '-'` #29
-#KERNMAJVER=`echo -n $KERNVER | cut -f 2 -d '.'` #6
 DRIVERSDIR="/lib/modules/$KERNVER/kernel/drivers/net"
 
 echo "Updating /etc/networkmodules..."
 
 DEPFORMAT='new'
 if vercmp $KERNVER lt 2.6.29; then #120507
- DEPFORMAT='old'
+	DEPFORMAT='old'
 fi
+
 #v423 need better test, as now using busybox depmod...
 [ "`grep '^/lib/modules' /lib/modules/${KERNVER}/modules.dep`" != "" ] && DEPFORMAT='old'
 
 if [ "$DEPFORMAT" = "old" ];then
- OFFICIALLIST="`cat /lib/modules/${KERNVER}/modules.dep | grep "^/lib/modules/$KERNVER/kernel/drivers/net/" | sed -e 's/\.gz:/:/' | cut -f 1 -d ':'`"
+	OFFICIALLIST="`cat /lib/modules/${KERNVER}/modules.dep | grep "^/lib/modules/$KERNVER/kernel/drivers/net/" | sed -e 's/\.gz:/:/' | cut -f 1 -d ':'`"
 else
- OFFICIALLIST="`cat /lib/modules/${KERNVER}/modules.dep | grep "^kernel/drivers/net/" | sed -e 's/\.gz:/:/' | cut -f 1 -d ':'`"
+	OFFICIALLIST="`cat /lib/modules/${KERNVER}/modules.dep | grep "^kernel/drivers/net/" | sed -e 's/\.gz:/:/' | cut -f 1 -d ':'`"
 fi
 
 #there are a few extra scattered around... needs to be manually updated...
@@ -51,37 +50,43 @@ $EXTRALIST"
 #the list has to be cutdown to genuine network interfaces only...
 echo -n "" > /tmp/networkmodules
 (
-echo "$RAWLIST" |
-while read ONERAW
-do
- [ "$ONERAW" = "" ] && continue #precaution
+ echo "$RAWLIST" | while read ONERAW
+ do
 
- #ONEBASE="`basename $ONERAW .ko`"
- ONEBASE=${ONERAW##*/}
- ONEBASE=${ONEBASE%.ko}
- modprobe -vn $ONEBASE >/dev/null 2>&1
+	[ "$ONERAW" = "" ] && continue #precaution
 
- #ONEINFO="`modinfo $ONEBASE 2>/dev/null | tr '\t' ' ' | tr -s ' '`" #111027 make it quiet.
- #ONETYPE="`echo "$ONEINFO" | grep '^alias:' | head -n 1 | cut -f 2 -d ' ' | cut -f 1 -d ':'`"
- #ONEDESCR="`echo "$ONEINFO" | grep '^description:' | head -n 1 | cut -f 2 -d ':'`"
+	#ONEBASE="`basename $ONERAW .ko`"
+	#ONEINFO="`modinfo $ONEBASE 2>/dev/null | tr '\t' ' ' | tr -s ' '`" #111027 make it quiet.
+	#ONETYPE="`echo "$ONEINFO" | grep '^alias:' | head -n 1 | cut -f 2 -d ' ' | cut -f 1 -d ':'`"
+	#ONEDESCR="`echo "$ONEINFO" | grep '^description:' | head -n 1 | cut -f 2 -d ':'`"
 
- ONETYPE=""; ONEDESCR=""
- while read line ; do
-	case $line in
-		"description:"*) read -r zz ONEDESCR <<< "$line" ;;
-		"alias:"*) read -r alias ONETYPE <<< "$line" ; break ;;
+	ONEBASE=${ONERAW##*/}
+	ONEBASE=${ONEBASE%.ko}
+	ONETYPE=""
+	ONEDESCR=""
+	MODINFO=$(modinfo $ONEBASE 2>/dev/null)
+	[ "$MODINFO" = "" ] && continue
+
+	while read line ; do
+		case $line in
+			"description:"*) read -r zz ONEDESCR <<< "$line" ;;
+			"alias:"*) read -r alias ONETYPE <<< "$line" ; break ;;
+		esac
+	done <<< "$MODINFO"
+
+	ONETYPE=${ONETYPE%%:*}
+	case "$ONETYPE" in pci|pcmcia|usb|ssb|sdio)
+		#ssb=b43legacy.ko...  sdio=sdio interfaces...
+		echo "Adding $ONEBASE" >&2
+		echo -e "$ONEBASE \"$ONETYPE:  $ONEDESCR\""
 	esac
- done <<< "$(modinfo $ONEBASE 2>/dev/null)"
- 
- ONETYPE=${ONETYPE%%:*}
- case "$ONETYPE" in
-	#ssb=b43legacy.ko...  sdio=sdio interfaces...
-	pci|pcmcia|usb|ssb|sdio)
-	  echo "Adding $ONEBASE" >&2
-	  echo -e "$ONEBASE \"$ONETYPE:  $ONEDESCR\"" #>> /tmp/networkmodules
- esac
 
-done
-) | sort -u > /etc/networkmodules
+ done
+) | sort -u > /etc/networkmodules-${KERNVER}
+
+# the generated networkmodules includes the kernel version
+# /etc/networkmodules is a symlink to that file
+rm -f /etc/networkmodules
+ln -sv networkmodules-${KERNVER} /etc/networkmodules
 
 ### END ###
