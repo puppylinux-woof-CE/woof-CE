@@ -121,9 +121,21 @@ include "/root/.gtkrc-2.0.mine"
 gtk-theme-name = "${PTHEME_GTK}"
 _EOF
 echo "gtk: ${PTHEME_GTK}"
+
+# icon theme
+[ -n "$PTHEME_ICONS_GTK" ] && \
+USE_ICON_THEME="`find usr/share/icons -type d -name "$PTHEME_ICONS_GTK" -maxdepth 1`"
+[ -z "$USE_ICON_THEME" ] && USE_ICON_THEME="Puppy Standard" # default if exists
+if [ -d "usr/share/icons/$USE_ICON_THEME" ];then
+	# first global
+	echo -e "gtk-icon-theme-name = \"$USE_ICON_THEME\"" >> root/.gtkrc-2.0
+	# then ROX
+	ROX_THEME_FILE="root/.config/rox.sourceforge.net/ROX-Filer/Options" # this could change in future
+	sed -i "s%ROX%$USE_ICON_THEME%" $ROX_THEME_FILE
+	echo "icon theme: $USE_ICON_THEME"
+fi
+
 sleep 1 # reading time
-
-
 
 ##### WALLPAPER #copy it as mv messes the themes
 ext="${PTHEME_WALL##*.}"
