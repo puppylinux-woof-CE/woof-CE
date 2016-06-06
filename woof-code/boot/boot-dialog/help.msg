@@ -7,8 +7,7 @@ For boot options, type0d BOOTLABEL07 then a space, then each option. Some opti
 0dpfix=nox07     commandline only, do not start X (graphical desktop),
 0dpfix=copy07    copy .sfs files to RAM (slower boot, faster running),
 0dpfix=nocopy07  do not copy .sfs files to RAM (faster boot, slower running),
-0dpfix=fsck07    do filesystem check on DISTRO_FILE_PREFIXsave (and host partition),
-0dpfix=fw_drv07  Load extra firmware. Use if some of your hardware is not recognised
+0dpfix=fsck07    do filesystem check on DISTRO_FILE_PREFIXsave (and host partition)
 0dpfix=clean07   file cleanup (simulate version upgrade),
 0dpfix=purge07   more radical file cleanup (to fix broken system).
 0dplang=<xxxx>07 Locale -- not normally required as asked after bootup.
@@ -22,4 +21,5 @@ Examples:
 
 0cDESKTOP FAIL: Black-screen/hangs, press reset or hold power-button down 4 secs:
 next bootup will force run of Video Wizard: choose alternate driver/settings.07
+
 
