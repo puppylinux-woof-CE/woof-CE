@@ -68,9 +68,6 @@ case $DB_DISTRO in
  ubuntu)
   nohup defaulthtmlviewer http://packages.ubuntu.com/${DB_RELEASE}/${DB_nameonly} &
  ;;
- arch)
-  nohup defaulthtmlviewer http://www.archlinux.org/packages/${DB_SUB}/i686/${DB_nameonly}/ &
- ;;
  puppy|t2|gentoo)
    #HOMELINK="`grep 'Homepage:' /tmp/gethomepage_2 | grep -o 'href=".*' | cut -f 2 -d '"'`"
   #w019 fast (see also /usr/sbin/indexgen.sh)...
