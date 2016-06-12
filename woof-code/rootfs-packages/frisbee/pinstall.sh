@@ -6,13 +6,15 @@
 # - Remove /usr/lib/dhcpcd-hooks/99-frisbee_tray and its link in
 #   /usr/libexec/dhcpcd-hooks, from DebianDogs.
 
+[ "$(pwd)" = "/" ] || exit 0
+
+# The remaining do not apply builds -- for pet installation only.
+
 export TEXTDOMAIN=frisbee
 export OUTPUT_CHARSET=UTF-8
 
 #Clear all flags...
-if [ "$(pwd)" = "/" ];then
- rm -f etc/frisbee/.* 2>/dev/null #residue
-fi
+rm -f etc/frisbee/.* 2>/dev/null #residue
 
 #Remove residue from prior frisbee versions...
 rm -f usr/local/frisbee/hook_notify
@@ -52,15 +54,6 @@ rm -f usr/sbin/install-frisbee
 rm -f usr/share/applications/install-frisbee.desktop
 rm -fr usr/share/frisbee #150604
 
-#140526 Add link to frisbee icon.
-[ -h var/local/icons/frisbee.png ] \
- || ln -snf /usr/share/pixmaps/frisbee.png var/local/icons/frisbee.png
-
-#140526 Remove frisbee menu item if connectwizard present.
-[ "$(which connectwizard)" ] \
- && sed -i '/^NoDisplay=/ s/=.*/=true/' \
-     usr/share/applications/frisbee.desktop
-
 #140526 Remove files and placeholders for renamed and moved internal scripts.
 rm -f usr/local/bin/fgprs_*connect
 
@@ -70,21 +63,23 @@ if grep -sq 'nohook 10-wpa_supplicant' etc/frisbee/dhcpcd.conf;then
 fi
 
 #140818 150228 Disable old frisbee initialization script file but add to files list, or remove it.
-if [ "$(pwd)" = "/" ];then
-	if [ -f etc/init.d/frisbee ];then
-	 	chmod a-x etc/init.d/frisbee #150301
-		(
-		sleep 3
-		[ "$(ls root/.packages/frisbee-1.*.files 2>/dev/null)" ] \
-		 && sed -i 's%/etc/init.d/frisbee.sh%/etc/init.d/frisbee\n&%' root/.packages/frisbee-1.*.files
-		) &
-	fi
-else
-	rm -f etc/init.d/frisbee
+if [ -f etc/init.d/frisbee ];then
+ 	chmod a-x etc/init.d/frisbee #150301
+	(
+	sleep 3
+	[ "$(ls root/.packages/frisbee-1.*.files 2>/dev/null)" ] \
+	 && sed -i 's%/etc/init.d/frisbee.sh%/etc/init.d/frisbee\n&%' root/.packages/frisbee-1.*.files
+	) &
 fi
 
 ###End of residue removal section.
 
+
+#160610 Add frisbee menu item if connectwizard not present (e.g., *dogs).
+if [ ! -x usr/sbin/connectwizard ];then
+ sed -i '/^NoDisplay=/ s/=.*/=false/' \
+  usr/share/applications/frisbee.desktop
+fi
 
 # Allow installer to make frisbee the default network manager.
 if Xdialog  --title "Frisbee" --default-no --timeout 60 --ok-label "Yes, set as default" --cancel-label "No" --left --yesno "$(gettext "Frisbee is installed as one of the Connect Wizard network manager options.")\n\n$(gettext "Do you want frisbee to be the default network manager at the next boot-up or\nat the initial boot of a distro package?")" 0 0;then
@@ -94,63 +89,28 @@ if Xdialog  --title "Frisbee" --default-no --timeout 60 --ok-label "Yes, set as 
  -e '/^wireless_autostart=/ s/=.*/=1/' \
  -e '/^announce_state_changes=/ s/=.*/=1/' \
  etc/frisbee/frisbee.conf
- [ -f /etc/dhcpcd_state_notify ] || touch etc/dhcpcd_state_notify
- [ "$(pwd)" = "/" ] && touch /tmp/.frisbee_newly_installed
+ [ -f etc/dhcpcd_state_notify ] || touch etc/dhcpcd_state_notify
 else
  rm -f etc/dhcpcd_state_notify
 fi
 
-#150301 Supply default .conf files only for builds or if absent.
-if [ "$(pwd)" != "/" -o ! -f etc/frisbee/dhcpcd.conf ];then
-	mv -f etc/frisbee/dhcpcd.tmp etc/frisbee/dhcpcd.conf
-	[ "$(ls root/.packages/frisbee-1.*.files 2>/dev/null)" ] \
-	 && sed -i 's%\(/etc/frisbee/dhcpcd\.\)tmp%\1conf%' root/.packages/frisbee-1.*.files
-else 
-	rm -f etc/frisbee/dhcpcd.tmp
-	[ "$(ls root/.packages/frisbee-1.*.files 2>/dev/null)" ] \
-	 && sed -i '/dhcpcd\.tmp/d' root/.packages/frisbee-1.*.files
-fi 
-if [ "$(pwd)" != "/" -o ! -f etc/frisbee/frisbee.conf ];then
-	mv -f etc/frisbee/frisbee.tmp etc/frisbee/frisbee.conf
-	[ "$(ls root/.packages/frisbee-1.*.files 2>/dev/null)" ] \
-	 && sed -i 's%\(/etc/frisbee/frisbee\.\)tmp%\1conf%' root/.packages/frisbee-1.*.files
-else 
-	rm -f etc/frisbee/frisbee.tmp
-	[ "$(ls root/.packages/frisbee-1.*.files 2>/dev/null)" ] \
-	 && sed -i '/frisbee\.tmp/d' root/.packages/frisbee-1.*.files
-fi 
-if [ "$(pwd)" != "/" -o ! -f etc/frisbee/wpa_supplicant.conf ];then
-	mv -f etc/frisbee/wpa_supplicant.tmp etc/frisbee/wpa_supplicant.conf
-	[ "$(ls root/.packages/frisbee-1.*.files 2>/dev/null)" ] \
-	 && sed -i 's%\(/etc/frisbee/wpa_supplicant\.\)tmp%\1conf%' root/.packages/frisbee-1.*.files
-else 
-	rm -f etc/frisbee/wpa_supplicant.tmp
-	[ "$(ls root/.packages/frisbee-1.*.files 2>/dev/null)" ] \
-	 && sed -i '/wpa_supplicant\.tmp/d' root/.packages/frisbee-1.*.files
-fi 
-
-#151227 Install gprs-editable only if not already present...
-if [ -f etc/ppp/peers/gprs-editable ];then
- rm -f etc/ppp/peers/gprs-editable.tmp
- [ "$(ls root/.packages/frisbee-1.*.files 2>/dev/null)" ] \
-  && sed -i '/gprs-editable\.tmp/d' root/.packages/frisbee-1.*.files
-else
- mv -f etc/ppp/peers/gprs-editable.tmp etc/ppp/peers/gprs-editable
- [ "$(ls root/.packages/frisbee-1.*.files 2>/dev/null)" ] \
-  && sed -i 's/\(gprs-editable\)\.tmp/\1/' root/.packages/frisbee-1.*.files
-fi
-
 #160213 remove files from old locations - for builds, assume updated connectwizard_2nd is present....
-if [ "$(pwd)" != "/" ] \
-  || grep -q 'frisbee --' usr/sbin/connectwizard;then
- rm -f usr/local/bin/frisbee_mode_disable
- rm -f usr/local/bin/frisbee_cli
- rm -f usr/local/frisbee/connect
- rm -f usr/local/frisbee/disconnect
+rm -f usr/local/bin/frisbee_mode_disable
+rm -f usr/local/frisbee/connect
+rm -f usr/local/frisbee/disconnect
+rm -f usr/local/bin/frisbee_cli
+if ! grep -qE 'frisbee --|frisbee_cli --' usr/sbin/connectwizard;then
+ ln -snf frisbee usr/local/bin/frisbee_mode_disable
+ ln -snf ../bin/frisbee usr/local/frisbee/connect
+ ln -snf ../bin/frisbee usr/local/frisbee/disconnect
  [ "$(ls root/.packages/frisbee-1.*.files 2>/dev/null)" ] \
-  && sed -i -e '/usr\/local\/bin\/frisbee_mode_disable/d' \
-  -e '/usr\/local\/frisbee\/connect/d' \
-  -e '/usr\/local\/frisbee\/disconnect/d' \
+  && sed -i -e 's%/usr/local/bin/frisbee$%&\n/usr/local/bin/frisbee_mode_disable%' \
+  -e 's%/usr/local/frisbee/frisbee-gprs-connect$%/usr/local/frisbee/connect\n/usr/local/frisbee/disconnect\n&' \
+  root/.packages/frisbee-1.*.files
+elif grep -q 'frisbee_cli --' usr/sbin/connectwizard;then
+ ln -snf frisbee usr/local/bin/frisbee_cli
+ [ "$(ls root/.packages/frisbee-1.*.files 2>/dev/null)" ] \
+  && sed -i -e 's%/usr/local/bin/frisbee$%&\n/usr/local/bin/frisbee_cli%' \
   root/.packages/frisbee-1.*.files
 fi
 
