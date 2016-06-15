@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 #(c) Copyright Barry Kauler 2009.
 #grab binary ubuntu/debian/slackware packages and build puppy packages.
 #each binary package is expanded in sandbox2/ then copied as split pkgs
@@ -17,7 +17,6 @@
 #110820 support/findpkgs is new script to find all pkgs to be used in Puppy build. Major changes!
 #110823 fix finding compat PETs in wary.
 #110830 fix if 3rd field specifies multiple pet pkgs.
-#111121 noryb009: improve arch linux support, patched: 0setup, 1download, 2createpackages, 3builddistro, DISTRO_COMPAT_REPOS-arch, support/arch/runDotInstalls
 #111127 no longer check if host has 'printcols', 'vercmp', it is done in 'merge2out' script.
 #111204 do not use /var/local/woof, instead 'status' directory (better for running from different save-files).
 #111204 do not execute post-install script if FIXUPHACK has DISABLE_POST_INSTALL_SCRIPT=yes. (this existed before, but was broken)
@@ -42,7 +41,6 @@
 #130112 multiarch symlinks now optional. see also 3builddistro, /usr/local/petget/installpkg.sh.
 #130114 revert 130112.
 #130219 categories.dat format changed slightly. see also /usr/local/petget/installpkg.sh.
-#130306 arch linux: gz now xz. maybe only 'DISTRO_COMPAT_REPOS-arch'.
 #130313 arch linux is relocating many files to /usr, providing symlinks, very annoying.
 #130421 export DISTRO_FILE_PREFIX, i want this in FIXUPHACK.
 #130510 support multiarch for debian wheezy.
@@ -225,9 +223,14 @@ mkdir -p /tmp/2createpackages_tmp
 
 #091211 to save time rebuild only changed pkgs COMMANDLINE_CHOICE="CHANGED_ONLY"...
 mkdir -p status
-touch status/2createpackages_history_builds-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}
-#this file will keep growing, so reset it...
-[ "$COMMANDLINE_CHOICE" = "ALL_PACKAGES" ] && echo -n "" > status/2createpackages_history_builds-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}
+if [ "$COMMANDLINE_CHOICE" = "ALL_PACKAGES" ] ; then
+  #this file will keep growing, so reset it...
+  echo -n "" > status/2createpackages_history_builds-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}
+else
+  touch status/2createpackages_history_builds-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}
+  sort -u status/2createpackages_history_builds-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} > status/z2c
+  mv -f status/z2c status/2createpackages_history_builds-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}
+fi
 
 mkdir -p packages-${DISTRO_FILE_PREFIX}
 while [ 1 ];do
@@ -253,8 +256,7 @@ while [ 1 ];do
   CHOICE_PKGS_SPECS_TABLE="$PKGS_SPECS_TABLE"
   rm -rf sandbox2c 2>/dev/null
  else
-  aPATTERN='^yes|'"$USERINPUT"'|'
-  CHOICE_PKGS_SPECS_TABLE="`echo "$PKGS_SPECS_TABLE" | grep "$aPATTERN"`"
+  CHOICE_PKGS_SPECS_TABLE="`echo "$PKGS_SPECS_TABLE" | grep "^yes|${USERINPUT}|"`"
   if [ "$CHOICE_PKGS_SPECS_TABLE" = "" ];then
    echo "ERROR: Generic-name must be from 2nd field of variable PKGS_SPECS_TABLE"
    echo "in file ${DPSFILE}."
@@ -296,19 +298,21 @@ fi
 #read through PKGS_SPECS_TABLE, find matching pkg(s) in 'packages-${BINARIES}',
 #process and create raw woof packages in 'packages-${DISTRO_FILE_PREFIX}'...
 
+STRIP_BIN="`which strip`"
+
 echo -n "" > /tmp/2createpackages-redo #091211
 rm -f ERROR-2CREATEPACKAGES 2>/dev/null
 
 for ONEPKGSPEC in $CHOICE_PKGS_SPECS_TABLE
 do
+
  [ "$ONEPKGSPEC" = "" ] && continue
- YESNO="`echo "$ONEPKGSPEC" | cut -f 1 -d '|'`"
+
+ IFS="|" read -r YESNO GENERICNAME BINARYPARTNAMES SPLITRULE PKGLOCFLD ETC <<< "$ONEPKGSPEC"
  [ "$YESNO" = "no" ] && continue
+ BINARYPARTNAMES="${BINARYPARTNAMES//,/ }" #convert "," to " "
+
  MISSPOSTPROC='no' #091211
- echo -n "$MISSPOSTPROC" > /tmp/2createpackages_tmp/MISSPOSTPROC #set inside do-done, separate process.
- GENERICNAME="`echo "$ONEPKGSPEC" | cut -f 2 -d '|'`"
- BINARYPARTNAMES="`echo "$ONEPKGSPEC" | cut -f 3 -d '|' | tr ',' ' '`"
- SPLITRULE="`echo "$ONEPKGSPEC" | cut -f 4 -d '|'`"
  echo "Processing $GENERICNAME"
  REMOVEDGENFLAG=0 #091211
 
@@ -333,7 +337,8 @@ Do it, then rerun this script and choose to build $GENERICNAME." >> ERROR-2CREAT
   #120812 category now allows optional subcategory...
   #ONEDBENTRY=:GENERICNAME:|PETorCOMPAT|DBFILE|pkgname|nameonly|version|pkgrelease|category[;subcategory]|size|path|fullfilename|dependencies|description|compileddistro|compiledrelease|repo|
   #...pkgname onwards is the full db entry for a package.
-  PETorCOMPAT="`echo -n "$ONEDBENTRY" | cut -f 2 -d '|'`" #ex: compat
+  IFS="|" read -r F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 ETC <<< "$ONEDBENTRY"
+  PETorCOMPAT="$F2" #ex: compat
   if [ "$PETorCOMPAT" != "pet" -a "$PETorCOMPAT" != "compat" ];then
    echo "
 Syntax ERROR in status/findpkgs_FINAL_PKGS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}:
@@ -341,21 +346,26 @@ Syntax ERROR in status/findpkgs_FINAL_PKGS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMP
 Ignoring this line." >> ERROR-2CREATEPACKAGES
    continue
   fi
-  DBFILE="`echo -n "$ONEDBENTRY" | cut -f 3 -d '|'`"      #ex: Packages-puppy-5-official
-  DB_pkgname="`echo -n "$ONEDBENTRY" | cut -f 4 -d '|'`"  #ex: abiword-2.3.4-w5
-  DB_fullfilename="`echo -n "$ONEDBENTRY" | cut -f 11 -d '|'`"  #ex: abiword-2.3.4-w5.pet
-  petFLG="`echo -n "$DB_fullfilename" | grep -o 'pet$'`"
-  echo -n "$petFLG" > /tmp/2createpackages_tmp/petFLG #cannot read petFLG outside do-done (separate process).
+  DBFILE="$F3"           #ex: Packages-puppy-5-official
+  DB_pkgname="$F4"       #ex: abiword-2.3.4-w5
+  DB_fullfilename="$F11" #ex: abiword-2.3.4-w5.pet
+  case "$DB_fullfilename" in
+   *.pet) petFLG=pet ;;
+   *) petFLG="" ;;
+  esac
 
   #PKGS_SPECS_TABLE may specify redirections...
-  EXE="_`echo "$SPLITRULE" | tr ',' '\n' | grep '^exe' | cut -f 2 -d '>' | tr '[a-z]' '[A-Z]'`"
-  DEV="_`echo "$SPLITRULE" | tr ',' '\n' | grep '^dev' | cut -f 2 -d '>' | tr '[a-z]' '[A-Z]'`"
-  DOC="_`echo "$SPLITRULE" | tr ',' '\n' | grep '^doc' | cut -f 2 -d '>' | tr '[a-z]' '[A-Z]'`"
-  NLS="_`echo "$SPLITRULE" | tr ',' '\n' | grep '^nls' | cut -f 2 -d '>' | tr '[a-z]' '[A-Z]'`"
-  [ "$EXE" = "_" ] && EXE="_EXE"
-  [ "$DEV" = "_" ] && DEV="_EXE"
-  [ "$DOC" = "_" ] && DOC="_EXE"
-  [ "$NLS" = "_" ] && NLS="_EXE"
+  EXE="" ; DEV="" ; DOC="" ; NLS=""
+  #exe>dev,dev>exe,etc
+  #exe,dev,doc>exe,nls>null
+  for TOK in ${SPLITRULE//,/ } ; do #convert "," to " "
+	case $TOK in
+		exe*) EXE="${TOK#*>}" ; EXE="_${EXE^^}" ;;
+		dev*) DEV="${TOK#*>}" ; DEV="_${DEV^^}" ;;
+		doc*) DOC="${TOK#*>}" ; DOC="_${DOC^^}" ;;
+		nls*) NLS="${TOK#*>}" ; NLS="_${NLS^^}" ;;
+	esac
+  done
   #the "packagename_EXE" is just named "packagename"...
   [ "$EXE" = "_EXE" ] && EXE=""
   [ "$DEV" = "_EXE" ] && DEV=""
@@ -363,13 +373,12 @@ Ignoring this line." >> ERROR-2CREATEPACKAGES
   [ "$NLS" = "_EXE" ] && NLS=""
 
   if [ "$petFLG" = "pet" ];then #do not test PETorCOMPAT only.
-   PETPKG="`basename $DB_fullfilename .pet`"
+   PETPKG=${DB_fullfilename%.pet} #remove trailing ".pet"
    PETSUB="pet" #110823
    [ "$PETorCOMPAT" = "compat" ] && PETSUB="$BINARIES" #110823
 
-   cspPATTERN='|'"$PETPKG"'.pet$'
    if [ "$COMMANDLINE_CHOICE" = "CHANGED_ONLY" ];then
-    if [ "`grep "$cspPATTERN" status/2createpackages_history_builds-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}`" != "" ];then
+    if [ "`grep "|${PETPKG}.pet\$" status/2createpackages_history_builds-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}`" != "" ];then
      echo " ...${PETPKG}.pet already processed"
      continue
     fi
@@ -389,29 +398,24 @@ Ignoring this line." >> ERROR-2CREATEPACKAGES
    #now expand $PETPKG.pet in packages-${DISTRO_FILE_PREFIX}...
    echo " processing ${PETPKG}.pet"
    #PKGS_SPECS_TABLE may specify redirections...
-   xPETTYPE="`echo -n "$DB_pkgname" | grep -o -E '_DEV|_DOC|_NLS'`" #_DEV, _DOC, _NLS, or empty for EXE.
-   [ "$xPETTYPE" = "" ] && xxPETTYPE="$EXE"
-   [ "$xPETTYPE" = "_DEV" ] && xxPETTYPE="$DEV"
-   [ "$xPETTYPE" = "_DOC" ] && xxPETTYPE="$DOC"
-   [ "$xPETTYPE" = "_NLS" ] && xxPETTYPE="$NLS"
+   case "$DB_pkgname" in
+     *"_DEV"*) xPETTYPE="$DEV" ;;
+     *"_DOC"*) xPETTYPE="$DOC" ;;
+     *"_NLS"*) xPETTYPE="$NLS" ;;
+     *)        xPETTYPE="$EXE" ;;
+   esac
+   xxPETTYPE=${xPETTYPE}
    rm -rf sandbox2e 2>/dev/null #110830
    mkdir sandbox2e #110830
    if [ -f packages-${PETSUB}/${PETPKG}.pet ];then #110823
-    #cp -f packages-${PETSUB}/${PETPKG}.pet packages-${DISTRO_FILE_PREFIX}/ #110823
-    #cd packages-${DISTRO_FILE_PREFIX}
-    file -b "packages-${PETSUB}/${PETPKG}.pet" | grep -i -q "^xz" && ZEXT=xz || ZEXT=gz #140716
     cp -f packages-${PETSUB}/${PETPKG}.pet sandbox2e/ #110830
     cd sandbox2e
-    case $ZEXT in
-    gz) opt=-z ;;
-    xz) opt=-J ;;
-    esac
     pet2tgz ${PETPKG}.pet
-    tar ${opt} -x -f $PETPKG.tar.${ZEXT}
+    tar -a -x -f ${PETPKG}.tar.[gx]z
     mkdir -p ../packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}${xxPETTYPE} #110830
     cp -a -f --remove-destination $PETPKG/* ../packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}${xxPETTYPE}/ #110830
     sync
-    rm ${PETPKG}.tar.${ZEXT}
+    rm -f ${PETPKG}.tar.[gx]z
     rm -rf $PETPKG
     cd ..
    else
@@ -443,7 +447,6 @@ then run this script again and choose to build ${GENERICNAME}." >> ERROR-2CREATE
    if [ "`grep "$cspPATTERN" status/2createpackages_history_builds-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}`" != "" ];then
     echo " ...${zPKGNAME} already processed"
     MISSPOSTPROC='yes'
-    echo -n "$MISSPOSTPROC" > /tmp/2createpackages_tmp/MISSPOSTPROC #set inside do-done, separate process.
     continue
    fi
    groPATTERN='^'"$GENERICNAME"'|' #get rid of old entries...
@@ -456,9 +459,10 @@ then run this script again and choose to build ${GENERICNAME}." >> ERROR-2CREATE
   fi
   echo "${GENERICNAME}|${zPKGNAME}" >> status/2createpackages_history_builds-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}
   echo " processing $zPKGNAME"
+  PKGNAME="${ONEBINARYPKG##*/}" #basename "$ONEBINARYPKG"
   case $DISTRO_BINARY_COMPAT in
    ubuntu|trisquel|debian|devuan|raspbian)
-    PKGNAME="`basename $ONEBINARYPKG .deb`" #ex: bash_3.2-4ububtu1_i386
+    PKGNAME="${PKGNAME%.deb}" #ex: bash_3.2-4ububtu1_i386
     rm -rf sandbox2
     mkdir sandbox2
     dpkg-deb -x $ONEBINARYPKG sandbox2/
@@ -469,18 +473,18 @@ then run this script again and choose to build ${GENERICNAME}." >> ERROR-2CREATE
    ;;
    slackware*) #140716 64 bit
     #100617 add support for .txz...
-    SLACKEXT="`echo -n "$ONEBINARYPKG" | rev | cut -f 1 -d '.' | rev`" #exs: tgz, txz
+    SLACKEXT=${ONEBINARYPKG##*\.} #exs: tgz, txz
     rm -rf sandbox2
     mkdir sandbox2
     cp -a $ONEBINARYPKG sandbox2/
     cd sandbox2
     if [ "$SLACKEXT" == "tgz" ];then
-     PKGNAME="`basename ${ONEBINARYPKG} .tgz`" #ex: bash-3.2
+     PKGNAME="${PKGNAME%.tgz}" #ex: bash-3.2
      tar -izxf ${PKGNAME}.tgz
      RETVAL=$?
      rm -f ${PKGNAME}.tgz
     else
-     PKGNAME="`basename ${ONEBINARYPKG} .txz`" #ex: bash-3.2
+     PKGNAME="${PKGNAME%.txz}" #ex: bash-3.2
      tar -iJxf ${PKGNAME}.txz
      RETVAL=$?
      rm -f ${PKGNAME}.txz
@@ -503,8 +507,8 @@ then run this script again and choose to build ${GENERICNAME}." >> ERROR-2CREATE
     fi
    ;;
    t2|gentoo) #120515
-    FULLPKGNAME="`basename $ONEBINARYPKG`"
-    PKGNAME="`basename $ONEBINARYPKG .tar.bz2`" #ex: bash-3.2
+    FULLPKGNAME="$PKGNAME"
+    PKGNAME="${PKGNAME%.tar.bz2}" #ex: bash-3.2
     rm -rf sandbox2
     mkdir sandbox2
     cp -a $ONEBINARYPKG sandbox2/
@@ -529,12 +533,14 @@ then run this script again and choose to build ${GENERICNAME}." >> ERROR-2CREATE
     rm -rf sandbox2/lib/${ARCHDIR}
     ln -s ./ sandbox2/lib/${ARCHDIR}
    fi
+
    if [ -d sandbox2/usr/lib/$ARCHDIR ];then
     cp -a -f --remove-destination sandbox2/usr/lib/${ARCHDIR}/* sandbox2/usr/lib/
     sync
     rm -rf sandbox2/usr/lib/${ARCHDIR}
     ln -s ./ sandbox2/usr/lib/${ARCHDIR}
    fi
+
    #120909 add /usr/bin...
    if [ -d sandbox2/usr/bin/$ARCHDIR ];then
     cp -a -f --remove-destination sandbox2/usr/bin/${ARCHDIR}/* sandbox2/usr/bin/
@@ -547,7 +553,7 @@ then run this script again and choose to build ${GENERICNAME}." >> ERROR-2CREATE
   #120818 overhauled. Pkg db now has category[;subcategory] (see 0setup), xdg enhanced (see /etc/xdg and /usr/share/desktop-directories), and generic icons for all subcategories (see /usr/local/lib/X11/mini-icons).
   #w019 fix .desktop files... 120628 improve...
   DEFICON='Executable.xpm'
-  FULLPKGNAME="`basename $ONEBINARYPKG`"
+  FULLPKGNAME="${ONEBINARYPKG##*/}" #basename $ONEBINARYPKG
   DB_ENTRY="`echo -n "$ONEDBENTRY" | cut -f 4-19 -d '|'`" #take GENERICNAME|PETorCOMPAT|DBFILE| off start.
   
   #120818 find out if Categories entry in .desktop is valid, if not use 'category' field in pkg db...
@@ -583,7 +589,7 @@ then run this script again and choose to build ${GENERICNAME}." >> ERROR-2CREATE
     case $DBCOMPILEDDISTRO in
      debian|trisquel|devuan|ubuntu|raspbian)
       if [ "$DBPATH" ];then #precaution
-       xNAMEONLY="$(basename ${DBPATH})"
+       xNAMEONLY="${DBPATH##*/}" #basename ${DBPATH}
       else
        xNAMEONLY="$DBNAMEONLY"
       fi
@@ -642,13 +648,13 @@ then run this script again and choose to build ${GENERICNAME}." >> ERROR-2CREATE
    if [ "$ICON" != "" ];then
     [ -e "sandbox2${ICON}" ] && continue #it may have a hardcoded path.
     [ -e "${ICON}" ] && continue #it may have a hardcoded path, look in running puppy.
-    ICONBASE="`basename "$ICON"`"
+    ICONBASE="${ICON##*/}" #basename "$ICON"
     #first search where jwm looks for icons... 111207 check if paths exist...
     FNDICON=""
     [ -d sandbox2/usr/share/pixmaps ] && FNDICON="`find sandbox2/usr/share/pixmaps -maxdepth 1 -name $ICONBASE -o -name $ICONBASE.png -o -name $ICONBASE.xpm -o -name $ICONBASE.jpg -o -name $ICONBASE.jpeg -o -name $ICONBASE.gif -o -name $ICONBASE.svg | grep -i -E 'png$|xpm$|jpg$|jpeg$|gif$|svg$' | head -n 1`"
     [ ! "$FNDICON" ] && [ -d sandbox2/usr/local/lib/X11/mini-icons ] && FNDICON="`find sandbox2/usr/local/lib/X11/mini-icons -maxdepth 1 -name $ICONBASE -o -name $ICONBASE.png -o -name $ICONBASE.xpm -o -name $ICONBASE.jpg -o -name $ICONBASE.jpeg -o -name $ICONBASE.gif -o -name $ICONBASE.svg | grep -i -E 'png$|xpm$|jpg$|jpeg$|gif$|svg$' | head -n 1`"
     if [ "$FNDICON" ];then
-     ICONNAMEONLY="`basename $FNDICON`"
+     ICONNAMEONLY="${FNDICON##*/}" #basename $FNDICON
      iPTN="s%^Icon=.*%Icon=${ICONNAMEONLY}%"
      sed -i -e "$iPTN" $ONEDESKTOP
      continue
@@ -656,7 +662,7 @@ then run this script again and choose to build ${GENERICNAME}." >> ERROR-2CREATE
      #look elsewhere, including in running puppy... 111207 fix for parole /usr/share/parole/parole.png...
      FNDICON="`find sandbox2 /usr/share/icons /usr/local/share/pixmaps /usr/share/pixmaps -name $ICONBASE -o -name $ICONBASE.png -o -name $ICONBASE.xpm -o -name $ICONBASE.jpg -o -name $ICONBASE.jpeg -o -name $ICONBASE.gif -o -name $ICONBASE.svg  | sed -e 's%sandbox2%%' | grep -i -E 'png$|xpm$|jpg$|jpeg$|gif$|svg$' | head -n 1`"
      if [ "$FNDICON" ];then
-      ICONNAMEONLY="`basename "$FNDICON"`"
+      ICONNAMEONLY="${FNDICON##*/}" #basename "$FNDICON"
       mkdir -p sandbox2/usr/share/pixmaps #120514
       ln -snf "$FNDICON" sandbox2/usr/share/pixmaps/${ICONNAMEONLY} #111207 fix path.
       iPTN="s%^Icon=.*%Icon=${ICONNAMEONLY}%"
@@ -677,129 +683,138 @@ then run this script again and choose to build ${GENERICNAME}." >> ERROR-2CREATE
   #accumulate multiple binary pkgs into one place...
   cp -a --remove-destination sandbox2/* sandbox2b/ #accumulate all ubuntu|debian|t2|slackware pkgs.
   #if pkg has '-dev_' in name, copy all of it to $DEV... w018 add '_DEV'
-  if [ "`echo "$PKGNAME" | grep -E '\-dev_|_DEV'`" != "" ];then
+  case "$PKGNAME" in *"-dev_"*|*"_DEV"*)
    mkdir -p packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}${DEV}
    cp -a --remove-destination sandbox2/* packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}${DEV}/
    continue
-  fi
+  esac
   #if pkg has '-doc_' in name, copy all of it to $DOC... w018 add '_DOC'
-  if [ "`echo "$PKGNAME" | grep -E '\-doc_|_DOC'`" != "" ];then
+  case "$PKGNAME" in *"-doc_"*|*"_DOC"*)
    mkdir -p packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}${DOC}
    cp -a --remove-destination sandbox2/* packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}${DOC}/
    continue
-  fi
+  esac
   #w018 '_NLS'
-  if [ "`echo "$PKGNAME" | grep '_NLS'`" != "" ];then
+  case "$PKGNAME" in *"_NLS"*)
    mkdir -p packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}${NLS}
    cp -a --remove-destination sandbox2/* packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}${NLS}/
    continue
-  fi
+  esac
+
   #now process sandbox2 and create split rootfs, devx, docs, nls...
   cd sandbox2
   #now to split pkg into exe,dev,doc,nls components...
   #this will find all files and symlinks to files...
-  find -L ./ -noleaf -type f | sed -e 's/^\.\///' |
+  find -L ./ -noleaf -type f | sed -e 's|^\.\/||' |
   while read ONEFILE
   do
+   ONEBASE="${ONEFILE##*/}" #basename "$ONEFILE"
+   ONEPATH="`dirname "$ONEFILE"`"
    #problem, coming here with paths that have symlinks...
-   UPONE="`dirname "$ONEFILE"`"
+   UPONE="${ONEPATH}"
    while [ "$UPONE" != "." -a "$UPONE" != "/" ];do
     [ -h "$UPONE" ] && continue 2
     UPONE="`dirname "$UPONE"`"
    done
-   ONEBASE="`basename "$ONEFILE"`"
-   ONEPATH="`dirname "$ONEFILE"`"
    [ "$ONEPATH" = "." ] && ONEPATH=""
-   #strip the file...
-   #120502 but not if a cross-build (see file WOOFMERGEVARS), strip won't work...
-   if [ "$WOOF_HOSTARCH" = "$WOOF_TARGETARCH" ];then
-    if [ "`which strip`" != "" ];then #needs devx.
-     if [ ! -h "$ONEFILE" ];then #make sure it isn't a symlink
-      [ ! "`file "$ONEFILE" | grep 'ELF' | grep 'shared object'`" = "" ] && strip --strip-debug "$ONEFILE"
-      [ ! "`file "$ONEFILE" | grep 'ELF' | grep 'executable'`" = "" ] && strip --strip-unneeded "$ONEFILE"
-     fi
-    fi
-   fi
-   sync
    ###NLS###
    #find out if this is an international language file...
-   if [ ! "`echo -n "$ONEFILE" | grep --extended-regexp '/locale/|/nls/|/i18n/'`" = "" ];then
-    if [ "`echo -n "$ONEFILE" | grep 'share/X11/locale/'`" = "" ];then #w020 T2, need Xorg locale files in main pkg.
+   case "$ONEFILE" in *"/locale/"*|*"/nls/"*|*"/i18n/"*)
      [ "$NLS" = "_NULL" ] && continue #just dump it.
-     mkdir -p "../packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}${NLS}/${ONEPATH}"
+     [ ! -d "../packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}${NLS}/${ONEPATH}" ] && \
+      mkdir -p "../packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}${NLS}/${ONEPATH}"
      cp -af "$ONEFILE" "../packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}${NLS}/${ONEPATH}/" 2>/dev/null
      continue
-    fi
-   fi
+   esac
    ###DOC###
    #find out if this is a documentation file...
-   if [ ! "`echo -n "$ONEFILE" | grep --extended-regexp '/man/|/doc/|/doc-base/|/docs/|/info/|/gtk-doc/|/faq/|/manual/|/examples/|/help/|/htdocs/'`" = "" ];then
+   case "$ONEFILE" in *"/man/"*|*"/doc/"*|*"/doc-base/"*|*"/docs/"*|*"/info/"*|*"/gtk-doc/"*|*"/faq/"*|*"/manual/"*|*"/examples/"*|*"/help/"*|*"/htdocs/"*)
     [ "$DOC" = "_NULL" ] && continue #just dump it.
-    mkdir -p "../packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}${DOC}/${ONEPATH}"
+    [ ! -d "../packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}${DOC}/${ONEPATH}" ] && \
+     mkdir -p "../packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}${DOC}/${ONEPATH}"
     cp -af "$ONEFILE" "../packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}${DOC}/${ONEPATH}/" 2>/dev/null
     continue
-   fi
+   esac
    ###DEV###
    #find out if this is development file... 091125: add 'config' dir (in xorg)...
-   if [ ! "`echo -n "$ONEFILE" | grep --extended-regexp 'X11/config/|/include/|/pkgconfig/|/aclocal|/cvs/|/svn/'`" = "" ];then
-    #note: if "$DEV" = "_NULL" then 'abiword_NULL' will get created, delete later.
-    mkdir -p "../packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}${DEV}/${ONEPATH}"
+   case "$ONEFILE" in *"X11/config/"*|*"/include/"*|*"/pkgconfig/"*|*"/aclocal"*|*"/cvs/"*|*"/svn/"*)
+    [ "$DEV" = "_NULL" ] && continue #just dump it.
+    [ ! -d "../packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}${DEV}/${ONEPATH}" ] && \
+     mkdir -p "../packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}${DEV}/${ONEPATH}"
     cp -af "$ONEFILE" "../packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}${DEV}/${ONEPATH}/" 2>/dev/null
     continue
-   fi
+   esac
    #find *.so symlink files...
-   if [ -h "$ONEFILE" ];then #-h tests for symlink
-    if [ ! "`echo -n "$ONEFILE" | grep '\.so$'`" = "" ];then
-     #note: if "$DEV" = "_NULL" then 'abiword_NULL' will get created, delete later.
-     mkdir -p "../packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}${DEV}/${ONEPATH}"
+   case "$ONEFILE" in *.so)
+    if [ -h "$ONEFILE" ];then #-h tests for symlink
+     [ "$DEV" = "_NULL" ] && continue #just dump it.
+     [ ! -d "../packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}${DEV}/${ONEPATH}" ] && \
+      mkdir -p "../packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}${DEV}/${ONEPATH}"
      cp -af "$ONEFILE" "../packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}${DEV}/${ONEPATH}/" 2>/dev/null
      continue
     fi
-   fi
+   esac
    #find various config files...
-   if [ ! "`echo -n "$ONEBASE" | grep --extended-regexp '\-config$|config.sh$|Conf.sh$'`" = "" ];then
-    #note: if "$DEV" = "_NULL" then 'abiword_NULL' will get created, delete later.
-    mkdir -p "../packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}${DEV}/${ONEPATH}"
+   case "$ONEFILE" in *"-config"|*"config.sh"|*"Conf.sh")
+    [ "$DEV" = "_NULL" ] && continue #just dump it.
+    [ ! -d "../packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}${DEV}/${ONEPATH}" ] && \
+     mkdir -p "../packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}${DEV}/${ONEPATH}"
     cp -af "$ONEFILE" "../packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}${DEV}/${ONEPATH}/" 2>/dev/null
     continue
-   fi
+   esac
    #all .a and .la files... and any stray .m4 files...
-   if [ ! "`echo -n "$ONEBASE" | grep --extended-regexp '\.a$|\.la$|\.m4$'`" = "" ];then
-    #note: if "$DEV" = "_NULL" then 'abiword_NULL' will get created, delete later.
-    mkdir -p "../packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}${DEV}/${ONEPATH}"
+   case "$ONEFILE" in *.a|*.la|*.m4)
+    [ "$DEV" = "_NULL" ] && continue #just dump it.
+    [ ! -d "../packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}${DEV}/${ONEPATH}" ] && \
+     mkdir -p "../packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}${DEV}/${ONEPATH}"
     cp -af "$ONEFILE" "../packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}${DEV}/${ONEPATH}/" 2>/dev/null
     continue
-   fi
+   esac
    ###EXE###
    #anything left over goes into the main 'executable' package...
-   mkdir -p "../packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}${EXE}/${ONEPATH}"
+   #strip the file... but not if a cross-build (see file WOOFMERGEVARS)
+   if [ "$WOOF_HOSTARCH" = "$WOOF_TARGETARCH" ];then
+    if [ "$STRIP_BIN" != "" ];then #needs devx.
+     if [ ! -h "$ONEFILE" ];then #make sure it isn't a symlink
+      FILE_INFO=$(file "$ONEFILE")
+      case $FILE_INFO in *"ELF"*)
+        case $FILE_INFO in
+          *"shared object"*) strip --strip-debug "$ONEFILE" ;;
+          *"executable"*) strip --strip-unneeded "$ONEFILE" ;;
+        esac
+      esac
+     fi
+    fi
+   fi
+   [ ! -d "../packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}${EXE}/${ONEPATH}" ] && \
+    mkdir -p "../packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}${EXE}/${ONEPATH}"
    cp -af "$ONEFILE" "../packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}${EXE}/${ONEPATH}/" 2>/dev/null
   done
   ###EXE###
   #fix for empty directories and links to dirs...
-  find -L ./ -noleaf -type d | sed -e 's/^\.\///' |
+  find -L ./ -noleaf -type d | sed -e 's|^\.\/||' |
   while read ANEWDIR
   do
    UPONE="`dirname "$ANEWDIR"`"
    [ "$UPONE" = "." ] && UPONE=""
    if [ -h "$ANEWDIR" ];then #link
-    mkdir -p "../packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}${EXE}/${UPONE}"
+    [ ! -d "../packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}${EXE}/${UPONE}" ] && \
+     mkdir -p "../packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}${EXE}/${UPONE}"
     cp -af "$ANEWDIR" "../packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}${EXE}/${UPONE}/"
     continue
    fi
    #copy a empty dir...
-   [ "`ls -1 $ANEWDIR`" = "" ] && mkdir -p ../packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}${EXE}/${ANEWDIR}
+   [ "`ls -1 $ANEWDIR`" = "" ] && \
+    mkdir -p ../packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}${EXE}/${ANEWDIR}
   done
   cd ..
   #end of splitting.
 
- done<<_END1
-$(echo "${FNDIT}")
-_END1
+ done <<< "${FNDIT}" #################
+
   #...get next pkg in same GENERICNAME
- 
- [ "`cat /tmp/2createpackages_tmp/petFLG`" = "pet" ] && continue #do not do post-processing.
- [ "`cat /tmp/2createpackages_tmp/MISSPOSTPROC`" = "yes" ] && continue #091211
+ [ "$petFLG" = "pet" ] && continue #do not do post-processing.
+ [ "$MISSPOSTPROC" = "yes" ] && continue #091211
  
  ###POST-PROCESSING FOR NON-PET PKGS### 
  ###EXE###
@@ -812,7 +827,8 @@ _END1
  #slackware pkgs may have a post-install script. 
  #for one genericname, have concatenated them in /tmp/2createpackages-hack-install.sh...
  #why not create a layered f.s. right now on top of sandbox2b and run hack-install.sh?...
- [ -f /tmp/2createpackages-hack-install.sh ] && mv -f /tmp/2createpackages-hack-install.sh sandbox2b/hack-install.sh
+ [ -f /tmp/2createpackages-hack-install.sh ] && \
+    mv -f /tmp/2createpackages-hack-install.sh sandbox2b/hack-install.sh
  if [ -f sandbox2b/hack-install.sh ];then
   echo " executing (Slackware) post-install script"
   #chmod +x sandbox2b/hack-install.sh
@@ -821,16 +837,12 @@ _END1
   [ -f /usr/sbin/chroot ] && mv -f /usr/sbin/chroot /usr/sbin/chroot-2cp-hidden
   [ -f sandbox2b/sbin/ldconfig ] && mv -f sandbox2b/sbin/ldconfig /tmp/ldconfig-hidden2
   mkdir -p sandbox2b/bin #hack, glibc post-install script needs this.
-  mkdir layer_rw
-  mkdir layer_top
+  [ -d layer_rw ]  && rm -rf layer_rw  #precaution
+  [ -d layer_top ] && rm -rf layer_top #precaution
+  mkdir -p layer_rw layer_top
   mount -t tmpfs tmpfs layer_rw
-  LAYERFS="aufs"
-  [ "`lsmod | grep '^unionfs'`" != "" ] && LAYERFS="unionfs"
-  if [ "$LAYERFS" = "aufs" ];then
-   mount -t aufs -o udba=reval,diropq=w,dirs=layer_rw=rw:sandbox2b=ro layerfs layer_top
-  else
-   mount -t unionfs -o dirs=layer_rw=rw:sandbox2b=ro layerfs layer_top
-  fi
+  # -- aufs -- #
+  mount -t aufs -o udba=reval,diropq=w,dirs=layer_rw=rw:sandbox2b=ro layerfs layer_top
   cd layer_top
   /bin/sh ./hack-install.sh
   cd ..
@@ -845,8 +857,7 @@ _END1
   sync
   umount layer_top
   umount layer_rw
-  rmdir layer_top
-  rmdir layer_rw
+  rm -rf layer_top layer_rw
   [ -f /sbin/ldconfig-2cp-hidden ] && mv -f /sbin/ldconfig-2cp-hidden /sbin/ldconfig #restore.
   [ -f /usr/sbin/chroot-2cp-hidden ] && mv -f /usr/sbin/chroot-2cp-hidden /usr/sbin/chroot #restore.
  fi
@@ -872,17 +883,15 @@ _END1
    if [ ! -f $TEMPLATEPATH/PLUSEXTRAFILES ];then #marker-file, that all files in deb to be kept.
     tPATTERN="packages-${DISTRO_FILE_PREFIX}/"
     [ "`echo "$TARGETPATH" | grep "$tPATTERN"`" = "" ]  && continue #paranoid precaution! (see next line)...
-    #if [ "$TEMPLATEFILES" != "" ];then
      for ONEDEL in `find ${TARGETPATH} -maxdepth 1 -type f` #ignore symlinks.
      do
       #if file has any versioning info, do not delete...
-      DELBASE="`basename $ONEDEL`"
+      DELBASE="${ONEDEL##*/}" #basename $ONEDEL
 	  #if dir has NOEXCEPTIONFILES then do not allow these exceptions...
       [ ! -f $TEMPLATEPATH/NOEXCEPTIONFILES ] && [ "`echo "$DELBASE" | grep -E '\.[0-9]*\.|\.[0-9]*$|\-[0-9]*\.|[0-9]\.so$|\.so\.[0-9]'`" != "" ] && continue
       ##sometimes regular file but template has symlink of same name (ex: /usr/bin/gnumeric). do not delete...
-      rm $ONEDEL
+      rm -f $ONEDEL
      done
-    #fi
    fi
    
    #if file exists in template, non-0 copy it from template to target, 0-size copy from deb pkg to target...
@@ -936,7 +945,7 @@ _END1
      cp -af $FINALFILE $ALTTARGETPATH/
     else
      #zero-size file. copy from the backup made in /tmp/${GENERICNAME} to final pkg...
-     TARGETNAMEONLY="`basename $FINALFILE`"
+     TARGETNAMEONLY="${FINALFILE##*/}" #basename $FINALFILE
      if [ "`echo -n "$TARGETNAMEONLY" | grep "STARCHAR"`" != "" ];then
       #if template file has text STARCHAR in it, replace with wildcard ...
       globTARGETNAMEONLY="`echo -n "$TARGETNAMEONLY" | sed -e 's%STARCHAR%*%'`"
@@ -987,7 +996,7 @@ _END1
       READLINK="`readlink $ONEDEVLINK`"
       [ ! -e packages-templates/${GENERICNAME}${READLINK} ] && continue
      fi
-     TARGETLINK="`basename $ONEDEVLINK`"
+     TARGETLINK="${ONEDEVLINK##*/}" #basename $ONEDEVLINK
      [ ! -e $TARGETPATH/$TARGETLINK ] && [ ! -L $TARGETPATH/$TARGETLINK ] && cp -af ${ONEDEVLINK} ${TARGETPATH}/
     done
    fi
@@ -995,7 +1004,7 @@ _END1
    if [ "$TEMPLATELINKS" != "" ];then
     for ONETEMPLATELINK in $TEMPLATELINKS
     do
-     TARGETLINKNAME="`basename $ONETEMPLATELINK`"
+     TARGETLINKNAME="${ONETEMPLATELINK##*/}" #basename $ONETEMPLATELINK
      if [ ! -e $TARGETPATH/$TARGETLINKNAME ];then
       mkdir -p $TARGETPATH
       cp -a -f $TEMPLATEPATH/$TARGETLINKNAME $TARGETPATH/
@@ -1030,7 +1039,7 @@ _END1
  #put them into the _DEV pkg. ex: gcc_dev: usr/lib/gcc/i486-linux-gnu/4.3/libgcc_s.so.
  #note, 3builddistro checks rootfs-complete for invalid symlinks, moves them to devx.
  cd sandbox2b
- find ./ -type l | sed -e 's/^\.\///' |
+ find ./ -type l | sed -e 's|^\.\/||' |
  while read ONESYMLINK
  do
   UPONE="`dirname "$ONESYMLINK"`"
