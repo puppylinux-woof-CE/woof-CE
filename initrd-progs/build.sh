@@ -120,13 +120,11 @@ function use_prebuilt_binaries() {
 	zfile=0sources/${PREBUILT_BINARIES##*/}
 	if [ ! -f "$zfile" ] ; then
 		mkdir -p 0sources
-		if [ ! -f "$zfile" ] ; then
-			wget -P 0sources --no-check-certificate "$PREBUILT_BINARIES"
-			[ $? -eq 0 ] || { rm -f "$zfile" ; exit 1 ; }
-		fi
+		wget -P 0sources --no-check-certificate "$PREBUILT_BINARIES"
+		[ $? -eq 0 ] || { rm -f "$zfile" ; exit 1 ; }
 	fi
 	echo "* Extracting ${zfile##*/}..."
-	tar -xaf "$zfile" || exit 1
+	tar -xaf "$zfile" || { rm -f "$zfile" ; exit 1 ; }
 }
 
 #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@

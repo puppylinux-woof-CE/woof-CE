@@ -4,7 +4,7 @@ Woof
 Woof is a "Puppy builder". What this means is you can build your own custom
 Puppy Linux live-CD from the binary packages of another distro.
 
-Currently supported: Ubuntu, Debian, Slackware, Arch, T2, Puppy, Mageia
+Currently supported: Ubuntu, Debian, Slackware, Arch, T2, Puppy
 
 What you get looks and feels just like Puppy, is Puppy. The default selection
 of packages gives you a live-CD ISO file about 100MB - 130MB. You also get the
