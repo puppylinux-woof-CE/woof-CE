@@ -8,7 +8,7 @@ ARCH_LIST="default i686 x86_64 arm" #arm64
 ARCH_LIST_EX="i486 i586 i686 x86_64 armv4l armv4tl armv5l armv6l m68k mips mips64 mipsel powerpc powerpc-440fp sh2eb sh2elf sh4 sparc"
 
 DEFAULT_x86=i686
-DEFAULT_ARM=armv5l
+DEFAULT_ARM=armv6l
 #DEFAULT_ARM64=aarch64
 
 PREBUILT_BINARIES="http://01micko.com/initrd_tarballs/initrd_progs-20160610-static.tar.xz"
