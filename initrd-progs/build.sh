@@ -17,9 +17,12 @@ ARCH=`uname -m`
 OS_ARCH=$ARCH
 
 case "$1" in release|tarball) #this contains the $PREBUILT_BINARIES
+	echo "If you made changes then don't forget to remove all 00_* directories first"
+	sleep 4
+	export RELEASE_TARBALL=yes
 	for a in ${ARCH_LIST#default } ; do $0 -auto -arch $a ; done
 	pkgx=initrd_progs-$(date "+%Y%m%d")-static.tar.xz
-	echo -e "\n** Creating $pkgx"
+	echo -e "\n\n\n*** Creating $pkgx"
 	while read ARCH ; do
 		for PROG in ${INITRD_PROGS} ; do
 			case $PROG in ""|'#'*) continue ;; esac
@@ -360,6 +363,7 @@ function set_keymap() { #in $MWD
 }
 
 function generate_initrd() {
+	[ "$RELEASE_TARBALL" = "yes" ] && exit
 	[ "$DLD_ONLY" = "yes" ] && exit
 	[ "$INITRD_CREATE" = "no" ] && echo -e "\n* Not creating initial ram disk" && exit 1
 	INITRD_FILE="initrd.${INITRD_COMP}"
