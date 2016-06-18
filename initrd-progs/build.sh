@@ -19,8 +19,7 @@ OS_ARCH=$ARCH
 case "$1" in release|tarball) #this contains the $PREBUILT_BINARIES
 	echo "If you made changes then don't forget to remove all 00_* directories first"
 	sleep 4
-	export RELEASE_TARBALL=yes
-	for a in ${ARCH_LIST#default } ; do $0 -auto -arch $a ; done
+	for a in ${ARCH_LIST#default } ; do $0 -nord -auto -arch $a ; done
 	pkgx=initrd_progs-$(date "+%Y%m%d")-static.tar.xz
 	echo -e "\n\n\n*** Creating $pkgx"
 	while read ARCH ; do
@@ -67,13 +66,11 @@ Options:
 "
 }
 
-## defaults ##
-PROMPT=yes
+## defaults (other defaults are in build.conf) ##
 USE_SYS_GCC=no
 CROSS_COMPILE=no
 FORCE_BUILD_ALL=no
 export DLD_ONLY=no
-USE_PREBUILT=no
 ASK_KEYMAP=no
 INITRD_CREATE=yes
 case ${INITRD_COMP} in
@@ -84,8 +81,8 @@ esac
 ## command line ##
 while [ "$1" ] ; do
 	case $1 in
-		-sysgcc)   USE_SYS_GCC=yes     ; shift ;;
-		-cross)    CROSS_COMPILE=yes   ; shift ;;
+		-sysgcc)   USE_SYS_GCC=yes     ; USE_PREBUILT=no; shift ;;
+		-cross)    CROSS_COMPILE=yes   ; USE_PREBUILT=no; shift ;;
 		-all)      FORCE_BUILD_ALL=yes ; shift ;;
 	-gz|-xz|gz|xz) INITRD_COMP=${1#-}  ; shift ;;
 		-download) DLD_ONLY=yes        ; shift ;;
@@ -348,24 +345,23 @@ function set_lang() { #in $MWD
 }
 
 function set_keymap() { #in $MWD
-	if [ "$KEYMAP" = "" ] ; then
+	if [ "$KEYMAP" = "" -o "$ASK_KEYMAP" = "yes" ] ; then
 		[ "$PROMPT" = "no" -a "$ASK_KEYMAP" = "no" ] && return
 		echo -e "-- Keyboard layout  --"
 		echo -e "Type one of the following keymaps (leave empty for default keymap): \n"
 		echo $(ls 0initrd/lib/keymaps | sed 's|\..*||')
-		echo -en "\nKeymap: " ; read km
-		[ -f 0initrd/lib/keymaps/${km}.gz ] && KEYMAP=$km
-		case $KEYMAP in en|us|"") echo -e "* Using default keymap" && return ;; esac
-		sleep 0.5
+		echo -en "\nKeymap: " ; read KEYMAP
 	fi
+	[ ! -f 0initrd/lib/keymaps/${KEYMAP}.gz ] && KEYMAP=""
+	case $KEYMAP in default|en|us|"") echo "*** Using default keymap" && return ;; esac
+	sleep 0.5
 	echo -e "* Keymap set to: '${KEYMAP}'"
 	echo -n "$KEYMAP" > ZZ_initrd-expanded/PUPPYKEYMAP
 }
 
 function generate_initrd() {
-	[ "$RELEASE_TARBALL" = "yes" ] && exit
-	[ "$DLD_ONLY" = "yes" ] && exit
-	[ "$INITRD_CREATE" = "no" ] && echo -e "\n* Not creating initial ram disk" && exit 1
+	[ "$DLD_ONLY" = "yes" ] && return
+	[ "$INITRD_CREATE" = "no" ] && return
 	INITRD_FILE="initrd.${INITRD_COMP}"
 	[ "$INITRD_GZ" = "yes" ] && INITRD_FILE="initrd.gz"
 
