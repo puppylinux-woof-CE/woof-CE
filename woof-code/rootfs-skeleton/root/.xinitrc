@@ -59,10 +59,6 @@ fi
 [ -f /usr/bin/autocutsel ] && /usr/bin/autocutsel &
 #...disadvantage of this is it creates a little square bottom-right of screen.
 
-if [ -e /tmp/videomode ];then #xvesa only: testing a video mode
- video-wizard &
-fi
-
 [ -f /usr/local/bin/agenda_chk ] && agenda_chk &
 
 #v1.0.7 set by xrandrshell, part of xorg wizard... v3.99...
