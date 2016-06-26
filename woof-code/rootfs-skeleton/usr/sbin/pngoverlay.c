@@ -23,12 +23,8 @@ compile:
 #define OVERALL_ALPHA 255
 
 void* handle_libgtk;
-void* handle_libgdk;
-void* handle_libgdk_pixbuf;
-void* handle_libgobject;
 
 void (*g_object_unref)(long);
-void (*gtk_exit)(int);
 void (*gtk_init)(int*, void*);
 void (*gdk_pixbuf_composite)(int, int, int, int, int, int, double, double, double, double, int, int);
 int (*gdk_pixbuf_save)(long,char*,char*,void*,...);
@@ -38,9 +34,6 @@ int (*gdk_pixbuf_get_height)(int);
 
 void cleanup(void) {
 	if (handle_libgtk) dlclose(handle_libgtk);
-	if (handle_libgdk) dlclose(handle_libgdk);
-	if (handle_libgdk_pixbuf) dlclose(handle_libgdk_pixbuf);
-	if (handle_libgobject) dlclose(handle_libgobject);
 }
 
 void check_dlopen(void *handle) {
@@ -77,23 +70,14 @@ int main(int argc, char **argv) {
 
 	handle_libgtk = dlopen("libgtk-x11-2.0.so.0", RTLD_LAZY);
 	check_dlopen(handle_libgtk);
-	handle_libgdk = dlopen("libgdk-x11-2.0.so.0", RTLD_LAZY);
-	check_dlopen(handle_libgdk);
-	handle_libgdk_pixbuf = dlopen("libgdk_pixbuf-2.0.so.0", RTLD_LAZY);
-	check_dlopen(handle_libgdk_pixbuf);
-	handle_libgobject = dlopen("libgobject-2.0.so.0", RTLD_LAZY);
-	check_dlopen(handle_libgobject);
 
-	g_object_unref = dlsym(handle_libgobject, "g_object_unref");
-
+	g_object_unref = dlsym(handle_libgtk, "g_object_unref");
 	gtk_init = dlsym(handle_libgtk, "gtk_init");
-	gtk_exit = dlsym(handle_libgtk, "gtk_exit");
-
-	gdk_pixbuf_composite = dlsym(handle_libgdk_pixbuf, "gdk_pixbuf_composite");
-	gdk_pixbuf_save = dlsym(handle_libgdk_pixbuf, "gdk_pixbuf_save");
-	gdk_pixbuf_new_from_file = dlsym(handle_libgdk_pixbuf, "gdk_pixbuf_new_from_file");
-	gdk_pixbuf_get_width = dlsym(handle_libgdk_pixbuf, "gdk_pixbuf_get_width");
-	gdk_pixbuf_get_height = dlsym(handle_libgdk_pixbuf, "gdk_pixbuf_get_height");
+	gdk_pixbuf_composite = dlsym(handle_libgtk, "gdk_pixbuf_composite");
+	gdk_pixbuf_save = dlsym(handle_libgtk, "gdk_pixbuf_save");
+	gdk_pixbuf_new_from_file = dlsym(handle_libgtk, "gdk_pixbuf_new_from_file");
+	gdk_pixbuf_get_width = dlsym(handle_libgtk, "gdk_pixbuf_get_width");
+	gdk_pixbuf_get_height = dlsym(handle_libgtk, "gdk_pixbuf_get_height");
 
 	// -------------------------------------------------------
 
