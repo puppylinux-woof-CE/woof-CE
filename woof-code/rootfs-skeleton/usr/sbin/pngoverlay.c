@@ -13,7 +13,6 @@ compile:
 */
 
 #include <stdio.h>
-#include <stdlib.h>
 #include <unistd.h>
 #include <dlfcn.h>
 
@@ -21,8 +20,6 @@ compile:
 #define GDK_INTERP_HYPER 3
 #define GTK_WINDOW_TOPLEVEL 0
 #define OVERALL_ALPHA 255
-
-void* handle_libgtk;
 
 void (*g_object_unref)(long);
 void (*gtk_init)(int*, void*);
@@ -32,22 +29,11 @@ long (*gdk_pixbuf_new_from_file)(char*,void*);
 int (*gdk_pixbuf_get_width)(int);
 int (*gdk_pixbuf_get_height)(int);
 
-void cleanup(void) {
-	if (handle_libgtk) dlclose(handle_libgtk);
-}
-
-void check_dlopen(void *handle) {
-	if (!handle) {
-		fprintf(stderr, "%s\n", dlerror());
-		cleanup();
-		exit(1);
-	}
-}
-
 // ===========================================================================
 
 int main(int argc, char **argv) {
 
+	void* handle_libgtk;
 	char *FrontImage, *BackImage, *NewImage;
 	int hei_img1, wid_img1, hei_img2, wid_img2, dest_x;
 	double offset_x, scale_x, scale_y;
@@ -69,7 +55,10 @@ int main(int argc, char **argv) {
 	// -------------------------------------------------------
 
 	handle_libgtk = dlopen("libgtk-x11-2.0.so.0", RTLD_LAZY);
-	check_dlopen(handle_libgtk);
+	if (!handle_libgtk) {
+		fprintf(stderr, "%s\n", dlerror());
+		return 1;
+	}
 
 	g_object_unref = dlsym(handle_libgtk, "g_object_unref");
 	gtk_init = dlsym(handle_libgtk, "gtk_init");
@@ -95,7 +84,7 @@ int main(int argc, char **argv) {
 		printf("Error loading one of the images\n");
 		if (img_dst) g_object_unref(img_dst);
 		if (img_scr) g_object_unref(img_scr);
-		cleanup();
+		dlclose(handle_libgtk);
 		return 1;
 	}
 
@@ -113,15 +102,14 @@ int main(int argc, char **argv) {
 
 	g_object_unref(img_dst);
 	g_object_unref(img_scr);
+	dlclose(handle_libgtk);
 
 	if (access(NewImage,0) == 0) {
 		printf("File %s created.\n", NewImage);
-		cleanup();
 		return 0;
 	}
 
 	printf("OOPS.. %s was not created.\n", NewImage);
-	cleanup();
 	return 1;
 
 }
