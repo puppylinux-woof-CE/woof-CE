@@ -90,6 +90,7 @@ while [ "$1" ] ; do
 		-ask_keymap) ASK_KEYMAP=yes    ; shift ;; #for 3builddistro
 		-nord)     INITRD_CREATE=no    ; shift ;;
 		-auto)     PROMPT=no           ; shift ;;
+		-v)        V=-v                ; shift ;;
 		-lang)     LOCALE="$2"         ; shift 2
 			       [ "$LOCALE" = "" ] && { echo "$0 -locale: No locale specified" ; exit 1; } ;;
 		-keymap)   KEYMAP="$2"         ; shift 2
@@ -396,8 +397,8 @@ function generate_initrd() {
 
 	echo
 	if [ ! -f "$DISTRO_SPECS" ] ; then
-		if [ -f ../0initrd/DISTRO_SPECS ] ; then
-			DISTRO_SPECS='../0initrd/DISTRO_SPECS'
+		if [ -f ../DISTRO_SPECS ] ; then
+			DISTRO_SPECS='../DISTRO_SPECS'
 		else
 			[ -f /etc/DISTRO_SPECS ] && DISTRO_SPECS='/etc/DISTRO_SPECS'
 			[ -f /initrd/DISTRO_SPECS ] && DISTRO_SPECS='/initrd/DISTRO_SPECS'
@@ -405,6 +406,7 @@ function generate_initrd() {
 	fi
 	cp -f ${V} "${DISTRO_SPECS}" .
 	. "${DISTRO_SPECS}"
+	[ -x ../init ] && cp -f ${V} ../init .
 	
 	cp -f ${V} ../pkg/busybox_static/bb-*-symlinks bin # essential
 	(  cd bin ; sh bb-create-symlinks 2>/dev/null )
