@@ -11,7 +11,7 @@ DEFAULT_x86=i686
 DEFAULT_ARM=armv6l
 #DEFAULT_ARM64=aarch64
 
-PREBUILT_BINARIES="http://01micko.com/initrd_tarballs/initrd_progs-20160610-static.tar.xz"
+PREBUILT_BINARIES="http://01micko.com/initrd_tarballs/initrd_progs-20160630-static.tar.xz"
 
 ARCH=`uname -m`
 OS_ARCH=$ARCH
