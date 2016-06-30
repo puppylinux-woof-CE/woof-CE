@@ -6,7 +6,7 @@
 VERSION=2
 
 #wait for indexgen.sh to finish
-while [ "$(ps | grep indexgen | grep -v grep)" != "" ];do sleep 0.5;done
+while [ "$(busybox ps | grep indexgen | grep -v grep)" != "" ];do sleep 0.5;done
 
 export TEXTDOMAIN=petget___pkg_chooser.sh
 export OUTPUT_CHARSET=UTF-8
@@ -18,7 +18,7 @@ HELPFILE="/usr/local/petget/help.htm"
 
 # Do not allow another instance
 sleep 0.3
-[ "$( ps | grep -E '/usr/local/bin/ppm|/usr/local/petget/pkg_chooser' | grep -v -E 'grep|geany|leafpad' | wc -l)" -gt 2 ] \
+[ "$(busybox ps | grep -E '/usr/local/bin/ppm|/usr/local/petget/pkg_chooser' | grep -v -E 'grep|geany|leafpad' | wc -l)" -gt 2 ] \
 	&& . /usr/lib/gtkdialog/box_splash -timeout 3 -bg red -text "$(gettext 'PPM is already running. Exiting.')" \
 		&& exit 0
 

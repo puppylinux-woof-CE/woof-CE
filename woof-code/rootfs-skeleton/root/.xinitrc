@@ -164,7 +164,7 @@ if [ "$CURRENTWM" != "jwm" -a "$CURRENTWM" != "icewm" ];then
 fi
 
 ##w468 rox may not start old hardware, try again... 120517 bring this back...
-##PS="`ps`"
+##PS="`busybox ps`"
 ##if [ "`echo "$PS" | grep 'ROX\-Filer'`" = "" ];then
 #if ! busybox pidof ROX-Filer;then
 # touch /tmp/roxfilerstartupproblem #see /sbin/pup_event_frontend_d

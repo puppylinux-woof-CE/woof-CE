@@ -150,7 +150,7 @@ DLPET="$(echo "$RADIOXML" | grep "$TAG" | sed -e 's%^<radiobutton><label>%%' -e 
 
 #kill ppm...
 if [ ! $1 ];then
-ALLPS="`ps`"
+ALLPS="`busybox ps`"
  PID1="$(echo "$ALLPS" | grep 'MAIN_DIALOG$' | sed -e 's%^ %%g' | cut -f 1 -d ' ')"
  PID2="$(echo "$ALLPS" | grep 'ppm$' | sed -e 's%^ %%g' | cut -f 1 -d ' ')"
  [ "$PID1" ] && kill $PID1
