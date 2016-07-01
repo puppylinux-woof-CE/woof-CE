@@ -2,7 +2,6 @@
 
 if which Xorg &>/dev/null ; then
 
-   [ "`readlink /usr/bin/X`" = "" ] && ln -snf Xorg /usr/bin/X
    if [ -f /root/.xorgwizard-reenter ] ; then #130423 see /usr/sbin/xorgwizard-cli  130513 also see init (in initrd)
       xorgwizard-cli
    fi
