@@ -403,11 +403,11 @@ function generate_initrd() {
 		[ -f /etc/DISTRO_SPECS ] && DISTRO_SPECS='/etc/DISTRO_SPECS'
 		[ -f /initrd/DISTRO_SPECS ] && DISTRO_SPECS='/initrd/DISTRO_SPECS'
 	fi
-
-	cp -f ${V} "${DISTRO_SPECS}" .
-	. "${DISTRO_SPECS}"
+	[ -f "$DISTRO_SPECS" ] && cp -f ${V} "${DISTRO_SPECS}" .
 	[ -x ../init ] && cp -f ${V} ../init .
-	
+
+	. ./DISTRO_SPECS
+
 	cp -f ${V} ../pkg/busybox_static/bb-*-symlinks bin # essential
 	(  cd bin ; sh bb-create-symlinks 2>/dev/null )
 	sed -i 's|^PUPDESKFLG=.*|PUPDESKFLG=0|' init
