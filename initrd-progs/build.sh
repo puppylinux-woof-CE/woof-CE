@@ -396,14 +396,14 @@ function generate_initrd() {
 	done
 
 	echo
-	if [ ! -f "$DISTRO_SPECS" -a ! -f ../0initrd/DISTRO_SPECS ] ; then
-		if [ -f ../DISTRO_SPECS ] ; then
-			DISTRO_SPECS='../DISTRO_SPECS'
-		else
-			[ -f /etc/DISTRO_SPECS ] && DISTRO_SPECS='/etc/DISTRO_SPECS'
-			[ -f /initrd/DISTRO_SPECS ] && DISTRO_SPECS='/initrd/DISTRO_SPECS'
-		fi
+	if [ ! -f "$DISTRO_SPECS" -a -f ../DISTRO_SPECS ] ; then
+		DISTRO_SPECS='../DISTRO_SPECS'
 	fi
+	if [ ! -f "$DISTRO_SPECS" -a ! -f ../0initrd/DISTRO_SPECS ] ; then
+		[ -f /etc/DISTRO_SPECS ] && DISTRO_SPECS='/etc/DISTRO_SPECS'
+		[ -f /initrd/DISTRO_SPECS ] && DISTRO_SPECS='/initrd/DISTRO_SPECS'
+	fi
+
 	cp -f ${V} "${DISTRO_SPECS}" .
 	. "${DISTRO_SPECS}"
 	[ -x ../init ] && cp -f ${V} ../init .
