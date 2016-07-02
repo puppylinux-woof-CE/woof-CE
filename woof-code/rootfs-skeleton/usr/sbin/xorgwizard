@@ -19,6 +19,68 @@ esac
 ARCH=`uname -m`
 
 #============================================================
+
+function xorg_vesa() {
+	[ -f /tmp/xorgvesa.state ] && read -r state < /tmp/xorgvesa.state
+	[ $1 ] && state="$1"
+	case $state in
+		on|1|yes|true) RSTR='	Driver      "vesa" #card0driver' ;;
+		off|0|no|false) RSTR='#	Driver      "vesa" #card0driver' ;;
+		*) return 1 ;;
+	esac
+	if [ -f /etc/X11/xorg.conf ] ; then
+		sed -i "s|.*#card0driver.*|${RSTR}|" /etc/X11/xorg.conf
+		rm -f /tmp/xorgvesa.state
+	else
+		echo -n "$state" > /tmp/xorgvesa.state
+	fi
+}
+
+function xorg_color_depth() {
+	[ -f /tmp/xorg.depth ] && read -r XCD < /tmp/xorg.depth
+	[ $1 ] && XCD="$1"
+	case $XCD in
+		16|24) ok=1 ;;
+		remove) remove=1 ;;
+		*) return 1 ;;
+	esac
+	if [ -f /etc/X11/xorg.conf ] ; then
+		RSTR="		Depth       $XCD #screen0depth"
+		if [ "$remove" = "1" ] ; then
+			XCD=$(grep 'screen0depth' /etc/X11/xorg.conf | grep -o 'Depth.*' | tr -s ' ' | cut -d ' ' -f2)
+			RSTR="#		Depth       $XCD #screen0depth"
+		fi
+		sed -i "s|.*#screen0depth.*|${RSTR}|" /etc/X11/xorg.conf
+		rm -f /tmp/xorg.depth
+	else
+		echo -n "$XCD" > /tmp/xorg.depth
+	fi
+}
+
+function xorg_res() {
+	[ -f /tmp/xorg.res ] && read -r RES < /tmp/xorg.res
+	[ $1 ] && RES="$1"
+	case $RES in
+		*"x"*) ok=1 ;;
+		*) return ;;
+	esac
+	if [ -f /etc/X11/xorg.conf ] ; then
+		RSTR="		Modes       \"${RES}\" #screen0modes"
+		sed -i "s|.*#screen0modes.*|${RSTR}|" /etc/X11/xorg.conf
+		rm -f /tmp/xorg.res
+	else
+		echo -n "$RES" > /tmp/xorg.res
+	fi
+}
+
+RESOLUTIONS="<item>800x600</item>
+<item>1024x768</item>
+<item>1280x1024</item>
+<item>1366x768</item>
+<item>1680x1050</item>
+<item>1920x1080</item>"
+
+#============================================================
 #                  xorgwizard-automatic
 #============================================================
 
@@ -40,6 +102,8 @@ case ${ARCH} in arm*|aarch*)
 esac
 
 cp -f /etc/X11/xorg.conf-auto-pc /etc/X11/xorg.conf
+xorg_vesa
+xorg_color_depth
 
 RETVALS="`keymap-set --xopt`"
 eval "$RETVALS" #ex: XKBMODEL="pc102", XKBLAYOUT="us", XKBVARIANT=""
@@ -96,11 +160,70 @@ fi
 
 if [ "$CLI" = "1" ] ; then
 
+export TEXTDOMAIN=xorgwizard-cli
+export OUTPUT_CHARSET=UTF-8
+. gettext.sh
+
+VESA_MSG="$(gettext 'Use Xorg Vesa driver')"
+if [ -f /etc/X11/xorg.conf ] ; then
+	USING_XORG_VESA="$(cat /etc/X11/xorg.conf | grep '#card0driver' | grep -v '#.*Driver')"
+elif [ -f /tmp/xorgvesa.state ] ; then
+	read -r xstate < /tmp/xorgvesa.state
+	case $xstate in on|1|yes|true) USING_XORG_VESA=yes ;; esac
+fi
+[ "$USING_XORG_VESA" ] && VESA_MSG="$(gettext "Don't hard code Xorg Vesa in xorg.conf")"
+
+dialog --title "$(gettext 'Xorg Wizard')" \
+	--cancel-label "$(gettext 'Cancel')" --ok-label "$(gettext 'OK')" \
+	--menu "$(gettext 'Action to take.
+
+If you are having problems with Xorg then you may want to use the Xorg Vesa driver.')" 0 0 0 \
+	"1)" "$(gettext 'Do not configure anything.. (just continue)')" \
+	"2)" "$VESA_MSG" \
+	"3)" "$(gettext 'Probe hardware and offer alternatives...')"  >/dev/tty 2>/tmp/xorgcli.res
+[ $? -eq 0 ] || exit
+read -r XCHOICE < /tmp/xorgcli.res
+rm -f /tmp/xorgcli.res
+
+case $XCHOICE in
+	"1)") exit ;;
+	"2)")
+		if [ "$USING_XORG_VESA" ] ; then
+			xorg_vesa off
+		else
+			xorg_vesa on
+		fi
+		dialog --title "$(gettext 'Xorg Wizard')" \
+			--cancel-label "$(gettext 'Skip')" --ok-label "$(gettext 'Select')" \
+			--menu "$(gettext 'Color bit depth.
+
+You might want to skip this step. Choose "16 bit" if you are having problems and your video hardware is very old... or if you already know that your hardware works better with a 16 color bit depth')." 0 0 0 \
+			"1)" "24 bit" \
+			"2)" "16 bit (ancient video hardware)"  \
+			"3)" "remove setting from xorg.conf (if in use)" >/dev/tty 2>/tmp/xorgcli.res
+		if [ $? -eq 0 ] ; then
+			read -r ZCHOICE < /tmp/xorgcli.res
+			case $ZCHOICE in
+				"1)") DEPTH="24" ;;
+				"2)") DEPTH="16" ;;
+				"3)") DEPTH="remove" ;;
+			esac
+			xorg_color_depth $DEPTH
+		fi
+		rm -f /tmp/xorgcli.res
+		exit
+		;;
+	"3)") continue ;;
+	*) exit
+esac
+
+#-- OLD XORG WIZARD - DDC PROBE
+
 # ddcprobe hangs in some hardware
 if [ "$(which ddcprobe)" ]; then
  for TRY in 1 2 3
  do
-  ddcprobe &
+  ddcprobe >/dev/null &
   XPID=$!
   sleep 0.5
   RUNNING="$(cat /proc/"$XPID"/status | grep -i running)"
@@ -115,12 +238,11 @@ if [ "$(which ddcprobe)" ]; then
  kill -9 "$XPID1" 2>/dev/null
  kill -9 "$XPID2" 2>/dev/null
  kill -9 "$XPID3" 2>/dev/null
- [ "$NO_DDCPROBE" = "1" ] && exit
+ if [ "$NO_DDCPROBE" = "1" ] ; then
+	echo "ddcprobe does not work.. can't continue"
+	exit 1
+ fi
 fi
-
-export TEXTDOMAIN=xorgwizard-cli
-export OUTPUT_CHARSET=UTF-8
-. gettext.sh
 
 [ "$ARCH" = "x86_64" ] && lsuffix=64 || lsuffix=
 which mp &> /dev/null && ED=mp || ED=nano
@@ -151,7 +273,7 @@ However, it might work on earlier versions, we need to find out
  exit
 fi
 
-DLGTITLE="$(gettext 'Puppy Xorg Video Wizard')"
+DLGTITLE="$(gettext 'Xorg Video Wizard')"
 
 ddcprobe > /tmp/ddcprobe.txt
 #weird (ddcprobe is very weird), on some hardware, edid monitor probe fails
@@ -1043,19 +1165,14 @@ $(gettext 'Note, you will have to restart X for it to take effect. If it messes'
 	if [ "$DEFAULT_RES" = "" ] ; then
 		DEFAULT_RES=$(xrandr 2>/dev/null | grep '\*' | awk '{print $1}')
 	fi
-	RESOLUTIONS="<item>800x600</item>
-<item>1024x768</item>
-<item>1280x1024</item>
-<item>1366x768</item>
-<item>1600x1200</item>
-<item>1920x1080</item>"
-
+	RESOLUTIONS="<item>$DEFAULT_RES</item>
+$(echo "$RESOLUTIONS" | grep -v ">${DEFAULT_RES}<")"
 	TITLE=$(gettext 'Set screen resolution [xorg.conf]')
 	MSG1=$(gettext 'These are generic resolutions that will most likely work, please be careful. If in doubt, choose 1024x768 or 1366x768. The settings will be stored in xorg.conf. After this you must restart X..')
 	export RES_WINDOW='<window title="'${TITLE}'" icon-name="gtk-" window-position="1">
 <vbox>
 '$(/usr/lib/gtkdialog/xml_info fixed graphics.svg 48 "$MSG1")'
-  <text space-fill="true"><label>'$(gettext 'Please choose a reasonable resolution for your monitor/hardware... for example if you have a very old video card it may not support 1920x1080')'</label></text>
+  <text space-fill="true"><label>'$(gettext "Please choose a reasonable resolution for your hardware. If it's very old, it may not support 1920x1080")'</label></text>
   <frame Screen Resolution (xorg.conf)>
   <vbox space-expand="false" space-fill="false">
     <hbox>
@@ -1094,8 +1211,7 @@ $(gettext 'Note, you will have to restart X for it to take effect. If it messes'
 	[ "$CHOSEN_RES" = "" ] && exit
 	[ "$CHOSEN_RES" = "$DEFAULT_RES" ] && exit
 
-	#		Modes       "1024x768" #screen0modes
-	sed -i 's|.*#screen0modes.*|		Modes       "'${CHOSEN_RES}'" #screen0modes|' ${xorg_conf}
+	xorg_res ${CHOSEN_RES}
 
 	STOCK_ICON="gtk-dialog-info"
 	export XDIALOG='
