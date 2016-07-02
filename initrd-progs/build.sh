@@ -396,7 +396,7 @@ function generate_initrd() {
 	done
 
 	echo
-	if [ ! -f "$DISTRO_SPECS" ] ; then
+	if [ ! -f "$DISTRO_SPECS" -a ! -f ../0initrd/DISTRO_SPECS ] ; then
 		if [ -f ../DISTRO_SPECS ] ; then
 			DISTRO_SPECS='../DISTRO_SPECS'
 		else
