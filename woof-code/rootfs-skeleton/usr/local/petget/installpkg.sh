@@ -261,7 +261,21 @@ case $DLPKG_BASE in
   [ $? -ne 0 ] && exit 1
   echo "$PFILES" > /root/.packages/${DLPKG_NAME}.files
   install_path_check
-  dpkg-deb -x $DLPKG_BASE ${DIRECTSAVEPATH}/
+  # Workaround to avoid overwriting the $DISTRO_ARCHDIR symlink.  
+  if [ "$DISTRO_ARCHDIR" != "" -a "$(echo "$PFILES" | grep "$DISTRO_ARCHDIR")" != "" ]; then
+	   mkdir -p /tmp/$DLPKG_BASE
+	   rm -rf /tmp/$DLPKG_BASE/*
+	   dpkg-deb -x $DLPKG_BASE /tmp/$DLPKG_BASE/
+	   for f in $(find /tmp/$DLPKG_BASE \( -type f -o -type l \))
+    do
+       xpath=$(echo $f |  cut  -f 4-30 -d "/" | sed "s/$DISTRO_ARCHDIR\///")
+       mkdir -p /$(dirname $xpath)
+       cp -a $f /$(dirname $xpath)/
+    done
+	   rm -rf /tmp/$DLPKG_BASE
+  else
+	   dpkg-deb -x $DLPKG_BASE ${DIRECTSAVEPATH}/
+  fi
   [ $? -ne 0 ] && clean_and_die
   [ -d /DEBIAN ] && rm -rf /DEBIAN #130112 precaution.
   dpkg-deb -e $DLPKG_BASE /DEBIAN #130112 extracts deb control files to dir /DEBIAN. may have a post-install script, see below.
