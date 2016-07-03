@@ -20,6 +20,6 @@ Examples:
 0dBOOTLABEL pfix=nox,ram07       Run in RAM, do not start X.
 
 0cDESKTOP FAIL: Black-screen/hangs, press reset or hold power-button down 4 secs:
-next bootup will force run of Video Wizard: choose alternate driver/settings.07
+next startup type boot param "puppy pfix=nox" to enable run of Video Wizard07
 
 
