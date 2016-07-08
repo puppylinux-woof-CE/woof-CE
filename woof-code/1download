@@ -6,14 +6,11 @@
 #100622 hack for pet search.
 #100730 if subdir field not specified in pet.specs, use pet_packages-${DISTRO_COMPAT_VERSION}.
 #100801 some common code extracted to support/inline_get_pet,inline_get_compat.
-#100911 fix so will download more kernel pets.
 #110523 Iguleder: support Scientific Linux rpm pkgs.
 #110607 replace 'quirky' with 'common' repo.
-#110616 fix path for downloading kernel pets.
 #110724 optional execute support/1buildversiondeps. 110817 removed.
 #110725 handle exception host folder pet_packages-drake
 #110819 support/findpkgs is new script to find all pkgs to be used in Puppy build.
-#110823 moved kernel pet download code up, choose which kernel, fix control panel.
 #111121 noryb009: improve arch linux support, patched: 0setup, 1download, 2createpackages, 3builddistro, DISTRO_COMPAT_REPOS-arch, support/arch/runDotInstalls
 #111127 no longer check if host has 'printcols', 'vercmp', it is done in 'merge2out' script.
 #120501 support arm build.
@@ -115,7 +112,6 @@ if [ "$BIN_URLS" = "" ];then
  exit
 fi
 
-
 rm -f DOWNLOAD-FAILS-PET 2>/dev/null
 rm -f DOWNLOAD-FAILS-${BINARIES} 2>/dev/null
 rm -f DOWNLOAD-ERRORS
@@ -123,142 +119,6 @@ rm -f DOWNLOAD-ERRORS
 #start the gui controlpanel...
 echo 'Run' > /tmp/1download-status-request
 ./support/1download_controlpanel &
-
-######################
-#110823 moved downloading kernels PETs up here.
-#download all the linux kernel pkgs from pet repo...
-echo
-echo "Downloading Linux kernel packages..."
-for PKGLISTFILE in $PACKAGELISTS_PET_PRIMARY #$PACKAGELISTS_PET_2NDARCH #$PACKAGELISTS_PET_SECOND #$PACKAGELISTS_PET_THIRD #110616
-do
- if [ "$DISTRO_KERNEL_PET" = "Huge_Kernel" ];then
-  echo "You are doing a Huge style build, not downloading a kernel now."
-  echo "This will occur when you run 3builddistro-Z or click 'HUGE BUILD DISTRO'"
-  echo "in the Woof GUI."
-  echo
-  break
- fi
- if [ "$DISTRO_KERNEL_PET" != "" ] ; then
-  SUBDIRTRAIL="`echo -n "$PKGLISTFILE" | cut -f 3 -d '-'`" #ex: common
-  SPEC_LINUXKERNELS="`cat $PKGLISTFILE | grep $DISTRO_KERNEL_PET | cut -f 2-99 -d ':' | cut -f 7,8 -d '|' | tr '\n' ' '`" 
-  if [ "$SPEC_LINUXKERNELS" = "" ]; then
-   echo 
-   echo "WARNING: Can not find the kernel pet specified in"
-   echo "DISTRO_SPECS file"
-   echo "Please update your DISTRO_SPECS file with one"
-   echo "of the available kernels."
-   echo "Will now download ALL the kernels available in the repos..."
-   echo
-   sleep 5
-   SUBDIRTRAIL="`echo -n "$PKGLISTFILE" | cut -f 3 -d '-'`" #ex: common
-   SPEC_LINUXKERNELS="`cat $PKGLISTFILE | grep '^linux_kernel\-' | cut -f 2-99 -d ':' | cut -f 7,8 -d '|' | tr '\n' ' '`" 
-  fi
- else
-  SUBDIRTRAIL="`echo -n "$PKGLISTFILE" | cut -f 3 -d '-'`" #ex: common
-  SPEC_LINUXKERNELS="`cat $PKGLISTFILE | grep '^linux_kernel\-' | cut -f 2-99 -d ':' | cut -f 7,8 -d '|' | tr '\n' ' '`" 
- fi
- 
- for SPEC_ONEKERNEL in $SPEC_LINUXKERNELS
- do
-  ONEKERNEL="`echo -n "$SPEC_ONEKERNEL" | cut -f 2 -d '|'`"
-  ONEKERNEL="`basename $ONEKERNEL .pet`"
-  PATHKERNEL="`echo -n "$SPEC_ONEKERNEL" | cut -f 1 -d '|'`"
-  
-  [ "$PATHKERNEL" = "" ] && PATHKERNEL="pet_packages-${SUBDIRTRAIL}" #110616
-  
-  SUCCESS="no"
-  [ -f packages-pet/${ONEKERNEL}.pet ] && continue
-  for ONE_PET_URL in $PET_URLS
-  do
-   wget --spider --tries=1 --timeout=20 ${ONE_PET_URL}/${PATHKERNEL}/${ONEKERNEL}.pet
-   [ $? -ne 0 ] && continue
-   cd packages-pet
-   wget ${ONE_PET_URL}/${PATHKERNEL}/${ONEKERNEL}.pet
-   sync
-   #check file downloaded correctly...
-   if [ -f ${ONEKERNEL}.pet ];then
-    cp -f ${ONEKERNEL}.pet tempfileonly.pet
-    pet2tgz tempfileonly.pet
-    [ $? -eq 0 ] && SUCCESS='yes'
-    rm -f tempfileonly.pet 2>/dev/null
-    rm -f tempfileonly.tar.gz 2>/dev/null
-    [ "$SUCCESS" = "no" ] && rm -f ${ONEKERNEL}.pet
-   fi
-   cd ..
-  
-   #check controlpanel, whether need to pause, resume or quit...
-   CP_STATUS_REQ="`cat /tmp/1download-status-request`" #Run, Pause, Resume, Quit
-   pausecnt=0; PIDCP=0
-   while [ "$CP_STATUS_REQ" = "Pause" ];do
-    #echo "Status: paused ${pausecnt}seconds"
-    if [ $PIDCP -eq 0 ];then
-     yaf-splash -close never -placement top -bg orange -text "1download script is currently in paused state" &
-     PIDCP=$!
-    fi
-    sleep 5
-    pausecnt=`expr $pausecnt + 5`
-    CP_STATUS_REQ="`cat /tmp/1download-status-request`"
-   done
-   [ $PIDCP -ne 0 ] && kill $PIDCP
-   if [ "$CP_STATUS_REQ" = "Quit" ];then
-    sync
-    kill `cat /tmp/1download_controlpanel_pid` #1download_controlpanel
-    rm -f /tmp/1download_controlpanel_pid
-    echo
-    echo "1download aborted."
-    echo -n "Press ENTER key to quit script: "
-    read yesgetout
-    exit
-   fi
-   [ "$SUCCESS" = "yes" ] && continue 2
-  done
-  echo "Failed to download ${ONEKERNEL}.pet."
- done
-done
-
-####choose kernel####
-case "$DISTRO_KERNEL_PET" in
- Huge*)echo "" ;;
- *)KERNELPKG="$DISTRO_KERNEL_PET"
-	if [ -f packages-pet/$DISTRO_KERNEL_PET ];then
-	 KMSG="This package exists in directory packages-pet, so ok. But you can change
-	it now if you wish."
-	 KOK=''
-	else
-	 KMSG="This package does not exist in directory packages-pet, so you cannot use it.
-	You must choose a linux kernel PET package from those available."
-	 KOK='no'
-	fi
-	echo
-	echo "The kernel to be used is specified in variable DISTRO_KERNEL_PET in file"
-	echo "DISTRO_SPECS. Currently DISTRO_KERNEL_PET=${DISTRO_KERNEL_PET}"
-	echo "$KMSG"
-	if [ "$KOK" = "" ];then
-	 echo -n "Press ENTER only to use this kernel, press any other char to change: "
-	 read KOK
-	fi
-	if [ "$KOK" ];then
-	 CNTLOOP=1
-	 AVAILKERNELS="`ls -1 packages-pet/linux_kernel-*.pet`"
-	 [ "$AVAILKERNELS" = "" ] && echo 'No linux_kernel pkgs avail in packages-pet. Press CTRL-C.'
-	 for ONEKERNEL in $AVAILKERNELS
-	 do
-	  echo "$CNTLOOP  $ONEKERNEL"
-	  CNTLOOP=`expr $CNTLOOP + 1`
-	 done
-	 echo
-	 echo -n 'Type number for kernel you want to use [1]: '
-	 read numkernel
-	 [ "$numkernel" = "" ] && numkernel=1
-	 KERNELPKG="`echo "$AVAILKERNELS" | head -n $numkernel | tail -n 1 | rev | cut -f 1 -d '/' | rev`"
-	fi
-	if [ "$KERNELPKG" != "$DISTRO_KERNEL_PET" ];then
-	 dkpPATTERN="s%^DISTRO_KERNEL_PET.*%DISTRO_KERNEL_PET='${KERNELPKG}'%"
-	 sed -i -e "$dkpPATTERN" ./DISTRO_SPECS
-	 echo "...DISTRO_SPECS now set to use $KERNELPKG"
-	fi
-	;;
-esac
 
 ##################################
 #120501 support arm build, download sd images...
