@@ -560,7 +560,6 @@ elif [ "$RUNNINGPUP" = "yes" ];then
 fi
 
 echo "This script can now optionally verify that all packages in DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} exist. "
-echo "Note, this may take a long time."
 echo -e "Press any key then ENTER to bypass check: "
 read skipcheck
 
@@ -576,7 +575,10 @@ fi
 #extract all the package names of compat-distro, without version info...
 #                 *this*
 #automake_1.14.1|automake|1.14.1|2ubuntu1|Filesystem;filemanager|1492K|pool/main/a/automake-1.14|automake_1.14.1-2ubuntu1_all.deb|+autoconf&ge2.65,+autotools-dev&ge20020320.1|Tool for generating GNU Standards-compliant Makefiles|ubuntu|trusty||
-PKGNAMES="`cat $PKGLISTS_COMPAT | cut -f 2 -d '|'`"
+cat $PKGLISTS_COMPAT | cut -f 2 -d '|' > zz_pkgnamespre
+#in debian/ubuntu there are too many lib* packages
+grep '^lib' zz_pkgnamespre > zz_pkgnames
+grep -v '^lib' zz_pkgnamespre >> zz_pkgnames
 
 #check the entries in PKGS_SPECS_TABLE against those in Packages-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}.
 #that is, need to verify that pkgs specified in table do actually exist.
@@ -587,50 +589,51 @@ Checking that compat-distro pkgs specified in PKGS_SPECS_TABLE actually exist...
 FAILCHK="no"
 
 #120315 extra field on end to force repo... grep -v '||[a-zA-Z0-9]*:' (not actually needed)
-BINARYPARTNAMES="$(echo "$PKGS_SPECS_TABLE" | grep '^yes' | grep -v '|pet:' | \
-	cut -f 3 -d '|' | tr ',' '\n' | grep -v -E '^-|^$' | tr '\n' ' ')"
+echo "$PKGS_SPECS_TABLE" | grep '^yes' | grep -v '|pet:' | cut -f 3,4 -d '|' > zz_fields34
 #yes|alsa-lib|libasound2,libasound2-data,libasound2-dev,libasound2-plugins|exe,dev,doc,nls
 #yes|advancecomp|advancecomp|exe>dev,dev,doc,nls
 #yes|abiword||exe,dev,doc,nls
-
-for ONEBINARYPARTNAME in $BINARYPARTNAMES
+while read AFIELD34
 do
+ #              BINARYPARTNAMES  ASSIGNFIELD
+ #yes|advancecomp|advancecomp|exe>dev,dev,doc,nls
+ IFS="|" read -r FPARTNAMES ASSIGNFIELD <<< "$AFIELD34"
+ [ ! "$FPARTNAMES" ] && continue
+ BINARYPARTNAMES=""
+ for I in ${FPARTNAMES//,/ } ; do
+   case $I in -*) continue ;; esac #ignore -pkgs
+   BINARYPARTNAMES+=" $I"
+ done
+ for ONEBINARYPARTNAME in $BINARYPARTNAMES
+ do
   #ONEBINARYPARTNAME may match multiple pkgs...
   #echo -n " $ONEBINARYPARTNAME"
   multiPATTERN="${ONEBINARYPARTNAME//-/\\-}" #replace "-" with "\-"
   multiPATTERN="${multiPATTERN//\*/.*}"      #replace "*" with ".*"
-  [ "`echo "$PKGNAMES" | grep -m 1 "^${multiPATTERN}$"`" != "" ] && continue #success.
+  grep -m 1 -q "^${multiPATTERN}$" zz_pkgnames && continue #success.
 
   if [ "$ASSIGNFIELD" ];then #120804
    #this will find entry in PKGS_SPECS_TABLE like 'yes|apr|apr|exe>dev,dev,doc,nls', where pkg apr-123 does not exist, only apr_DEV-123...
-   EXEASSIGNED=''
-   case "$ASSIGNFIELD" in
-     *'exe>dev'*) EXEASSIGNED='dev' ;;
-     *'exe>null'*) EXEASSIGNED='null' ;;
+   case "$ASSIGNFIELD" in *'exe>dev'*|*'exe>null'*)
+    grep -m 1 -q "^${ONEBINARYPARTNAME}_DEV" zz_pkgnames && continue #success.
    esac
-   if [ "$EXEASSIGNED" ];then
-    xxPATTERN='^'"${ONEBINARYPARTNAME}_DEV"
-    [ "`echo "$PKGNAMES" | grep "$xxPATTERN"`" != "" ] && continue #success.
-   fi
    #this entry 'yes|perl-digest-sha1|perl-digest-sha1|exe,dev>null,doc>null,nls>null' also only has a _DEV pkg...
-   DEVASSIGNED=''
-   case "$ASSIGNFIELD" in
-     *'dev>exe'*) DEVASSIGNED='exe' ;;
+   case "$ASSIGNFIELD" in *'dev>exe'*) 
+    grep -m 1 -q "^${ONEBINARYPARTNAME}_DEV" zz_pkgnames && continue #success.
    esac
-   if [ "$DEVASSIGNED" = "exe" ];then
-    xxPATTERN='^'"${ONEBINARYPARTNAME}_DEV"
-    [ "`echo "$PKGNAMES" | grep "$xxPATTERN"`" != "" ] && continue #success.
-   fi
   fi
-  if [ "`echo -n "$ONEBINARYPARTNAME" | grep '\\*'`" != "" ];then
-   zPATTERN='^'"$multiPATTERN"
-   [ "`echo "$PKGNAMES" | grep "$zPATTERN"`" != "" ] && continue #success.
-  fi
+  case "$ONEBINARYPARTNAME" in *"*"*)
+   grep -m 1 -q "^${multiPATTERN}" zz_pkgnames && continue #success.
+  esac
   #failure...
   echo "FAIL: $ONEBINARYPARTNAME"
   echo "FAIL: $ONEBINARYPARTNAME" >> /var/woof/0setup_fail_report_$RUNNINGPUP
   FAILCHK="yes"
-done
+ done
+done < zz_fields34
+
+rm -f zz_fields34  #comment out to debug
+rm -f zz_pkgnames* #--
 
 if [ "$FAILCHK" = "yes" ];then
  echo
