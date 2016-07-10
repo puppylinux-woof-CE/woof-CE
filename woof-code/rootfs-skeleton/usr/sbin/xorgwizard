@@ -86,16 +86,16 @@ function xorg_screen_res_dlg_stuff() {
 		DEFAULT_RES=$(report-video res)
 	fi
 	#- screen resolutions (edit this)
-	RESOLUTIONS="800x600
-1024x768
+	RESOLUTIONS="1024x768
+800x600
 1280x1024
 1366x768
 1680x1050
 1920x1080"
 	#- messages
 	SCREEN_RES_TITLE=$(gettext 'Screen resolution')
-	SCREEN_RES_MSG1=$(gettext 'These are generic screen resolutions that will most likely work, be careful if using very ancient VGA monitors. If in doubt, choose 1024x768 or 1366x768. The settings will be stored in xorg.conf.')
-	SCREEN_RES_MSG2=$(gettext "Choose a reasonable resolution for your hardware. If Xorg does not apply the requested screen resolution then your hardware does not support it or you're probably missing firmware for your graphic card..")
+	SCREEN_RES_MSG1=$(gettext "Choose a reasonable resolution for your hardware. If Xorg does not apply the requested screen resolution then your hardware does not support it or you're probably missing firmware for your graphics card..")
+	SCREEN_RES_MSG2=$(gettext 'These are generic screen resolutions that will most likely work, be careful if using very ancient CRT monitors. If in doubt, choose 1024x768 or 1366x768. The settings will be stored in xorg.conf.')
 }
 
 #============================================================
@@ -121,6 +121,7 @@ esac
 
 cp -f /etc/X11/xorg.conf-auto-pc /etc/X11/xorg.conf
 set_xorg_vesa
+set_xorg_screen_res
 set_xorg_color_depth
 
 RETVALS="`keymap-set --xopt`"
@@ -214,13 +215,19 @@ You might want to skip this step. Choose "16 bit" if you are having problems and
 
 function cli_xorg_screen_res() {
 	xorg_screen_res_dlg_stuff #sets $DEFAULT_RES $RESOLUTIONS, etc..
-	CLI_RESOLUTIONS="$DEFAULT_RES
+	if [ "$DEFAULT_RES" ]  ; then
+		CLI_RESOLUTIONS="$DEFAULT_RES
 $(echo "$RESOLUTIONS" | grep -v "^${DEFAULT_RES}$")"
+	else
+		CLI_RESOLUTIONS="$RESOLUTIONS"
+	fi
 	ITEMCOUNT=$(echo "$CLI_RESOLUTIONS" | wc -l)
-	MSGX="$SCREEN_RES_MSG1 $SCREEN_RES_MSG2"
 	x=1
 	(
-	echo -n 'dialog --title "'${SCREEN_RES_TITLE}'" --ok-label "'$(gettext 'Select')'" --cancel-label "'$(gettext 'Skip')'" --menu "'${MSGX}'" 0 0 0 '
+	echo 'dialog --title "'${SCREEN_RES_TITLE}'" --ok-label "'$(gettext 'Select')'" --cancel-label "'$(gettext 'Skip')'" \
+--menu "'${SCREEN_RES_MSG1}'
+
+'${SCREEN_RES_MSG2}'" 0 0 0 \'
 	echo "$CLI_RESOLUTIONS" | while read line ; do
 			echo -n "\"${x})\" \"$line\" "
 			x=$((x+1))
@@ -246,18 +253,49 @@ $(echo "$RESOLUTIONS" | grep -v "^${DEFAULT_RES}$")"
 	rm -f /tmp/xorg.cli /tmp/xorg.cli.res
 }
 
-dialog --title "$(gettext 'Xorg Wizard')" \
-	--cancel-label "$(gettext 'Cancel')" --ok-label "$(gettext 'OK')" \
-	--menu "$(gettext 'Action to take.
+if [ $PUPMODE -eq 5 -a ! -f /var/tmp/xorgwiz.1st ] ; then
+	TITLE_1=$(gettext 'Welcome')
+	MSG_NO_CONFIG=$(gettext 'Do not configure anything (just continue)')
+	echo -n > /var/tmp/xorgwiz.1st
+else
+	TITLE_1=$(gettext 'Xorg Wizard')
+	MSG_NO_CONFIG=$(gettext 'Do not configure anything')
+fi
 
-If you are having problems with Xorg then you may want to use the Xorg Vesa driver.')" 0 0 0 \
-	"1)" "$(gettext 'Do not configure anything (just continue)')" \
-	"2)" "$(gettext 'Set screen resolution...')" \
-	"3)" "$VESA_MSG"  >/dev/tty 2>/tmp/xorg.cli.res
-#"3)" "$(gettext 'Probe hardware and offer alternatives...')"
-[ $? -eq 0 ] || exit
+if [ -x /opt/xorg_alt/usr/bin/Xorg ] ; then
+	#add version in /opt/xorg_alt/usr/lib/xorg/version
+	XORGVER2="`/opt/xorg_alt/usr/bin/Xorg -version 2>&1 | grep '^X\.Org X Server' | sed 's|.* ||'`"
+	[ ! "$XORGVER2" ] && XORGVER2="$(cat /opt/xorg_alt/usr/lib/xorg/version)"
+	MSG_ALTXORG="$(gettext 'Use alternative Xorg server') (${XORGVER2}).."
+	MSG_3=$(gettext 'As a last resort you can use an alternative Xorg server version and drivers.')
+fi
+
+XORGVER="`Xorg -version 2>&1 | grep '^X\.Org X Server' | sed 's|.* ||'`"
+MSG_1="$(gettext 'Using') Xorg server ${XORGVER}"
+MSG_2="$(gettext 'If you are having problems with Xorg then you might want to force the use of the Xorg Vesa driver.') ${MSG_3}"
+MSG_SET_SR=$(gettext 'Set screen resolution...')
+
+(
+echo -n 'dialog --title "'${TITLE_1}'" \
+	--cancel-label "'$(gettext 'Cancel')'" --ok-label "'$(gettext 'OK')'" \
+	--menu "'${MSG_1}'
+
+'${MSG_2}'" 0 0 0 \
+	"1)" "'${MSG_NO_CONFIG}'" \
+	"2)" "'${MSG_SET_SR}'" \
+	"3)" "'${VESA_MSG}'"'
+	if [ -x /opt/xorg_alt/usr/bin/Xorg ] ; then
+		echo -n ' \
+	"4)" "'${MSG_ALTXORG}'"'
+	fi
+	echo ' >/dev/tty 2>/tmp/xorg.cli.res'
+	echo 'exit $?'
+) > /tmp/xorg.cli
+sh /tmp/xorg.cli
+retval=$?
 read -r XCHOICE < /tmp/xorg.cli.res
-rm -f /tmp/xorg.cli.res
+rm -f /tmp/xorg.cli /tmp/xorg.cli.res
+[ $retval -eq 0 ] || exit
 
 case $XCHOICE in
 	"1)") exit ;;
@@ -273,6 +311,23 @@ case $XCHOICE in
 		fi
 		cli_xorg_screen_res
 		cli_xorg_color_depth
+		exit
+		;;
+	"4)")
+		# * This requires a custom Xorg server package ready to be used
+		#   and it must be placed in /var/xorg_alt
+		# * It must be already tested and with all the needed drivers and dependencies..
+		dialog --title "$(gettext 'Alternative Xorg server')" \
+			--no-label "$(gettext 'No')" --yes-label "$(gettext 'Yes')" \
+			--yesno "Xorg ${XORGVER} -> ${XORGVER2}
+
+$(gettext 'By using this option the current Xorg server will be replaced permanently..')" 0 0
+		if [ $? -eq 0 ] ; then
+			#now replace Xorg server
+			rm -rf /usr/lib/xorg
+			rm -rf /usr/share/X11/xorg.conf.d
+			cp -rf --remove-destination /opt/xorg_alt/* /
+		fi
 		exit
 		;;
 	*) exit
