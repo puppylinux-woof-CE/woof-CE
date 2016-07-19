@@ -1,8 +1,7 @@
 #!/bin/bash
-#past contributors: npierce, rodin.s, 01micko, rg66, geoffrey
+#past contributors: kirk, npierce, rodin.s, 01micko, BarryK, rg66, geoffrey, etc
 
 [ ! -d /var/lib/mscw ] && mkdir -p /var/lib/mscw
-touch /var/lib/mscw/ce
 
 case $1 in
 	enable|-enable) touch /var/lib/mscw/persistent ; exit ;;
@@ -11,6 +10,7 @@ case $1 in
 	start|restart) START_PROC=1 ;; ## /usr/sbin/delayedrun
 	gui|-gui) CMD_GUI=1 ;;   ## force gui
 	cli|-cli) CMD_CLI=1 ;;   ## force cli
+	fix|-fix) FIX=1     ;;   ## run checks
 	check|-check) CHECK=1 ;; ## check_for_new_hardware
 esac
 
@@ -22,9 +22,40 @@ function ncards() { grep '^ [0-9]' /proc/asound/cards | grep -v 'pcsp' | wc -l ;
 function ndevs() { grep -v 'pcspeaker' /proc/asound/pcm | wc -l ; }
 
 function is_valid_device() {
-	case $1 in 0|1|2|3|4|5|6|7|8|9) return 0 ;;
+	case $1 in [0-9]|[0-9][0-9]) return 0 ;;
 		*) return 1 ;;
 	esac
+}
+
+function write_retrovol_extra() { ## this is written only when there is no config file
+	echo 'seg_spacing=0
+background_color=#FFFFFF
+border_color=#3F4043
+unlit_color=#D5DFF4
+lit_color=#788FAF
+tray_slider_width=22
+tray_slider_offset=-4' >> $HOME/.retrovolrc 
+}
+
+function write_retrovol_tray_slider() { #card ## currently not in use
+	local card=$1
+	local str='Master Playback Volume'
+	local id=$(< /sys/class/sound/card${card}/id)
+	## some cards are not handled properly, exception list
+	case $id in
+		V8235) str='PCM Playback Volume' ;; #Master control does not work
+	esac
+	local numid=$(amixer -c $card controls | grep "$str" | head -1 | sed -e 's|\,.*||' -e 's|.*=||')
+	[[ $numid != [0-9]* ]] && return 1
+	if [ -f $HOME/.retrovolrc ] ; then
+		if grep -q '#tray_control=' $HOME/.retrovolrc ; then
+			## a proper config file exists (retrovol has run before)
+			sed -i -e "/^tray_control=/d;/#tray_control=37/a tray_control=${numid}" $HOME/.retrovolrc
+			return
+		fi
+	fi
+	touch $HOME/.retrovolrc
+	echo "tray_control=${numid}" >> $HOME/.retrovolrc
 }
 
 function write_retrovol_card() { #card
@@ -34,11 +65,26 @@ function write_retrovol_card() { #card
 			sed -i -e "/^card=hw/d;/#card=hw:0/a card=hw:${1}" $HOME/.retrovolrc
 			return
 		fi
+	else
+		#write_retrovol_tray_slider $1
+		write_retrovol_extra
 	fi
-	echo "card=hw:${1}" > $HOME/.retrovolrc
+	touch $HOME/.retrovolrc
+	echo "card=hw:${1}" >> $HOME/.retrovolrc
 }
 
 function write_asound_card() { #card device cmixer
+	local card=$1 device=$2 cmixer=$3
+	(
+		echo "defaults.pcm.card $1"
+		echo "defaults.pcm.device $2"
+		echo "defaults.ctl.card $1"
+	) > /etc/asound.conf
+	write_retrovol_card $card
+}
+
+# wary does not support arrays... bash v3.00
+function write_asound_card_2() { #card device cmixer
 	local card=$1 device=$2 cmixer=$3
 	local fields=('defaults.pcm.card' 'defaults.pcm.device' 'defaults.ctl.card')
 	local values=("$card" "$device" "$cmixer")
@@ -174,6 +220,42 @@ function retrovol_restart() {
 	return 1
 }
 
+## this might be useful in some cases
+function check_hdmi_default() {
+	#https://bbs.archlinux.org/viewtopic.php?id=124380
+	#https://bbs.archlinux.org/viewtopic.php?id=194033
+	BLSTR='HDMI'
+	RPSTR='Analog'
+	echo ; echo "$BLSTR check for card 0 ..."
+	if [ -f /tmp/aplayl ] ; then # this file can be used to run tests
+		CARD_PBDEVS="$(cat /tmp/aplayl | grep card)"
+	else
+		CARD_PBDEVS="$(aplay -l | grep card)"
+	fi
+	BLACKLISTED=$(echo "$CARD_PBDEVS" | grep 'card 0' | head -1 | grep "$BLSTR")
+	REPLACEMENT=$(echo "$CARD_PBDEVS" | grep "$RPSTR" | head -1)
+	if [ "$BLACKLISTED" -a "$REPLACEMENT" ] ; then
+		echo -e "\nFound a potentially improper default pcm device for card 0..."
+		echo -e "	$BLACKLISTED\n"
+		echo -e "Will replace it with:"
+		echo -e "	$REPLACEMENT \n"
+		read zcard zdev <<< "$(get_card_device "$REPLACEMENT")"
+		echo "Making <card ${zcard}:device ${zdev}> the active one"
+		write_asound_card $zcard $zdev $zcard
+		if [ -f /var/lib/mscw/selected ] ; then
+			echo "$REPLACEMENT" > /var/lib/mscw/selected
+		fi
+		#touch /tmp/services/mswc.auto.ignore.hdmi.flag
+	elif [ "$BLACKLISTED" ] ; then
+		echo -e "\nWarning: found a potentially improper active device for card 0 ..."
+		echo -e "	$BLACKLISTED\n"
+		return 1 #problem
+	else
+		echo "	Not found... OK"
+	fi
+}
+
+
 #####
 LOG=1 #1 = use logfile
 #####
@@ -195,13 +277,14 @@ function start_proc() {
 			if [ $PUPMODE -eq 5 ] ; then
 				echo '*** First Boot ***'
 				rm -f /var/lib/mscw/selected
+				#check_hdmi_default
 			fi
 			if [ -f /etc/asound.conf ] ; then
 				check_asound_card
 				retrovol_restart -hide
 			fi
 			check_for_new_hardware
-			alsactl -f /etc/asound.state restore
+			#alsactl -f /etc/asound.state restore ##
 			cardinfo ; echo
 			start_proc_plus first
 		else
@@ -284,6 +367,7 @@ function start_proc_plus() {
 
 function MSCW_REPORT() {
 	(
+	dmidecode -t baseboard | grep -iE 'Manufacturer|Product' && echo
 	if [ -f /tmp/services/10alsa.start.log ] ; then
 		echo '=========================================='
 		echo '     /tmp/services/10alsa.start.log       '
@@ -291,17 +375,38 @@ function MSCW_REPORT() {
 		cat /tmp/services/10alsa.start.log
 		echo ; echo ; echo
 	fi
+	if [ -f /var/lib/mscw/selected ] ; then
+		echo "/var/lib/mscw/selected: $(cat /var/lib/mscw/selected)"
+		echo '-----------------------' ; echo
+	fi
+	if [ -f /tmp/services/mscw.check.txt ] ; then
+		echo '=========================================='
+		echo '         /tmp/services/mscw.check.txt             '
+		echo '=========================================='
+		cat  /tmp/services/mscw.check.txt
+		echo ; echo
+	fi
 	if [ -f /tmp/services/mscw.start.log ] ; then
 		echo '=========================================='
 		echo '     /tmp/services/mscw.start.log         '
 		echo '=========================================='
 		cat /tmp/services/mscw.start.log
-	else
-		echo '=========================================='
-		echo '        Sound Card Wizard        '
-		echo '=========================================='
-		bash -c cardinfo
+		echo ; echo ; echo
 	fi
+	echo '=========================================='
+	echo '            Sound Card Wizard             '
+	echo '=========================================='
+	bash -c cardinfo
+	echo ; echo ; echo
+	echo '=========================================='
+	echo '          lspci | grep -i audio           '
+	echo '=========================================='
+	lspci | grep -i audio
+	echo
+	echo '=========================================='
+	echo '     /etc/modprobe.d/alsa-base.conf       '
+	echo '=========================================='
+	cat /etc/modprobe.d/alsa-base.conf
 	) > /tmp/mscw.report.txt
 	if [ "$DISPLAY" ] ; then
 		defaulttextviewer /tmp/mscw.report.txt &
@@ -311,27 +416,28 @@ function MSCW_REPORT() {
 }
 export -f MSCW_REPORT
 
+function FIX() {
+	check_asound_card
+	#check_hdmi_default
+	check_for_new_hardware
+	alsactl -f /etc/asound.state restore
+}
+
 ###############################################################
 #                        COMMANDS
 ###############################################################
 
-if [ "$START_PROC" ] ; then ### start ###
-	start_proc
-	exit
-fi
-if [ "$REPORT" ] ; then
-	MSCW_REPORT
-	exit
-fi
-
-if [ "$CHECK" ] ; then
-	check_for_new_hardware
-	exit
-fi
+[ "$START_PROC" ] && { start_proc; exit; } ### start ###
+[ "$REPORT" ] && { MSCW_REPORT; exit; }
+[ "$CHECK" ] && { check_for_new_hardware; exit; }
+[ "$FIX" ] && { FIX; exit; }
 
 ###############################################################
 #                         DIALOG
 ###############################################################
+
+export TEXTDOMAIN=mscw
+export OUTPUT_CHARSET=UTF-8
 
 if [ "$DISPLAY" ] ; then
 	MSCW_GUI=1
@@ -343,36 +449,24 @@ fi
 
 ICON='/usr/share/pixmaps/puppy/card_pci.svg'
 
-#################### not using gettext ####################
-#ex: /usr/share/locale/es/LC_MESSAGES/mscw.mo
-#ex: /usr/share/locale/ko_KR/LC_MESSAGES/mscw.mo
-L_MSCW='Sound Card Wizard'
-L_NODEVICES='No Sound Devices Detected'
-L_CHOOSE='Choose default sound card'
-L_CHOOSE_ANOTHER='Choose another default sound card'
-L_QUIT='Quit'
-L_OK='OK'
-L_CANCEL='Cancel'
-L_SELECT='Select card/device'
-L_REPORT='Report'
-L_RETROVOL_SET='Retrovol has been set to use this card:'
-L_CONFIGURE_MIXER='Configure your audio mixer as'
-L_CARD='Card'
-L_DEVICE='device'
-#----------------------------------------------------------
-mo=mscw.mo
-if [ -f "/usr/share/locale/${LANG%.*}/LC_MESSAGES/$mo" ];then
-	. "/usr/share/locale/${LANG%.*}/LC_MESSAGES/$mo"
-elif [ -f "/usr/share/locale/${LANG%_*}/LC_MESSAGES/$mo" ];then
-	. "/usr/share/locale/${LANG%_*}/LC_MESSAGES/$mo"
-fi
+###########################################################
+L_MSCW=$(gettext 'Sound Card Wizard')
+L_NODEVICES=$(gettext 'No Sound Devices Detected')
+L_CHOOSE=$(gettext 'Choose default sound card')
+L_CHOOSE_ANOTHER=$(gettext 'Choose another default sound card')
+L_QUIT=$(gettext 'Quit')
+L_OK=$(gettext 'OK')
+L_CANCEL=$(gettext 'Cancel')
+L_SELECT=$(gettext 'Select card/device')
+L_REPORT=$(gettext 'Report')
+L_RETROVOL_SET=$(gettext 'Retrovol has been set to use this card:')
+L_CONFIGURE_MIXER=$(gettext 'Configure your audio mixer as')
+L_CARD=$(gettext 'Card')
+L_DEVICE=$(gettext 'device')
 ###########################################################
 
-if [ -f /var/lib/mscw/selected ] ; then
-	MSGX=$L_CHOOSE_ANOTHER
-else
-	MSGX=$L_CHOOSE
-fi
+MSGX=$L_CHOOSE
+[ -f /var/lib/mscw/selected ] && MSGX=$L_CHOOSE_ANOTHER
 
 if [ "$(grep -v pcspeaker /proc/asound/pcm)" = "" ] ; then
 	[ -f /etc/asound.conf ] && check_asound_card
@@ -406,30 +500,31 @@ if [ "$MSCW_GUI" ] ; then
 	fi
 	XPAT='<item stock-id="gtk-apply">'
 	ITEMS=$(echo "$ITEMS" | sed -e "${ACTIVEN}s%<item>%$XPAT%" )
-	###
+	##--
 	if [ $ITEMCOUNT -eq 1 ] ; then
 		BUTTONS="<button>
-				$(/usr/lib/gtkdialog/xml_button-icon quit)
+				$(/usr/lib/gtkdialog/xml_button-icon quit.svg)
 				<label>$L_QUIT</label>
 				<action type=\"exit\">Cancel</action>
 			</button>"
 	else
 		BUTTONS="<button>
-				$(/usr/lib/gtkdialog/xml_button-icon apply)
+				$(/usr/lib/gtkdialog/xml_button-icon apply.svg)
 				<label>$L_SELECT</label>
 				<action type=\"exit\">OK</action>
 			</button>
 			<button>
-				$(/usr/lib/gtkdialog/xml_button-icon cancel)
+				$(/usr/lib/gtkdialog/xml_button-icon cancel.svg)
 				<label>$L_CANCEL</label>
 				<action type=\"exit\">Cancel</action>
 			</button>"
 	fi
-	###
+	# ------------------------
+	WINDOW_MSG="$(/usr/lib/gtkdialog/xml_info scale /usr/share/pixmaps/puppy/sound_config.svg 24 "${MSGX}")"
 	echo "export MAIN_DIALOG='
-<window title=\"${L_MSCW}\" image-name=\"$ICON\" resizable=\"false\">
+<window title=\"${L_MSCW}\" image-name=\"/usr/share/pixmaps/puppy/card_pci.svg\" resizable=\"false\">
 	<vbox>
-		$(/usr/lib/gtkdialog/xml_info scale /usr/share/pixmaps/puppy/sound_config.svg 24 "${MSGX}")
+		$WINDOW_MSG
 		<tree rules_hint=\"true\" headers_visible=\"false\" hover-expand=\"true\">
 			<height>${HEIGHT}</height>
 			<width>600</width>
@@ -439,7 +534,7 @@ if [ "$MSCW_GUI" ] ; then
 		<hbox>
 			${BUTTONS}
 			<button>
-				$(/usr/lib/gtkdialog/xml_button-icon clipboard)
+				$(/usr/lib/gtkdialog/xml_button-icon clipboard.svg)
 				<label>$L_REPORT</label>
 				<action>bash -c MSCW_REPORT &</action>
 			</button>
@@ -517,6 +612,7 @@ if ! is_valid_device $Device ; then
 fi
 
 write_asound_card $Card $Device $Card #-- write --#
+#write_retrovol_tray_slider $Card
 
 check_for_new_hardware &>/dev/null
 
