@@ -10,6 +10,8 @@
  *
  * cheers,
  * iguleder, October 2015
+ *
+ * location: woof-arch/<arch>/build/support/find_cat
  */
 
 #include <stdlib.h>

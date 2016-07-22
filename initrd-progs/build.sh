@@ -33,6 +33,11 @@ case "$1" in release|tarball) #this contains the $PREBUILT_BINARIES
 	exit
 esac
 
+case "$1" in w|w_apps|c)
+	for a in ${ARCH_LIST#default } ; do $0 -nord -auto -arch $a -pkg w_apps ; done
+	exit
+esac
+
 #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
 help_msg() {

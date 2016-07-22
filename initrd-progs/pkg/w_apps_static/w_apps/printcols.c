@@ -1,16 +1,20 @@
-/*(c) Copyright Barry Kauler 2009*/
-/*Invoke like this: printcols afilename 1 6 2 9
-  ...columns with '|' delimiter character get printed, in order specified.
-     handles up to 15 columns.
-Designed for use in the Puppy Package Manager, puppylinux.com
-Compile statically:
-# diet gcc -nostdinc -O3 -fomit-frame-pointer -ffunction-sections -fdata-sections -fmerge-all-constants -Wl,--sort-common -Wl,-gc-sections -o printcols -o printcols printcols.c
-* OR
-* musl-gcc -static -O3 -fomit-frame-pointer -ffunction-sections -fdata-sections -fmerge-all-constants -Wl,--sort-common -Wl,-gc-sections -o printcols printcols.c
-*
-* then:
-* strip --strip-all -R .note -R .comment
-*/
+/*
+ * (c) Copyright Barry Kauler 2009
+ * Invoke like this: printcols afilename 1 6 2 9
+ *  ...columns with '|' delimiter character get printed, in order specified.
+ *     handles up to 15 columns.
+ * Designed for use in the Puppy Package Manager, puppylinux.com
+ * 
+ * Compile statically:
+ # diet gcc -nostdinc -O3 -fomit-frame-pointer -ffunction-sections -fdata-sections -fmerge-all-constants -Wl,--sort-common -Wl,-gc-sections -o printcols -o printcols printcols.c
+ * OR
+ * musl-gcc -static -O3 -fomit-frame-pointer -ffunction-sections -fdata-sections -fmerge-all-constants -Wl,--sort-common -Wl,-gc-sections -o printcols printcols.c
+ *
+ * then:
+ * strip --strip-all -R .note -R .comment
+ *
+ * location: woof-arch/<arch>/build/support/printcols
+ */
 
 #include <stdio.h>
 #include <string.h>

@@ -11,6 +11,8 @@
  *
  * cheers,
  * iguleder, September 2015
+ *
+ * location: woof-arch/<arch>/build/support/debdb2pupdb
  */
 
 #include <string.h>
