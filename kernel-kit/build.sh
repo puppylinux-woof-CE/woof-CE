@@ -50,9 +50,14 @@ echo "Jobs for make: ${JOBS#-j}" ; echo
 
 #------------------------------------------------------------------
 
+if [ "$DOTconfig_file" -a ! -f "$DOTconfig_file" ] ; then
+	echo "File not found: $DOTconfig_file"
+	exit 1
+fi
+
 if [ -f "$DOTconfig_file" ] ; then
-	CONFIGS_DIR=${DOTconfig_file%/*}
-	Choice=${DOTconfig_file##*/}
+	CONFIGS_DIR=${DOTconfig_file%/*} #dirname  $DOTconfig_file
+	Choice=${DOTconfig_file##*/}     #basename $DOTconfig_file
 else
 	## .configs
 	[ -f /tmp/kernel_configs ] && rm -f /tmp/kernel_configs
