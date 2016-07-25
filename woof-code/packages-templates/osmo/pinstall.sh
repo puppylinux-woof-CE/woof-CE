@@ -1,8 +1,6 @@
 #!/bin/sh
 #assume current directory is rootfs-complete, which has the final filesystem.
 
-#RUNNINGPS="`ps`"
-#if [ "`echo "$RUNNINGPS" | grep "petget"`" = "" ];then
 if [ ! "`pwd`" = "/" ];then
 
  echo "Configuring Osmo..."

@@ -2,8 +2,6 @@
 #post-install script for Mozilla.
 #assume current directory is rootfs-complete, which has the final filesystem.
 
-#RUNNINGPS="`ps`"
-#if [ "`echo "$RUNNINGPS" | grep "petget"`" = "" ];then
 if [ ! "`pwd`" = "/" ];then
 
  echo "Configuring Mozilla SeaMonkey browser..."

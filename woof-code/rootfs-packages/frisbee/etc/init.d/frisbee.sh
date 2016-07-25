@@ -37,7 +37,7 @@ start_wpa_supplicant() #140826...
 	if grep -q '^wireless_enabled=1' /etc/frisbee/frisbee.conf; then #140303
 		export INTERFACE=$WIFI_IF
 		WPAPAT="wpa_supplicant .*\-i *$WIFI_IF "
-		[ "$(ps | grep "$WPAPAT" | grep -v ' grep ')" = "" ] \
+		[ "$(busybox ps | grep "$WPAPAT" | grep -v ' grep ')" = "" ] \
 		 && start_wpa #in foreground
 
 		COUNT=33
