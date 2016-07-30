@@ -2,7 +2,6 @@
 #(c) copyright Barry Kauler 2008, puppylinux.com
 #2008 Lesser GPL licence v2 (http://www.fsf.org/licensing/licenses/lgpl.html)
 #v404 first release. rewritten from scratch, aiming for simplicity and speed.
-#v405 fix for alsa.
 #v406 load apm.ko if no acpi.
 #v408 explicitly load battery, ac, thermal, fan modules.
 #v409 gparted create ext3 part. failed, fixed by making /etc/mtab a symlink.
@@ -34,13 +33,11 @@
 #100908 rerwin: -7.5-fix modem patch.
 #100911 fsckme.err filename changed to fsckme.flg. see also initNEW, init (initramfs), rc.shutdown.
 #101007 Network detection improvements from shinobar.
-#101107 rerwin: Reset alsa card numbers, but retain wizard card assignments in alsa.conf.
 #101119 /sbin/pup_event_backend_modprobe has been rewritten, repercussions here.
 #101210 new path /tmp/pup_event_backend for files logged by /sbin/pup_event_backend_*.
 #101216 mkdir /tmp/simple_network_setup.
 #110113 make sure /dev/mixer removed, see test in /etc/init.d/10alsa.
 #110126 fix ATADRIVES variable for full-hd installation.
-#110302 wasn't getting the right uevents for my 3g modem, use 'udevadm trigger'.
 #110304 remove nodes in /dev/snd -- reports that these may be wrong after a reboot.
 #110405 fix 'free' applet output format different in later versions of busybox.
 #110426 move done/failed/backgrounded 2 places to right (also in init script).
@@ -246,7 +243,6 @@ echo "VERSION UPDATE"
 echo -n "Updating..." >/dev/console #updating
 
 /etc/rc.d/rc.update $PUPMODE
-#sync
 status_func $STATUS
 
 #110814 01micko: http://www.murga-linux.com/puppy/viewtopic.php?p=550932#550932
@@ -262,7 +258,7 @@ if [ "`cat /etc/hostname`" = "puppypc" ];then
 fi
 
 #Ensure kernel-specific firmware.dep file present.
-[ ! -e /etc/modules/firmware.dep.$KERNVER ] \
+[ -e /etc/modules/firmware.dep.$KERNVER ] \
  && mv -f /etc/modules/firmware.dep /etc/modules/firmware.dep.$KERNVER
 
 #################LOAD KERNEL MODULES################
@@ -471,21 +467,19 @@ else
  fi
 fi
 
- #110511 now using udevadm for usb, ssb and pcmcia... 110513 keep ssb as before...
- #v424 try it a different way, this also fixes ssb devices (such as b43.ko)...
- [ -e /sys/bus/ssb/devices ] && NEWSSB="`ls /sys/bus/ssb/devices/*/uevent 2>/dev/null | tr '\n' ' '`"
- for ONEUEVENT in ${NEWSSB} #${NEWPCMCIA}${NEWUSB}${NEWSSB} #110511
- do
+#110511 now using udevadm for usb, ssb and pcmcia... 110513 keep ssb as before...
+#v424 try it a different way, this also fixes ssb devices (such as b43.ko)...
+[ -e /sys/bus/ssb/devices ] && NEWSSB="`ls /sys/bus/ssb/devices/*/uevent 2>/dev/null | tr '\n' ' '`"
+for ONEUEVENT in ${NEWSSB} #${NEWPCMCIA}${NEWUSB}${NEWSSB} #110511
+do
   ONEPATH="`dirname $ONEUEVENT`"
   #the check for 'modalias' file is maybe needed for old kernel?...
   [ ! -e ${ONEPATH}/modalias ] && [ "`grep 'MODALIAS' $ONEUEVENT`" = "" ] && continue
   echo add > $ONEUEVENT
   sleep 0.02
- done
-# #110302 wasn't getting the right uevents for my 3g modem...
-# udevadm trigger --action=add --subsystem-match=usb
-# #TODO i think need this:
- udevadm trigger --action=add --subsystem-match="pcmcia*" --subsystem-match="usb*" 
+done
+#wasn't getting the right uevents for my 3g modem... i think need this:
+udevadm trigger --action=add --subsystem-match="pcmcia*" --subsystem-match="usb*"
 
 if [ "$USBBUILTIN" = "no" ];then #110712
  #wait for usb-storage drives to become available...(already done if initrd)
@@ -593,7 +587,7 @@ fi
 ##################################################
 #					ETHERNET
 ##################################################
-## *** this is specially for some really old pcs running newer kernels.. ***
+## *** this is specially for really slow/old pcs running newer kernels.. ***
 # for the network tools to work in some cases where there is a strange delay
 # in loading network modules.
 ## this ensures the code that follows actually works (ethernet might become available a few secs later)
@@ -673,7 +667,6 @@ if [ "$PUPMODE" = "77" ];then #77=multisession cd/dvd.
  if [ "`cat /root/Choices/ROX-Filer/PuppyPin | grep "savesession"`" = "" ];then
   echo '<icon x="768" y="128" label="save">/usr/sbin/savesession-dvd</icon>' >> /root/Choices/ROX-Filer/PuppyPin
   grep -v '/pinboard' /root/Choices/ROX-Filer/PuppyPin  > /tmp/PuppyPin-CPY
-  #sync
   cp -f /tmp/PuppyPin-CPY /root/Choices/ROX-Filer/PuppyPin
   echo '</pinboard>' >> /root/Choices/ROX-Filer/PuppyPin
  fi
@@ -732,21 +725,17 @@ if [ "$BOOT_SCHEDULER" ];then #120704 see /etc/rc.d/BOOTCONSTRAINED, variable se
   fi
  fi
 fi
+
 # peebee work around for rfkill in some HP laptops
-rfkill list | grep -q "yes"
-BLOCKED="$?"
-if [ "$BLOCKED" = 0 ];then
-	rfkill unblock wlan
-fi
+rfkill list | grep -q "yes" && rfkill unblock wlan
+
 # SFR hack for IO bug http://murga-linux.com/puppy/viewtopic.php?p=681383#681383
 KERNVER=${KERNVER%%-*} # just for appending "-4g","-PAE" or whatever
 if [ ! "$PUPMODE" = 5 ];then  
   if vercmp $KERNVER ge 3.2 ;then
     if vercmp $KERNVER lt 3.8 ;then
-      case "$DEV1FS" in
-      ntfs|vfat|ext2)
-      mount -o remount,sync /dev/loop1 # changed 130210, SFR
-      ;;
+      case "$DEV1FS" in ntfs|vfat|ext2) # changed 130210, SFR
+        mount -o remount,sync /dev/loop1 ;;
       esac
     fi
   fi
