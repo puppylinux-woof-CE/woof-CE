@@ -1,5 +1,6 @@
 #!/bin/sh
 # sfs_load 28 Jan 2011 by shinobar
+# support kernel v3+ only
 # some code from the otf_sfs_loader by goingnuts, the sfs_installation.sh by 01micko and scrips by Barry
 # 29 Jan 2011 v0.2: fix under RAM mode (PUPSAVE=5), multisession CD support (PUPMODE=77)
 # 30 Jan 2011 v0.3: unionfs mount option, fix menu update after unload
@@ -14,12 +15,10 @@
 # 17 Mar 2011 v1.1: load/unload under PUPMODE=5, launcher
 # 22 Sep 2011 v1.1.1: free(busybox) version compatible
 # 26 Sep 2011 v1.2: fix was undesired mount (thanks to mories), fix was fleezed input in combobox, fix ramsize
-# 28 Oct 2011 v1.2.9: support kernel 3.x and unionfs, special characters in path, profile.d
 # 13 Nov 2011 v1.3: fix could not unload excess sfs(>6) with some version of busybox, PUPMODE=7(same as PUPMODE=2), error message at unload failure, wait before removing layer 
 # v1.3.9: fix was not perform Startup scripts at load
 # v1.3.9: HAS_ICONS, HAS_GLIB_SCHEMA (jemimah)
 # v1.3.9: wipe out the masking files in save layers at load
-# v1.3.9: kernel versions and SUPPORTSIG (red/yellow/green)
 # v1.3.9: another tmpfs (/mnt/tmp) for live CD and etc.
 # v1.3.9: PUPHOME without pupsave (PUPMODE=5), look up live CD, PUPMODE=77
 # v1.3.9: messages - not to delete loaded sfs, retry unload, experimental, unsupport versions
@@ -30,7 +29,6 @@
 #1 Mar 2012 v1.9.3: fix was clean up whiteout do not see pup_z, incleased RESERVHDD/RAM, version info, jwm -reload without flicker
 #6 Mar 2012 v1.9.4: fix excess(>6) load was messing up with some version of busybox(lupu), fix was menu dissappeared for eccess sfs, fix was error but already mounted, avoid 'losetup -d' for some kernel
 #6 Mar 2012 v1.9.4: fix 'restart X' warning, never use external download_file, 'Back to sfs_load' button, gtkdialog4
-#18 May 2012 for lupu-528JP: SUPPORTSIG=yellow
 #19 May 2012 v1.9.5: fix was no move but always copy
 #31 May 2012 v1.9.6: fix was everytime rc.update run when the number of additional sfs > 3, also when >6
 #            v1.9.6-2: 'losetup -d' is disabled for kernel-3.x #2.0.8 do not automatic
@@ -1280,28 +1278,6 @@ append_sfs() {
  #debug "EXTRASFS=$EXTRASFS
  #EXTRASFSSAFE=$EXTRASFSSAFE"
  
- # need to copy to another tmpfs?
- NEWTMPFS=""
- [ "$SUPPORTSIG" = 'yellow' ] && df "$DIRNAME" | grep -qw '^unionfs' && NEWTMPFS="y"
- #[ "$DEBUGFLAG" ] && NEWTMPFS="y"
- if [ "$NEWTMPFS" ]; then	# need another tmpfs
-   ram_free
-   FILESIZE=$(du -k -L "$EXTRASFS"| cut -f1)
-   [ $FILESIZE -gt 0 ] && REST=$(($RFREE - $FILESIZE)) || REST=0
-   if [ $REST -le $RESERVRAM ]; then
-      log "The '$EXTRASFS' need to copy but the RAM size is not enough."
-      return 1
-   fi
-   DESTDIR="/mnt/tmp"
-   ERRMSG=""
-   if ! another_tmpfs; then
-      log "$ERRMSG"
-      return 1
-   fi
-   cp -f "$EXTRASFS" "$DESTDIR" || return 1
-   EXTRASFS="$DESTDIR/$FILENAME"
- fi
-
  # where to mount
   NUMS=$(LANG=C df | grep '/initrd/pup_ro'| cut -d'%' -f2 | tr -dc '0-9\n'| sort -n)
   N=$(echo "$NUMS" | tail -n 1)
@@ -1834,26 +1810,11 @@ YDRFILE=$(echo $YDRV|cut -d',' -f3)
 YDRBASE=$(basename "$YDRFILE")
 FDRFILE=$(echo $FDRV|cut -d',' -f3)
 FDRBASE=$(basename "$FDRFILE")
-# sfs version indirect via kernel version
-# 28 Oct 2011 v1.2.9: support kernel 3.x
-#KERNVER="`uname -r`"
+
 KERNVER="`uname -r | cut -f 1 -d \-`" #20151004
-KERNELMAJORVER=`echo -n "$KERNVER" | cut -f 1-2 -d '.'|tr -d '.'`
-KERNELSUBVER=`echo -n "$KERNVER" | cut -f 3 -d '.' | cut -f 1 -d '-' | cut -f 1 -d '_'` #v423 100831
-SUB_SUB_KERNELVER=`echo -n "$KERNVER" | cut -f 1 -d '-' | cut -f 4 -d '.'` #100607
-SFSVER=3 #'squashfs, version 3' #v423
-[ $KERNELSUBVER -gt 28 ] && SFSVER=4 #'squashfs, version 4' #v423
-[ $KERNELSUBVER -eq 27 ] && [ $SUB_SUB_KERNELVER -gt 46 ] && SFSVER=4 #'squashfs, version 4' #100607
-[ $KERNELMAJORVER -gt 26 ] && SFSVER=4
-# v1.3.9: sfs on-the-fly support
 SUPPORTSIG="red" # unsupported
-[ $KERNELSUBVER -gt 20 ] && SUPPORTSIG="yellow"	# limited support
-SUPPORTSIG="red"
-#[ $KERNELSUBVER -gt 30 ] && SUPPORTSIG="green"	# full support #v1.9.5: yellow for all 2.6.x kernel
-[ $KERNELMAJORVER -gt 26 ] && SUPPORTSIG="green"
-#v1.9.4, v1.9.6-2: 'losetup -d' is disabled for kernel-3.x
-#v2.0.8: DISSOSIATE option to be set at the top of this script
-#[ $KERNELMAJORVER -ge 32 ] &&  DISSOSIATE="false" && debug "'losetup -d' is disabled. for kernel-3.x"
+SFSVER=3
+vercmp $KERNVER ge 3 && SUPPORTSIG="green" && SFSVER=4 #supported
 
 # losetup accepts without option?
 ALLUSED="-a"
@@ -1922,7 +1883,6 @@ esac
 [ "$PUPMODE7SUPPORT" = 'true' ] && [ "$PUPMODE" = "7" ] && SFSMODE="y"
 if [ "$SFSMODE" = "cd" ]; then
   PUPHOME="/"	#; DESTDIR="/initrd/pup_rw"
-  [ "$SUPPORTSIG" = 'yellow' ] && PUPHOME="/root"
   DESTDIR=$PUPHOME
 fi
 #debug "PUPHOME=$PUPHOME;"
@@ -2297,7 +2257,7 @@ if [ "$FILEISAT" = "" ];then
     ;; 
   esac
 fi
-if [ "$FILEISAT" = "" -o "$SUPPORTSIG" = "yellow" ]; then	# v1.3.9
+if [ "$FILEISAT" = "" ]; then	# v1.3.9
   DFRESULT=$(df "$DIRNAME" 2>/dev/null)
   echo "$DFRESULT" | grep -qw '^unionfs' && FILEISAT="unionfs"
 fi
