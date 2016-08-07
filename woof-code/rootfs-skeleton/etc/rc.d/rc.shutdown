@@ -57,13 +57,11 @@
 #110928 fixed, reboots when choose shutdown. very old bug, dates back to 2009.
 #110928 modified i18n conversion, only for echo to /dev/console.
 #111106 do not execute fuser if network share mount.
-#111107 ldolse: unmount network shares before taking down the network
 #120103 karl godt: error unmounting stray partitions. 120103 karl godt: more tweaks.
 #120129 karl godt: need to rearrange order, refer http://murga-linux.com/puppy/viewtopic.php?t=71767&start=405.
 #120129 karl godt: improved ZOMBIES, see http://www.murga-linux.com/puppy/viewtopic.php?t=73122
 #120130 rodin.s: update for gettext (line 91).
 #120218 changed TEXTDOMAIN=etcrcd___rc.shutdown to TEXTDOMAIN=rc.shutdown (unlikely to be any other file same name in $PATH).
-#120219 zekebaby: unmount network shares, alternate method. 120220 another alternate method.
 #120409 experimenting with minit, i discovered "rm -rf /tmp/*" is killing mingetty. initrd.gz wipes it, have added code to wipe for full hd install at bootup...
 #120427 01micko: support ext4 save-file.
 #120514 WARNING: i don't have this problem, as no longer deleting /tmp/* (120409), however Karl Godt reported that 'fuser -k -m' may kill rc.shutdown then if no /tmp/bootcnt.txt then X restarts, ref: http://bkhome.org/blog/?viewDetailed=02827
@@ -76,14 +74,14 @@
 #121104 official 'fuser' output format changed, when save to entire partiton 'fuser' kills too much prevents shutdown.
 #121125 umount is a script, this line also unmounts ntfs partition (if mounted) -- which is a bug in script -- use umount-FULL.
 #130128 support udf f.s.
-#130217 01micko: relocate umount of network shares.
 
 PATH=/bin:/sbin:/usr/bin:/usr/sbin
 
 #110923
-. /usr/bin/gettext.sh # enables use of eval_gettext (several named variables) and ngettext (plurals)
 export TEXTDOMAIN=rc.shutdown
 export OUTPUT_CHARSET=UTF-8
+L_UNMOUNTING="$(gettext "Unmounting '%s' ...")"
+L_UNMOUNTING_STRAY="$(gettext 'Unmounting stray filesystems:')"
 
 clear
 exec 1> /dev/null 2>&1
@@ -123,7 +121,6 @@ killzombies() {
  ZOMBIES="`/bin/ps -H -A | grep '<defunct>' | sed 's/^[[:blank:]]*//g' | cut -f 1 -d ' ' | sort -gr | tr '\n' ' '`" #120129 karl godt: improved, see http://www.murga-linux.com/puppy/viewtopic.php?t=73122
  for ONEZOMBIE in $ZOMBIES
  do
-  #echo "`eval_gettext \"Killing parentless zombie process \\\${ONEZOMBIE}\"`"
   echo "Killing parentless zombie process $ONEZOMBIE"
   /bin/ps --no-header -p $ONEZOMBIE && kill $ONEZOMBIE
  done
@@ -196,23 +193,8 @@ do
 done
 #note, /etc/rc.d/rc.services does same, with 'start' parameter.
 
-undecided_unmount_network_shares(){
-##111107 ldolse: unmount network shares before taking down the network
-##(see 111106, need to do it sooner, but 111106 will remount read-only if failed to umount here)
-for MOUNTPOINT in `mount | grep '^//' | cut -d  ' ' -f 3 | tr '\n' ' '`
-do
- umount -f $MOUNTPOINT
-done
-##120219 hmmm, zekebaby reports above does not work for him. i looked up an ex: mount -t nfs boffo.clowns.org:/home/bozo /mnt/bozo
-##so this is zekebaby's patch: (see http://murga-linux.com/puppy/viewtopic.php?p=605451#605451)
-for MOUNTPOINT in `mount | grep ':' | cut -d  ' ' -f 3 | tr '\n' ' '`
-do
-  umount -f $MOUNTPOINT
-done
-}
-
-#130217 01micko: moved this below stopping service-scripts...
-#121125 umount is a script, this line also unmounts ntfs partition (if mounted) -- which is a bug in script -- use umount-FULL...
+#01micko: umount is not a reliable script, so have to use umount-FULL
+#also see shinobar's msg in http://murga-linux.com/puppy/viewtopic.php?p=605451#605451
 umount-FULL -a -t cifs,smbfs,nfs,sshfs #120220 121125
 
 #100301 brought down below call to 'stop' service scripts, needed for lamesmbxplorer.
@@ -228,8 +210,6 @@ if [ "`grep 'net-setup.sh' /usr/local/bin/defaultconnect`" = "" ];then #see conn
 else
  /etc/rc.d/rc.network stop
 fi
-## quick hack, maybe shutdown problem if ath_pci left loaded...
-#[ "`lsmod | grep '^ath_pci'`" != "" ] && rmmod ath_pci
 
 #100604 reported by shel: http://murga-linux.com/puppy/viewtopic.php?t=56238
 # Unload the Ethernet drivers on shutdown to prevent battery drain.
@@ -244,7 +224,6 @@ done
 if [ -f /sbin/cardmgr ];then #pcmcia-cs package installed.
  if [ "`lsmod | grep -E '^i82092|^tcic|^i82365|^yenta_socket'`" != "" ];then
   #got this out of rc.pcmcia, modified...
-  #echo -n $(gettext "Shutting down PCMCIA services: ")
   echo -n "Shutting down PCMCIA services: "
   if [ -s /var/run/cardmgr.pid ] ; then
    PID=`cat /var/run/cardmgr.pid`
@@ -308,8 +287,8 @@ swapfile_func() {
       [ $FREESAVEM -gt 500 ] && SWPSIZE="200"
       if [ "$SWPSIZE" ];then
        echo  >/dev/console
-       echo "$(eval_gettext "A swapfile named 'pupswap.swp' is being created in partition \${localSAVEPART},")" >/dev/console
-       echo "$(eval_gettext "of size \${SWPSIZE}MB. This will be loaded at next boot, to ease the low-RAM")" >/dev/console
+       echo "$(printf "$(gettext "A swapfile named 'pupswap.swp' is being created in partition %s")" "${localSAVEPART}")" >/dev/console
+       echo "$(printf "$(gettext "of size %sMB. This will be loaded at next boot, to ease the low-RAM")" "${SWPSIZE}")" >/dev/console
        echo "$(gettext "situation of your PC. Creating now...")" >/dev/console
        dd if=/dev/zero of=${localSMNTPT}/pupswap.swp bs=1048576 count=$SWPSIZE
        if [ $? -eq 0 ];then
@@ -382,7 +361,6 @@ return $RETVAL
 case $PUPMODE in
  5) #v2.02 first boot.
   echo "$(gettext "Session not saved")" >/dev/console
-  #echo "Session not saved" >/dev/console
   sync
   #ha ha, before had this, if aborted save after choosing save-partition, code
   #further down wiped all of the partition (it was mntd on /tmp/savepup)...
@@ -390,23 +368,19 @@ case $PUPMODE in
   #...well, fixed it, changed mntpt so not in /tmp. Leave above line here.
   ;;
  32) #first shutdown, save back to PDEV1. v3.97: xPDEV
-  echo "$(eval_gettext "Saving session to \${xPDEV}...")" >/dev/console #121104
+  echo "$(printf "$(gettext 'Saving session to %s...')" "$xPDEV")" >/dev/console #121104
   DEV1MNT=`grep "/dev/${xPDEV} " /proc/mounts | cut -f 2 -d " "`
   if [ "$DEV1MNT" = "" ];then
    mkdir -p /mnt/$xPDEV
    mount -t $xDEVFS /dev/$xPDEV /mnt/$xPDEV
    if [ ! $? -eq 0 ];then
-    echo "$(eval_gettext "ERROR: unable to mount /dev/\${xPDEV}, cannot save.")" >/dev/console #121104
-    #echo "ERROR: unable to mount /dev/$xPDEV, cannot save." >/dev/console
+    echo "$(printf "$(gettext 'ERROR: unable to mount /dev/%s, cannot save.')" "$xPDEV")" >/dev/console #121104
     exit
    fi
    DEV1MNT="/mnt/$xPDEV"
   fi
   RDIRS="`find /initrd/pup_rw/ -maxdepth 1 -mount -type d | grep -v "/$" |grep -v "/mnt"|grep -v "/tmp"|grep -v "/proc"|grep -v "/sys"|grep -v "/var"|grep -v "/dev" | grep -v "/lost" |tr "\n" " "`"
-  for ONEDIR in $RDIRS
-  do
-   cp -a $ONEDIR ${DEV1MNT}/
-  done
+  for ONEDIR in $RDIRS ; do cp -a $ONEDIR ${DEV1MNT}/ ; done
   mkdir -p ${DEV1MNT}/var #121104
   cp -a /initrd/pup_rw/var/local ${DEV1MNT}/var/ #121104 puppy data here that must be saved.
   #DISTRO_SPECS must be saved, init script looks for it to determine if
@@ -421,10 +395,8 @@ case $PUPMODE in
   ;;
  128) #1st shutdown, save to ${DISTRO_FILE_PREFIX}save.2fs.
   #partition already mounted on $SMNTPT.
-  echo "$(eval_gettext "Saving session to \${SAVEFILE} file on \${SAVEPART} partition...")" >/dev/console
-  #echo "Saving session to $SAVEFILE file on $SAVEPART partition..." >/dev/console
+  echo "$(printf "$(gettext 'Saving session to %s file on %s partition...')" "${SAVEFILE}" "${SAVEPART}")" >/dev/console
   mkdir /tmp/save1stpup
-  #echo -n $(gettext "Mounting ${SAVEFILE}...")
   echo -n "Mounting ${SAVEFILE}..."
   FILEFS="ext3"
   [ "`echo -n "$SAVEFILE" | grep "2fs"`" != "" ] && FILEFS="ext2"
@@ -509,29 +481,25 @@ case $PUPMODE in
   multisavefunc
   ;;
  2)
-  echo "$(eval_gettext "\${PDEV1} mounted directly, session already saved.")" >/dev/console
-  #echo "$PDEV1 mounted directly, session already saved." >/dev/console
+  echo "$(printf "$(gettext '%s mounted directly, session already saved.')" "$PDEV1")" >/dev/console
   ;;
  6)
-  echo "$(eval_gettext "\${PDEV1} mounted directly top layer, session already saved.")" >/dev/console
-  #echo "$PDEV1 mounted directly top layer, session already saved." >/dev/console
+  echo "$(printf "$(gettext '%s mounted directly top layer, session already saved.')" "$PDEV1")" >/dev/console
   ;;
  12)
-  TXT=`basename $SAVEFILE`
-  echo "$(eval_gettext "\${TXT} mounted directly top layer, session already saved.")" >/dev/console
-  #echo "`basename $SAVEFILE` mounted directly top layer, session already saved." >/dev/console
+  echo "$(printf "$(gettext '%s mounted directly top layer, session already saved.')" "${SAVEFILE##*/}")" >/dev/console
   ;;
  3) #PDEV1.
   asktosave_func
   if [ $? -eq 0 ]; then 
-    echo "$(eval_gettext "Saving session to \${PDEV1}...")" >/dev/console
+    echo "$(printf "$(gettext 'Saving session to %s...')" "$PDEV1")" >/dev/console
     /usr/sbin/snapmergepuppy /initrd/pup_ro1 /initrd/pup_rw
   fi
   ;;
  7) #PDEV1 and PUPSFS.
   asktosave_func
   if [ $? -eq 0 ]; then 
-    echo "$(eval_gettext "Saving session to \${PDEV1}...")" >/dev/console
+    echo "$(printf "$(gettext 'Saving session to %s...')" "$PDEV1")" >/dev/console
     /usr/sbin/snapmergepuppy /initrd/pup_ro1 /initrd/pup_rw
   fi
   ;;
@@ -540,13 +508,12 @@ case $PUPMODE in
   #the above are in aufs at /.
   asktosave_func
   if [ $? -eq 0 ]; then 
-    echo "$(eval_gettext "Saving session to \${SAVEFILE} (\${SAVEPART})...")" >/dev/console 
+    echo "$(printf "$(gettext 'Saving session to %s (%s)...')" "${SAVEFILE}" "${SAVEPART}")" >/dev/console
     /usr/sbin/snapmergepuppy /initrd/pup_ro1 /initrd/pup_rw
   fi 
   ;;
  *)
   echo "$(gettext "Session not saved")" >/dev/console
-  #echo "Session not saved" >/dev/console
   sleep 2
   ;;
 esac
@@ -554,15 +521,13 @@ esac
 # Karl Godt: 2013-12-14 reworked the whole unmount block
 MOUNTED=`tac /proc/mounts | grep -vE '/dev |/dev/root | rootfs | / | usbfs | aufs | tmpfs ' | cut -f2 -d' '`
 STRAY_MOUNTPOINTS=`echo "$MOUNTED" | grep -vE '/proc|/sys|/initrd|/dev |/dev/pts'`
-#echo
-#echo $(gettext "Unmounting stray filesystems:")
-[ "$STRAY_MOUNTPOINTS" ] && echo "Unmounting stray filesystems:" >/dev/console
+
+[ "$STRAY_MOUNTPOINTS" ] && echo "$L_UNMOUNTING_STRAY" >/dev/console
 
 for MOUNT_POINT in $STRAY_MOUNTPOINTS;
 do
  MOUNT_POINT=`busybox echo -e "$MOUNT_POINT"` # formats escaped chars like \040 to literal like ' ' (space)
- #echo "`eval_gettext \"Unmounting \\\${MOUNT_POINT}...\"`"
- echo "Unmounting '$MOUNT_POINT' ..."               >/dev/console
+ echo "$(printf "$L_UNMOUNTING" "$MOUNT_POINT")" >/dev/console
  FLAGCIFS=`echo -n "${MOUNT_POINT}" | grep '^//'`
  if [ ! "$FLAGCIFS" ]; then
   xFUSER=`fuser -m "$MOUNT_POINT" 2>/dev/null`
@@ -580,7 +545,6 @@ swapoff -a #works only if swaps are in mtab or ftab
 STRAYPARTD="`cat /proc/swaps | grep "/dev/" | cut -f 1 -d " " | tr "\n" " "`"
 for ONESTRAY in $STRAYPARTD
 do
- #echo "`eval_gettext \"Swapoff \\\${ONESTRAY}\"`"
  echo "Swapoff $ONESTRAY"
  swapoff $ONESTRAY
 done
@@ -593,7 +557,7 @@ sync
 #${DISTRO_FILE_PREFIX}save.2fs.
 #at least, attempt to kill anything running in the ntfs partition...
 #(i don't think anything will be, only /dev/loop1 (${DISTRO_FILE_PREFIX}save.2fs), but just in case)
-BPS="`busybox ps -A`" #121104
+BPS="`ps -A`"
 SHID="`echo "$BPS" | grep ' -sh$' | head -n 1 | sed -e 's%^ %%g' | cut -f 1 -d ' '`" #121104
 MYPID=$$ #120514
 PARENT=$PPID #120514 id of parent process. variable provided by system.
