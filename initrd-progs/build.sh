@@ -1,4 +1,6 @@
 #!/bin/bash
+#also see:
+#  http://autobuild.buildroot.org/toolchains/tarballs/
 
 . ./build.conf
 export MKFLG
