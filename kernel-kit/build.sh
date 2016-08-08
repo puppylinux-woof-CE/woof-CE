@@ -268,6 +268,7 @@ aufs4.3
 aufs4.4
 aufs4.5
 aufs4.6
+aufs4.7
 aufs4.x-rcN'
 
 AUFS_BRANCHES_SPECIAL='
