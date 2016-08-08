@@ -189,11 +189,7 @@ fi
 
 if [ -f /etc/DISTRO_SPECS ] ; then
 	. /etc/DISTRO_SPECS
-	if [ ! "$package_name_suffix" ] ; then
-		package_name_suffix=${DISTRO_FILE_PREFIX}
-	else
-		package_name_suffix=${package_name_suffix}_${DISTRO_FILE_PREFIX}
-	fi
+	[ ! "$package_name_suffix" ] && package_name_suffix=${DISTRO_FILE_PREFIX}
 fi
 
 if [ -f DOTconfig ] ; then
@@ -272,6 +268,7 @@ aufs4.3
 aufs4.4
 aufs4.5
 aufs4.6
+aufs4.7
 aufs4.x-rcN'
 
 AUFS_BRANCHES_SPECIAL='
