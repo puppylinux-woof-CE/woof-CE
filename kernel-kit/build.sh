@@ -189,11 +189,7 @@ fi
 
 if [ -f /etc/DISTRO_SPECS ] ; then
 	. /etc/DISTRO_SPECS
-	if [ ! "$package_name_suffix" ] ; then
-		package_name_suffix=${DISTRO_FILE_PREFIX}
-	else
-		package_name_suffix=${package_name_suffix}_${DISTRO_FILE_PREFIX}
-	fi
+	[ ! "$package_name_suffix" ] && package_name_suffix=${DISTRO_FILE_PREFIX}
 fi
 
 if [ -f DOTconfig ] ; then
