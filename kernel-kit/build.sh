@@ -492,7 +492,7 @@ fi
 
 ## reset sublevel
 cp Makefile Makefile-orig
-if [ "$sublevel" = "yes" ] ; then
+if [ "$remove_sublevel" = "yes" ] ; then
 	echo "Resetting the minor version number" #!
 	sed -i "s/^SUBLEVEL =.*/SUBLEVEL = 0/" Makefile
 	kernel_srcsfs_version=${kernel_major_version}.0
