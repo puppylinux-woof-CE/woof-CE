@@ -65,8 +65,8 @@ else
 	config_dirs='x86 x86_64 arm'
 	case $(uname -m) in
 		i?86)   cdefault=1 ; OS_ARCH=x86 ;;
-		x86_64) cdefault=2 ;;
-		arm)    cdefault=3 ;;
+		x86_64) cdefault=2 ; OS_ARCH=$(uname -m) ;;
+		arm)    cdefault=3 ; OS_ARCH=$(uname -m) ;;
 		*)      cdefault=1 ;;
 	esac
 	echo "Select architecture: "
