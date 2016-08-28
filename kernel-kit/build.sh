@@ -58,6 +58,7 @@ fi
 if [ -f "$DOTconfig_file" ] ; then
 	CONFIGS_DIR=${DOTconfig_file%/*} #dirname  $DOTconfig_file
 	Choice=${DOTconfig_file##*/}     #basename $DOTconfig_file
+	[ "$CONFIGS_DIR" = "$Choice" ] && CONFIGS_DIR=.
 else
 	## .configs
 	[ -f /tmp/kernel_configs ] && rm -f /tmp/kernel_configs
@@ -127,17 +128,16 @@ fi
 
 case $Choice in
 	Default)
-		kver=$(grep 'kernel_version' DOTconfig)
+		kver=$(grep 'kernel_version=' DOTconfig | head -1 | tr -s ' ' | cut -d '=' -f2)
 		if [ "$kver" = "" ] ; then
 			if [ "$kernel_ver" = "" ] ; then
 				echo -n "Enter kernel version for DOTconfig: "
 				read kernel_version
 				[ ! $kernel_version ] && echo "ERROR" && exit 1
+				echo "kernel_version=${kernel_version}" >> DOTconfig
 			else
-				kernel_version=${kernel_ver}
+				kernel_version=${kernel_ver} #build.conf
 			fi
-		else
-			eval "$kver"
 		fi
 		;;
 	New)
@@ -147,11 +147,21 @@ case $Choice in
 		[ ! $kernel_version ] && echo "ERROR" && exit 1
 		;;
 	*)
-		IFS=- read dconf kernel_version kernel_version_info <<< "$Choice"
-		sed -i '/^kernel_version/d' ${CONFIGS_DIR}/$Choice
-		cp -afv ${CONFIGS_DIR}/$Choice DOTconfig
-		echo "kernel_version=${kernel_version}" >> DOTconfig
-		echo "kernel_version_info=${kernel_version_info}" >> DOTconfig
+		case "$Choice" in DOTconfig-*)
+			IFS=- read dconf kernel_version kernel_version_info <<< ${CONFIGS_DIR}/$Choice ;;
+			*) kernel_version="" ;;
+		esac
+		if [ ! "$kernel_version" ] ; then
+			kver=$(grep 'kernel_version=' ${CONFIGS_DIR}/$Choice | head -1 | tr -s ' ' | cut -d '=' -f2)
+			sed -i '/^kernel_version/d' ${CONFIGS_DIR}/$Choice
+			kernel_version=${kver}
+			[ "$kernel_ver" ] && kernel_version=${kernel_ver} #build.conf
+			echo "kernel_version=${kernel_version}" >> DOTconfig
+			echo "kernel_version_info=${kernel_version_info}" >> DOTconfig
+		fi
+		if [ "${CONFIGS_DIR}/$Choice" != "./DOTconfig" ] ; then
+			cp -afv ${CONFIGS_DIR}/$Choice DOTconfig
+		fi
 		buildconf=${CONFIGS_DIR}/${Choice//DOTconfig/build.conf}
 		if [ -f "${buildconf}" ] ; then
 			echo "Using ${buildconf}"
@@ -161,6 +171,11 @@ case $Choice in
 		echo
 		;;
 esac
+
+if [ ! "$kernel_version" ] ; then
+	echo "ERROR: Could not determine kernel version"
+	exit 1
+fi
 
 echo "kernel_version=${kernel_version}"
 echo "kernel_version_info=${kernel_version_info}"
