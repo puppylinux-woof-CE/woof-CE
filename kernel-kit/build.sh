@@ -162,11 +162,6 @@ case $Choice in
 		if [ "${CONFIGS_DIR}/$Choice" != "./DOTconfig" ] ; then
 			cp -afv ${CONFIGS_DIR}/$Choice DOTconfig
 		fi
-		buildconf=${CONFIGS_DIR}/${Choice//DOTconfig/build.conf}
-		if [ -f "${buildconf}" ] ; then
-			echo "Using ${buildconf}"
-			cp -afv "$buildconf" build.conf
-		fi
 		[ ! "$package_name_suffix" ] && package_name_suffix=${kinfo}
 		echo
 		;;
