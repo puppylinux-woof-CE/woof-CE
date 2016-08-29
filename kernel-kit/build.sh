@@ -7,10 +7,15 @@
 
 CWD=`pwd`
 
-if [ "$1" = "clean" ] ; then
-	echo -en "\033[1;35m""WARNING" #purple?
-	echo -en "\033[0m" #reset
-	echo ": This will delete all builds and sources but wont touch configs."
+for i in $@ ; do
+	case $i in
+		clean) DO_CLEAN=1 ; break ;;
+	esac
+done
+
+if [ $DO_CLEAN ] ; then
+	echo -en "\033[1;35m""WARNING\033[0m" #purple?
+	echo " This will delete all builds and sources but wont touch configs."
 	echo "Hit CTRL+C and save your stuff manually if you don't want to clean."
 	echo "Hit ENTER to clean"
 	read clean
