@@ -144,7 +144,6 @@ case $Choice in
 		rm -f DOTconfig
 		echo -n "Enter kernel version (ex: 3.14.73) : "
 		read kernel_version
-		[ ! $kernel_version ] && echo "ERROR" && exit 1
 		;;
 	*)
 		case "$Choice" in DOTconfig-*)
@@ -163,17 +162,15 @@ case $Choice in
 			cp -afv ${CONFIGS_DIR}/$Choice DOTconfig
 		fi
 		[ ! "$package_name_suffix" ] && package_name_suffix=${kinfo}
-		echo
 		;;
 esac
 
-if [ ! "$kernel_version" ] ; then
-	echo "ERROR: Could not determine kernel version"
-	exit 1
-fi
-
 echo "kernel_version=${kernel_version}"
 echo "kernel_version_info=${kernel_version_info}"
+case "$kernel_version" in
+	3.*|4.*) ok=1 ;; #----
+	*) echo "ERROR: Unsupported kernel version" ; exit 1 ;;
+esac
 
 if [ "$Choice" != "New" -a ! -f DOTconfig ] ; then
 	echo -e "\033[1;31m""ERROR: No DOTconfig found ..quiting""\033[0m"
@@ -191,11 +188,6 @@ aufs_git_4="git://github.com/sfjro/aufs4-standalone.git"
 kernel_mirror_3="http://www.kernel.org/pub/linux/kernel/v3.0/"
 kernel_mirror_4="http://www.kernel.org/pub/linux/kernel/v4.x/"
 #--
-
-if vercmp $kernel_version lt 3 ; then
-	echo "Kernel Version 3 and later please..."
-	exit 1
-fi
 
 if [ -f /etc/DISTRO_SPECS ] ; then
 	. /etc/DISTRO_SPECS
@@ -243,101 +235,36 @@ IFS=. read -r kernel_series \
 kernel_branch=${kernel_major_version} #3.x 4.x kernels
 kernel_major_version=${kernel_series}.${kernel_major_version} #crazy!! 3.14 2.6 etc
 aufs_version=${kernel_series} ## aufs major version
-
 [ "$kernel_minor_revision" ] && kmr=.${kernel_minor_revision}
 echo "Linux: ${kernel_major_version}.${kernel_minor_version}${kmr}" #${kernel_series}.
 
-#kernel mirror
-if [ ! $kernel_mirror ] ; then
-	case $kernel_series in
-		3) kernel_mirror=${kernel_mirror_3} ;;
-		4) kernel_mirror=${kernel_mirror_4} ;;
-		*) echo "add new code here" ; exit 1 ;;
-	esac
-fi
-
-AUFS_BRANCHES='aufs3.0
-aufs3.1
-aufs3.11
-aufs3.13
-aufs3.15
-aufs3.16
-aufs3.17
-aufs3.19
-aufs3.3
-aufs3.4
-aufs3.5
-aufs3.6
-aufs3.7
-aufs3.8
-aufs3.9
-aufs3.x-rcN
-aufs4.0
-aufs4.2
-aufs4.3
-aufs4.4
-aufs4.5
-aufs4.6
-aufs4.7
-aufs4.x-rcN'
-
-AUFS_BRANCHES_SPECIAL='
-aufs3.10
-aufs3.10.x
-aufs3.12
-aufs3.12.31+
-aufs3.12.x
-aufs3.14
-aufs3.14.21+
-aufs3.14.40+
-aufs3.18
-aufs3.18.1+
-aufs3.18.25+
-aufs3.2
-aufs3.2.x
-aufs4.1
-aufs4.1.13+
-'
-
 if [ ! $aufsv ] ; then
+	AUFS_BRANCHES='aufs3.0 aufs3.1 aufs3.11 aufs3.13 aufs3.15 aufs3.16 aufs3.17 aufs3.19 aufs3.3 aufs3.4 aufs3.5 aufs3.6 aufs3.7 aufs3.8 aufs3.9 aufs4.0 aufs4.2 aufs4.3 aufs4.4 aufs4.5 aufs4.6 aufs4.7'
+	AUFS_BRANCHES="$(echo "$AUFS_BRANCHES" | tr ' ' '\n')"
 	if ( echo "$AUFS_BRANCHES" | grep -q "^aufs${kernel_major_version}$" ) ; then
 		aufsv=${kernel_major_version}
+	### special cases ###
 	elif [ "${kernel_major_version}" = "3.2" ] ; then
-		aufsv='3.2'
-		if vercmp ${kernel_version} ge 3.2.30 ; then #true value: unknown
-			aufsv='3.2.x'
-		fi
+		aufsv='3.2'                #unknown actual value
+		vercmp ${kernel_version} ge 3.2.30 && aufsv='3.2.x'
 	elif [ "${kernel_major_version}" = "3.10" ] ; then
 		aufsv='3.10'
-		if vercmp ${kernel_version} ge 3.10.26 ; then
-			aufsv='3.10.x'
-		fi
+		vercmp ${kernel_version} ge 3.10.26 && aufsv='3.10.x'
 	elif [ "${kernel_major_version}" = "3.12" ] ; then
 		aufsv='3.12'
-		if vercmp ${kernel_version} ge 3.12.31 ; then
-			aufsv='3.12.31+'
-		elif vercmp ${kernel_version} ge 3.12.7 ; then
-			aufsv='3.12.x'
-		fi
+		vercmp ${kernel_version} ge 3.12.7 && aufsv='3.12.x'
+		vercmp ${kernel_version} ge 3.12.31 && aufsv='3.12.31+'
 	elif [ "${kernel_major_version}" = "3.14" ] ; then
 		aufsv='3.14'
-		if vercmp ${kernel_version} ge 3.14.40 ; then
-			aufsv='3.14.40+'
-		elif vercmp ${kernel_version} ge 3.14.21 ; then
-			aufsv='3.14.21+'
-		fi
+		vercmp ${kernel_version} ge 3.14.21 && aufsv='3.14.21+'
+		vercmp ${kernel_version} ge 3.14.40 && aufsv='3.14.40+'
 	elif [ "${kernel_major_version}" = "3.18" ] ; then
 		aufsv='3.18'
-		if vercmp ${kernel_version} ge 3.18.25 ; then
-			aufsv='3.18.25+'
-		elif vercmp ${kernel_version} ge 3.18.1 ; then
-			aufsv='3.18.1+'
-		fi
+		vercmp ${kernel_version} ge 3.18.1 && aufsv='3.18.1+'
+		vercmp ${kernel_version} ge 3.18.25 && aufsv='3.18.25+'
 	elif [ "${kernel_major_version}" = "4.1" ] ; then
 		aufsv='4.1'
-		if vercmp ${kernel_version} ge 4.1.13 ; then
-			aufsv='4.1.13+'
-		fi
+		vercmp ${kernel_version} ge 4.1.13 && aufsv='4.1.13+'
 	fi
 fi
 
@@ -348,11 +275,10 @@ fi
 
 echo "aufs=$aufsv"
 
-#Aufs series - must match the kernel version
-case $aufs_version in
-	3) aufs_git=${aufs_git_3} ;;
-	4) aufs_git=${aufs_git_4} ;;
-	*) echo "add new code here" ; exit 1 ;;
+#kernel mirror - Aufs series (must match the kernel version)
+case $kernel_series in
+	3) kernel_mirror=${kernel_mirror_3} ; aufs_git=${aufs_git_3} ;;
+	4) kernel_mirror=${kernel_mirror_4} ; aufs_git=${aufs_git_4} ;;
 esac
 
 #------------------------------------------------------------------
