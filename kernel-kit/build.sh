@@ -51,7 +51,7 @@ echo "Jobs for make: ${JOBS#-j}" ; echo
 #------------------------------------------------------------------
 
 if [ "$DOTconfig_file" -a ! -f "$DOTconfig_file" ] ; then
-	echo "File not found: $DOTconfig_file"
+	echo "File not found: $DOTconfig_file (see build.conf - DOTconfig_file=)"
 	exit 1
 fi
 
@@ -195,9 +195,7 @@ if [ -f /etc/DISTRO_SPECS ] ; then
 fi
 
 if [ -f DOTconfig ] ; then
-	echo
-	tail -n10 README
-	echo
+	echo ; tail -n10 README ; echo
 	for i in CONFIG_AUFS_FS=y CONFIG_NLS_CODEPAGE_850=y ; do
 		if grep -q "$i" DOTconfig ; then
 			echo "$i is ok"
@@ -240,8 +238,7 @@ echo "Linux: ${kernel_major_version}.${kernel_minor_version}${kmr}" #${kernel_se
 
 if [ ! $aufsv ] ; then
 	AUFS_BRANCHES='aufs3.0 aufs3.1 aufs3.11 aufs3.13 aufs3.15 aufs3.16 aufs3.17 aufs3.19 aufs3.3 aufs3.4 aufs3.5 aufs3.6 aufs3.7 aufs3.8 aufs3.9 aufs4.0 aufs4.2 aufs4.3 aufs4.4 aufs4.5 aufs4.6 aufs4.7'
-	AUFS_BRANCHES="$(echo "$AUFS_BRANCHES" | tr ' ' '\n')"
-	if ( echo "$AUFS_BRANCHES" | grep -q "^aufs${kernel_major_version}$" ) ; then
+	if ( echo "$AUFS_BRANCHES" | tr ' ' '\n' | grep -q "^aufs${kernel_major_version}$" ) ; then
 		aufsv=${kernel_major_version}
 	### special cases ###
 	elif [ "${kernel_major_version}" = "3.2" ] ; then
@@ -268,11 +265,7 @@ if [ ! $aufsv ] ; then
 	fi
 fi
 
-if [ ! $aufsv ] ; then
-	echo "You must specify 'aufsv=<aufs_git_branch>' in build.conf"
-	exit 1
-fi
-
+[ $aufsv ] || { echo "You must specify 'aufsv=version' in build.conf" ; exit 1 ; }
 echo "aufs=$aufsv"
 
 #kernel mirror - Aufs series (must match the kernel version)
