@@ -61,6 +61,17 @@ fi
 
 [ -f /usr/local/bin/agenda_chk ] && agenda_chk &
 
+# Zarfy - gui for changing your screen resolution.
+# Works well with multiple monitor setups.
+if [ -s $HOME/.zarfy/:0/outputs.conf ] ; then
+	#        ??? ? hz?   w   h  ? ? ?
+	#default 107 0 109 1366 768 0 0 1
+	read -r MONITOR xx yy zz HEIGHT WIDTH aa bb cc < $HOME/.zarfy/:0/outputs.conf
+	xrandr --output ${MONITOR} --mode ${HEIGHT}x${WIDTH} #--rate ??
+	[ -f /etc/xrandrindex ] && rm -f /etc/xrandrindex
+	[ -f $HOME/.config/autostart/lxrandr-autostart.desktop ] && rm -f ${HOME}/.config/autostart/lxrandr-autostart.desktop
+fi
+
 #v1.0.7 set by xrandrshell, part of xorg wizard... v3.99...
 if [ -f /etc/xrandrindex ];then
   #v3.99 workround for dual monitors, 'head -n 1'....
