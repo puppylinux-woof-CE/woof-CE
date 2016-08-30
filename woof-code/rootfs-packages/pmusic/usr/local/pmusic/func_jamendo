@@ -2,46 +2,22 @@
 #pMusic - play engine
 #GPL - Copyright Sigmund Berglund
 
+export TEXTDOMAIN=pmusic
+export OUTPUT_CHARSET=UTF-8
 alias wget='wget -U "Mozilla/5.0 (X11; U; Linux i686; en-US; rv:1.9.2.15) Gecko/20110303 Firefox/3.6.15" -t 1 --connect-timeout=1'
 
 case "$1" in
--get_youtube_url)                 ######   O U T D A T E D   ######
-	#downloading html file
-	wget -O $WORKDIR/youtube "$2" -q
-	#get title - first try index_webmusic_youtube
-	TITLE="`grep -Fm1 "$2" "$STORAGE_DIR/index_webmusic_youtube" | cut -d'|' -f2`"
-	ARTIST="`grep -Fm1 "$2" "$STORAGE_DIR/index_webmusic_youtube" | cut -d'|' -f3`"
-	export NAME="$ARTIST - $TITLE"
-	#if not in index, detect from youtube.com
-	if [ ! "$TITLE" ]; then
-		NAME=$(grep -m1 -o "<meta name=\"title\" content=\".*\">" $WORKDIR/youtube)
-		NAME=`expr match "$NAME" '<meta name=\"title\" content=\"\(.*\)\">'`
-		export NAME=${NAME//\//"-"}
-	fi
-	#---
-	XML=$(grep -F "'PLAYER_CONFIG':" $WORKDIR/youtube)
-	#length from index_webmusic_youtube
-	LENGTH="`grep -Fm1 "$2" "$STORAGE_DIR/index_webmusic_youtube" | cut -d'|' -f9`"
-	[ ! "$LENGTH" ] && LENGTH=59:59 #no length is found in index_webmusic_youtube
-	#define URL
-	URL=${XML#*\"url_encoded_fmt_stream_map\": \"}
-	URL="`echo "$URL" | cut -d, -f2`"
-	URL=${URL//\\\///}
-	URL=${URL//\\\u0026/&}
-	export URL="$(echo $URL | cut -d= -f2- | sed -e s/\\http:[^\]]*\\.v/http:\\/\\/v/ | sed -f $APPDIR/sed_ascii2txt)"
-	;;
 -jamendo_top100)
 	[ "$2" ] && GENRE="&tag_idstr=$2"
-	echo "|$(gettext 'Connecting to') jamendo.com..." > $WORKDIR/sourcelist
-	echo true > $WORKDIR/UPDATE_SOURCELIST
 	#check internet connection
 	LANG=C wget --spider --tries 1 -T 3  -F --max-redirect 0 "http://www.jamendo.com" 2> $WORKDIR/tmpinfo
 	if [[ "$(<$WORKDIR/tmpinfo)" != *connected* ]]; then
-		echo "|$(gettext 'No connection to jamendo.com')" > $WORKDIR/sourcelist
+		echo "|$(gettext 'No connection to jamendo.com')" > $WORKDIR/tmp_sourcelist
 	else
-		wget --tries 1 -O - "http://api.jamendo.com/get2/id+artist_name+name+album_name+numalbum+dates+genre+duration/track/plain/track_album+album_artist/?n=100&order=ratingweek_desc${GENRE}" | tr '\t' '|' | sed -e 's/Array//g' -e 's/^/http:\/\/api.jamendo.com\/get2\/stream\/track\/redirect\/?streamencoding=mp31\&id=/g' > $WORKDIR/sourcelist
+		wget --tries 1 -O - "http://api.jamendo.com/get2/id+artist_name+name+album_name+numalbum+dates+genre+duration/track/plain/track_album+album_artist/?n=100&order=ratingweek_desc${GENRE}" | tr '\t' '|' | sed -e 's/Array//g' -e 's/^/http:\/\/api.jamendo.com\/get2\/stream\/track\/redirect\/?streamencoding=mp31\&id=/g' -e 's/$/|||||||gtk-audio/g' > $WORKDIR/tmp_sourcelist
 	fi
 	$APPDIR/func -add_to_history "pMusic: Jamendo.com $2" & #update history
+	mv -f $WORKDIR/tmp_sourcelist $WORKDIR/sourcelist
 	echo true > $WORKDIR/UPDATE_SOURCELIST
 	;;
 -build_jamendo_index)
@@ -104,57 +80,65 @@ case "$1" in
 	done < $WORKDIR/tmp_jamendo_dump
 
 	sed -f $APPDIR/sed_html2txt -i "$STORAGE_DIR/index_jamendo"
-	mv -f "$STORAGE_DIR/index_jamendo" "$STORAGE_DIR/index_webmusic_jamendo"
+	mv -f "$STORAGE_DIR/index_jamendo" "$STORAGE_DIR/index_jamendo"
 	#turn on search-filter - off by default
-	echo true > $WORKDIR/SEARCH_WEBMUSIC
+	echo true > $WORKDIR/SEARCH_JAMENDO
 	#cleanup
 	rm $WORKDIR/tmp_jamendo*
 	;;
--webmusic)
+-jamendo)
 	#check if db exists
-	if [ ! -s "$STORAGE_DIR"/index_webmusic* ]; then
+	if [ ! -s "$STORAGE_DIR"/index_jamendo* ]; then
 		echo -e "|$(gettext 'Missing index')|||||||||||||gtk-info\n|$(gettext 'See Setup in')\n|$(gettext 'Music sources menu')" > $WORKDIR/sourcelist
 		exit
 	fi
-	#show list of artists
-	cut -d'|' -f2 "$STORAGE_DIR"/index_webmusic_jamendo |  sort -u | awk '{print "pmusic_webmusic_artist:"$1"|"$1}' > $WORKDIR/sourcelist
-	$APPDIR/func -add_to_history "pMusic: $(gettext 'Webmusic browse artist')" & #update history
+	#create list
+	echo > $WORKDIR/sourcelist
+	for I in {A..Z}; do
+		echo "pmusic_jamendo_char:$I|$I" >> $WORKDIR/sourcelist
+	done
 	echo true > $WORKDIR/UPDATE_SOURCELIST
 	;;
--webmusic_artist)
+-jamendo_char)
+	#show list of artists
+	cut -d'|' -f2 "$STORAGE_DIR"/index_jamendo | grep -i "^$2" | sort -u | awk '{print "pmusic_jamendo_artist:"$1"|"$1}' | uniq > $WORKDIR/sourcelist
+	$APPDIR/func -add_to_history "pMusic: $(gettext 'Jamendo browse artist')" & #update history
+	echo true > $WORKDIR/UPDATE_SOURCELIST
+	;;
+-jamendo_artist)
 	#show list of albums
-	echo 'pmusic_webmusic|..' > $WORKDIR/sourcelist
-	grep -F "$2" "$STORAGE_DIR"/index_webmusic* | awk -F "|" '{print "pmusic_webmusic_album:"$4"|"$4"  ("$6")"}' | sort -u -nst'|' -k2,2 >> $WORKDIR/sourcelist
-	$APPDIR/func -add_to_history "pMusic: $(gettext 'Webmusic browse album')" &
+	echo 'pmusic_jamendo|..' > $WORKDIR/sourcelist
+	grep -F "$2" "$STORAGE_DIR"/index_jamendo* | awk -F "|" '{print "pmusic_jamendo_album:"$4","$2"|"$4"  ("$6")"}' | sort -u -nst'|' -k2,2 >> $WORKDIR/sourcelist
+	$APPDIR/func -add_to_history "pMusic: $(gettext 'Jamendo browse album')" &
 	echo true > $WORKDIR/UPDATE_SOURCELIST #update source-list
-	cp -f $WORKDIR/sourcelist $WORKDIR/sourcelist_webmusic_artist #keep a copy if user wants back
+	cp -f $WORKDIR/sourcelist $WORKDIR/sourcelist_jamendo_artist #keep a copy if user wants back
 	;;
--webmusic_album)
-	echo 'pmusic_webmusic_back|..' > $WORKDIR/sourcelist
+-jamendo_album)
+	echo 'pmusic_jamendo_back|..' > $WORKDIR/sourcelist
 	#show list of tracks
-	grep -F "$2" "$STORAGE_DIR/index_webmusic_jamendo" | sed "s%+%http://api.jamendo.com/get2/stream/track/redirect/?streamencoding=mp31\&id=%" >> $WORKDIR/sourcelist
-	grep -F "$2" "$STORAGE_DIR/index_webmusic_youtube" >> $WORKDIR/sourcelist
-	$APPDIR/func -add_to_history "pMusic: $(gettext 'Webmusic browse tracks')" &
+	grep -F "${2%,*}" "$STORAGE_DIR/index_jamendo" | grep -F "${2#*,}" | sed "s%+%http://api.jamendo.com/get2/stream/track/redirect/?streamencoding=mp31\&id=%" >> $WORKDIR/sourcelist
+#	grep -F "$2" "$STORAGE_DIR/index_jamendo_youtube" >> $WORKDIR/sourcelist
+	$APPDIR/func -add_to_history "pMusic: $(gettext 'Jamendo browse tracks')" &
 	echo true > $WORKDIR/UPDATE_SOURCELIST #update source-list
 	;;
--webmusic_back)
-	cp -f $WORKDIR/sourcelist_webmusic_artist $WORKDIR/sourcelist
-	$APPDIR/func -add_to_history "pMusic: $(gettext 'Webmusic browse album')" &
+-jamendo_back)
+	cp -f $WORKDIR/sourcelist_jamendo_artist $WORKDIR/sourcelist
+	$APPDIR/func -add_to_history "pMusic: $(gettext 'Jamendo browse album')" &
 	echo true > $WORKDIR/UPDATE_SOURCELIST #update source-list
 	;;
--webmusic_manager)
+-jamendo_manager)
 	. $APPDIR/func -reset_gtk
-	export pmusic_webmusic='
-	<window title="pMusic - '$(gettext 'Web Music setup')'" icon-name="pmusic">
+	export pmusic_jamendo='
+	<window title="pMusic - '$(gettext 'Jamendo setup')'" icon-name="pmusic">
 	<vbox>
-	 '"$($APPDIR/func_svg -heading "$(gettext 'Web Music')")"'
+	 '"$($APPDIR/func_svg -heading "jamendo.com")"'
 	 <notebook labels=" '$(gettext 'Install')' | '$(gettext 'Advanced')' ">
 	  <frame>
-	   <text><label>"'$(gettext 'The WebMusic index is a file containing the information of all music at jamendo.com. pMusic will play WebMusic tracks without this index file, but it will benefit of it when it comes to browsing and advanced searching.
+	   <text><label>"'$(gettext 'The Jamendo index is a file containing the information of all music at jamendo.com. pMusic will play Jamendo tracks without this index file, but it will benefit of it when it comes to browsing and advanced searching.
 
 The index file will be 20Mb+ when installed, and contains info about 300000+ music tracks.')'"</label></text>
 	   <hbox homogeneous="true"><hbox>
-	    <button>
+	    <button name="highlight">
 	     <input file stock="gtk-apply"></input>
 	     <label>'$(gettext 'Install')'</label>
 	     <action>EXIT:install</action>
@@ -175,22 +159,22 @@ Depending on your system this process will take from minutes to hours.')'"</labe
 	 </notebook>
 	 <hbox>
 	  <text use-markup="true"><label>"<b>'$(gettext 'Date of index')':</b>"</label></text>
-	  <text><input>find "'$STORAGE_DIR'/index_webmusic_jamendo" -printf "%Td.%Tb %TY   (%TH:%TM)"</input></text>
-	  <text use-markup="true"><label>"  <b>'$(gettext 'WebMusic Tracks')':</b>"</label></text>
-	  <text><input>echo -n $(grep -c ^ "'$STORAGE_DIR'/index_webmusic_jamendo")</input></text>
+	  <text><input>find "'$STORAGE_DIR'/index_jamendo" -printf "%Td.%Tb %TY   (%TH:%TM)"</input></text>
+	  <text use-markup="true"><label>"  <b>'$(gettext 'Jamendo Tracks')':</b>"</label></text>
+	  <text><input>echo -n $(grep -c ^ "'$STORAGE_DIR'/index_jamendo")</input></text>
 	  <button cancel></button>
 	 </hbox>
 	</vbox>
 	</window>'
 	I=$IFS; IFS=""
-	for STATEMENTS in $($GTKDIALOG -p pmusic_webmusic); do
+	for STATEMENTS in $($GTKDIALOG -p pmusic_jamendo); do
 		eval $STATEMENTS
 	done
 	IFS=$I
 	
 	case $EXIT in
 		install)
-			echo "$(gettext 'Downloading WebMusic index.')" > $WORKDIR/splashtext
+			echo "$(gettext 'Downloading Jamendo index.')" > $WORKDIR/splashtext
 			$APPDIR/box_splash &
 			#check internet connection
 			LC_ALL=C wget --spider "$FTP_SERVER/pmusic_index_webmusic_jamendo.gz" 2> $WORKDIR/tmp
@@ -214,14 +198,14 @@ Depending on your system this process will take from minutes to hours.')'"</labe
 				MY_PASSWORD="$FTP_PASSWORD"
 			fi
 			#---
-			wget --tries=1 --user $MY_USER --password $MY_PASSWORD --output-document="$STORAGE_DIR/index_webmusic_jamendo.gz" "$MY_SERVER/pmusic_index_webmusic_jamendo.gz"
-			gunzip -f "$STORAGE_DIR/index_webmusic_jamendo.gz"
+			wget --tries=1 --user $MY_USER --password $MY_PASSWORD --output-document="$STORAGE_DIR/index_jamendo.gz" "$MY_SERVER/pmusic_index_webmusic_jamendo.gz"
+			gunzip -f "$STORAGE_DIR/index_jamendo.gz"
 			#turn on search-filter - off by default
-			echo true > $WORKDIR/SEARCH_WEBMUSIC
+			echo true > $WORKDIR/SEARCH_JAMENDO
 			echo 100 > $WORKDIR/splash
 			;;
 		build)
-			xterm -hold -e $APPDIR/func_webmusic -build_jamendo_index &
+			xterm -hold -e $APPDIR/func_jamendo -build_jamendo_index &
 			;;
 	esac
 	;;
