@@ -1,14 +1,14 @@
 The init script has been called the heart of Puppy Linux.
-This is not because it implements a lot of Puppy stuff, but because this is where Puupy starts.
+This is not because it implements a lot of Puppy stuff, but because this is where Puppy starts.
 When init starts, the full-blown Puppy is still just a number of files on a storage device.
 The job of init is to use those files to build a Puppy based in RAM and then hand over control to it.
 
 
-Some signifiant files in the init world:
+Some significant files in the init world:
 
 vmlinuz:
-This is the Linux part of Puppy Linux, usually refered to as the Linux kernel.
-The boot process has already loaded this into memory and started it running before init starts.
+This is the Linux part of Puppy Linux, usually referred to as the Linux kernel.
+The boot process has already loaded this into memory and started running it before init starts.
 
 initrd.gz:
 This contains the Puppy files that form the RAM based filesystem that is in place when init runs.
@@ -18,7 +18,7 @@ The puppy sfs files, puppy...sfs, zdrv...sfs, fdrv...sfs, ydrv...sfs, adrv...sfs
 (Where ... is a particular puppy name and version, e.g. zdrv_slacko64_6.9.5.sfs)
 
 puppy...sfs:
-This is the main Puppy file, containing most, if not all, the software that is the current Puppy.
+This is the main Puppy file, containing most, if not all, the software that is in the current Puppy.
 This is the only sfs file that is required, if the init script cannot load it for any reason, the boot is abandoned.
 
 zdrv...sfs:
@@ -41,9 +41,9 @@ It is usually not present.
 Overview of how it works:
 
 A typical frugal install of Puppy is a directory containing the above files.
-So init begins by estblishing the location of this directory, by looking for the puppy...sfs file.
-In the absence of any indication as to it's location, init searches throught the partitions of the system until it finds it.
-If it cannot locate the puppy...sfs file, it abandons the boot by droppinng out to a console with several error maessages on the screen.
+So init begins by establishing the location of this directory, by looking for the puppy...sfs file.
+In the absence of any indication as to it's location, init searches throughout the partitions of the system until it finds it.
+If it cannot locate the puppy...sfs file, it abandons the boot by dropping out to a console with several error messages on the screen.
 Having located the puppy...sfs it proceeds to create a layered file system from the sfs files in the directory.
 
 A layered filesystem consists of a stack of directories, most of these layers can be read-only, but the top one is always read-write.
@@ -66,12 +66,12 @@ fdrv...sfs   read-only
 zdrv...sfs   read-only
 
 If this is a first boot, the stack is ready to be made into the running system.
-But, this first boot stack contains no persistent storage. If you change any files in the running system they are written to the read-write layer wihch only exists in RAM.
+But, this first boot stack contains no persistent storage. If you change any files in the running system they are written to the read-write layer which only exists in RAM.
 The first time you reboot or shutdown, Puppy asks if you want to save the session.
 If you save the session you will be guided through a process to create a save layer, to which Puppy will then copy any changed files.
 So, if this is not a first boot, init has to setup any save layer and insert it into the stack.
 
-Init attempts to sortout what type of save layer mechanism is being used, and make it available as a directory.
+Init attempts to sort out what type of save layer mechanism is being used, and make it available as a directory.
 If this attempt fails at any point, nothing extra will be done and the boot proceeds with the first boot stack.
 If the boot is considered to be from a "flash" device, the directory containing the save layer is inserted as a read-only layer immediately below the read-write layer.
 Otherwise the tmpfs read-write layer is replaced with the directory containing the save layer as the read-write layer.
@@ -88,21 +88,21 @@ DISTRO_SPECS:
 This is a file in initrd.gz that is created by the Puppy builder. It contains definitions of various information about a particular Puppy.
 DISTRO_FILE_PREFIX defines the name that occurs frequently in files that belong to it. e.g. 'slacko64'.
 DISTRO_VERSION defines the version number. e.g. '6.9.5'
-Very signicant for init are DISTRO_PUPPYSFS, DISTRO_ZDRVSFS, DISTRO_FDRVSFS, DISTRO_YDRVSFS, DISTRO_ADRVSFS, which define the default filenames for each of the Puppy sfs files.
+Very significant for init are DISTRO_PUPPYSFS, DISTRO_ZDRVSFS, DISTRO_FDRVSFS, DISTRO_YDRVSFS, DISTRO_ADRVSFS, which define the default filenames for each of the Puppy sfs files.
 
 
 Boot parameters:
 
 pmedia=<atahd|ataflash|usbhd|usbflash|cd> 
 Indicates the type of boot device.
-If it's "cd" then the partitons are searched for a save layer file, the only situation that triggers such a search.
+If it's "cd" then the partitions are searched for a save layer file, the only situation that triggers such a search.
 If the first 3 characters are "usb", then any searching is restricted to only usb devices.
 If the last 5 characters are "flash" the top layer in the stack remains the tmpfs in memory, otherwise any found save layer becomes the top layer in the stack.
 This boot parameter should always be provided.
 
 psubdir=</path/to/install/directory>
-If the Puppy files are not in the root of a partition, but in a sub-directory, the path of this dierectory, relative to the partition root, mus be specified with this parameter.
-e.g. If the sdb2 partition is mounted as /mnt/sdb2 amd the Puppy files are in /mnt/sdb2/tahr64, then "psubdir=tahr64" or "psubdir=/tahr64" must be specified.
+If the Puppy files are not in the root of a partition, but in a sub-directory, the path of this directory, relative to the partition root, must be specified with this parameter.
+e.g. If the sdb2 partition is mounted as /mnt/sdb2 and the Puppy files are in /mnt/sdb2/tahr64, then "psubdir=tahr64" or "psubdir=/tahr64" must be specified.
 This parameter can specify subdirectories at more that a single level, e.g. "psubdir=puppy/tahr64" or "psubdir=/puppy/tahr64".
 If a leading "/" is not provided, init will add it.
 This is the default path for locating any puppy file and any partition.
@@ -123,7 +123,7 @@ It is not necessary to specify both a <partition> and a <filename>, but if there
 e.g. "pupsfs=sdb2", specifies that the puppy...sfs file is on sdb2 in the default path with the default filename.
 "fdrv=:alternate-firmware.sfs", specifies that it's a file called alternate-firmware.sfs on the default partition in the default directory i.e. where the puppy...sfs is located.
 
-It is recommended that a pupsfs=<partition> be always specified.
+It is recommended that a pupsfs=<partition> always be specified.
 This enables init to go straight to that partition to find the Puppy files instead of searching through all partitions looking for puppy...sfs.
 
 Specifying psave=<partition> can be quite useful in directing all save layers to a different partition.
@@ -133,13 +133,13 @@ If you forget to plug in the appropriate device, Puppy will simply do a first bo
 pkeys=<keyboard layout specification> e.g de
 Used to setup the keyboard layout to be used by Puppy.
 
-plang=<language specifiction> e.g. de_DE.UTF-8
-Specifies the language to be used by Puppy, including any messasges displayed by init.
-If no pkeys parmameter is provided the first 2 letters of this specification are used to set the keyboard layout.
+plang=<language specification> e.g. de_DE.UTF-8
+Specifies the language to be used by Puppy, including any messages displayed by init.
+If no pkeys parameter is provided the first 2 letters of this specification are used to set the keyboard layout.
 
 pimod=<, separated list of kernel module names>
 On some computers the keyboard requires a kernel module to be loaded before they will work.
-The normal loading of kernel modules does not happen until afer init has finished.
+The normal loading of kernel modules does not happen until after init has finished.
 But sometimes init needs to request input from the user via the keyboard.
 Specifying kernel modules in this parameter will cause init to load them before any possible keyboard interaction.
 
@@ -164,13 +164,13 @@ rdsh:     exit to shell in initial ramdisk.
 
 Parameter files:
 If they exist in the frugal install directory their contents are used to set some variables that otherwise could be set by boot parameters.
-SAVEMARK: Provides a means of specifying that the save layer file is on a different partition on the same device. It contains a single number. If the puppy...sfs is located in sdb2 and SAVEMARK contians 4, a save layer file is expected to be in sdb4.
+SAVEMARK: Provides a means of specifying that the save layer file is on a different partition on the same device. It contains a single number. If the puppy...sfs is located in sdb2 and SAVEMARK contains 4, a save layer file is expected to be in sdb4.
 initmodules.txt: Contains a list of kernel modules that init loads before any keyboard interaction. Usually these are modules needed for the keyboard to work.
 underdog.lnx: Contains the name of the partition containing the Linux installation to be used under Puppy.
 
 
 BOOT_SPECS:
-This is a file that sets variables, like DISTRO_SPECS. But it is meant to be for the user to overide the variables normally set by boot parameters.
+This is a file that sets variables, like DISTRO_SPECS. But it is meant to be for the user to override the variables normally set by boot parameters.
 It can also be used to set other variables in init, e.g. "TZ='XXX-10'" sets the timezone in init to Queensland, Australia.
 The idea is that there is a copy of this file in user space, the user edits this file and then stores a copy of it in initrd.gz.
 This file could also be used instead of specific parameter files like underdog.lnx and initmodules.txt and even SAVEMARK.
