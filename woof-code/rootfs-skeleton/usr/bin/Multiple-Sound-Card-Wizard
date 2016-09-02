@@ -173,7 +173,8 @@ function cardinfo() {
 	echo "###################################################"
 	echo
 	echo "################################################### aplay -l"
-	aplay -l | grep card
+	APLAY=$(LANG=C aplay -l | grep card)
+	echo "$APLAY"
 	echo "###################################################"
 	echo
 	echo "################################################### pcm"
@@ -230,7 +231,7 @@ function check_hdmi_default() {
 	if [ -f /tmp/aplayl ] ; then # this file can be used to run tests
 		CARD_PBDEVS="$(cat /tmp/aplayl | grep card)"
 	else
-		CARD_PBDEVS="$(aplay -l | grep card)"
+		CARD_PBDEVS="$(LANG=C aplay -l | grep card)"
 	fi
 	BLACKLISTED=$(echo "$CARD_PBDEVS" | grep 'card 0' | head -1 | grep "$BLSTR")
 	REPLACEMENT=$(echo "$CARD_PBDEVS" | grep "$RPSTR" | head -1)
@@ -317,7 +318,7 @@ function start_proc_plus() {
 		read -r z zz desc <<< "$acard"
 		read card device <<< "$(get_card_device "$acard")"
 		active_device=$(echo $desc | sed -e 's|\[||g' -e 's|\]||g' -e 's|\,||g' -e 's|\:||g' -e 's|\/||g' -e 's|\\||g' -e 's|\-||g')
-		device_list=$(aplay -l | grep card | sed -e 's|\[||g' -e 's|\]||g' -e 's|\,||g' -e 's|\:||g' -e 's|\/||g' -e 's|\-||g')
+		device_list=$(LANG=C aplay -l | grep card | sed -e 's|\[||g' -e 's|\]||g' -e 's|\,||g' -e 's|\:||g' -e 's|\/||g' -e 's|\-||g')
 		echo "Active Card (from log):"
 		echo "	$acard" ; echo
 		SP="yes"
@@ -402,6 +403,10 @@ function MSCW_REPORT() {
 	echo '          lspci | grep -i audio           '
 	echo '=========================================='
 	lspci | grep -i audio
+	echo ---
+	lspci | grep -i -E 'graphic|video|display|vga' #for hdmi
+	echo -n "xorg driver: " ; report-video driver
+	echo ---
 	echo
 	echo '=========================================='
 	echo '     /etc/modprobe.d/alsa-base.conf       '
@@ -463,6 +468,8 @@ L_RETROVOL_SET=$(gettext 'Retrovol has been set to use this card:')
 L_CONFIGURE_MIXER=$(gettext 'Configure your audio mixer as')
 L_CARD=$(gettext 'Card')
 L_DEVICE=$(gettext 'device')
+L_TESTSOUND=$(gettext 'Test Sound')
+L_MUSTSELECT=$(gettext 'You must select an item from the list..')
 ###########################################################
 
 MSGX=$L_CHOOSE
@@ -483,14 +490,26 @@ if [ ! -f /etc/asound.conf ] ; then
 else
 	check_asound_card
 fi
-DEVICES="`aplay -l | grep card | grep -v pcspeaker`"
+DEVICES="`LANG=C aplay -l | grep card | grep -v pcspeaker`"
 read ACTIVE_CARD ACTIVE_DEVICE A_CMIXER <<< "$(get_asound_card)"
 ACTIVEN=`echo "$DEVICES" | grep -n -w "card $ACTIVE_CARD" | grep -w "device $ACTIVE_DEVICE"`
 ACTIVEN=${ACTIVEN%%:*}
 
 ###############################################################
 
+function test_sound() {
+	[ "$1" ] || return
+	local cd=$(get_card_device "$@")
+	cd=${cd// /,} #ex: 0,1
+	if which speaker-test 2>/dev/null ; then
+		speaker-test -c 2 -r 48000 -l 1 -D hw:${cd}
+	fi
+	aplay -D plughw:${cd} /usr/share/audio/2barks.au
+}
+
 if [ "$MSCW_GUI" ] ; then
+
+ while [ 1 ] ; do
 	ITEMS="$(echo "$DEVICES" | sed 's|^|<item>|g' | sed 's|$|</item>|g')"
 	ITEMCOUNT=$(echo "$ITEMS" | wc -l)
 	if [ $ITEMCOUNT -lt 15 ] ; then
@@ -502,54 +521,66 @@ if [ "$MSCW_GUI" ] ; then
 	ITEMS=$(echo "$ITEMS" | sed -e "${ACTIVEN}s%<item>%$XPAT%" )
 	##--
 	if [ $ITEMCOUNT -eq 1 ] ; then
-		BUTTONS="<button>
-				$(/usr/lib/gtkdialog/xml_button-icon quit.svg)
-				<label>$L_QUIT</label>
-				<action type=\"exit\">Cancel</action>
-			</button>"
+		BUTTONS='<button>
+				'$(/usr/lib/gtkdialog/xml_button-icon quit.svg)'
+				<label>'${L_QUIT}'</label>
+				<action type="exit">Cancel</action>
+			</button>'
 	else
-		BUTTONS="<button>
-				$(/usr/lib/gtkdialog/xml_button-icon apply.svg)
-				<label>$L_SELECT</label>
-				<action type=\"exit\">OK</action>
+		BUTTONS='
+			<button>
+				'$(/usr/lib/gtkdialog/xml_button-icon apply.svg)'
+				<label>'${L_SELECT}'</label>
+				<action>exit:OK</action>
 			</button>
 			<button>
-				$(/usr/lib/gtkdialog/xml_button-icon cancel.svg)
-				<label>$L_CANCEL</label>
-				<action type=\"exit\">Cancel</action>
-			</button>"
+				'$(/usr/lib/gtkdialog/xml_button-icon sound.svg)'
+				<label>'${L_TESTSOUND}'</label>
+				<action>exit:TEST_SOUND</action>
+			</button>
+			<button>
+				'$(/usr/lib/gtkdialog/xml_button-icon cancel.svg)'
+				<label>'${L_CANCEL}'</label>
+				<action>exit:Cancel</action>
+			</button>'
 	fi
+
 	# ------------------------
 	WINDOW_MSG="$(/usr/lib/gtkdialog/xml_info scale /usr/share/pixmaps/puppy/sound_config.svg 24 "${MSGX}")"
-	echo "export MAIN_DIALOG='
-<window title=\"${L_MSCW}\" image-name=\"/usr/share/pixmaps/puppy/card_pci.svg\" resizable=\"false\">
+	export MSCW_DIALOG='
+<window title="'${L_MSCW}'" image-name="/usr/share/pixmaps/puppy/card_pci.svg" resizable="false">
 	<vbox>
-		$WINDOW_MSG
-		<tree rules_hint=\"true\" headers_visible=\"false\" hover-expand=\"true\">
-			<height>${HEIGHT}</height>
+		'${WINDOW_MSG}'
+		<tree rules_hint="true" headers_visible="false" hover-expand="true">
+			<height>'${HEIGHT}'</height>
 			<width>600</width>
-			${ITEMS}
+			'${ITEMS}'
 			<variable>SELECTED</variable>
 		</tree>
 		<hbox>
-			${BUTTONS}
+			'${BUTTONS}'
 			<button>
-				$(/usr/lib/gtkdialog/xml_button-icon clipboard.svg)
-				<label>$L_REPORT</label>
-				<action>bash -c MSCW_REPORT &</action>
+				'$(/usr/lib/gtkdialog/xml_button-icon clipboard.svg)'
+				<label>'${L_REPORT}'</label>
+				<action>MSCW_REPORT &</action>
 			</button>
 		</hbox>
 	</vbox>
-</window>'" > /tmp/mscw.gui
+</window>'
 	###
 	. /usr/lib/gtkdialog/xml_info gtk #build bg_pixmap for gtk-theme
-	. /tmp/mscw.gui
-	I=$IFS; IFS=""
-	for STATEMENTS in  $(gtkdialog --center --program MAIN_DIALOG); do
-		eval $STATEMENTS
-	done
-	IFS=$I
-	rm -f /tmp/mscw.gui
+	#echo "$MSCW_DIALOG" > /tmp/mscw.gui #debug
+	eval "$(gtkdialog --center --program MSCW_DIALOG)"
+	if [ "$EXIT" = "TEST_SOUND" ] ; then
+		if [ "$SELECTED" ] ; then
+			test_sound "$SELECTED"
+		else
+			/usr/lib/gtkdialog/box_ok "$L_MSCW" error "$L_MUSTSELECT"
+		fi
+	else
+		break
+	fi
+ done
 
 else ##### CLI #####
 	ITEMCOUNT=$(echo "$DEVICES" | wc -l)
