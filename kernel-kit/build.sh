@@ -623,7 +623,6 @@ BZIMAGE=`find . -type f -name bzImage | head -1`
 cp ${BZIMAGE} ${linux_kernel_dir}/boot
 cp ${BZIMAGE} ${linux_kernel_dir}/boot/vmlinuz
 
-rm ${linux_kernel_dir}/lib/modules/${kernel_srcsfs_version}${custom_suffix}/modules*
 mv ${linux_kernel_dir} ../dist/packages ## ../dist/packages/${linux_kernel_dir}
 
 ## make fatdog kernel module package
