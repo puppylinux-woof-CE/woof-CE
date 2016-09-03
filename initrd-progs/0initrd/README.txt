@@ -78,7 +78,7 @@ Otherwise the tmpfs read-write layer is replaced with the directory containing t
 
 The stack is then made into the running system and init exits.
 
-If non-critical errors are detected by init it usually writes them a file called bootinit.log
+If non-critical errors are detected by init it usually writes them to a file called bootinit.log
 This file can be accessed in a running puppy as /initrd/tmp/bootinit.log
 
 
