@@ -114,7 +114,7 @@ insmod png
 background_image /${pic}.png
 set timeout=10
 menuentry "Start $DISTRO_FILE_PREFIX" {
-    linux /vmlinuz
+    linux /vmlinuz pmedia=cd
     initrd /initrd.gz
 }
 menuentry "Start $DISTRO_FILE_PREFIX - RAM only" {
@@ -173,7 +173,7 @@ menu helpmsgrow 30
 label ${DISTRO_FILE_PREFIX}
 linux vmlinuz
 initrd initrd.gz
-#append rootfstype=ramfs
+append pmedia=cd
 menu label ${DISTRO_FILE_PREFIX}
 text help
 Start ${DISTRO_FILE_PREFIX} normally.
