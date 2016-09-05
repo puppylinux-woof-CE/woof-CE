@@ -118,15 +118,15 @@ menuentry "Start $DISTRO_FILE_PREFIX" {
     initrd /initrd.gz
 }
 menuentry "Start $DISTRO_FILE_PREFIX - RAM only" {
-    linux /vmlinuz pfix=ram
+    linux /vmlinuz pfix=ram pmedia=cd
     initrd /initrd.gz
 }
 menuentry "Start $DISTRO_FILE_PREFIX - No X" {
-    linux /vmlinuz pfix=nox
+    linux /vmlinuz pfix=nox pmedia=cd
     initrd /initrd.gz
 }
 menuentry "Start $DISTRO_FILE_PREFIX - check filesystem" {
-    linux /vmlinuz pfix=fsck
+    linux /vmlinuz pfix=fsck pmedia=cd
     initrd /initrd.gz
 }
 menuentry "Start $DISTRO_FILE_PREFIX - No KMS" {
@@ -183,7 +183,7 @@ endtext
 label ${DISTRO_FILE_PREFIX}-ram
 linux vmlinuz
 initrd initrd.gz
-append pfix=ram
+append pfix=ram pmedia=cd
 menu label $DISTRO_FILE_PREFIX with no savefile
 text help
 Start Slacko64 with no savefile RAM only.
@@ -193,7 +193,7 @@ endtext
 label ${DISTRO_FILE_PREFIX}-nox
 linux vmlinuz
 initrd initrd.gz
-append pfix=nox
+append pfix=nox pmedia=cd
 menu label ${DISTRO_FILE_PREFIX} without graphical desktop
 text help
 Start ${DISTRO_FILE_PREFIX} in command-line mode (Linux console). 
@@ -206,7 +206,7 @@ menu separator
 label ${DISTRO_FILE_PREFIX}-nokms
 linux vmlinuz
 initrd initrd.gz
-append pfix=ram,nox
+append pfix=ram,nox pmedia=cd
 menu label For machines with severe video problems
 text help
 Start ${DISTRO_FILE_PREFIX} without savefile, without KMS, and run xorgwizard 
