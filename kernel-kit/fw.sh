@@ -54,6 +54,7 @@ func_git() {
 		echo "Updating the git firmware repo"
 		git pull
 		[ $? -ne 0 ] && echo "Failed to update git firmware" # non fatal
+		return 0 # precaution
 	else
 		cd ..
 		echo "Cloning the firmware repo may take a long time"
@@ -62,6 +63,7 @@ func_git() {
 			echo "Failed to clone the git firmware repo"
 			return 1
 		fi
+		return 0
 	fi
 }
 
