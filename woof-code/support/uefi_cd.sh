@@ -15,16 +15,6 @@ mk_iso() {
 	isohybrid -u $OUTPUT
 }
 
-# finds first free loop device
-fn_loop() {
-	cnt=0
-	losetup -a|grep -o 'loop[0-9]*'|grep -o '[0-9]*'|\
-	while read -r free;do
-		echo $free|grep -q $cnt || return $cnt
-		cnt=$(($cnt + 1))
-	done
-}
-
 # make a grub2 efi image
 mk_efi_img() {
 	TGT=$1; GRUB=$2; NEW=$3
@@ -33,11 +23,11 @@ mk_efi_img() {
 	dd if=/dev/zero of=${TGT}/efi.img bs=512 count=8192 || return 1
 	echo "formatting ${TGT}/efi.img - vfat"
 	mkdosfs ${TGT}/efi.img
-	fn_loop; n=$?
+	FREE_DEV=`losetup -f`
 	echo "mounting ${TGT}/efi.img on /tmp/efi_img"
-	losetup /dev/loop${n} ${TGT}/efi.img || return 2
-	mount -t vfat /dev/loop${n} /tmp/efi_img || \
-		(losetup -d /dev/loop${n};return 3)
+	losetup $FREE_DEV ${TGT}/efi.img || return 2
+	mount -t vfat $FREE_DEV /tmp/efi_img || \
+		(losetup -d $FREE_DEV;return 3)
 	echo "copying files"
 	mkdir -p /tmp/efi_img/EFI/boot/ || return 4
 	tar -xJvf $GRUB -C /tmp/efi_img/EFI/boot/ || return 5
@@ -45,7 +35,7 @@ mk_efi_img() {
 		|| return 6
 	echo "unmounting /tmp/efi_img"
 	umount /tmp/efi_img || return 7
-	losetup -a | grep -o -q "loop${n}" && losetup -d /dev/loop${n}
+	losetup -a | grep -o -q "${FREE_DEV##*/}" && losetup -d $FREE_DEV
 	rm -r /tmp/efi_img
 	return 0
 }
