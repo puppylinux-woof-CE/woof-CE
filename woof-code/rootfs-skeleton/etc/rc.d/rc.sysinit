@@ -64,26 +64,25 @@ loadswap_func() { #w481 made into a function.
  for ONESWAP in `fdisk -l | grep ' Linux swap' | cut -f 1 -d ' ' | tr '\n' ' '`
  do
   echo -n "Loading swap partition $ONESWAP..." >/dev/console #loading swap partition
+  SWAPSIZEBYTES=`fdisk -l $ONESWAP | grep $ONESWAP | cut -f 5 -d ' '` #bytes
+  [ $SWAPSIZEBYTES ] && EXTRAALLOCK=$(($EXTRAALLOCK + $SWAPSIZEBYTES))
+  chmod 0660 $ONESWAP
   swapon $ONESWAP
   status_func $?
   [ $? -eq 0 ] && SWAPON="yes"
  done
+ [ "$SWAPON" = "yes" ] && return
  #if no go, try for a swap file...
- if [ "$SWAPON" != "yes" ];then
-  SWAPFILE="/pupswap.swp"
-  if [ -f /initrd${PUP_HOME}${SWAPFILE} ];then
-   echo -n "Loading swap file ${SWAPFILE}..." >/dev/console #loading swap file
-   swapon /initrd${PUP_HOME}${SWAPFILE}
-   status_func $?
-   [ $? -eq 0 ] && SWAPON="yes"
-  fi
-  if [ -f $SWAPFILE ];then
-   echo -n "Loading swap file ${SWAPFILE}..." >/dev/console
-   swapon $SWAPFILE
-   status_func $?
-   [ $? -eq 0 ] && SWAPON="yes"
-  fi
- fi
+ for SWAPFILE in /initrd${PUP_HOME}/pupswap.swp /pupswap.swp
+ do
+  [ -f $SWAPFILE ] || continue
+  echo -n "Loading swap file ${SWAPFILE}..." >/dev/console #loading swap file
+  SWAPSIZEBYTES=`stat -c %s ${SWAPFILE}` #bytes
+  [ $SWAPSIZEBYTES ] && EXTRAALLOCK=$(($EXTRAALLOCK + $SWAPSIZEBYTES))
+  swapon ${SWAPFILE}
+  status_func $?
+  [ $? -eq 0 ] && SWAPON="yes"
+ done
 }
 
 #if have just done a switch_root, output a 'done' message...
@@ -366,7 +365,17 @@ status_func 0
 
 ######################LOAD SWAP#####################
 [ "$BOOT_DISABLESWAP" ] && SWAPON="$BOOT_DISABLESWAP" #120704 now ask in 3builddistro if want use swap file/partition. anything not "yes" means no.
+EXTRAALLOCK=0
 [ "$SWAPON" != "yes" ] && loadswap_func
+#resize tmpfs
+if [ "$(grep '/initrd/mnt/tmpfs' /proc/mounts)" != "" ];then #mounted
+ [ "$SWAPON" = "yes" ] && EXTRAALLOCK=$(($EXTRAALLOCK / 2048)) #use half in KiB
+ RAMSIZE=$(free | grep -o 'Mem: .*' | tr -s ' ' | cut -f 2 -d ' ')
+ FREEK=$(($RAMSIZE / 2)) #half of physical.
+ ALLOCK=$(($FREEK + $EXTRAALLOCK))
+ [ -s /initrd/tmp/sfs_ram_sizek ] && ALLOCK=$(($ALLOCK + $(cat /initrd/tmp/sfs_ram_sizek))) #proper size
+ mount -t tmpfs -o remount,size=${ALLOCK}k tmpfs /initrd/mnt/tmpfs
+fi
 
 #################MISC. SYSTEM SETUP#################
 echo "MISC. SYSTEM SETUP"
