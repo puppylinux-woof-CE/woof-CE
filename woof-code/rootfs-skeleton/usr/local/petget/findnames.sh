@@ -129,7 +129,7 @@ if [ "$FNDIT" = "no" ];then
  #120909 these files may have been created at previous search, it will upset show_installed_version_diffs.sh if still exist...
  [ -f /tmp/petget/filterpkgs.results.installed ] && rm -f /tmp/petget/filterpkgs.results.installed
  [ -f /tmp/petget/filterpkgs.results.notinstalled ] && rm -f /tmp/petget/filterpkgs.results.notinstalled
- /usr/lib/gtkdialog/box_ok "$(gettext 'PPM package search')" find.svg "$(gettext 'Sorry, no matching package name')"
+ /usr/lib/gtkdialog/box_ok "$(gettext 'PPM package search')" error "$(gettext 'Sorry, no matching package name')"
 else
  
  #120827 search may find pkgs that are already installed...
