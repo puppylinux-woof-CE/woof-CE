@@ -1,0 +1,243 @@
+#!/bin/sh
+# - this is cli/gui script
+# - run "swapfile" to create a swap file on a given partition
+# - it will be called by shutdownconfig on shutdown
+#   if there are no swaps loaded
+# - then rc.sysinit will load the swap on next boot
+
+. /etc/rc.d/PUPSTATE #variables
+
+function create_swapfile() {
+	local outfile="$1" size=$2 #MB
+	dd if=/dev/zero of=${outfile} bs=1M count=$size
+	if [ $? -eq 0 ];then
+		sync
+		mkswap ${outfile}
+	fi
+	if [ $? -ne 0 ];then
+		rm -f ${outfile} 2>/dev/null
+		return 1
+	fi
+}
+
+#----------------------------------------
+
+function validate_drive() { #ex: sda
+	[ -b /dev/$1 ] || return 1
+	drive=${1:0:3}
+	D_INFO="$(probedisk $drive)"
+	# add rules here
+	echo "$D_INFO" | grep -q -E '\\|ATA ' && return 0 #most HDs have this
+	return 1
+}
+
+#----------------------------------------
+
+function validate_swapfile() { # $1=path
+	local path=$1
+	[ -f "$path" ] || return 1
+	dir=${path%/*}
+	case $dir in
+		#ex: /initrd/mnt/dev_save/pupswap.swp
+		"/initrd${PUP_HOME}"*|"/mnt/home"*)
+			[ "$PUP_HOME" ] || return 1
+			device=${PUPSAVE%%,*}
+			;;
+		#ex: /mnt/sda1/pupswap.swp
+		/mnt/sd[a-z][0-9]*|/mnt/hd[a-z][0-9]*)
+			device=$(echo "$path" | cut -d '/' -f 3)
+			;;
+		#ex: /pupswap.swp //pupswap.swp
+		""|"/")
+			busybox blkid "$path" | grep -q '"swap"' && return 0 || return 1
+			;;
+		*)
+			return 1
+			;;
+	esac
+	busybox blkid "$path" | grep -q '"swap"' || return 1
+	validate_drive $device
+	return $?
+}
+
+#----------------------------------------
+
+function validate_swap_pdev1() {
+	validate_drive ${PDEV1} || return 1
+	pdev1_mount="$(mount | grep "^/dev/${PDEV1}")"
+	if [ "$pdev1_mount" = "" ] ; then
+		UMOUNT_PDEV1=1
+		PDEV1_MP=/mnt/${PDEV1}
+		mkdir -p ${PDEV1_MP}
+		mount /dev/${PDEV1} ${PDEV1_MP}
+	else
+		PDEV1_MP=$(echo "$pdev1_mount" | awk '{print $3}')
+	fi
+	if [ -f ${PDEV1_MP}/pupswap.swp ] ; then
+		validate_swapfile ${PDEV1_MP}/pupswap.swp
+		if [ $? -eq 0 ] ; then
+			echo "${PDEV1_MP}/pupswap.swp"
+			return 0
+		fi
+	else
+		[ $UMOUNT_PDEV1 ] && umount ${PDEV1_MP}
+	fi
+	return 1
+}
+
+#===============================================================
+
+case $1 in
+	validate)
+		shift
+		validate_swapfile "$1"
+		exit $?
+		;;
+	validate_pdev1)
+		shift
+		validate_swap_pdev1
+		exit $?
+		;;
+	validate_drive)
+		shift
+		validate_drive $1
+		exit $?
+		;;
+	create)
+		shift
+		create_swapfile $@
+		exit $?
+		;;
+esac
+
+[ "$1" ] && exit
+
+#===============================================================
+
+export TEXTDOMAIN=swapfile
+export OUTPUT_CHARSET=UTF-8
+
+WINDOW_MSG="$(/usr/lib/gtkdialog/xml_info 0 execute.svg 40 "$(gettext 'This tool allows you to create a swap file..')")"
+if [ "$SWAP_SIZES" = "" ] ; then #SWAP_SIZES can be exported
+	SWAP_SIZES='64 128 256 512 768 1024 1536 2048 4096 8192'
+fi
+if [ "$SWAP_SIZE_LIMIT" ] ; then #MB - SWAP_SIZE_LIMIT can be exported
+	for i in $SWAP_SIZES ; do
+		[ $i -gt $SWAP_SIZE_LIMIT ] && break
+		SWAP_SIZES2="$SWAP_SIZES2 $i"
+	done
+	SWAP_SIZES=$SWAP_SIZES2
+fi
+for i in $SWAP_SIZES ; do
+	items="$items<item>${i}MB</item>"
+done
+
+if [ "$SWAP_PARTITIONS" = "" ] ; then #SWAP_PARTITIONS can be exported
+	SWAP_PARTITIONS="\"\" `mount | grep -E "/(s|h)d[a-z][0-9]" | awk '{print $3}' | sort -V -u`"
+fi
+for drv in $SWAP_PARTITIONS
+do
+	drvitem="$drvitem<item>${drv}</item>"
+done
+
+FREEE="$(free)"
+TOTALRAM=`echo "$FREEE" | grep -o 'Mem: .*' | tr -s ' ' | cut -f 2 -d ' '`
+USEDRAM=`echo "$FREEE" | grep -o 'Mem: .*' | tr -s ' ' | cut -f 3 -d ' '`
+TOTALSWAP=`echo "$FREEE" | grep -o 'Swap: .*' | tr -s ' ' | cut -f 2 -d ' '`
+
+TOTALRAM="$(($TOTALRAM / 1024))MB"
+USEDRAM="$(($USEDRAM / 1024))MB"
+TOTALSWAP="$(($TOTALSWAP / 1024))MB"
+
+export SWAPFILE_DIALOG='
+<window title="swapfile" image-name="/usr/share/pixmaps/puppy/preferences.svg">
+<vbox>
+  '$WINDOW_MSG'
+  <frame '$(gettext 'Select partition and swap size')'>
+  <hbox>
+    <text space-expand="true" space-fill="false"><label>"Total RAM: '$TOTALRAM'"</label></text>
+    <text space-expand="true" space-fill="true"><label>"Total SWAP: '$TOTALSWAP'"</label></text>
+  </hbox>
+  <hbox>
+    <text><label>'$(gettext 'Mounted partitions:')'</label></text>
+    <combobox>
+      <variable>SWAP_PART</variable>
+      '$drvitem'
+    </combobox>
+  </hbox>
+
+  <hbox>
+    <text><label>'$(gettext 'Swap size:')'</label></text>
+    <combobox>
+      <variable>SWAP_SIZE_MB</variable>
+      '$items'
+    </combobox>
+  </hbox>
+  </frame>
+  <hbox>
+   <button>
+     <label>'$(gettext 'Create pupswap.swp')'</label>
+     '$(/usr/lib/gtkdialog/xml_button-icon dialog-complete.svg)'
+     <action>exit:OK</action>
+   </button>
+   <button>
+      '$(/usr/lib/gtkdialog/xml_button-icon quit.svg)'
+      <label>Quit</label>
+      <action type="exit">Cancel</action>
+   </button>
+  </hbox>
+</vbox>
+</window>
+'
+
+. /usr/lib/gtkdialog/xml_info gtk #build bg_pixmap for gtk-theme
+retvals=$(gtkdialog --center --program=SWAPFILE_DIALOG)
+eval "$retvals"
+[ "$EXIT" = "OK" ] || exit
+
+if [ ! -d "$SWAP_PART" ] ; then
+	exec /usr/lib/gtkdialog/box_ok "swapfile" error "$(gettext 'Invalid directory..')"
+fi
+
+if [ -f ${SWAP_PART}/pupswap.swp ] ; then
+	msg="$(printf "$(gettext '%s/pupswap.swp already exists')" "${SWAP_PART}")"
+	/usr/lib/gtkdialog/box_yesno "swapfile" "$msg" "Do you want to delete the file first?"
+	[ $? -ne 0 ] && exit
+	rm -f ${SWAP_PART}/pupswap.swp
+fi
+
+# check free space
+SWAP_SIZE_MB=${SWAP_SIZE_MB%MB}
+FREEK=$(df | grep "${SWAP_PART}" | tr -s " " | head -n 1 | cut -f 4 -d " ")
+FREEM=$(($FREEK / 1024)) #MB
+if [[ $FREEM -lt $SWAP_SIZE_MB ]] ; then
+	msg0="$(gettext 'Not enough space...')"
+	msg1="$(printf "$(gettext '%s has %sMB of free space')" "$SWAP_PART" "$FREEM")"
+	msg2="$(printf "$(gettext 'But you chose to create a swap file of %sMB')" "$SWAP_SIZE_MB")"
+	exec /usr/lib/gtkdialog/box_ok "$msg0" error "$msg1" "$msg2"
+fi
+
+msg="$(printf "$(gettext 'Creating %s/pupswap.swp...')" "${SWAP_PART}")"
+gtkdialog-splash -close never -text "$msg" &
+pid=$!
+
+create_swapfile ${SWAP_PART}/pupswap.swp ${SWAP_SIZE_MB}
+if [ $? -eq 0 ] ; then
+	kill -9 $pid
+	msg="$(gettext 'pupswap.swp successfully created')"
+	if [ $SWAP_SPLASH ] ; then #SWAP_SPLASH can be exported
+		gtkdialog-splash -close never -bg green -timeout 3 -text "$msg"
+	else
+		exec /usr/lib/gtkdialog/box_ok "swapfile" info "$msg"
+	fi
+else
+	kill -9 $pid
+	msg="$(gettext 'Error(s) creating pupswap.swp')"
+	if [ $SWAP_SPLASH ] ; then #SWAP_SPLASH can be exported
+		gtkdialog-splash -close never -bg red -timeout 3 -text "$msg"
+	else
+		exec /usr/lib/gtkdialog/box_ok "swapfile" error "$msg"
+	fi
+fi
+
+### END ###
