@@ -719,6 +719,7 @@ S='<window title="'$(gettext 'Puppy Package Manager v')''${VERSION}'" width-requ
     '"`/usr/lib/gtkdialog/xml_scalegrip`"'
     <action signal="button-release-event">progressbar_info</action>
    </eventbox>
+   '"`/usr/lib/gtkdialog/xml_scalegrip`"'
    <variable>DEP_INFO</variable>
   </hbox>
 </vbox>
