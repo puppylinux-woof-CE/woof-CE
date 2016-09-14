@@ -402,36 +402,36 @@ progressbar_info () {
 		# Info window/dialogue (display and option to save "missing" info)
 		export NEEDED_DIALOG='
 		<window title="'$(gettext 'Puppy Package Manager')'" icon-name="gtk-about" default_height="350">
-		 <vbox space-expand="true" space-fill="true">
-		 '"`/usr/lib/gtkdialog/xml_info fixed package_add.svg 60 " " "$(gettext "Dependencies needed")"`"'
-		 <hbox space-expand="true" space-fill="true">
-		  <hbox scrollable="true" hscrollbar-policy="2" vscrollbar-policy="2" space-expand="true" space-fill="true">
-		   <hbox space-expand="false" space-fill="false">
-            <eventbox name="bg_report" space-expand="true" space-fill="true">
-             <vbox margin="5" hscrollbar-policy="2" vscrollbar-policy="2" space-expand="true" space-fill="true">
-              '"`/usr/lib/gtkdialog/xml_pixmap dialog-info.svg 32`"'
-              <text angle="90" wrap="false" yalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"<big><b><span color='"'#15BC15'"'>'$(gettext 'Needed')'</span></b></big> "</label></text>
-            </vbox>
-           </eventbox>
-          </hbox>
-         <vbox scrollable="true" shadow-type="0" hscrollbar-policy="2" vscrollbar-policy="1" space-expand="true" space-fill="true">
-          <text ypad="5" xpad="5" yalign="0" xalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"<i><b>'${NEEDED_PGKS}' </b></i>"</label></text>
-         </vbox>
-        </hbox>
-       </hbox>
+		<vbox space-expand="true" space-fill="true">
+		  '"`/usr/lib/gtkdialog/xml_info fixed package_add.svg 60 " " "$(gettext "Dependencies needed")"`"'
+		  <hbox space-expand="true" space-fill="true">
+		    <hbox scrollable="true" hscrollbar-policy="2" vscrollbar-policy="2" space-expand="true" space-fill="true">
+		      <hbox space-expand="false" space-fill="false">
+		        <eventbox name="bg_report" space-expand="true" space-fill="true">
+		          <vbox margin="5" hscrollbar-policy="2" vscrollbar-policy="2" space-expand="true" space-fill="true">
+		            '"`/usr/lib/gtkdialog/xml_pixmap dialog-info.svg 32`"'
+		            <text angle="90" wrap="false" yalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"<big><b><span color='"'#15BC15'"'>'$(gettext 'Needed')'</span></b></big> "</label></text>
+		          </vbox>
+		        </eventbox>
+		      </hbox>
+		      <vbox scrollable="true" shadow-type="0" hscrollbar-policy="2" vscrollbar-policy="1" space-expand="true" space-fill="true">
+		        <text ypad="5" xpad="5" yalign="0" xalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"<i><b>'${NEEDED_PGKS}' </b></i>"</label></text>
+		      </vbox>
+		    </hbox>
+		  </hbox>
 
-       <hbox space-expand="false" space-fill="false">
-        <button>
-         <label>'$(gettext 'View details')'</label>
-         '"`/usr/lib/gtkdialog/xml_button-icon document_viewer`"'
-         <action>defaulttextviewer /tmp/overall_dependencies &</action>
-        </button>
-        <button ok></button>
-        '"`/usr/lib/gtkdialog/xml_scalegrip`"'
-       </hbox>
-      </vbox>
-     </window>'
-     RETPARAMS="`gtkdialog --center -p NEEDED_DIALOG`"
+		  <hbox space-expand="false" space-fill="false">
+		    <button>
+		      <label>'$(gettext 'View details')'</label>
+		      '"`/usr/lib/gtkdialog/xml_button-icon document_viewer`"'
+		      <action>defaulttextviewer /tmp/overall_dependencies &</action>
+		    </button>
+		    <button ok></button>
+		    '"`/usr/lib/gtkdialog/xml_scalegrip`"'
+		  </hbox>
+		</vbox>
+		</window>'
+	RETPARAMS="`gtkdialog --center -p NEEDED_DIALOG`"
 	fi
 }
 export -f progressbar_info
@@ -488,14 +488,14 @@ S='<window title="'$(gettext 'Puppy Package Manager v')''${VERSION}'" width-requ
         </button>
         <togglebutton tooltip-text="'$(gettext 'Open/Close the Uninstall packages window')'" space-expand="false" space-fill="false">
           <label>" '$(gettext 'Uninstall')' "</label>
-					<variable>tgb0</variable>
-					<input file>'"$ICONDIR"'/false.svg</input>
-					<input file>'"$ICONDIR"'/tgb0.svg</input>
-					<height>20</height>
-					<action>ln -sf '"$ICONDIR"'/$tgb0.svg '"$ICONDIR"'/tgb0.svg</action>
-					<action>refresh:tgb0</action>
-					<action>save:tgb0</action>
-					<output file>'"$ICONDIR"'/outputfile</output>
+          <variable>tgb0</variable>
+          <input file>'"$ICONDIR"'/false.svg</input>
+          <input file>'"$ICONDIR"'/tgb0.svg</input>
+          <height>20</height>
+          <action>ln -sf '"$ICONDIR"'/$tgb0.svg '"$ICONDIR"'/tgb0.svg</action>
+          <action>refresh:tgb0</action>
+          <action>save:tgb0</action>
+          <output file>'"$ICONDIR"'/outputfile</output>
           <variable>BUTTON_UNINSTALL</variable>
           <action>if true show:VBOX_REMOVE</action>
           <action>if false hide:VBOX_REMOVE</action>
@@ -719,6 +719,7 @@ S='<window title="'$(gettext 'Puppy Package Manager v')''${VERSION}'" width-requ
     '"`/usr/lib/gtkdialog/xml_scalegrip`"'
     <action signal="button-release-event">progressbar_info</action>
    </eventbox>
+   '"`/usr/lib/gtkdialog/xml_scalegrip`"'
    <variable>DEP_INFO</variable>
   </hbox>
 </vbox>
