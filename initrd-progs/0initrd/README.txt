@@ -118,6 +118,7 @@ Where <partition> can be the name e.g sdb2, or a label e.g. Work, or a uuid e.g.
 When a label or uuid is used, only the beginning is required, enough to be unique on your system, e.g "pupsfs=0db94719-cdf1"
 Where <filename> can be a complete path or just a filename, e.g. "pupsfs=sdb2:/path/to/my-improved-puppy.sfs" or "pupsfs=sdb2:my-improved-puppy.sfs"
 If <filename> does not start with a "/" then default path will be prepended to it.
+If <filename> ends with a "/" it is assumed to be a directory specification, it will be prepended to the default filename.
 Any specified path is relative to the root of the partition, the same as psubdir=.
 It is not necessary to specify both a <partition> and a <filename>, but if there is no ":" it is assumed to be a <partition> specification.
 e.g. "pupsfs=sdb2", specifies that the puppy...sfs file is on sdb2 in the default path with the default filename.
