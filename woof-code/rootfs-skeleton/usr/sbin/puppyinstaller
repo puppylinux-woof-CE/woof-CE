@@ -1360,11 +1360,8 @@ fi
 [ ! $? -eq 0 ] && exit
 [ "`echo "$RETTXT" | grep 'OK'`" = "" ] && exit
 
-
-
 #get latest Puppy files....
 locate_puppy_src_files
-
 
 #find out if puppy already on dest...
 #ispupfunc $DESTFS $DESTPART
@@ -1842,18 +1839,12 @@ $(gettext 'Click window close box to quit...')" 0 0
 
   #info for creating a grub entry...
   DRV_TYPE="`echo -n "$DESTPART" | cut -b 1-3`" #ex: hda
-  GRUB_DRVN=0
-  for ONE_TYPE in `fdisk -l | grep "^Disk /dev/" | cut -d' ' -f2 | cut -d':' -f1 | tr '\n' ' '`
-  do
-   [ "/dev/$DRV_TYPE" = "$ONE_TYPE" ] && break
-   GRUB_DRVN=`expr $GRUB_DRVN + 1`
-  done
-  GRUB_PARTN=`echo -n "$DESTPART" | cut -b 4-5`
-  if [ $GRUB_PARTN ];then
-   GRUB_PARTN=`expr $GRUB_PARTN - 1`
-   GRUB_PARTN=",$GRUB_PARTN"
-  fi
-   
+  BLKID=blkid
+  which blkid-FULL &>/dev/null && BLKID=blkid-FULL
+  DESTPART_BLKID=$($BLKID /dev/${DESTPART})
+  DESTPART_UUID=$(echo "$DESTPART_BLKID" | grep -o 'UUID=".*' | cut -d '"' -f2)
+  DESTPART_PARTUUID=$(echo "$DESTPART_BLKID" | grep -o 'PARTUUID=".*' | cut -d '"' -f2)
+
   #INSTOPTION, install puppy to DESTPART...
   if [ "$INSTOPTION" = "1" ];then #frugal.
   
@@ -1933,25 +1924,12 @@ $(gettext 'Grub bootloader.')" 0 0
     xNEWPSUBDIR="/$NEWPSUBDIR"
     OPTIONPSUBDIR=" psubdir=${NEWPSUBDIR}"
    fi
-   if [ -e /proc/ide ];then #v3.97
-    grubEXTRAMSG=""
-   else
-    grubEXTRAMSG="
-`eval_gettext \"WARNING: If your PC has a mix of IDE and SATA hard drives, then (hd\\\${GRUB_DRVN}\\\${GRUB_PARTN})\"`
-$(gettext 'may be wrong. GRUB numbers drives as hd<drive>,<partition> where')
-$(gettext '<drive> and <partition> numbering starts from zero. The problem is')
-$(gettext 'that GRUB sees IDE drives first (hd0,), whereas if you look at Pmount')
-$(gettext 'you may see it listed second (hd1,). The Uni. Installer uses the')
-$(gettext 'ordering as reported by Pmount, which may be wrong for GRUB!')
-$(gettext '(EX: if an IDE drive is hd1,0 (sdb1), may need to be changed to hd0,0)')"
-   fi
-
    #091211...
    echo "`gettext \"If you have GRUB installed, find the 'menu.lst' file (usually in /boot
 in the partition in which GRUB is installed) and insert this:\"`
 " > /tmp/NEWGRUBTEXT
    echo "title Puppy Linux ${NEWVER} frugal in ${DESTPART} dir ${NEWPSUBDIR}
-rootnoverify (hd${GRUB_DRVN}${GRUB_PARTN})
+uuid ${DESTPART_UUID}
 kernel ${xNEWPSUBDIR}/vmlinuz pmedia=${FINALPMEDIA}${OPTIONPSUBDIR}
 initrd ${xNEWPSUBDIR}/initrd.gz
 " >> /tmp/NEWGRUBTEXT
@@ -2059,46 +2037,36 @@ ${grubEXTRAMSG}" 0 0
      rm -rf $DESTMNTPT/*
      sync
      kill $XPID
-     #PUPVEROLD=`expr $DISTRO_VERSION - 1` #v430
-     #PUPVEROLD='0.0' #110422
     fi
    #fi
    echo "installing"
-   yaf-splash -close never -bg orange -text "$(gettext 'Please wait, copying Puppy files to') $DESTPART..." &
-   XPID=$!
-   sleep 1
-   cp -f /etc/profile /tmp/profile-before_upgrade #120823 rerwin: preserve user-modified files in full-install upgrade.
+   #120823 rerwin: preserve user-modified files in full-install upgrade.
+   cp -f /etc/profile /tmp/profile-before_upgrade
    #loop-device mount ${DISTRO_PUPPYSFS} in DESTPART, copy contents of ${DISTRO_PUPPYSFS} to DESTPART...
-   losetup-FULL /dev/loop2 $SRCPATH/$DISTRO_PUPPYSFS #100913
-   mkdir "$DESTMNTPT"/srcmntpt
-   mount -r -t squashfs /dev/loop2 $DESTMNTPT/srcmntpt
-   for dir in bin dev etc lib lib64 mnt opt proc root sbin tmp usr var ; do
-     [ -d "$DESTMNTPT"/srcmntpt/"$dir" ] || continue
-     cp -a -u --remove-destination "$DESTMNTPT"/srcmntpt/"$dir" "$DESTMNTPT"/ \
-     || fatal
-   done #140630
-   sync
+   for SFS in ${DISTRO_PUPPYSFS} ${DISTRO_ZDRVSFS} ${DISTRO_FDRVSFS} ${DISTRO_ADRVSFS} ${DISTRO_YDRVSFS}
+   do
+     [ -f ${SRCPATH}/${SFS} ] || continue
+     echo "$SFS" #debug
+     msg="$(printf "$(gettext 'Copying files from %s to %s...')" "$SFS" "$DESTPART")"
+     yaf-splash -close never -bg orange -text "$msg" &
+     XPID=$!
+     FREEDEV=$(losetup -f)
+     losetup ${FREEDEV} "${SRCPATH}/${SFS}" #100913
+     mkdir -p ${DESTMNTPT}/srcmntpt
+     mount -r -t squashfs ${FREEDEV} ${DESTMNTPT}/srcmntpt
+     cp -a -u --remove-destination ${DESTMNTPT}/srcmntpt/* ${DESTMNTPT}/ || {
+       [ "$SFS" = "$DISTRO_PUPPYSFS" ] && fatal
+     }
+     sync
+     umount ${DESTMNTPT}/srcmntpt
+     rm -rf ${DESTMNTPT}/srcmntpt
+     sleep 0.5
+     kill $XPID
+   done
    #130613 puppy currently has /run a symlink to /tmp, but don't assume this always. create as-is...
    #cp -a -f --remove-destination $DESTMNTPT/srcmntpt/run $DESTMNTPT/
-   (cd "$DESTMNTPT"/; ln -sf tmp run) #140630
-   
-   #v2.12 external modules file...
-   #w482 fix handling if separate zdrv file... 140630 a + y too
-   for drv in ${DISTRO_ZDRVSFS} ${DISTRO_FDRVSFS} ${DISTRO_ADRVSFS} ${DISTRO_YDRVSFS};do
-     [ -f $SRCPATH/"${drv}" ] && cp -af "$SRCPATH"/"${drv}" "$DESTMNTPT"/
-     [ -f /"${drv}" ] && cp -af /"${drv}" "$DESTMNTPT"/
-   
-     if [ -f "$DESTMNTPT"/"${drv}" ];then #w482
-       mkdir -p "$DESTMNTPT"/data
-       mount -t squashfs -o loop "$DESTMNTPT"/"${drv}" "$DESTMNTPT"/data
-       cp -a -f --remove-destination "$DESTMNTPT"/data/* "$DESTMNTPT"/
-       
-       sync
-       umount "$DESTMNTPT"/data
-       rm -f "$DESTMNTPT"/"${drv}"
-     fi
-   done
-   rm -r "$DESTMNTPT"/data
+   ( cd ${DESTMNTPT}/ ; ln -sf tmp run ; rm -rf archive )
+
    #w482 put these modules back into the normal places...
    if [ -d /lib/modules/"$KERNELVER"/initrd ];then
     #note, important to not have 'initrd' folder in full hd installation, messes up rc.sysinit.
@@ -2122,7 +2090,6 @@ ${grubEXTRAMSG}" 0 0
     cp -a -f /lib/consolefonts/* ${DESTMNTPT}/lib/consolefonts/
    fi
 
-   
    mkdir $DESTMNTPT/sys 2>/dev/null
    rm -f $DESTMNTPT/var/log/modprobes.log 2>/dev/null #v2.13 see /sbin/modprobe script.
    #...not necessary, not using this any more.
@@ -2130,23 +2097,12 @@ ${grubEXTRAMSG}" 0 0
     echo "ATADRIVES='$ATADRIVES'" >> $DESTMNTPT/etc/rc.d/PUPSTATE
    #fi
    sync
-   kill $XPID
    #fix space optimisation links into initrd...
     #TODO
    #chroot to DESTPART, set DISTRO_VERSION back to $PUPVEROLD, run rc.update
    yaf-splash -bg orange -text "$(gettext 'Please wait, executing rc.update script...')" &
    XPID=$!
    sleep 2
-   
-   if [ -f "$DESTMNTPT"/etc/puppyversion ];then #historical file, old installations.
-    echo -n "0.0" > $DESTMNTPT/etc/puppyversion #set it back to what it was.
-   fi
-   if [ -f "$DESTMNTPT"/etc/DISTRO_SPECS ];then
-    vPATTERN="s%^DISTRO_VERSION=.*%DISTRO_VERSION=0.0'%" #110422
-    sed -e "$vPATTERN" $DESTMNTPT/etc/DISTRO_SPECS > /tmp/distro_specs_old
-    cp -f /tmp/distro_specs_old $DESTMNTPT/etc/DISTRO_SPECS #set DISTRO_VERSION back to what it was.
-   fi
-   
    #busybox chroot does not have -c ...
    FLAGDEVMISS=0
    if [ ! -e "$DESTMNTPT"/dev/null ];then #130613 recent pups have empty /dev. rc.update may need these...
@@ -2169,8 +2125,6 @@ ${grubEXTRAMSG}" 0 0
     echo "/dev/fd0      /mnt/floppy  auto     noauto,rw              0 0" >> $DESTMNTPT/etc/fstab
     sync
    kill $XPID
-   umount $DESTMNTPT/srcmntpt
-   rmdir $DESTMNTPT/srcmntpt
   fi
   #140707
   type grub4dosconfig
@@ -2196,16 +2150,10 @@ or, if you have GRUB4DOS installed, find the 'menu.lst' file (usually
 in / in the partition in which GRUB4DOS is installed) and insert this:\"`
 " > /tmp/NEWGRUBTEXT
     echo "title Puppy Linux ${NEWVER} full install in ${DESTPART}
-root (hd${GRUB_DRVN}${GRUB_PARTN})
+uuid ${DESTPART_UUID}
 kernel /boot/vmlinuz root=/dev/${DESTPART} pmedia=${FINALPMEDIA}
 
-`eval_gettext \"WARNING: If your PC has a mix of IDE and SATA hard drives, then (hd\\\${GRUB_DRVN}\\\${GRUB_PARTN})
-may be wrong. GRUB numbers drives as hd<drive>,<partition> where
-<drive> and <partition> numbering starts from zero. The problem is
-that GRUB sees IDE drives first (hd0,), whereas if you look at Pmount
-you may see it listed second (hd1,). The Uni. Installer uses the
-ordering as reported by Pmount, which may be wrong for GRUB!
-(EX: if an IDE drive is hd1,0 (sdb1), may need to be changed to hd0,0)\"`" >> /tmp/NEWGRUBTEXT
+" >> /tmp/NEWGRUBTEXT
 
     nohup defaulttextviewer /tmp/NEWGRUBTEXT &
     sleep 3
@@ -2336,21 +2284,9 @@ $(gettext 'of GRUB, or click INSTALL to install or reinstall GRUB...')
 ${grubEXTRAMSG}" 0 0
     if [ $? -eq 0 ];then #v3.96 update grub.
      echo "title Puppy Linux $NEWVER full install
-root (hd${GRUB_DRVN}${GRUB_PARTN})
+uuid ${DESTPART_UUID}
 kernel /boot/vmlinuz root=/dev/$DESTPART pmedia=${FINALPMEDIA}" > /tmp/NEWGRUBTEXT
-     if [ -e /proc/ide ];then #v3.97
       grubEXTRAMSG="$(gettext '...for your convenience, this text has been written to') /tmp/NEWGRUBTEXT"
-     else
-      grubEXTRAMSG="$(gettext '...for your convenience, this text has been written to') /tmp/NEWGRUBTEXT
-
-$(gettext 'WARNING: If your PC has a mix of IDE and SATA hard drives, then') (hd${GRUB_DRVN}${GRUB_PARTN})
-$(gettext 'may be wrong. GRUB numbers drives as hd<drive>,<partition> where')
-$(gettext '<drive> and <partition> numbering starts from zero. The problem is')
-$(gettext 'that GRUB sees IDE drives first (hd0,), whereas if you look at Pmount')
-$(gettext 'you may see it listed second (hd1,). The Uni. Installer uses the')
-$(gettext 'ordering as reported by Pmount, which may be wrong for GRUB!')
-($(gettext 'EX: if an IDE drive is hd1,0 (sdb1), may need to be changed to hd0,0'))"
-     fi
 
      Xdialog --wmclass "gtkdialog2" --left --title "$(gettext 'Universal Installer')" \
      --msgbox "$(gettext 'You have chosen to update an existing GRUB installation.')
@@ -2359,7 +2295,7 @@ $(gettext 'Find the "menu.lst" file (usually in /boot/grub in the')
 $(gettext 'partition in which GRUB is installed) and insert this:')
 
 title Puppy Linux $NEWVER full install in $DESTPART
-root (hd${GRUB_DRVN}${GRUB_PARTN})
+uuid ${DESTPART_UUID}
 kernel /boot/vmlinuz root=/dev/$DESTPART pmedia=${FINALPMEDIA}
 
 $grubEXTRAMSG
