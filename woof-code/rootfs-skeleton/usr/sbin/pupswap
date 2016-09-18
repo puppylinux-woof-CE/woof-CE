@@ -10,7 +10,6 @@
 # validate_drive() -- add rules there if it's not recognized (run probedisk)
 
 . /etc/rc.d/PUPSTATE #variables
-
 function create_swapfile() {
 	local outfile="$1" size=$2 #MB
 	dd if=/dev/zero of=${outfile} bs=1M count=$size
@@ -91,6 +90,11 @@ function validate_swap_pdev1() {
 	return 1
 }
 
+function free_mb() {
+	FREEK=$(df | grep "${1}$" | tr -s " " | head -n 1 | cut -f 4 -d " ")
+	FREEM=$(($FREEK / 1024)) #MB
+}
+
 #===============================================================
 
 case $1 in
@@ -113,6 +117,15 @@ case $1 in
 		shift
 		create_swapfile $@
 		exit $?
+		;;
+	set_dir)
+		shift
+		if [ "$1" ] ; then
+			MOUNTED_PARTITIONS="$1"
+			free_mb "$1"
+			SWAP_SIZE_LIMIT=${FREEM} #MB
+			shift
+		fi
 		;;
 esac
 
@@ -138,6 +151,11 @@ esac
 
 export TEXTDOMAIN=pupswap
 export OUTPUT_CHARSET=UTF-8
+
+if [ $ONLY_IF_NO_SWAP ] ; then #exported by calling app
+	TOTALSWAP=`free | grep -o 'Swap: .*' | tr -s ' ' | cut -f 2 -d ' '`
+	[ $TOTALSWAP -gt 0 ] && exit #swap file(s)/partition(s) are loaded
+fi
 
 if [ "$SWAP_SIZES" = "" ] ; then #SWAP_SIZES can be exported
 	SWAP_SIZES='64 128 256 512 768 1024 1536 2048 4096 8192'
@@ -165,6 +183,7 @@ if [ $PUPMODE -eq 2 ] ; then #full install
 	MOUNTED_PARTITIONS="/
 $MOUNTED_PARTITIONS"
 fi
+MOUNTED_PARTITIONS="$(echo "$MOUNTED_PARTITIONS" | sort -u)"
 X=0
 for drv in $MOUNTED_PARTITIONS ; do
 	X=$(($X+1))
@@ -351,8 +370,7 @@ $(gettext '(will delete the file before attempting to create the new one)')"
 fi
 
 # check free space
-FREEK=$(df | grep "${SWAP_PART}$" | tr -s " " | head -n 1 | cut -f 4 -d " ")
-FREEM=$(($FREEK / 1024)) #MB
+free_mb ${SWAP_PART}
 if [[ $FREEM -lt $SWAP_SIZE_MB ]] ; then
 	msg0="$(gettext 'Not enough space...')"
 	msg1="$(printf "$(gettext '%s has %sMB of free space')" "$SWAP_PART" "$FREEM")
@@ -380,11 +398,7 @@ if [ $? -eq 0 ] ; then
 	msg="$(gettext 'pupswap.swp successfully created')"
 	if [ $GUI ] ; then
 		kill -9 $pid
-		if [ $SWAP_SPLASH ] ; then #SWAP_SPLASH can be exported
-			exec /usr/lib/gtkdialog/box_splash -close never -bg green -timeout 3 -text "$msg"
-		else
-			exec /usr/lib/gtkdialog/box_ok "pupswap" info "$msg"
-		fi
+		/usr/lib/gtkdialog/box_splash -close never -bg green -timeout 3 -text "$msg"
 	else
 		echo -e "\n$msg" && sleep 3
 	fi
@@ -392,13 +406,34 @@ else
 	msg="$(gettext 'Error(s) creating pupswap.swp')"
 	if [ $GUI ] ; then
 		kill -9 $pid
-		if [ $SWAP_SPLASH ] ; then #SWAP_SPLASH can be exported
-			exec /usr/lib/gtkdialog/box_splash -close never -bg red -timeout 3 -text "$msg"
-		else
-			exec /usr/lib/gtkdialog/box_ok "pupswap" error "$msg"
-		fi
+		/usr/lib/gtkdialog/box_splash -close never -bg red -timeout 3 -text "$msg"
 	else
 		echo -e "\n$msg" && sleep 3
+	fi
+fi
+
+[ $SHUTDOWNCONFIG ] && exit #exported in /usr/sbin/shutdownconfig
+
+#------------------
+
+TOTALSWAP=`free | grep -o 'Swap: .*' | tr -s ' ' | cut -f 2 -d ' '`
+if [ $TOTALSWAP -eq 0 ] ; then
+	msg="$(printf "$(gettext 'Do you want to load %s?')" "${SWAP_PART}/pupswap.swp")"
+	if [ $GUI ] ; then
+		/usr/lib/gtkdialog/box_yesno --yes-first "pupswap" "$msg"
+	else
+		dialog --title "pupswap" --yes-label $(gettext 'Yes') --no-label $(gettext 'No') --yesno "$msg" 0 0
+	fi
+	[ $? -ne 0 ] && exit
+	swapon "${SWAP_PART}/pupswap.swp"
+	if [ $? -eq 0 ] ; then
+		msg="$(printf "$(gettext "'%s' successfully loaded!")" "${SWAP_PART}/pupswap.swp")"
+		echo -e "\n$msg"
+		[ $GUI ] && /usr/lib/gtkdialog/box_splash -close never -bg green -timeout 3 -text "$msg"
+	else
+		msg="$(printf "$(gettext "ERROR loading '%s'")" "${SWAP_PART}/pupswap.swp")"
+		echo -e "\n$msg"
+		[ $GUI ] && /usr/lib/gtkdialog/box_splash -close never -bg red -timeout 3 -text "$msg"
 	fi
 fi
 
