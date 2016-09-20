@@ -23,7 +23,6 @@
 #120313 fix 120301 font garbage. 120331 clear requires redirection to /dev/console.
 #120423 pemasu: /dev/mouse was missing in full install.
 #120503 if kernel mounts a f.s. on /dev, removes my skeleton /dev
-#120704 introduce /etc/rc.d/BOOTCONSTRAINED. written by 3builddistro.
 #120709 BOOT_UDEVDCHILDREN from /etc/rc.d/BOOTCONSTRAINED
 #120716 log size of ram, read by /sbin/initNEW for f.s. check.
 #120717 log ext2,3,4 f.s. that have reached maximal mount count.
@@ -33,16 +32,7 @@
 
 PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/X11R7/bin
 
-# always use devtmpfs
-mount -t devtmpfs devtmpfs /dev 2>/dev/null
-
-ORIGLANG="`grep '^LANG=' /etc/profile | cut -f 2 -d '=' | cut -f 1 -d ' '`" #120217
-ORIGLANG1="${ORIGLANG%_*}" #ex: en
-export LANG=C
-
-. /etc/rc.d/functions4puppy4
-. /etc/DISTRO_SPECS
-. /etc/rc.d/BOOTCONSTRAINED #120704 has BOOT_DISABLESWAP, BOOT_ATIME, BOOT_DIRTYWRITE.
+#================================================================
 
 status_func() {
  if [ $1 -eq 0 ];then
@@ -98,9 +88,18 @@ loadswap_func() { #w481 made into a function.
  done
 }
 
+#================================================================
+
 #if have just done a switch_root, output a 'done' message...
 [ -d /initrd ] && status_func 0 #note, /initrd does not exist when a full-hd installation.
 
+ORIGLANG="`grep '^LANG=' /etc/profile | cut -f 2 -d '=' | cut -f 1 -d ' '`" #120217
+ORIGLANG1="${ORIGLANG%_*}" #ex: en
+export LANG=C
+
+. /etc/rc.d/functions4puppy4
+. /etc/DISTRO_SPECS
+. /etc/rc.d/BOOTCONSTRAINED # has BOOT_DISABLESWAP, BOOT_ATIME, BOOT_DIRTYWRITE.
 . /etc/rc.d/MODULESCONFIG #modules loading configuration.
 [ $loglevel ] && LOGLEVEL=$loglevel #boot param.
 [ $pmedia ] && PMEDIA=$pmedia #boot parameter, broad category of boot media. ex: cd.
@@ -120,16 +119,27 @@ STATUS=0
 
 ##############MAKE FILESYSTEM USABLE################
 #echo "MAKE FILESYSTEM USABLE"
+
 if [ -d /initrd ] ; then
 	echo -n "Making the filesystem usable..." >/dev/console
 else
 	echo -n "Starting system..." >/dev/console
 fi
 
-busybox mount -t proc none /proc ;STATUS=$((STATUS+$?))
+mount -t devtmpfs devtmpfs /dev 2>/dev/null
+
+mount -t proc none /proc ; STATUS=$((STATUS+$?))
 
 # full-hd-install
 if [ ! -d /initrd ];then
+ if [ "$BOOT_ATIME" ];then # see /etc/rc.d/BOOTCONSTRAINED, variable set in 3builddistro.
+  mount -o remount,rw,${BOOT_ATIME} / #have set this to 'relatime'.
+ else
+  mount -o remount,rw /
+ fi
+ #no longer deleting /tmp/* in rc.shutdown... (note, init script in initrd.gz wipes it)
+ rm -rf /tmp/*
+ rm -rf /tmp/.[0-9a-zA-Z]*
  #tmpfs on /tmp for full HD installation
  #120717 this is not so good on raspi with only 256MB RAM, but saves flash writes and faster...
  mount -t tmpfs -o size=${QTRFREERAM}k tmpfs /tmp ;STATUS=$((STATUS+$?))
@@ -143,14 +153,6 @@ if [ ! -d /initrd ];then
  #EXT3-fs (sda9): warning: mounting fs with errors, running e2fsck is recommended
  #EXT3-fs (sda10): warning: maximal mount count reached, running e2fsck is recommended
  #--
- if [ "$BOOT_ATIME" ];then #120704 see /etc/rc.d/BOOTCONSTRAINED, variable set in 3builddistro.
-  busybox mount -o remount,rw,${BOOT_ATIME} / #have set this to 'relatime'.
- else
-  busybox mount -o remount,rw /
- fi
- #no longer deleting /tmp/* in rc.shutdown... (note, init script in initrd.gz wipes it)
- rm -rf /tmp/*
- rm -rf /tmp/.[0-9a-zA-Z]*
  #write to PUPSTATE after remount r/w.
  echo 'PUPMODE=2' > /etc/rc.d/PUPSTATE
  if [ "$ORIGLANG1" != "en" ];then #120217
@@ -165,18 +167,18 @@ if [ "$BOOT_DIRTYWRITE" ];then #120704 see /etc/rc.d/BOOTCONSTRAINED, variable s
  echo $BOOT_DIRTYWRITE > /proc/sys/vm/dirty_writeback_centisecs #refer: http://www.lesswatts.org/tips/disks.php
 fi
 
+#redirect all output to a log file (must do after remount rw)...
+[ ! "$LOGLEVEL" ] && exec 1>/tmp/bootsysinit.log 2>&1
+
 #mount/umount scripts no longer write to /etc/mtab, as gparted failed to create a
 #gparted create ext3 part. failed, fixed by making /etc/mtab a symlink.
 rm -f /etc/mtab
 ln -s /proc/mounts /etc/mtab
 
-#redirect all output to a log file (must do after remount rw)...
-[ ! "$LOGLEVEL" ] && exec 1>/tmp/bootsysinit.log 2>&1
-
 mkdir -p /dev/pts #120503 if kernel mounts a f.s. on /dev, removes my skeleton /dev
-busybox mount -o dev,suid /dev/pts ;STATUS=$((STATUS+$?))
+mount -o dev,suid /dev/pts ;STATUS=$((STATUS+$?))
 mkdir /sys 2>/dev/null
-busybox mount -t sysfs none /sys ;STATUS=$((STATUS+$?))
+mount -t sysfs none /sys ;STATUS=$((STATUS+$?))
 
 ##v2.20 some apps need shm (shared memory) (ex: xfdiff)... 100319 do this always...
 FREERAM=`free | grep -o 'Mem: .*' | tr -s ' ' | cut -f 4 -d ' '` #w481 110405
