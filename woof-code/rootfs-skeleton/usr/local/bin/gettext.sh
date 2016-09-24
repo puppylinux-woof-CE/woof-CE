@@ -46,4 +46,18 @@ eval_ngettext () {
 	echo "$msg"
 }
 
+gettext() {
+	echo -n "$@"
+}
+
+ngettext() {
+	[ "$5" ] && return 1
+	if [ "$4" ] ; then
+		echo -n "$3" ; return
+	elif [ "$3" ] ; then
+		echo -n "$2" ; return
+	fi
+	return 1
+}
+
 ### END ###
