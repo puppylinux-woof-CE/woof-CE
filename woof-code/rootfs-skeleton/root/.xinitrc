@@ -182,8 +182,11 @@ fi
 # fi
 #fi
 
-#exec $CURRENTWM
-#v2.11 GuestToo suggested this improvement...
+# enable xorg mousekeys
+# they should be enabled by default somewhere in /etc/X11/xkb
+# but who knows
+setxkbmap -option keypad:pointerkeys
+
 which $CURRENTWM && exec $CURRENTWM
 [ -x $CURRENTWM ] && exec $CURRENTWM
 exec jwm
