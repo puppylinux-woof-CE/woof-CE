@@ -171,17 +171,6 @@ if [ "$CURRENTWM" != "jwm" -a "$CURRENTWM" != "icewm" ];then
  [ -f /usr/bin/lxpanel ] && lxpanel &
 fi
 
-##w468 rox may not start old hardware, try again... 120517 bring this back...
-##PS="`busybox ps`"
-##if [ "`echo "$PS" | grep 'ROX\-Filer'`" = "" ];then
-#if ! busybox pidof ROX-Filer;then
-# touch /tmp/roxfilerstartupproblem #see /sbin/pup_event_frontend_d
-# sleep 0.5
-# if ! busybox pidof ROX-Filer;then #check again.
-#  rox -p /root/Choices/ROX-Filer/PuppyPin
-# fi
-#fi
-
 # enable xorg mousekeys
 # they should be enabled by default somewhere in /etc/X11/xkb
 # but who knows
