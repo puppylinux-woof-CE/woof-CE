@@ -8,6 +8,9 @@
 #-- Xorg X Server version should be 1.11+ --
 #-- X11R7.6 (Released: 2010-12-20) should be the minimum version supported
 
+export TEXTDOMAIN=xorgwizard
+export OUTPUT_CHARSET=UTF-8
+
 script=${0##*/}
 
 [ ! $DISPLAY ] && CLI=1
@@ -22,19 +25,21 @@ ARCH=`uname -m`
 
 #============================================================
 
-function set_xorg_vesa() {
-	[ -f /tmp/xorgvesa.state ] && read -r state < /tmp/xorgvesa.state
-	[ $1 ] && state="$1"
-	case $state in
-		on|1|yes|true) RSTR='	Driver      "vesa" #card0driver' ;;
-		off|0|no|false) RSTR='#	Driver      "vesa" #card0driver' ;;
-		*) return 1 ;;
+function set_xorg_video_driver() {
+	local vd
+	[ -f /tmp/xorg.video.driver ] && read -r vd < /tmp/xorg.video.driver
+	[ $1 ] && vd="$1"
+	case $vd in
+		auto) RSTR='#	Driver      "vesa" #card0driver' ;;
+		"") return 1 ;;
+		*) RSTR='	Driver      "'${vd}'" #card0driver' ;;
 	esac
+	echo $RSTR > /tmp/zz
 	if [ -f /etc/X11/xorg.conf ] ; then
 		sed -i "s|.*#card0driver.*|${RSTR}|" /etc/X11/xorg.conf
-		rm -f /tmp/xorgvesa.state
+		rm -f /tmp/xorg.video.driver
 	else
-		echo -n "$state" > /tmp/xorgvesa.state
+		echo -n "$vd" > /tmp/xorg.video.driver
 	fi
 }
 
@@ -64,7 +69,7 @@ function set_xorg_screen_res() {
 	[ $1 ] && RES="$1"
 	case $RES in
 		*"x"*) ok=1 ;;
-		*) return ;;
+		*) return 1 ;;
 	esac
 	if [ -f /etc/X11/xorg.conf ] ; then
 		RSTR="		Modes       \"${RES}\" #screen0modes"
@@ -122,7 +127,7 @@ else
 	cp -fv /etc/X11/xorg.conf-auto-pc /etc/X11/xorg.conf
 fi
 
-set_xorg_vesa
+set_xorg_video_driver
 set_xorg_screen_res
 set_xorg_color_depth
 keymap-set --load #keyboard model, layout, variant
@@ -181,40 +186,79 @@ fi
 
 if [ "$CLI" = "1" ] ; then
 
-export TEXTDOMAIN=xorgwizard-cli
-export OUTPUT_CHARSET=UTF-8
-
-VESA_MSG="$(gettext 'Use Xorg Vesa driver...')"
 if [ -f /etc/X11/xorg.conf ] ; then
-	USING_XORG_VESA="$(cat /etc/X11/xorg.conf | grep '#card0driver' | grep -v '#.*Driver')"
-elif [ -f /tmp/xorgvesa.state ] ; then
-	read -r xstate < /tmp/xorgvesa.state
-	case $xstate in on|1|yes|true) USING_XORG_VESA=yes ;; esac
+	USING_XORG_GENERIC="$(cat /etc/X11/xorg.conf | grep '#card0driver' | grep -v '#.*Driver')"
+elif [ -f /tmp/xorg.video.driver ] ; then
+	read -r xvid_drv < /tmp/xorg.video.driver
 fi
-[ "$USING_XORG_VESA" ] && VESA_MSG="$(gettext "Don't hard code Xorg Vesa in xorg.conf")"
 
-function cli_xorg_color_depth() {
-	dialog --title "$(gettext 'Xorg Wizard')" \
-		--ok-label "$(gettext 'Select')" --cancel-label "$(gettext 'Skip')" --defaultno \
-		--menu "$(gettext 'Color bit depth.
+function cli_dlg_input() {
+	# $1:title ; $2:msg
+	dialog --title "$1" --clear --inputbox "$2" 0 0 >/dev/tty 2>/tmp/in$$
+	if [ $? -eq 0 ] ; then
+		echo -n "$(cat /tmp/in$$)"
+		rm -f /tmp/in$$
+	fi
+}
 
-You might want to skip this step. Choose "16 bit" if you are having problems and your video hardware is very old... or if you already know that your hardware works better with a 16 color bit depth')." 0 0 0 \
-		"1)" "24 bit" \
-		"2)" "16 bit (ancient video hardware)"  \
-		"3)" "remove setting from xorg.conf (if in use)" >/dev/tty 2>/tmp/xorg.cli.res
+function cli_xorg_video_driver() {
+	local VD SPECIFY
+	dialog --title "$(gettext 'Xorg video driver')" \
+		--ok-label "$(gettext 'Select')" --cancel-label "$(gettext 'Cancel')" \
+		--menu "$(gettext 'Automatic is recommened. Choose a generic driver or specify one if you know what you are doing..')." 0 0 0 \
+		"1)" "Automatic" \
+		"2)" "vesa"  \
+		"3)" "modesetting" \
+		"4)" "fbdev" \
+		"*" "Specify..." >/dev/tty 2>/tmp/xorg.cli.res
 	if [ $? -eq 0 ] ; then
 		read -r ZCHOICE < /tmp/xorg.cli.res
 		case $ZCHOICE in
-			"1)") DEPTH="24" ;;
-			"2)") DEPTH="16" ;;
-			"3)") DEPTH="remove" ;;
+			"1)") set_xorg_video_driver auto ; VD=Automatic ;;
+			"2)") set_xorg_video_driver vesa ; VD=vesa ;;
+			"3)") set_xorg_video_driver modesetting ; VD=modesetting ;;
+			"4)") set_xorg_video_driver fbdev ; VD=fbdev ;;
+			"*") SPECIFY=1 ;;
+		esac
+		if [ $SPECIFY ] ; then
+			VD=$(cli_dlg_input "$(gettext 'Video Driver')" "$(gettext 'Enter the xorg video driver you want to use:')")
+			[ "$VD" ] && set_xorg_video_driver $VD
+		fi
+		if [ "$VD" ] ; then
+			dialog --msgbox "$(printf "$(gettext "Xorg Video driver set to %s")" "$VD")" 7 35
+		fi
+	fi
+	rm -f /tmp/xorg.cli.res
+}
+
+function cli_xorg_color_depth() {
+	local DEPTH
+	dialog --title "$(gettext 'Color bit depth.')" \
+		--ok-label "$(gettext 'Select')" --cancel-label "$(gettext 'Cancel')" \
+		--menu "$(gettext 'You might want to skip this step. Choose "16 bit" if you are having problems and your video hardware is very old... or if you already know that your hardware works better with a 16 color bit depth')." 0 0 0 \
+		"1)" "unset (let xorg decide)" \
+		"2)" "24 bit" \
+		"3)" "16 bit"  \
+		 >/dev/tty 2>/tmp/xorg.cli.res
+	if [ $? -eq 0 ] ; then
+		read -r ZCHOICE < /tmp/xorg.cli.res
+		case $ZCHOICE in
+			"1)") DEPTH="remove" ;;
+			"2)") DEPTH="24" ;;
+			"3)") DEPTH="16" ;;
 		esac
 		set_xorg_color_depth $DEPTH
+		if [ "$DEPTH" = "remove" ] ; then
+			dialog --msgbox "$(gettext 'Color bit depth UNSET')" 7 35
+		else
+			dialog --msgbox "$(printf "$(gettext "Color bit depth set to %s")" "$DEPTH")" 7 35
+		fi
 	fi
 	rm -f /tmp/xorg.cli.res
 }
 
 function cli_xorg_screen_res() {
+	local CHOSEN_RES SPECIFY
 	xorg_screen_res_dlg_stuff #sets $DEFAULT_RES $RESOLUTIONS, etc..
 	if [ "$DEFAULT_RES" ]  ; then
 		CLI_RESOLUTIONS="$DEFAULT_RES
@@ -225,7 +269,7 @@ $(echo "$RESOLUTIONS" | grep -v "^${DEFAULT_RES}$")"
 	ITEMCOUNT=$(echo "$CLI_RESOLUTIONS" | wc -l)
 	x=1
 	(
-	echo 'dialog --title "'${SCREEN_RES_TITLE}'" --ok-label "'$(gettext 'Select')'" --cancel-label "'$(gettext 'Skip')'" '${DEFAULT_NO}' \
+	echo 'dialog --title "'${SCREEN_RES_TITLE}'" --ok-label "'$(gettext 'Select')'" --cancel-label "'$(gettext 'Cancel')'" '${DEFAULT_NO}' \
 --menu "'${SCREEN_RES_MSG1}'
 
 '${SCREEN_RES_MSG2}'" 0 0 0 \'
@@ -233,6 +277,7 @@ $(echo "$RESOLUTIONS" | grep -v "^${DEFAULT_RES}$")"
 			echo -n "\"${x})\" \"$line\" "
 			x=$((x+1))
 	done
+	echo -n ' "*" "Specify..."'
 	echo '>/dev/tty 2>/tmp/xorg.cli.res'
 	echo 'exit $?'
 	) > /tmp/xorg.cli
@@ -242,14 +287,23 @@ $(echo "$RESOLUTIONS" | grep -v "^${DEFAULT_RES}$")"
 		if [ $ITEMCOUNT -gt 1 ] ; then
 			choice=$(< /tmp/xorg.cli.res)
 			choice=${choice%\)}
-			if [ "$choice" ] ; then
+			if [ "$choice" = "*" ] ; then
+				"* Specify..."
+				CHOSEN_RES=$(cli_dlg_input "$(gettext 'Screen resolution')" "$(gettext 'Enter the desired screen resolution:')")
+			else
 				CHOSEN_RES=$(echo "$CLI_RESOLUTIONS" | sed -n "${choice}p" )
 			fi
 		fi
 	fi
 	case $CHOSEN_RES in
-		""|"${DEFAULT_RES}") ok=1 ;;
-		*) set_xorg_screen_res ${CHOSEN_RES} ;;
+		"") ok=1 ;;
+		*)
+			if set_xorg_screen_res ${CHOSEN_RES} ; then
+				dialog --msgbox "$(printf "$(gettext "Screen resolution set to %s")" "$CHOSEN_RES")" 7 35
+			else
+				dialog --msgbox "$(printf "$(gettext "%s rejected... probably not a valid screen resolution")" "$CHOSEN_RES")" 7 35
+			fi
+			;;
 	esac
 	rm -f /tmp/xorg.cli /tmp/xorg.cli.res
 }
@@ -260,7 +314,7 @@ if [ $PUPMODE -eq 5 -a ! -f /var/tmp/xorgwiz.1st ] ; then
 	echo -n > /var/tmp/xorgwiz.1st
 else
 	TITLE_0=$(gettext 'Xorg Wizard')
-	MSG_NO_CONFIG=$(gettext 'Do not configure anything')
+	MSG_NO_CONFIG=$(gettext 'Done')
 fi
 
 if [ -x /opt/xorg_alt/usr/bin/Xorg ] ; then
@@ -273,31 +327,26 @@ fi
 
 XORGVER="`Xorg -version 2>&1 | grep '^X\.Org X Server' | sed 's|.* ||'`"
 MSG_1="$(gettext 'Using') Xorg server ${XORGVER}"
-MSG_2="$(gettext 'If you are having problems with Xorg then you might want to force the use of the Xorg Vesa driver.') ${MSG_3}"
-MSG_4="$(gettext 'Reset xorg.conf (xorgwizard-automatic)')"
+MSG_2="$(gettext 'If you are having problems with Xorg then you might want to set the options below..') ${MSG_3}"
+MSG_4="$(gettext 'New xorg.conf (reset)')"
 MSG_SET_SR=$(gettext 'Set screen resolution...')
-
-SPECVESA="`find /usr/lib /usr/X11R7/lib /usr/lib64 -mount -type f -name vesa_drv.so 2>/dev/null | grep -v 'backup' | grep -m1 'vesa_drv.so'`"
-#SPECMODESETTING="`find /usr/lib /usr/X11R7/lib /usr/lib64 -mount -type f -name modesetting_drv.so 2>/dev/null | grep -v 'backup' | grep -m1 'modesetting_drv.so'`"
+MSG_SET_CBD=$(gettext 'Set color bith depth...')
+MSG_SET_VDRIVER="$(gettext 'Set video driver...')"
 
 (
-echo -n 'dialog --title "'${TITLE_0}'" \
-	--cancel-label "'$(gettext 'Cancel')'" --ok-label "'$(gettext 'OK')'" \
+echo -n 'dialog --title "'${TITLE_0}'" --ok-label "'$(gettext 'OK')'" --no-cancel \
 	--menu "'${MSG_1}'
 
 '${MSG_2}'" 0 0 0 \
-	"0)" "'${MSG_NO_CONFIG}'" \
-	"1)" "'${MSG_SET_SR}'"'
-	if [ "$SPECVESA" ] ; then
-		echo -n ' \
-    "2)" "'${VESA_MSG}'"'
-	fi
+	"-" "'${MSG_NO_CONFIG}'" \
+	"1)" "'${MSG_SET_VDRIVER}'" \
+	"2)" "'${MSG_SET_SR}'" \
+	"3)" "'${MSG_SET_CBD}'" \
+	"4)" "'${MSG_4}'"'
 	if [ -x /opt/xorg_alt/usr/bin/Xorg ] ; then
 		echo -n ' \
-	"3)" "'${MSG_ALTXORG}'"'
+	"5)" "'${MSG_ALTXORG}'"'
 	fi
-		echo -n ' \
-	"4)" "'${MSG_4}'"'
 	echo ' >/dev/tty 2>/tmp/xorg.cli.res'
 	echo 'exit $?'
 ) > /tmp/xorg.cli
@@ -308,22 +357,21 @@ rm -f /tmp/xorg.cli /tmp/xorg.cli.res
 [ $retval -eq 0 ] || exit
 
 case $XCHOICE in
-	"0)") exit ;;
-	"1)") cli_xorg_screen_res ; exit ;;
-	"2)")
-		if [ "$USING_XORG_VESA" ] ; then
-			set_xorg_vesa off
-			dialog --title "$(gettext 'Xorg Wizard')" --msgbox "$(gettext 'The Vesa Driver is no longer hardcoded in xorg.conf...')" 7 40
-			exit
-		else
-			set_xorg_vesa on
-			dialog --title "$(gettext 'Xorg Wizard')" --msgbox "$(gettext 'The Vesa Driver has been hardcoded in xorg.conf...')" 7 40
+	"-") exit ;;
+	"1)") cli_xorg_video_driver ;;
+	"2)") cli_xorg_screen_res   ;;
+	"3)") cli_xorg_color_depth  ;;
+	"4)")
+		dialog --title "$(gettext 'Reset xorg.conf')" \
+			--no-label "$(gettext 'No')" --yes-label "$(gettext 'Yes')" \
+			--yesno "$(gettext 'Confirm this action')" 0 0
+		if [ $? -eq 0 ] ; then
+			rm -f /tmp/xorg.res /tmp/xorg.depth /tmp/xorg.video.driver
+			xorgwizard-automatic &>/dev/null
+			dialog --msgbox "$(gettext "xorg.conf has been reset. The command to start X is 'xwin'...")" 7 35
 		fi
-		cli_xorg_screen_res
-		cli_xorg_color_depth
-		exit
 		;;
-	"3)")
+	"5)")
 		# * This requires a custom Xorg server package ready to be used
 		#   and it must be placed in /var/xorg_alt
 		# * It must be already tested and with all the needed drivers and dependencies..
@@ -338,22 +386,14 @@ $(gettext 'By using this option the current Xorg server will be replaced permane
 			rm -rf /usr/share/X11/xorg.conf.d
 			rm -f /lib/udev/rules.d/*xorg*
 			cp -rf --remove-destination /opt/xorg_alt/* /
-			DEFAULT_NO='--defaultno'
-			cli_xorg_screen_res
 			rm -rf /opt/xorg_alt
+			dialog --msgbox "$(printf "$(gettext "Now using xorg version: %s")" "$XORGVER2")" 7 35
 		fi
-		exit
 		;;
-	"4)")
-		xorgwizard-automatic &>/dev/null
-		echo "$(gettext "Type 'xwin' to start X...")"
-		exit
-		;;
-	*) exit
+	*) exit #any other choice
 esac
 
-#reenter this script...
-#exec xorgwizard-cli
+exec $0 #reenter this script...
 
 fi
 
@@ -385,9 +425,6 @@ $(gettext 'If you know what you do, you can also type a screen resolution, then 
 export -f help
 
 #---
-
-export TEXTDOMAIN=xorgwizard
-export OUTPUT_CHARSET=UTF-8
 
 . /etc/DISTRO_SPECS #120723
 . /etc/rc.d/BOOTCONSTRAINED #120723
