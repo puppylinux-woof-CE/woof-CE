@@ -8,4 +8,7 @@ if [ -f "${DISTRO_FILE_PREFIX}-wall2.svg" ];then
 	cp -af "${DISTRO_FILE_PREFIX}-wall2.svg" $BUN
 fi
 )
+
+# special
+[ -f root/.retrovolNOT ] && mv -f root/.retrovolNOT root/.retrovol
 	
