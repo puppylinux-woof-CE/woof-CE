@@ -303,6 +303,7 @@ if [ -f dist/sources/vanilla/linux-${kernel_version}.tar.* ] ; then
 	echo "Verifying kernel pkg integrity..."
 	tar -atf dist/sources/vanilla/linux-${kernel_version}.tar.* &>/dev/null && DOWNLOAD_KERNEL=0
 fi
+
 if [ $DOWNLOAD_KERNEL -eq 1 ] ; then
 	echo "Downloading the kernel sources"
 	wget -q --show-progress -P dist/sources/vanilla ${kernel_mirror}/${testing}/linux-${kernel_version}.tar.xz --no-check-certificate > build.log
@@ -328,32 +329,27 @@ if [ $LIBRE -eq 1 ] ; then
 fi
 
 ## download Aufs
-if [ ! -f dist/sources/vanilla/aufs${aufs_version}-${kernel_branch}-git${today}.tar.bz2 ] ; then
-	echo "Downloading the Aufs sources"
-	git clone ${aufs_git} aufs${aufs_version}-${kernel_branch}-git${today} >> build.log 2>&1
-	if [ $? -ne 0 ] ; then
-		rm -f dist/sources/vanilla/aufs${aufs_version}-${kernel_branch}-git${today}.tar.bz2
-		echo "Error: failed to download the Aufs sources."
-		exit 1
-	fi
-	cd aufs${aufs_version}-${kernel_branch}-git${today}
-	git checkout origin/aufs${aufsv} >> ../build.log 2>&1
-	if [ $? -ne 0 ] ; then
-		echo "Error: failed to download the Aufs sources."
-		exit 1
-	fi
-	rm -rf .git
-	cd ..
-	echo "Creating the Aufs sources tarball"
-	tar -c aufs${aufs_version}-${kernel_branch}-git${today} | \
-		bzip2 -9 > dist/sources/vanilla/aufs${aufs_version}-${kernel_branch}-git${today}.tar.bz2
-else
+if [ -f dist/sources/vanilla/aufs${aufs_version}-${kernel_branch}-git${today}.tar.bz2 ] ; then
 	echo "Extracting the Aufs sources"
 	tar xf dist/sources/vanilla/aufs${aufs_version}-${kernel_branch}-git${today}.tar.bz2 >> build.log 2>&1
 	if [ $? -ne 0 ] ; then
 		echo "Error: failed to extract the Aufs sources."
 		exit 1
 	fi
+else
+	echo "Downloading the Aufs sources"
+	rm -rf aufs${aufs_version}-${kernel_branch}-git${today}
+	git clone -b aufs${aufsv} --depth 1 ${aufs_git} \
+		aufs${aufs_version}-${kernel_branch}-git${today} >> build.log 2>&1
+	if [ $? -ne 0 ] ; then
+		rm -f dist/sources/vanilla/aufs${aufs_version}-${kernel_branch}-git${today}.tar.bz2
+		echo "Error: failed to download the Aufs sources."
+		exit 1
+	fi
+	( cd aufs${aufs_version}-${kernel_branch}-git${today} ; rm -rf .git )
+	echo "Creating the Aufs sources tarball"
+	tar -c aufs${aufs_version}-${kernel_branch}-git${today} | \
+		bzip2 -9 > dist/sources/vanilla/aufs${aufs_version}-${kernel_branch}-git${today}.tar.bz2
 fi
 
 ## patch Aufs
