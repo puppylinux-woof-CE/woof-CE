@@ -190,10 +190,23 @@ kernel_srcsfs_version=${kernel_version}
 aufs_utils_git="git://git.code.sf.net/p/aufs/aufs-util.git"
 aufs_git_3="git://git.code.sf.net/p/aufs/aufs3-standalone.git"
 aufs_git_4="git://github.com/sfjro/aufs4-standalone.git"
-kernel_mirror_3="http://www.kernel.org/pub/linux/kernel/v3.0
-https://mirror.aarnet.edu.au/pub/ftp.kernel.org/linux/kernel/v3.0"
-kernel_mirror_4="http://www.kernel.org/pub/linux/kernel/v4.x
-https://mirror.aarnet.edu.au/pub/ftp.kernel.org/linux/kernel/v4.x"
+kernel_mirrors='http://www.kernel.org/pub/linux/kernel
+https://mirror.aarnet.edu.au/pub/ftp.kernel.org/linux/kernel
+http://ftp.jaist.ac.jp/pub/Linux/kernel.org/linux/kernel
+http://www.mirrorservice.org/pub/linux/kernel
+http://ftp.stust.edu.tw/pub/Linux/kernel/linux/kernel
+http://ftp.be.debian.org/pub/linux/kernel'
+ksubdir_3=v3.x #http://www.kernel.org/pub/linux/kernel/v3.x
+ksubdir_4=v4.x
+#-- random kernel mirror first
+rn=$(( ( RANDOM % $(echo "$kernel_mirrors" | wc -l) )  + 1 ))
+x=0
+for i in $kernel_mirrors ; do
+	x=$((x+1))
+	[ $x -eq $rn ] && first="$i" && continue
+	km="$km $i"
+done
+kernel_mirrors="$first $km"
 #--
 
 if [ -f /etc/DISTRO_SPECS ] ; then
@@ -277,8 +290,8 @@ echo "aufs=$aufsv"
 
 #kernel mirror - Aufs series (must match the kernel version)
 case $kernel_series in
-	3) kernel_mirrors=${kernel_mirror_3} ; aufs_git=${aufs_git_3} ;;
-	4) kernel_mirrors=${kernel_mirror_4} ; aufs_git=${aufs_git_4} ;;
+	3) ksubdir=${ksubdir_3} ; aufs_git=${aufs_git_3} ;;
+	4) ksubdir=${ksubdir_4} ; aufs_git=${aufs_git_4} ;;
 esac
 
 #------------------------------------------------------------------
@@ -309,6 +322,7 @@ fi
 if [ $DOWNLOAD_KERNEL -eq 1 ] ; then
 	KERROR=1
 	for kernel_mirror in $kernel_mirrors ; do
+		kernel_mirror=${kernel_mirror}/${ksubdir}
 		echo "Downloading: ${kernel_mirror}/${testing}/linux-${kernel_version}.tar.xz"
 		wget -q --show-progress -P dist/sources/vanilla ${kernel_mirror}/${testing}/linux-${kernel_version}.tar.xz --no-check-certificate > build.log
 		if [ $? -ne 0 ] ; then
