@@ -190,12 +190,7 @@ kernel_srcsfs_version=${kernel_version}
 aufs_utils_git="git://git.code.sf.net/p/aufs/aufs-util.git"
 aufs_git_3="git://git.code.sf.net/p/aufs/aufs3-standalone.git"
 aufs_git_4="git://github.com/sfjro/aufs4-standalone.git"
-kernel_mirrors='http://www.kernel.org/pub/linux/kernel
-https://mirror.aarnet.edu.au/pub/ftp.kernel.org/linux/kernel
-http://ftp.jaist.ac.jp/pub/Linux/kernel.org/linux/kernel
-http://www.mirrorservice.org/pub/linux/kernel
-http://ftp.stust.edu.tw/pub/Linux/kernel/linux/kernel
-http://ftp.be.debian.org/pub/linux/kernel'
+[ ! "$kernel_mirrors" ] && kernel_mirrors="http://www.kernel.org/pub/linux/kernel"
 ksubdir_3=v3.x #http://www.kernel.org/pub/linux/kernel/v3.x
 ksubdir_4=v4.x
 #-- random kernel mirror first
