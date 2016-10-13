@@ -6,6 +6,7 @@
 . ./build.conf || exit 1
 
 CWD=`pwd`
+WGET_OPT='--no-check-certificate -q --show-progress'
 
 for i in $@ ; do
 	case $i in
@@ -319,7 +320,7 @@ if [ $DOWNLOAD_KERNEL -eq 1 ] ; then
 	for kernel_mirror in $kernel_mirrors ; do
 		kernel_mirror=${kernel_mirror}/${ksubdir}
 		echo "Downloading: ${kernel_mirror}/${testing}/linux-${kernel_version}.tar.xz"
-		wget -q --show-progress -P dist/sources/vanilla ${kernel_mirror}/${testing}/linux-${kernel_version}.tar.xz --no-check-certificate > build.log
+		wget ${WGET_OPT} -P dist/sources/vanilla ${kernel_mirror}/${testing}/linux-${kernel_version}.tar.xz > build.log
 		if [ $? -ne 0 ] ; then
 			echo "Error"
 		else
@@ -338,7 +339,7 @@ if [ $LIBRE -eq 1 ] ; then
 	minor_version=${kernel_version##*.}
 	for i in deblob-${kernel_major_version} deblob-check; do
 		if [ ! -f dist/sources/vanilla/$i ] ; then
-			wget -O dist/sources/vanilla/$i http://linux-libre.fsfla.org/pub/linux-libre/releases/LATEST-${kernel_major_version}.N/$i
+			wget ${WGET_OPT} -O dist/sources/vanilla/$i http://linux-libre.fsfla.org/pub/linux-libre/releases/LATEST-${kernel_major_version}.N/$i
 			if [ $? -ne 0 ] ; then
 				echo "Error: failed to download $i."
 				exit 1
@@ -819,7 +820,7 @@ if [ $LIBRE -eq 0 ] ; then
 		fw_pkg=${fw_pkg##* }
 		echo "You chose ${fw_pkg}. If that isn't correct change it manually later."
 		echo "downloading ${FW_URL}/${fw_pkg}"
-		wget -q --show-progress -t0 -c ${FW_URL}/${fw_pkg} -P dist/packages
+		wget ${WGET_OPT} -t0 -c ${FW_URL}/${fw_pkg} -P dist/packages
 		[ $? -ne 0 ] && echo "failed to download ${fw_pkg##* }" && exit 1
 		mkdir -p dist/packages/${linux_kernel_dir}/lib
 		tar -xjf dist/packages/${fw_pkg} -C dist/packages/${linux_kernel_dir}/lib/
