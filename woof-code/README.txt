@@ -1,4 +1,7 @@
-Woof - GPL2
+Woof is (c) copyright Barry Kauler 2009, puppylinux.com
+GPL v2
+
+Woof
 ----
 
 Woof is a "Puppy builder". What this means is you can build your own custom
@@ -17,8 +20,8 @@ not work! Also, the partition needs lots of space, I suggest 10GB.
 
 2. Host operating system
 You must be running in a Linux environment.
-It is advised that you that latest woofce releases since these
-are tested distros..
+It is advised that you use latest woofce releases since these
+are the officially tested distros..
 
 3. Choose a compatible-distro.
 This is the distro whose packages you are going to 'borrow' to build your Puppy.
@@ -30,7 +33,6 @@ Building a Puppy: using the commandline scripts
 -----------------------------------------------
 
 0. Download package database files
-You must have broadband Internet access.
 Open a terminal in the 'woof' directory, then run '0setup':
 # ./0setup
 
@@ -72,9 +74,7 @@ It will come up with a tabbed-interface, and basically you go from left-tab
 to right-tab.
 
 For newcomers, I recommend that you perform a run-through without making any
-changes, to confirm that everything works. By default, Woof is configured
-to build Puppy 4.3+ from 4.x PET packages only (the compatible-distro is set
-to 'puppy'). 
+changes, to confirm that everything works.
 
 Newcomer instructions:
 
@@ -84,7 +84,7 @@ SKIP THIS IF LATEST WOOF: 'Download dbs' tab: click the 'UPDATE' button.
 'Kernel options' tab: choose the latest kernel.
 'Build distro' tab: click the 'BUILD DISTRO' button.
 
-...then you will have a Puppy 4.3+ live-CD ISO file and a 'devx' SFS file!
+...then you will have WoofCE live-CD ISO file and a 'devx' SFS file!
 
 ------------------------------------------------------------------------------
 
