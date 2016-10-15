@@ -6,28 +6,28 @@ Woof
 
 Woof is a "Puppy builder". What this means is you can build your own custom
 Puppy Linux live-CD from the binary packages of another distro.
-
-Currently supported: Ubuntu, Debian, Slackware, Puppy (pet pkgs)
 What you get looks and feels just like Puppy, is Puppy.
+
+Currently supported: Slackware, Devuan, Ubuntu, Debian, Puppy (pet pkgs)
 
 Preparation
 -----------
 
 1. Suitable build environment
-If you are reading this then you have expanded the 'woof' tarball. But, be sure
-that this is done in a Linux partition. A Windows/DOS FAT or NTFS partition will
-not work! Also, the partition needs lots of space, I suggest 10GB.
+  - Linux partition (ext2/3/4)
+  - At least 10GBs of space
 
 2. Host operating system
-You must be running in a Linux environment.
-It is advised that you use latest woofce releases since these
-are the officially tested distros..
+  - Linux environment
+  - It is advised that you use the latest woofce releases since these
+are the officially tested distros, however you can use any distro
+if you satisfy all the dependencies...
 
 3. Choose a compatible-distro.
 This is the distro whose packages you are going to 'borrow' to build your Puppy.
 Open file DISTRO_SPECS in a text editor and change this line:
 DISTRO_BINARY_COMPAT="ubuntu"
-to what you want, 'ubuntu', 'debian', 'slackware' or 'puppy'.
+to what you want: 'slackware', 'devuan', 'ubuntu', 'debian' or 'puppy'.
 
 Building a Puppy: using the commandline scripts
 -----------------------------------------------
@@ -139,6 +139,7 @@ Versioning is put into the last two, for example:
 
 ...those last two names are intended to be unique for that build of Puppy,
 so they can be found at bootup.
+
 
 DISTRO_SPECS file
 =================
