@@ -395,7 +395,6 @@ function generate_initrd() {
 	set_keymap  #
 
 	cd ZZ_initrd-expanded
-	[ -f dev.tar.gz ] && tar -zxf dev.tar.gz && rm -f dev.tar.gz
 
 	for PROG in ${INITRD_PROGS} ; do
 		case $PROG in ""|'#'*) continue ;; esac
