@@ -165,6 +165,49 @@ ibiblio.org, whereas the former lists packages being used to build the Puppy
 live-CD.
 
 
+Puppy filenames
+===============
+
+The main Puppy files are:
+
+  vmlinuz, initrd.gz, puppy.sfs, zdrv.sfs, fdrv.sfs, adrv.sfs, ydrv.sfs
+
+Versioning is put into the last two, for example:
+
+  vmlinuz, initrd.gz, puppy_slacko_7.0.0, zdrv_slacko_7.0.0.sfs
+  fdrv_slacko_7.0.0.sfs, adrv_slacko_7.0.0.sfs, ydrv_slacko_7.0.0.sfs
+
+...those last two names are intended to be unique for that build of Puppy,
+so they can be found at bootup.
+
+DISTRO_SPECS file
+=================
+
+The filenames are stored in the built Puppy, in /etc/DISTRO_SPECS.
+For example:
+
+DISTRO_PUPPYSFS='puppy_slacko_7.0.0.sfs'
+DISTRO_ZDRVSFS='zdrv_slacko_7.0.0.sfs'
+DISTRO_FDRVSFS='fdrv_slacko_7.0.0.sfs'
+DISTRO_ADRVSFS='adrv_slacko_7.0.0.sfs'
+DISTRO_YDRVSFS='ydrv_slacko_7.0.0.sfs'
+
+So, any script that wants to know what the names are can read these variables.
+
+Woof 3builddistro also copies DISTRO_SPECS into the initrd.gz,
+so that the 'init' script can see what files to search for.
+
+However, in a running Puppy, you can find out the filenames in the way
+that scripts have done before, by reading 'PUPSFS' and 'ZDRV' variables
+in /etc/rc.d/PUPSTATE.
+
+In fact, to clarify the difference between these two sets of variables,
+I have put this comment into /etc/DISTRO_SPECS:
+
+  #Note, the .sfs files below are what the 'init' script in initrd.gz searches for,
+  #for the partition, path and actual files loaded, see PUPSFS and ZDRV in /etc/rc.d/PUPSTATE
+
+--------------
 Regards,
 Barry Kauler
 puppylinux.com
