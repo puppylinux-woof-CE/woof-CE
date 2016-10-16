@@ -669,8 +669,10 @@ ln -s /usr/src/linux kernel_sources-${kernel_version}-${package_name_suffix}/lib
 mksquashfs kernel_sources-${kernel_version}-${package_name_suffix} dist/sources/kernel_sources-${kernel_version}-${package_name_suffix}.sfs $COMP
 md5sum dist/sources/kernel_sources-${kernel_version}-${package_name_suffix}.sfs > dist/sources/kernel_sources-${kernel_version}-${package_name_suffix}.sfs.md5.txt
 
-####################################
-# build aufs-utils userspace modules
+
+#==============================================================
+#            build aufs-utils userspace modules
+#==============================================================
 echo "Now to build the aufs-utils for userspace"
 if [ ! -f dist/sources/vanilla/aufs-util${today}.tar.bz2 ] ; then
 	if [ ! -d aufs-util ] ; then
@@ -745,8 +747,13 @@ if [ $? -ne 0 ] ; then
 	exit 1
 fi
 make DESTDIR=$CWD/dist/packages/aufs-util-${kernel_version}-${arch} install >> ../build.log 2>&1 #needs absolute path
-
 make clean >> ../build.log 2>&1
+
+# temp hack - https://github.com/puppylinux-woof-CE/woof-CE/issues/889
+mkdir -p $CWD/dist/packages/aufs-util-${kernel_version}-${arch}/usr/lib
+mv -fv $CWD/dist/packages/aufs-util-${kernel_version}-${arch}/libau.so* \
+	$CWD/dist/packages/aufs-util-${kernel_version}-${arch}/usr/lib 2>/dev/null
+
 if [ "$arch" = "x86_64" ] ; then
 	mv $CWD/dist/packages/aufs-util-${kernel_version}-${arch}/usr/lib \
 		$CWD/dist/packages/aufs-util-${kernel_version}-${arch}/usr/lib64
@@ -760,6 +767,8 @@ cd ..
 echo "Installing aufs-utils into kernel package"
 cp -a --remove-destination dist/packages/aufs-util-${kernel_version}-${arch}/* \
 	dist/packages/${linux_kernel_dir}
+
+#==============================================================
 
 if [ $LIBRE -eq 0 ] ; then
 	echo "Pausing here to add extra firmware."
