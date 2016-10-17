@@ -196,6 +196,43 @@ else
 	XFILE=status/findpkgs_FINAL_PKGS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}
 fi
 
+#--- called within the loop...
+do_echo_file() { #$1: file
+  if [ -f "$1" ] ; then
+     echo -n " ${DB_fullfilename}" ; continue #already downloaded
+  else
+     echo -e "\n* Downloading ${DB_fullfilename}"
+  fi
+}
+do_download() { #$1: url
+  wget -q --show-progress --timeout=20 $1
+  #check file downloaded correctly...
+  if [ -f $DB_fullfilename ];then
+    case $DB_fullfilename in
+     *.deb) # ubuntu|trisquel|debian|devuan|raspbian
+      dpkg-deb --extract $DB_fullfilename tempdironly && SUCCESS='yes'
+     ;;
+     *.txz) # slackware xz
+      xz --test $DB_fullfilename &>/dev/null && SUCCESS='yes'
+      ;;
+     *.txz) # slackware gzip
+       gzip --test $DB_fullfilename &>/dev/null && SUCCESS='yes'
+     ;;
+     *.pet) # puppy
+      cp -f $DB_fullfilename tempfileonly.pet
+      pet2tgz tempfileonly.pet && SUCCESS='yes'
+      rm -f tempfileonly.pet tempfileonly.tar.* 2>/dev/null
+     ;;
+     *.tar.bz2) # gentoo
+      bzip2 --test $DB_fullfilename &>/dev/null && SUCCESS='yes'
+     ;;
+    esac
+  fi
+  rm -rf tempdironly 2>/dev/null
+  [ "$SUCCESS" = "no" ] && rm -f ${DB_fullfilename} 2>/dev/null
+}
+#---
+
 cat $XFILE |
 while read ONEDBENTRY
 do
@@ -205,8 +242,7 @@ do
  LINECNT=$(($LINECNT + 1))
  PETorCOMPAT="`echo -n "$ONEDBENTRY" | cut -f 2 -d '|'`" #ex: compat
  if [ "$PETorCOMPAT" != "pet" -a "$PETorCOMPAT" != "compat" ];then
-  echo
-  echo "Syntax ERROR in status/findpkgs_FINAL_PKGS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION},"
+  echo -e "\nSyntax ERROR in status/findpkgs_FINAL_PKGS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION},"
   echo "line number ${LINECNT}:"
   echo "$ONEDBENTRY"
   echo -n "Ignoring this line, press ENTER to continue (CTRL-C to abort): "
@@ -226,98 +262,31 @@ do
   fi
  fi
  
- echo -n "$DB_fullfilename "
- 
+ SUCCESS='no'
+
  if [ "$PETorCOMPAT" = "pet" ];then
-  
-  #see if pkg already downloaded...
-  PETPKG="`basename $DB_fullfilename .pet`"
-  [ -f packages-pet/${PETPKG}.pet ] && continue
-  echo "Downloading ${DB_fullfilename}..."
-  SUCCESS='no'
-  for ONE_PET_URL in $PET_URLS
-  do
-   wget --spider --tries=1 --timeout=30 ${ONE_PET_URL}/${DB_path}/${PETPKG}.pet #w013 was 20
-   [ $? -ne 0 ] && continue
-   cd packages-pet
-   #rxvt -name pet -bg orange -geometry 80x10 -e wget ${ONE_PET_URL}/${DB_path}/${PETPKG}.pet
-   wget ${ONE_PET_URL}/${DB_path}/${PETPKG}.pet
-   sync
-   #check file downloaded correctly...
-   if [ -f ${PETPKG}.pet ];then
-    cp -f ${PETPKG}.pet tempfileonly.pet
-    pet2tgz tempfileonly.pet
-    [ $? -eq 0 ] && SUCCESS='yes'
-    rm -f tempfileonly.pet 2>/dev/null
-    rm -f tempfileonly.tar.gz 2>/dev/null
-    [ "$SUCCESS" = "no" ] && rm -f ${PETPKG}.pet
-   fi
-   cd ..
-   [ "$SUCCESS" = "yes" ] && break
+  do_echo_file packages-pet/${DB_fullfilename}
+  for ONE_PET_URL in $PET_URLS ; do
+    cd packages-pet
+    do_download ${ONE_PET_URL}/${DB_path}/${DB_fullfilename}
+    cd ..
+    [ "$SUCCESS" = "yes" ] && break
   done 
   #if fail to find it, log failure, request manual download.
-  [ "$SUCCESS" = "no" ] && echo "DOWNLOAD FAIL: ${PETPKG}.pet"
-  [ "$SUCCESS" = "no" ] && echo "${PETPKG}.pet" >> DOWNLOAD-FAILS-PET
-
+  [ "$SUCCESS" = "no" ] && echo "${DB_fullfilename}" >> DOWNLOAD-FAILS-PET
+ #---
  else #compat
-  
-  #check if already downloaded...
-  [ -f packages-${BINARIES}/$DB_fullfilename ] && continue
-  #...probably don't need this anymore ###NOTE###
-  #use wget to see if pkg on a repository, if not try a secondary repo, then a third.
-  #if found, download to packages-${BINARIES} (packages-deb).
-  #if fail, log failure, request manual download.
-  SUCCESS='no'
-  ONEFILE="${DB_path}/${DB_fullfilename}"
-  for ONE_BIN_URL in $BIN_URLS
-  do
-   wget --spider --tries=1 --timeout=20 ${ONE_BIN_URL}/${ONEFILE} > /dev/null 2>&1
-   RETSPIDER=$?
-   #...probably don't need this anymore ###NOTE###
-   [ $RETSPIDER -ne 0 ] && continue
-   cd packages-${BINARIES}
-   #rxvt -name pet -bg orange -geometry 80x10 -e wget ${ONE_BIN_URL}/${ONEFILE}
-   wget ${ONE_BIN_URL}/${ONEFILE}
-   sync
-   #check file downloaded correctly...
-   if [ -f $DB_fullfilename ];then
-    case $DISTRO_BINARY_COMPAT in #exs: ubuntu, debian
-     ubuntu|trisquel|debian|devuan|raspbian)
-      dpkg-deb --extract $DB_fullfilename tempdironly
-      [ $? -eq 0 ] && SUCCESS='yes'
-     ;;
-     slackware*) #100617 support .txz... #140716 support 64 bit
-      xz --test $DB_fullfilename > /dev/null 2>&1
-      if [ $? -eq 0 ];then
-       SUCCESS='yes'
-      else
-       gzip --test $DB_fullfilename > /dev/null 2>&1
-       [ $? -eq 0 ] && SUCCESS='yes'
-      fi
-     ;;
-     puppy) #w017
-      PETPKG="`basename $DB_fullfilename .pet`"
-      cp -f ${PETPKG}.pet tempfileonly.pet
-      pet2tgz tempfileonly.pet
-      [ $? -eq 0 ] && SUCCESS='yes'
-      rm -f tempfileonly.pet 2>/dev/null
-      rm -f tempfileonly.tar.gz 2>/dev/null
-     ;;
-     gentoo) #120515
-      bzip2 --test $DB_fullfilename > /dev/null 2>&1
-      [ $? -eq 0 ] && SUCCESS='yes'
-     ;;
-    esac
-   fi
-   rm -rf tempdironly 2>/dev/null
-   [ "$SUCCESS" = "no" ] && rm -f ${DB_fullfilename} 2>/dev/null
-   cd ..
-   [ "$SUCCESS" = "yes" ] && break
+  do_echo_file packages-${BINARIES}/${DB_fullfilename}
+  for ONE_BIN_URL in $BIN_URLS ; do
+    cd packages-${BINARIES}
+    do_download ${ONE_BIN_URL}/${DB_path}/${DB_fullfilename}
+    cd ..
+    [ "$SUCCESS" = "yes" ] && break
   done
   #if failed to find it, log failure, request manual download...
   [ "$SUCCESS" = "no" ]  && echo "$DB_fullfilename" >> DOWNLOAD-FAILS-${BINARIES}
-  
  fi #end if PETorCOMPAT
+ [ "$SUCCESS" = "no" ] && echo "DOWNLOAD FAIL: ${$DB_fullfilename}"
 
  #check controlpanel, whether need to pause, resume or quit...
  [ -f /tmp/1download-status-request ] || continue
@@ -344,8 +313,7 @@ if [ "$CP_STATUS_REQ" = "Quit" ];then
  sync
  kill `cat /tmp/1download_controlpanel_pid` #1download_controlpanel
  rm -f /tmp/1download_controlpanel_pid
- echo
- echo "1download aborted."
+ echo -e "\n1download aborted."
  echo -n "Press ENTER key to quit script: "
  read yesgetout
  exit
@@ -356,9 +324,7 @@ fi
 sync
 kill `cat /tmp/1download_controlpanel_pid` #1download_controlpanel
 rm -f /tmp/1download_controlpanel_pid
-echo
-echo
-echo "Finished."
+echo -e "\n\nFinished."
 echo -n "Press ENTER key to quit script: "
 read yesgetout
 
