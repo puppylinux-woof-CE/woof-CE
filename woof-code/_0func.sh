@@ -69,4 +69,19 @@ function run_findpkgs() {
 	fi
 }
 
+function create_local_repos_dirs() {
+	. ./WOOFMERGEVARS
+	. ./DISTRO_SPECS
+	#common dir to download pet pkgs to...
+	mkdir -p ../local-repositories/${WOOF_TARGETARCH}/packages-pet
+	[ ! -e packages-pet ] && ln -s ../local-repositories/${WOOF_TARGETARCH}/packages-pet packages-pet # check exist.
+	set_binaries_var
+	mkdir -p ../local-repositories/${WOOF_TARGETARCH}/packages-${BINARIES}
+	[ ! -e packages-${BINARIES} ] && ln -s ../local-repositories/${WOOF_TARGETARCH}/packages-${BINARIES} packages-${BINARIES} # check exist.
+	if [ "$DISTRO_TARGETARCH" = "arm" ]; then
+		mkdir -p ../local-repositories/${WOOF_TARGETARCH}/sd-skeleton-images
+		[ ! -e sd-skeleton-images ] && ln -s ../local-repositories/${WOOF_TARGETARCH}/sd-skeleton-images sd-skeleton-images
+	fi
+}
+
 ### END ###
