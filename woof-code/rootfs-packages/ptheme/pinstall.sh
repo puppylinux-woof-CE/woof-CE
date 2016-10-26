@@ -14,45 +14,52 @@ done
 # poor man's pTheme!
 # choose a global theme
 ############################################################################
-echo
-[ -f /tmp/ptheme_choose ] && rm /tmp/ptheme_choose
-echo "You can choose from the following global themes"
-echo
-num=1
-while read i; do
-    echo "$num $i"
-    echo "$num $i" >> /tmp/ptheme_choose
-    num=$(($num + 1))
-done <<< "`ls usr/share/ptheme/globals`"
-echo
-echo "Type the number of the theme you want"
 
-xnum=1
-theme=""
-while [ $xnum -lt 4 ];do
-    read ptheme_num
-    echo "$ptheme_num" | grep -qv '[0-9]' && echo "A number is needed" && continue
-    if grep -q ${ptheme_num} /tmp/ptheme_choose;then
-        theme=`grep -w "${ptheme_num}" /tmp/ptheme_choose|cut -d ' ' -f2,3,4`
-        echo "You chose ${theme}. Excellent choice."
-        break
-    else
-        if [ $xnum -lt 3 ];then
-            echo "Sorry, that didn't work, try another number"
-        else
-            echo "Last chance..."
-        fi
-        xnum=$(($xnum + 1))
-    fi
-done
-if [ -z "$theme" ];then
-    theme=Stardust_bright_mouse
-    echo "OK, you didn't choose, defaulting to $theme"
+#woof-code/_00build.conf
+#the PTHEME variable con be specified in build.conf
+if [ "$PTHEME" != "" ] ; then
+	theme="$PTHEME"
+else
+	echo
+	[ -f /tmp/ptheme_choose ] && rm /tmp/ptheme_choose
+	echo "You can choose from the following global themes"
+	echo
+	num=1
+	while read i; do
+		echo "$num $i"
+		echo "$num $i" >> /tmp/ptheme_choose
+		num=$(($num + 1))
+	done <<< "`ls usr/share/ptheme/globals`"
+	echo
+	echo "Type the number of the theme you want"
+
+	xnum=1
+	theme=""
+	while [ $xnum -lt 4 ];do
+		read ptheme_num
+		echo "$ptheme_num" | grep -qv '[0-9]' && echo "A number is needed" && continue
+		if grep -q ${ptheme_num} /tmp/ptheme_choose;then
+			theme=`grep -w "${ptheme_num}" /tmp/ptheme_choose|cut -d ' ' -f2,3,4`
+			echo "You chose ${theme}. Excellent choice."
+			break
+		else
+			if [ $xnum -lt 3 ];then
+				echo "Sorry, that didn't work, try another number"
+			else
+				echo "Last chance..."
+			fi
+			xnum=$(($xnum + 1))
+		fi
+	done
+fi
+
+if [ ! -f usr/share/ptheme/globals/"${theme}" ];then
+    theme="Bright Mouse"
+    echo "Invalid theme, defaulting to $theme"
 fi
 echo "Setting $theme to default"
 
 . usr/share/ptheme/globals/"${theme}"
-
 
 
 ##### JWM
@@ -86,7 +93,7 @@ huge) echo "MENHEIGHT=40" > root/.jwm/menuheights;;
 esac
 echo "jwm size: ${PTHEME_JWM_SIZE}"
 
-mkdir root/.jwm/window_buttons
+mkdir -p root/.jwm/window_buttons
 Dir=usr/share/jwm/themes_window_buttons/${PTHEME_JWM_BUTTONS}
 for icon in $Dir/*; do
     ifile=$(basename $icon)

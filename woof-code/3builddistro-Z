@@ -1,10 +1,8 @@
 #!/bin/sh
 # new for fatdog style kernel
+# we need udev >= 176
 
 export LANG=C #faster.
-
-# for downlaoding kernel
-REPO_URL=${REPO_URL:-http://distro.ibiblio.org/puppylinux/huge_kernels/} #can change var
 
 CDRECORD='cdrecord'
 MKISOFS='mkisofs'
@@ -15,6 +13,10 @@ fi
 export CDRECORD MKISOFS
 
 . ./_00func
+. ./_00build.conf
+export PTHEME #build.conf - woof-code/rootfs-packages/ptheme
+KERNEL_REPO_URL=${KERNEL_REPO_URL:-http://distro.ibiblio.org/puppylinux/huge_kernels} #can change var
+
 . ./DISTRO_SPECS      #this has DISTRO_VERSION.
 if [ ! "$DISTRO_DB_SUBNAME" ];then #121102
  DISTRO_DB_SUBNAME="$DISTRO_COMPAT_VERSION" #fallback if DISTRO_DB_SUBNAME not defined in file DISTRO_SPECS.
@@ -83,18 +85,7 @@ export DISTRO_VERSION
 echo
 
 #-- always assume mksquashfs4+ --
-echo "-- Compression method to be used --"
-echo -n "Press ENTER only for xz, any other char for gzip: " ; read XZCHOICE
-if [ "$XZCHOICE" ];then
-  echo "...gzip chosen"
-  SFSCOMP='-comp gzip'
-else
-  echo "...xz chosen"
-  SFSCOMP='-comp xz -Xbcj x86 -b 512K'
-fi
 MKSQUASHFS=mksquashfs #use running system's 140619
-
-echo
 
 # new traditional names...
 PUPPYSFS="puppy_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION}.sfs"
@@ -295,7 +286,7 @@ do
  fi
 
  case "$ONEPKG" in
-   mscw|sfs_load) continue ;; #use only woofce mscw and sfs_load
+   mscw|sfs_load|pupx) continue ;; #use only woofce apps
    busybox) continue ;; #see below (avoid conflict between busybox applets and full utilities)
  esac
 
@@ -633,12 +624,24 @@ if [ -d '../kernel-kit/dist' ];then
 fi
 	
 # install huge kernel to build 140617
+mkdir -p ../huge_kernel
 IS_KERNEL=`ls ../huge_kernel|wc -l`
 
 download_kernel() {
+	local URL="$1" TARBALL="${1##*/}"
+	wget -t0 -c $URL -P ../huge_kernel
+	wget ${URL}.md5.txt -P ../huge_kernel
+	CHK=`md5sum ../huge_kernel/${TARBALL} |cut -d ' ' -f1`
+	MD5=`cat ../huge_kernel/${TARBALL}.md5.txt|cut -d ' ' -f1`
+	[ "$CHK" != "$MD5" ] && "checksum failed" && exit 1
+	echo "Checksum passed"
+	rm ../huge_kernel/${TARBALL}.md5.txt
+}
+
+choose_kernel_to_download() {
 	TMP=/tmp/kernels$$
 	TMP2=/tmp/kernels2$$
-	wget ${REPO_URL} -O $TMP
+	wget ${KERNEL_REPO_URL} -O $TMP
 	# grok out what kernels are available
 	c=1
 	cat $TMP|tr '>' ' '|tr '<' ' '|tr ' ' '\n'|grep -v 'md5'|grep -v 'kernels'|grep 'huge'|grep -v 'href'|\
@@ -656,18 +659,19 @@ download_kernel() {
 	 read
 	 break
 	done
-	wget -t0 -c $REPO_URL/${choice##* } -P ../huge_kernel
-	wget $REPO_URL/${choice##* }.md5.txt -P ../huge_kernel
-	CHK=`md5sum ../huge_kernel/${choice##* }|cut -d ' ' -f1`
-	MD5=`cat ../huge_kernel/${choice##* }.md5.txt|cut -d ' ' -f1`
-	[ "$CHK" != "$MD5" ] && "checksum failed" && exit 1
-	echo "Checksum passed"
-	rm ../huge_kernel/${choice##* }.md5.txt
+	download_kernel "$KERNEL_REPO_URL/${choice##* }"
 	rm $TMP
 	rm $TMP2
 }
 
-[ "$IS_KERNEL" = 0 ] && download_kernel #no kernel, get 1
+if [ "$IS_KERNEL" = 0 ] ; then
+	#no kernel, get 1
+	if [ "$KERNEL_TARBALL_URL" != "" ] ; then
+		download_kernel ${KERNEL_TARBALL_URL} #build.conf
+	else
+		choose_kernel_to_download
+	fi
+fi
 
 choose_kernel() {
 	TMP=/tmp/kernels3$$
@@ -730,7 +734,7 @@ cd -
 #download/verify static initrd-progs
 (
 	cd ../initrd-progs
-	./build.sh -prebuilt -download -arch ${WOOF_TARGETARCH:-default} 1>/dev/null
+	./build.sh -prebuilt -download -arch ${WOOF_TARGETARCH} 1>/dev/null
 )
 
 #build the initrd-tree...
@@ -766,47 +770,26 @@ DISTRO_PUPPYDATE="`date | tr -s " " | cut -f 2,6 -d " "`"
 echo "DISTRO_PUPPYDATE='${DISTRO_PUPPYDATE}'" >> rootfs-complete/etc/DISTRO_SPECS
 echo "DISTRO_PUPPYDATE='${DISTRO_PUPPYDATE}'" >> initrd-tree/DISTRO_SPECS
 
-#120216 set default LANG and KMAP... 120401 improve...
 # /lib/keymaps and /lib/consolefonts are in bothr rootfs and initd
-echo
-echo
-echo "Puppy is built with a default locale LANG=en_US and keyboard layout KMAP=us,
-which may be changed after bootup.
-However, if you are building a language-specific Puppy, you may change the
-defaults now. But, please do make sure that your Puppy has a 'langpack' PET
-for your language installed -- if one does not exist, then you will have to
-create one -- see MoManager in the Utility menu, also read the Menu -> Help
--> HOWTO Internationalization."
-echo
-echo "These are the available LANG values (in /usr/share/i18n/locales):
-aa_DJ aa_ER aa_ER@saaho aa_ET af_ZA am_ET an_ES ar_AE ar_BH ar_DZ ar_EG ar_IN ar_IQ ar_JO ar_KW ar_LB ar_LY ar_MA ar_OM ar_QA ar_SA ar_SD ar_SY ar_TN ar_YE as_IN ast_ES az_AZ be_BY be_BY@latin ber_DZ ber_MA bg_BG bn_BD bn_IN br_FR br_FR@euro bs_BA byn_ER ca_AD ca_ES ca_ES@euro ca_FR ca_IT crh_UA csb_PL cs_CZ cy_GB da_DK de_AT de_AT@euro de_BE de_BE@euro de_CH de_DE de_DE@euro de_LU de_LU@euro dz_BT el_CY el_GR el_GR@euro en_AU en_BW en_CA en_DK en_GB en_HK en_IE en_IE@euro en_IN en_NG en_NZ en_PH en_SG en_US en_ZA en_ZW es_AR es_BO es_CL es_CO es_CR es_DO es_EC es_ES es_ES@euro es_GT es_HN es_MX es_NI es_PA es_PE es_PR es_PY es_SV es_US es_UY es_VE et_EE eu_ES eu_ES@euro fa_IR fi_FI fi_FI@euro fil_PH fo_FO fr_BE fr_BE@euro fr_CA fr_CH fr_FR fr_FR@euro fr_LU fr_LU@euro fur_IT fy_DE fy_NL ga_IE ga_IE@euro gd_GB gez_ER gez_ER@abegede gez_ET gez_ET@abegede gl_ES gl_ES@euro gu_IN gv_GB ha_NG he_IL hi_IN hr_HR hsb_DE hu_HU hy_AM id_ID ig_NG ik_CA is_IS it_CH it_IT it_IT@euro iu_CA iw_IL ja_JP ka_GE kk_KZ kl_GL km_KH kn_IN ko_KR ks_IN ku_TR kw_GB ky_KG lg_UG li_BE li_NL lo_LA lt_LT lv_LV mai_IN mg_MG mi_NZ mk_MK ml_IN mn_MN mr_IN ms_MY mt_MT nb_NO nds_DE nds_NL ne_NP nl_BE nl_BE@euro nl_NL nl_NL@euro nn_NO nr_ZA nso_ZA oc_FR om_ET om_KE or_IN pa_IN pap_AN pa_PK pl_PL pt_BR pt_PT pt_PT@euro ro_RO ru_RU ru_UA rw_RW sa_IN sc_IT se_NO shs_CA sid_ET si_LK sk_SK sl_SI so_DJ so_ET so_KE so_SO sq_AL sr_ME sr_RS sr_RS@latin ss_ZA st_ZA sv_FI sv_FI@euro sv_SE ta_IN te_IN tg_TJ th_TH ti_ER ti_ET tig_ER tk_TM tl_PH tn_ZA tr_CY tr_TR ts_ZA tt_RU tt_RU@iqtelif ug_CN uk_UA ur_PK uz_UZ uz_UZ@cyrillic ve_ZA vi_VN wa_BE wa_BE@euro wal_ET wo_SN xh_ZA yi_US yo_NG zh_CN zh_HK zh_SG zh_TW zu_ZA"
-echo "ENTER only for default, else type one of the above. Usually, you would want UTF-8 enabled, so append that. ex: de_DE.UTF-8."
-echo "(the default is en_US.UTF-8)"
-echo -n "ENTER only for default, or type it now: "
-read DEFAULTLANG
-if [ "$DEFAULTLANG" ];then
+if [ "$DEFAULTLANG" ] ; then #build.conf
  echo "...ok, set to ${DEFAULTLANG}"
- DEFAULTLANG1="${DEFAULTLANG%_*}"
- if [ "$DEFAULTLANG1" != "en" ];then
-  echo -n "$DEFAULTLANG" > initrd-tree/PUPPYLANG
-  ASK_KEYMAP="-ask_keymap" #initrd-progs
- fi
+ INITRD_LANG="-lang ${DEFAULTLANG}"
 else
  DEFAULTLANG="en_US.UTF-8" #121123
- echo "...ok, set to ${DEFAULTLANG}"
 fi
+echo "LANG: ${DEFAULTLANG}"
+[ "$KEYMAP" ] && INITRD_KM="-keymap $KEYMAP" #initrd-progs
+
 #i think also, set LANG in /etc/profile...
 sed -i -e "s%^LANG=.*%LANG=${DEFAULTLANG}%" rootfs-complete/etc/profile
 echo
-
-# james has default as devtmpfs so we need udev >= 176
 
 #### initrd-progs #### build/initrd.gz...
 rm -f build/initrd.[gx]z
 (
 	cd initrd-progs
 	rm -f initrd.[gx]z
-	./build.sh -prebuilt -auto -arch ${WOOF_TARGETARCH:-default} ${ASK_KEYMAP}
+	./build.sh -prebuilt -auto -arch ${WOOF_TARGETARCH:-default} ${INITRD_LANG} ${INITRD_KM}
 	mv -f initrd.[gx]z ../build/
 )
 if [ ! -f build/initrd.gz -a ! -f build/initrd.xz ] ; then
@@ -1074,8 +1057,7 @@ if [ "$WOOF_HOSTARCH" = "$WOOF_TARGETARCH" ];then #111123
  echo
  echo "Constructing configuration files for JWM, Fvwm95, IceWM, openbox..."
  chroot rootfs-complete /usr/sbin/fixmenus
- #generate help index...
- chroot rootfs-complete /usr/sbin/indexgen.sh
+ chroot rootfs-complete /usr/sbin/indexgen.sh #generate help index...
  #...note, rootfs-skeleton/pinstall.sh pre-processes the help files.
 fi
 
@@ -1255,14 +1237,8 @@ if [ "$wantblacktext" != "" ];then
  echo '  <Option name="pinboard_shadow_labels">0</Option>' >> rootfs-complete/root/.config/rox.sourceforge.net/ROX-Filer/Options
  echo '</Options>' >> rootfs-complete/root/.config/rox.sourceforge.net/ROX-Filer/Options
 fi
-#111010 set desktop font...
-echo
-echo "Also, ROX-Filer defaults to 'DejaVu Sans 10' font for the desktop. To accept"
-echo "that just press ENTER. If you would prefer bold text 'DejaVu Sans Bold 10',"
-echo "hit 'b' key then ENTER, or type in a full font specification (ex: Mono 12)"
-echo -n ": "
-read wantfont
-if [ "$wantfont" != "" ];then
+
+if [ "$ROXFILER_FONT" != "" ];then #build.conf
  grep -v 'label_font' rootfs-complete/root/.config/rox.sourceforge.net/ROX-Filer/Options > /tmp/3builddistro_rox_options
  grep -v '^</Options>' /tmp/3builddistro_rox_options > rootfs-complete/root/.config/rox.sourceforge.net/ROX-Filer/Options
  if [ "$wantfont" = "b" ];then
@@ -1274,9 +1250,6 @@ if [ "$wantfont" != "" ];then
  fi
  echo '</Options>' >> rootfs-complete/root/.config/rox.sourceforge.net/ROX-Filer/Options
 fi
-
-RK=`uname -r`
-[ ${RK%%.*} -lt 3 ] && echo "Running kernel too old, exiting" && exit 1
 
 #w464 maybe get rid of old mksquashfs... v424 fix #140619 assume 3 kernel
 [ ! -e rootfs-complete/usr/sbin/mksquashfs4 ] && mv -f rootfs-complete/usr/sbin/mksquashfs rootfs-complete/usr/sbin/mksquashfs4 2>/dev/null
@@ -1344,12 +1317,6 @@ fi
 
 #100319 move more xorg drivers to 'drivers-alternate' so won't be chosen by xorg...
 if [ -d rootfs-complete/usr/lib${lsuffix}/xorg/modules/drivers ];then #well, always exists.
- XORGBADDRIVERS=''
- if [ -f rootfs-complete/usr/lib${lsuffix}/xorg/modules/drivers/nvidia_drv.so -o -f rootfs-complete/usr/lib${lsuffix}/xorg/modules/drivers/nouveau_drv.so ];then #100527 100629
-  [ -f rootfs-complete/usr/lib${lsuffix}/xorg/modules/drivers/nv_drv.so ] && XORGBADDRIVERS='nv' #120922 note, some builds don't have nv, or it may already be in drivers-alternate dir.
- fi
- [ -f rootfs-complete/usr/lib${lsuffix}/xorg/modules/drivers/modesetting_drv.so ] && XORGBADDRIVERS="${XORGBADDRIVERS} modesetting" #130330
- echo
  echo "Certain Xorg drivers have a bad reputation. Here you can choose to move them"
  echo "to /usr/lib${lsuffix}/x/drivers-alternate so Xorg will not use them, instead"
  echo "will use the generic 'vesa' driver (or other more appropriate driver)."
@@ -1403,20 +1370,11 @@ cp -a -f ../rootfs-skeleton/usr/sbin/alsaconf rootfs-complete/usr/sbin/
 
 #w481 extra stripping...
 if [ "$WOOF_HOSTARCH" = "$WOOF_TARGETARCH" ];then #120502 strip will not work for cross-build.
- echo
- echo "Would you like to strip all binary executables and shared library files?"
- echo "These are usually already stripped, although some packages may have the shared"
- echo "library files stripped with the '--strip-debug' option only, and extra stripping"
- echo "should be okay. It won't do any harm answering yes here."
  if [ "`which strip`" = "" ];then
-  echo
   echo "OH, NO GOOD, you don't have the 'strip' executable. The 'devx' sfs has it."
-  echo "PLEASE DECLINE THIS OFFER..."
-  echo
+  EXTRA_STRIPPING=no
  fi
- echo -n "ENTER only to strip, any other printable char to decline: "
- read NOSTRIP
- if [ "$NOSTRIP" = "" ];then
+ if [ "$EXTRA_STRIPPING" = "yes" ];then
   find rootfs-complete/bin rootfs-complete/sbin rootfs-complete/usr/bin rootfs-complete/sbin -type f |
   while read ONEFILE ; do
     echo -n "${ONEFILE##*/} " #basename "$ONEFILE"
@@ -1610,49 +1568,13 @@ fi
 
 #100627 recent versions of xorg server, turn modesetting on... 110822 improve...
 mkdir -p rootfs-complete/etc/modprobe.d
-#110621 need to chroot...
-if [ "$WOOF_HOSTARCH" = "$WOOF_TARGETARCH" ];then #111123
- XORGINFO="`chroot rootfs-complete /usr/bin/Xorg -version 2>&1`"
- XORGVER="`echo "$XORGINFO" | grep '^X\.Org' | rev | cut -f 1 -d ' ' | rev`"
-else
- #cross-build, assume recent xorg...
- XORGVER='1.7.7'
-fi
-[ "$XORGVER" = "" ] && XORGVER="`echo "$XORGINFO" | grep '^X Window System Version' | rev | cut -f 1 -d ' ' | rev`" #xorg 7.3
-[ "$XORGVER" = "" ] && XORGVER="1.3.0" #precaution. version used in original Xorg 7.3.
-if vercmp "$XORGVER" gt "1.7.6";then
-
- DRILIST='i915 radeon nouveau'
- [ "$SDFLAG" ] && DRILIST='' #assume not using kms at all when boot from sd card (arm arch).
- if [ "$DRILIST" != "" ];then
-  echo
-  echo "Certain Xorg drivers require KMS (Kernel ModeSetting)"
-  echo "A value of '1' means on, '0' means off."
-  echo "Press ENTER key only to accept the default, any other char to flip:"
-  for XDRIVER in $DRILIST #i915 radeon nouveau
-  do
-   KMSFLG='1'
-   echo -n "${XDRIVER} [${KMSFLG}]: "
-   read KMSREPLY
-   if [ "$KMSREPLY" ];then #110906 fix syntax error.
-    #not the default...
-    case $KMSFLG in
-     0) echo "options ${XDRIVER} modeset=1"  > rootfs-complete/etc/modprobe.d/${XDRIVER}.conf ;;
-     1) echo "options ${XDRIVER} modeset=0"  > rootfs-complete/etc/modprobe.d/${XDRIVER}.conf ;;
-    esac
-   else
-    echo "options ${XDRIVER} modeset=${KMSFLG}"  > rootfs-complete/etc/modprobe.d/${XDRIVER}.conf
-   fi
-  done
- fi
+if [ ! "$SDFLAG" ] ;then #build.conf
+   echo "options i915 modeset=${KMS_i915}"  > rootfs-complete/etc/modprobe.d/i915.conf
+   echo "options radeon modeset=${KMS_radeon}"  > rootfs-complete/etc/modprobe.d/radeon.conf
+   echo "options nouveau modeset=${KMS_nouveau}"  > rootfs-complete/etc/modprobe.d/nouveau.conf
 fi
 
-#140619 ui_ziggy choice
-echo
-echo "Do you want the PPM2 or the Classic gui for PPM?"
-echo "hit \"c\" [enter] for Classic, Enter only for PPM2."
-read UICHOICE
-if [ "$UICHOICE" = "c" ];then
+if [ "$UICHOICE" != "PPM2" ];then #build.conf
    mkdir -p rootfs-complete/var/local/petget
    echo "Classic" > rootfs-complete/var/local/petget/ui_choice
 else 
@@ -1811,31 +1733,15 @@ shmfs         /dev/shm     tmpfs    defaults,noatime      0 0' > rootfs-complete
  echo "BOOT_DISABLEALSACONF='yes'" >> rootfs-complete/etc/rc.d/BOOTCONSTRAINED #120724 'alsaconf' does not work on arm boards.
 fi
 
-#120723 code moved down, add BOOT_DISABLEXORGWIZARD test...
-#110413 variable DISTRO_XORG_AUTO in /etc/DISTRO_SPECS, see also /usr/bin/xwin
-autoflag='no'
-if [ "$BOOT_DISABLEXORGWIZARD" != "yes" ];then
- if [ "$DISTRO_XORG_AUTO" ];then
-  autoflag="$DISTRO_XORG_AUTO"
- else
-  if vercmp "$XORGVER" ge "1.7.0";then #110621
-   echo
-   echo "Do you want Xorg to start automatically at first boot (or at 'pfix=ram'"
-   echo "kernel boot param) or run Xorg Wizard? The latter has been the case for"
-   echo "earlier puppies. Automatic startup of X usually works, though in some"
-   echo "cases may choose the wrong monitor resolution or driver -- which can be"
-   echo "fixed by running Xorg Wizard afterward."
-   echo -n "Press ENTER only for automatic Xorg: "
-   read xorgauto
-   [ "$xorgauto" = "" ] && autoflag='yes'
-  fi
- fi
-fi
+[ "$DISTRO_XORG_AUTO" ] && autoflag="$DISTRO_XORG_AUTO" #DISTRO_SPECS
+[ "$XORG_AUTO" ] && autoflag="$XORG_AUTO"               #_00build.conf
+[ "$xorgauto" = "" ] && autoflag='yes'                  #precaution
+[ "$BOOT_DISABLEXORGWIZARD" = "yes" ] && autoflag='no'  #arm
+
 if [ "`grep '^DISTRO_XORG_AUTO' rootfs-complete/etc/DISTRO_SPECS`" = "" ];then #110621
  echo "DISTRO_XORG_AUTO='${autoflag}'" >> rootfs-complete/etc/DISTRO_SPECS
 else
- REGEXauto="s%^DISTRO_XORG_AUTO.*%DISTRO_XORG_AUTO='${autoflag}'%"
- sed -i -e "$REGEXauto" rootfs-complete/etc/DISTRO_SPECS
+ sed -i -e "s%^DISTRO_XORG_AUTO.*%DISTRO_XORG_AUTO='${autoflag}'%" rootfs-complete/etc/DISTRO_SPECS
 fi
 
 #121123 want this info in ppm...
@@ -1923,25 +1829,13 @@ fi
 
 ln -sf Xorg rootfs-complete/usr/bin/X 2>/dev/null #/usr/bin/X
 
-#130601 optional, run internet apps as user 'spot'...
-echo
-echo "Puppy is normally run as the 'administrator' (root) user, though there is
-also 'fido' which is not currently very mature.
-The structure of Puppy is such that we consider root to be safe (with a full
-disclaimer of any responsibility if anything does go wrong), but there is a
-compromise, to run as root but to run Internet apps as user 'spot'."
-#130720 add QtWeb... 130723 add opera... 130821 add firefox... 132211 firefox didn't work, separate, see above
+# optional, run internet apps as user 'spot'...
+# add QtWeb... 130723 add opera... 130821 add firefox... 132211 firefox didn't work, separate, see above
 for AINTERNETAPP in QtWeb opera firefox seamonkey
 do
  [ ! -e rootfs-complete/usr/bin/${AINTERNETAPP} -a ! -e rootfs-complete/usr/lib${lsuffix}/${AINTERNETAPP}* ] && continue
- echo
- echo "Type any character then ENTER if you want ${AINTERNETAPP} to run as spot,
-or just ENTER not to. Note, in a running Puppy 'Menu->System->Login & Security
-Manager' can be used to enable or disable running as spot."
- echo
  echo -n "ENTER only to not run ${AINTERNETAPP} as spot: "
- read SPOTAPPS
- if [ "$SPOTAPPS" ];then
+ if [ "$RUN_INTERNET_APPS_AS_SPOT" = "yes" ];then #build.conf
   ../support/setup-spot "${AINTERNETAPP}=true"
   echo "...ok, ${AINTERNETAPP} will run as spot."
  else
