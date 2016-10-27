@@ -281,8 +281,6 @@ function check_bin() {
 		fuse_static) static_bins='fusermount' ;;
 		module-init-tools_static) static_bins='lsmod modprobe' ;;
 		util-linux_static) static_bins='losetup' ;;
-		#util-linux-222_static) static_bins='losetup-222' ;;
-		util-linux-222_static) static_bins='losetup' ;;
 		*) static_bins=${init_pkg%_*} ;;
 	esac
 	for sbin in ${static_bins} ; do
