@@ -185,7 +185,8 @@ fi
 #elif [ "ABC" = "DEF" ];then #111013
 elif [ $PUPMODE -eq 3 -o $PUPMODE -eq 7 -o $PUPMODE -eq 13 ];then
   # SFR: let user chose...
-  [ -f /var/local/petget/install_mode ] && IMODE="`cat /var/local/petget/install_mode`" || IMODE="savefile"
+  [ -f /var/local/petget/install_mode ] && IM="`cat /var/local/petget/install_mode`" || IMODE="savefile"
+  [ "$IM" = "true" ] && IMODE="tmpfs" || IMODE="savefile"
   if [ "$IMODE" != "tmpfs" ]; then
     FLAGNODIRECT=1
     #100426 aufs can now write direct to save layer...
