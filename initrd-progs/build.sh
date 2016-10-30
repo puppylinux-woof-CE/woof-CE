@@ -207,21 +207,22 @@ function select_target_arch() {
 		echo -en "\nEnter your choice: " ; read choice
 		echo
 		x=1
-		for a in $ARCH_LIST_EX ; do
-			[ "$x" = "$choice" ] && selected_arch=$a && break
-			let x++
-		done
+		for a in $ARCH_LIST ; do [ "$x" = "$choice" ] && selected_arch=$a && break ; let x++ ; done
+		for a in $ARCH_LIST_EX ; do [ "$a" = "$choice" ] && selected_arch=$a ; done
 		case $selected_arch in
 			default|"")ok=yes ;;
 			*) ARCH=$selected_arch ;;
 		esac
 	fi
-	#--
+	# using prebuilt binaries: echo $ARCH and return
 	[ "$USE_PREBUILT" = "yes" ] && echo "Arch: $ARCH" && return
-	case $OS_ARCH in
-		*64) ok=yes ;;
-		*) case $ARCH in *64) fatal_error "\n*** Trying to compile for a 64bit arch in a 32bit system?\n*** That's not possible.. exiting.." ;; esac ;;
-	esac
+	# don't check OS_ARCH if only downloading
+	if [ "$DLD_ONLY" = "no" ] ; then
+		case $OS_ARCH in
+			*64) ok=yes ;;
+			*) case $ARCH in *64) fatal_error "\n*** Trying to compile for a 64bit arch in a 32bit system?\n*** That's not possible.. exiting.." ;; esac ;;
+		esac
+	fi
 	echo "Arch: $ARCH"
 	sleep 1.5
 }
