@@ -280,7 +280,6 @@ function check_bin() {
 		e2fsprogs_static) static_bins='e2fsck resize2fs' ;;
 		findutils_static) static_bins='find' ;;
 		fuse_static) static_bins='fusermount' ;;
-		module-init-tools_static) static_bins='lsmod modprobe' ;;
 		util-linux_static) static_bins='losetup' ;;
 		*) static_bins=${init_pkg%_*} ;;
 	esac
