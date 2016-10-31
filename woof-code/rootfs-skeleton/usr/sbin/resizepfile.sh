@@ -20,6 +20,12 @@ export OUTPUT_CHARSET=UTF-8
 . /etc/rc.d/PUPSTATE
 . /etc/DISTRO_SPECS #v412
 
+if [ -f /initrd/tmp/no_resize2fs ] ; then #set by the initrd init script...
+	/usr/lib/gtkdialog/box_ok "$(gettext 'Resize Personal Storage File')" error \
+	"$(gettext 'The resize2fs binary is not present in initrd.gz... cannot continue')"
+	exit 1
+fi
+
 SAVELOC=$(echo $PUPSAVE | cut -f3 -d ',')
 [ -d /mnt/home$SAVELOC ] && /usr/lib/gtkdialog/box_ok "$(gettext 'Resize personal storage file')" info "<b>$(gettext "Puppy is currently using a savefolder. There is no need to resize it")</b>" " " && exit 0 
 
