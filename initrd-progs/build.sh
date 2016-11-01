@@ -279,7 +279,6 @@ function check_bin() {
 		dosfstools_static) static_bins='fsck.fat' ;;
 		e2fsprogs_static) static_bins='e2fsck resize2fs' ;;
 		findutils_static) static_bins='find' ;;
-		fuse_static) static_bins='fusermount' ;;
 		util-linux_static) static_bins='losetup' ;;
 		*) static_bins=${init_pkg%_*} ;;
 	esac
@@ -375,10 +374,7 @@ function generate_initrd() {
 		fi
 	done
 
-	if [ ! -f /bin/nano ] ; then
-		rm -rf usr
-		rm -f lib/terminfo
-	fi
+	[ ! -f bin/nano ] && rm -rf usr lib/terminfo
 
 	echo
 	if [ ! -f "$DISTRO_SPECS" -a -f ../DISTRO_SPECS ] ; then
