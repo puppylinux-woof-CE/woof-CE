@@ -30,6 +30,7 @@ DBFILE="Packages\-puppy\-${DISTRO_DB_SUBNAME}\-"
 URLSPEC0="$(echo "$PKG_DOCS_PET_REPOS" | tr ' ' '\n' | grep "$DBFILE" | head -n 1 | cut -f 2 -d '|' | rev | cut -f 2-9 -d '/' | rev)"
 [ "$URLSPEC0" = "" ] && exit 2
 URLSPEC="${URLSPEC0}/pet_packages-${DISTRO_DB_SUBNAME}/"
+URLPING="$(echo "$URLSPEC0" | cut -f 3 -d '/')" #ex: distro.ibiblio.org
 
 #find all service packs...
 #note, can use wildcard to test if file exists, if need to look for alternate versions, ex:
@@ -97,7 +98,6 @@ if [ $1 ];then
   sleep 1
   SCNT=`expr $SCNT + 1`
   if [ $SCNT -gt 1200 ];then #20 minutes.
-   URLPING="$(echo "$PKG_DOCS_PET_REPOS" | tr ' ' '\n' | grep "$DBFILE" | head -n 1 | cut -f 1 -d '|')"
    ping -4 -c 1 $URLPING
    [ $? -ne 0 ] && exit 1
    break

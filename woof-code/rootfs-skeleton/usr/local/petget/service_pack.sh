@@ -31,7 +31,7 @@ URLSPEC0="$(echo "$PKG_DOCS_PET_REPOS" | tr ' ' '\n' | grep "$DBFILE" | head -n 
 URLSPEC="${URLSPEC0}/pet_packages-${DISTRO_DB_SUBNAME}/"
 
 #i think should test that repo is working...
-URLPING="$(echo "$PKG_DOCS_PET_REPOS" | tr ' ' '\n' | grep "$DBFILE" | head -n 1 | cut -f 1 -d '|')"
+URLPING="$(echo "$URLSPEC0" | cut -f 3 -d '/')" #ex: distro.ibiblio.org
 ping -4 -c 1 $URLPING
 [ $? -ne 0 ] && exit 1
 
