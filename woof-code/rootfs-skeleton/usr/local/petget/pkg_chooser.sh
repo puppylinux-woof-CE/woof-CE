@@ -10,17 +10,19 @@ while [ "$(busybox ps | grep indexgen | grep -v grep)" != "" ];do sleep 0.5;done
 
 export TEXTDOMAIN=petget___pkg_chooser.sh
 export OUTPUT_CHARSET=UTF-8
+
+# Do not allow another instance
+wait
+PCN=$(pidof pkg_chooser.sh | wc -w)
+PPN=$(pidof ppm | wc -w)
+[ "$(( $PCN + PPN ))" -gt 2 ] && /usr/lib/gtkdialog/box_splash -timeout 3 -bg \
+	red -text "$(gettext 'PPM is already running. Exiting.')" && exit 0
+
 LANG1="${LANG%_*}" #ex: de
 HELPFILE="/usr/local/petget/help.htm"
 [ -f /usr/local/petget/help-${LANG1}.htm ] && HELPFILE="/usr/local/petget/help-${LANG1}.htm"
 
 [ "`whoami`" != "root" ] && exec sudo -A ${0} ${@} #110505
-
-# Do not allow another instance
-sleep 0.3
-[ "$(busybox ps | grep -E '/usr/local/bin/ppm|/usr/local/petget/pkg_chooser' | grep -v -E 'grep|geany|leafpad' | wc -l)" -gt 2 ] \
-	&& . /usr/lib/gtkdialog/box_splash -timeout 3 -bg red -text "$(gettext 'PPM is already running. Exiting.')" \
-		&& exit 0
 
 # Set the skip-space flag
 if [ "$(cat /var/local/petget/sc_category 2>/dev/null)" = "true" ] && \
