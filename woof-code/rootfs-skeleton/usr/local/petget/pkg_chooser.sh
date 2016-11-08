@@ -15,7 +15,7 @@ export OUTPUT_CHARSET=UTF-8
 wait
 PCN=$(pidof pkg_chooser.sh | wc -w)
 PPN=$(pidof ppm | wc -w)
-[ "$(( $PCN + PPN ))" -gt 2 ] && /usr/lib/gtkdialog/box_splash -timeout 3 -bg \
+[ "$(( $PCN + $PPN ))" -gt 2 ] && /usr/lib/gtkdialog/box_splash -timeout 3 -bg \
 	red -text "$(gettext 'PPM is already running. Exiting.')" && exit 0
 
 LANG1="${LANG%_*}" #ex: de
