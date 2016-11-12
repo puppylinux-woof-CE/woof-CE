@@ -5,6 +5,7 @@ For boot options, type0d BOOTLABEL07 then a space, then each option. Some opti
 0dpfix=ram07     Run totally in RAM ignore saved sessions,
 0dpfix=<n>07     number of saved sessions to ignore (multisession-CD),
 0dpfix=nox07     commandline only, do not start X (graphical desktop),
+0dpfix=xorgwizard07 force xorgwizard-cli for the current session,
 0dpfix=copy07    copy .sfs files to RAM (slower boot, faster running),
 0dpfix=nocopy07  do not copy .sfs files to RAM (faster boot, slower running),
 0dpfix=fsck07    do filesystem check on DISTRO_FILE_PREFIXsave (and host partition)

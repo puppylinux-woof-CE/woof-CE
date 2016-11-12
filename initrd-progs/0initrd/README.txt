@@ -155,6 +155,7 @@ pfix=<ram, nox, trim, nocopy, fsck, fsckp, rdsh, <number>>
 The pfix parameter is a ',' separated list of 1 or more of the above sub-parameters.
 ram:      run in ram only (do not load ${DISTRO_FILE_PREFIX}save).
 nox:      do not start X.
+xorgwizard: force xorgwizard-cli for the current session
 trim:     add "discard" to mount options if SSD.
 nocopy:   do not copy .sfs files into ram (default is copy if enough ram).
 fsck:     do fsck of ${DISTRO_FILE_PREFIX}save file.
