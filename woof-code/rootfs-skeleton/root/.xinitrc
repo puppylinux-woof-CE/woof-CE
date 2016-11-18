@@ -126,9 +126,9 @@ case $desktop in
  pcmanfm) pcmanfm --desktop & ;;
  rox)
 	if [ -f /root/Choices/ROX-Filer/PuppyPan1 ];then
-		rox -p /root/Choices/ROX-Filer/PuppyPin -r /root/Choices/ROX-Filer/PuppyPan1
+		roxfiler -p /root/Choices/ROX-Filer/PuppyPin -r /root/Choices/ROX-Filer/PuppyPan1
 	else
-		rox -p /root/Choices/ROX-Filer/PuppyPin
+		roxfiler -p /root/Choices/ROX-Filer/PuppyPin
 	fi
 	;;
 esac
