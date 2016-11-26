@@ -30,34 +30,27 @@
 #define VAL_SIZE (16 * 1024)
 #define REV_SIZE (32)
 
-#define LIKELY(x) __builtin_expect(!!(x), 1)
-#define UNLIKELY(x) __builtin_expect(!!(x), 0)
-
 static void trim_ver(char *ver, regex_t *preg, char **outver, char *rev)
 {
 	regmatch_t pmatch;
 	char *pos, *sep;
-
 	/* strip "1:" from "1:2.0.10-1ubuntu3" */
 	sep = strchr(ver, ':');
-	if (UNLIKELY(sep == NULL))
-		*outver = ver;
+	if (sep == NULL) *outver = ver;
 	else {
 		for (pos = ver; sep > pos; ++pos) if (isdigit(pos[0]) == 0) return;
 		*outver = sep + 1;
 	}
-
 	/* kick "~2011week36" in "2.2~2011week36" */
 	sep = strchr(*outver, '~');
-	if (UNLIKELY(sep != NULL)) sep[0] = '\0';
+	if (sep != NULL) sep[0] = '\0';
 
 	/* kick "-1ubuntu3" from "1:2.0.10-1ubuntu3" */
-	if (UNLIKELY(regexec(preg, *outver, 1, &pmatch, 0) == REG_NOMATCH)) {
-		if (NULL != rev) rev[0] = '\0';
+	if (regexec(preg, *outver, 1, &pmatch, 0) == REG_NOMATCH) {
+		if (rev != NULL) rev[0] = '\0';
 	} else {
 		(*outver + pmatch.rm_so)[0] = '\0';
-		if (NULL != rev)
-			memcpy(rev, *outver + pmatch.rm_so + 1, pmatch.rm_eo - pmatch.rm_so);
+		if (rev != NULL) memcpy(rev, *outver + pmatch.rm_so + 1, pmatch.rm_eo - pmatch.rm_so);
 	}
 }
 
@@ -85,6 +78,8 @@ static const char *fields_str[] = {
 	"Homepage",
 	"Section"
 };
+
+// =======================================================
 
 static const unsigned long crc32_table[256] = {
 	0x00000000, 0x77073096, 0xEE0E612C, 0x990951BA, 0x076DC419, 0x706AF48F,
@@ -138,13 +133,10 @@ static unsigned long crc32(const unsigned long in,
                            const unsigned char *buf,
                            const size_t len)
 {
-	size_t i;
-	unsigned long crc32;
-
+	size_t i; unsigned long crc32;
 	crc32 = in ^ 0xFFFFFFFF;
 	for (i = 0; len > i; ++i)
 		crc32 = (crc32 >> 8) ^ crc32_table[(crc32 ^ buf[i]) & 0xFF];
-
 	return crc32 ^ 0xFFFFFFFF;
 }
 
@@ -167,18 +159,18 @@ static unsigned long *list_pkgs(const char *path,
 
 	buf[len] = '\0';
 
-	for (curr = buf; NULL != curr; ++*out) {
+	for (curr = buf; curr != NULL; ++*out) {
 		next = strchr(curr + 1, ' ');
-		if (NULL != next) next[0] = '\0';
-
+		if (next != NULL) next[0] = '\0';
 		++curr;
 		pkgs[*out] = crc32(initcrc, (unsigned char *) curr, strlen(curr));
-
 		curr = next;
 	}
 
 	return pkgs;
 }
+
+// =======================================================
 
 int main(int argc, char *argv[])
 {
@@ -190,7 +182,7 @@ int main(int argc, char *argv[])
 	FILE *db;
 	unsigned long *pkgs, *baddeps;
 	FILE *baddepf, *wwwf;
-	int len, i, ndep, npkgs, nbaddeps;
+	int len, i, ndeps, npkgs, nbaddeps;
 
 	/* Trisquel has some packages with the "ubuntu" suffix, so we have to search
 	 * for both */
@@ -201,6 +193,10 @@ int main(int argc, char *argv[])
 	outbuf = malloc(BUF_SIZE);
 	wwwf = fopen("/tmp/woof-homepages.acc", "w");
 	db = fopen("/tmp/woof-debdb.in", "r");
+	if (db == NULL) {
+		perror("Error opening /tmp/woof-debdb.in");
+		return(-1);
+	}
 	/* use a huge stdio buffer, to reduce the overhead of read() and write() -
 	 * we want to spend time on output, not input */
 	setvbuf(db, inbuf, BUF_SIZE, _IOFBF);
@@ -211,7 +207,7 @@ int main(int argc, char *argv[])
 	/* when running via woof-CE, read the list of all packages in the
 	 * repository, hash their names for quick comparison, drop missing
 	 * dependency packages and list them */
-	if (UNLIKELY(0 == access("/tmp/0setupcompletelistpkgs", F_OK))) {
+	if (access("/tmp/0setupcompletelistpkgs", F_OK) == 0) {
 		baddeps = NULL;
 		pkgs = list_pkgs("/tmp/0setupcompletelistpkgs", initcrc, buf, &npkgs);
 		baddepf = fopen("/tmp/0setupnewinvaliddeps", "w");
@@ -228,15 +224,21 @@ int main(int argc, char *argv[])
 	/* allocate buffers for all fields; we set the first byte to \0 before each
 	 * package so we can determine when a field is missing, without having to
 	 * perform malloc() and free() every time */
-	for (i = 0; sizeof(fields) / sizeof(fields[0]) > i; ++i) {
+	for (i = 0; i < FIELD_MAX; ++i) {
 		fields[i] = malloc(VAL_SIZE);
 		fields[i][0] = '\0';
 	}
 
+	/******************
+	 **** BIG LOOP ****
+	 ******************/
+
 	do {
+
+/* next */
 next:
 		line = fgets(buf, BUF_SIZE, db);
-		if (NULL == line) {
+		if (line == NULL) {
 			/* the last package entry does not end with a marker */
 			if (feof(db) != 0) goto print;
 			break;
@@ -246,11 +248,12 @@ next:
 		if (len == 0) continue;
 
 		sep = strchr(buf, '|');
+		if (sep == NULL) continue;
 		sep[0] = '\0';
 
 		/* extract all field values */
-		for (i = 0; sizeof(fields) / sizeof(fields[0]) > i; ++i) {
-			if (0 == strcmp(buf, fields_str[i])) {
+		for (i = 0; i < FIELD_MAX ; ++i) {
+			if (strcmp(buf, fields_str[i]) == 0) {
 				line[len - 1] = '\0';
 				len -= 1 + (sep - buf);
 				memcpy(fields[i], sep + 1, len);
@@ -262,8 +265,9 @@ next:
 		}
 
 		/* if the end of a package hasn't been reached yet, continue */
-		if (0 != strcmp(buf, "STARTMARKER")) continue;
+		if (strcmp(buf, "STARTMARKER") != 0) continue; //STARTMARKER
 
+/* print */
 print:
 		/* make sure all mandatory fields are present */
 		if (('\0' == fields[FIELD_DESC][0]) ||
@@ -275,7 +279,7 @@ print:
 			continue;
 
 		/* skip debugging symbol packages */
-		if (UNLIKELY(NULL != strstr(fields[FIELD_NAME], "-dbg"))) goto cleanup;
+		if (strstr(fields[FIELD_NAME], "-dbg") != NULL) goto cleanup;
 
 		/* split the path into directory and file name */
 		pos = strrchr(fields[FIELD_PATH], '/');
@@ -288,12 +292,12 @@ print:
 
 		/* remove special charcaters from the description */
 		for (i = strlen(fields[FIELD_DESC]) - 1; 0 <= i; --i) {
-			if (UNLIKELY(NULL != strchr("'(),", fields[FIELD_DESC][i])))
+			if (strchr("'(),", fields[FIELD_DESC][i]) != NULL)
 				for (pos = &fields[FIELD_DESC][i]; '\0' != pos[0]; ++pos) pos[0] = pos[1];
 		}
 
 		/* use the package name as specified in the sub-directory path, for find_cat */
-		if (UNLIKELY(0 == strlen(fields[FIELD_PATH])))
+		if (strlen(fields[FIELD_PATH]) == 0)
 			name = fields[FIELD_NAME];
 		else {
 			name = strrchr(fields[FIELD_PATH], '/');
@@ -308,7 +312,7 @@ print:
 		putc('|', stdout);
 		fputs(ver, stdout);
 		putc('|', stdout);
-		if (UNLIKELY('\0' != rev)) {
+		if (rev != '\0') {
 			fputs(rev, stdout);
 			rev[0] = '\0';
 		}
@@ -317,7 +321,7 @@ print:
 		putc('|', stdout);
 		/* some packages have no installed size, only package size -
 		 * libc6-ppc64el-cross in belenos */
-		if (UNLIKELY(NULL == fields[FIELD_SIZE]))
+		if (fields[FIELD_SIZE] == NULL)
 			fwrite("0K|", 1, 3, stdout);
 		else {
 			fputs(fields[FIELD_SIZE], stdout);
@@ -328,76 +332,80 @@ print:
 		fputs(fname, stdout);
 		putc('|', stdout);
 
-		if (UNLIKELY(NULL != fields[FIELD_DEPS])) {
-			ndep = 0;
+		if (fields[FIELD_DEPS] != NULL) {
+			ndeps = 0;
 			dep = fields[FIELD_DEPS];
 
 			do {
 				pos = strstr(dep, ", ");
-				if (NULL != pos) pos[0] = '\0';
+				if (pos != NULL) pos[0] = '\0';
 
 				sep = strstr(dep, " (");
 				/* special case, in case there's an OR relationship between
 				 * dependencies 0setup replaces the | character with a space */
-				if (UNLIKELY(NULL == sep))
+				if (sep == NULL)
 					sep = strchr(dep, ' ');
 				else
 					strchr(sep + 2, ')')[0] = '\0';
-				if (NULL != sep) sep[0] = '\0';
+				if (sep != NULL) sep[0] = '\0';
 
 				depcrc = crc32(initcrc, (unsigned char *) dep, strlen(dep));
 
 				/* if the package is an invalid dependency, skip it */
-				for (i = 0; nbaddeps > i; ++i)
+				for (i = 0; i < nbaddeps; ++i)
 					if (depcrc == baddeps[i]) goto nextdep;
 
 				/* check whether the package exists */
-				if (0 < npkgs) {
-					for (i = 0; npkgs > i; ++i)
+				if (npkgs > 0) {
+					for (i = 0; i < npkgs; ++i)
 						if (depcrc == pkgs[i]) goto parse_deps;
 
 					/* if not - add it to the list of bad dependencies */
-					if (NULL != baddepf) {
+					if (baddepf != NULL) {
 						fputs(dep, baddepf);
 						fputc('\n', baddepf);
 					}
 					goto nextdep;
 				}
 
+/* parse_deps */
 parse_deps:
 				deprel = NULL;
-				if (LIKELY(NULL != sep)) {
+				if (sep != NULL) {
 					sep += 2;
-					if ('>' == sep[0]) {
-						if ('=' == sep[1]) {
+					if (sep[0] == '>') {
+						if (sep[1] == '=') {
 							trim_ver(sep + 3, &preg, &depver, NULL);
 							deprel = "&ge";
-						} else if ('>' == sep[1]) {
+						} else if (sep[1] == '>') {
 							trim_ver(sep + 3, &preg, &depver, NULL);
 							deprel = "&gt";
 						} else deprel = NULL;
-					} else if ('=' == sep[0]) {
+					} else if (sep[0] == '<') {
+						if (sep[1] == '=') {
+							trim_ver(sep + 3, &preg, &depver, NULL);
+							deprel = "&le";
+						}
+					} else if (sep[0] == '=') {
 						trim_ver(sep + 2, &preg, &depver, NULL);
 						deprel = "&eq";
-					} else if (('<' == sep[0]) && ('=' == sep[1])) {
-						trim_ver(sep + 3, &preg, &depver, NULL);
-						deprel = "&le";
 					}
 					sep[0] = '\0';
 				}
 
-				++ndep;
-				if (1 < ndep)
+				++ndeps;
+				if (ndeps > 1)
 					fwrite(",+", 1, 2, stdout);
 				else
 					putc('+', stdout);
 
 				fputs(dep, stdout);
-				if (NULL != deprel) {
+				if (deprel != NULL) {
 					fputs(deprel, stdout);
 					fputs(depver, stdout);
 				}
 
+/* nextdep */
 nextdep:
 				if (pos == NULL) break;
 				dep = pos + 2;
@@ -413,22 +421,27 @@ nextdep:
 		fwrite("|\n", 1, 2, stdout);
 
 		/* write the homepage to the homepage list */
-		if (UNLIKELY(fields[FIELD_WWW][0] != '\0')) {
+		if (fields[FIELD_WWW][0] != '\0') {
 			fputs(fields[FIELD_NAME], wwwf);
 			putc(' ', wwwf);
 			fputs(fields[FIELD_WWW], wwwf);
 			putc('\n', wwwf);
 		}
 
+/* cleanup */
 cleanup:
-		for (i = 0; sizeof(fields) / sizeof(fields[0]) > i; ++i)
-			if (LIKELY('\0' != fields[i][0])) fields[i][0] = '\0';
-	} while (NULL != line);
+		for (i = 0; i < FIELD_MAX; i++) fields[i][0] = '\0';
+
+	} while (line != NULL);
+
+	/*************************
+	 **** END OF BIG LOOP ****
+	 *************************/
 
 	for (i = sizeof(fields) / sizeof(fields[0]) - 1 ; 0 <= i; --i)
 		free(fields[i]);
 
-	if (NULL != baddeps)
+	if (baddeps != NULL)
 		free(baddeps);
 	else {
 		fclose(baddepf);
@@ -445,3 +458,5 @@ cleanup:
 
 	return EXIT_SUCCESS;
 }
+
+/* EOF */
