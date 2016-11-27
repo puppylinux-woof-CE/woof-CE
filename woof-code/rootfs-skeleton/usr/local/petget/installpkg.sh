@@ -216,18 +216,10 @@ cd "$DLPKG_PATH"
 
 case $DLPKG_BASE in
  *.pet)
-  # determine compression
-  file -b "$DLPKG_BASE" | grep -i -q "^xz" && EXT=xz || EXT=gz #131122 #140109 add -i, eg: "XZ"
-  case $EXT in
-  xz)OPT=-J ;;
-  gz)OPT=-z ;;
-  esac
   DLPKG_MAIN="`basename $DLPKG_BASE .pet`"
-  pet2tgz $DLPKG_BASE
-  [ $? -ne 0 ] && exit 1
-  PETFILES="`tar --list ${OPT} -f ${DLPKG_MAIN}.tar.${EXT}`"
-  #slackware pkg, got a case where passed the above test but failed here...
-  [ $? -ne 0 ] && exit 1
+  pet2tgz $DLPKG_BASE || exit 1
+  tarball=$(echo ${DLPKG_MAIN}.tar.[gx]z)
+  PETFILES="$(tar --list -a -f $tarball)" || exit 1
   #check for renamed pets. Will produce an empty ${DLPKG_NAME}.files file
   PETFOLDER=$(echo "${PETFILES}" | cut -f 2 -d '/' | head -n 1)
   [ "$PETFOLDER" = "" ] && PETFOLDER=$(echo "${PETFILES}" | cut -f 1 -d '/' | head -n 1)
@@ -241,18 +233,18 @@ case $DLPKG_BASE in
    fi
    exit 1
   fi
-  if [ "`echo "$PETFILES" | grep '^\\./'`" != "" ];then
+  if [ "`echo "$PETFILES" | grep -m1 '^\\./'`" != "" ];then
    #ttuuxx has created some pets with './' prefix...
    pPATTERN="s%^\\./${DLPKG_NAME}%%"
    echo "$PETFILES" | sed -e "$pPATTERN" > /root/.packages/${DLPKG_NAME}.files
    install_path_check
-   tar ${OPT} -x --strip=2 --directory=${DIRECTSAVEPATH}/ -f ${DLPKG_MAIN}.tar.${EXT} #120102. 120107 remove --unlink-first
+   tar -a -x --strip=2 --directory=${DIRECTSAVEPATH}/ -f ${tarball} #120102. 120107 remove --unlink-first
   else
    #new2dir and tgz2pet creates them this way...
    pPATTERN="s%^${DLPKG_NAME}%%"
    echo "$PETFILES" | sed -e "$pPATTERN" > /root/.packages/${DLPKG_NAME}.files
    install_path_check
-   tar ${OPT} -x --strip=1 --directory=${DIRECTSAVEPATH}/ -f ${DLPKG_MAIN}.tar.${EXT} #120102. 120107. 131122
+   tar -a -x --strip=1 --directory=${DIRECTSAVEPATH}/ -f ${tarball} #120102. 120107. 131122
   fi
   [ $? -ne 0 ] && clean_and_die
  ;;
@@ -281,62 +273,14 @@ case $DLPKG_BASE in
   [ -d /DEBIAN ] && rm -rf /DEBIAN #130112 precaution.
   dpkg-deb -e $DLPKG_BASE /DEBIAN #130112 extracts deb control files to dir /DEBIAN. may have a post-install script, see below.
  ;;
- *.tgz)
-  DLPKG_MAIN="`basename $DLPKG_BASE .tgz`" #ex: scite-1.77-i686-2as
-  gzip --test $DLPKG_BASE > /dev/null 2>&1
-  [ $? -ne 0 ] && exit 1
-  PFILES="`tar --list -z -f $DLPKG_BASE`"
-  #hmmm, got a case where passed the above test but failed here...
-  [ $? -ne 0 ] && exit 1
+ *.tgz|*.txz|*.tar.gz|*.tar.xz|*.tar.bz2) #slackware, arch, etc..
+  DLPKG_MAIN="`basename $DLPKG_BASE`" #remove directory - filename only
+  DLPKG_MAIN=${DLPKG_MAIN%*.tar.*}    #remove .tar.xx extension
+  DLPKG_MAIN=${DLPKG_MAIN%.t[gx]z}    #remove .t[gx]z extension
+  PFILES="`tar --list -a -f $DLPKG_BASE`" || exit 1
   echo "$PFILES" > /root/.packages/${DLPKG_NAME}.files
   install_path_check
-  tar -z -x --directory=${DIRECTSAVEPATH}/ -f $DLPKG_BASE #120102. 120107
-  [ $? -ne 0 ] && clean_and_die
- ;;
- *.txz) #100616
-  DLPKG_MAIN="`basename $DLPKG_BASE .txz`" #ex: scite-1.77-i686-2as
-  xz --test $DLPKG_BASE > /dev/null 2>&1
-  [ $? -ne 0 ] && exit 1
-  PFILES="`tar --list -J -f $DLPKG_BASE`"
-  #hmmm, got a case where passed the above test but failed here...
-  [ $? -ne 0 ] && exit 1
-  echo "$PFILES" > /root/.packages/${DLPKG_NAME}.files
-  install_path_check
-  tar -J -x --directory=${DIRECTSAVEPATH}/ -f $DLPKG_BASE #120102. 120107
-  [ $? -ne 0 ] && clean_and_die
- ;;
- *.tar.gz)
-  DLPKG_MAIN="`basename $DLPKG_BASE .tar.gz`" #ex: acl-2.2.47-1-i686.pkg
-  gzip --test $DLPKG_BASE > /dev/null 2>&1
-  [ $? -ne 0 ] && exit 1
-  PFILES="`tar --list -z -f $DLPKG_BASE`"
-  [ $? -ne 0 ] && exit 1
-  echo "$PFILES" > /root/.packages/${DLPKG_NAME}.files
-  install_path_check
-  tar -z -x --directory=${DIRECTSAVEPATH}/ -f $DLPKG_BASE #120102. 120107
-  [ $? -ne 0 ] && clean_and_die
- ;;
- *.tar.bz2) #100110
-  DLPKG_MAIN="`basename $DLPKG_BASE .tar.bz2`"
-  bzip2 --test $DLPKG_BASE > /dev/null 2>&1
-  [ $? -ne 0 ] && exit 1
-  PFILES="`tar --list -j -f $DLPKG_BASE`"
-  [ $? -ne 0 ] && exit 1
-  echo "$PFILES" > /root/.packages/${DLPKG_NAME}.files
-  install_path_check
-  tar -j -x --directory=${DIRECTSAVEPATH}/ -f $DLPKG_BASE #120102. 120107
-  [ $? -ne 0 ] && clean_and_die
- ;;
- *.pkg.tar.zx) #130314 arch pkgs.
-  DLPKG_MAIN="`basename $DLPKG_BASE .pkg.tar.xz`" #ex: acl-2.2.51-3-i686
-  xz --test $DLPKG_BASE > /dev/null 2>&1
-  [ $? -ne 0 ] && exit 1
-  PFILES="`tar --list -J -f $DLPKG_BASE`"
-  #hmmm, got a case where passed the above test but failed here...
-  [ $? -ne 0 ] && exit 1
-  echo "$PFILES" > /root/.packages/${DLPKG_NAME}.files
-  install_path_check
-  tar -J -x --directory=${DIRECTSAVEPATH}/ -f $DLPKG_BASE
+  tar -a -x --directory=${DIRECTSAVEPATH}/ -f $DLPKG_BASE #120102. 120107
   [ $? -ne 0 ] && clean_and_die
  ;;
  *.rpm) #110523
@@ -352,6 +296,7 @@ case $DLPKG_BASE in
   [ $? -ne 0 ] && clean_and_die
  ;;
 esac
+
 if [ "$PUPMODE" = "2" ]; then #from BK's quirky6.1
  mkdir /audit/${DLPKG_NAME}DEPOSED
  echo -n '' > /tmp/petget/FLAGFND
