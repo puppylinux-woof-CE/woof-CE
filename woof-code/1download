@@ -32,9 +32,6 @@ function do_exit() { #$1: msg
 }
 
 function check_remote_pkg_repos() {
-  REPOTYPES="PET COMPAT"
-  [ $1 ] && REPOTYPES=$@
-  for REPOTYPE in $REPOTYPES ; do
 	RMSG=$BINARIES REPOS=$REPOS_DISTRO_COMPAT
 	[ "$REPOTYPE" = "PET" ] && RMSG=PET REPOS=$PET_REPOS
 	echo -e "\nFinding what $RMSG repos are working..."
@@ -47,10 +44,8 @@ function check_remote_pkg_repos() {
 			X_URLS="${X_URLS}${ONE_X_URL} " #success.
 		fi
 	done
-	[ "$X_URLS" = "" ] && do_exit "Failure. Is Internet working?"
-	[ "$REPOTYPE" = "PET" ] && PET_URLS=$X_URLS
-	[ "$REPOTYPE" = "COMPAT" ] && BIN_URLS=$X_URLS
-  done
+	[ "$X_URLS" = "" ] && return 1
+	echo "$X_URLS"
 }
 
 [ $XPKG ] && CHECK_REMOTE_PKG_REPOS=no
@@ -58,7 +53,8 @@ if [ "$CHECK_REMOTE_PKG_REPOS" != "yes" ] ; then
 	PET_URLS=$(echo "$PET_REPOS" | tr ' ' '\n' | cut -f 2 -d "|")
 	BIN_URLS=$(echo "$REPOS_DISTRO_COMPAT" | tr ' ' '\n' | cut -f 2 -d "|")
 else
-	check_remote_pkg_repos
+	PET_URLS=$(check_remote_pkg_repos PET $PET_REPOS) || do_exit "Failure. Is Internet working?"
+	BIN_URLS=$(check_remote_pkg_repos $BINARIES $REPOS_DISTRO_COMPAT) || do_exit "Failure. Is Internet working?"
 fi
 
 ##################################
@@ -180,34 +176,6 @@ else
 	XFILE=status/findpkgs_FINAL_PKGS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}
 fi
 
-#--- called within the loop...
-do_echo_file() { #$1: file
-  [ -f "$1" ] && { echo -n " ${DB_fullfilename}" ; SUCCESS='yes' ; continue ; }
-  echo -e "\n* Downloading ${DB_fullfilename}"
-}
-
-do_download() { #$1: url
-  if [ -f $DB_fullfilename ] ; then
-     SUCCESS='yes'
-     return #already downloaded
-  fi
-  echo "  - from ${1%/*}"
-  wget -c -q --show-progress --timeout=15 $1 || {
-     echo "  failed (file not found on server or could not finish download)"
-     rm -f ${DB_fullfilename}
-     return
-  }
-  #-
-  $CWD/rootfs-skeleton/usr/local/petget/verifypkg.sh ${DB_fullfilename}
-  [ $? -eq 0 ] && SUCCESS='yes'
-  #-
-  if [ "$SUCCESS" = "no" ] ; then
-     echo "  failed (file not found or corrupted file)"
-     rm -f ${DB_fullfilename} 2>/dev/null
-  fi
-}
-#---
-
 LINECNT=1
 cat $XFILE | while read ONEDBENTRY
 do
@@ -242,23 +210,43 @@ do
 
  if [ "$PETorCOMPAT" = "pet" ];then
   LFILE=DOWNLOAD-FAILS-PET
-  do_echo_file packages-pet/${DB_fullfilename}
-  for ONE_PET_URL in $PET_URLS ; do
-    cd packages-pet
-    do_download ${ONE_PET_URL}/${DB_path}/${DB_fullfilename}
-    cd ..
-    [ "$SUCCESS" = "yes" ] && { echo "  success" ; break ; }
-  done 
+  FILE_DIR=packages-pet
+  URLS=${PET_URLS}
  else #-- compat
   LFILE=DOWNLOAD-FAILS-${BINARIES}
-  do_echo_file packages-${BINARIES}/${DB_fullfilename}
-  for ONE_BIN_URL in $BIN_URLS ; do
-    cd packages-${BINARIES}
-    do_download ${ONE_BIN_URL}/${DB_path}/${DB_fullfilename}
+  FILE_DIR=packages-${BINARIES}
+  URLS=${BIN_URLS}
+ fi #end if PETorCOMPAT
+
+ if [ -f "${FILE_DIR}/${DB_fullfilename}" ] ; then
+   echo -n " ${DB_fullfilename}" ; SUCCESS='yes'
+   continue
+ fi
+ echo -e "\n* Downloading ${DB_fullfilename}"
+
+ for ONE_URL in ${URLS}
+ do
+    cd ${FILE_DIR}
+    [ -f "$DB_fullfilename" ] && { SUCCESS='yes' ; return ; }
+    REMOTE_PATH=${ONE_URL}/${DB_path}/${DB_fullfilename}
+    echo "  - from ${REMOTE_PATH%/*}"
+    wget -c -q --show-progress --timeout=15 ${REMOTE_PATH} || {
+       echo "  failed (file not found on server or could not finish download)"
+       rm -f ${DB_fullfilename}
+       return
+    }
+    #-
+    $CWD/rootfs-skeleton/usr/local/petget/verifypkg.sh ${DB_fullfilename}
+    [ $? -eq 0 ] && SUCCESS='yes'
+    #-
+    if [ "$SUCCESS" = "no" ] ; then
+       echo "  failed (file not found or corrupted file)"
+       rm -f ${DB_fullfilename} 2>/dev/null
+    fi
+    #--
     cd ..
     [ "$SUCCESS" = "yes" ] && { echo "  success" ; break ; }
-  done
- fi #end if PETorCOMPAT
+ done
 
  [ "$SUCCESS" = "no" ] && echo "DOWNLOAD FAIL: ${DB_fullfilename}"
  [ "$SUCCESS" = "no" ] && echo "$DB_fullfilename" >> ${LFILE}
