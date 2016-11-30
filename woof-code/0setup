@@ -91,6 +91,120 @@ fi
 #remove comments from PKGS_SPECS_TABLE
 PKGS_SPECS_TABLE="`echo "$PKGS_SPECS_TABLE" | grep -v '^#'`"
 
+#======================================================================
+
+#w008 convert pkg database ${PKGLISTFILE}pre to a standard format...
+#120812 subcategory...
+#each line: pkgname|nameonly|version|pkgrelease|category[;subcategory]|size|path|fullfilename|dependencies|description|
+#ex: abiword-1.2.4|abiword|1.2.4|5|Document|999K|slackware/ab|abiword-1.2.4-5-i486.tgz|+aiksausus,+gtk2|a nice wordprocessor|
+PKGLISTS_COMPAT="`echo "$PKG_DOCS_DISTRO_COMPAT" | tr ' ' '\n' | cut -f 3 -d '|' | tr '\n' ' '`" #see file DISTRO_PKGS_SPECS-ubuntu
+
+function check_compat_distro_pkgs() {
+	####################################
+	#extract all the package names of compat-distro, without version info...
+	#                 *this*
+	#automake_1.14.1|automake|1.14.1|2ubuntu1|Filesystem;filemanager|1492K|pool/main/a/automake-1.14|automake_1.14.1-2ubuntu1_all.deb|+autoconf&ge2.65,+autotools-dev&ge20020320.1|Tool for generating GNU Standards-compliant Makefiles|ubuntu|trusty||
+	cat $PKGLISTS_COMPAT | cut -f 2 -d '|' > zz_pkgnamespre
+	#in debian/ubuntu there are too many lib* packages
+	grep '^lib' zz_pkgnamespre > zz_pkgnames
+	grep -v '^lib' zz_pkgnamespre >> zz_pkgnames
+
+	#check the entries in PKGS_SPECS_TABLE against those in Packages-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}.
+	#that is, need to verify that pkgs specified in table do actually exist.
+	echo -e "\nChecking that compat-distro pkgs specified in PKGS_SPECS_TABLE actually exist..." | tee /var/woof/0setup_fail_report_$RUNNINGPUP
+	FAILCHK="no"
+
+	#120315 extra field on end to force repo... grep -v '||[a-zA-Z0-9]*:' (not actually needed)
+	echo "$PKGS_SPECS_TABLE" | grep '^yes' | grep -v '|pet:' | cut -f 3,4 -d '|' > zz_fields34
+	#yes|alsa-lib|libasound2,libasound2-data,libasound2-dev,libasound2-plugins|exe,dev,doc,nls
+	#yes|advancecomp|advancecomp|exe>dev,dev,doc,nls
+	#yes|abiword||exe,dev,doc,nls
+	while read AFIELD34
+	do
+	 #              BINARYPARTNAMES  ASSIGNFIELD
+	 #yes|advancecomp|advancecomp|exe>dev,dev,doc,nls
+	 IFS="|" read -r FPARTNAMES ASSIGNFIELD <<< "$AFIELD34"
+	 [ ! "$FPARTNAMES" ] && continue
+	 BINARYPARTNAMES=""
+	 for I in ${FPARTNAMES//,/ } ; do
+	   case $I in -*) continue ;; esac #ignore -pkgs
+	   BINARYPARTNAMES+=" $I"
+	 done
+	 for ONEBINARYPARTNAME in $BINARYPARTNAMES
+	 do
+	  #ONEBINARYPARTNAME may match multiple pkgs...
+	  #echo -n " $ONEBINARYPARTNAME"
+	  multiPATTERN="${ONEBINARYPARTNAME//-/\\-}" #replace "-" with "\-"
+	  multiPATTERN="${multiPATTERN//\*/.*}"      #replace "*" with ".*"
+	  grep -m 1 -q "^${multiPATTERN}$" zz_pkgnames && continue #success.
+
+	  if [ "$ASSIGNFIELD" ];then #120804
+	   #this will find entry in PKGS_SPECS_TABLE like 'yes|apr|apr|exe>dev,dev,doc,nls', where pkg apr-123 does not exist, only apr_DEV-123...
+	   case "$ASSIGNFIELD" in *'exe>dev'*|*'exe>null'*)
+		grep -m 1 -q "^${ONEBINARYPARTNAME}_DEV" zz_pkgnames && continue #success.
+	   esac
+	   #this entry 'yes|perl-digest-sha1|perl-digest-sha1|exe,dev>null,doc>null,nls>null' also only has a _DEV pkg...
+	   case "$ASSIGNFIELD" in *'dev>exe'*) 
+		grep -m 1 -q "^${ONEBINARYPARTNAME}_DEV" zz_pkgnames && continue #success.
+	   esac
+	  fi
+	  case "$ONEBINARYPARTNAME" in *"*"*)
+	   grep -m 1 -q "^${multiPATTERN}" zz_pkgnames && continue #success.
+	  esac
+	  #failure...
+	  echo "FAIL: $ONEBINARYPARTNAME"
+	  echo "FAIL: $ONEBINARYPARTNAME" >> /var/woof/0setup_fail_report_$RUNNINGPUP
+	  FAILCHK="yes"
+	 done
+	done < zz_fields34
+
+	rm -f zz_fields34  #comment out to debug
+	rm -f zz_pkgnames* #--
+
+	if [ "$FAILCHK" = "yes" ];then
+	 echo "
+Finished, but some failures. You need to fix the above entries in variable
+PKGS_SPECS_TABLE in file ${DPSFILE}.
+Search for suitable packages in these files:
+`echo "$PKG_DOCS_DISTRO_COMPAT" | tr ' ' '\n' | cut -f 3 -d '|'`
+Or, search online. In the case of Debian or Ubuntu, you can search
+at packages.debian.org or packages.ubuntu.com.
+After you have fixed PKGS_SPECS_TABLE, run this script again." | tee -a /var/woof/0setup_fail_report_$RUNNINGPUP
+	 if [ "$DBmethod" = "false" ];then
+	  kill $XPID
+	  Xdialog --title "$(gettext 'PPM database')" --left --msgbox "$(gettext 'PPM database failed. Chech /var/woof/0setup_fail_report_')$RUNNINGPUP $(gettext 'for details.')" 0 100
+	 fi
+	 unset OSETUP_CALLED_FROM
+	else
+	 echo -e "\nFinished, successful." | tee -a /var/woof/0setup_fail_report_$RUNNINGPUP
+	fi
+
+	if [ "$DBmethod" = "true" ]; then
+	 echo
+	 echo "The log of '0setup', as reported above, is saved for future reference."
+	 echo "(In file /var/woof/0setup_fail_report_${RUNNINGPUP})"
+	 echo "In the Woof GUI, tab 'Download dbs', click the 'REPORT' button to"
+	 echo "retrieve this log."
+	 echo -e "\nScript finished."
+	 [ "$WOOF_GUI" ] && { echo -n "Press ENTER key to exit: " ; read zzz ; }
+	else
+	 kill $XPID
+	 if [ "$(grep -e 'FAIL|exited|failures' /var/woof/0setup_fail_report_$RUNNINGPUP)" = "" ]; then
+	  Xdialog --title "$(gettext 'PPM database')" --left --msgbox "$(gettext 'PPM databases update was successfully completed.')" 0 100
+	 else
+	  Xdialog --title "$(gettext 'PPM database')" --left --msgbox "$(gettext 'PPM databases update failed. Chech /var/woof/0setup_fail_report_')$RUNNINGPUP $(gettext 'for details.')" 0 100
+	 fi
+	fi
+	unset OSETUP_CALLED_FROM
+}
+
+case $1 in check|-check)
+	check_compat_distro_pkgs
+	exit
+esac
+
+#======================================================================
+
 #w480 check puppy pkg db files...
 if [ "$RUNNINGPUP" = "no" ];then
  ./support/fix-puppy-dbs
@@ -261,11 +375,6 @@ else
 fi
 echo
 
-#w008 convert pkg database ${PKGLISTFILE}pre to a standard format...
-#120812 subcategory...
-#each line: pkgname|nameonly|version|pkgrelease|category[;subcategory]|size|path|fullfilename|dependencies|description|
-#ex: abiword-1.2.4|abiword|1.2.4|5|Document|999K|slackware/ab|abiword-1.2.4-5-i486.tgz|+aiksausus,+gtk2|a nice wordprocessor|
-PKGLISTS_COMPAT="`echo "$PKG_DOCS_DISTRO_COMPAT" | tr ' ' '\n' | cut -f 3 -d '|' | tr '\n' ' '`" #see file DISTRO_PKGS_SPECS-ubuntu
 #...format ex: 'Packages-ubuntu-intrepid-main Packages-ubuntu-intrepid-universe'
 for ONE_PKGLISTS_COMPAT in $PKGLISTS_COMPAT $PKGLISTS_COMPAT_UPDATES #120825
 do
@@ -405,100 +514,6 @@ fi
 DATE="`date +%Y%m%d `"
 echo "$DATE" > /root/.packages/db-date
 
-####################################
-#extract all the package names of compat-distro, without version info...
-#                 *this*
-#automake_1.14.1|automake|1.14.1|2ubuntu1|Filesystem;filemanager|1492K|pool/main/a/automake-1.14|automake_1.14.1-2ubuntu1_all.deb|+autoconf&ge2.65,+autotools-dev&ge20020320.1|Tool for generating GNU Standards-compliant Makefiles|ubuntu|trusty||
-cat $PKGLISTS_COMPAT | cut -f 2 -d '|' > zz_pkgnamespre
-#in debian/ubuntu there are too many lib* packages
-grep '^lib' zz_pkgnamespre > zz_pkgnames
-grep -v '^lib' zz_pkgnamespre >> zz_pkgnames
+check_compat_distro_pkgs
 
-#check the entries in PKGS_SPECS_TABLE against those in Packages-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}.
-#that is, need to verify that pkgs specified in table do actually exist.
-echo -e "\nChecking that compat-distro pkgs specified in PKGS_SPECS_TABLE actually exist..." | tee -a /var/woof/0setup_fail_report_$RUNNINGPUP
-FAILCHK="no"
-
-#120315 extra field on end to force repo... grep -v '||[a-zA-Z0-9]*:' (not actually needed)
-echo "$PKGS_SPECS_TABLE" | grep '^yes' | grep -v '|pet:' | cut -f 3,4 -d '|' > zz_fields34
-#yes|alsa-lib|libasound2,libasound2-data,libasound2-dev,libasound2-plugins|exe,dev,doc,nls
-#yes|advancecomp|advancecomp|exe>dev,dev,doc,nls
-#yes|abiword||exe,dev,doc,nls
-while read AFIELD34
-do
- #              BINARYPARTNAMES  ASSIGNFIELD
- #yes|advancecomp|advancecomp|exe>dev,dev,doc,nls
- IFS="|" read -r FPARTNAMES ASSIGNFIELD <<< "$AFIELD34"
- [ ! "$FPARTNAMES" ] && continue
- BINARYPARTNAMES=""
- for I in ${FPARTNAMES//,/ } ; do
-   case $I in -*) continue ;; esac #ignore -pkgs
-   BINARYPARTNAMES+=" $I"
- done
- for ONEBINARYPARTNAME in $BINARYPARTNAMES
- do
-  #ONEBINARYPARTNAME may match multiple pkgs...
-  #echo -n " $ONEBINARYPARTNAME"
-  multiPATTERN="${ONEBINARYPARTNAME//-/\\-}" #replace "-" with "\-"
-  multiPATTERN="${multiPATTERN//\*/.*}"      #replace "*" with ".*"
-  grep -m 1 -q "^${multiPATTERN}$" zz_pkgnames && continue #success.
-
-  if [ "$ASSIGNFIELD" ];then #120804
-   #this will find entry in PKGS_SPECS_TABLE like 'yes|apr|apr|exe>dev,dev,doc,nls', where pkg apr-123 does not exist, only apr_DEV-123...
-   case "$ASSIGNFIELD" in *'exe>dev'*|*'exe>null'*)
-    grep -m 1 -q "^${ONEBINARYPARTNAME}_DEV" zz_pkgnames && continue #success.
-   esac
-   #this entry 'yes|perl-digest-sha1|perl-digest-sha1|exe,dev>null,doc>null,nls>null' also only has a _DEV pkg...
-   case "$ASSIGNFIELD" in *'dev>exe'*) 
-    grep -m 1 -q "^${ONEBINARYPARTNAME}_DEV" zz_pkgnames && continue #success.
-   esac
-  fi
-  case "$ONEBINARYPARTNAME" in *"*"*)
-   grep -m 1 -q "^${multiPATTERN}" zz_pkgnames && continue #success.
-  esac
-  #failure...
-  echo "FAIL: $ONEBINARYPARTNAME"
-  echo "FAIL: $ONEBINARYPARTNAME" >> /var/woof/0setup_fail_report_$RUNNINGPUP
-  FAILCHK="yes"
- done
-done < zz_fields34
-
-rm -f zz_fields34  #comment out to debug
-rm -f zz_pkgnames* #--
-
-if [ "$FAILCHK" = "yes" ];then
- echo "
-Finished, but some failures. You need to fix the above entries in variable
-PKGS_SPECS_TABLE in file ${DPSFILE}.
-Search for suitable packages in these files:
-`echo "$PKG_DOCS_DISTRO_COMPAT" | tr ' ' '\n' | cut -f 3 -d '|'`
-Or, search online. In the case of Debian or Ubuntu, you can search
-at packages.debian.org or packages.ubuntu.com.
-After you have fixed PKGS_SPECS_TABLE, run this script again." | tee -a /var/woof/0setup_fail_report_$RUNNINGPUP
- if [ "$DBmethod" = "false" ];then
-  kill $XPID
-  Xdialog --title "$(gettext 'PPM database')" --left --msgbox "$(gettext 'PPM database failed. Chech /var/woof/0setup_fail_report_')$RUNNINGPUP $(gettext 'for details.')" 0 100
- fi
- unset OSETUP_CALLED_FROM
-else
- echo -e "\nFinished, successful." | tee -a /var/woof/0setup_fail_report_$RUNNINGPUP
-fi
-
-if [ "$DBmethod" = "true" ]; then
- echo
- echo "The log of '0setup', as reported above, is saved for future reference."
- echo "(In file /var/woof/0setup_fail_report_${RUNNINGPUP})"
- echo "In the Woof GUI, tab 'Download dbs', click the 'REPORT' button to"
- echo "retrieve this log."
- echo -e "\nScript finished."
- [ "$WOOF_GUI" ] && { echo -n "Press ENTER key to exit: " ; read zzz ; }
-else
- kill $XPID
- if [ "$(grep -e 'FAIL|exited|failures' /var/woof/0setup_fail_report_$RUNNINGPUP)" = "" ]; then
-  Xdialog --title "$(gettext 'PPM database')" --left --msgbox "$(gettext 'PPM databases update was successfully completed.')" 0 100
- else
-  Xdialog --title "$(gettext 'PPM database')" --left --msgbox "$(gettext 'PPM databases update failed. Chech /var/woof/0setup_fail_report_')$RUNNINGPUP $(gettext 'for details.')" 0 100
- fi
-fi
-unset OSETUP_CALLED_FROM
 ###END###
