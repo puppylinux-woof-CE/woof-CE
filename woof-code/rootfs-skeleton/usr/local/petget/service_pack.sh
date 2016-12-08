@@ -10,12 +10,6 @@
 
 IFCONFIG="`ifconfig | grep '^[pwe]' | grep -v 'wmaster'`"
 [ ! "$IFCONFIG" ] && exit 1 #no network connection.
-ping -4 -c 1 www.duckduckgo.com
-if [ $? -ne 0 ];then
- sleep 1
- ping -4 -c 1 www.duckduckgo.com
- [ $? -ne 0 ] && exit 1 #no internet.
-fi
 
 export TEXTDOMAIN=petget___service_pack.sh
 export OUTPUT_CHARSET=UTF-8
@@ -33,7 +27,12 @@ URLSPEC="${URLSPEC0}/pet_packages-${DISTRO_DB_SUBNAME}/"
 #i think should test that repo is working...
 URLPING="$(echo "$URLSPEC0" | cut -f 3 -d '/')" #ex: distro.ibiblio.org
 ping -4 -c 1 $URLPING
-[ $? -ne 0 ] && exit 1
+if [ $? -ne 0 ];then
+ sleep 2
+ ping -4 -c 1 $URLPING
+ [ $? -ne 0 ] && exit 1 #no internet.
+fi
+
 
 #find all service packs...
 #note, can use wildcard to test if file exists, if need to look for alternate versions, ex:
