@@ -53,6 +53,7 @@ report_results () {
  rm -f /tmp/pgks_failed_to_install 2>/dev/null
  for LINE in $(cat /tmp/pkgs_to_install_done  | cut -f 1 -d '|' | sort | uniq)
  do
+  [ "$(echo $LINE)" = "" ] && continue
   if [ -f /tmp/download_pets_quietly -o -f /tmp/download_only_pet_quietly \
    -o -f /tmp/manual_pkg_download ];then
    if [ -f /root/.packages/download_path ];then
