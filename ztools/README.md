@@ -1,11 +1,21 @@
-# woof-tools
+# ztools
 
-mavrothal's patch-generator.sh from  
-http://murga-linux.com/puppy/viewtopic.php?t=98740
+ * gitrepo
 
-Modified to also work on "rationalise" branch, and to generate patch files of woof-CE build scripts.
+ * mavrothal's patch-generator.sh from  
+ http://murga-linux.com/puppy/viewtopic.php?t=98740
 
-### Usage
+ Modified to also work on "rationalise" branch, and to generate patch files of woof-CE build scripts.
+
+## Usage
+
+### gitrepo
+
+Run `gitrepo` from the location where you want to clone woof-CE and follow the prompts.
+
+### patch-generator.sh
+
+Before using patch-generator.sh, copy it to the directory that contains the woof-CE directory.
 
 To generate patches of the differences between the running system and woof-CE  
 `./patch-generator.sh`
