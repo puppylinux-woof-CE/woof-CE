@@ -445,7 +445,8 @@ cp Makefile Makefile-orig
 if [ "$remove_sublevel" = "yes" ] ; then
 	echo "Resetting the minor version number" #!
 	sed -i "s/^SUBLEVEL =.*/SUBLEVEL = 0/" Makefile
-	kernel_srcsfs_version=${kernel_major_version}.0
+	dots=$(echo "$kernel_version" | tr -cd '.' | wc -c)                #ex: 4.8.11=2 4.9=1
+	[ $dots -gt 1 ] && kernel_srcsfs_version=${kernel_major_version}.0 #ex: 4.8.0    4.9
 fi
 ## custom suffix
 if [ -n "${custom_suffix}" ] || [ $LIBRE -eq 1 ] ; then
