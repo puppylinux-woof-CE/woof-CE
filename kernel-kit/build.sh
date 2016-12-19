@@ -246,11 +246,14 @@ IFS=. read -r kernel_series \
 		kernel_major_version \
 		kernel_minor_version \
 		kernel_minor_revision <<< "${kernel_version}"
+
 kernel_branch=${kernel_major_version} #3.x 4.x kernels
 kernel_major_version=${kernel_series}.${kernel_major_version} #crazy!! 3.14 2.6 etc
 aufs_version=${kernel_series} ## aufs major version
+[ "$kernel_minor_version" ] && kmv=.${kernel_minor_version}
 [ "$kernel_minor_revision" ] && kmr=.${kernel_minor_revision}
-echo "Linux: ${kernel_major_version}.${kernel_minor_version}${kmr}" #${kernel_series}.
+
+echo "Linux: ${kernel_major_version}${kmv}${kmr}" #${kernel_series}.
 
 if [ ! $aufsv ] ; then
 	AUFS_BRANCHES='aufs3.0 aufs3.1 aufs3.11 aufs3.13 aufs3.15 aufs3.16 aufs3.17 aufs3.19 aufs3.3 aufs3.4 aufs3.5 aufs3.6 aufs3.7 aufs3.8 aufs3.9 aufs4.0 aufs4.2 aufs4.3 aufs4.4 aufs4.5 aufs4.6 aufs4.7 aufs4.8 aufs4.9'
@@ -447,6 +450,7 @@ if [ "$remove_sublevel" = "yes" ] ; then
 	sed -i "s/^SUBLEVEL =.*/SUBLEVEL = 0/" Makefile
 	dots=$(echo "$kernel_version" | tr -cd '.' | wc -c)                #ex: 4.8.11=2 4.9=1
 	[ $dots -gt 1 ] && kernel_srcsfs_version=${kernel_major_version}.0 #ex: 4.8.0    4.9
+	echo kernel_srcsfs_version=$kernel_srcsfs_version
 fi
 ## custom suffix
 if [ -n "${custom_suffix}" ] || [ $LIBRE -eq 1 ] ; then
