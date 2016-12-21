@@ -106,17 +106,10 @@ INITPATH=$(echo "$PUPSFS" | cut -f 2 -d '/' | grep -v sfs)
 mkdir -p /tmp/initfs
 cd /tmp/initfs
 gunzip -c /mnt/home/$INITPATH/initrd.gz | cpio -i
-cd $WDIR/woof-CE/woof-code
-HUGEINIT=$(ls /mnt/home/$INITPATH/*.sfs | grep -s zdrv)
-if [ "$HUGEINIT" != "" ]; then
- diff -u huge_extras/init /tmp/initfs/init > $WDIR/$PATCHES/init.patch
- sed -i "s/\-\-\-\ /\-\-\-\ a\/\woof\-code\//" $WDIR/$PATCHES/init.patch
- sed -i "s/\+\+\+\ \/tmp\/initfs/\+\+\+\ b\/woof\-code\/huge_extras/" $WDIR/$PATCHES/init.patch
-else
- diff -u boot/initrd-tree/init /tmp/initfs/init > $WDIR/$PATCHES/init.patch
- sed -i "s/\-\-\-\ /\-\-\-\ \woof\-code\//" $WDIR/$PATCHES/init.patch
- sed -i "s/\+\+\+\ \/tmp\/initfs/\+\+\+\ b\/woof\-code\/boot\/initrd\-tree0/" $WDIR/$PATCHES/init.patch
-fi
+cd $WDIR/woof-CE
+diff -u initrd-progs/0initrd/init /tmp/initfs/init > $WDIR/$PATCHES/init.patch
+sed -i "s/\-\-\-\ /\-\-\-\ a\//" $WDIR/$PATCHES/init.patch
+sed -i "s/\+\+\+\ \/tmp\/initfs/\+\+\+\ b\/initrd\-progs\/0initrd/" $WDIR/$PATCHES/init.patch
 rm -rf /tmp/initfs
 # Move some patches to folders for easy reviewing
 cd $WDIR/$PATCHES
