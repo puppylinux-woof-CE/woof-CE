@@ -10,11 +10,16 @@
  */
 
 user_pref("accessibility.typeaheadfind.enablesound", false);
-user_pref("browser.cache.disk.capacity", 4096);
+user_pref("browser.cache.disk.capacity", 10240);
+user_pref("browser.cache.disk.filesystem_reported", 1);
+user_pref("browser.cache.disk.smart_size.enabled", false);
+user_pref("browser.cache.disk.smart_size.first_run", false);
+user_pref("browser.cache.disk.smart_size.use_old_max", false);
+user_pref("browser.cache.disk.smart_size_cached_value", 61440);
 user_pref("browser.cache.disk.enable", false);
 user_pref("browser.chrome.toolbar_style", 0);
 user_pref("browser.display.use_document_fonts", 0);
-user_pref("browser.download.dir", "/root/my-documents");
+user_pref("browser.download.dir", "/root/Downloads");
 user_pref("browser.enable_automatic_image_resizing", true);
 user_pref("browser.open.dir", "/usr/share/doc");
 user_pref("browser.open.filterIndex", 0);
