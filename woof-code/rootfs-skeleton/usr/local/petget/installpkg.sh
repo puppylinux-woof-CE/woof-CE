@@ -493,37 +493,21 @@ else #-- anything other than PUPMODE 2 (full install) --
 fi
 
 #some .pet pkgs have images at '/'...
-mv /*24.xpm /usr/local/lib/X11/pixmaps/ 2>/dev/null
-mv /*32.xpm /usr/local/lib/X11/pixmaps/ 2>/dev/null
-mv /*32.png /usr/local/lib/X11/pixmaps/ 2>/dev/null
-mv /*48.xpm /usr/local/lib/X11/pixmaps/ 2>/dev/null
-mv /*48.png /usr/local/lib/X11/pixmaps/ 2>/dev/null
-mv /*.xpm /usr/local/lib/X11/mini-icons/ 2>/dev/null
-mv /*.png /usr/local/lib/X11/mini-icons/ 2>/dev/null
+mv /{*.xpm,*.png} /usr/share/pixmaps/ 2>/dev/null
 
 ls -dl /tmp | grep -q '^drwxrwxrwt' || chmod 1777 /tmp #130305 rerwin.
 
 #post-install script?...
-if [ -f /pinstall.sh ];then #pet pkgs.
- chmod +x /pinstall.sh
- cd /
-  LANG=$LANG_USER nohup sh /pinstall.sh &
-  sleep 0.2
- rm -f /pinstall.sh
-fi
-if [ -f /install/doinst.sh ];then #slackware pkgs.
- chmod +x /install/doinst.sh
- cd /
- LANG=$LANG_USER nohup sh /install/doinst.sh &
- sleep 0.2
- rm -rf /install
-fi
-if [ -e /DEBIAN/postinst ];then #130112 deb post-install script.
- cd /
- LANG=$LANG_USER nohup sh DEBIAN/postinst &
- sleep 0.2
- rm -rf /DEBIAN
-fi
+#          puppy         slackware       debian/ubuntu/etc
+for i in /pinstall.sh /install/doinst.sh /DEBIAN/postinst
+do
+	chmod +x ${i}
+	cd /
+	LANG=$LANG_USER nohup sh ${i} &
+	sleep 0.2
+	rm -f ${i}
+done
+
 #130314 run arch linux pkg post-install script...
 if [ -f /.INSTALL ];then #arch post-install script.
  if [ -f /usr/local/petget/ArchRunDotInstalls ];then #precaution. see 3builddistro, script created by noryb009.
@@ -781,13 +765,6 @@ if [ "$DESKTOPFILE" != "" ];then
 fi
 
 echo "$DB_ENTRY" >> /root/.packages/user-installed-packages
-
-#110706 fix 'Exec filename %u' line...
-DESKTOPFILES="`grep '\.desktop$' /root/.packages/${DLPKG_NAME}.files | tr '\n' ' '`"
-for ONEDESKTOP in $DESKTOPFILES
-do
- sed -i -e 's/ %u$//' $ONEDESKTOP
-done
 
 #120907 post-install hacks...
 /usr/local/petget/hacks-postinstall.sh $DLPKG_MAIN
