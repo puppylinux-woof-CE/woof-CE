@@ -146,63 +146,63 @@ if [ "`grep "$PTN1" /root/.packages/user-installed-packages`" != "" ];then
  exit 1
 fi
 
-#boot from flash: bypass tmpfs top layer, install direct to pup_save file...
 DIRECTSAVEPATH=""
  
 if [ "$PUPMODE" = "2" ]; then # from BK's quirky6.1
+	#131220  131229 detect if not enough room in /tmp...
+	DIRECTSAVEPATH="/tmp/petget/directsavepath"
+	SIZEB=`stat --format=%s "${DLPKG_PATH}"/${DLPKG_BASE}`
+	SIZEK=`expr $SIZEB \/ 1024`
+	EXPK=`expr $SIZEK \* 5` #estimated worst-case expanded size.
+	NEEDK=$EXPK
+	TMPK=`df -k /tmp | grep '^tmpfs' | tr -s ' ' | cut -f 4 -d ' '` #free space in /tmp
+	if [ $EXPK -ge $TMPK ];then
+	  DIRECTSAVEPATH="/audit/directsavepath"
+	  NEEDK=`expr $NEEDK \* 2`
+	fi
+	if [ "$DIRECTSAVEPATH" ];then
+	 rm -rf $DIRECTSAVEPATH
+	 mkdir -p $DIRECTSAVEPATH
+	fi
+	# check enough space to install pkg...
+	#as the pkg gets expanded to an intermediate dir, maybe in main f.s...
+	PARTK=`df -k / | grep '/$' | tr -s ' ' | cut -f 4 -d ' '` #free space in partition.
+	if [ $NEEDK -gt $PARTK ];then
+	 LANG=$LANG_USER
+	 if [ $DISPLAY ];then
+	  /usr/lib/gtkdialog/box_ok "$(gettext 'Puppy package manager')" error "$(gettext 'Not enough free space in the partition to install this package'):" "<i>${DLPKG_BASE}</i>"
+	 else
+	  echo -e "$(gettext 'Not enough free space in the partition to install this package'):\n${DLPKG_BASE}"
+	 fi
+	 [ "$DLPKG_PATH" != "" ] && rm -f "${DLPKG_PATH}"/${DLPKG_BASE}
+	 exit 1
+	fi
 
-#131220  131229 detect if not enough room in /tmp...
-DIRECTSAVEPATH="/tmp/petget/directsavepath"
-SIZEB=`stat --format=%s "${DLPKG_PATH}"/${DLPKG_BASE}`
-SIZEK=`expr $SIZEB \/ 1024`
-EXPK=`expr $SIZEK \* 5` #estimated worst-case expanded size.
-NEEDK=$EXPK
-TMPK=`df -k /tmp | grep '^tmpfs' | tr -s ' ' | cut -f 4 -d ' '` #free space in /tmp
-if [ $EXPK -ge $TMPK ];then
-  DIRECTSAVEPATH="/audit/directsavepath"
-  NEEDK=`expr $NEEDK \* 2`
-fi
-if [ "$DIRECTSAVEPATH" ];then
- rm -rf $DIRECTSAVEPATH
- mkdir -p $DIRECTSAVEPATH
-fi
-
-# check enough space to install pkg...
-#as the pkg gets expanded to an intermediate dir, maybe in main f.s...
-PARTK=`df -k / | grep '/$' | tr -s ' ' | cut -f 4 -d ' '` #free space in partition.
-if [ $NEEDK -gt $PARTK ];then
- LANG=$LANG_USER
- if [ $DISPLAY ];then
-  /usr/lib/gtkdialog/box_ok "$(gettext 'Puppy package manager')" error "$(gettext 'Not enough free space in the partition to install this package'):" "<i>${DLPKG_BASE}</i>"
- else
-  echo -e "$(gettext 'Not enough free space in the partition to install this package'):\n${DLPKG_BASE}"
- fi
- [ "$DLPKG_PATH" != "" ] && rm -f "${DLPKG_PATH}"/${DLPKG_BASE}
- exit 1
-fi
-
-#111013 shinobar: this currently not working, bypass for now... 111013 revert...
-#elif [ "ABC" = "DEF" ];then #111013
+#boot from flash: bypass tmpfs top layer, install direct to pup_save file...
 elif [ $PUPMODE -eq 3 -o $PUPMODE -eq 7 -o $PUPMODE -eq 13 ];then
-  # SFR: let user chose...
-  [ -f /var/local/petget/install_mode ] && IM="`cat /var/local/petget/install_mode`" || IMODE="savefile"
-  [ "$IM" = "true" ] && IMODE="tmpfs" || IMODE="savefile"
-  if [ "$IMODE" != "tmpfs" ]; then
-    FLAGNODIRECT=1
-    #100426 aufs can now write direct to save layer...
-    #note: fsnotify now preferred not inotify, udba=notify uses whichever is enabled in module...
-    busybox mount -t aufs -o remount,udba=notify unionfs / #remount aufs with best evaluation mode.
-    FLAGNODIRECT=$?
-    [ $FLAGNODIRECT -ne 0 ] && logger -s -t "installpkg.sh" "Failed to remount aufs / with udba=notify"
-    if [ $FLAGNODIRECT -eq 0 ];then
-     #note that /sbin/pup_event_frontend_d will not run snapmergepuppy if installpkg.sh or downloadpkgs.sh are running.
-     while [ "`pidof snapmergepuppy`" != "" ];do
-      sleep 1
-     done
-     DIRECTSAVEPATH="/initrd${SAVE_LAYER}" #SAVE_LAYER is in /etc/rc.d/PUPSTATE.
-     rm -f $DIRECTSAVEPATH/pet.specs $DIRECTSAVEPATH/pinstall.sh $DIRECTSAVEPATH/puninstall.sh $DIRECTSAVEPATH/install/doinst.sh
-    fi
-  fi
+	# SFR: let user chose...
+	if [ -f /var/local/petget/install_mode ] ; then
+	 IM="`cat /var/local/petget/install_mode`"
+	else
+	 IMODE="savefile"
+	fi
+	[ "$IM" = "true" ] && IMODE="tmpfs" || IMODE="savefile"
+	if [ "$IMODE" != "tmpfs" ]; then
+	 FLAGNODIRECT=1
+	 #100426 aufs can now write direct to save layer...
+	 #note: fsnotify now preferred not inotify, udba=notify uses whichever is enabled in module...
+	 busybox mount -t aufs -o remount,udba=notify unionfs / #remount aufs with best evaluation mode.
+	 FLAGNODIRECT=$?
+	 [ $FLAGNODIRECT -ne 0 ] && logger -s -t "installpkg.sh" "Failed to remount aufs / with udba=notify"
+	 if [ $FLAGNODIRECT -eq 0 ];then
+	  #note that /sbin/pup_event_frontend_d will not run snapmergepuppy if installpkg.sh or downloadpkgs.sh are running.
+	  while [ "`pidof snapmergepuppy`" != "" ];do
+	   sleep 1
+	  done
+	  DIRECTSAVEPATH="/initrd${SAVE_LAYER}" #SAVE_LAYER is in /etc/rc.d/PUPSTATE.
+	  rm -f $DIRECTSAVEPATH/pet.specs $DIRECTSAVEPATH/pinstall.sh $DIRECTSAVEPATH/puninstall.sh $DIRECTSAVEPATH/install/doinst.sh
+	 fi
+	fi
 fi
 
 if [ $DISPLAY -a ! -f /tmp/install_quietly ];then #131222
@@ -298,200 +298,197 @@ case $DLPKG_BASE in
 esac
 
 if [ "$PUPMODE" = "2" ]; then #from BK's quirky6.1
- mkdir /audit/${DLPKG_NAME}DEPOSED
- echo -n '' > /tmp/petget/FLAGFND
- find ${DIRECTSAVEPATH}/ -mindepth 1 | sed -e "s%${DIRECTSAVEPATH}%%" |
- while read AFILESPEC
- do
-  if [ -f "$AFILESPEC" ];then
-   ADIR="$(dirname "$AFILESPEC")"
-   mkdir -p /audit/${DLPKG_NAME}DEPOSED/${ADIR}
-   cp -a -f "$AFILESPEC" /audit/${DLPKG_NAME}DEPOSED/${ADIR}/
-   echo -n '1' > /tmp/petget/FLAGFND
-  fi
- done
- sync
- if [ -s /tmp/petget/FLAGFND ];then
-  [ -f /audit/${DLPKG_NAME}DEPOSED.sfs ] && rm -f /audit/${DLPKG_NAME}DEPOSED.sfs #precaution, should not happen, as not allowing duplicate installs of same pkg.
-  mksquashfs /audit/${DLPKG_NAME}DEPOSED /audit/${DLPKG_NAME}DEPOSED.sfs
- fi
- sync
- rm -rf /audit/${DLPKG_NAME}DEPOSED
- #now write temp-location to final destination...
- cp -a -f --remove-destination ${DIRECTSAVEPATH}/* /  2> /tmp/petget/install-cp-errlog
- sync
- #can have a problem if want to replace a folder with a symlink. for example, got this error:
- # cp: cannot overwrite directory '/usr/share/mplayer/skins' with non-directory
- #3builddistro has this fix... which is a vice-versa situation...
- #firstly, the vice-versa, source is a directory, target is a symlink...
- CNT=0
- while [ -s /tmp/petget/install-cp-errlog ];do
-  echo -n '' > /tmp/petget/install-cp-errlog2
-  echo -n '' > /tmp/petget/install-cp-errlog3
-  cat /tmp/petget/install-cp-errlog | grep 'cannot overwrite non-directory' | grep 'with directory' | tr '[`‘’]' "'" | cut -f 2 -d "'" |
-  while read ONEDIRSYMLINK #ex: /usr/share/mplayer/skins
-  do
-   if [ -h "${ONEDIRSYMLINK}" ];then #source is a directory, target is a symlink...
-    #adding that extra trailing / does the trick...
-    cp -a -f --remove-destination ${DIRECTSAVEPATH}"${ONEDIRSYMLINK}"/* "${ONEDIRSYMLINK}"/ 2>> /tmp/petget/install-cp-errlog2
-   else #source is a directory, target is a file...
-    rm -f "${ONEDIRSYMLINK}" #delete the file!
-    DIRPATH="$(dirname "${ONEDIRSYMLINK}")"
-    cp -a -f ${DIRECTSAVEPATH}"${ONEDIRSYMLINK}" "${DIRPATH}"/ 2>> /tmp/petget/install-cp-errlog2 #copy directory (and contents).
-   fi
-  done
-  #secondly, which is our mplayer example, source is a symlink, target is a folder...
-  cat /tmp/petget/install-cp-errlog | grep 'cannot overwrite directory' | grep 'with non-directory' | tr '[`‘’]' "'" | cut -f 2 -d "'" |
-  while read ONEDIRSYMLINK #ex: /usr/share/mplayer/skins
-  do
-   #difficult situation, whether to impose the symlink of package, or not. if not...
-   #cp -a -f --remove-destination ${DIRECTSAVEPATH}"${ONEDIRSYMLINK}"/* "${ONEDIRSYMLINK}"/ 2> /tmp/petget/install-cp-errlog3
-   #or, if we have chosen to follow link...
-   DIRPATH="$(dirname "${ONEDIRSYMLINK}")"
-   if [ -h ${DIRECTSAVEPATH}"${ONEDIRSYMLINK}" ];then #source is a symlink, trying to overwrite a directory...
-    ALINK="$(readlink ${DIRECTSAVEPATH}"${ONEDIRSYMLINK}")"
-    if [ "${ALINK:0:1}" = "/" ];then #test 1st char
-     xALINK="$ALINK" #absolute
-    else
-     xALINK="${DIRPATH}/${ALINK}"
-    fi
-    if [ -d "$xALINK" ];then
-     cp -a -f --remove-destination "${ONEDIRSYMLINK}"/* "$xALINK"/ 2>> /tmp/petget/install-cp-errlog3 #relocates target files.
-     rm -rf "${ONEDIRSYMLINK}"
-     cp -a -f ${DIRECTSAVEPATH}"${ONEDIRSYMLINK}" "${DIRPATH}"/ #creates symlink only.
-    fi
-   else #source is a file, trying to overwrite a directory...
-    rm -rf "${ONEDIRSYMLINK}" #deleting directory!!!
-    cp -a -f ${DIRECTSAVEPATH}"${ONEDIRSYMLINK}" "${DIRPATH}"/ #creates file only.
-   fi
-  done
-  cat /tmp/petget/install-cp-errlog2 >> /tmp/petget/install-cp-errlog3
-  cat /tmp/petget/install-cp-errlog3 > /tmp/petget/install-cp-errlog
-  sync
-  CNT=`expr $CNT + 1`
-  [ $CNT -gt 10 ] && break #something wrong, get out.
- done
+	mkdir /audit/${DLPKG_NAME}DEPOSED
+	echo -n '' > /tmp/petget/FLAGFND
+	find ${DIRECTSAVEPATH}/ -mindepth 1 | sed -e "s%${DIRECTSAVEPATH}%%" |
+	while read AFILESPEC
+	do
+	  if [ -f "$AFILESPEC" ];then
+	   ADIR="$(dirname "$AFILESPEC")"
+	   mkdir -p /audit/${DLPKG_NAME}DEPOSED/${ADIR}
+	   cp -a -f "$AFILESPEC" /audit/${DLPKG_NAME}DEPOSED/${ADIR}/
+	   echo -n '1' > /tmp/petget/FLAGFND
+	  fi
+	done
+	sync
+	if [ -s /tmp/petget/FLAGFND ];then
+	  [ -f /audit/${DLPKG_NAME}DEPOSED.sfs ] && rm -f /audit/${DLPKG_NAME}DEPOSED.sfs #precaution, should not happen, as not allowing duplicate installs of same pkg.
+	  mksquashfs /audit/${DLPKG_NAME}DEPOSED /audit/${DLPKG_NAME}DEPOSED.sfs
+	fi
+	sync
+	rm -rf /audit/${DLPKG_NAME}DEPOSED
+	#now write temp-location to final destination...
+	cp -a -f --remove-destination ${DIRECTSAVEPATH}/* /  2> /tmp/petget/install-cp-errlog
+	sync
+	#can have a problem if want to replace a folder with a symlink. for example, got this error:
+	# cp: cannot overwrite directory '/usr/share/mplayer/skins' with non-directory
+	#3builddistro has this fix... which is a vice-versa situation...
+	#firstly, the vice-versa, source is a directory, target is a symlink...
+	CNT=0
+	while [ -s /tmp/petget/install-cp-errlog ];do
+	  echo -n '' > /tmp/petget/install-cp-errlog2
+	  echo -n '' > /tmp/petget/install-cp-errlog3
+	  cat /tmp/petget/install-cp-errlog | grep 'cannot overwrite non-directory' | grep 'with directory' | tr '[`‘’]' "'" | cut -f 2 -d "'" |
+	  while read ONEDIRSYMLINK #ex: /usr/share/mplayer/skins
+	  do
+	   if [ -h "${ONEDIRSYMLINK}" ];then #source is a directory, target is a symlink...
+	    #adding that extra trailing / does the trick...
+	    cp -a -f --remove-destination ${DIRECTSAVEPATH}"${ONEDIRSYMLINK}"/* "${ONEDIRSYMLINK}"/ 2>> /tmp/petget/install-cp-errlog2
+	   else #source is a directory, target is a file...
+	    rm -f "${ONEDIRSYMLINK}" #delete the file!
+	    DIRPATH="$(dirname "${ONEDIRSYMLINK}")"
+	    cp -a -f ${DIRECTSAVEPATH}"${ONEDIRSYMLINK}" "${DIRPATH}"/ 2>> /tmp/petget/install-cp-errlog2 #copy directory (and contents).
+	   fi
+	  done
+	  #secondly, which is our mplayer example, source is a symlink, target is a folder...
+	  cat /tmp/petget/install-cp-errlog | grep 'cannot overwrite directory' | grep 'with non-directory' | tr '[`‘’]' "'" | cut -f 2 -d "'" |
+	  while read ONEDIRSYMLINK #ex: /usr/share/mplayer/skins
+	  do
+	   #difficult situation, whether to impose the symlink of package, or not. if not...
+	   #cp -a -f --remove-destination ${DIRECTSAVEPATH}"${ONEDIRSYMLINK}"/* "${ONEDIRSYMLINK}"/ 2> /tmp/petget/install-cp-errlog3
+	   #or, if we have chosen to follow link...
+	   DIRPATH="$(dirname "${ONEDIRSYMLINK}")"
+	   if [ -h ${DIRECTSAVEPATH}"${ONEDIRSYMLINK}" ];then #source is a symlink, trying to overwrite a directory...
+	    ALINK="$(readlink ${DIRECTSAVEPATH}"${ONEDIRSYMLINK}")"
+	    if [ "${ALINK:0:1}" = "/" ];then #test 1st char
+	     xALINK="$ALINK" #absolute
+	    else
+	     xALINK="${DIRPATH}/${ALINK}"
+	    fi
+	    if [ -d "$xALINK" ];then
+	     cp -a -f --remove-destination "${ONEDIRSYMLINK}"/* "$xALINK"/ 2>> /tmp/petget/install-cp-errlog3 #relocates target files.
+	     rm -rf "${ONEDIRSYMLINK}"
+	     cp -a -f ${DIRECTSAVEPATH}"${ONEDIRSYMLINK}" "${DIRPATH}"/ #creates symlink only.
+	    fi
+	   else #source is a file, trying to overwrite a directory...
+	    rm -rf "${ONEDIRSYMLINK}" #deleting directory!!!
+	    cp -a -f ${DIRECTSAVEPATH}"${ONEDIRSYMLINK}" "${DIRPATH}"/ #creates file only.
+	   fi
+	  done
+	  cat /tmp/petget/install-cp-errlog2 >> /tmp/petget/install-cp-errlog3
+	  cat /tmp/petget/install-cp-errlog3 > /tmp/petget/install-cp-errlog
+	  sync
+	  CNT=`expr $CNT + 1`
+	  [ $CNT -gt 10 ] && break #something wrong, get out.
+	done
+	#end 131220
 
- #end 131220
- rm -rf ${DIRECTSAVEPATH} #131229 131230
+	rm -rf ${DIRECTSAVEPATH} #131229 131230
+	[ "$DL_SAVE_FLAG" != "true" ] && rm -f $DLPKG_BASE 2>/dev/null
+	rm -f $DLPKG_MAIN.tar.gz 2>/dev/null
+	#pkgname.files may need to be fixed...
+	FIXEDFILES="`cat /root/.packages/${DLPKG_NAME}.files | grep -v '^\\./$'| grep -v '^/$' | sed -e 's%^\\.%%' -e 's%^%/%' -e 's%^//%/%'`"
+	echo "$FIXEDFILES" > /root/.packages/${DLPKG_NAME}.files 
 
-[ "$DL_SAVE_FLAG" != "true" ] && rm -f $DLPKG_BASE 2>/dev/null
-rm -f $DLPKG_MAIN.tar.gz 2>/dev/null
+else #-- anything other than PUPMODE 2 (full install) --
 
-#pkgname.files may need to be fixed...
-FIXEDFILES="`cat /root/.packages/${DLPKG_NAME}.files | grep -v '^\\./$'| grep -v '^/$' | sed -e 's%^\\.%%' -e 's%^%/%' -e 's%^//%/%'`"
-echo "$FIXEDFILES" > /root/.packages/${DLPKG_NAME}.files 
+	[ "$DL_SAVE_FLAG" != "true" ] &&  rm -f $DLPKG_BASE 2>/dev/null
+	rm -f $DLPKG_MAIN.tar.${EXT} 2>/dev/null #131122
 
-else
+	#pkgname.files may need to be fixed...
+	FIXEDFILES="`cat /root/.packages/${DLPKG_NAME}.files | grep -v '^\\./$'| grep -v '^/$' | sed -e 's%^\\.%%' -e 's%^%/%' -e 's%^//%/%'`"
+	echo "$FIXEDFILES" > /root/.packages/${DLPKG_NAME}.files
 
+	#120102 install may have overwritten a symlink-to-dir...
+	#tar defaults to not following symlinks, for both dirs and files, but i want to follow symlinks
+	#for dirs but not for files. so, fix here... (note, dir entries in .files have / on end)
+	cat /root/.packages/${DLPKG_NAME}.files | grep '[a-zA-Z0-9]/$' | sed -e 's%/$%%' | grep -v '^/mnt' |
+	while read ONESPEC
+	do
+	 if [ -d "${DIRECTSAVEPATH}${ONESPEC}" ];then
+	  if [ ! -h "${DIRECTSAVEPATH}${ONESPEC}" ];then
+	   DIRLINK=""
+	   if [ -h "/initrd${PUP_LAYER}${ONESPEC}" ];then #120107
+	    DIRLINK="`readlink -m "/initrd${PUP_LAYER}${ONESPEC}" | sed -e "s%/initrd${PUP_LAYER}%%"`" #PUP_LAYER: see /etc/rc.d/PUPSTATE. 120107
+	    xDIRLINK="`readlink "/initrd${PUP_LAYER}${ONESPEC}"`" #120107
+	   fi
+	   if [ ! "$DIRLINK" ];then
+	    if [ -h "/initrd${SAVE_LAYER}${ONESPEC}" ];then #120107
+	     DIRLINK="`readlink -m "/initrd${SAVE_LAYER}${ONESPEC}" | sed -e "s%/initrd${SAVE_LAYER}%%"`" #SAVE_LAYER: see /etc/rc.d/PUPSTATE. 120107
+	     xDIRLINK="`readlink "/initrd${SAVE_LAYER}${ONESPEC}"`" #120107
+	    fi
+	   fi
+	   if [ "$DIRLINK" ];then
+	    if [ -d "$DIRLINK"  ];then
+	     if [ "$DIRLINK" != "${ONESPEC}" ];then #precaution.
+	      mkdir -p "${DIRECTSAVEPATH}${DIRLINK}" #120107
+	      cp -a -f --remove-destination ${DIRECTSAVEPATH}"${ONESPEC}"/* "${DIRECTSAVEPATH}${DIRLINK}/" #ha! fails if put double-quotes around entire expression.
+	      rm -rf "${DIRECTSAVEPATH}${ONESPEC}"
+	      if [ "$DIRECTSAVEPATH" = "" ];then
+	       ln -s "$xDIRLINK" "${ONESPEC}"
+	      else
+	       DSOPATH="`dirname "${DIRECTSAVEPATH}${ONESPEC}"`"
+	       DSOBASE="`basename "${DIRECTSAVEPATH}${ONESPEC}"`"
+	       rm -f "${DSOPATH}/.wh.${DSOBASE}" #allow underlying symlink to become visible on top.
+	      fi
+	     fi
+	    fi
+	   fi
+	  fi
+	 fi
+	done
 
-[ "$DL_SAVE_FLAG" != "true" ] &&  rm -f $DLPKG_BASE 2>/dev/null
-rm -f $DLPKG_MAIN.tar.${EXT} 2>/dev/null #131122
+	#121217 it seems that this problem is occurring in other modes (13 reported)...
+	#121123 having a problem with multiarch symlinks in full-installation...
+	#it seems that the symlink is getting replaced by a directory.
+	if [ "$DISTRO_ARCHDIR" ];then #in /etc/rc.d/DISTRO_SPECS. 130112 change test from DISTRO_ARCHDIR. 130114 revert DISTRO_ARCHDIR_SYMLINKS==yes.
+	  if [ -d /usr/lib/${DISTRO_ARCHDIR} ];then
+	   if [ ! -h /usr/lib/${DISTRO_ARCHDIR} ];then
+	    cp -a -f --remove-destination /usr/lib/${DISTRO_ARCHDIR}/* /usr/lib/
+	    sync
+	    rm -r -f /usr/lib/${DISTRO_ARCHDIR}
+	    ln -s ./ /usr/lib/${DISTRO_ARCHDIR}
+	   fi
+	  fi
+	  if [ -d /lib/${DISTRO_ARCHDIR} ];then
+	   if [ ! -h /lib/${DISTRO_ARCHDIR} ];then
+	    cp -a -f --remove-destination /lib/${DISTRO_ARCHDIR}/* /lib/
+	    sync
+	    rm -r -f /lib/${DISTRO_ARCHDIR}
+	    ln -s ./ /lib/${DISTRO_ARCHDIR}
+	   fi
+	  fi
+	  if [ -d /usr/bin/${DISTRO_ARCHDIR} ];then
+	   if [ ! -h /usr/bin/${DISTRO_ARCHDIR} ];then
+	    cp -a -f --remove-destination /usr/bin/${DISTRO_ARCHDIR}/* /usr/bin/
+	    sync
+	    rm -r -f /usr/bin/${DISTRO_ARCHDIR}
+	    ln -s ./ /usr/bin/${DISTRO_ARCHDIR}
+	   fi
+	  fi
+	fi
 
-#pkgname.files may need to be fixed...
-FIXEDFILES="`cat /root/.packages/${DLPKG_NAME}.files | grep -v '^\\./$'| grep -v '^/$' | sed -e 's%^\\.%%' -e 's%^%/%' -e 's%^//%/%'`"
-echo "$FIXEDFILES" > /root/.packages/${DLPKG_NAME}.files
+	#flush unionfs cache, so files in pup_save layer will appear "on top"...
+	if [ "$DIRECTSAVEPATH" != "" ];then
+	 #but first, clean out any bad whiteout files...
+	 # 22sep10 shinobar: bugfix was not working clean out whiteout files
+	 find /initrd/pup_rw -mount -type f -name .wh.\*  -printf '/%P\n'|
+	 while read ONEWHITEOUT
+	 do
+	  ONEWHITEOUTFILE="`basename "$ONEWHITEOUT"`"
+	  ONEWHITEOUTPATH="`dirname "$ONEWHITEOUT"`"
+	  if [ "$ONEWHITEOUTFILE" = ".wh.__dir_opaque" ];then
+	   [ "`grep "$ONEWHITEOUTPATH" /root/.packages/${DLPKG_NAME}.files`" != "" ] && rm -f "/initrd/pup_rw/$ONEWHITEOUT"
+	   continue
+	  fi
+	  ONEPATTERN="`echo -n "$ONEWHITEOUT" | sed -e 's%/\\.wh\\.%/%'`"'/*'	;#echo "$ONEPATTERN" >&2
+	  [ "`grep -x "$ONEPATTERN" /root/.packages/${DLPKG_NAME}.files`" != "" ] && rm -f "/initrd/pup_rw/$ONEWHITEOUT"
+	 done
+	 #111229 /usr/local/petget/removepreview.sh when uninstalling a pkg, may have copied a file from sfs-layer to top, check...
+	 cat /root/.packages/${DLPKG_NAME}.files |
+	 while read ONESPEC
+	 do
+	  [ "$ONESPEC" = "" ] && continue #precaution.
+	  if [ ! -d "$ONESPEC" ];then
+	   [ -e "/initrd/pup_rw${ONESPEC}" ] && rm -f "/initrd/pup_rw${ONESPEC}"
+	  fi
+	 done
+	 #now re-evaluate all the layers...
+	 busybox mount -t aufs -o remount,udba=reval unionfs / #remount with faster evaluation mode.
+	 [ $? -ne 0 ] && logger -s -t "installpkg.sh" "Failed to remount aufs / with udba=reval"
 
-#120102 install may have overwritten a symlink-to-dir...
-#tar defaults to not following symlinks, for both dirs and files, but i want to follow symlinks
-#for dirs but not for files. so, fix here... (note, dir entries in .files have / on end)
-cat /root/.packages/${DLPKG_NAME}.files | grep '[a-zA-Z0-9]/$' | sed -e 's%/$%%' | grep -v '^/mnt' |
-while read ONESPEC
-do
- if [ -d "${DIRECTSAVEPATH}${ONESPEC}" ];then
-  if [ ! -h "${DIRECTSAVEPATH}${ONESPEC}" ];then
-   DIRLINK=""
-   if [ -h "/initrd${PUP_LAYER}${ONESPEC}" ];then #120107
-    DIRLINK="`readlink -m "/initrd${PUP_LAYER}${ONESPEC}" | sed -e "s%/initrd${PUP_LAYER}%%"`" #PUP_LAYER: see /etc/rc.d/PUPSTATE. 120107
-    xDIRLINK="`readlink "/initrd${PUP_LAYER}${ONESPEC}"`" #120107
-   fi
-   if [ ! "$DIRLINK" ];then
-    if [ -h "/initrd${SAVE_LAYER}${ONESPEC}" ];then #120107
-     DIRLINK="`readlink -m "/initrd${SAVE_LAYER}${ONESPEC}" | sed -e "s%/initrd${SAVE_LAYER}%%"`" #SAVE_LAYER: see /etc/rc.d/PUPSTATE. 120107
-     xDIRLINK="`readlink "/initrd${SAVE_LAYER}${ONESPEC}"`" #120107
-    fi
-   fi
-   if [ "$DIRLINK" ];then
-    if [ -d "$DIRLINK"  ];then
-     if [ "$DIRLINK" != "${ONESPEC}" ];then #precaution.
-      mkdir -p "${DIRECTSAVEPATH}${DIRLINK}" #120107
-      cp -a -f --remove-destination ${DIRECTSAVEPATH}"${ONESPEC}"/* "${DIRECTSAVEPATH}${DIRLINK}/" #ha! fails if put double-quotes around entire expression.
-      rm -rf "${DIRECTSAVEPATH}${ONESPEC}"
-      if [ "$DIRECTSAVEPATH" = "" ];then
-       ln -s "$xDIRLINK" "${ONESPEC}"
-      else
-       DSOPATH="`dirname "${DIRECTSAVEPATH}${ONESPEC}"`"
-       DSOBASE="`basename "${DIRECTSAVEPATH}${ONESPEC}"`"
-       rm -f "${DSOPATH}/.wh.${DSOBASE}" #allow underlying symlink to become visible on top.
-      fi
-     fi
-    fi
-   fi
-  fi
- fi
-done
-
-#121217 it seems that this problem is occurring in other modes (13 reported)...
-#121123 having a problem with multiarch symlinks in full-installation...
-#it seems that the symlink is getting replaced by a directory.
-if [ "$DISTRO_ARCHDIR" ];then #in /etc/rc.d/DISTRO_SPECS. 130112 change test from DISTRO_ARCHDIR. 130114 revert DISTRO_ARCHDIR_SYMLINKS==yes.
-  if [ -d /usr/lib/${DISTRO_ARCHDIR} ];then
-   if [ ! -h /usr/lib/${DISTRO_ARCHDIR} ];then
-    cp -a -f --remove-destination /usr/lib/${DISTRO_ARCHDIR}/* /usr/lib/
-    sync
-    rm -r -f /usr/lib/${DISTRO_ARCHDIR}
-    ln -s ./ /usr/lib/${DISTRO_ARCHDIR}
-   fi
-  fi
-  if [ -d /lib/${DISTRO_ARCHDIR} ];then
-   if [ ! -h /lib/${DISTRO_ARCHDIR} ];then
-    cp -a -f --remove-destination /lib/${DISTRO_ARCHDIR}/* /lib/
-    sync
-    rm -r -f /lib/${DISTRO_ARCHDIR}
-    ln -s ./ /lib/${DISTRO_ARCHDIR}
-   fi
-  fi
-  if [ -d /usr/bin/${DISTRO_ARCHDIR} ];then
-   if [ ! -h /usr/bin/${DISTRO_ARCHDIR} ];then
-    cp -a -f --remove-destination /usr/bin/${DISTRO_ARCHDIR}/* /usr/bin/
-    sync
-    rm -r -f /usr/bin/${DISTRO_ARCHDIR}
-    ln -s ./ /usr/bin/${DISTRO_ARCHDIR}
-   fi
-  fi
-fi
-
-#flush unionfs cache, so files in pup_save layer will appear "on top"...
-if [ "$DIRECTSAVEPATH" != "" ];then
- #but first, clean out any bad whiteout files...
- # 22sep10 shinobar: bugfix was not working clean out whiteout files
- find /initrd/pup_rw -mount -type f -name .wh.\*  -printf '/%P\n'|
- while read ONEWHITEOUT
- do
-  ONEWHITEOUTFILE="`basename "$ONEWHITEOUT"`"
-  ONEWHITEOUTPATH="`dirname "$ONEWHITEOUT"`"
-  if [ "$ONEWHITEOUTFILE" = ".wh.__dir_opaque" ];then
-   [ "`grep "$ONEWHITEOUTPATH" /root/.packages/${DLPKG_NAME}.files`" != "" ] && rm -f "/initrd/pup_rw/$ONEWHITEOUT"
-   continue
-  fi
-  ONEPATTERN="`echo -n "$ONEWHITEOUT" | sed -e 's%/\\.wh\\.%/%'`"'/*'	;#echo "$ONEPATTERN" >&2
-  [ "`grep -x "$ONEPATTERN" /root/.packages/${DLPKG_NAME}.files`" != "" ] && rm -f "/initrd/pup_rw/$ONEWHITEOUT"
- done
- #111229 /usr/local/petget/removepreview.sh when uninstalling a pkg, may have copied a file from sfs-layer to top, check...
- cat /root/.packages/${DLPKG_NAME}.files |
- while read ONESPEC
- do
-  [ "$ONESPEC" = "" ] && continue #precaution.
-  if [ ! -d "$ONESPEC" ];then
-   [ -e "/initrd/pup_rw${ONESPEC}" ] && rm -f "/initrd/pup_rw${ONESPEC}"
-  fi
- done
- #now re-evaluate all the layers...
- busybox mount -t aufs -o remount,udba=reval unionfs / #remount with faster evaluation mode.
- [ $? -ne 0 ] && logger -s -t "installpkg.sh" "Failed to remount aufs / with udba=reval"
-
- sync
-fi
+	 sync
+	fi
 
 fi
 
