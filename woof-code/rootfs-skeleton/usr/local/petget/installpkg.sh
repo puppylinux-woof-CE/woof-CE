@@ -501,6 +501,7 @@ ls -dl /tmp | grep -q '^drwxrwxrwt' || chmod 1777 /tmp #130305 rerwin.
 #          puppy         slackware       debian/ubuntu/etc
 for i in /pinstall.sh /install/doinst.sh /DEBIAN/postinst
 do
+	[ ! -e "$i" ] && continue
 	chmod +x ${i}
 	cd /
 	LANG=$LANG_USER nohup sh ${i} &
