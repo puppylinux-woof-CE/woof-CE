@@ -395,7 +395,7 @@ choosefs(){
  #choose f.s. of save-file... 100410 for now, leave out ext4, doesn't work...
  T_fstitle="$(gettext 'First shutdown: choose filesystem')"
  T_fsmenu="$(gettext 'Previously, Puppy has only used 'ext2', now there is a choice. Regarding power-failure, note that Puppy will do a f.s. check at next boot so ext2 can recover, however journalled filesystems can recover even without a f.s. check. If in doubt, choose 'ext2'. After making the choice, click OK button...')"
- T_ext2="$(gettext 'Maximum storage space')"
+ T_ext2="$(gettext 'Maximum storage space, encrypted save-file must use ext2')"
  T_ext3="$(gettext 'Journalled f.s., safest if power failure etc.')"
  #120427 01micko: support ext4...
  T_ext4="$(gettext 'Journalled f.s., safest if power failure etc.')"
@@ -420,10 +420,52 @@ $(eval_gettext "For example, if you enter 'john' here, the file will become '\${
 
 $(gettext 'Type any alpha-numeric characters you wish, then click OK button:')"
  MYUSERNAME="`${DIALOGEXE} ${BACKGROUNDYELLOW} ${TITLEPARAM} "$T_nametitle" --stdout --nocancel --inputbox "$T_nameinput" 0 0 ""`"
- NAMEONLY="${DISTRO_FILE_PREFIX}save"
+ NAMEONLY="${DISTRO_FILE_PREFIX}save${CRYPT_NAME}"
  if [ "$MYUSERNAME" != "" ];then
   MYUSERNAME="`echo -n "$MYUSERNAME" | tr ' ' '_' | tr '-' '_' | sed -e 's/[^a-zA-Z0-9_.]//g'`"
   NAMEONLY="$NAMEONLY-${MYUSERNAME}"
+ fi
+}
+
+choosecrypt() {
+ CRYPTO=""
+ T_cryptotitle="$(gettext 'First shutdown: encryption')"
+ T_cryptono="$(gettext 'NORMAL (no encryp.)')"
+ T_cryptoheavy="$(gettext 'Heavy encrypted')"
+ T_cryptolight="$(gettext 'Light encrypted')"
+ T_yesno="$(eval_gettext "Do you want to encrypt the '\${DISTRO_FILE_PREFIX}save'?")
+$(eval_gettext "If the '\${DISTRO_FILE_PREFIX}save' is encrypted, then a password will have to be entered at every bootup. The reason for doing this is security, as no one else will be able to see what is inside the \${DISTRO_FILE_PREFIX}save. Encryption does slow \${DISTRO_NAME} down slightly, the 'heavy' encryption the most. Two scenarios:")
+\Zb$(gettext '1.')\ZB $(eval_gettext "If the \${DISTRO_FILE_PREFIX}save file is on a Flash drive, encryption is protection in case the drive is mislaid. Heavy encryption is recommended, as \${DISTRO_NAME} minimises writes to the save file (to prolong life of the Flash drive, but this also minimises encryption slowdown).")
+\Zb$(gettext '2.')\ZB $(eval_gettext "If the \${DISTRO_FILE_PREFIX}save file is on a hard drive, 'light' encryption is recommended to minimise slowdown, particularly on older PCs.")
+
+$(eval_gettext "Encrypted \${DISTRO_FILE_PREFIX}save files have another advantage, they allow multiple users. Recommended if spouse and kids are going to be using the same \${DISTRO_NAME} installation.")
+
+$(gettext 'Unless you have a good reason to use encryption, it is recommended not to, to avoid the overhead. Recommend choose \ZbNORMAL\ZB button...')"
+ ${DIALOGEXE} ${BACKGROUNDYELLOW} ${TITLEPARAM} "$T_cryptotitle" --colors --extra-button --ok-label "$T_cryptono" --cancel-label "$T_cryptoheavy" --extra-label "$T_cryptolight" --yesno "$T_yesno" 0 0 #110926
+ RETVAL=$?
+ if [ $RETVAL -eq 1 -o $RETVAL -eq 3 ];then
+  T_passtitle="$(gettext 'First shutdown: password')"
+  T_passtext="$(gettext 'Please choose a password.
+This must be remembered and
+entered at every bootup.')"
+  while [ 1 ];do
+  MYPASSWORD="`${DIALOGEXE} ${BACKGROUNDYELLOW} ${TITLEPARAM} "$T_passtitle" --screen-center --stdout --no-cancel --inputbox "$T_passtext" 0 0 "puppyisgreat"`" #110926
+   [ "$MYPASSWORD" ] && break
+  done
+  modprobe cryptoloop
+  if [ $RETVAL -eq 1 ];then
+   DENSITY="a" #heavy aes encryption
+   CRYPTO='-e aes'
+   modprobe aes_generic 2>/dev/null #builtin my recent kernels.
+   #did not explicitly load these two before, but do so in init script...
+   modprobe crypto_blkcipher 2>/dev/null #builtin my recent kernels.
+   modprobe cbc 2>/dev/null #110926 builtin in my 2.6.32-smp-45 kernel.
+  else
+   DENSITY="x" #light xor encryption.
+   CRYPTO='-e 1' #'-e xor' --bug, loads xor.ko which is something else.
+  fi 
+  CRYPT_NAME=""
+  [ "${DENSITY}" ] && CRYPT_NAME="_crypt${DENSITY}" && SFEXT="2fs"
  fi
 }
 
@@ -542,13 +584,32 @@ If anything looks wrong, choose \Zb\\\${T_notsave}\ZB...\"`"
  sync
  #pupkill $w1PID
  echo "`eval_gettext \"Creating a \\\${SFFS} filesystem in \\\${NAMEONLY}...\"`"
- case $SFFS in
+ if [ "$CRYPTO" = "" ];then
+  case $SFFS in
    ext2) mkfs.ext2 -q -m 0 -F ${SMNTPT}$SAVEFILE ;;
    ext3) mkfs.ext3 -q -m 0 -F ${SMNTPT}$SAVEFILE ;;
    ext4) mkfs.ext4 -q -m 0 -F ${SMNTPT}$SAVEFILE ;;
- esac
- #...default is f.s. auto checked every 26 mounts or 180 days. tune2fs to change.
- pupkill $w1PID #130525 moved down.
+  esac
+  #...default is f.s. auto checked every 26 mounts or 180 days. tune2fs to change.
+  pupkill $w1PID #130525 moved down.
+ else
+  #note: loop2 is kept available for scripts to use. but, find which is free...
+  DEVLOOP="`losetup-222 -f`"
+  if [ "$DEVLOOP" = "" ];then
+   pupkill $w1PID #130525 moved down.
+   return 1
+  fi
+  #'-p 0' means read password from stdin...
+  echo "$MYPASSWORD" | losetup-222 -p 0 $CRYPTO $DEVLOOP ${SMNTPT}$SAVEFILE
+  if [ $? -ne 0 ];then
+   pupkill $w1PID #130525 moved down.
+   return 1
+  fi
+  mke2fs -q -m 0 $DEVLOOP #REMOVEDv3.98 added '-O none', fix mntg fail at boot.
+  sync
+  pupkill $w1PID #130525 moved down.
+  losetup -d $DEVLOOP
+ fi
  sync
  return 0
 } #end pupsavefunc
@@ -594,11 +655,13 @@ If anything looks wrong, choose \Zb\\\${T_notsave}\ZB...\"`"
  SAVEFILE=${SAVEFILE}
  NAMEONLY=${NAMEONLY}
  SAVEPATH=${SAVEPATH}
+ MYPASSWORD=''
  SFEXT=''
  xPDEV=${PDEV1}
  xDEVFS=${DEV1FS}
  xPSUBDIR=${PSUBDIR}
  SMNTPT=${SMNTPT}
+ CRYPTO=''
  expBOOTDRV=${expBOOTDRV}
 } #end sace_directory
 
@@ -725,10 +788,16 @@ case $SAVECHOICE in
       *) SAVEFS_IS_LINUX="";;
     esac
     SAVESTYLE='file'
+    DENSITY=''
     SFEXT=''
-    [ "$SAVEFS_IS_LINUX" ] && choosestyle
+    #only choosecrypt if losetup-222 is available
+    if which losetup-222 2>/dev/null ; then
+      choosecrypt
+    fi
+    [ -z "$DENSITY" ] && [ "$SAVEFS_IS_LINUX" ] && choosestyle
     if [ "$SAVESTYLE" = "file" ]; then
-       choosefs
+       SFEXT='2fs'
+       [ -z "$DENSITY" ] && choosefs
        choosesize || exit	###FIXME###
     fi
     if [ "$SAVESTYLE" != "partition" ]; then
@@ -769,6 +838,8 @@ fi
 #--------------------------------------------------
 
 #record all variables to a file...
+#20140716 SFR: but first escape ' (if present) in MYPASSWORD
+MYPASSWORD="`echo "$MYPASSWORD" | sed -e "s#'#'\\"'\\"'#g"`"
 echo "PUPMODE=${PUPMODE}
 SAVEPART='${SAVEPART}'
 SAVEFS='${SAVEFS}'
@@ -776,11 +847,13 @@ SAVEFILE='${SAVEFILE}'
 PUPSAVE='${SAVEPART},${SAVEFS},${SAVEFILE}'
 NAMEONLY='${NAMEONLY}'
 SAVEPATH='${SAVEPATH}'
+MYPASSWORD='${MYPASSWORD}'
 SFEXT='${SFEXT}'
 xPDEV='${xPDEV}'
 xDEVFS='${xDEVFS}'
 xPSUBDIR='${xPSUBDIR}'
 SMNTPT='${SMNTPT}'
+CRYPTO='${CRYPTO}'
 expBOOTDRV='${expBOOTDRV}'" > /tmp/shutdownconfig_results
 
 # Add a savemark file if we save in a diffrent partition

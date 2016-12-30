@@ -13,7 +13,7 @@ DEFAULT_x86=i686
 DEFAULT_ARM=armv6l
 #DEFAULT_ARM64=aarch64
 
-PREBUILT_BINARIES="http://01micko.com/wdlkmpx/woof-CE/initrd_progs-20161109-static.tar.xz"
+PREBUILT_BINARIES="http://01micko.com/wdlkmpx/woof-CE/initrd_progs-20161230-static.tar.xz"
 
 ARCH=`uname -m`
 OS_ARCH=$ARCH
@@ -280,6 +280,7 @@ function check_bin() {
 		e2fsprogs_static) static_bins='e2fsck resize2fs' ;;
 		findutils_static) static_bins='find' ;;
 		util-linux_static) static_bins='losetup' ;;
+		util-linux-222_static) static_bins='losetup-222' ;;
 		*) static_bins=${init_pkg%_*} ;;
 	esac
 	for sbin in ${static_bins} ; do
