@@ -1,0 +1,180 @@
+#!/bin/sh
+#depends: stat, bc, du (coreutils), which
+
+function help() {
+	script=${0##*/}
+	echo
+	echo $script
+	echo
+	echo "Get accurate size from file or directory:"
+	echo
+	echo "  $script [-2] [-v] [-b|-k|-m|-g|-t] <file|dir>"
+	echo
+	echo "   By default, the script outputs <FILESIZE>B|K|M|G|T"
+	echo "   -2 :        the script outputs <FILESIZE> B|KB|MB|GB|TB"
+	echo "     Where the unit is calculated automatically (if not specified)"
+	echo "   When a unit is specified, you can use -v to show the suffix"
+	echo
+	echo "   $script file.mp4"
+	echo "   $script -m -v file.mp4"
+	echo
+	echo "Format filesize in bytes:"
+	echo
+	echo "  $script <-bytes> [-2] [-v] [-b|-k|-m|-g|-t] <bytes>"
+	echo
+	echo "   By default the unit is calculated automatically"
+	echo "   When a unit is specified, you can use -v to show the suffix"
+	echo
+	echo "  You can also specify a value for -bytes:"
+	echo "   -bytes=512 process filesize in sectors (512 bytes)"
+	echo "   -bytes=2048 process filesize in sectors (2048 bytes)"
+	echo "   -bytes=4096 process filesize in sectors (4096 bytes)"
+	echo "   -bytes=1024 process filesize in kilobytes"
+	echo
+	echo "   $script -bytes 8747587687"
+	echo "   $script -bytes -m -v 8747587687"
+	echo "   $script -bytes=512 -m -v 8747587687"
+	echo
+	echo "Where 'k' means kilobytes, 'm' megabytes, 'g' gigabytes, 't' terabytes"
+	echo
+	echo " There is a special switch: -s"
+	echo " It's useful to retrieve the size of file in \$PATH:"
+	echo "   $script -s mplayer"
+	exit
+}
+
+filex=
+dirsize=
+type="all"
+suffix=1
+
+for i in $@ ; do
+	case $i in
+		-2) suffix=2 ; shift ;;
+		-s) search=1 ; shift ;;
+		-b) type="b" ; shift ;;
+		-k) type="k" ; shift ;;
+		-m) type="m" ; shift ;;
+		-g) type="g" ; shift ;;
+		-t) type="t" ; shift ;;
+		-bytes*)  FORMATONLY=1 ; funit=${i#-bytes} ; funit=${funit#=} ; shift ;;
+		-v) VERBOSE=1    ; shift ;;
+		-h|-help|--help) help ; exit ;;
+		-[a-z]) shift ;;
+	esac
+done
+
+#############################################################
+#					FUNCTIONS
+#############################################################
+
+function formatbytes() { #args: bytes
+	local bytes=$1 suf="" suf2="" res="" bc=""
+	if [[ ${bytes} -ge 1099511627776 ]] ; then #terabytes
+		res=$(bc <<< "scale = 2; ${bytes}/1099511627776")
+		suf=T ; suf2=TB ; bc=1
+	elif [[ ${bytes} -ge 1073741824 ]] ; then #gigabytes
+		res=$(bc <<< "scale = 2; ${bytes}/1073741824")
+		suf=G ; suf2=GB ; bc=1
+	elif [[ ${bytes} -ge 1048576 ]] ; then #megabytes
+		res=$(bc <<< "scale = 2; ${bytes}/1048576")
+		suf=M ; suf2=MB ; bc=1
+	elif [[ ${bytes} -ge 1024 ]] ; then #kilobyes
+		res=$((${bytes}/1024))
+		suf=K ; suf2=KB
+	elif [[ ${bytes} -lt 1024 ]] ; then #bytes
+    	res=${bytes}
+		suf=B ; suf2=B
+	else
+		suf='?'
+	fi
+	if [ "$bc" ] ; then
+		[[ $res == \.* ]] && res="0${res}"
+		res=${res%.00}
+		res=${res%,00}
+	fi
+	if [ $suffix -eq 2 ] ; then
+		echo "$res $suf2"
+	else
+		echo "${res}${suf}"
+	fi
+} 
+
+function bytes() {  #input: filename / output: bytes (number)
+	local byt=$(stat -c%s "$@")
+	echo "$byt"
+}
+function filesizex() { #args: filename
+	local sizze=$(stat -c%s "$@")
+	echo "$(formatbytes $sizze)"
+}
+
+function results() {
+	local bytes=$1 s="" s2="" res="" bc=""
+	if [ "$funit" ] ; then
+		bytes=$((bytes*funit))
+	fi
+	case $type in
+		b) res=${bytes} ; s=B ; s2=B ;;
+		k) res=$((${bytes}/1024)) ; s=K ; s2=KB ;;
+		m) res=$(bc <<< "scale = 2; ${bytes}/1048576")       ; s=M ; s2=MB ; bc=1 ;;
+		g) res=$(bc <<< "scale = 2; ${bytes}/1073741824")    ; s=G ; s2=GB ; bc=1 ;;
+		t) res=$(bc <<< "scale = 2; ${bytes}/1099511627776") ; s=T ; s2=TB ; bc=1 ;;
+		*) res=$(formatbytes ${bytes}) ;;
+	esac
+	if [ "$bc" ] ; then
+		[[ $res == \.* ]] && res="0${res}"
+		res=${res%.00}
+		res=${res%,00}
+	fi
+	if [ "$VERBOSE" ] ; then
+		if [ $suffix -eq 2 ] ; then
+			echo $res $s2
+		else
+			echo ${res}${s}
+		fi
+	else
+		echo $res
+	fi
+}
+
+#############################################################
+
+if [ "$FORMATONLY" ] ; then
+	[ ! "$1" ] && echo "* Need bytes" >&2 && exit 1
+	case "$1" in
+		''|*[!0-9]*) echo "$1: invalid number" >&2 ; exit 1 ;;
+	esac
+	results $1
+	exit
+fi
+
+#############################################################
+
+filex="$@"
+fileonly=${filex##*/}
+[ ! "$filex" ] && echo "* No file specified" >&2 && exit 1
+if [ -d "$filex" ] ; then
+	dirsize=$(du -b -c "$filex" | tail -1 | sed -e 's/\t.*//' -e 's/ .*//')
+	results ${dirsize}
+	exit
+fi
+
+#############################################################
+
+if [ "$search" ] ; then
+	if [ ! -f "$filex" ]; then
+		filex=$(which $fileonly 2>/dev/null)
+		if [ ! -f "$filex" ] ; then
+			echo "error: can't find '$filex' in \$PATH" >&2
+			exit 1
+		fi
+	fi
+fi
+
+#############################################################
+
+[ ! -e "$filex" ] && echo "ERROR: '${filex}' does not exist" >&2 && exit 1
+results $(bytes "$filex")
+
+### END ###
