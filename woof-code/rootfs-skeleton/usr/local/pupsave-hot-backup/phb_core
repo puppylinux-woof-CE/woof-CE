@@ -4,6 +4,26 @@
 # Runtime errors may occur if this script is executed directly (multiple instances).
 #
 
+help_box() {
+	echo "$ERRORMSG
+<b>Pupsave Hot Backup</b> for frugal Puppy installations makes a backup copy of the live pupsave file.
+
+<b>1)</b> For best results, shut down all applications and servers before backing up.
+
+<b>2)</b> The date and time is automatically appended to the backup file name.
+
+<b>3)</b> PHB backs up your system configuration as it exists in the savefile. <span foreground='"'red'"'>It will not backup data stored outside the savefile.</span>
+
+<b>4)</b> To restore a backup, rename the file by removing the 
+<b>.</b>BKP-xx.xx.xx-xx.xx file extension.
+
+You must be running a frugal install with a savefile otherwise PHB will not run." > /tmp/box_help
+	/usr/lib/gtkdialog/box_help
+}
+export -f help_box
+
+#---------------------------------
+
 clean_up() {
 	rm -rf /tmp/Pupsave-hot-backup
 }
@@ -12,18 +32,15 @@ trap clean_up SIGHUP SIGINT SIGTERM
 # Verify frugal type installation.
 . /etc/rc.d/PUPSTATE
 case $PUPMODE in
-	12|13)
-		echo "$PUPSAVE" | grep -Eq '\.ext[2-4]|\.[2-4]fs' || ERRORMSG="Sorry, not using an ext2-4 save file..."
-		;;
-	*)
-		ERRORMSG="Hot Backup can only be used if there is an active save file..."
-		;;
+	12|13) echo "$PUPSAVE" | grep -Eq '\.ext[2-4]|\.[2-4]fs' || ERRORMSG="Sorry, you are not using an ext2/3/4 save file... probably a savefolder" ;;
+	*) ERRORMSG="Hot Backup can only be used if there is an active save file..." ;;
 esac
-
 if [ "$ERRORMSG" ] ; then
 	clean_up
 	echo "$ERRORMSG"
-	[ $DISPLAY ] && /usr/lib/gtkdialog/box_ok "${0##*/}" error "$ERRORMSG"
+	ERRORMSG="<b><span foreground='"'red'"'>${ERRORMSG}</span></b>
+"
+	[ $DISPLAY ] && help_box
 	exit 1
 fi
 
@@ -35,48 +52,23 @@ function PHB_psbtimer() {
     # Input must be str+int or int+str sequence
     A=`pidof phb_core`
     while [[ "$A" -gt 0 ]] ; do
-       echo -e "\n 0"; sleep 0.6
-       echo -e "\n 100"; sleep 0.6
+       echo -e "\n 0"; sleep 0.5
+       echo -e "\n 100"; sleep 0.5
        A=`pidof phb_core`
     done
 }
 
-function PHB_MBrequired() {     		# $PHB_PUPSAVE_PATH
-    lbl="MB required: "
-    if [ "${1}" = "$PHB_FTERRR" ]; then
-        echo $lbl
-        if [ "`cat $PHB_TMPFILE5`" = "0" ]; then echo "" > $PHB_TMPFILE4; fi
-        exit
-    fi
-    if [ "${1}" ]; then
-        a="`ls -s --block-size=1m "${1}" | awk '{ print $1 }'`"
-        echo "$lbl $a"
-    else
-        echo "$lbl"
-    fi
-}
-
 function PHB_MBavailable() {			# $PHB_BKP_PATH $PHB_PUPSAVE_PATH
     lbl="MB available"
-    if [ "${1}" = "$PHB_SAVE_TO_ERR" ] || [ "${2}" = "$PHB_FTERRR" ]; then 
-        echo $lbl
-        # disable backup button
-        echo 0 > $PHB_TMPFILE2
-        echo 100 > $PHB_TMPFILE3
-        exit
-    fi
     if [ "${1}" ]; then
         bkp="${1}"
-        TEST="`echo $bkp | grep '/mnt/home'`"
-        if [ $TEST ] || [ "$bkp" = "/mnt/home" ] || [ ${bkp:0:20} = "/initrd/mnt/dev_save" ]  ; then
-            drv="dev_save"
-        else
-            drv="`expr "$bkp" | awk -F / '{print $3}'`"
-        fi
-        
+        case "$bkp" in
+            "/mnt/home"*|"/initrd/mnt/dev_save"*) drv="dev_save" ;;
+            *) drv="`echo "$bkp" | cut -f 3 -d '/'`";;
+        esac
         a="`df --block-size=1m | grep "$drv" | awk '{ print $4 }'`"
-        if [ "$a" = "" ]; then a=0; fi
-        if [ "$drv" = "dev_save" ]; then drv="home"; fi
+        [ "$a" = "" ] && a=0
+        [ "$drv" = "dev_save" ] && drv="home"
         b="`ls -s --block-size=1m "${2}" | awk '{ print $1 }'`" # MBrequired
         echo "$lbl on "/mnt/"$drv":" $a"
       
@@ -91,7 +83,7 @@ function PHB_MBavailable() {			# $PHB_BKP_PATH $PHB_PUPSAVE_PATH
             if [ "`cat $PHB_TMPFILE5`" = "0" ]; then 
                 if [ "$a" -eq "0" ]; then
                     echo "STORAGE DEVICE NOT MOUNTED" > $PHB_TMPFILE4
-                    else
+                else
                     echo "NOT ENOUGH FREE DISK SPACE" > $PHB_TMPFILE4
                 fi
                 echo 0 > $PHB_TMPFILE2
@@ -105,26 +97,9 @@ function PHB_MBavailable() {			# $PHB_BKP_PATH $PHB_PUPSAVE_PATH
 }
 
 function PHB_Bkpfilename() { # $PHB_PUPSAVE_PATH
-    lbl="Backup file name: "
-    if [ "${1}" = "$PHB_FTERRR" ] ; then
-        echo $lbl
-    elif [ "${1}" ]; then
-        a="${1##*/}".BKP-`date +%y.%m.%d-%H.%M` #${1##*/} = basename $1
-        echo "$lbl $a"
-    else
-        echo "$lbl"
-    fi
+	echo "Backup file name: ${PHB_PUPSAVE_NAME}.BKP-`date +%y.%m.%d-%H.%M`"
 }
 
-function PHB_validate_fs() {			# $PHB_PUPSAVE_PATH
-	#echo "fs: $1" 1>&2
-	case "$1" in
-		"") echo $PHB_SFDEFAULT ;;
-		*.[2-4]fs|*.[2-4]fs) echo $PHB_PUPSAVE_PATH ;;
-		*) echo $PHB_FTERRR ;;
-	esac
-}
-    
 function PHB_validate_bkp_location() {	# $PHB_BKP_PATH
     if [ "${1}" != "" ]; then 
         #IFS="/" read -r direntry level2 level3 level4 <<< "${1}"
@@ -138,7 +113,6 @@ function PHB_validate_bkp_location() {	# $PHB_BKP_PATH
         elif [ "$direntry"/"$level2" = "initrd/mnt" ] && [ "$level3" != "" ] ; then
             echo "${1}"
         else
-            echo $PHB_SAVE_TO_ERR
             if [ "`cat $PHB_TMPFILE5`" = "0" ]; then echo "" > $PHB_TMPFILE4; fi
         fi
     else
@@ -147,9 +121,9 @@ function PHB_validate_bkp_location() {	# $PHB_BKP_PATH
 }
 
 function PHB_Backup() {     			#$PHB_PUPSAVE_PATH $PHB_BKP_PATH
-    destdir="${2}"/"`expr "${1}" | awk -F / '{print $NF}'`".BKP-`date +%y.%m.%d-%H.%M`
+    destfile="${2}"/"`expr "${1}" | awk -F / '{print $NF}'`".BKP-`date +%y.%m.%d-%H.%M`
 
-    if [ -f "$destdir" ]; then
+    if [ -f "$destfile" ]; then
 		echo 100 > $PHB_TMPFILE
 		/usr/lib/gtkdialog/box_ok "${0##*/}" error "This Pupsave file already exists.  Wait one minute and the file name will change."
 		exit 1
@@ -161,12 +135,12 @@ function PHB_Backup() {     			#$PHB_PUPSAVE_PATH $PHB_BKP_PATH
 
     mv /root/.XLOADED /etc/xloadedx
     echo "Copying file -- please wait awhile" > $PHB_TMPFILE4
-    cp -f -v "${1}" "$destdir" 2> /dev/null
+    cp -f -v "${1}" "$destfile" 2> /dev/null
     mv /etc/xloadedx /root/.XLOADED
     sync
 
     echo "Running e2fsck on backup -- please wait" > $PHB_TMPFILE4
-    e2fsck -y "$destdir" 2> /dev/null
+    e2fsck -y "$destfile" 2> /dev/null
 
     echo 100 > $PHB_TMPFILE
     echo "" > $PHB_TMPFILE4
@@ -174,27 +148,6 @@ function PHB_Backup() {     			#$PHB_PUPSAVE_PATH $PHB_BKP_PATH
     sync
     /usr/lib/gtkdialog/box_ok "Pupsave Hot Backup" complete "Save File Backup Completed"
 }
-
-help_box() {
-	# Markup reference ---- http://www.pygtk.org/docs/pygtk/pango-markup-language.html
-	echo "
-<b>Pupsave Hot Backup</b> for frugal Puppy installations makes a backup copy of the live pupsave file.
-
-<b>1)</b> For best results, shut down all applications and servers before backing up.
-
-<b>2)</b> The date and time is automatically appended to the backup file name.
-
-<b>3)</b> PHB backs up your system configuration as it exists in the savefile. <span foreground='"'red'"'>It will not backup data stored outside the savefile.</span>
-
-<b>4)</b> To restore a backup, rename the file by removing the 
-<b>.</b>BKP-xx.xx.xx-xx.xx file extension.
-
-You must be running a frugal install with a savefile. PHB will not run if you are running only in ram (puppy pfix=ram) or for any other type of Puppy install.
-
-You can also backup other *.2fs, *.3fs or *.4fs files." > /tmp/box_help
-	/usr/lib/gtkdialog/box_help
-}
-export -f help_box
 
 # Some escapement is necessary when this sed is used to allow comments in gui.
 PHB_PUPSAVE_HOT_BKP=$(cat <<EOV | sed -e 's/#.*//'    # allow comments in gui
@@ -208,12 +161,9 @@ PHB_PUPSAVE_HOT_BKP=$(cat <<EOV | sed -e 's/#.*//'    # allow comments in gui
          <hbox>
             <entry editable="false">
                <variable>PHB_PUPSAVE_PATH</variable>
-               <input>PHB_validate_fs "\$PHB_PUPSAVE_PATH"</input>
+               <sensitive>"false"</sensitive>
+               <input>echo "\$PHB_PUPSAVE_PATH"</input>
             </entry>
-            <button>
-               <input file stock="gtk-file"></input>
-               <action type="fileselect">PHB_PUPSAVE_PATH</action>
-            </button>
          </hbox>
          #Backup location section
          <text editable="false" use-markup="true" xalign="0.001">
@@ -238,7 +188,7 @@ PHB_PUPSAVE_HOT_BKP=$(cat <<EOV | sed -e 's/#.*//'    # allow comments in gui
          #Disk MB required
          <text height-request="20" xalign="0.001">
             <variable>TEXT1</variable>
-            <input>PHB_MBrequired "\$PHB_PUPSAVE_PATH"</input>
+            <input>echo "\$PHB_MBrequired"</input>
          </text>
          #Disk MB available
          <text height-request="20" xalign="0.001">
@@ -275,7 +225,6 @@ PHB_PUPSAVE_HOT_BKP=$(cat <<EOV | sed -e 's/#.*//'    # allow comments in gui
          <progressbar height-request="1" width-request="1">
             <input>PHB_psbtimer</input>
             <action>refresh:PHB_BKP_PATH</action>
-            <action>refresh:PHB_PUPSAVE_PATH</action>
             <action>refresh:TEXT1</action>
             <action>refresh:TEXT2</action>
             <action>refresh:BKPFILE</action>
@@ -306,17 +255,20 @@ EOV
 
 #Find and verify path of currently mounted save file.
 SF="`echo $PUPSAVE | cut -f 3 -d ","`" # /savefilename or /xxx/savefilename
-if [ -f "/mnt/home${SF}" ]; then
-	PHB_SFDEFAULT="/mnt/home${SF}"
-else
-	PHB_SFDEFAULT=""
+if [ ! -f "/mnt/home${SF}" ]; then
+	/usr/lib/gtkdialog/box_ok "Pupsave Hot Backup" error "'/mnt/home${SF}' does not exist!"
+	exit 1
 fi
+export PHB_PUPSAVE_PATH="/mnt/home${SF}"
+export PHB_PUPSAVE_NAME="${SF##*/}" #${SF##*/} = basename $SF
+export PHB_MBrequired="MB required: `ls -s --block-size=1m "${PHB_PUPSAVE_PATH}" | awk '{ print $1 }'`"
+
+case "$PHB_PUPSAVE_NAME" in *".BKP-"*)
+	/usr/lib/gtkdialog/box_ok "Pupsave Hot Backup" warning "'${PHB_PUPSAVE_NAME}' seems to be a file produced by this script. It's not advised to use it, the file name might become too large..."
+esac
 
 # Export variables
-export PHB_SFDEFAULT
 export PHB_LOCDEFAULT="/mnt/home/${PSUBDIR}"
-export PHB_SAVE_TO_ERR="ERROR. Can not save the savefile to itself."
-export PHB_FTERRR="ERROR. Chosen file is not a valid pupsave file."
 
 export PHB_TMPFILE="/tmp/Pupsave-hot-backup/tmp1"  # Progressbar value ( enable:BTNQUIT trigger )
 export PHB_TMPFILE2="/tmp/Pupsave-hot-backup/tmp2" # Progressbar value ( enable:BTNBKP trigger )
@@ -325,7 +277,7 @@ export PHB_TMPFILE4="/tmp/Pupsave-hot-backup/tmp4" # Contains generated message 
 export PHB_TMPFILE5="/tmp/Pupsave-hot-backup/tmp5" # Contains backup-in-progress flag
 
 # Exported functions
-export -f PHB_psbtimer PHB_MBrequired PHB_MBavailable PHB_Bkpfilename PHB_Backup PHB_validate_bkp_location PHB_validate_fs
+export -f PHB_psbtimer PHB_MBavailable PHB_Bkpfilename PHB_Backup PHB_validate_bkp_location
 
 # Application runtime data files
 rm -rf /tmp/Pupsave-hot-backup
