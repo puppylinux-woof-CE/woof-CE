@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# pupsave-backup 1.0
+# pupsave-backup 1.1
 #
 
 help_box() {
@@ -16,7 +16,7 @@ help_box() {
 <b>4)</b> To restore a backup, rename the file by removing the 
 <b>.</b>BKP-xxxx.xx.xx-xx.xx file extension.
 
-<b>4)</b> If you save the backup in the current pupsave parent dir, on bootup you will be offered a menu with a list of pupsaves so you can choose the desired pupsave (or snapshot) to use for the current session...
+<b>4)</b> If you save the backup in the current pupsave parent dir, at bootup you will be offered a menu with a list of pupsaves so you can choose the desired pupsave (or snapshot) to use for the current session...
 
 You must be running a frugal install with a pupsave otherwise PB will not run." > /tmp/box_help
 	/usr/lib/gtkdialog/box_help "Pupsave Backup Help"
@@ -63,14 +63,14 @@ function ERROR_RESTART() {
 	pupsave-backup &
 }
 
-function PBKP_MBrequired() {
+function PBKP_MBrequired() { # $PBKP_PUPSAVE_PATH
 	if [ "$SAVEFOLDER" ] ; then
 		a=$(du --total -m -s "$1")
 		read -r aa bb <<< "$a"
 		echo -n "MB required: $aa"
 	else
 		echo -n "MB required: `ls -s --block-size=1m "${1}" | awk '{ print $1 }'`"
-		#echo -n $((`stat -c "%s" ${PBKP_PUPSAVE_PATH}` / 1024 / 1024))
+		#echo -n $((`stat -c "%s" ${1}` / 1024 / 1024))
 	fi
 }
 
@@ -83,11 +83,14 @@ function PBKP_MBavailable() { # $PBKP_BACKUP_PATH $PBKP_PUPSAVE_PATH
 	esac
 	a="`df --block-size=1m | grep "$drv" | awk '{ print $4 }'`"
 	[ "$a" = "" ] && a=0
-	[ "$drv" = "dev_save" ] && drv="home"
+	[ "$drv" = "dev_save" ] && drv="/initrd/mnt/dev_save"
+	lbldrv="/mnt/$drv"
 	#-
-	fs=$(grep "/mnt/${drv} " /proc/mounts | cut -f 3 -d ' ')
+	fs=$(grep "${drv} " /proc/mounts | cut -f 3 -d ' ')
 	if [ "$SAVEFOLDER" ] ; then
-		if [ "$drv" != "home" ] ; then
+		if [ "$drv" = "/initrd/mnt/dev_save" ] ; then
+			lbldrv=$drv
+		else
 			case $fs in
 				ext[2-4]) ok=1 ;;
 				"")  ERROR_RESTART "$drv: STORAGE DEVICE NOT MOUNTED... You can only back up a pupsave to a device mounted on /mnt" ; return 1 ;;
@@ -101,7 +104,7 @@ function PBKP_MBavailable() { # $PBKP_BACKUP_PATH $PBKP_PUPSAVE_PATH
 		b=`ls -s --block-size=1m "${2}" | awk '{ print $1 }'`
 	fi
 	#-
-	echo -n "MB available on "/mnt/"$drv":" $a"
+	echo -n "MB available on ${lbldrv}: $a"
 	if [ $((a-b)) -le 100 ]; then # not enough space
 		/usr/lib/gtkdialog/box_ok "Pupsave Backup" error "NOT ENOUGH FREE DISK SPACE on $drv..."
 		return 1
@@ -129,49 +132,89 @@ function PBKP_validate_BACKUP_location() { # $PBKP_BACKUP_PATH
 function PBKP_Backup() { #$PBKP_PUPSAVE_PATH $PBKP_BACKUP_PATH
 	destfile="${2}"/"`expr "${1}" | awk -F / '{print $NF}'`".BKP-`date +%Y.%m.%d-%H.%M`
 
-	if [ -e "$destfile" ]; then
+	if [ -e "${destfile}" -o -e "${destfile}.tar.gz" ]; then
 		/usr/lib/gtkdialog/box_ok "Pupsave Backup" error "This Pupsave file already exists.  Wait one minute and the file name will change."
 		return 1
 	fi
 
 	if [ $PUPMODE -eq 13 ] ; then #flash
-		box_yesno --ok-cancel "Pupsave Backup" "Running in PUPMODE 13 - flash media
+		/usr/lib/gtkdialog/box_yesno --ok-cancel "Pupsave Backup" "Running in PUPMODE 13 - flash media
 
 Click 'OK' to save session to save${type} and proceed with the backup...
 
-Backup file name: $destfile"
+Backup file name: ${destfile}"
 		if [ $? -eq 0 ] ; then
+			/usr/lib/gtkdialog/box_splash -close never -text "Saving session to save${type} ..." &
+			pidx=$?
 			snapmergepuppy
+			kill $pidx
 		else
 			return 1
 		fi
 	fi
 
-	/usr/lib/gtkdialog/box_splash -close never -text "Creating ${destfile##*/} ..." &
-	pidx=$?
-
 	mv /root/.XLOADED /etc/xloadedx
 	sync
-	sleep 1
+	sleep 0.5
    
 	if [ "$SAVEFOLDER" ] ; then
-		mkdir -p $destfile
-		cp -a --remove-destination ${1}/* $destfile/
-		sync
-		kill $pidx
+		/usr/lib/gtkdialog/box_yesno "Pupsave Backup-Compress" "Do you want to compress the backup ${destfile} ?
+
+May take a bit longer but save some space."
+		if [ $? -eq 0 ] ; then
+			COMPRESS_PUPSAVE=yes
+			destfile=${destfile}.tar.gz
+		fi
+		/usr/lib/gtkdialog/box_splash -close never -text "Creating ${destfile##*/} ..." &
+		pidx=$?
+		if [ "$COMPRESS_PUPSAVE" = "yes" ] ; then
+			#version 1 - tar: distrosave/files
+			(
+				cd ${1%/*} # dirname $PBKP_PUPSAVE_PATH
+					#basename destifile / basename $PBKP_PUPSAVE_PATH
+				echo ; echo "tar -c -z -f ${destfile##*/} ${1##*/}/" #debug
+				tar -c -z -f ${destfile##*/} ${1##*/}/
+			)
+			#version 2 - tar: files (for the initrd tar to extract properly - to be implemented)
+			#(
+			#	sourcedir="$1" #$PBKP_PUPSAVE_PATH
+			#	targetfile=${destfile##*/}    #basename $destfile
+			#	#toplevel=${targetfile%.tar.*} #remove trailing .tar.xx
+			#	cd $sourcedir #${destfile%.tar.*} #remove tar.xx
+			#	files2tar=$(find . -maxdepth 1 -mindepth 1 | sed 's|^./||' | sort)
+			#	tar -z -c -f ../${targetfile} ${files2tar} #--one-top-level=${toplevel}
+			#)
+			sync
+			kill $pidx
+		else
+			mkdir -p ${destfile}
+			if which rsync ; then
+				rsync -aX ${1}/ ${destfile}/
+			else
+				find "${1}" -mindepth 1 -maxdepth 1 | while read i ; do
+					cp -a --remove-destination ${i} ${destfile}/
+				done
+			fi
+			sync
+			kill $pidx
+		fi
 	else #savefile
-		cp -f -v "${1}" "$destfile" 2> /dev/null
+		/usr/lib/gtkdialog/box_splash -close never -text "Creating ${destfile##*/} ..." &
+		pidx=$?
+		cp -f -v "${1}" "${destfile}" 2> /dev/null
 		sync
 		kill $pidx
 		/usr/lib/gtkdialog/box_splash -close never -text "Running e2fsck on backup -- please wait" &
 		pidx=$?
-		e2fsck -y "$destfile" 2> /dev/null
+		e2fsck -y "${destfile}" 2> /dev/null
 		kill $pidx
 	fi
 
 	mv /etc/xloadedx /root/.XLOADED
 	sync
-	/usr/lib/gtkdialog/box_ok "Pupsave Backup" complete "Save${type} Backup Completed"
+	/usr/lib/gtkdialog/box_ok "Pupsave Backup" complete "Save${type} Backup Completed:
+
+${destfile}"
 }
 
 ##################################### Execution #######################################
@@ -275,11 +318,16 @@ eval "`gtkdialog --center -p PBKP_PUPSAVE_HOT_BKP`"
 
 if [ "$EXIT" = "BACKUP" ] ; then
 	if PBKP_MBavailable "$PBKP_BACKUP_PATH" ; then
-		PBKP_Backup "$PBKP_PUPSAVE_PATH" "$PBKP_BACKUP_PATH"
+		if PBKP_Backup "$PBKP_PUPSAVE_PATH" "$PBKP_BACKUP_PATH" ; then
+			cleanup
+			exit 0 #success
+		fi
 	fi
+	#error
 	cleanup
 	$0 & #reenter
 fi
+
 cleanup
 
 ### END ###
