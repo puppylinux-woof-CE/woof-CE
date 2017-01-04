@@ -148,6 +148,13 @@ pdebug=y
 Turns on the writing of debug messages to /tmp/bootinit.log to help fixing bugs.
 If the boot succeeds to desktop this file is available as /initrd/tmp/bootinit.log
 
+pupsaves=yes
+   Shows menu with pupsaves (if there is more than 1).
+pupsaves=X
+   Shows menu with the first X pupsaves (X=valid number) (if there is more than 1).
+   Pupsave Backup creates snapshots for you to use later with this boot param.
+   By default the init script uses the first valid pupsave it finds. This overrides that behavior.
+
 underdog=<a partition name>
 Activates the underdog facility using the named partition as the Linux installation to load under Puppy.
  
@@ -161,6 +168,7 @@ nocopy:   do not copy .sfs files into ram (default is copy if enough ram).
 fsck:     do fsck of ${DISTRO_FILE_PREFIX}save file.
 fsckp:    do fsck before first mount of ext partitions.
 rdsh:     exit to shell in initial ramdisk.
+pupsaves: shows menu with pupsaves (if there is more than 1)
 <number>: blacklist last <number> folders (multisession). e.g. pfix=3
 
 
