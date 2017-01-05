@@ -340,31 +340,6 @@ if [ "$PUPMODE" = "2" ]; then #from BK's quirky6.1
 	    cp -a -f ${DIRECTSAVEPATH}"${ONEDIRSYMLINK}" "${DIRPATH}"/ 2>> /tmp/petget/install-cp-errlog2 #copy directory (and contents).
 	   fi
 	  done
-	  #secondly, which is our mplayer example, source is a symlink, target is a folder...
-	  cat /tmp/petget/install-cp-errlog | grep 'cannot overwrite directory' | grep 'with non-directory' | tr '[`‘’]' "'" | cut -f 2 -d "'" |
-	  while read ONEDIRSYMLINK #ex: /usr/share/mplayer/skins
-	  do
-	   #difficult situation, whether to impose the symlink of package, or not. if not...
-	   #cp -a -f --remove-destination ${DIRECTSAVEPATH}"${ONEDIRSYMLINK}"/* "${ONEDIRSYMLINK}"/ 2> /tmp/petget/install-cp-errlog3
-	   #or, if we have chosen to follow link...
-	   DIRPATH="$(dirname "${ONEDIRSYMLINK}")"
-	   if [ -h ${DIRECTSAVEPATH}"${ONEDIRSYMLINK}" ];then #source is a symlink, trying to overwrite a directory...
-	    ALINK="$(readlink ${DIRECTSAVEPATH}"${ONEDIRSYMLINK}")"
-	    if [ "${ALINK:0:1}" = "/" ];then #test 1st char
-	     xALINK="$ALINK" #absolute
-	    else
-	     xALINK="${DIRPATH}/${ALINK}"
-	    fi
-	    if [ -d "$xALINK" ];then
-	     cp -a -f --remove-destination "${ONEDIRSYMLINK}"/* "$xALINK"/ 2>> /tmp/petget/install-cp-errlog3 #relocates target files.
-	     rm -rf "${ONEDIRSYMLINK}"
-	     cp -a -f ${DIRECTSAVEPATH}"${ONEDIRSYMLINK}" "${DIRPATH}"/ #creates symlink only.
-	    fi
-	   else #source is a file, trying to overwrite a directory...
-	    rm -rf "${ONEDIRSYMLINK}" #deleting directory!!!
-	    cp -a -f ${DIRECTSAVEPATH}"${ONEDIRSYMLINK}" "${DIRPATH}"/ #creates file only.
-	   fi
-	  done
 	  cat /tmp/petget/install-cp-errlog2 >> /tmp/petget/install-cp-errlog3
 	  cat /tmp/petget/install-cp-errlog3 > /tmp/petget/install-cp-errlog
 	  sync
