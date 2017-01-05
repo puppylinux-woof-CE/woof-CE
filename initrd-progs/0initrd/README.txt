@@ -190,8 +190,6 @@ pdebug=y
    If the boot succeeds to desktop this file is available as /initrd/tmp/bootinit.log
    update: this is always enabled by default.
 
-psavemenu=yes
-   Shows menu with pupsaves (if there is more than 1).
 psavemenu=X
    Shows menu with the first X pupsaves (X=valid number) (if there is more than 1).
    Pupsave Backup creates snapshots for you to use later with this boot param.
@@ -213,7 +211,6 @@ pfix=<ram, nox, trim, nocopy, fsck, fsckp, rdsh, <number>>
    fsck:     do fsck of ${DISTRO_FILE_PREFIX}save file.
    fsckp:    do fsck before first mount of ext partitions.
    rdsh:     exit to shell in initial ramdisk.
-   psavemenu:shows menu with pupsaves (if there is more than 1, psave= has not been specified)
    <number>: blacklist last <number> folders (multisession). e.g. pfix=3
 
 
@@ -249,8 +246,8 @@ BOOT_SPECS
 How the script determines what pupsave to use
 =============================================
 
-If you haven't specified psave=<partition>:<filename> then init script looks
-for a file with this base name.
+If you haven't specified psave=<partition>:<filename> then init looks
+for a file with this base name:
 
 /DISTRO_SPECS -> DISTRO_FILE_PREFIX='...'
 
