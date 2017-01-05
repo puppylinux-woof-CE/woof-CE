@@ -188,6 +188,7 @@ pimod=<, separated list of kernel module names>
 pdebug=y
    Turns on the writing of debug messages to /tmp/bootinit.log to help fixing bugs.
    If the boot succeeds to desktop this file is available as /initrd/tmp/bootinit.log
+   update: this is always enabled by default.
 
 psavemenu=yes
    Shows menu with pupsaves (if there is more than 1).
