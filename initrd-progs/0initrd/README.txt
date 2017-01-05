@@ -189,12 +189,15 @@ pdebug=y
    Turns on the writing of debug messages to /tmp/bootinit.log to help fixing bugs.
    If the boot succeeds to desktop this file is available as /initrd/tmp/bootinit.log
 
-pupsaves=yes
+psavemenu=yes
    Shows menu with pupsaves (if there is more than 1).
-pupsaves=X
+psavemenu=X
    Shows menu with the first X pupsaves (X=valid number) (if there is more than 1).
    Pupsave Backup creates snapshots for you to use later with this boot param.
    By default the init script uses the first valid pupsave it finds. This overrides that behavior.
+   psavemenu=y|X only works when psave= has not been specified,
+       and it's only to choose from a list of pupsaves in alphabetic order...
+   see MORE TECHICAL NOTES
 
 underdog=<a partition name>
    Activates the underdog facility using the named partition as the Linux installation to load under Puppy.
@@ -209,7 +212,7 @@ pfix=<ram, nox, trim, nocopy, fsck, fsckp, rdsh, <number>>
    fsck:     do fsck of ${DISTRO_FILE_PREFIX}save file.
    fsckp:    do fsck before first mount of ext partitions.
    rdsh:     exit to shell in initial ramdisk.
-   pupsaves: shows menu with pupsaves (if there is more than 1)
+   psavemenu:shows menu with pupsaves (if there is more than 1, psave= has not been specified)
    <number>: blacklist last <number> folders (multisession). e.g. pfix=3
 
 
@@ -237,3 +240,22 @@ BOOT_SPECS
    This file could also be used instead of specific parameter files like underdog.lnx and initmodules.txt and even SAVEMARK.
    Part of this concept is to move the complication out of init into the running system.
 
+
+#############################
+    MORE TECHNICAL NOTES
+#############################
+
+How the script determines what pupsave to use
+=============================================
+
+If you haven't specified psave=<partition>:<filename> then init script looks
+for a file with this base name.
+
+/DISTRO_SPECS -> DISTRO_FILE_PREFIX='...'
+
+ ${DISTRO_FILE_PREFIX}save - is the fixed base name for all pupsave folders
+ ${DISTRO_FILE_PREFIX}save.?fs - is the fixed base name for all pupsave files
+
+Any file having that base name is identified as a pupsave.
+If the pupsave happens to be fake or corrupted, the script will show an error message
+and will continue with the boot process in PUPMODE 5 (first boot).
