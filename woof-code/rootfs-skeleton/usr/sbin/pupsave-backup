@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# pupsave-backup 1.1
+# pupsave-backup 1.2
 #
 
 help_box() {
@@ -13,10 +13,10 @@ help_box() {
 
 <b>3)</b> Pupsave Backup backs up your system configuration as it exists in the pupsave. <span foreground='"'red'"'>It will not backup data stored outside the pupsave.</span>
 
-<b>4)</b> To restore a backup, rename the file by removing the 
-<b>.</b>BKP-xxxx.xx.xx-xx.xx file extension.
+To restore a backup, rename the file by removing the 
+<b>.BKP-xxxx.xx.xx-xx.xx</b> file extension.
 
-<b>4)</b> If you save the backup in the current pupsave parent dir, at bootup you will be offered a menu with a list of pupsaves so you can choose the desired pupsave (or snapshot) to use for the current session...
+You can force the init script to not ignore pupsaves created by this script by adding a boot parameter: pfix=psavebkp
 
 You must be running a frugal install with a pupsave otherwise PB will not run." > /tmp/box_help
 	/usr/lib/gtkdialog/box_help "Pupsave Backup Help"
@@ -63,16 +63,20 @@ function ERROR_RESTART() {
 	pupsave-backup &
 }
 
+#---
+
 function PBKP_MBrequired() { # $PBKP_PUPSAVE_PATH
 	if [ "$SAVEFOLDER" ] ; then
 		a=$(du --total -m -s "$1")
 		read -r aa bb <<< "$a"
-		echo -n "MB required: $aa"
+		echo -n "MB required: $aa  [might need even more]"
 	else
-		echo -n "MB required: `ls -s --block-size=1m "${1}" | awk '{ print $1 }'`"
+		echo -n "MB required: `ls -s --block-size=1m "${1}" | awk '{ print $1 }'`  [might need even more]"
 		#echo -n $((`stat -c "%s" ${1}` / 1024 / 1024))
 	fi
 }
+
+#---
 
 function PBKP_MBavailable() { # $PBKP_BACKUP_PATH $PBKP_PUPSAVE_PATH
 	bkp="${1}"
@@ -85,18 +89,15 @@ function PBKP_MBavailable() { # $PBKP_BACKUP_PATH $PBKP_PUPSAVE_PATH
 	[ "$a" = "" ] && a=0
 	[ "$drv" = "dev_save" ] && drv="/initrd/mnt/dev_save"
 	lbldrv="/mnt/$drv"
+	[ "$drv" = "/initrd/mnt/dev_save" ] && lbldrv=$drv
 	#-
 	fs=$(grep "${drv} " /proc/mounts | cut -f 3 -d ' ')
 	if [ "$SAVEFOLDER" ] ; then
-		if [ "$drv" = "/initrd/mnt/dev_save" ] ; then
-			lbldrv=$drv
-		else
-			case $fs in
-				ext[2-4]) ok=1 ;;
-				"")  ERROR_RESTART "$drv: STORAGE DEVICE NOT MOUNTED... You can only back up a pupsave to a device mounted on /mnt" ; return 1 ;;
-				*)   ERROR_RESTART "$drv has a invalid filesystem: $fs ... You can only back up savefolders to a ext2/ext3/ext4 partition..." ; return 1 ;;
-			esac
-		fi
+		case $fs in
+			ext[2-4]) ok=1 ;;
+			"")  ERROR_RESTART "$drv: STORAGE DEVICE NOT MOUNTED... You can only back up a pupsave to a device mounted on /mnt" ; return 1 ;;
+			*)   ERROR_RESTART "$drv has a invalid filesystem: $fs ... You can only back up savefolders to a ext2/ext3/ext4 partition..." ; return 1 ;;
+		esac
 		aa="$(du --total -m -s "$2")"
 		read -r b ccc <<< "$aa"
 	else
@@ -111,9 +112,13 @@ function PBKP_MBavailable() { # $PBKP_BACKUP_PATH $PBKP_PUPSAVE_PATH
 	fi
 }
 
+#---
+
 function PBKP_Bkpfilename() { # $PBKP_PUPSAVE_PATH
 	echo -n "Backup file name: ${PBKP_PUPSAVE_NAME}.BKP-`date +%Y.%m.%d-%H.%M`"
 }
+
+#---
 
 function PBKP_validate_BACKUP_location() { # $PBKP_BACKUP_PATH
 	if [ "${1}" != "" ]; then 
@@ -129,10 +134,35 @@ function PBKP_validate_BACKUP_location() { # $PBKP_BACKUP_PATH
 	fi
 }
 
+#---
+
+function compression_dialog() {
+	/usr/lib/gtkdialog/box_yesno "Pupsave Backup-Compress" "Do you want to compress the backup ${destfile} ?
+
+May take a bit longer but save some space."
+	if [ $? -eq 0 ] ; then
+		/usr/lib/gtkdialog/box_yesno --yes-label "gzip" --no-label "xz" --yes-icon "gtk-execute" --no-icon "gtk-execute" \
+		"Pupsave Backup-Compress" "Select compression type: 'gzip' or 'xz'"
+		if [ $? -eq 0 ] ; then
+			TAROPT="-z"
+			TAREXT='tar.gz'
+		else
+			TAROPT="-J"
+			TAREXT='tar.xz'
+		fi
+	fi
+}
+
+function show_splash() {
+	/usr/lib/gtkdialog/box_splash -close never -text "$@" &
+	pidx=$?
+}
+#---
+
 function PBKP_Backup() { #$PBKP_PUPSAVE_PATH $PBKP_BACKUP_PATH
 	destfile="${2}"/"`expr "${1}" | awk -F / '{print $NF}'`".BKP-`date +%Y.%m.%d-%H.%M`
 
-	if [ -e "${destfile}" -o -e "${destfile}.tar.gz" ]; then
+	if [ -e "${destfile}" -o -e "${destfile}.tar.gz" -o -e "${destfile}.tar.xz" ]; then
 		/usr/lib/gtkdialog/box_ok "Pupsave Backup" error "This Pupsave file already exists.  Wait one minute and the file name will change."
 		return 1
 	fi
@@ -156,65 +186,69 @@ Backup file name: ${destfile}"
 	mv /root/.XLOADED /etc/xloadedx
 	sync
 	sleep 0.5
+	CWDIR=$PWD
    
 	if [ "$SAVEFOLDER" ] ; then
-		/usr/lib/gtkdialog/box_yesno "Pupsave Backup-Compress" "Do you want to compress the backup ${destfile} ?
-
-May take a bit longer but save some space."
-		if [ $? -eq 0 ] ; then
-			COMPRESS_PUPSAVE=yes
-			destfile=${destfile}.tar.gz
-		fi
-		/usr/lib/gtkdialog/box_splash -close never -text "Creating ${destfile##*/} ..." &
-		pidx=$?
-		if [ "$COMPRESS_PUPSAVE" = "yes" ] ; then
-			#version 1 - tar: distrosave/files
-			(
-				cd ${1%/*} # dirname $PBKP_PUPSAVE_PATH
-					#basename destifile / basename $PBKP_PUPSAVE_PATH
-				echo ; echo "tar -c -z -f ${destfile##*/} ${1##*/}/" #debug
-				tar -c -z -f ${destfile##*/} ${1##*/}/
-			)
-			#version 2 - tar: files (for the initrd tar to extract properly - to be implemented)
-			#(
-			#	sourcedir="$1" #$PBKP_PUPSAVE_PATH
-			#	targetfile=${destfile##*/}    #basename $destfile
-			#	#toplevel=${targetfile%.tar.*} #remove trailing .tar.xx
-			#	cd $sourcedir #${destfile%.tar.*} #remove tar.xx
-			#	files2tar=$(find . -maxdepth 1 -mindepth 1 | sed 's|^./||' | sort)
-			#	tar -z -c -f ../${targetfile} ${files2tar} #--one-top-level=${toplevel}
-			#)
+		compression_dialog #set TAROPT TAREXT
+		[ "$TAROPT" ] && destfile=${destfile}.${TAREXT}
+		show_splash "Creating ${destfile##*/} ..."
+		if [ "$TAROPT" ] ; then
+			cd ${1%/*} # dirname $PBKP_PUPSAVE_PATH
+			#basename destifile / basename $PBKP_PUPSAVE_PATH
+			echo ; echo "tar -c ${TAROPT} -f ${destfile##*/} ${1##*/}/" #debug
+			tar -c ${TAROPT} -f ${destfile##*/} ${1##*/}/
+			RETVAL=$?
+			cd "$CWDIR"
 			sync
 			kill $pidx
 		else
 			mkdir -p ${destfile}
 			if which rsync ; then
 				rsync -aX ${1}/ ${destfile}/
+				RETVAL=$?
 			else
 				find "${1}" -mindepth 1 -maxdepth 1 | while read i ; do
 					cp -a --remove-destination ${i} ${destfile}/
+					RETVAL=$?
+					sync
 				done
 			fi
 			sync
 			kill $pidx
 		fi
 	else #savefile
-		/usr/lib/gtkdialog/box_splash -close never -text "Creating ${destfile##*/} ..." &
-		pidx=$?
+		compression_dialog #set TAROPT TAREXT
+		show_splash "Creating ${destfile##*/} ..."
 		cp -f -v "${1}" "${destfile}" 2> /dev/null
+		RETVAL=$?
 		sync
 		kill $pidx
-		/usr/lib/gtkdialog/box_splash -close never -text "Running e2fsck on backup -- please wait" &
-		pidx=$?
+		show_splash "Running e2fsck on backup -- please wait"
 		e2fsck -y "${destfile}" 2> /dev/null
 		kill $pidx
+		if [ "$TAROPT" ] ; then
+			prevdfile=${destfile}
+			destfile=${destfile}.${TAREXT}
+			show_splash "Creating ${destfile##*/} ..."
+			cd ${1%/*} # dirname $PBKP_PUPSAVE_PATH
+			tar -c ${TAROPT} -f ${destfile##*/} ${prevdfile##*/}/ #basename $destfile
+			RETVAL=$?
+			rm -f $prevdfile
+			kill $pidx
+		fi
 	fi
 
 	mv /etc/xloadedx /root/.XLOADED
 	sync
-	/usr/lib/gtkdialog/box_ok "Pupsave Backup" complete "Save${type} Backup Completed:
+	if [ $RETVAL -eq 0 ] ; then
+		/usr/lib/gtkdialog/box_ok "Pupsave Backup" complete "Save${type} Backup Completed:
 
 ${destfile}"
+	else
+		rm -rf $destfile
+		/usr/lib/gtkdialog/box_ok "Pupsave Backup" error "Error(s) creating $destfile"
+		return 1
+	fi
 }
 
 ##################################### Execution #######################################
@@ -244,7 +278,7 @@ case "$PBKP_PUPSAVE_NAME" in *".BKP-"*)
 	/usr/lib/gtkdialog/box_ok "Pupsave Backup" warning "'${PBKP_PUPSAVE_NAME}' seems to be a file produced by this script. It's not advised to use it, the file name might become too large..."
 esac
 # Exported functions
-export -f ERROR_RESTART PBKP_MBrequired PBKP_MBavailable PBKP_Bkpfilename PBKP_Backup PBKP_validate_BACKUP_location
+export -f compression_dialog ERROR_RESTART PBKP_MBrequired PBKP_MBavailable PBKP_Bkpfilename PBKP_Backup PBKP_validate_BACKUP_location
 
 # For fileselect dialog default directory
 cd /mnt
@@ -325,7 +359,9 @@ if [ "$EXIT" = "BACKUP" ] ; then
 	fi
 	#error
 	cleanup
+	cd -
 	$0 & #reenter
+	exit 1
 fi
 
 cleanup

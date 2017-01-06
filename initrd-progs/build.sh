@@ -13,7 +13,7 @@ DEFAULT_x86=i686
 DEFAULT_ARM=armv6l
 #DEFAULT_ARM64=aarch64
 
-PREBUILT_BINARIES="http://01micko.com/wdlkmpx/woof-CE/initrd_progs-20161230-static.tar.xz"
+PREBUILT_BINARIES="http://01micko.com/wdlkmpx/woof-CE/initrd_progs-20170106-static.tar.xz"
 
 ARCH=`uname -m`
 OS_ARCH=$ARCH
