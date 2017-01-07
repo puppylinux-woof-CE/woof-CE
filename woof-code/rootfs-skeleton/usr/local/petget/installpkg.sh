@@ -246,6 +246,7 @@ case $DLPKG_BASE in
    install_path_check
    tar -a -x --strip=1 --directory=${DIRECTSAVEPATH}/ -f ${tarball} #120102. 120107. 131122
   fi
+  rm -f "${tarball}"
   [ $? -ne 0 ] && clean_and_die
  ;;
  *.deb)
