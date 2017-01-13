@@ -235,7 +235,7 @@ do
 done
 
 # Give priority to Slackware patches over official
-if [ "$DISTRO_FILE_PREFIX" = "slacko64" -o "$DISTRO_FILE_PREFIX" = "slacko" ]; then
+if [ "$DISTRO_BINARY_COMPAT" = "slackware64" -o "$DISTRO_BINARY_COMPAT" = "slackware" ]; then
  PATCHES=/tmp/petget_missing_dbentries-Packages-*lackware*-patches
  OFFICIAL=/tmp/petget_missing_dbentries-Packages-*lackware*-official
  SALIX=/tmp/petget_missing_dbentries-Packages-*lackware*-salix
