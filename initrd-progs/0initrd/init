@@ -96,13 +96,18 @@ fsck_func() {
 # "$1" - partition device - ex: /dev/sdb2
 # "$2" - fstype - ex: ext2
  case $2 in
-  ext2|ext3|ext4) fsck_app='e2fsck' ;;
-  vfat|msdos) fsck_app='fsck.fat' ;;
+  ext2|ext3|ext4) fsck_app='e2fsck' ; fsck_OPT='-y' ;;
+  vfat|msdos) fsck_app='fsck.fat' ; fsck_OPT='-y' ;;
+  exfat) fsck_app='exfatfsck' ; fsck_OPT='' ;;
   *) return ;;
  esac
- which "${fsck_app}" || echo "WARNING: '${fsck_app}' not found / ${fsck_app} -y ${1}"
+ which "${fsck_app}" || {
+   echo "WARNING: '${fsck_app}' not found"
+   FSCKDPARTS="${FSCKDPARTS}${1}|"
+   return
+ }
  if [ "$(echo "$FSCKDPARTS" | grep "${1}|")" = "" ];then
-  ${fsck_app} -y ${1} > /dev/console 2>&1
+  ${fsck_app} ${fsck_OPT} ${1} > /dev/console 2>&1 || sleep 3 #so the user has time to read the error msg..
   FSCKDPARTS="${FSCKDPARTS}${1}|"
  fi
 }
@@ -111,8 +116,7 @@ mntfunc() {
  MNT_T="$1"    #ex: vfat
  MNT_DEV="$2"  #ex: /dev/sda1
  MNT_DIR="$3"  #ex: /mnt/sda1
- MNT_O=""
- [ $4 ] && MNT_O="${4}" #ex: noatime
+ MNT_O="$4"    #ex: noatime   [optional]
  MNT_DSK="${MNT_DEV:5:3}"
  if [ "$PTRIM" = "yes" -a "$MNT_DSK" != "" -a "$(cat /sys/block/$MNT_DSK/queue/rotational)" = "0" ];then
   if [ "$MNT_T" = "ext4" -o "$MNT_T" = "f2fs" ];then
@@ -123,6 +127,7 @@ mntfunc() {
    fi
   fi
  fi
+ [ "$PFSCKP" = "yes" ] && fsck_func "$MNT_DEV" "$MNT_T"
  case $MNT_T in
   ntfs)
    ntfs-3g $MNT_DEV $MNT_DIR -o umask=0,no_def_opts,noatime,rw,silent 2>/dev/null #default is rw. 130211 add silent.
@@ -135,12 +140,9 @@ mntfunc() {
     ntfs-3g $MNT_DEV $MNT_DIR -o umask=0,no_def_opts,noatime,rw,force,silent 2>/dev/null #130211 add silent.
    fi
   ;;
-  vfat)
-   [ "$PFSCKP" = "yes" ] && fsck_func "$MNT_DEV" "$MNT_T"
-   mount -t $MNT_T -o $VFAT_OUT_PARAM $MNT_DEV $MNT_DIR
-  ;;
+  vfat)  mount -t $MNT_T -o $VFAT_OUT_PARAM $MNT_DEV $MNT_DIR ;;
+  exfat) mount.exfat-fuse $MNT_DEV $MNT_DIR ;;
   *)
-   [ "$PFSCKP" = "yes" ] && fsck_func "$MNT_DEV" "$MNT_T"
    if [ "$MNT_O" = "" ];then
     mount -t $MNT_T $MNT_DEV $MNT_DIR
    else
@@ -255,7 +257,7 @@ ensure_mounted() {
   rm -f ${ONE_MP}/fsckme.flg
   [ "$FSCK_SAVEFILE" ] && PFSCK="yes"
   [ "$PFSCKP" = "yes" ] && return # boot param, partition already fsck'ed
-  case ${FSCK_EXT} in ext2|ext3|ext4|vfat|msdos)
+  case ${FSCK_EXT} in ext2|ext3|ext4|vfat|msdos|exfat)
     umount ${ONE_MP}
     [ "$FSCKME" ] && fsck_func /dev/${FSCK_PART} ${FSCK_EXT}
     ensure_mounted "$1" "$2" ;;

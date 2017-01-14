@@ -13,10 +13,20 @@ DEFAULT_x86=i686
 DEFAULT_ARM=armv6l
 #DEFAULT_ARM64=aarch64
 
-PREBUILT_BINARIES="http://01micko.com/wdlkmpx/woof-CE/initrd_progs-20170106-static.tar.xz"
+PREBUILT_BINARIES="http://01micko.com/wdlkmpx/woof-CE/initrd_progs-20170114-static.tar.xz"
 
 ARCH=`uname -m`
 OS_ARCH=$ARCH
+
+function get_initrd_progs() {
+	local var=INITRD_PROGS
+	[ "$1" = "-pkg" ] && { var=PACKAGES ; shift ; }
+	local arch=$1
+	[ "$arch" = "" ] && arch=`uname -m`
+	case "$arch" in i?86) arch="x86" ;; esac
+	case "$arch" in arm*) arch='arm' ;; esac
+	eval echo \$$var \$${var}_${arch} #ex: $PACKAGES $PACKAGES_x86, $INITRD_PROGS $INITRD_PROGS_x86
+}
 
 case "$1" in release|tarball) #this contains the $PREBUILT_BINARIES
 	echo "If you made changes then don't forget to remove all 00_* directories first"
@@ -25,7 +35,7 @@ case "$1" in release|tarball) #this contains the $PREBUILT_BINARIES
 	pkgx=initrd_progs-$(date "+%Y%m%d")-static.tar.xz
 	echo -e "\n\n\n*** Creating $pkgx"
 	while read ARCH ; do
-		for PROG in ${INITRD_PROGS} ; do
+		for PROG in $(get_initrd_progs ${ARCH#00_}) ; do
 			case $PROG in ""|'#'*) continue ;; esac
 			progs2tar+=" ${ARCH}/bin/${PROG}"
 		done
@@ -278,6 +288,8 @@ function check_bin() {
 		coreutils_static) static_bins='cp' ;;
 		dosfstools_static) static_bins='fsck.fat' ;;
 		e2fsprogs_static) static_bins='e2fsck resize2fs' ;;
+		exfat-utils_static) static_bins='exfatfsck' ;;
+		fuse-exfat_static) static_bins='mount.exfat-fuse' ;;
 		findutils_static) static_bins='find' ;;
 		util-linux_static) static_bins='losetup' ;;
 		util-linux-222_static) static_bins='losetup-222' ;;
@@ -300,10 +312,12 @@ function build_pkgs() {
 	[ "$BUILD_PKG" != "" ] && PACKAGES="$BUILD_PKG"
 	if [ "$FORCE_BUILD_ALL" = "yes" ] ; then
 		PACKAGES=$(find pkg -maxdepth 1 -type d -name '*_static' | sed 's|.*/||' | sort)
+	else
+		PACKAGES=$(get_initrd_progs -pkg $ARCH)
 	fi
-	PACKAGES=$(echo "$PACKAGES" | grep -Ev '^#|^$')
 	#--
 	for init_pkg in ${PACKAGES} ; do
+		case $init_pkg in ""|'#'*) continue ;; esac
 		[ -f .fatal ] && { echo "Exiting.." ; rm -f .fatal ; exit 1 ; }
 		[ -d pkg/"${init_pkg}_static" ] && init_pkg=${init_pkg}_static
 		if [ "$DLD_ONLY" = "no" ] ; then
@@ -364,7 +378,7 @@ function generate_initrd() {
 
 	cd ZZ_initrd-expanded
 
-	for PROG in ${INITRD_PROGS} ; do
+	for PROG in $(get_initrd_progs ${ARCH}) ; do
 		case $PROG in ""|'#'*) continue ;; esac
 		if [ -f ../00_${ARCH}/bin/${PROG} ] ; then
 			file ../00_${ARCH}/bin/${PROG} | grep -E 'dynamically|shared' && exit 1
