@@ -72,31 +72,38 @@ else
 	## CONFIG_DIR
 	config_dirs='x86 x86_64 arm'
 	case $(uname -m) in
-		i?86)   cdefault=1 ; OS_ARCH=x86 ;;
-		x86_64) cdefault=2 ; OS_ARCH=$(uname -m) ;;
-		arm)    cdefault=3 ; OS_ARCH=$(uname -m) ;;
+		i?86)   cdefault=1 ; HOST_ARCH=x86 ;;
+		x86_64) cdefault=2 ; HOST_ARCH=x86_64 ;;
+		arm*)   cdefault=3 ; HOST_ARCH=arm ;;
 		*)      cdefault=1 ;;
 	esac
-	echo "Select architecture: "
-	x=1
-	for cdir in ${config_dirs} ; do
-		if [ $x -eq $cdefault ] ; then
-			echo "${x}. $cdir [default]"
-		else
-			echo "${x}. $cdir"
-		fi
-		let x++
-	done
-	echo -n "Enter option: " ; read copt
-	case ${copt} in
-		1|2|3|4) cchosen=${copt} ;;
-		*) cchosen=${cdefault} ;;
-	esac
-	cdir=$(echo "$config_dirs" | cut -d ' ' -f ${cchosen})
 
-	if [ "$cdir" != "$OS_ARCH" ] ; then
-		echo "- Currently it's not possible to cross compile... sorry"
-		exit 1
+	# cross-builds ..
+	# will probably use buildroot tarballs, so it has to be x86_64
+	if [ "$HOST_ARCH" = "X86_64" ] ; then
+		echo "Select architecture: "
+		x=1
+		for cdir in ${config_dirs} ; do
+			if [ $x -eq $cdefault ] ; then
+				echo "${x}. $cdir [default]"
+			else
+				echo "${x}. $cdir"
+			fi
+			let x++
+		done
+		echo -n "Enter option: " ; read copt
+		case ${copt} in
+			1|2|3|4) cchosen=${copt} ;;
+			*) cchosen=${cdefault} ;;
+		esac
+		cdir=$(echo "$config_dirs" | cut -d ' ' -f ${cchosen})
+
+		if [ "$cdir" != "$HOST_ARCH" ] ; then
+			echo "- Currently it's not possible to cross compile... sorry"
+			exit 1
+		fi
+	else
+		cdir="$HOST_ARCH"
 	fi
 
 	CONFIGS_DIR=configs_${cdir}
