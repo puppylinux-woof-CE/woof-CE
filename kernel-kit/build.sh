@@ -708,6 +708,31 @@ cp -a --remove-destination dist/packages/aufs-util-${kernel_version}-${arch}/* \
 #==============================================================
 
 if [ $LIBRE -eq 0 ] ; then
+ if [ "$FW_PKG_URL" ] ; then
+	fw_pkg=${FW_PKG_URL##*/} #basename
+	case $fw_pkg in
+		*.sfs)
+			FDRV=fdrv.sfs-${kernel_version}-${package_name_suffix}
+			if [ ! -f dist/packages/${fw_pkg} ] ; then
+				if [ -f "$FW_PKG_URL" ] ; then #can be a local file - full path
+					cp "$FW_PKG_URL" dist/packages/${FDRV}
+				else
+					wget ${WGET_OPT} -c ${FW_PKG_URL} -P dist/packages || exit 1
+					cp dist/packages/${fw_pkg} dist/packages/${FDRV}
+				fi
+			fi
+			;;
+		*.tar.*)
+			if [ ! -f dist/packages/${fw_pkg} ] ; then
+				wget ${WGET_OPT} -t0 -c ${FW_PKG_URL} -P dist/packages
+				[ $? -ne 0 ] && exit_error "failed to download ${fw_pkg}"
+			fi
+			mkdir -p dist/packages/${linux_kernel_dir}/lib
+			tar -xjf dist/packages/${fw_pkg} -C dist/packages/${linux_kernel_dir}/lib/
+			[ $? -ne 0 ] && exit_error "failed to unpack ${fw_pkg}"
+			;;
+	esac
+ else
 	echo "Pausing here to add extra firmware."
 	echo "Choose an option:"
 	## download the fw or offer to copy
@@ -753,8 +778,7 @@ if [ $LIBRE -eq 0 ] ; then
 		fi
 		## run the firmware script and re-enter here
 		./fw.sh ${fw_flag} # optonal param; see fw.sh and build.conf
-		ret=$?
-		if [ $ret -eq 0 ] ; then
+		if [ $? -eq 0 ] ; then
 			echo "Extracting firmware from the kernel.org git repo has succeeded."
 		else
 			echo "WARNING: Extracting firmware from the kernel.org git repo has failed."
@@ -772,6 +796,7 @@ if [ $LIBRE -eq 0 ] ; then
 		[ $? -ne 0 ] && exit_error "failed to unpack ${fw_pkg}"
 		echo "Successfully extracted ${fw_pkg}."
 	fi
+ fi
 fi
 
 mksquashfs dist/packages/${linux_kernel_dir} dist/packages/kernel-modules.sfs-${kernel_version}-${package_name_suffix} $COMP
@@ -780,12 +805,9 @@ echo "Huge compatible kernel packages are ready to package./"
 echo "Packaging huge-${kernel_version}-${package_name_suffix} kernel"
 cd dist/packages/
 tar -cjvf huge-${kernel_version}-${package_name_suffix}.tar.bz2 \
-	vmlinuz-${kernel_version}-${package_name_suffix} kernel-modules.sfs-${kernel_version}-${package_name_suffix}
-	if [ "$?" = 0 ] ; then
-		echo "huge-${kernel_version}-${package_name_suffix}.tar.bz2 is in dist/packages"
-	else
-		exit 1
-	fi
+	vmlinuz-${kernel_version}-${package_name_suffix} ${FDRV} \
+	kernel-modules.sfs-${kernel_version}-${package_name_suffix} || exit 1
+	echo "huge-${kernel_version}-${package_name_suffix}.tar.bz2 is in dist/packages"
 md5sum huge-${kernel_version}-${package_name_suffix}.tar.bz2 > huge-${kernel_version}-${package_name_suffix}.tar.bz2.md5.txt
 echo
 cd -
