@@ -6,7 +6,13 @@
 . ./build.conf || exit 1
 
 CWD=`pwd`
-WGET_OPT='--no-check-certificate -q --show-progress'
+wget --help | grep -q '\-\-show\-progress' && WGET_SHOW_PROGRESS='-q --show-progress'
+WGET_OPT='--no-check-certificate '${WGET_SHOW_PROGRESS}
+
+exit_error() {
+	echo -e "$@" | tee -a build.log
+	exit 1
+}
 
 for i in $@ ; do
 	case $i in
@@ -34,14 +40,9 @@ fi
 
 ## Dependency check...
 for app in git gcc make ; do
-	if ! $app --version &>/dev/null ; then
-		echo -e "\033[1;31m""$app is not installed""\033[0m" && exit 1 #red
-	fi
+	$app --version &>/dev/null || exit_error "\033[1;31m""$app is not installed""\033[0m"
 done
-if ! which mksquashfs &>/dev/null ; then
-	echo -e "\033[1;30m""mksquashfs is not installed but you can continue"
-fi
-echo -e "\033[0m" #reset to original
+which mksquashfs &>/dev/null || exit_error "\033[1;30m""mksquashfs is not installed""\033[0m"
 
 ## determine number of jobs for make
 if [ ! "$JOBS" ] ; then
@@ -57,8 +58,7 @@ echo "Jobs for make: ${JOBS#-j}" ; echo
 #------------------------------------------------------------------
 
 if [ "$DOTconfig_file" -a ! -f "$DOTconfig_file" ] ; then
-	echo "File not found: $DOTconfig_file (see build.conf - DOTconfig_file=)"
-	exit 1
+	exit_error "File not found: $DOTconfig_file (see build.conf - DOTconfig_file=)"
 fi
 
 if [ -f "$DOTconfig_file" ] ; then
@@ -71,31 +71,35 @@ else
 	## CONFIG_DIR
 	config_dirs='x86 x86_64 arm'
 	case $(uname -m) in
-		i?86)   cdefault=1 ; OS_ARCH=x86 ;;
-		x86_64) cdefault=2 ; OS_ARCH=$(uname -m) ;;
-		arm)    cdefault=3 ; OS_ARCH=$(uname -m) ;;
+		i?86)   cdefault=1 ; HOST_ARCH=x86 ;;
+		x86_64) cdefault=2 ; HOST_ARCH=x86_64 ;;
+		arm*)   cdefault=3 ; HOST_ARCH=arm ;;
 		*)      cdefault=1 ;;
 	esac
-	echo "Select architecture: "
-	x=1
-	for cdir in ${config_dirs} ; do
-		if [ $x -eq $cdefault ] ; then
-			echo "${x}. $cdir [default]"
-		else
-			echo "${x}. $cdir"
-		fi
-		let x++
-	done
-	echo -n "Enter option: " ; read copt
-	case ${copt} in
-		1|2|3|4) cchosen=${copt} ;;
-		*) cchosen=${cdefault} ;;
-	esac
-	cdir=$(echo "$config_dirs" | cut -d ' ' -f ${cchosen})
 
-	if [ "$cdir" != "$OS_ARCH" ] ; then
-		echo "- Currently it's not possible to cross compile... sorry"
-		exit 1
+	# cross-builds ..
+	# will probably use buildroot tarballs, so it has to be x86_64
+	if [ "$HOST_ARCH" = "X86_64" ] ; then
+		echo "Select architecture: "
+		x=1
+		for cdir in ${config_dirs} ; do
+			if [ $x -eq $cdefault ] ; then
+				echo "${x}. $cdir [default]"
+			else
+				echo "${x}. $cdir"
+			fi
+			let x++
+		done
+		echo -n "Enter option: " ; read copt
+		case ${copt} in
+			1|2|3|4) cchosen=${copt} ;;
+			*) cchosen=${cdefault} ;;
+		esac
+		cdir=$(echo "$config_dirs" | cut -d ' ' -f ${cchosen})
+
+		[ "$cdir" != "$HOST_ARCH" ] && exit_error "- Currently it's not possible to cross compile... sorry"
+	else
+		cdir="$HOST_ARCH"
 	fi
 
 	CONFIGS_DIR=configs_${cdir}
@@ -114,16 +118,10 @@ else
 	fi
 	cat /tmp/kernel_configs
 	echo -n "Enter choice: " ; read Chosen
-	if [ ! "$Chosen" -a ! -f DOTconfig ] ; then
-		echo -e "\033[1;31m""ERROR: invalid choice, start again!""\033[0m"
-		exit 1
-	fi
+	[ ! "$Chosen" -a ! -f DOTconfig ] && exit_error "\033[1;31m""ERROR: invalid choice, start again!""\033[0m"
 	if [ "$Chosen" ] ; then
 		Choice=$(grep "^$Chosen\." /tmp/kernel_configs | cut -d ' ' -f2)
-		if [ ! "$Choice" ] ; then
-			echo -e "\033[1;31m""ERROR: your choice is not sane ..quiting""\033[0m"
-			exit 1
-		fi 
+		[ ! "$Choice" ] && exit_error "\033[1;31m""ERROR: your choice is not sane ..quiting""\033[0m"
 	else
 		Choice=Default
 	fi
@@ -175,12 +173,11 @@ echo "kernel_version=${kernel_version}"
 echo "kernel_version_info=${kernel_version_info}"
 case "$kernel_version" in
 	3.*|4.*) ok=1 ;; #----
-	*) echo "ERROR: Unsupported kernel version" ; exit 1 ;;
+	*) exit_error "ERROR: Unsupported kernel version" ;;
 esac
 
 if [ "$Choice" != "New" -a ! -f DOTconfig ] ; then
-	echo -e "\033[1;31m""ERROR: No DOTconfig found ..quiting""\033[0m"
-	exit 1
+	exit_error "\033[1;31m""ERROR: No DOTconfig found ..quiting""\033[0m"
 fi
 
 #------------------------------------------------------------------
@@ -284,7 +281,7 @@ if [ ! $aufsv ] ; then
 	fi
 fi
 
-[ $aufsv ] || { echo "You must specify 'aufsv=version' in build.conf" ; exit 1 ; }
+[ $aufsv ] || exit_error "You must specify 'aufsv=version' in build.conf"
 echo "aufs=$aufsv"
 
 #kernel mirror - Aufs series (must match the kernel version)
@@ -343,10 +340,7 @@ if [ $LIBRE -eq 1 ] ; then
 	for i in deblob-${kernel_major_version} deblob-check; do
 		if [ ! -f dist/sources/vanilla/$i ] ; then
 			wget ${WGET_OPT} -O dist/sources/vanilla/$i http://linux-libre.fsfla.org/pub/linux-libre/releases/LATEST-${kernel_major_version}.N/$i
-			if [ $? -ne 0 ] ; then
-				echo "Error: failed to download $i."
-				exit 1
-			fi
+			[ $? -ne 0 ] && exit_error "Error: failed to download $i."
 		fi
 	done
 fi
@@ -355,10 +349,7 @@ fi
 if [ -f dist/sources/vanilla/aufs${aufs_version}-${kernel_branch}-git${today}.tar.bz2 ] ; then
 	echo "Extracting the Aufs sources"
 	tar xf dist/sources/vanilla/aufs${aufs_version}-${kernel_branch}-git${today}.tar.bz2 >> build.log 2>&1
-	if [ $? -ne 0 ] ; then
-		echo "Error: failed to extract the Aufs sources."
-		exit 1
-	fi
+	[ $? -ne 0 ] && exit_error "Error: failed to extract the Aufs sources."
 else
 	echo "Downloading the Aufs sources"
 	rm -rf aufs${aufs_version}-${kernel_branch}-git${today}
@@ -366,8 +357,7 @@ else
 		aufs${aufs_version}-${kernel_branch}-git${today} >> build.log 2>&1
 	if [ $? -ne 0 ] ; then
 		rm -f dist/sources/vanilla/aufs${aufs_version}-${kernel_branch}-git${today}.tar.bz2
-		echo "Error: failed to download the Aufs sources."
-		exit 1
+		exit_error "Error: failed to download the Aufs sources."
 	fi
 	( cd aufs${aufs_version}-${kernel_branch}-git${today} ; rm -rf .git )
 	echo "Creating the Aufs sources tarball"
@@ -379,29 +369,20 @@ fi
 if [ -f aufs-allow-sfs.patch ] ; then #removed for K3.9 experiment
 	echo "Patching the Aufs sources" | tee -a build.log
 	patch -d aufs${aufs_version}-${kernel_branch}-git${today} -p1 < aufs-allow-sfs.patch >> build.log 2>&1
-	if [ $? -ne 0 ] ; then
-		echo "Error: failed to patch the Aufs sources."  | tee -a build.log
-		exit 1
-	fi
+	[ $? -ne 0 ] && exit_error "Error: failed to patch the Aufs sources."
 	cp aufs-allow-sfs.patch dist/sources/patches
 fi
 if [ -f aufs-kconfig.patch ] ; then #special for K3.9
 	echo "Patching the Aufs sources" | tee -a build.log
 	patch -d aufs${aufs_version}-${kernel_branch}-git${today} -p1 < aufs-kconfig.patch >> build.log 2>&1
-	if [ $? -ne 0 ] ; then
-		echo "Error: failed to patch the Aufs sources for kconfig." | tee -a build.log
-		exit 1
-	fi
+	[ $? -ne 0 ] && exit_error "Error: failed to patch the Aufs sources for kconfig."
 	cp aufs-kconfig.patch dist/sources/patches
 fi
 
 ## extract the kernel
 echo "Extracting the kernel sources"
 tar xf dist/sources/vanilla/linux-${kernel_version}.tar.* >> build.log 2>&1
-if [ $? -ne 0 ] ; then
-	echo "Error: failed to extract the kernel sources."
-	exit 1
-fi
+[ $? -ne 0 ] && exit_error "Error: failed to extract the kernel sources."
 
 #-------------------------
 cd linux-${kernel_version}
@@ -488,10 +469,7 @@ fi
 for patch in ../patches/* ; do
 	echo "Applying $patch"
 	patch -p1 < $patch >> ../build.log 2>&1
-	if [ $? -ne 0 ] ; then
-		echo "Error: failed to apply $patch on the kernel sources."
-		exit 1
-	fi
+	[ $? -ne 0 ] && exit_error "Error: failed to apply $patch on the kernel sources."
 	cp $patch ../dist/sources/patches
 done
 
@@ -561,10 +539,7 @@ case $kernelconfig in
 	*) do_kernel_config menuconfig ;;
 esac
 
-if [ ! -f .config ] ; then
-	echo -e "\nNo config file, exiting..."
-	exit 1
-fi
+[ ! -f .config ] && exit_error "\nNo config file, exiting..."
 
 #------------------------------------------------------------------
 
@@ -607,13 +582,11 @@ fi
 
 if [ $karch == 'x86' ] ; then
 	if [ ! -f arch/x86/boot/bzImage -o ! -f System.map ] ; then
-		echo "Error: failed to compile the kernel sources."
-		exit 1
+		exit_error "Error: failed to compile the kernel sources."
 	fi
 else
 	if [ ! -f arch/arm/boot/zImage ] ; then #needs work
-		echo "Error: failed to compile the kernel sources."
-		exit 1
+		exit_error "Error: failed to compile the kernel sources."
 	fi
 fi
 
@@ -683,9 +656,8 @@ if [ ! -f dist/sources/vanilla/aufs-util${today}.tar.bz2 ] ; then
 	if [ ! -d aufs-util ] ; then
 		git clone ${aufs_utils_git} aufs-util
 		if [ $? -ne 0 ] ; then
-			echo "Failed to get aufs-util from git, do it manually. Kernel is compiled OK :)"
 			rm -rf aufs-util
-			exit 1
+			exit_error "Failed to get aufs-util from git, do it manually. Kernel is compiled OK :)"
 		fi
 	fi
 	#-----------
@@ -703,10 +675,7 @@ if [ ! -f dist/sources/vanilla/aufs-util${today}.tar.bz2 ] ; then
 		fi
 	done < /tmp/aufs-util-version
 	git checkout origin/aufs${kernel_series}.${branch} >> ../build.log 2>&1
-	if [ $? -ne 0 ] ; then
-		echo "Failed to get aufs-util from git, do it manually. Kernel is compiled OK :)"
-		exit 1
-	fi
+	[ $? -ne 0 ] && exit_error "Failed to get aufs-util from git, do it manually. Kernel is compiled OK :)"
 	## patch Makefile for static build
 	echo "Patching aufs-util sources"
 	cp Makefile Makefile.orig
@@ -718,16 +687,10 @@ if [ ! -f dist/sources/vanilla/aufs-util${today}.tar.bz2 ] ; then
 else
 	echo "Extracting the Aufs-util sources"
 	tar xf dist/sources/vanilla/aufs-util${today}.tar.bz2 >> ../build.log 2>&1
-	if [ $? -ne 0 ] ; then
-		echo "Error: failed to extract the aufs-util sources."
-		exit 1
-	fi
+	[ $? -ne 0 ] && exit_error "Error: failed to extract the aufs-util sources."
 	cd aufs-util
 	patch -p1 < ../dist/sources/patches/aufs-util-dynamic.patch >> ../build.log 2>&1
-	if [ "$?" -ne 0 ] ; then
-		echo "Failed to patch the aufs-util sources, do it manually. Kernel is compiled ok"
-		exit 1
-	fi
+	[ "$?" -ne 0 ] && exit_error "Failed to patch the aufs-util sources, do it manually. Kernel is compiled ok"
 fi
 
 ## see if fhsm is enabled in kernel config
@@ -746,11 +709,7 @@ make DESTDIR=$CWD/dist/packages/aufs-util-${kernel_version}-${arch} install
 " > compile ## debug
 
 make clean &>/dev/null
-$MAKE >> ../build.log 2>&1
-if [ $? -ne 0 ] ; then
-	echo "Failed to compile aufs-util, do it manually. Kernel is compiled OK :)"
-	exit 1
-fi
+$MAKE >> ../build.log 2>&1 || exit_error "Failed to compile aufs-util, do it manually. Kernel is compiled OK :)"
 make DESTDIR=$CWD/dist/packages/aufs-util-${kernel_version}-${arch} install >> ../build.log 2>&1 #needs absolute path
 make clean >> ../build.log 2>&1
 
@@ -804,8 +763,7 @@ if [ $LIBRE -eq 0 ] ; then
 	esac
 	## if $fw is not a number then the conditionals below will fail
 	if [ "$fw" -gt "$x" ] ; then
-		echo "error, wrong number"
-		exit 1
+		exit_error "error, wrong number"
 	elif [ "$fw" = "$(($x - 1))" ] ; then
 		echo "once you have manually added firmware to "
 		echo "dist/packages/${linux_kernel_dir}/lib/firmware"
@@ -835,10 +793,10 @@ if [ $LIBRE -eq 0 ] ; then
 		echo "You chose ${fw_pkg}. If that isn't correct change it manually later."
 		echo "downloading ${FW_URL}/${fw_pkg}"
 		wget ${WGET_OPT} -t0 -c ${FW_URL}/${fw_pkg} -P dist/packages
-		[ $? -ne 0 ] && echo "failed to download ${fw_pkg##* }" && exit 1
+		[ $? -ne 0 ] && exit_error "failed to download ${fw_pkg##* }"
 		mkdir -p dist/packages/${linux_kernel_dir}/lib
 		tar -xjf dist/packages/${fw_pkg} -C dist/packages/${linux_kernel_dir}/lib/
-		[ $? -ne 0 ] && echo "failed to unpack ${fw_pkg}" && exit 1
+		[ $? -ne 0 ] && exit_error "failed to unpack ${fw_pkg}"
 		echo "Successfully extracted ${fw_pkg}."
 	fi
 fi
