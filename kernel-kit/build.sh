@@ -17,6 +17,7 @@ exit_error() {
 for i in $@ ; do
 	case $i in
 		clean) DO_CLEAN=1 ; break ;;
+		auto) AUTO=yes ; shift ;;
 	esac
 done
 
@@ -35,7 +36,7 @@ fi
 if [ -d ./dist ] ; then
 	echo "This is not a clean kit. Hit ENTER to continue"
 	echo "or CTRL+C to quit and run './build.sh clean'"
-	read notcleango
+	[ "$AUTO" != "yes" ] && read notcleango || echo
 fi
 
 ## Dependency check...
@@ -43,6 +44,11 @@ for app in git gcc make ; do
 	$app --version &>/dev/null || exit_error "\033[1;31m""$app is not installed""\033[0m"
 done
 which mksquashfs &>/dev/null || exit_error "\033[1;30m""mksquashfs is not installed""\033[0m"
+
+if [ "$AUTO" = "yes" ] ; then
+	[ ! "$DOTconfig_file" ] && exit_error "Must specify DOTconfig_file=<file> in build.conf"
+	[ ! "$FW_PKG_URL" ] && exit_error "Must specify FW_PKG_URL=<url> in build.conf"
+fi
 
 ## determine number of jobs for make
 if [ ! "$JOBS" ] ; then
@@ -62,6 +68,7 @@ if [ -f "$DOTconfig_file" ] ; then
 	Choice=${DOTconfig_file##*/}     #basename $DOTconfig_file
 	[ "$CONFIGS_DIR" = "$Choice" ] && CONFIGS_DIR=.
 else
+	[ "$AUTO" = "yes" ] && exit_error "Must specify DOTconfig_file=<file> in build.conf"
 	## .configs
 	[ -f /tmp/kernel_configs ] && rm -f /tmp/kernel_configs
 	## CONFIG_DIR
@@ -155,8 +162,12 @@ case $Choice in
 			sed -i '/^kernel_version/d' ${CONFIGS_DIR}/$Choice
 			kernel_version=${kver}
 			[ "$kernel_ver" ] && kernel_version=${kernel_ver} #build.conf
-			echo "kernel_version=${kernel_version}" >> DOTconfig
-			echo "kernel_version_info=${kernel_version_info}" >> DOTconfig
+			if [ "$kernel_version" ] ; then
+				echo "kernel_version=${kernel_version}" >> DOTconfig
+				echo "kernel_version_info=${kernel_version_info}" >> DOTconfig
+			else
+				[ "$AUTO" = "yes" ] && exit_error "Must specify kernel_ver=<version> in build.conf"
+			fi
 		fi
 		if [ "${CONFIGS_DIR}/$Choice" != "./DOTconfig" ] ; then
 			cp -afv ${CONFIGS_DIR}/$Choice DOTconfig
@@ -222,13 +233,13 @@ if [ -f DOTconfig ] ; then
 	the kernel has downloaded and been patched.
 	Look under ' $fs_msg'
 	"
-		echo -n "PRESS ENTER" ; read zzz
+		[ "$AUTO" != "yes" ] && echo -n "PRESS ENTER" && read zzz
 	done
 fi
 
 ## fail-safe switch in case someone clicks the script in ROX (real story! not fun at all!!!!) :p
 echo
-read -p "Press ENTER to begin" dummy
+[ "$AUTO" != "yes" ] && read -p "Press ENTER to begin" dummy
 
 #------------------------------------------------------------------
 
@@ -476,7 +487,7 @@ function do_kernel_config() {
 	echo "make $1"
 	make $1 ##
 	if [ $? -eq 0 ] ; then
-		if [ -f .config ] ; then
+		if [ -f .config -a "$AUTO" != "yes" ] ; then
 			echo -e "\nOk, kernel is configured. hit ENTER to continue, CTRL+C to quit"
 			read goon
 		fi
@@ -486,7 +497,10 @@ function do_kernel_config() {
 	[ ! -f ../DOTconfig ] && cp .config ../DOTconfig
 }
 
-echo -en "
+if [ "$AUTO" = "yes" ] ; then
+	do_kernel_config oldconfig
+else
+	echo -en "
 You now should configure your kernel. The supplied .config
 should be already configured but you may want to make changes, plus
 the date should be updated.
@@ -499,18 +513,19 @@ Hit a number or s to skip:
 s. skip
 
 Enter option: " ; read kernelconfig
-case $kernelconfig in
-	1) do_kernel_config menuconfig ;;
-	2) do_kernel_config gconfig    ;;
-	3) do_kernel_config xconfig    ;;
-	4) do_kernel_config oldconfig   ;;
-	s)
-		echo "skipping"
-		echo "hit ENTER to continue, CTRL+C to quit"
-		read goon
-		;;
-	*) do_kernel_config menuconfig ;;
-esac
+	case $kernelconfig in
+		1) do_kernel_config menuconfig ;;
+		2) do_kernel_config gconfig    ;;
+		3) do_kernel_config xconfig    ;;
+		4) do_kernel_config oldconfig   ;;
+		s)
+			echo "skipping"
+			echo "hit ENTER to continue, CTRL+C to quit"
+			read goon
+			;;
+		*) do_kernel_config menuconfig ;;
+	esac
+fi
 
 [ ! -f .config ] && exit_error "\nNo config file, exiting..."
 
