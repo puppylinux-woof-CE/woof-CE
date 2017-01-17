@@ -6,7 +6,8 @@
 . ./build.conf || exit 1
 
 CWD=`pwd`
-WGET_OPT='--no-check-certificate -q --show-progress'
+wget --help | grep -q '\-\-show\-progress' && WGET_SHOW_PROGRESS='-q --show-progress'
+WGET_OPT='--no-check-certificate '${WGET_SHOW_PROGRESS}
 
 for i in $@ ; do
 	case $i in
