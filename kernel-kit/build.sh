@@ -47,13 +47,9 @@ which mksquashfs &>/dev/null || exit_error "\033[1;30m""mksquashfs is not instal
 ## determine number of jobs for make
 if [ ! "$JOBS" ] ; then
 	JOBS=$(grep "^processor" /proc/cpuinfo | wc -l)
-	if [ $JOBS -ge 1 ] ; then
-		JOBS="-j${JOBS}"
-	else
-		JOBS=""
-	fi
+	[ $JOBS -ge 1 ] && JOBS="-j${JOBS}" || JOBS=""
 fi
-echo "Jobs for make: ${JOBS#-j}" ; echo
+[ "$JOBS" ] && echo "Jobs for make: ${JOBS#-j}" && echo
 
 #------------------------------------------------------------------
 
@@ -112,10 +108,10 @@ else
 		echo "${NUM}. $C" >> /tmp/kernel_configs
 		NUM=$(($NUM + 1))
 	done
-	echo "n. New DOTconfig" >> /tmp/kernel_configs
 	if [ -f DOTconfig ] ; then
 		echo "d. Default - current DOTconfig (./DOTconfig)" >> /tmp/kernel_configs
 	fi
+	echo "n. New DOTconfig" >> /tmp/kernel_configs
 	cat /tmp/kernel_configs
 	echo -n "Enter choice: " ; read Chosen
 	[ ! "$Chosen" -a ! -f DOTconfig ] && exit_error "\033[1;31m""ERROR: invalid choice, start again!""\033[0m"
@@ -209,26 +205,24 @@ fi
 
 if [ -f DOTconfig ] ; then
 	echo ; tail -n10 README ; echo
-	for i in CONFIG_AUFS_FS=y CONFIG_NLS_CODEPAGE_850=y ; do
-		if grep -q "$i" DOTconfig ; then
-			echo "$i is ok"
+	for i in CONFIG_AUFS_FS=y CONFIG_NLS_CODEPAGE_850=y
+	do
+		grep -q "$i" DOTconfig && { echo "$i is ok" ; continue ; }
+		echo -e "\033[1;31m""\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!   WARNING     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n""\033[0m"
+		if [ "$i" = "CONFIG_AUFS_FS=y" ] ; then
+			echo "For your kernel to boot AUFS as a built in is required:"
+			fs_msg="File systems -> Miscellaneous filesystems -> AUFS"
 		else
-			echo -e "\033[1;31m""\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!   WARNING     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n""\033[0m"
-			if [ "$i" = "CONFIG_AUFS_FS=y" ] ; then
-				echo "For your kernel to boot AUFS as a built in is required:"
-				fs_msg="File systems -> Miscellaneous filesystems -> AUFS"
-			else
-				echo "For NLS to work at boot some configs are required:"
-				fs_msg="NLS Support"
-			fi
-			echo "$i"
-			echo "$i"|grep -q "CONFIG_NLS_CODEPAGE_850=y" && echo "CONFIG_NLS_CODEPAGE_852=y"
-			echo "Make sure you enable this when you are given the opportunity after
+			echo "For NLS to work at boot some configs are required:"
+			fs_msg="NLS Support"
+		fi
+		echo "$i"
+		echo "$i"|grep -q "CONFIG_NLS_CODEPAGE_850=y" && echo "CONFIG_NLS_CODEPAGE_852=y"
+		echo "Make sure you enable this when you are given the opportunity after
 	the kernel has downloaded and been patched.
 	Look under ' $fs_msg'
 	"
-			echo -n "PRESS ENTER" ; read zzz
-		fi
+		echo -n "PRESS ENTER" ; read zzz
 	done
 fi
 
@@ -366,18 +360,15 @@ else
 fi
 
 ## patch Aufs
-if [ -f aufs-allow-sfs.patch ] ; then #removed for K3.9 experiment
+# aufs-allow-sfs.patch - removed for K3.9 experiment
+# aufs-kconfig.patch   - #special for K3.9
+for i in aufs-allow-sfs.patch aufs-kconfig.patch ; do
+	[ -f "$i" ] || continue
 	echo "Patching the Aufs sources" | tee -a build.log
-	patch -d aufs${aufs_version}-${kernel_branch}-git${today} -p1 < aufs-allow-sfs.patch >> build.log 2>&1
+	patch -d aufs${aufs_version}-${kernel_branch}-git${today} -p1 < $i >> build.log 2>&1
 	[ $? -ne 0 ] && exit_error "Error: failed to patch the Aufs sources."
-	cp aufs-allow-sfs.patch dist/sources/patches
-fi
-if [ -f aufs-kconfig.patch ] ; then #special for K3.9
-	echo "Patching the Aufs sources" | tee -a build.log
-	patch -d aufs${aufs_version}-${kernel_branch}-git${today} -p1 < aufs-kconfig.patch >> build.log 2>&1
-	[ $? -ne 0 ] && exit_error "Error: failed to patch the Aufs sources for kconfig."
-	cp aufs-kconfig.patch dist/sources/patches
-fi
+	cp $i dist/sources/patches
+done
 
 ## extract the kernel
 echo "Extracting the kernel sources"
@@ -409,7 +400,6 @@ cp ../aufs${aufs_version}-${kernel_branch}-git${today}/include/linux/aufs_type.h
 cp ../aufs${aufs_version}-${kernel_branch}-git${today}/include/uapi/linux/aufs_type.h include/linux 2>/dev/null
 [ -d ../aufs${aufs_version}-${kernel_branch}-git${today}/include/uapi ] && \
 	cp -r ../aufs${aufs_version}-${kernel_branch}-git${today}/include/uapi/linux/aufs_type.h include/uapi/linux
-#cat ../aufs${aufs_version}-1-git${today}/include/linux/Kbuild >> include/Kbuild
 ################################################################################
 
 ## deblob the kernel
@@ -440,31 +430,16 @@ fi
 diff -up Makefile-orig Makefile > ../dist/sources/patches/version.patch
 rm Makefile-orig
 
-echo "Reducing the number of consoles"
-if [ $kernel_series -gt 3 ] || [ $kernel_series -eq 3 -a $kernel_branch -ge 12 ] ; then
-	if [ $kernel_series -gt 3 ] || [ $kernel_series -eq 3 -a $kernel_branch -ge 16 ] ; then
-		echo "Reducing the verbosity level"
-		cp -f include/linux/printk.h include/linux/printk.h.orig
-		sed -i s/'#define CONSOLE_LOGLEVEL_DEFAULT 7 \/\* anything MORE serious than KERN_DEBUG \*\/'/'#define CONSOLE_LOGLEVEL_DEFAULT 3 \/\* anything MORE serious than KERN_ERR \*\/'/ include/linux/printk.h
-		diff -up include/linux/printk.h.orig include/linux/printk.h > ../dist/sources/patches/lower-verbosity.patch
-	else
-		cp kernel/printk/printk.c kernel/printk/printk.c.orig
-		sed -i s/'#define MAX_CMDLINECONSOLES 8'/'#define MAX_CMDLINECONSOLES 5'/ kernel/printk/printk.c
-		diff -up kernel/printk/printk.c.orig kernel/printk/printk.c > ../dist/sources/patches/less-consoles.patch
-		echo "Reducing the verbosity level"
-		cp -f kernel/printk/printk.c kernel/printk/printk.c.orig
-		sed -i s/'#define DEFAULT_CONSOLE_LOGLEVEL 7 \/\* anything MORE serious than KERN_DEBUG \*\/'/'#define DEFAULT_CONSOLE_LOGLEVEL 3 \/\* anything MORE serious than KERN_ERR \*\/'/ kernel/printk/printk.c
-		diff -up kernel/printk/printk.c.orig kernel/printk/printk.c > ../dist/sources/patches/lower-verbosity.patch
-	fi
-else
-	cp kernel/printk.c kernel/printk.c.orig
-	sed -i s/'#define MAX_CMDLINECONSOLES 8'/'#define MAX_CMDLINECONSOLES 5'/ kernel/printk.c
-	diff -up kernel/printk.c.orig kernel/printk.c > ../dist/sources/patches/less-consoles.patch
-	echo "Reducing the verbosity level"
-	cp -f kernel/printk.c kernel/printk.c.orig
-	sed -i s/'#define DEFAULT_CONSOLE_LOGLEVEL 7 \/\* anything MORE serious than KERN_DEBUG \*\/'/'#define DEFAULT_CONSOLE_LOGLEVEL 3 \/\* Puppy linux hack \*\/'/ kernel/printk.c
-	diff -up kernel/printk.c.orig kernel/printk.c > ../dist/sources/patches/lower-verbosity.patch
-fi
+echo "Reducing the number of consoles and verbosity level"
+for i in include/linux/printk.h kernel/printk/printk.c kernel/printk.c
+do
+	[ ! -f "$i" ] && continue
+	cp ${i} ${i}.orig
+	sed -i 's|#define CONSOLE_LOGLEVEL_DEFAULT 7.*|#define CONSOLE_LOGLEVEL_DEFAULT 3|' $i
+	sed -i 's|#define DEFAULT_CONSOLE_LOGLEVEL 7.*|#define DEFAULT_CONSOLE_LOGLEVEL 3|' $i
+	sed -i 's|#define MAX_CMDLINECONSOLES 8.*|#define MAX_CMDLINECONSOLES 5|' $i
+	diff -q ${i}.orig ${i} &>/dev/null || diff -up ${i}.orig ${i} > ../dist/sources/patches/less-consoles_lower-verbosity.patch
+done
 
 for patch in ../patches/* ; do
 	echo "Applying $patch"
@@ -476,9 +451,7 @@ done
 echo "Cleaning the kernel sources"
 make clean
 make mrproper
-find . -name '*.orig' -delete
-find . -name '*.rej' -delete
-find . -name '*~' -delete
+find . \( -name '*.orig' -o -name '*.rej' -o -name '*~' \) -delete
 
 if [ -f ../DOTconfig ] ; then
 	cp ../DOTconfig .config
