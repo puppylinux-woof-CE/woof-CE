@@ -833,7 +833,17 @@ echo "Compressing the log"
 bzip2 -9 build.log
 cp build.log.bz2 dist/sources
 
+echo "------------------
+Output files:
+- dist/packages/huge-${kernel_version}-${package_name_suffix}.tar.bz2
+  (kernel tarball: vmlinuz, modules.sfs - used in the woof process)
+  you can use this to replace vmlinuz and zdrv.sfs from the current wce puppy install..
+
+- dist/sources/kernel_sources-${kernel_version}-${package_name_suffix}.sfs
+  (you can use this to compile new kernel modules - load or install first..)
+------------------"
+
 echo "Done!"
-#[ -f /usr/share/sounds/2barks.au ] && aplay /usr/share/sounds/2barks.au
+[ -f /usr/share/sounds/2barks.au ] && aplay /usr/share/sounds/2barks.au
 
 ### END ###
