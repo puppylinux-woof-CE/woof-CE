@@ -12,11 +12,8 @@ WGET_OPT='--no-check-certificate '${WGET_SHOW_PROGRESS}
 MWD=$(pwd)
 BUILD_LOG=${MWD}/build.log
 
-log_msg() { echo -e "$@" | tee -a ${BUILD_LOG} ; }
-exit_error() {
-	echo -e "$@" | tee -a ${BUILD_LOG}
-	exit 1
-}
+log_msg()    { echo -e "$@" ; echo -e "$@" >> ${BUILD_LOG} ; }
+exit_error() { log_msg "$@"  ; exit 1 ; }
 
 for i in $@ ; do
 	case $i in
@@ -63,7 +60,7 @@ if [ ! "$JOBS" ] ; then
 	JOBS=$(grep "^processor" /proc/cpuinfo | wc -l)
 	[ $JOBS -ge 1 ] && JOBS="-j${JOBS}" || JOBS=""
 fi
-[ "$JOBS" ] && echo "Jobs for make: ${JOBS#-j}" && echo
+[ "$JOBS" ] && log_msg "Jobs for make: ${JOBS#-j}" && echo
 
 #------------------------------------------------------------------
 
@@ -229,15 +226,15 @@ if [ -f DOTconfig ] ; then
 		grep -q "$i" DOTconfig && { echo "$i is ok" ; continue ; }
 		echo -e "\033[1;31m""\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!   WARNING     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n""\033[0m"
 		if [ "$i" = "CONFIG_AUFS_FS=y" ] ; then
-			echo "For your kernel to boot AUFS as a built in is required:"
+			log_msg "For your kernel to boot AUFS as a built in is required:"
 			fs_msg="File systems -> Miscellaneous filesystems -> AUFS"
 		else
-			echo "For NLS to work at boot some configs are required:"
+			log_msg "For NLS to work at boot some configs are required:"
 			fs_msg="NLS Support"
 		fi
 		echo "$i"
 		echo "$i"|grep -q "CONFIG_NLS_CODEPAGE_850=y" && echo "CONFIG_NLS_CODEPAGE_852=y"
-		echo "Make sure you enable this when you are given the opportunity after
+		log_msg "Make sure you enable this when you are given the opportunity after
 	the kernel has downloaded and been patched.
 	Look under ' $fs_msg'
 	"
@@ -394,7 +391,7 @@ tar xf dist/sources/vanilla/linux-${kernel_version}.tar.* >> ${BUILD_LOG} 2>&1
 cd linux-${kernel_version}
 #-------------------------
 
-echo "Adding Aufs to the kernel sources" | tee -a ${BUILD_LOG}
+log_msg "Adding Aufs to the kernel sources"
 ## hack - Aufs adds this file in the mmap patch, but it may be already there
 if [ -f mm/prfile.c ] ; then
 	mmap=../aufs${aufs_version}-${kernel_branch}-git${today}/aufs${aufs_version}-mmap.patch
@@ -405,8 +402,8 @@ for i in kbuild base standalone mmap; do #loopback tmpfs-idr vfs-ino
 	( echo ; echo "patch -N -p1 < ${patchfile##*/}" ) &>> ${BUILD_LOG}
 	patch -N -p1 < ${patchfile} &>> ${BUILD_LOG}
 	if [ $? -ne 0 ] ; then
-		echo "WARNING: failed to add some Aufs patches to the kernel sources."
-		echo "Check it manually and either CRTL+C to bail or hit enter to go on"
+		log_msg "WARNING: failed to add some Aufs patches to the kernel sources."
+		log_msg "Check it manually and either CRTL+C to bail or hit enter to go on"
 		read goon
 	fi
 done
@@ -432,11 +429,11 @@ fi
 ## reset sublevel
 cp Makefile Makefile-orig
 if [ "$remove_sublevel" = "yes" ] ; then
-	echo "Resetting the minor version number" #!
+	log_msg "Resetting the minor version number" #!
 	sed -i "s/^SUBLEVEL =.*/SUBLEVEL = 0/" Makefile
 	dots=$(echo "$kernel_version" | tr -cd '.' | wc -c)                #ex: 4.8.11=2 4.9=1
 	[ $dots -gt 1 ] && kernel_srcsfs_version=${kernel_major_version}.0 #ex: 4.8.0    4.9
-	echo kernel_srcsfs_version=$kernel_srcsfs_version
+	log_msg "kernel_srcsfs_version=$kernel_srcsfs_version"
 fi
 ## custom suffix
 if [ -n "${custom_suffix}" ] || [ $LIBRE -eq 1 ] ; then
@@ -489,11 +486,11 @@ fi
 #####################
 # pause to configure
 function do_kernel_config() {
-	echo "make $1"
+	log_msg "make $1"
 	make $1 ##
 	if [ $? -eq 0 ] ; then
 		if [ -f .config -a "$AUTO" != "yes" ] ; then
-			echo -e "\nOk, kernel is configured. hit ENTER to continue, CTRL+C to quit"
+			log_msg "\nOk, kernel is configured. hit ENTER to continue, CTRL+C to quit"
 			read goon
 		fi
 	else
@@ -524,7 +521,7 @@ Enter option: " ; read kernelconfig
 		3) do_kernel_config xconfig    ;;
 		4) do_kernel_config oldconfig   ;;
 		s)
-			echo "skipping"
+			log_msg "skipping configuration of kernel"
 			echo "hit ENTER to continue, CTRL+C to quit"
 			read goon
 			;;
