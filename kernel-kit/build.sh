@@ -9,14 +9,16 @@ CWD=`pwd`
 wget --help | grep -q '\-\-show\-progress' && WGET_SHOW_PROGRESS='-q --show-progress'
 WGET_OPT='--no-check-certificate '${WGET_SHOW_PROGRESS}
 
-exit_error() {
-	echo -e "$@" | tee -a build.log
-	exit 1
-}
+MWD=$(pwd)
+BUILD_LOG=${MWD}/build.log
+
+log_msg()    { echo -e "$@" ; echo -e "$@" >> ${BUILD_LOG} ; }
+exit_error() { log_msg "$@"  ; exit 1 ; }
 
 for i in $@ ; do
 	case $i in
 		clean) DO_CLEAN=1 ; break ;;
+		auto) AUTO=yes ; shift ;;
 	esac
 done
 
@@ -35,8 +37,12 @@ fi
 if [ -d ./dist ] ; then
 	echo "This is not a clean kit. Hit ENTER to continue"
 	echo "or CTRL+C to quit and run './build.sh clean'"
-	read notcleango
+	[ "$AUTO" != "yes" ] && read notcleango || echo
 fi
+
+## delete the previous log
+[ -f build.log ] && rm -f build.log
+[ -f build.log.tar.bz2 ] && mv -f build.log.${today}.tar.bz2
 
 ## Dependency check...
 for app in git gcc make ; do
@@ -44,16 +50,17 @@ for app in git gcc make ; do
 done
 which mksquashfs &>/dev/null || exit_error "\033[1;30m""mksquashfs is not installed""\033[0m"
 
+if [ "$AUTO" = "yes" ] ; then
+	[ ! "$DOTconfig_file" ] && exit_error "Must specify DOTconfig_file=<file> in build.conf"
+	[ ! "$FW_PKG_URL" ] && exit_error "Must specify FW_PKG_URL=<url> in build.conf"
+fi
+
 ## determine number of jobs for make
 if [ ! "$JOBS" ] ; then
 	JOBS=$(grep "^processor" /proc/cpuinfo | wc -l)
-	if [ $JOBS -ge 1 ] ; then
-		JOBS="-j${JOBS}"
-	else
-		JOBS=""
-	fi
+	[ $JOBS -ge 1 ] && JOBS="-j${JOBS}" || JOBS=""
 fi
-echo "Jobs for make: ${JOBS#-j}" ; echo
+[ "$JOBS" ] && log_msg "Jobs for make: ${JOBS#-j}" && echo
 
 #------------------------------------------------------------------
 
@@ -66,6 +73,7 @@ if [ -f "$DOTconfig_file" ] ; then
 	Choice=${DOTconfig_file##*/}     #basename $DOTconfig_file
 	[ "$CONFIGS_DIR" = "$Choice" ] && CONFIGS_DIR=.
 else
+	[ "$AUTO" = "yes" ] && exit_error "Must specify DOTconfig_file=<file> in build.conf"
 	## .configs
 	[ -f /tmp/kernel_configs ] && rm -f /tmp/kernel_configs
 	## CONFIG_DIR
@@ -112,10 +120,10 @@ else
 		echo "${NUM}. $C" >> /tmp/kernel_configs
 		NUM=$(($NUM + 1))
 	done
-	echo "n. New DOTconfig" >> /tmp/kernel_configs
 	if [ -f DOTconfig ] ; then
 		echo "d. Default - current DOTconfig (./DOTconfig)" >> /tmp/kernel_configs
 	fi
+	echo "n. New DOTconfig" >> /tmp/kernel_configs
 	cat /tmp/kernel_configs
 	echo -n "Enter choice: " ; read Chosen
 	[ ! "$Chosen" -a ! -f DOTconfig ] && exit_error "\033[1;31m""ERROR: invalid choice, start again!""\033[0m"
@@ -159,8 +167,12 @@ case $Choice in
 			sed -i '/^kernel_version/d' ${CONFIGS_DIR}/$Choice
 			kernel_version=${kver}
 			[ "$kernel_ver" ] && kernel_version=${kernel_ver} #build.conf
-			echo "kernel_version=${kernel_version}" >> DOTconfig
-			echo "kernel_version_info=${kernel_version_info}" >> DOTconfig
+			if [ "$kernel_version" ] ; then
+				echo "kernel_version=${kernel_version}" >> DOTconfig
+				echo "kernel_version_info=${kernel_version_info}" >> DOTconfig
+			else
+				[ "$AUTO" = "yes" ] && exit_error "Must specify kernel_ver=<version> in build.conf"
+			fi
 		fi
 		if [ "${CONFIGS_DIR}/$Choice" != "./DOTconfig" ] ; then
 			cp -afv ${CONFIGS_DIR}/$Choice DOTconfig
@@ -169,8 +181,8 @@ case $Choice in
 		;;
 esac
 
-echo "kernel_version=${kernel_version}"
-echo "kernel_version_info=${kernel_version_info}"
+log_msg "kernel_version=${kernel_version}"
+log_msg "kernel_version_info=${kernel_version_info}"
 case "$kernel_version" in
 	3.*|4.*) ok=1 ;; #----
 	*) exit_error "ERROR: Unsupported kernel version" ;;
@@ -209,32 +221,30 @@ fi
 
 if [ -f DOTconfig ] ; then
 	echo ; tail -n10 README ; echo
-	for i in CONFIG_AUFS_FS=y CONFIG_NLS_CODEPAGE_850=y ; do
-		if grep -q "$i" DOTconfig ; then
-			echo "$i is ok"
+	for i in CONFIG_AUFS_FS=y CONFIG_NLS_CODEPAGE_850=y
+	do
+		grep -q "$i" DOTconfig && { echo "$i is ok" ; continue ; }
+		echo -e "\033[1;31m""\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!   WARNING     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n""\033[0m"
+		if [ "$i" = "CONFIG_AUFS_FS=y" ] ; then
+			log_msg "For your kernel to boot AUFS as a built in is required:"
+			fs_msg="File systems -> Miscellaneous filesystems -> AUFS"
 		else
-			echo -e "\033[1;31m""\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!   WARNING     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n""\033[0m"
-			if [ "$i" = "CONFIG_AUFS_FS=y" ] ; then
-				echo "For your kernel to boot AUFS as a built in is required:"
-				fs_msg="File systems -> Miscellaneous filesystems -> AUFS"
-			else
-				echo "For NLS to work at boot some configs are required:"
-				fs_msg="NLS Support"
-			fi
-			echo "$i"
-			echo "$i"|grep -q "CONFIG_NLS_CODEPAGE_850=y" && echo "CONFIG_NLS_CODEPAGE_852=y"
-			echo "Make sure you enable this when you are given the opportunity after
+			log_msg "For NLS to work at boot some configs are required:"
+			fs_msg="NLS Support"
+		fi
+		echo "$i"
+		echo "$i"|grep -q "CONFIG_NLS_CODEPAGE_850=y" && echo "CONFIG_NLS_CODEPAGE_852=y"
+		log_msg "Make sure you enable this when you are given the opportunity after
 	the kernel has downloaded and been patched.
 	Look under ' $fs_msg'
 	"
-			echo -n "PRESS ENTER" ; read zzz
-		fi
+		[ "$AUTO" != "yes" ] && echo -n "PRESS ENTER" && read zzz
 	done
 fi
 
 ## fail-safe switch in case someone clicks the script in ROX (real story! not fun at all!!!!) :p
 echo
-read -p "Press ENTER to begin" dummy
+[ "$AUTO" != "yes" ] && read -p "Press ENTER to begin" dummy
 
 #------------------------------------------------------------------
 
@@ -250,7 +260,7 @@ aufs_version=${kernel_series} ## aufs major version
 [ "$kernel_minor_version" ] && kmv=.${kernel_minor_version}
 [ "$kernel_minor_revision" ] && kmr=.${kernel_minor_revision}
 
-echo "Linux: ${kernel_major_version}${kmv}${kmr}" #${kernel_series}.
+log_msg "Linux: ${kernel_major_version}${kmv}${kmr}" #${kernel_series}.
 
 if [ ! $aufsv ] ; then
 	AUFS_BRANCHES='aufs3.0 aufs3.1 aufs3.11 aufs3.13 aufs3.15 aufs3.16 aufs3.17 aufs3.19 aufs3.3 aufs3.4 aufs3.5 aufs3.6 aufs3.7 aufs3.8 aufs3.9 aufs4.0 aufs4.2 aufs4.3 aufs4.4 aufs4.5 aufs4.6 aufs4.7 aufs4.8 aufs4.9'
@@ -282,7 +292,7 @@ if [ ! $aufsv ] ; then
 fi
 
 [ $aufsv ] || exit_error "You must specify 'aufsv=version' in build.conf"
-echo "aufs=$aufsv"
+log_msg "aufs=$aufsv"
 
 #kernel mirror - Aufs series (must match the kernel version)
 case $kernel_series in
@@ -301,17 +311,13 @@ rm -rf dist/sources/patches
 ## get today's date
 today=`date +%d%m%y`
 
-## delete the previous log
-[ -f build.log ] && rm -f build.log
-[ -f build.log.tar.bz2 ] && mv -f build.log.${today}.tar.bz2
-
 ## download the kernel
 testing=
 echo ${kernel_version##*-} | grep -q "rc" && testing=testing
 
 DOWNLOAD_KERNEL=1
 if [ -f dist/sources/vanilla/linux-${kernel_version}.tar.* ] ; then
-	echo "Verifying kernel pkg integrity..."
+	log_msg "Verifying kernel pkg integrity..."
 	tar -atf dist/sources/vanilla/linux-${kernel_version}.tar.* &>/dev/null && DOWNLOAD_KERNEL=0
 fi
 
@@ -319,8 +325,8 @@ if [ $DOWNLOAD_KERNEL -eq 1 ] ; then
 	KERROR=1
 	for kernel_mirror in $kernel_mirrors ; do
 		kernel_mirror=${kernel_mirror}/${ksubdir}
-		echo "Downloading: ${kernel_mirror}/${testing}/linux-${kernel_version}.tar.xz"
-		wget ${WGET_OPT} -P dist/sources/vanilla ${kernel_mirror}/${testing}/linux-${kernel_version}.tar.xz > build.log
+		log_msg "Downloading: ${kernel_mirror}/${testing}/linux-${kernel_version}.tar.xz"
+		wget ${WGET_OPT} -P dist/sources/vanilla ${kernel_mirror}/${testing}/linux-${kernel_version}.tar.xz >> ${BUILD_LOG}
 		if [ $? -ne 0 ] ; then
 			echo "Error"
 		else
@@ -347,48 +353,45 @@ fi
 
 ## download Aufs
 if [ -f dist/sources/vanilla/aufs${aufs_version}-${kernel_branch}-git${today}.tar.bz2 ] ; then
-	echo "Extracting the Aufs sources"
-	tar xf dist/sources/vanilla/aufs${aufs_version}-${kernel_branch}-git${today}.tar.bz2 >> build.log 2>&1
+	log_msg "Extracting the Aufs sources"
+	tar xf dist/sources/vanilla/aufs${aufs_version}-${kernel_branch}-git${today}.tar.bz2 >> ${BUILD_LOG} 2>&1
 	[ $? -ne 0 ] && exit_error "Error: failed to extract the Aufs sources."
 else
-	echo "Downloading the Aufs sources"
+	log_msg "Downloading the Aufs sources"
 	rm -rf aufs${aufs_version}-${kernel_branch}-git${today}
 	git clone -b aufs${aufsv} --depth 1 ${aufs_git} \
-		aufs${aufs_version}-${kernel_branch}-git${today} >> build.log 2>&1
+		aufs${aufs_version}-${kernel_branch}-git${today} >> ${BUILD_LOG} 2>&1
 	if [ $? -ne 0 ] ; then
 		rm -f dist/sources/vanilla/aufs${aufs_version}-${kernel_branch}-git${today}.tar.bz2
 		exit_error "Error: failed to download the Aufs sources."
 	fi
 	( cd aufs${aufs_version}-${kernel_branch}-git${today} ; rm -rf .git )
-	echo "Creating the Aufs sources tarball"
+	log_msg "Creating the Aufs sources tarball"
 	tar -c aufs${aufs_version}-${kernel_branch}-git${today} | \
 		bzip2 -9 > dist/sources/vanilla/aufs${aufs_version}-${kernel_branch}-git${today}.tar.bz2
 fi
 
 ## patch Aufs
-if [ -f aufs-allow-sfs.patch ] ; then #removed for K3.9 experiment
-	echo "Patching the Aufs sources" | tee -a build.log
-	patch -d aufs${aufs_version}-${kernel_branch}-git${today} -p1 < aufs-allow-sfs.patch >> build.log 2>&1
+# aufs-allow-sfs.patch - removed for K3.9 experiment
+# aufs-kconfig.patch   - #special for K3.9
+for i in aufs-allow-sfs.patch aufs-kconfig.patch ; do
+	[ -f "$i" ] || continue
+	log_msg "Patching the Aufs sources"
+	patch -d aufs${aufs_version}-${kernel_branch}-git${today} -p1 < $i >> ${BUILD_LOG} 2>&1
 	[ $? -ne 0 ] && exit_error "Error: failed to patch the Aufs sources."
-	cp aufs-allow-sfs.patch dist/sources/patches
-fi
-if [ -f aufs-kconfig.patch ] ; then #special for K3.9
-	echo "Patching the Aufs sources" | tee -a build.log
-	patch -d aufs${aufs_version}-${kernel_branch}-git${today} -p1 < aufs-kconfig.patch >> build.log 2>&1
-	[ $? -ne 0 ] && exit_error "Error: failed to patch the Aufs sources for kconfig."
-	cp aufs-kconfig.patch dist/sources/patches
-fi
+	cp $i dist/sources/patches
+done
 
 ## extract the kernel
-echo "Extracting the kernel sources"
-tar xf dist/sources/vanilla/linux-${kernel_version}.tar.* >> build.log 2>&1
+log_msg "Extracting the kernel sources"
+tar xf dist/sources/vanilla/linux-${kernel_version}.tar.* >> ${BUILD_LOG} 2>&1
 [ $? -ne 0 ] && exit_error "Error: failed to extract the kernel sources."
 
 #-------------------------
 cd linux-${kernel_version}
 #-------------------------
 
-echo "Adding Aufs to the kernel sources" | tee -a ../build.log
+log_msg "Adding Aufs to the kernel sources"
 ## hack - Aufs adds this file in the mmap patch, but it may be already there
 if [ -f mm/prfile.c ] ; then
 	mmap=../aufs${aufs_version}-${kernel_branch}-git${today}/aufs${aufs_version}-mmap.patch
@@ -396,11 +399,11 @@ if [ -f mm/prfile.c ] ; then
 fi
 for i in kbuild base standalone mmap; do #loopback tmpfs-idr vfs-ino
 	patchfile=../aufs${aufs_version}-${kernel_branch}-git${today}/aufs${aufs_version}-$i.patch
-	( echo ; echo "patch -N -p1 < ${patchfile##*/}" ) &>> ../build.log
-	patch -N -p1 < ${patchfile} &>> ../build.log
+	( echo ; echo "patch -N -p1 < ${patchfile##*/}" ) &>> ${BUILD_LOG}
+	patch -N -p1 < ${patchfile} &>> ${BUILD_LOG}
 	if [ $? -ne 0 ] ; then
-		echo "WARNING: failed to add some Aufs patches to the kernel sources."
-		echo "Check it manually and either CRTL+C to bail or hit enter to go on"
+		log_msg "WARNING: failed to add some Aufs patches to the kernel sources."
+		log_msg "Check it manually and either CRTL+C to bail or hit enter to go on"
 		read goon
 	fi
 done
@@ -409,7 +412,6 @@ cp ../aufs${aufs_version}-${kernel_branch}-git${today}/include/linux/aufs_type.h
 cp ../aufs${aufs_version}-${kernel_branch}-git${today}/include/uapi/linux/aufs_type.h include/linux 2>/dev/null
 [ -d ../aufs${aufs_version}-${kernel_branch}-git${today}/include/uapi ] && \
 	cp -r ../aufs${aufs_version}-${kernel_branch}-git${today}/include/uapi/linux/aufs_type.h include/uapi/linux
-#cat ../aufs${aufs_version}-1-git${today}/include/linux/Kbuild >> include/Kbuild
 ################################################################################
 
 ## deblob the kernel
@@ -417,7 +419,7 @@ if [ $LIBRE -eq 1 ] ; then
 	cd ..
 	cp -r linux-${kernel_version} linux-${kernel_version}-orig
 	cd linux-${kernel_version}
-	sh ../dist/sources/vanilla/deblob-${kernel_major_version} 2>&1 | tee -a ../build.log
+	sh ../dist/sources/vanilla/deblob-${kernel_major_version} 2>&1 | tee -a ${BUILD_LOG}
 	cd ..
 	diff -rupN linux-${kernel_version}-orig linux-${kernel_version} > dist/sources/patches/deblob.patch
 	rm -rf linux-${kernel_version}-orig
@@ -427,11 +429,11 @@ fi
 ## reset sublevel
 cp Makefile Makefile-orig
 if [ "$remove_sublevel" = "yes" ] ; then
-	echo "Resetting the minor version number" #!
+	log_msg "Resetting the minor version number" #!
 	sed -i "s/^SUBLEVEL =.*/SUBLEVEL = 0/" Makefile
 	dots=$(echo "$kernel_version" | tr -cd '.' | wc -c)                #ex: 4.8.11=2 4.9=1
 	[ $dots -gt 1 ] && kernel_srcsfs_version=${kernel_major_version}.0 #ex: 4.8.0    4.9
-	echo kernel_srcsfs_version=$kernel_srcsfs_version
+	log_msg "kernel_srcsfs_version=$kernel_srcsfs_version"
 fi
 ## custom suffix
 if [ -n "${custom_suffix}" ] || [ $LIBRE -eq 1 ] ; then
@@ -440,45 +442,29 @@ fi
 diff -up Makefile-orig Makefile > ../dist/sources/patches/version.patch
 rm Makefile-orig
 
-echo "Reducing the number of consoles"
-if [ $kernel_series -gt 3 ] || [ $kernel_series -eq 3 -a $kernel_branch -ge 12 ] ; then
-	if [ $kernel_series -gt 3 ] || [ $kernel_series -eq 3 -a $kernel_branch -ge 16 ] ; then
-		echo "Reducing the verbosity level"
-		cp -f include/linux/printk.h include/linux/printk.h.orig
-		sed -i s/'#define CONSOLE_LOGLEVEL_DEFAULT 7 \/\* anything MORE serious than KERN_DEBUG \*\/'/'#define CONSOLE_LOGLEVEL_DEFAULT 3 \/\* anything MORE serious than KERN_ERR \*\/'/ include/linux/printk.h
-		diff -up include/linux/printk.h.orig include/linux/printk.h > ../dist/sources/patches/lower-verbosity.patch
-	else
-		cp kernel/printk/printk.c kernel/printk/printk.c.orig
-		sed -i s/'#define MAX_CMDLINECONSOLES 8'/'#define MAX_CMDLINECONSOLES 5'/ kernel/printk/printk.c
-		diff -up kernel/printk/printk.c.orig kernel/printk/printk.c > ../dist/sources/patches/less-consoles.patch
-		echo "Reducing the verbosity level"
-		cp -f kernel/printk/printk.c kernel/printk/printk.c.orig
-		sed -i s/'#define DEFAULT_CONSOLE_LOGLEVEL 7 \/\* anything MORE serious than KERN_DEBUG \*\/'/'#define DEFAULT_CONSOLE_LOGLEVEL 3 \/\* anything MORE serious than KERN_ERR \*\/'/ kernel/printk/printk.c
-		diff -up kernel/printk/printk.c.orig kernel/printk/printk.c > ../dist/sources/patches/lower-verbosity.patch
-	fi
-else
-	cp kernel/printk.c kernel/printk.c.orig
-	sed -i s/'#define MAX_CMDLINECONSOLES 8'/'#define MAX_CMDLINECONSOLES 5'/ kernel/printk.c
-	diff -up kernel/printk.c.orig kernel/printk.c > ../dist/sources/patches/less-consoles.patch
-	echo "Reducing the verbosity level"
-	cp -f kernel/printk.c kernel/printk.c.orig
-	sed -i s/'#define DEFAULT_CONSOLE_LOGLEVEL 7 \/\* anything MORE serious than KERN_DEBUG \*\/'/'#define DEFAULT_CONSOLE_LOGLEVEL 3 \/\* Puppy linux hack \*\/'/ kernel/printk.c
-	diff -up kernel/printk.c.orig kernel/printk.c > ../dist/sources/patches/lower-verbosity.patch
-fi
+log_msg "Reducing the number of consoles and verbosity level"
+for i in include/linux/printk.h kernel/printk/printk.c kernel/printk.c
+do
+	[ ! -f "$i" ] && continue
+	cp ${i} ${i}.orig
+	sed -i 's|#define CONSOLE_LOGLEVEL_DEFAULT 7.*|#define CONSOLE_LOGLEVEL_DEFAULT 3|' $i
+	sed -i 's|#define DEFAULT_CONSOLE_LOGLEVEL 7.*|#define DEFAULT_CONSOLE_LOGLEVEL 3|' $i
+	sed -i 's|#define MAX_CMDLINECONSOLES 8.*|#define MAX_CMDLINECONSOLES 5|' $i
+	diff -q ${i}.orig ${i} &>/dev/null || diff -up ${i}.orig ${i} > ../dist/sources/patches/less-consoles_lower-verbosity.patch
+done
 
 for patch in ../patches/* ; do
-	echo "Applying $patch"
-	patch -p1 < $patch >> ../build.log 2>&1
+	[ ! -f "$patch" ] && continue #../patches/ might not exist or it may be empty
+	log_msg "Applying $patch"
+	patch -p1 < $patch >> ${BUILD_LOG} 2>&1
 	[ $? -ne 0 ] && exit_error "Error: failed to apply $patch on the kernel sources."
 	cp $patch ../dist/sources/patches
 done
 
-echo "Cleaning the kernel sources"
+log_msg "Cleaning the kernel sources"
 make clean
 make mrproper
-find . -name '*.orig' -delete
-find . -name '*.rej' -delete
-find . -name '*~' -delete
+find . \( -name '*.orig' -o -name '*.rej' -o -name '*~' \) -delete
 
 if [ -f ../DOTconfig ] ; then
 	cp ../DOTconfig .config
@@ -492,19 +478,19 @@ if [ -f fs/aufs/Kconfig ] ; then
 fi
 if ! grep -q "CONFIG_AUFS_FS=y" .config ; then
 	echo -e "\033[1;31m"
-	echo "For your kernel to boot AUFS as a built in is required:"
-	echo "File systems -> Miscellaneous filesystems -> AUFS" 
+	log_msg "For your kernel to boot AUFS as a built in is required:"
+	log_msg "File systems -> Miscellaneous filesystems -> AUFS" 
 	echo -e "\033[0m" #reset to original
 fi
 
 #####################
 # pause to configure
 function do_kernel_config() {
-	echo "make $1"
+	log_msg "make $1"
 	make $1 ##
 	if [ $? -eq 0 ] ; then
-		if [ -f .config ] ; then
-			echo -e "\nOk, kernel is configured. hit ENTER to continue, CTRL+C to quit"
+		if [ -f .config -a "$AUTO" != "yes" ] ; then
+			log_msg "\nOk, kernel is configured. hit ENTER to continue, CTRL+C to quit"
 			read goon
 		fi
 	else
@@ -513,7 +499,10 @@ function do_kernel_config() {
 	[ ! -f ../DOTconfig ] && cp .config ../DOTconfig
 }
 
-echo -en "
+if [ "$AUTO" = "yes" ] ; then
+	do_kernel_config oldconfig
+else
+	echo -en "
 You now should configure your kernel. The supplied .config
 should be already configured but you may want to make changes, plus
 the date should be updated.
@@ -526,18 +515,19 @@ Hit a number or s to skip:
 s. skip
 
 Enter option: " ; read kernelconfig
-case $kernelconfig in
-	1) do_kernel_config menuconfig ;;
-	2) do_kernel_config gconfig    ;;
-	3) do_kernel_config xconfig    ;;
-	4) do_kernel_config oldconfig   ;;
-	s)
-		echo "skipping"
-		echo "hit ENTER to continue, CTRL+C to quit"
-		read goon
-		;;
-	*) do_kernel_config menuconfig ;;
-esac
+	case $kernelconfig in
+		1) do_kernel_config menuconfig ;;
+		2) do_kernel_config gconfig    ;;
+		3) do_kernel_config xconfig    ;;
+		4) do_kernel_config oldconfig   ;;
+		s)
+			log_msg "skipping configuration of kernel"
+			echo "hit ENTER to continue, CTRL+C to quit"
+			read goon
+			;;
+		*) do_kernel_config menuconfig ;;
+	esac
+fi
 
 [ ! -f .config ] && exit_error "\nNo config file, exiting..."
 
@@ -547,15 +537,15 @@ esac
 kheaders_dir="kernel_headers-${kernel_version}-${package_name_suffix}"
 rm -rf ../dist/packages/${kheaders_dir}
 if [ ! -d ../dist/packages/${kheaders_dir} ] ; then
-	echo "Creating the kernel headers package"
-	make headers_check >> ../build.log 2>&1
-	make INSTALL_HDR_PATH=${kheaders_dir}/usr headers_install >> ../build.log 2>&1
+	log_msg "Creating the kernel headers package"
+	make headers_check >> ${BUILD_LOG} 2>&1
+	make INSTALL_HDR_PATH=${kheaders_dir}/usr headers_install >> ${BUILD_LOG} 2>&1
 	find ${kheaders_dir}/usr/include \( -name .install -o -name ..install.cmd \) -delete
 	mv ${kheaders_dir} ../dist/packages
 fi
 
-echo "Compiling the kernel" | tee -a ../build.log
-make ${JOBS} bzImage modules >> ../build.log 2>&1
+log_msg "Compiling the kernel" | tee -a ${BUILD_LOG}
+make ${JOBS} bzImage modules >> ${BUILD_LOG} 2>&1
 cp .config ../dist/sources/DOTconfig-${kernel_version}-${today}
 CONFIG=../dist/sources/DOTconfig-${kernel_version}-${today}
 
@@ -575,7 +565,7 @@ elif grep -q 'CONFIG_ARM=y' ${CONFIG} ; then
 	arch=arm
 	karch=arm
 else
-	echo "Your arch is unsupported."
+	log_msg "Your arch is unsupported."
 	arch=unknown #allow build anyway
 	karch=arm
 fi
@@ -596,8 +586,8 @@ linux_kernel_dir=linux_kernel-${kernel_version}-${package_name_suffix}
 
 #---------------------------------------------------------------------
 
-echo "Creating the kernel package"
-make INSTALL_MOD_PATH=${linux_kernel_dir} modules_install >> ../build.log 2>&1
+log_msg "Creating the kernel package"
+make INSTALL_MOD_PATH=${linux_kernel_dir} modules_install >> ${BUILD_LOG} 2>&1
 rm -f ${linux_kernel_dir}/lib/modules/${kernel_srcsfs_version}${custom_suffix}/{build,source}
 mkdir -p ${linux_kernel_dir}/boot
 mkdir -p ${linux_kernel_dir}/etc/modules
@@ -624,17 +614,17 @@ mv ../dist/packages/${linux_kernel_dir}/boot/vmlinuz \
 	../dist/packages/vmlinuz-${kernel_version}-${package_name_suffix}
 [ -f ../dist/packages/${linux_kernel_dir}/boot/bzImage ] && \
 	rm -f ../dist/packages/${linux_kernel_dir}/boot/bzImage
-echo "Huge kernel ${kernel_version}-${package_name_suffix} is ready in dist"
+log_msg "Huge kernel ${kernel_version}-${package_name_suffix} is ready in dist"
 
-echo "Cleaning the kernel sources"
-make clean >> ../build.log 2>&1
-make prepare >> ../build.log 2>&1
+log_msg "Cleaning the kernel sources"
+make clean >> ${BUILD_LOG} 2>&1
+make prepare >> ${BUILD_LOG} 2>&1
 
 #----
 cd ..
 #----
 
-echo "Creating a kernel sources SFS"
+log_msg "Creating a kernel sources SFS"
 mkdir -p kernel_sources-${kernel_version}-${package_name_suffix}/usr/src
 mv linux-${kernel_version} kernel_sources-${kernel_version}-${package_name_suffix}/usr/src/linux
 mkdir -p kernel_sources-${kernel_version}-${package_name_suffix}/lib/modules/${kernel_srcsfs_version}${custom_suffix}
@@ -651,7 +641,7 @@ md5sum dist/sources/kernel_sources-${kernel_version}-${package_name_suffix}.sfs 
 #==============================================================
 #            build aufs-utils userspace modules
 #==============================================================
-echo "Now to build the aufs-utils for userspace"
+log_msg "Now to build the aufs-utils for userspace"
 if [ ! -f dist/sources/vanilla/aufs-util${today}.tar.bz2 ] ; then
 	if [ ! -d aufs-util ] ; then
 		git clone ${aufs_utils_git} aufs-util
@@ -674,10 +664,10 @@ if [ ! -f dist/sources/vanilla/aufs-util${today}.tar.bz2 ] ; then
 			break
 		fi
 	done < /tmp/aufs-util-version
-	git checkout origin/aufs${kernel_series}.${branch} >> ../build.log 2>&1
+	git checkout origin/aufs${kernel_series}.${branch} >> ${BUILD_LOG} 2>&1
 	[ $? -ne 0 ] && exit_error "Failed to get aufs-util from git, do it manually. Kernel is compiled OK :)"
 	## patch Makefile for static build
-	echo "Patching aufs-util sources"
+	log_msg "Patching aufs-util sources"
 	cp Makefile Makefile.orig
 	sed -i 's/-static //' Makefile
 	sed -i 's|ver_test ||' Makefile # ver_test might fail
@@ -685,11 +675,11 @@ if [ ! -f dist/sources/vanilla/aufs-util${today}.tar.bz2 ] ; then
 	diff -ru Makefile.orig Makefile > ../dist/sources/patches/aufs-util-dynamic.patch
 	rm *.orig
 else
-	echo "Extracting the Aufs-util sources"
-	tar xf dist/sources/vanilla/aufs-util${today}.tar.bz2 >> ../build.log 2>&1
+	log_msg "Extracting the Aufs-util sources"
+	tar xf dist/sources/vanilla/aufs-util${today}.tar.bz2 >> ${BUILD_LOG} 2>&1
 	[ $? -ne 0 ] && exit_error "Error: failed to extract the aufs-util sources."
 	cd aufs-util
-	patch -p1 < ../dist/sources/patches/aufs-util-dynamic.patch >> ../build.log 2>&1
+	patch -p1 < ../dist/sources/patches/aufs-util-dynamic.patch >> ${BUILD_LOG} 2>&1
 	[ "$?" -ne 0 ] && exit_error "Failed to patch the aufs-util sources, do it manually. Kernel is compiled ok"
 fi
 
@@ -709,9 +699,9 @@ make DESTDIR=$CWD/dist/packages/aufs-util-${kernel_version}-${arch} install
 " > compile ## debug
 
 make clean &>/dev/null
-$MAKE >> ../build.log 2>&1 || exit_error "Failed to compile aufs-util, do it manually. Kernel is compiled OK :)"
-make DESTDIR=$CWD/dist/packages/aufs-util-${kernel_version}-${arch} install >> ../build.log 2>&1 #needs absolute path
-make clean >> ../build.log 2>&1
+$MAKE >> ${BUILD_LOG} 2>&1 || exit_error "Failed to compile aufs-util, do it manually. Kernel is compiled OK :)"
+make DESTDIR=$CWD/dist/packages/aufs-util-${kernel_version}-${arch} install >> ${BUILD_LOG} 2>&1 #needs absolute path
+make clean >> ${BUILD_LOG} 2>&1
 
 # temp hack - https://github.com/puppylinux-woof-CE/woof-CE/issues/889
 mkdir -p $CWD/dist/packages/aufs-util-${kernel_version}-${arch}/usr/lib
@@ -722,20 +712,45 @@ if [ "$arch" = "x86_64" ] ; then
 	mv $CWD/dist/packages/aufs-util-${kernel_version}-${arch}/usr/lib \
 		$CWD/dist/packages/aufs-util-${kernel_version}-${arch}/usr/lib64
 fi
-echo "aufs-util-${kernel_version} is in dist"
+log_msg "aufs-util-${kernel_version} is in dist"
 
 #----
 cd ..
 #----
 
-echo "Installing aufs-utils into kernel package"
+log_msg "Installing aufs-utils into kernel package"
 cp -a --remove-destination dist/packages/aufs-util-${kernel_version}-${arch}/* \
 	dist/packages/${linux_kernel_dir}
 
 #==============================================================
 
 if [ $LIBRE -eq 0 ] ; then
-	echo "Pausing here to add extra firmware."
+ if [ "$FW_PKG_URL" ] ; then
+	fw_pkg=${FW_PKG_URL##*/} #basename
+	case $fw_pkg in
+		*.sfs)
+			FDRV=fdrv.sfs-${kernel_version}-${package_name_suffix}
+			if [ ! -f dist/packages/${fw_pkg} ] ; then
+				if [ -f "$FW_PKG_URL" ] ; then #can be a local file - full path
+					cp "$FW_PKG_URL" dist/packages/${FDRV}
+				else
+					wget ${WGET_OPT} -c ${FW_PKG_URL} -P dist/packages || exit 1
+					cp dist/packages/${fw_pkg} dist/packages/${FDRV}
+				fi
+			fi
+			;;
+		*.tar.*)
+			if [ ! -f dist/packages/${fw_pkg} ] ; then
+				wget ${WGET_OPT} -t0 -c ${FW_PKG_URL} -P dist/packages
+				[ $? -ne 0 ] && exit_error "failed to download ${fw_pkg}"
+			fi
+			mkdir -p dist/packages/${linux_kernel_dir}/lib
+			tar -xjf dist/packages/${fw_pkg} -C dist/packages/${linux_kernel_dir}/lib/
+			[ $? -ne 0 ] && exit_error "failed to unpack ${fw_pkg}"
+			;;
+	esac
+ else
+	log_msg "Pausing here to add extra firmware."
 	echo "Choose an option:"
 	## download the fw or offer to copy
 	tmpfw=/tmp/fw$$
@@ -757,7 +772,7 @@ if [ $LIBRE -eq 0 ] ; then
 	read fw
 	case $fw in
 		[0-9]*) ok=1 ;;
-		*)	echo "invalid option... falling back to option $(($x - 1))"
+		*)	log_msg "invalid option... falling back to option $(($x - 1))"
 			fw=$(($x - 1))
 			;;
 	esac
@@ -765,65 +780,72 @@ if [ $LIBRE -eq 0 ] ; then
 	if [ "$fw" -gt "$x" ] ; then
 		exit_error "error, wrong number"
 	elif [ "$fw" = "$(($x - 1))" ] ; then
-		echo "once you have manually added firmware to "
-		echo "dist/packages/${linux_kernel_dir}/lib/firmware"
+		log_msg "once you have manually added firmware to "
+		log_msg "dist/packages/${linux_kernel_dir}/lib/firmware"
 		echo "hit ENTER to continue"
 		read firm
 	elif [ "$fw" = "$x" ] ; then
 		## fw.sh - linux-firmware git ##
 		echo "You have chosen to get the latest firmware from kernel.org"
 		if [ -d ../linux-firmware ] ; then #outside kernel-kit
-			echo "'git pull' will run so it wont take long to update the"
-			echo "firmware repository"
+			log_msg "'git pull' will run so it wont take long to update the"
+			log_msg "firmware repository"
 		else
-			echo "This may take a long time as the firmware repository is around 180MB"
+			log_msg "This may take a long time as the firmware repository is around 180MB"
 		fi
 		## run the firmware script and re-enter here
 		./fw.sh ${fw_flag} # optonal param; see fw.sh and build.conf
-		ret=$?
-		if [ $ret -eq 0 ] ; then
-			echo "Extracting firmware from the kernel.org git repo has succeeded."
+		if [ $? -eq 0 ] ; then
+			log_msg "Extracting firmware from the kernel.org git repo has succeeded."
 		else
-			echo "WARNING: Extracting firmware from the kernel.org git repo has failed."
-			echo "While your kernel is built, your firmware is incomplete."
+			log_msg "WARNING: Extracting firmware from the kernel.org git repo has failed."
+			log_msg "While your kernel is built, your firmware is incomplete."
 		fi
 	else
 		fw_pkg=`grep ^$fw ${tmpfw}`
 		fw_pkg=${fw_pkg##* }
-		echo "You chose ${fw_pkg}. If that isn't correct change it manually later."
-		echo "downloading ${FW_URL}/${fw_pkg}"
+		log_msg "You chose ${fw_pkg}. If that isn't correct change it manually later."
+		log_msg "downloading ${FW_URL}/${fw_pkg}"
 		wget ${WGET_OPT} -t0 -c ${FW_URL}/${fw_pkg} -P dist/packages
 		[ $? -ne 0 ] && exit_error "failed to download ${fw_pkg##* }"
 		mkdir -p dist/packages/${linux_kernel_dir}/lib
 		tar -xjf dist/packages/${fw_pkg} -C dist/packages/${linux_kernel_dir}/lib/
 		[ $? -ne 0 ] && exit_error "failed to unpack ${fw_pkg}"
-		echo "Successfully extracted ${fw_pkg}."
+		log_msg "Successfully extracted ${fw_pkg}."
 	fi
+ fi
 fi
 
 mksquashfs dist/packages/${linux_kernel_dir} dist/packages/kernel-modules.sfs-${kernel_version}-${package_name_suffix} $COMP
 [ $? = 0 ] || exit 1
-echo "Huge compatible kernel packages are ready to package./"
-echo "Packaging huge-${kernel_version}-${package_name_suffix} kernel"
+log_msg "Huge compatible kernel packages are ready to package./"
+log_msg "Packaging huge-${kernel_version}-${package_name_suffix} kernel"
 cd dist/packages/
 tar -cjvf huge-${kernel_version}-${package_name_suffix}.tar.bz2 \
-	vmlinuz-${kernel_version}-${package_name_suffix} kernel-modules.sfs-${kernel_version}-${package_name_suffix}
-	if [ "$?" = 0 ] ; then
-		echo "huge-${kernel_version}-${package_name_suffix}.tar.bz2 is in dist/packages"
-	else
-		exit 1
-	fi
+	vmlinuz-${kernel_version}-${package_name_suffix} ${FDRV} \
+	kernel-modules.sfs-${kernel_version}-${package_name_suffix} || exit 1
+	echo "huge-${kernel_version}-${package_name_suffix}.tar.bz2 is in dist/packages"
 md5sum huge-${kernel_version}-${package_name_suffix}.tar.bz2 > huge-${kernel_version}-${package_name_suffix}.tar.bz2.md5.txt
 echo
 cd -
 
 tar -c aufs-util | bzip2 -9 > dist/sources/vanilla/aufs-util${today}-${arch}.tar.bz2
 
-echo "Compressing the log"
+log_msg "Compressing the log"
 bzip2 -9 build.log
 cp build.log.bz2 dist/sources
 
+log_msg "------------------
+Output files:
+- dist/packages/huge-${kernel_version}-${package_name_suffix}.tar.bz2
+  (kernel tarball: vmlinuz, modules.sfs - used in the woof process)
+  you can use this to replace vmlinuz and zdrv.sfs from the current wce puppy install..
+
+- dist/sources/kernel_sources-${kernel_version}-${package_name_suffix}.sfs
+  (you can use this to compile new kernel modules - load or install first..)
+------------------"
+
 echo "Done!"
-#[ -f /usr/share/sounds/2barks.au ] && aplay /usr/share/sounds/2barks.au
+[ -f /usr/share/sounds/2barks.au ] && aplay /usr/share/sounds/2barks.au
 
 ### END ###
