@@ -1,0 +1,124 @@
+#!/bin/sh
+#Barry Kauler www.puppylinux.com
+#LGPL 2007 Puppy Linux www.puppylinux.com
+#some usb adaptors have slots for cards, plugging/unplugging these cards
+#does not cause a hotplug event and the kernel does not update /proc.
+#120602 kernel 3.2.18 major deviance from earlier kernels, /proc/partitions (and /sys/block) now shows /dev/sr0 when no disk.
+#       new situation, getting duplicate /dev/sr0 so need 'sort -u'.
+
+. /etc/rc.d/PUPSTATE #$ATADRIVES
+
+case $1 in -k|-m)
+	SUNITS="$1" #allowed params are '-k' or '-m'.
+	shift ;;
+esac
+
+device=${1##*/}
+
+if [ "$device" ] ; then
+	#process cli argument
+	if [ ! -b "/dev/$device" ] ; then
+		echo "${device}: invalid device" 1>&2
+		exit 1
+	fi
+	PARTITIONS="`grep -m1 " ${device}$" /proc/partitions | tr -s ' ' | cut -f 4-5 -d ' '`"
+	ONEDEV_ARG=1
+
+else
+	#normal operation
+	if [ -f $HOME/.usb-drive-log-probepart ] ; then #force /proc upate mechanism
+		while read ONEUSBDRV ; do
+			dd if=/dev/$ONEUSBDRV of=/dev/null bs=512 count=1 &>/dev/null
+		done < $HOME/.usb-drive-log-probepart
+	fi
+	#devices that have partitions... 
+	#([^k] is to eliminate mmcblk0 device -- allow mmcblk0p1 etc) v4.01 bugfix eliminate ram...
+	#130127 [^kr] screens out sr0-sr9. early kernels do not have these in /proc/partitions, 3.2+ do, which causes desktop icon to not appear when audio-cd inserted.
+	PARTITIONS="`grep '^ .*[^kr][0-9]$' /proc/partitions | tr -s ' ' | cut -f 4-5 -d ' ' | grep -vE ' loop| ram'`" #each line ex: 16076800 sda5
+	#plus optical devices...
+	OPTICALDRVS="`ls -1 /sys/block | grep -E '^scd|^sr'`"
+	[ -e /proc/ide ] && OPTICALDRVS="${OPTICALDRVS}
+`ls -1 /proc/ide | grep '^hd'`"
+
+fi
+
+PARTNAMES="`echo "$PARTITIONS" | cut -f 2 -d ' '`" #120602
+ALLDEVS=$(echo -e "${PARTNAMES}\n${OPTICALDRVS}" | sort -u)
+
+#==========================================================================
+
+for ONEDEV in $ALLDEVS
+do
+
+ OPTICAL=""
+ FSTYPE="unknown"
+ SIZE=`echo "$PARTITIONS" | grep " ${ONEDEV}$" | cut -f 1 -d ' '`
+ DEVICE="`echo "$PARTITIONS" | grep " ${ONEDEV}$" | cut -f 2 -d ' '`"
+ [ "$DEVICE" != "" ] && ONEDEV=$DEVICE
+
+ case $ONEDEV in
+   hd*) [ "`cat /proc/ide/$ONEDEV/media`" = "cdrom" ] && OPTICAL="yes" ;; #old stuff
+   scd*|sr*) OPTICAL="yes" ;; # usb,sata,scsi cd/dvd drive.
+   fd*) [ ! -e /sys/block/${ONEDEV}/device/vendor -a ! -e /sys/block/${ONEDEV}/device/model ] && continue ;;
+ esac
+
+ if [ "$OPTICAL" = "yes" ];then
+   if grep -q -m1 "^/dev/${ONEDEV} " /proc/mounts ; then
+     #...returns 0 if disc inserted, else 255. #very fast.
+     cddetect_quick -d/dev/${ONEDEV} >/dev/null 2>&1 || continue
+   fi
+ fi
+
+ if [ ! $SIZE ] ; then # probably not a partition but a drive, this gets the size...
+   if [ -e /sys/block/${ONEDEV}/size ];then
+     read -r SIZE < /sys/block/${ONEDEV}/size
+     SIZE=$(($SIZE/2)) #get KB.
+   fi
+ fi
+
+ FSTYPE="`blkid /dev/$ONEDEV 2>/dev/null`"
+ FSTYPE=${FSTYPE##* TYPE=\"} #remove *.TYPE="
+ FSTYPE=${FSTYPE%%\"*}      #remove ".*
+ [ "$FSTYPE" = "" ] && FSTYPE="unknown"
+
+ if [ "$FSTYPE" = "unknown" -a "$OPTICAL" = "yes" ];then # probe optical a bit more.
+   cddetect -q -d/dev/${ONEDEV} > /dev/null 2>&1
+   case $? in 1) FSTYPE="audiocd" ;; esac
+ fi
+
+ #(using makebootfat to setup a USB-FLOPPY/-HDD/-ZIP combined bootable FAT drive).
+ xFSTYPE=''
+ if [ "$FSTYPE" = "unknown" -a "$OPTICAL" = "" ];then
+   fsPATTERN='^/dev/'"$ONEDEV"' '
+   xONEDEV="`echo -n "$ONEDEV" | sed -e 's/[0-9]*$//' -e 's%p$%%'`" #"${ONEDEV/[0-9]/}" #remove partition number. 120516 remove 'p' from mmcblk0p1
+   xFSTYPE="`fdisk -l /dev/$xONEDEV 2>/dev/null | grep "$fsPATTERN" | head -n 1 | grep -o -E 'FAT|swap|NTFS'`" #120516 FAT12$|FAT16$|FAT32$
+   case $xFSTYPE in #120516
+     FAT) FSTYPE='vfat' ;;
+     swap) FSTYPE='swap' ;;
+     NTFS) FSTYPE='ntfs' ;;
+   esac
+ fi
+ 
+ [ "$FSTYPE" = "unknown" ] && FSTYPE="none"
+
+ [ "$SUNITS" = "" ] && SIZE=$(($SIZE*2))      #want 512 byte blocks.
+ [ "$SUNITS" = '-m' ] && SIZE=$(($SIZE/1024)) #want MB
+
+ echo "/dev/$ONEDEV|$FSTYPE|$SIZE"
+
+ [ "$ONEDEV_ARG"  ] && continue #(finished processing cli argument)
+
+ #keep record of usb sd*, for forced updating of /proc...
+ case $ONEDEV in sd*) #log if usb drive (not a ata drive)...
+   DEVDRV=${ONEDEV:0:3}
+   case "$ATADRIVES" in
+     *"$DEVDRV"*) ignore=yes ;;
+     *) echo "${DEVDRV}" >> $HOME/.usb-drive-log-probepart
+        sorted="$(sort -u $HOME/.usb-drive-log-probepart)"
+        echo "$sorted" > $HOME/.usb-drive-log-probepart ;;
+   esac
+ esac
+ 
+done
+
+### END ###
