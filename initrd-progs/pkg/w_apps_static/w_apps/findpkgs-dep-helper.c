@@ -183,9 +183,9 @@ int read_one_file(char *filename)
 			goto read_one_file_error;
 		one_pkglist_entry->pkg_name = token;
 
-		// read pkg_version, not optional
+		// read pkg_version
 		token = strsep(&one_line, delim);
-		if (token == NULL || *token == '\0' || one_line == NULL)
+		if (token == NULL || one_line == NULL)
 			goto read_one_file_error;
 		one_pkglist_entry->pkg_version = token;
 
@@ -510,7 +510,8 @@ void process_versioned_dependencies()
 					current_depcond_item = &root_depcond_item;
 					while (*current_depcond_item != NULL)
 					{
-						if (vercmp_func(
+						if ((*fndpkg_pkglist_item)->pkglist_entry->pkg_version
+							== '\0' || vercmp_func(
 							(*fndpkg_pkglist_item)->pkglist_entry->pkg_version,
 							(*current_depcond_item)->one_depcond->dep_op,
 							(*current_depcond_item)->one_depcond->dep_ver) != 0)
