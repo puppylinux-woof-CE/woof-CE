@@ -1,20 +1,69 @@
-#!/bin/sh
+#!/bin/bash
 #LGPL 2007 Puppy Linux www.puppyos.com
 #based on probedisk3 written by Dougal.
 # 21 Jun 2007 BK: force /proc update for usb drives.
 #v3.93 10 dec 2007 BK: updated for 2.6.24 kernel, no /dev/hd*.
 #v406 support for old kernel, /proc/ide, /dev/hd*.
-# DEVICE|TYPE|DESC
 
-output=1
-case $1 in
-	-alt)  output=2 ; shift ;; # alternative format: DEVICE|TYPE|SIZE|DESC
-	-type) output=3 ; shift ;; # print only TYPE
-	-desc) output=4 ; shift ;; # print only DESC
-	-size) output=5 ; shift ;; # print only SIZE
-esac
+usage() {
+	echo "probedisk - show information about drives
 
-device=${1##*/}
+Syntax:
+
+   probedisk [options] [drive1 drive2 ...]
+
+It will print info about all the detected drives by the system
+unless one more drives are specified.
+
+Output: DEVICE|TYPE|DESC
+
+Options to tweak standard output string:
+
+    -show-usbflash: change 'usbdrv' to 'usbflash' for usb sticks...
+    -extended-usb : show 'usbflash' 'usboptical' 'usbfloppy'
+                    where appropriate
+    -hdparm       : use hdparm to get accurate hard disk model (DESC)
+    -plus-size    : print DEVICE|TYPE|DESC|SIZE
+    -hr           : human readable SIZE (use with -plus-size or -size)
+
+Options to show specific info after DEVICE:
+
+    -type  : plus |TYPE
+    -desc  : plus |DESC   (also -model)
+    -size  : plus |SIZE
+    -uuid  : plus |PARTITION TABLE UUID (blkid)
+    -ptable: plus |PARTITION TABLE TYPE (blkid)
+"
+	exit
+}
+
+###############################################################
+
+EXTRA_STR=""
+
+for i in $@ ; do
+	case $1 in
+		-plus-size) PLUS_SIZE=yes ; shift ;; # alternative format: DEVICE|TYPE|DESC|SIZE
+		-show-usbflash) SHOW_USBFLASH=yes ; shift    ;; # change usbdrv to usbflash for usb sticks...
+		-extended-usb) SHOW_EXTENDED_USB=yes ; SHOW_USBFLASH=yes ; shift ;; # show 'usbflash' 'usboptical' 'usbfloppy'
+		-hdparm) HDPARM=yes ; shift;;
+		-hr|-hr-size) HR_SIZE=yes ; shift ;;
+		#--
+		-type) SPECIFIC=yes   ; EXTRA_STR+="|TYPE" ; shift ;;
+		-desc) SPECIFIC=yes   ; EXTRA_STR+="|DESC" ; shift ;;
+		-model) SPECIFIC=yes  ; EXTRA_STR+="|DESC" ; shift ;;
+		-size) SPECIFIC=yes   ; EXTRA_STR+="|SIZE" ; shift ;;
+		-uuid) SPECIFIC=yes   ; EXTRA_STR+="|UUID" ;   SHOW_UUID=yes   ; shift ;;
+		-ptable) SPECIFIC=yes ; EXTRA_STR+="|PTABLE" ; SHOW_PTABLE=yes ; shift ;;
+		#--
+		-h|-help|--help) usage ;;
+		-*) echo "* ${0##*/} $1: unknown option. type '${0##*/} -help'" ; exit 1 ;;
+	esac
+done
+
+device=${@##*/}
+
+###############################################################
 
 if [ "$device" ] ; then
 	ALLDRVS=${device} #process cli argument
@@ -40,38 +89,65 @@ for DRV in ${ALLDRVS} ; do
 
 	if [ ! -b "/dev/$DRV" ] ; then
 		echo "${device}: invalid device" 1>&2
-		exit 1
+		continue
 	fi
 
 	DRV=${DRV:0:3}
+	UUID_STR=""
+	PTABLE_STR=""
+
 	vendor=""
 	model=""
 	size=""
+	removable=""
+	usb=""
 	[ -f /sys/block/${DRV}/device/vendor ] && read -r vendor < /sys/block/${DRV}/device/vendor
 	[ -f /sys/block/${DRV}/device/model ] && read -r model < /sys/block/${DRV}/device/model
 	[ -f /sys/block/${DRV}/size ] && read -r size < /sys/block/${DRV}/size
+	[ -f /sys/block/${DRV}/removable ] && read -r removable < /sys/block/${DRV}/removable
 	info="$vendor $model"
 
 	type=drive
+	case $(readlink /sys/block/${DRV}) in *usb*) usb=yes ;; esac
+
+	if [ -e /sys/block/${DRV}/device/type ] ; then
+		# http://lxr.free-electrons.com/source/include/scsi/scsi.h?v=3.12
+		case $(< /sys/block/${DRV}/device/type) in
+			0) #define TYPE_DISK 0x00
+				type='drive'
+				[ "$usb" = "yes" ] && type="usbdrv"
+				;;
+			5) #define TYPE_ROM 0x05
+				type='optical' #see below
+				;;
+		esac
+	fi
 
 	case ${DRV} in
-		hd*) ## ide device, look in /proc/ide for info
-			[ -f /proc/ide/${DRV}/media ] && read -r media < /proc/ide/${DRV}/media
-			[ "$media" = "cdrom" ] && type="optical"
-			[ -f /proc/ide/${DRV}/model ] && read -r info < /proc/ide/${DRV}/model
-			;;
-		sd*)
-			[ -e /proc/ide ] && type=usbdrv ## /proc/ide: usb drives appear as sdX)
-			;;
+		fd*)  type=floppy  ;;
+		scd*) type=optical ;; #old stuff
+		mmc*) type=card ; info="MMC/SD: $info" ;;
 	esac
 
-	case $(readlink /sys/block/${DRV}) in *usb*) type=usbdrv ;; esac
-
-	case ${DRV} in
-		fd*)      type=floppy  ;;
-		scd*|sr*) type=optical ;; #scd*: probably old stuff
-		mmc*)     type=card ; info="MMC/SD: $info" ;;
-	esac
+	# -- legacy: /proc/ide - special case
+	if [ -e /proc/ide ] ; then #legacy
+		[ -f /proc/ide/${DRV}/model ] && read -r info < /proc/ide/${DRV}/model 
+		[ -f /proc/ide/${DRV}/media ] && read -r media < /proc/ide/${DRV}/media
+		case ${DRV} in
+			sd*) # usb hd drives and usb flash drives appear as sdX
+				usb=yes #will be used in the usbflash check
+				type=usbdrv
+				;;
+			hd*) # somtimes optical drives appear as hdX... must check
+				if [ "$media" = "cdrom" ] ; then
+					type=optical # hard to tell what hdX drives are usb optical drives
+				else
+					[ "$removable" = "1" ] && usb=yes #not sure about this.. just in case
+				fi
+				;;
+		esac
+	fi
+	# --
 
 	if [ "$type" = "usbdrv" -a "$CLI_ARG" = "" ] ; then
 		#keep record of usb drives, for forced updating of /proc...
@@ -80,7 +156,7 @@ for DRV in ${ALLDRVS} ; do
 		echo "$sorted" > $HOME/.usb-drive-log-probedisk
 	fi
 
-	## Legacy stuff
+	## -- legacy: properly identify a floppy
 	if [ "$type" = "usbdrv" ] ; then
 		# find out if a usb floppy drive...
 		[ "$size" = "2880" ] && type=floppy
@@ -89,25 +165,49 @@ for DRV in ${ALLDRVS} ; do
 		# MITUMI USB FDD, VenDor: TEAC Model: FD-05PUB, Vendor: COMPAQ Model: USB EXT FLOPPY
 		case "$model" in *" FDD"*|*" UF000x"*|*"Floppy"*|*"USB-FDU"*|"FD-"*|*"FLOPPY"*) type=floppy ;; esac
 	else
-		case ${DRV} in sd*)
-			# find out if it is a removable internal drive (zip, ls120, etc)...
-			if [ -e /sys/block/${DRV}/removable ];then
-				[ "$(< /sys/block/${DRV}/removable)" = "1" ] && type=floppy
-			fi
-		esac
+		# find out if it is a removable internal drive (zip, ls120, etc)...
+		case ${DRV} in sd*) [ "$removable" = "1" ] && type=floppy ;; esac
 	fi
-	if [ "$type" = "floppy" ] ; then #might a "fake" floppy device. have to check..
-		[ "$model" = "" -a "$vendor" = "" ] && continue
+	# might be a "fake" floppy device. have to check..
+	[ "$type" = "floppy" -a "$model" = "" -a "$vendor" = "" ] && continue
+	# --
+
+	if [ "$SHOW_UUID" = "yes" -o "$SHOW_PTABLE" = "yes" ] ; then
+		BLKID_STR="$(blkid /dev/${DRV})"
+		[ "$SHOW_UUID" = "yes" ]  && UUID_STR="$(echo "$BLKID_STR" | grep -o ' PTUUID=.*' | cut -f 2 -d '"')"
+		[ "$SHOW_PTABLE" = "yes" ]  && PTABLE_STR="$(echo "$BLKID_STR" | grep -o ' PTTYPE=.*' | cut -f 2 -d '"')"
 	fi
 
-	# print results
-	case $output in
-		1) echo "/dev/${DRV}|$type|$info" ;;
-		2) echo "/dev/${DRV}|$type|$size|$info" ;;
-		3) echo "$type" ;;
-		4) echo "$info" ;;
-		5) echo "$size" ;;
+	case $type in drive|usbdrive) # -hdparm
+		if [ "$HDPARM" = "yes" -a "$removable" != "1" ] ; then
+			modelx="$(hdparm -i /dev/${DRV} | grep Model | cut -f 1 -d ',' | cut -f 2 -d '=' 2>/dev/null)"
+			[ "$modelx" != "" ] && info="$vendor $modelx"
+		fi
 	esac
+
+	if [ "$usb" = "yes" ] ; then
+		[ "$SHOW_USBFLASH" = "yes" -a "$type" = "usbdrv" -a "$removable" = "1" ] && type='usbflash'
+		[ "$SHOW_EXTENDED_USB" = "yes" -a "$type" = "floppy" ] && type='usbfloppy'
+		[ "$SHOW_EXTENDED_USB" = "yes" -a "$type" = "optical" ] && type='usboptical'
+	fi
+
+	[ "$HR_SIZE" = "yes" ] && size=$(filesize -bytes=512 $size)
+
+	# print results
+	OUTPUT_STR=""
+	if [ "$SPECIFIC" = "yes" ] ; then
+		SPECIFIC_STUFF="$EXTRA_STR"
+		SPECIFIC_STUFF="${SPECIFIC_STUFF//|TYPE/|$type}"
+		SPECIFIC_STUFF="${SPECIFIC_STUFF//|DESC/|$info}"
+		SPECIFIC_STUFF="${SPECIFIC_STUFF//|SIZE/|$size}"
+		SPECIFIC_STUFF="${SPECIFIC_STUFF//|UUID/|$UUID_STR}"
+		SPECIFIC_STUFF="${SPECIFIC_STUFF//|PTABLE/|$PTABLE_STR}"
+		OUTPUT_STR="/dev/${DRV}${SPECIFIC_STUFF}"
+	else
+		OUTPUT_STR="/dev/${DRV}|$type|$info"
+		[ "$PLUS_SIZE" = "yes" ] && OUTPUT_STR="${OUTPUT_STR}|$size"
+	fi
+	echo "$OUTPUT_STR"
 done
 
 ###############################################################
