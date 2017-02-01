@@ -132,12 +132,35 @@ psubdir=</path/to/install/directory>
    This is the default path for locating any puppy file and any partition.
 
 ------------------------------------------------------------
+pupsfs=<partition> Specifies the puppy...sfs partition
+zdrv=<partition>   Specifies the zdrv...sfs  partition
+fdrv=<partition>   Specifies the fdrv...sfs  partition
+adrv=<partition>   Specifies the adrv...sfs  partition
+ydrv=<partition>   Specifies the ydrv...sfs  partition
+psave=<partition>  Specifies the save layer  partition
+
+   Where <partition> can be the name e.g sdb2, or a label e.g. Work, or a uuid
+       e.g. 0db94719-cdf1-44b7-9766-23db62fb85a5
+
+   Specifying psave=<partition> can be quite useful in directing all save layers to a different partition.
+       e.g. If your puppies reside on an ntfs partition,
+       then you can get yourself a savefolder by creating a Linux partition on a usb stick or hd,
+       and then specifying a psave=<the uuid of the Linux partition> boot parameter.
+       If you forget to plug in the appropriate device, Puppy will simply do a first boot,
+         no harm done, just insert the appropriate usb device and reboot.
+
+    ex: pupsfs=sdb2
+    ex: zdrv=sdc1
+    ex: adrv=sdd6
+    ex: psave=sda1
+
+----
 pupsfs=<partition>:<filename> Specifies the puppy...sfs file.
-zdrv=<partition>:<filename> Specifies the zdrv...sfs file.
-fdrv=<partition>:<filename> Specifies the fdrv...sfs file.
-adrv=<partition>:<filename> Specifies the adrv...sfs file.
-ydrv=<partition>:<filename> Specifies the ydrv...sfs file.
-psave=<partition>:<filename> Specifies the save layer file.
+zdrv=<partition>:<filename>   Specifies the zdrv...sfs file.
+fdrv=<partition>:<filename>   Specifies the fdrv...sfs file.
+adrv=<partition>:<filename>   Specifies the adrv...sfs file.
+ydrv=<partition>:<filename>   Specifies the ydrv...sfs file.
+psave=<partition>:<filename>  Specifies the save layer file.
 
    Where <partition> can be the name e.g sdb2, or a label e.g. Work, or a uuid
        e.g. 0db94719-cdf1-44b7-9766-23db62fb85a5
@@ -163,13 +186,12 @@ psave=<partition>:<filename> Specifies the save layer file.
    This enables init to go straight to that partition to find the Puppy files
        instead of searching through all partitions looking for puppy...sfs.
 
-   Specifying psave=<partition> can be quite useful in directing all save layers to a different partition.
-       e.g. If your puppies reside on an ntfs partition,
-       then you can get yourself a savefolder by creating a Linux partition on a usb stick or hd,
-       and then specifying a psave=<the uuid of the Linux partition> boot parameter.
+   ex: psave=sdc1:/path/to/tahrsave.4fs
+   ex: psave=sdc1:tahrsave.4fs
+   ex: zdrv=sdc1:/zz/myzz.sfs
+   ex: adrv=sdd6:/puppy/drvs/custom/adrv.sfs
+   ex: pupsfs=sdb2:/puppy/precise/puppy_precise_5.7.1.sfs
 
-   If you forget to plug in the appropriate device, Puppy will simply do a first boot,
-       no harm done, just insert the appropriate usb device and reboot.
 ------------------------------------------------------------
 
 pkeys=<keyboard layout specification> e.g de
