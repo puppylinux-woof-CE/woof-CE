@@ -440,13 +440,29 @@ load_ext_file() { #ex: stretchsave.4fs
  fi
  #--
  ONE_LOOP="$(losetup -f)"
- #-- is the ${DISTRO_FILE_PREFIX}save encrypted?...
- if echo "$SAVE_FN" | grep -q '_crypt' ;then
-   #mount encrypted savefile
+ # is the ${DISTRO_FILE_PREFIX}save encrypted?...
+ SFFS=$(blkid "$SAVE_FN" | grep -o ' TYPE=".*' | cut -f 2 -d '"')
+ if echo "$SAVE_FN" | grep -q '_crypt' ; then
+   echo "cryptoloop encryption detected"
+   ENCRYPTED=yes
+   ENCTYPE=cryptoloop
    case $SAVE_FN in 
-    *cryptx*) CRYPTO='-e 1' ;;
-    *) CRYPTO='-e aes' ;;
+     *cryptx*) CRYPTO='-e 1' ;;
+     *) CRYPTO='-e aes' ;;
    esac
+ fi
+ if [ "$SFFS" = "crypto_LUKS" ] ; then
+   echo "LUKS encryption detected"
+   ln -sv /pup_new/lib/modules/${KERNELVER} /lib/modules/${KERNELVER}
+   modprobe dm-crypt
+   modprobe xts
+   #insmod $(find /pup_new/lib/modules/${KERNELVER} -name '*dm-crypt*')
+   ENCRYPTED=yes
+   ENCTYPE=luks 
+ fi
+ #-- 
+ if [ "$ENCRYPTED" = "yes" ] ; then
+   #mount encrypted savefile
    echo >/dev/console
    echo "${L_PASSWORD_MSG_1}"  >/dev/console
    echo "${L_PASSWORD_MSG_2}" >/dev/console
@@ -454,12 +470,16 @@ load_ext_file() { #ex: stretchsave.4fs
    echo -n "${L_PASSWORD} " >/dev/console
    echo -en "\\033[0;39m" >/dev/console
    read -s MYPASS
-   echo "$MYPASS" | losetup-222 -p 0 $CRYPTO $ONE_LOOP $SAVE_FN
+   if [ "$ENCTYPE" = "luks" ] ; then
+     losetup $ONE_LOOP $SAVE_FN
+     echo -n "$MYPASS" | cryptsetup luksOpen -v $ONE_LOOP savefile -
+   else
+     echo "$MYPASS" | losetup-222 -p 0 $CRYPTO $ONE_LOOP $SAVE_FN
+   fi
  else
    losetup $ONE_LOOP $SAVE_FN
  fi
  #--
- SFFS=$(blkid "$SAVE_FN" | grep -o ' TYPE=".*' | cut -f 2 -d '"')
  case $SFFS in #savefile filesystem
    ext2|ext3|ext4) ok=1 ;;
    *) # might be encrypted - unrecognizable..
@@ -488,12 +508,23 @@ load_ext_file() { #ex: stretchsave.4fs
  fi
  #--
  [ -d "$SAVE_LAYER" ] || mkdir $SAVE_LAYER
- echo "mount -t $SFFS -o noatime $ONE_LOOP $SAVE_LAYER" #debug
- mount -t $SFFS -o noatime $ONE_LOOP $SAVE_LAYER
- if [ $? -ne 0 ] ; then
-   echo 'Warning: PUPSAVE=""' #debug
-   PUPSAVE=""
-   losetup -d $ONE_LOOP
+ if [ "$ENCTYPE" = "luks" ] ; then
+   echo "mount -t $SFFS -o noatime /dev/mapper/savefile $SAVE_LAYER"
+   mount -t $SFFS  -o noatime /dev/mapper/savefile $SAVE_LAYER
+   if [ $? -ne 0 ] ; then
+     echo 'Warning: PUPSAVE=""' #debug
+     PUPSAVE=""
+     cryptsetup luksClose savefile
+     losetup -d $ONE_LOOP
+   fi
+ else
+   echo "mount -t $SFFS -o noatime $ONE_LOOP $SAVE_LAYER" #debug
+   mount -t $SFFS -o noatime $ONE_LOOP $SAVE_LAYER
+   if [ $? -ne 0 ] ; then
+     echo 'Warning: PUPSAVE=""' #debug
+     PUPSAVE=""
+     losetup -d $ONE_LOOP
+   fi
  fi
 }
 
@@ -885,6 +916,7 @@ if [ "$pfix" ];then
    fsckp)   PFSCKP="yes";;        #do fsck before first mount of ext partitions
    [0-9]*)  PIGNORELAST=$ONEFIX;; #blacklist last $ONEFIX folders (multisession).
    psavebkp)PSAVEBKP='yes';;      #don't ignore pupsaves created by Pupsave Backup
+   luks)    COPY_CRYPTSETUP=yes;; #make sure cryptsetup is not missing after switching root
    *)       echo "pfix=$ONEFIX is not a known boot parameter";;
   esac
  done
@@ -1338,10 +1370,12 @@ echo -n "${L_SWITCH_ROOT}" > /dev/console
 rm -r -f "/pup_new/initrd${SAVE_LAYER}"
 for ONEMNT in $(mount | cut -f 3 -d ' ' | grep -v 'pup_new' | grep '^/pup_' | tr '\n' ' ');do
  mkdir -p /pup_new/initrd${ONEMNT}
+ echo "mount -o move $ONEMNT /pup_new/initrd${ONEMNT}" #debug
  mount -o move $ONEMNT /pup_new/initrd${ONEMNT}
 done
 for ONEMNT in $(mount | cut -f 3 -d ' ' | grep '^/mnt/' | tr '\n' ' ');do
  mkdir -p /pup_new/initrd${ONEMNT}
+ echo "mount -o move $ONEMNT /pup_new/initrd${ONEMNT}" #debug
  mount -o move $ONEMNT /pup_new/initrd${ONEMNT}
 done
 
@@ -1375,6 +1409,15 @@ if [ -d "/pup_new/initrd/mnt/tmpfs/tmp" ];then
   ln -sv /initrd/mnt/tmpfs/tmp /pup_new/tmp #for after switch
 fi
 
+# make sure /pup_new/sbin/mount.exfat is not missing...
+[ ! -f /pup_new/sbin/mount.exfat ] && cp -vu /bin/mount.exfat* /pup_new/sbin/
+
+# copy cryptsetup to /pup_new if it's missing
+if [ "$COPY_CRYPTSETUP" = "yes" ] ; then
+  [ ! -f /pup_new/bin/cryptsetup -a ! -f /pup_new/sbin/cryptsetup ] && \
+      cp -v /bin/cryptsetup /pup_new/sbin/
+fi
+
 #PNOX is a boot param. /etc/profile prevents X from starting if this file exists...
 [ "$PNOX" = "yes" ] && touch /pup_new/tmp/bootcnt.txt
 cp -a /DISTRO_SPECS /pup_new/initrd/
@@ -1399,9 +1442,6 @@ sync
 umount /sys
 umount /dev
 umount /proc
-
-# make sure /pup_new/sbin/mount.exfat is not missing...
-[ ! -f /pup_new/sbin/mount.exfat ] && cp -u /bin/mount.exfat* /pup_new/sbin/
 
 #now using cpio archive for initramfs 'initial ramdisk'...
 exec switch_root /pup_new /sbin/init

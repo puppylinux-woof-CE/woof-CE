@@ -427,6 +427,41 @@ $(gettext 'Type any alpha-numeric characters you wish, then click OK button:')"
  fi
 }
 
+choosecrypt_new() {
+ CRYPTO=""
+ T_cryptotitle="$(gettext 'First shutdown: encryption')"
+ T_cryptono="$(gettext 'NORMAL (no encryp.)')"
+ T_cryptoheavy="$(gettext 'Encrypt with LUKS')"
+ T_yesno="$(eval_gettext "Do you want to encrypt the '\${DISTRO_FILE_PREFIX}save'?")
+$(eval_gettext "If the '\${DISTRO_FILE_PREFIX}save' is encrypted, then a password will have to be entered at every bootup. The reason for doing this is security, as no one else will be able to see what is inside the \${DISTRO_FILE_PREFIX}save. Encryption does slow \${DISTRO_NAME} down.")
+
+LUKS = Linux Unified Key Setup.
+
+$(eval_gettext "Encrypted \${DISTRO_FILE_PREFIX}save files have another advantage, they allow multiple users. Recommended if spouse and kids are going to be using the same \${DISTRO_NAME} installation.")
+
+$(gettext 'Unless you have a good reason to use encryption, it is recommended not to, to avoid the overhead. Recommend choose \ZbNORMAL\ZB button...')"
+ ${DIALOGEXE} ${BACKGROUNDYELLOW} ${TITLEPARAM} "$T_cryptotitle" --colors --ok-label "$T_cryptono" --cancel-label "$T_cryptoheavy" --yesno "$T_yesno" 0 0 #110926
+ RETVAL=$?
+ if [ $RETVAL -eq 1 ];then
+  T_passtitle="$(gettext 'First shutdown: password')"
+  T_passtext="$(gettext 'Please choose a password.
+This must be remembered and entered at every bootup.')"
+  while [ 1 ];do
+    if [ "$DISPLAY" ] ; then
+      MYPASSWORD="$(/usr/lib/gtkdialog/box_passwd --show --default "puppyisgreat" "$T_passtitle" "$T_passtext")"
+    else
+      MYPASSWORD="`${DIALOGEXE} ${BACKGROUNDYELLOW} ${TITLEPARAM} "$T_passtitle" --screen-center --stdout --no-cancel --inputbox "$T_passtext" 0 0 "puppyisgreat"`" #110926
+    fi
+    [ "$MYPASSWORD" ] && break
+  done
+  DENSITY="z"
+  CRYPTO='luks'
+  CRYPT_NAME="_luks"
+  SFEXT="4fs"
+  SFFS="ext4"
+ fi
+}
+
 choosecrypt() {
  CRYPTO=""
  T_cryptotitle="$(gettext 'First shutdown: encryption')"
@@ -467,8 +502,9 @@ This must be remembered and entered at every bootup.')"
    DENSITY="x" #light xor encryption.
    CRYPTO='-e 1' #'-e xor' --bug, loads xor.ko which is something else.
   fi 
-  CRYPT_NAME=""
-  [ "${DENSITY}" ] && CRYPT_NAME="_crypt${DENSITY}" && SFEXT="2fs"
+  CRYPT_NAME="_crypt${DENSITY}"
+  SFEXT="2fs"
+  SFFS="ext2"
  fi
 }
 
@@ -599,18 +635,28 @@ If anything looks wrong, choose \Zb\\\${T_notsave}\ZB...\"`"
   #note: loop2 is kept available for scripts to use. but, find which is free...
   echo -e "Save this log somewhere and close this window to continue...\n" >/tmp/mk2fs.log
   DEVLOOP="$(losetup-222 -f)"
-  #'-p 0' means read password from stdin...
-  echo "losetup-222 -v -p 0 $CRYPTO $DEVLOOP ${SMNTPT}$SAVEFILE" >>/tmp/mk2fs.log
-  echo "$MYPASSWORD" | losetup-222 -v -p 0 $CRYPTO $DEVLOOP ${SMNTPT}$SAVEFILE &>>/tmp/mk2fs.log
-  mke2fs -v -t ext2 -m 0 -E nodiscard -F $DEVLOOP &>>/tmp/mk2fs.log && \
-  e2fsck -v -f -y -E discard $DEVLOOP &>>/tmp/mk2fs.log || e2fsck -v -f -y $DEVLOOP &>>/tmp/mk2fs.log
+  if [ "$CRYPTO" = "luks" ] ; then
+    losetup -v $DEVLOOP ${SMNTPT}$SAVEFILE >>/tmp/mk2fs.log
+    echo -n "$MYPASSWORD" | cryptsetup luksFormat -v $DEVLOOP - &>>/tmp/mk2fs.log
+    echo -n "$MYPASSWORD" | cryptsetup luksOpen -v $DEVLOOP savefile - &>>/tmp/mk2fs.log
+    FSCK_DEV=/dev/mapper/savefile
+  else
+    #'-p 0' means read password from stdin...
+    echo "losetup-222 -v -p 0 $CRYPTO $DEVLOOP ${SMNTPT}$SAVEFILE" >>/tmp/mk2fs.log
+    echo "$MYPASSWORD" | losetup-222 -v -p 0 $CRYPTO $DEVLOOP ${SMNTPT}$SAVEFILE &>>/tmp/mk2fs.log
+    FSCK_DEV=$DEVLOOP
+  fi
+  echo "mke2fs -v -t $SFFS -m 0 -E nodiscard -F $FSCK_DEV" >>/tmp/mk2fs.log
+  mke2fs -v -t $SFFS -m 0 -E nodiscard -F $FSCK_DEV &>>/tmp/mk2fs.log && \
+  e2fsck -v -f -y -E discard $FSCK_DEV &>>/tmp/mk2fs.log || e2fsck -v -f -y $FSCK_DEV &>>/tmp/mk2fs.log
   if [ $? -ne 0 ] ; then
     pupkill $w1PID
-    /usr/lib/gtkdialog/box_ok "$(gettext 'Error')" error "$(gettext 'Unable to create ext2 filesystem')"
+    /usr/lib/gtkdialog/box_ok "$(gettext 'Error')" error "$(gettext 'Unable to create filesystem')"
     defaulttextviewer /tmp/mk2fs.log
   fi
   sync
   pupkill $w1PID #130525 moved down.
+  [ "$CRYPTO" = "luks" ] && cryptsetup luksClose savefile
   losetup -d $DEVLOOP
  fi
  sync
@@ -793,13 +839,13 @@ case $SAVECHOICE in
     SAVESTYLE='file'
     DENSITY=''
     SFEXT=''
-    #only choosecrypt if losetup-222 is available
-    if which losetup-222 2>/dev/null ; then
+    if cryptsetup --help &>/dev/null && modprobe dm-crypt && modprobe xts ; then
+      choosecrypt_new
+    elif which losetup-222 2>/dev/null ; then
       choosecrypt
     fi
     [ -z "$DENSITY" ] && [ "$SAVEFS_IS_LINUX" ] && choosestyle
     if [ "$SAVESTYLE" = "file" ]; then
-       SFEXT='2fs'
        [ -z "$DENSITY" ] && choosefs
        choosesize || exit	###FIXME###
     fi

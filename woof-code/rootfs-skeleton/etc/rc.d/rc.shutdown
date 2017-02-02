@@ -252,12 +252,18 @@ case $PUPMODE in
   elif [ "$CRYPTO" = "" ];then
    mount -t $FILEFS -o noatime,rw,loop $SMNTPT$SAVEFILE /tmp/save1stpup
   else
-   #note: loop2 is kept available for scripts to use. but, do this to find free one...
-   DEVLOOP="`losetup-222 -f`"
-   #'-p 0' means read password from stdin...
-   echo "$MYPASSWORD" | losetup-222 -p 0 $CRYPTO $DEVLOOP ${SMNTPT}$SAVEFILE >/dev/console
-   [ ! $? -eq 0 ] && exit 1
-   mount -t $FILEFS -o noatime,rw $DEVLOOP /tmp/save1stpup
+   DEVLOOP="`losetup -f`"
+   if [ "$CRYPTO" = "luks" ] ; then
+     losetup $DEVLOOP ${SMNTPT}$SAVEFILE
+     echo -n "$MYPASSWORD" | cryptsetup luksOpen $DEVLOOP savefile -
+     [ ! $? -eq 0 ] && exit 1
+     mount -t $FILEFS -o noatime,rw /dev/mapper/savefile /tmp/save1stpup
+   else
+     #'-p 0' means read password from stdin...
+     echo "$MYPASSWORD" | losetup-222 -p 0 $CRYPTO $DEVLOOP ${SMNTPT}$SAVEFILE >/dev/console
+     [ ! $? -eq 0 ] && exit 1
+     mount -t $FILEFS -o noatime,rw $DEVLOOP /tmp/save1stpup
+   fi
   fi
 
   #floppy disk has little space. snapmergepuppy handles this for subsequent saves, but for now,
@@ -288,7 +294,10 @@ case $PUPMODE in
   #copy initmodules config file from /tmp if it exists
   [ -f /tmp/${DISTRO_FILE_PREFIX}initmodules.txt ] && cp -f /tmp/${DISTRO_FILE_PREFIX}initmodules.txt ${SMNTPT}${SAVEPATH}/${DISTRO_FILE_PREFIX}initmodules.txt
   sync
-  [ -L /tmp/save1stpup ] || umount /tmp/save1stpup
+  if [ ! -L /tmp/save1stpup ] ; then
+    umount /tmp/save1stpup
+    [ "$CRYPTO" = "luks" ] && cryptsetup luksClose savefile
+  fi
 
   umount $SMNTPT 2> /dev/null
 
@@ -342,6 +351,10 @@ esac
 
 # ==============================================================
 
+sync
+umount.crypto_LUKS all
+sync
+
 swapoff -a #works only if swaps are in mtab or ftab
 STRAYPARTD="`cat /proc/swaps | grep "/" | cut -f 1 -d " " | tr "\n" " "`"
 for S in $STRAYPARTD ; do swapoff $S ; done
@@ -350,6 +363,7 @@ for S in $STRAYPARTD ; do swapoff $S ; done
 MOUNTED=`tac /proc/mounts | grep -vE '/dev |/dev/root | rootfs | / | usbfs | aufs | tmpfs ' | cut -f2 -d' '`
 STRAY_MOUNTPOINTS=`echo "$MOUNTED" | grep -vE '/proc|/sys|/initrd|/dev |/dev/pts'`
 [ "$STRAY_MOUNTPOINTS" ] && echo "$L_UNMOUNTING_STRAY" >/dev/console
+sync
 
 for MOUNT_POINT in $STRAY_MOUNTPOINTS ; do
  MOUNT_POINT=`busybox echo -e "$MOUNT_POINT"` # formats escaped chars like \040 to literal like ' ' (space)
@@ -419,6 +433,10 @@ fi
 MNTFUSE="`busybox mount | grep 'fuse' | head -n 1 | cut -f 3 -d ' '`"
 [ "$MNTFUSE" != "" ] && fusermount -z -u $MNTFUSE #-u is required with -z...
 
+sync
+
 busybox umount -ar > /dev/null 2>&1
+
+sync
 
 ### END ###

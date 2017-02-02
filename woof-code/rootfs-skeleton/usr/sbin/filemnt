@@ -19,24 +19,29 @@ case $HOMELINK in *initrd*)
 esac
 
 #ex: /mnt/home/kernel_src-3.0.7-patched.sfs becomes /mnt/+mnt+home+kernel_src-3.0.7-patched.sfs
-MntPt='/mnt/'"`echo "$imgFile" |sed "s#^\.##g" |sed "s#/#+#g" | tr ' ' '_'`" # SFR, added 'tr'
+MOUNTPOINT='/mnt/'"`echo "$imgFile" |sed "s#^\.##g" |sed "s#/#+#g" | tr ' ' '_'`" # SFR, added 'tr'
 # BK is it already mounted?
-MNTEDLOOP="$(cat /proc/mounts | grep -F "$MntPt" | cut -f 1 -d ' ')"
+MNTEDLOOP="$(cat /proc/mounts | grep -F "$MOUNTPOINT" | cut -f 1 -d ' ')"
 
-if [ "$MNTEDLOOP" = "" ];then #not mounted on $MntPt
+if [ "$MNTEDLOOP" = "" ];then #not mounted on $MOUNTPOINT
 
   Ext=${imgFile##*.} #get file extension   ## Ext=`echo "$imgFile" |sed 's/^.*\.//'`
   Ext=${Ext,,}       #convert to lowercase ## Ext=`echo $Ext | tr [:upper:] [:lower:]`
   case ${Ext} in
-    2fs) Type='ext2'     ;;
-    3fs) Type='ext3'     ;;
-    4fs) Type='ext4'     ;;
+    2fs) Type='ext2'     ; check_luks=yes ;;
+    3fs) Type='ext3'     ; check_luks=yes ;;
+    4fs) Type='ext4'     ; check_luks=yes ;;
     sfs) Type='squashfs' ;;
     iso) Type='iso'      ;;
     *) Type=$(blkid "$imgFile" | grep -o ' TYPE=.*' | cut -f 2 -d '"') ;;
   esac
   [ "$Type" = "" ] && { echo "Unrecognized format" ; exit 1 ; }
   echo -e "\nType=${Type}\n"
+
+  if [ "$check_luks" = "yes" ] ; then
+    Type2=$(blkid "$imgFile" | grep -o ' TYPE=.*' | cut -f 2 -d '"')
+    [ "$Type2" = "crypto_LUKS" ] && Type="$Type2"
+  fi
 
   if [ "$Type" = "squashfs" ];then
       . /etc/rc.d/BOOTCONFIG # 140609 add contextual Install/Uninstall button
@@ -57,7 +62,7 @@ if [ "$MNTEDLOOP" = "" ];then #not mounted on $MntPt
   fi
 
   echo -e "\n ### Mount: $imgFile\n"
-  mkdir -p "$MntPt"
+  mkdir -p "$MOUNTPOINT"
 
   #111110 handle encrypted save-files...
   CRYPTO=""; Err=0
@@ -86,46 +91,60 @@ if [ "$MNTEDLOOP" = "" ];then #not mounted on $MntPt
     if [ $? -eq 0 ] ; then
       echo "$MYPASS" | losetup-222 -p 0 ${CRYPTO} $DEVLOOP "$imgFile"
       if [ $? -eq 0 ] ; then
-        mount -t $Type $DEVLOOP "$MntPt" && Err=0
+        mount -t $Type $DEVLOOP "$MOUNTPOINT" && Err=0
       fi
     fi
+
   else #normal, no encryption... 130204 mavrothal: fix spaces in imgFile...
     case $Type in 
       iso|udf|iso9660) #iso img might have more than 1 fs. prefer udf..
-         mount -t udf -o loop "$imgFile" "$MntPt" || mount -t iso9660 -o loop "$imgFile" "$MntPt"
+         mount -t udf -o loop "$imgFile" "$MOUNTPOINT" || mount -t iso9660 -o loop "$imgFile" "$MOUNTPOINT"
          ;;
       exfat)
-         mount -t exfat -o loop "$imgFile" "$MntPt" || {
+         mount -t exfat -o loop "$imgFile" "$MOUNTPOINT" || {
             # musl static mount.exfat fails
             # have to set loop device manually...
             losetup $DEVLOOP "$imgFile"
-            mount.exfat-fuse $DEVLOOP "$MntPt"
+            mount.exfat-fuse $DEVLOOP "$MOUNTPOINT"
          }
          ;;
-      *) mount -t $Type -o loop "$imgFile" "$MntPt" ;;
+      crypto_LUKS) mount.crypto_LUKS file "$imgFile" "$MOUNTPOINT" ;; # /sbin/mount.crypto_LUKS
+      *) mount -t $Type -o loop "$imgFile" "$MOUNTPOINT" ;;
     esac
     Err=$?
   fi
 
   if [ $Err -eq 0 ] ;then
     /usr/lib/gtkdialog/box_splash -timeout 6 -bg green -text "`eval_gettext \"Click \\\$imgFileBASE icon again to unmount it\"`" &
-    defaultfilemanager -n "$MntPt" &
+    defaultfilemanager -n "$MOUNTPOINT" &
   else
     [ "$CRYPTO" ] && losetup-222 -d $DEVLOOP
-    rm -rf "$MntPt" #121203
+    rm -rf "$MOUNTPOINT" #121203
   fi
 
+
+#### mounted ####
 else
 
+  mntinfo=$(mount | grep " $MOUNTPOINT ")
   ## file's mounted, unmount it
-  defaultfilemanager -D "$MntPt" # -D = rox ...
+  defaultfilemanager -D "$MOUNTPOINT" # -D = rox ...
   echo -e "\n ### UnMount: $imgFile\n"
-  umount "$MntPt"
+
+  case "$mntinfo" in "/dev/mapper/luksfile"*)
+      . /sbin/umount.crypto_LUKS 
+      luks_umount "$mntinfo"
+      ;;
+    *)
+      umount "$MOUNTPOINT"
+      ;;
+  esac
+
   Err=$?
   sync
   sleep 1
   if [ $Err -eq 0 ] ; then
-    rm -rf "$MntPt"
+    rm -rf "$MOUNTPOINT"
     /usr/lib/gtkdialog/box_splash -timeout 3 -bg green -text "$(gettext 'Unmounted') $imgFileBASE" #BK
   fi
 fi
