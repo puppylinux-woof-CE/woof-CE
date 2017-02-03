@@ -2,7 +2,7 @@ CC = gcc
 #CC = musl-gcc
 STATIC = -static
 
-all: daemon debdb2pupdb elspci fakelogin find_cat findpkgs-dep-helper zinit printcols syslog vercmp
+all: daemon debdb2pupdb elspci fakelogin find_cat findpkgs-dep-helper findpkgs-search-helper zinit printcols syslog vercmp
 
 daemon:
 	$(CC) $(STATIC) -O3 -fomit-frame-pointer -ffunction-sections -fdata-sections -fmerge-all-constants -Wl,--sort-common -Wl,-gc-sections -o daemon daemon.c
@@ -22,6 +22,9 @@ find_cat:
 findpkgs-dep-helper:
 	$(CC) $(STATIC) -O3 -fomit-frame-pointer -ffunction-sections -fdata-sections -fmerge-all-constants -Wl,--sort-common -Wl,-gc-sections -o findpkgs-dep-helper findpkgs-dep-helper.c
 
+findpkgs-search-helper:
+	$(CC) $(STATIC) -O3 -fomit-frame-pointer -ffunction-sections -fdata-sections -fmerge-all-constants -Wl,--sort-common -Wl,-gc-sections -o findpkgs-search-helper findpkgs-search-helper.c
+
 printcols:
 	$(CC) $(STATIC) -O3 -fomit-frame-pointer -ffunction-sections -fdata-sections -fmerge-all-constants -Wl,--sort-common -Wl,-gc-sections -o printcols printcols.c
 
@@ -35,4 +38,4 @@ zinit:
 	$(CC) $(STATIC) -O3 -fomit-frame-pointer -ffunction-sections -fdata-sections -fmerge-all-constants -Wl,--sort-common -Wl,-gc-sections -o zinit zinit.c
 
 clean:
-	rm -f daemon debdb2pupdb elspci fakelogin find_cat findpkgs-dep-helper zinit printcols syslog vercmp
+	rm -f daemon debdb2pupdb elspci fakelogin find_cat findpkgs-dep-helper findpkgs-search-helper zinit printcols syslog vercmp
