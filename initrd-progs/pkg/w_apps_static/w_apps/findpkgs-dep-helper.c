@@ -13,26 +13,34 @@
 /* The lines from the files specified on the command line, for example
  * /tmp/findpkgs_tmp/compat_log1 /tmp/findpkgs_tmp/pet_log1
  * are stored in memory as a linked list of pkglist_entry_struct structures.
+ * Only fields 2 3 8 11 12 13 and 9, are used.
  */
 struct pkglist_entry_struct
 {
 	char *mem_buffer;
-	char *pkg_name;
-	char *pkg_version;
-	char *pkg_filename;
-	char *pkg_distro_binary_compat;
-	char *pkg_distro_compat_version;
-	char *pkg_from_package_list;
-	char *pkg_dependency_field;
+//	char *pkg_name;
+	char *pkg_name_only;		// field 2
+	char *pkg_version;			// field 3
+//	char *pkg_release;
+//	char *pkg_category;
+//	char *pkg_size;
+//	char *pkg_path;
+	char *pkg_filename;			// field 8
+	char *pkg_dependency_field;	// field 9
+//	char *pkg_description;
+	char *pkg_compiled_distro;	// field 11
+	char *pkg_compiled_release;	// field 12
+	char *pkg_repo;				// field 13
 };
 
 /* The pkg_dependency_field, DEPCONDS in findpkgs, is separated into
- * a linked list of one_depcond_struct structures.
+ * a linked list of depcond_struct structures.
  */
-struct one_depcond_struct
+struct depcond_struct
 {
 	char dep_op[3];
 	char *dep_ver;
+	struct depcond_struct *next;
 };
 
 /* A structure with a union to implement the linked lists.
@@ -43,7 +51,6 @@ struct list_item_struct
 	{
 		char *pkg_alias;
 		struct pkglist_entry_struct *pkglist_entry;
-		struct one_depcond_struct *one_depcond;
 		struct list_item_struct *list_item;
 	};
 	struct list_item_struct *next;
@@ -56,10 +63,13 @@ struct list_item_struct
 struct list_item_struct **current_pkglist_item;
 struct list_item_struct *root_pkglist_item;
 
-struct list_item_struct *root_pkg_aliases_item;
+struct list_item_struct *root_item_pkg_aliases;
 
-struct list_item_struct *root_fnd_ok_deps_item;
-struct list_item_struct *root_fnd_ok_apps_item;
+struct list_item_struct *root_item_fnd_ok_deps;
+struct list_item_struct *root_item_fnd_ok_apps;
+
+char is_verbose;
+
 
 
 /* The functions ver_cmp and vercmp_func were originally from vercmp.c */
@@ -129,6 +139,8 @@ int vercmp_func(char *arg1, char *arg2, char *arg3)
 	return res;
 }
 
+
+
 int read_one_file(char *filename)
 {
 	int i;
@@ -140,12 +152,12 @@ int read_one_file(char *filename)
 
 	const char delim[3] = "|\n";
 	char *token = NULL;
+	FILE *one_file;
 
 	// open one file
-	FILE *my_stream;
-	my_stream = fopen(filename, "r");
+	one_file = fopen(filename, "r");
 
-	if (my_stream == NULL)
+	if (one_file == NULL)
 	{
 		printf("File %s could not be opened\n", filename);
 		return 1;
@@ -155,7 +167,7 @@ int read_one_file(char *filename)
 	while (1)
 	{
 		// read each line
-		bytes_read = getline(&one_line, &line_length, my_stream);
+		bytes_read = getline(&one_line, &line_length, one_file);
 		if (bytes_read == -1)
 		{
 			free(one_line);
@@ -163,62 +175,73 @@ int read_one_file(char *filename)
 		}
 
 		i++;
-		// allocate a new list item
-		*current_pkglist_item = (struct list_item_struct*)
-			malloc(sizeof(struct list_item_struct));
-		(*current_pkglist_item)->next = NULL;
+
+		// skip blank lines
+		if (strspn(one_line, " \t\n") == strlen(one_line))
+		{
+			continue;
+		}
+
 
 		// allocate a new pkglist_entry
 		one_pkglist_entry = (struct pkglist_entry_struct*)
 			malloc(sizeof(struct pkglist_entry_struct));
-		(*current_pkglist_item)->pkglist_entry = one_pkglist_entry;
 
 		// store pointer to memory allocated by getline
 		one_pkglist_entry->mem_buffer = one_line;
 
 
-		// read pkg_name, not optional
+		// read pkg_name_only, not optional, field 2
 		token = strsep(&one_line, delim);
 		if (token == NULL || *token == '\0' || one_line == NULL)
 			goto read_one_file_error;
-		one_pkglist_entry->pkg_name = token;
+		one_pkglist_entry->pkg_name_only = token;
 
-		// read pkg_version
+		// read pkg_version, field 3
 		token = strsep(&one_line, delim);
 		if (token == NULL || one_line == NULL)
 			goto read_one_file_error;
 		one_pkglist_entry->pkg_version = token;
 
-		// read pkg_filename
+		// read pkg_filename, field 8
 		token = strsep(&one_line, delim);
 		if (token == NULL || one_line == NULL)
 			goto read_one_file_error;
 		one_pkglist_entry->pkg_filename = token;
 
-		// read pkg_distro_binary_compat
+		// read pkg_compiled_distro, field 11
 		token = strsep(&one_line, delim);
 		if (token == NULL || one_line == NULL)
 			goto read_one_file_error;
-		one_pkglist_entry->pkg_distro_binary_compat = token;
+		one_pkglist_entry->pkg_compiled_distro = token;
 
-		// read pkg_distro_compat_version
+		// read pkg_compiled_release, field 12
 		token = strsep(&one_line, delim);
 		if (token == NULL || one_line == NULL)
 			goto read_one_file_error;
-		one_pkglist_entry->pkg_distro_compat_version = token;
+		one_pkglist_entry->pkg_compiled_release = token;
 
-		// read pkg_from_package_list
+		// read pkg_repo, field 13
 		token = strsep(&one_line, delim);
 		if (token == NULL || one_line == NULL)
 			goto read_one_file_error;
-		one_pkglist_entry->pkg_from_package_list = token;
+		one_pkglist_entry->pkg_repo = token;
 
-		// read pkg_dependency_field, is optional
+		// read pkg_dependency_field, is optional, field 9
 		token = strsep(&one_line, delim);
 		if (token == NULL)
 			goto read_one_file_error;
 		one_pkglist_entry->pkg_dependency_field = token;
 
+
+
+		// allocate a new list item
+		*current_pkglist_item = (struct list_item_struct*)
+			malloc(sizeof(struct list_item_struct));
+		(*current_pkglist_item)->next = NULL;
+
+		// save one_pkglist_entry
+		(*current_pkglist_item)->pkglist_entry = one_pkglist_entry;
 
 		// prepare for next new list item
 		current_pkglist_item = &(*current_pkglist_item)->next;
@@ -226,60 +249,68 @@ int read_one_file(char *filename)
 		// prepare to read next line
 		one_line = NULL;
 		line_length = 0;
+
+
+		continue;
+
+		read_one_file_error:
+
+		free(one_pkglist_entry->mem_buffer);
+		free(one_pkglist_entry);
+		one_line = NULL;
+		line_length = 0;
+
+		printf("Error processing file: %s line: %d \n", filename, i);
+
 	}
 
 	// close file
-	fclose(my_stream);
+	fclose(one_file);
 	return 0;
-
-	read_one_file_error:
-
-	printf("Error processing file: %s line: %d \n", filename, i);
-	return 1;
-
 }
+
 
 int write_file(char *filename, struct list_item_struct *list)
 {
-	struct list_item_struct **current_list_item = NULL;
+	struct list_item_struct *one_list_item = NULL;
 	int close_error = 0;
 
 	// open one file
-	FILE *my_stream;
-	my_stream = fopen(filename, "w");
+	FILE *one_file;
+	one_file = fopen(filename, "w");
 
-	if (my_stream == NULL)
+	if (one_file == NULL)
 	{
 		printf("\nFile %s could not be opened\n", filename);
 		return 1;
 	}
 
-	current_list_item = &list;
-	while (*current_list_item != NULL)
+	one_list_item = list;
+	while (one_list_item != NULL)
 	{
-		if ((*current_list_item)->pkglist_entry != NULL)
+		if (one_list_item->pkglist_entry != NULL)
 		{
-			fprintf(my_stream, "%s|",
-				(*current_list_item)->pkglist_entry->pkg_name);
-			fprintf(my_stream, "%s|",
-				(*current_list_item)->pkglist_entry->pkg_version);
-			fprintf(my_stream, "%s|",
-				(*current_list_item)->pkglist_entry->pkg_filename);
-			fprintf(my_stream, "%s|",
-				(*current_list_item)->pkglist_entry->pkg_distro_binary_compat);
-			fprintf(my_stream, "%s|",
-				(*current_list_item)->pkglist_entry->pkg_distro_compat_version);
-			fprintf(my_stream, "%s|",
-				(*current_list_item)->pkglist_entry->pkg_from_package_list);
-			fprintf(my_stream, "%s\n",
-				(*current_list_item)->pkglist_entry->pkg_dependency_field);
+			fprintf(one_file, "%s|",
+				one_list_item->pkglist_entry->pkg_name_only);
+			fprintf(one_file, "%s|",
+				one_list_item->pkglist_entry->pkg_version);
+			fprintf(one_file, "%s|",
+				one_list_item->pkglist_entry->pkg_filename);
+			fprintf(one_file, "%s|",
+				one_list_item->pkglist_entry->pkg_compiled_distro);
+			fprintf(one_file, "%s|",
+				one_list_item->pkglist_entry->pkg_compiled_release);
+			fprintf(one_file, "%s|",
+				one_list_item->pkglist_entry->pkg_repo);
+			fprintf(one_file, "%s\n",
+				one_list_item->pkglist_entry->pkg_dependency_field);
 		}
-		current_list_item = &(*current_list_item)->next;
+		one_list_item = one_list_item->next;
 	}
 
 
 	// close file
-	close_error = fclose(my_stream);
+	close_error = fclose(one_file);
 	if (close_error != 0)
 	{
 		printf("\nError writing file: %s\n", filename);
@@ -288,12 +319,12 @@ int write_file(char *filename, struct list_item_struct *list)
 	return 0;
 }
 
+
 int get_next_versioned_dependency()
 {
 	// not much code here, but it makes the while loop in
 	// process_versioned_dependencies() clearer
-	while (*current_pkglist_item != NULL &&
-		strchr((*current_pkglist_item)
+	while (*current_pkglist_item != NULL && strchr((*current_pkglist_item)
 		->pkglist_entry->pkg_dependency_field, '&') == NULL)
 	{
 		current_pkglist_item = &(*current_pkglist_item)->next;
@@ -304,6 +335,11 @@ int get_next_versioned_dependency()
 	return 0;
 }
 
+
+/* A "*" character in 'alias' will be treated as a wildcard expression,
+ * comp_alias does not implement regular expressions.
+ * A "*" character in 'name' is not expected.
+ */
 int comp_alias(char *alias, char *name)
 {
 	size_t compare_length = 0;
@@ -361,20 +397,24 @@ int comp_alias(char *alias, char *name)
 	return 1;
 }
 
+
 void process_versioned_dependencies()
 {
-	struct list_item_struct *root_depcond_item = NULL;
-	struct list_item_struct **current_depcond_item = NULL;
-	struct list_item_struct *temp1_depcond_item = NULL;
-	struct list_item_struct *temp2_depcond_item = NULL;
+	struct depcond_struct *root_depcond_item = NULL;
+	struct depcond_struct *one_depcond_item = NULL;
+	struct depcond_struct **current_depcond_item = NULL;
+	struct depcond_struct *temp_depcond_item = NULL;
 
-	struct list_item_struct **fndpkg_pkglist_item = NULL;
+	struct pkglist_entry_struct *one_pkglist_entry = NULL;
+
+	struct list_item_struct *fndpkg_pkglist_item = NULL;
+	struct pkglist_entry_struct *fndpkg_pkglist_entry = NULL;
 
 	struct list_item_struct **current_fnd_ok_deps_item = NULL;
 	struct list_item_struct **current_fnd_ok_apps_item = NULL;
 
-	struct list_item_struct **current_pkg_item = NULL;
-	struct list_item_struct **current_alias_item = NULL;
+	struct list_item_struct *one_pkg_item = NULL;
+	struct list_item_struct *one_alias_item = NULL;
 
 	char *mem_buffer = NULL;
 	char *dep_conds = NULL;
@@ -384,27 +424,24 @@ void process_versioned_dependencies()
 	// fake_pkg_item to use if no aliases found
 	struct list_item_struct fake_alias_item;
 	struct list_item_struct fake_pkg_item;
-	struct list_item_struct *fake_pkg_item_pointer;
 	fake_pkg_item.list_item = &fake_alias_item;
 	fake_pkg_item.next = NULL;
 	fake_alias_item.next = NULL;
-	fake_pkg_item_pointer = &fake_pkg_item;
 
-	root_fnd_ok_deps_item = NULL;
-	root_fnd_ok_apps_item = NULL;
+	root_item_fnd_ok_deps = NULL;
+	root_item_fnd_ok_apps = NULL;
 
 	current_pkglist_item = &root_pkglist_item;
 
 	// equivalent to "for ONESPEC" in findpkgs
 	while (get_next_versioned_dependency() == 0)
 	{
-
+		one_pkglist_entry = (*current_pkglist_item)->pkglist_entry;
 
 		// ### Start processing pkg_dependency_field ###
 
 		// copy the pkg_dependency_field to a new chunk of memory
-		mem_buffer = strdup((*current_pkglist_item)
-								->pkglist_entry->pkg_dependency_field);
+		mem_buffer = strdup(one_pkglist_entry->pkg_dependency_field);
 		dep_conds = mem_buffer;
 		// seperate it into seperate dep_name and dep_conds strings
 		dep_name = strsep(&dep_conds, "&");
@@ -415,34 +452,30 @@ void process_versioned_dependencies()
 		while (dep_conds != NULL)
 		{
 			// allocate a new depcond_item
-			*current_depcond_item = (struct list_item_struct*)
-				malloc(sizeof(struct list_item_struct));
+			*current_depcond_item = (struct depcond_struct*)
+				malloc(sizeof(struct depcond_struct));
 			(*current_depcond_item)->next = NULL;
 
-			(*current_depcond_item)->one_depcond =
-				(struct one_depcond_struct*)
-				malloc(sizeof(struct one_depcond_struct));
-
-			(*current_depcond_item)->one_depcond->dep_op[0] = '\0';
-			(*current_depcond_item)->one_depcond->dep_op[1] = '\0';
-			(*current_depcond_item)->one_depcond->dep_op[2] = '\0';
+			(*current_depcond_item)->dep_op[0] = '\0';
+			(*current_depcond_item)->dep_op[1] = '\0';
+			(*current_depcond_item)->dep_op[2] = '\0';
 
 			// store one set of dep_conds
 			temp = strsep(&dep_conds, "&");
-			strncpy((*current_depcond_item)->one_depcond->dep_op, temp, 2);
-			(*current_depcond_item)->one_depcond->dep_ver = &temp[2];
+			strncpy((*current_depcond_item)->dep_op, temp, 2);
+			(*current_depcond_item)->dep_ver = &temp[2];
 
 			// prepare for next depcond_item
 			current_depcond_item = &(*current_depcond_item)->next;
 		}
 /*
 		// test, print all depcond_items to stdout
-		current_depcond_item = &root_depcond_item;
-		while (*current_depcond_item != NULL)
+		one_depcond_item = root_depcond_item;
+		while (one_depcond_item != NULL)
 		{
-			printf("%s%s ", (*current_depcond_item)->one_depcond->dep_op,
-				(*current_depcond_item)->one_depcond->dep_ver);
-			current_depcond_item = &(*current_depcond_item)->next;
+			printf("%s%s ", one_depcond_item->dep_op,
+				one_depcond_item->dep_ver);
+			one_depcond_item = one_depcond_item->next;
 		}
 */
 
@@ -450,45 +483,51 @@ void process_versioned_dependencies()
 
 
 ///////////////////////////////////////////////////////////////////////////////
-		printf("%s ", dep_name);
-//		fflush(stdout); // may be helpful for debugging, but slows things down
+		if (is_verbose != 0)
+		{
+			printf("%s ", dep_name);
+
+			//fflush(stdout);
+			// may be helpful for debugging, but slows things down
+		}
 ///////////////////////////////////////////////////////////////////////////////
 
 
 		// ### Start processing pkg_aliases ###
 
-		current_pkg_item = &root_pkg_aliases_item;
-		while (*current_pkg_item != NULL)
+		one_pkg_item = root_item_pkg_aliases;
+		while (one_pkg_item != NULL)
 		{
-			current_alias_item = &(*current_pkg_item)->list_item;
-			while (*current_alias_item != NULL)
+			one_alias_item = one_pkg_item->list_item;
+			while (one_alias_item != NULL)
 			{
-				if (comp_alias((*current_alias_item)->pkg_alias, dep_name) == 0)
+				if (comp_alias(one_alias_item->pkg_alias, dep_name) == 0)
 				{
 					goto finished_searching_aliases;
 				}
 				// alias didn't match
-				current_alias_item = &(*current_alias_item)->next;
+				one_alias_item = one_alias_item->next;
 			}
-			current_pkg_item = &(*current_pkg_item)->next;
+			one_pkg_item = one_pkg_item->next;
 		}
 		finished_searching_aliases:
 
 		// set up fake_pkg_item so following code
 		// can treat dep_name the same as an alias
-		if (*current_pkg_item == NULL)
+		if (one_pkg_item == NULL)
 		{
-			current_pkg_item = &fake_pkg_item_pointer;
+			one_pkg_item = &fake_pkg_item;
 			fake_alias_item.pkg_alias = dep_name;
 		}
 
-		current_alias_item = &(*current_pkg_item)->list_item;
+		one_alias_item = one_pkg_item->list_item;
 /*
 		// test, print dep_name and matching alias to stdout
-		if (*current_alias_item != NULL &&
-			(*current_alias_item)->pkg_alias != NULL)
+		if (one_alias_item != NULL && one_alias_item->pkg_alias != NULL)
+		{
 			printf("dep_name=%s pkg_alias=%s\n",
-				dep_name, (*current_alias_item)->pkg_alias);
+				dep_name, one_alias_item->pkg_alias);
+		}
 */
 		// ### End processing pkg_aliases ###
 
@@ -496,35 +535,36 @@ void process_versioned_dependencies()
 		// ### Start processing pkg_version ###
 
 		// equivalent to "for namePTN in $aliasPTNS" in findpkgs
-		while (*current_alias_item != NULL)
+		while (one_alias_item != NULL)
 		{
 			// equivalent to "for FNDPKG" in findpkgs
-			fndpkg_pkglist_item = &root_pkglist_item;
-			while (*fndpkg_pkglist_item != NULL)
+			fndpkg_pkglist_item = root_pkglist_item;
+			while (fndpkg_pkglist_item != NULL)
 			{
-				// check if FNDPKG matches current_alias_item
-				if (comp_alias((*current_alias_item)->pkg_alias,
-						(*fndpkg_pkglist_item)->pkglist_entry->pkg_name) == 0)
+				fndpkg_pkglist_entry = fndpkg_pkglist_item->pkglist_entry;
+
+				// check if FNDPKG matches one_alias_item
+				if (comp_alias(one_alias_item->pkg_alias,
+						fndpkg_pkglist_entry->pkg_name_only) == 0)
 				{
 					// check if FNDPKG matches the dependency requirements
-					current_depcond_item = &root_depcond_item;
-					while (*current_depcond_item != NULL)
+					one_depcond_item = root_depcond_item;
+					while (one_depcond_item != NULL)
 					{
-						if ((*fndpkg_pkglist_item)->pkglist_entry->pkg_version
-							== '\0' || vercmp_func(
-							(*fndpkg_pkglist_item)->pkglist_entry->pkg_version,
-							(*current_depcond_item)->one_depcond->dep_op,
-							(*current_depcond_item)->one_depcond->dep_ver) != 0)
+						if (*fndpkg_pkglist_entry->pkg_version == '\0'
+							|| vercmp_func(fndpkg_pkglist_entry->pkg_version,
+							one_depcond_item->dep_op,
+							one_depcond_item->dep_ver) != 0)
 						{
 /*							// test that vercmp_func is working properly
 							printf("pkglist_version=%s dep_op=%s dep_ver=%s\n",
-							(*fndpkg_pkglist_item)->pkglist_entry->pkg_version,
-							(*current_depcond_item)->one_depcond->dep_op,
-							(*current_depcond_item)->one_depcond->dep_ver);
+							fndpkg_pkglist_entry->pkg_version,
+							one_depcond_item->dep_op,
+							one_depcond_item->dep_ver);
 */
 							goto next_pkglist_entry;
 						}
-						current_depcond_item = &(*current_depcond_item)->next;
+						one_depcond_item = one_depcond_item->next;
 					}
 				}
 				else
@@ -536,13 +576,12 @@ void process_versioned_dependencies()
 //				#log dep info, make sure only latest version is logged...
 
 				// search for an existing entry in fnd_ok_deps
-				current_fnd_ok_deps_item = &root_fnd_ok_deps_item;
+				current_fnd_ok_deps_item = &root_item_fnd_ok_deps;
 				while (*current_fnd_ok_deps_item != NULL)
 				{
-					if (comp_alias(
-						(*current_alias_item)->pkg_alias,
-						(*current_fnd_ok_deps_item)->pkglist_entry->pkg_name
-						) == 0)
+					if (comp_alias(one_alias_item->pkg_alias,
+						(*current_fnd_ok_deps_item)->pkglist_entry
+						->pkg_name_only) == 0)
 					{
 						break;
 					}
@@ -559,13 +598,12 @@ void process_versioned_dependencies()
 					(*current_fnd_ok_deps_item)->next = NULL;
 					// add pkglist_entry
 					(*current_fnd_ok_deps_item)->pkglist_entry =
-						(*fndpkg_pkglist_item)->pkglist_entry;
+						fndpkg_pkglist_entry;
 				}
 				else
 				{
 					// check if current entry is newer than existing entry
-					if (vercmp_func(
-							(*fndpkg_pkglist_item)->pkglist_entry->pkg_version,
+					if (vercmp_func(fndpkg_pkglist_entry->pkg_version,
 							"gt",
 							(*current_fnd_ok_deps_item)
 								->pkglist_entry->pkg_version) == 0)
@@ -573,25 +611,23 @@ void process_versioned_dependencies()
 /*
 						// test, print any upgraded versions to stdout
 						printf("old_version=%s\nnew_version=%s\n\n",
-							(*current_fnd_ok_deps_item)
-								->pkglist_entry->pkg_version,
-							(*fndpkg_pkglist_item)->pkglist_entry->pkg_version);
+							(*current_fnd_ok_deps_item)->pkglist_entry
+							->pkg_version, fndpkg_pkglist_entry->pkg_version);
 */
 						// replace original version with newer version
 						(*current_fnd_ok_deps_item)->pkglist_entry =
-							(*fndpkg_pkglist_item)->pkglist_entry;
+							fndpkg_pkglist_entry;
 					}
 				}
 
 //		#log actual pkg info as well as deps, make sure latest version logged...
 				// search for an existing entry in fnd_ok_apps
-				current_fnd_ok_apps_item = &root_fnd_ok_apps_item;
+				current_fnd_ok_apps_item = &root_item_fnd_ok_apps;
 				while (*current_fnd_ok_apps_item != NULL)
 				{
-					if (comp_alias(
-						(*current_pkglist_item)->pkglist_entry->pkg_name,
-						(*current_fnd_ok_apps_item)->pkglist_entry->pkg_name
-						) == 0)
+					if (comp_alias(one_pkglist_entry->pkg_name_only,
+						(*current_fnd_ok_apps_item)->pkglist_entry
+						->pkg_name_only) == 0)
 					{
 						break;
 					}
@@ -608,13 +644,12 @@ void process_versioned_dependencies()
 					(*current_fnd_ok_apps_item)->next = NULL;
 					// add pkglist_entry
 					(*current_fnd_ok_apps_item)->pkglist_entry =
-						(*current_pkglist_item)->pkglist_entry;
+						one_pkglist_entry;
 				}
 				else
 				{
 					// check if current entry is newer than existing entry
-					if (vercmp_func(
-						(*current_pkglist_item)->pkglist_entry->pkg_version,
+					if (vercmp_func(one_pkglist_entry->pkg_version,
 						"gt",
 						(*current_fnd_ok_apps_item)->pkglist_entry->pkg_version
 						) == 0)
@@ -623,20 +658,20 @@ void process_versioned_dependencies()
 /*						// test, print any upgraded versions to stdout
 						printf("old_version=%s\nnew_version=%s\n\n",
 							(*current_fnd_ok_apps_item)->pkglist_entry->pkg_version,
-							(*current_pkglist_item)->pkglist_entry->pkg_version);
+							one_pkglist_entry->pkg_version);
 */
 						// replace original version with newer version
 						(*current_fnd_ok_apps_item)->pkglist_entry =
-							(*current_pkglist_item)->pkglist_entry;
+							one_pkglist_entry;
 					}
 				}
 
 
 				next_pkglist_entry:
-				fndpkg_pkglist_item = &(*fndpkg_pkglist_item)->next;
+				fndpkg_pkglist_item = fndpkg_pkglist_item->next;
 			}	// equivalent to "for FNDPKG" in findpkgs
 
-			current_alias_item = &(*current_alias_item)->next;
+			one_alias_item = one_alias_item->next;
 		}	// equivalent to "for namePTN in $aliasPTNS" in findpkgs
 
 
@@ -652,16 +687,16 @@ void process_versioned_dependencies()
 		dep_name = NULL;
 
 		// free memory used by depcond_item list
-		temp1_depcond_item = root_depcond_item;
-		while (temp1_depcond_item != NULL)
+		one_depcond_item = root_depcond_item;
+		while (one_depcond_item != NULL)
 		{
-			free(temp1_depcond_item->one_depcond);
-			temp2_depcond_item = temp1_depcond_item->next;
-			free(temp1_depcond_item);
-			temp1_depcond_item = temp2_depcond_item;
+			temp_depcond_item = one_depcond_item->next;
+			free(one_depcond_item);
+			one_depcond_item = temp_depcond_item;
 		}
 		// and reset pointers
 		root_depcond_item = NULL;
+		one_depcond_item = NULL;
 		current_depcond_item = NULL;
 
 		// move on to next pkglist_item
@@ -683,10 +718,12 @@ int main(int argc, char **argv)
 	struct list_item_struct **current_pkg_item = NULL;
 	struct list_item_struct **current_alias_item = NULL;
 
+	is_verbose = 0;
+
 	root_pkglist_item = NULL;
 	current_pkglist_item = &root_pkglist_item;
 
-	root_pkg_aliases_item = NULL;
+	root_item_pkg_aliases = NULL;
 
 	// process command line args
 	for (i = 1; i < argc; i++)
@@ -731,7 +768,7 @@ int main(int argc, char **argv)
 				}
 			}
 
-			current_pkg_item = &root_pkg_aliases_item;
+			current_pkg_item = &root_item_pkg_aliases;
 
 			while (pkg_aliases_pointer != NULL)
 			{
@@ -760,7 +797,7 @@ int main(int argc, char **argv)
 
 /*
 			// test, print all pkg_aliases to stdout
-			current_pkg_item = &root_pkg_aliases_item;
+			current_pkg_item = &root_item_pkg_aliases;
 			while (*current_pkg_item != NULL)
 			{
 				current_alias_item = &(*current_pkg_item)->list_item;
@@ -776,6 +813,11 @@ int main(int argc, char **argv)
 */
 
 		}
+		else if (strcmp("--verbose", argv[i]) == 0
+				|| strcmp("-v", argv[i]) == 0)
+		{
+			is_verbose = 1;
+		}
 		else
 		{
 			if (read_one_file(argv[i]) != 0)
@@ -787,14 +829,15 @@ int main(int argc, char **argv)
 	if (root_pkglist_item == NULL)
 	{
 		printf("Usage: findpkgs-dep-helper \
-[--pkg-name-aliases=\"$PKG_NAME_ALIASES\"] <package list> [<package list>]\n");
+[--pkg-name-aliases=\"$PKG_NAME_ALIASES\"] \
+<package list> [<package list>] [-v | --verbose]\n");
 		return 1;
 	}
 
 	process_versioned_dependencies();
 
-	write_file("/tmp/findpkgs_tmp/fnd_ok_deps", root_fnd_ok_deps_item);
-	write_file("/tmp/findpkgs_tmp/fnd_ok_apps", root_fnd_ok_apps_item);
+	write_file("/tmp/findpkgs_tmp/fnd_ok_deps", root_item_fnd_ok_deps);
+	write_file("/tmp/findpkgs_tmp/fnd_ok_apps", root_item_fnd_ok_apps);
 
 
 /*
@@ -802,15 +845,15 @@ int main(int argc, char **argv)
 	current_pkglist_item = &root_pkglist_item;
 	while (*current_pkglist_item != NULL)
 	{
-		printf("%s|", (*current_pkglist_item)->pkglist_entry->pkg_name);
+		printf("%s|", (*current_pkglist_item)->pkglist_entry->pkg_name_only);
 		printf("%s|", (*current_pkglist_item)->pkglist_entry->pkg_version);
 		printf("%s|", (*current_pkglist_item)->pkglist_entry->pkg_filename);
 		printf("%s|", (*current_pkglist_item)
-							->pkglist_entry->pkg_distro_binary_compat);
+							->pkglist_entry->pkg_compiled_distro);
 		printf("%s|", (*current_pkglist_item)
-							->pkglist_entry->pkg_distro_compat_version);
+							->pkglist_entry->pkg_compiled_release);
 		printf("%s|", (*current_pkglist_item)
-							->pkglist_entry->pkg_from_package_list);
+							->pkglist_entry->pkg_repo);
 		printf("%s\n", (*current_pkglist_item)
 							->pkglist_entry->pkg_dependency_field);
 		current_pkglist_item = &(*current_pkglist_item)->next;
@@ -830,8 +873,8 @@ int main(int argc, char **argv)
 		temp1_list_item = temp2_list_item;
 	}
 
-	// free pkg_aliases_items
-	temp1_list_item = root_pkg_aliases_item;
+	// free pkg_aliases
+	temp1_list_item = root_item_pkg_aliases;
 	while (temp1_list_item != NULL)
 	{
 		temp3_list_item = temp1_list_item->list_item;
@@ -846,8 +889,8 @@ int main(int argc, char **argv)
 		temp1_list_item = temp2_list_item;
 	}
 
-	// free fnd_ok_deps_items
-	temp1_list_item = root_fnd_ok_deps_item;
+	// free fnd_ok_deps
+	temp1_list_item = root_item_fnd_ok_deps;
 	while (temp1_list_item != NULL)
 	{
 		// pkglist_entry items have already been freed
@@ -857,8 +900,8 @@ int main(int argc, char **argv)
 	}
 
 
-	// free fnd_ok_apps_items
-	temp1_list_item = root_fnd_ok_apps_item;
+	// free fnd_ok_apps
+	temp1_list_item = root_item_fnd_ok_apps;
 	while (temp1_list_item != NULL)
 	{
 		// pkglist_entry items have already been freed
