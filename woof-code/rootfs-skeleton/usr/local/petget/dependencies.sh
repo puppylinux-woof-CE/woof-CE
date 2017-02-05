@@ -212,32 +212,25 @@ do
  fi
 done
 
-# Give priority to Slackware patches over official
-if [ "$DISTRO_BINARY_COMPAT" = "slackware64" -o "$DISTRO_BINARY_COMPAT" = "slackware" ]; then
- PATCHES=/tmp/petget_missing_dbentries-Packages-*lackware*-patches
+#--- slacko
+case "$DISTRO_BINARY_COMPAT" in slackware*)
  OFFICIAL=/tmp/petget_missing_dbentries-Packages-*lackware*-official
  SALIX=/tmp/petget_missing_dbentries-Packages-*lackware*-salix
  SLACKY=/tmp/petget_missing_dbentries-Packages-*lackware*-slacky
- if [ "$(echo $DB_MAIN | grep patches)" != "" -o "$(echo $DB_MAIN | grep official)" != "" ]; then
-  cat ${PATCHES} | while read LINE
-  do
-   COMMON=$(echo $LINE |cut -f 2 -d '|')
-   sed -i "/|$COMMON|/d" ${OFFICIAL} 2>/dev/null
-   sed -i "/|$COMMON|/d" ${SALIX} 2>/dev/null
-   sed -i "/|$COMMON|/d" ${SLACKY} 2>/dev/null
-  done
- fi
- # Get Salix deps preferencially
- if [ "$(echo $DB_MAIN | grep salix)" != "" ]; then
-  cat ${SALIX} | while read LINE
-  do
-   COMMON=$(echo $LINE |cut -f 2 -d '|')
-   sed -i "/|$COMMON|/d" ${OFFICIAL} 2>/dev/null
-   sed -i "/|$COMMON|/d" ${PATCHES} 2>/dev/null
-   sed -i "/|$COMMON|/d" ${SLACKY} 2>/dev/null
-  done
- fi
-fi
+ case "$DB_MAIN" in *"official"*) # Give priority to Slackware official
+   cat ${OFFICIAL} | while IFS="|" read FIRST COMMON THIRD
+   do
+     sed -i "/|$COMMON|/d" ${SALIX} ${SLACKY} 2>/dev/null
+   done
+ esac
+ case "$DB_MAIN" in *"salix"*) # Get Salix deps preferencially
+   cat ${SALIX} | while IFS="|" read FIRST COMMON THIRD
+   do
+     sed -i "/|$COMMON|/d" ${OFFICIAL} ${SLACKY} 2>/dev/null
+   done
+ esac
+ ;;
+esac
 
 [ ! -f /tmp/install_quietly ] && kill $X1PID || exit 0
 
