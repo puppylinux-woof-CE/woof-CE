@@ -262,8 +262,8 @@ if [ ! -f /tmp/petget_installed_patterns_system ];then
  echo "$INSTALLED_PATTERNS_SYS" > /tmp/petget_installed_patterns_system
  #PKGS_SPECS_TABLE also has system-installed names, some of them are generic combinations of pkgs...
  . /etc/rc.d/BOOTCONFIG
- if [ "$(echo $EXTRASFSLIST | grep devx_ )" = "" -a \
-   "$(echo $LASTUNIONRECORD | grep devx_ )" = "" ]; then
+ if [ "$(echo $EXTRASFSLIST | grep devx_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION} )" = "" -a \
+   "$(echo $LASTUNIONRECORD | grep devx_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION} )" = "" ]; then
   INSTALLED_PATTERNS_GEN="`echo "$PKGS_SPECS_TABLE" | grep '^yes' | grep -v 'exe>dev' | cut -f 2 -d '|' |  sed -e 's%^%|%' -e 's%$%|%' -e 's%\\-%\\\\-%g'`"
  else
   INSTALLED_PATTERNS_GEN="`echo "$PKGS_SPECS_TABLE" | grep '^yes' | cut -f 2 -d '|' |  sed -e 's%^%|%' -e 's%$%|%' -e 's%\\-%\\\\-%g'`"
