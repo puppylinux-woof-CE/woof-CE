@@ -149,34 +149,42 @@ psave=<partition>  Specifies the save layer  partition
        If you forget to plug in the appropriate device, Puppy will simply do a first boot,
          no harm done, just insert the appropriate usb device and reboot.
 
-    ex: pupsfs=sdb2
-    ex: zdrv=sdc1
     ex: adrv=sdd6
-    ex: psave=sda1
+    ex: psave=Work
+    ex: pupsfs=0db94719-cdf1-44b7-9766-23db62fb85a5
 
 ----
-pupsfs=<partition>:<filename> Specifies the puppy...sfs file.
-zdrv=<partition>:<filename>   Specifies the zdrv...sfs file.
-fdrv=<partition>:<filename>   Specifies the fdrv...sfs file.
-adrv=<partition>:<filename>   Specifies the adrv...sfs file.
-ydrv=<partition>:<filename>   Specifies the ydrv...sfs file.
-psave=<partition>:<filename>  Specifies the save layer file.
+pupsfs=<partition>:<path>/<filename> Specifies the puppy...sfs file.
+zdrv=<partition>:<path>/<filename>   Specifies the zdrv...sfs file.
+fdrv=<partition>:<path>/<filename>   Specifies the fdrv...sfs file.
+adrv=<partition>:<path>/<filename>   Specifies the adrv...sfs file.
+ydrv=<partition>:<path>/<filename>   Specifies the ydrv...sfs file.
+psave=<partition>:<path>/<filename>  Specifies the save layer file.
 
    Where <partition> can be the name e.g sdb2, or a label e.g. Work, or a uuid
        e.g. 0db94719-cdf1-44b7-9766-23db62fb85a5
-
    When a label or uuid is used, only the beginning is required, enough to be unique on your system,
        e.g "pupsfs=0db94719-cdf1"
 
-   Where <filename> can be a complete path or just a filename,
-       e.g. "pupsfs=sdb2:/path/to/my-improved-puppy.sfs" or "pupsfs=sdb2:my-improved-puppy.sfs"
+   Where <path> is the sub-directory within the partition.
+       e.g. "pupsfs=sdb2:/path/to/" or "psave=:/path/to/"
+   Any specified <path> is relative to the root of the partition, the same as "psubdir=".
+   If <path> does not start with a "/" then a "/" is prepended to it.
+   If no <path> is specified, the directory defined by "psubdir=" is used.
 
-   If <filename> does not start with a "/" then default path will be prepended to it.
-   If <filename> ends with a "/" it is assumed to be a directory specification,
-       it will be prepended to the default filename.
-   Any specified path is relative to the root of the partition, the same as psubdir=.
+   Where <filename> is just a filename,
+       e.g. "pupsfs=sdb2:/path/to/my-improved-puppy.sfs" or "psave=sdc2:my-improved-savefolder"
+   If no <filename> is specified the default filename, as determined by the DISTRO_SPECS file, is used.
 
-   It is not necessary to specify both a <partition> and a <filename>,
+   For the purposes of the "psave=" specification a savefolder is considered to be just a file.
+       The <path> specification defines the directory containing the savefolder,
+           and the <filename> specification defines it's name.
+       So, "psave=sdb4:/lxpupsc/mysave" says that the savefolder is on the sdb4 partition
+           in the "/lxpupsc" directory, named "mysave".
+       Whereas "psave=sdb4:/lxpupsc/mysave/" says that the savefolder is on the sdb4 partition
+           in the "/lxpupsc/mysave" directory, with the default savefolder name for the puppy.
+
+   It is not necessary to specify all elements,
        but if there is no ":" it is assumed to be a <partition> specification.
        e.g. "pupsfs=sdb2", specifies that the puppy...sfs file is on sdb2 in the default path with the default filename.
        "fdrv=:alternate-firmware.sfs", specifies that it's a file called alternate-firmware.sfs
@@ -230,8 +238,8 @@ pfix=<ram, nox, trim, nocopy, fsck, fsckp, rdsh, <number>>
    xorgwizard: force xorgwizard-cli for the current session
    trim:     add "discard" to mount options if SSD.
    nocopy:   do not copy .sfs files into ram (default is copy if enough ram).
-   fsck:     do fsck of ${DISTRO_FILE_PREFIX}save file.
-   fsckp:    do fsck before first mount of ext partitions.
+   fsck:     do fsck of ${DISTRO_FILE_PREFIX}save.?fs file.
+   fsckp:    do fsck before first mount of supported partitions.
    rdsh:     exit to shell in initial ramdisk.
    psavebkp: don't ignore pupsaves created by Pupsave Backup
    <number>: blacklist last <number> folders (multisession). e.g. pfix=3
