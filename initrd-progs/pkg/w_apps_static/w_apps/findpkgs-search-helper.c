@@ -1238,14 +1238,9 @@ int search_func(int search_nr)
 
 
 					// find REPODBFILE
-					if (strstr(one_x_found_spec->list_name, "-puppy-") != NULL)
-					{
-						one_x_package_list = root_item_packagelists_pet_order;
-					}
-					else
-					{
-						one_x_package_list = root_item_pkglists_compat;
-					}
+
+					// search packagelists_pet_order
+					one_x_package_list = root_item_packagelists_pet_order;
 					while (one_x_package_list != NULL)
 					{
 						if (strcmp(one_x_found_spec->list_name,
@@ -1254,6 +1249,26 @@ int search_func(int search_nr)
 							break;
 						}
 						one_x_package_list = one_x_package_list->next;
+					}
+					// if not found search pkglists_compat
+					if (one_x_package_list == NULL)
+					{
+						one_x_package_list = root_item_pkglists_compat;
+						while (one_x_package_list != NULL)
+						{
+							if (strcmp(one_x_found_spec->list_name,
+								one_x_package_list->list_name) == 0)
+							{
+								break;
+							}
+							one_x_package_list = one_x_package_list->next;
+						}
+					}
+					if (one_x_package_list == NULL)
+					{
+						printf("\nError: unable to find %s\n",
+							one_x_found_spec->list_name);
+						return 1;
 					}
 
 					// search REPODBFILE
