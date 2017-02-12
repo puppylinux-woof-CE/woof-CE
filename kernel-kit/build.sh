@@ -300,8 +300,6 @@ case $kernel_series in
 	4) ksubdir=${ksubdir_4} ; aufs_git=${aufs_git_4} ;;
 esac
 
-#------------------------------------------------------------------
-
 ## create directories for the results
 rm -rf dist/sources/patches
 [ ! -d dist/sources/vanilla ] && mkdir -p dist/sources/vanilla
@@ -311,16 +309,16 @@ rm -rf dist/sources/patches
 ## get today's date
 today=`date +%d%m%y`
 
+#==============================================================
+#    download kernel, aufs, aufs-utils and firmware tarball
+#==============================================================
+
 ## download the kernel
 testing=
 echo ${kernel_version##*-} | grep -q "rc" && testing=testing
 
 DOWNLOAD_KERNEL=1
-if [ -f dist/sources/vanilla/linux-${kernel_version}.tar.* ] ; then
-	log_msg "Verifying kernel pkg integrity..."
-	tar -atf dist/sources/vanilla/linux-${kernel_version}.tar.* &>/dev/null && DOWNLOAD_KERNEL=0
-fi
-
+[ -f dist/sources/vanilla/linux-${kernel_version}.tar.* ] && DOWNLOAD_KERNEL=0
 if [ $DOWNLOAD_KERNEL -eq 1 ] ; then
 	KERROR=1
 	for kernel_mirror in $kernel_mirrors ; do
@@ -352,23 +350,63 @@ if [ $LIBRE -eq 1 ] ; then
 fi
 
 ## download Aufs
-if [ -f dist/sources/vanilla/aufs${aufs_version}-${kernel_branch}-git${today}.tar.bz2 ] ; then
-	log_msg "Extracting the Aufs sources"
-	tar xf dist/sources/vanilla/aufs${aufs_version}-${kernel_branch}-git${today}.tar.bz2 >> ${BUILD_LOG} 2>&1
-	[ $? -ne 0 ] && exit_error "Error: failed to extract the Aufs sources."
-else
+if [ ! -f dist/sources/vanilla/aufs${aufs_version}-${kernel_branch}-git${today}.tar.bz2 ] ; then
 	log_msg "Downloading the Aufs sources"
 	rm -rf aufs${aufs_version}-${kernel_branch}-git${today}
-	git clone -b aufs${aufsv} --depth 1 ${aufs_git} \
-		aufs${aufs_version}-${kernel_branch}-git${today} >> ${BUILD_LOG} 2>&1
-	if [ $? -ne 0 ] ; then
-		rm -f dist/sources/vanilla/aufs${aufs_version}-${kernel_branch}-git${today}.tar.bz2
-		exit_error "Error: failed to download the Aufs sources."
-	fi
+	git clone -b aufs${aufsv} --depth 1 ${aufs_git} aufs${aufs_version}-${kernel_branch}-git${today} >> ${BUILD_LOG} 2>&1
+	[ $? -ne 0 ] && exit_error "Error: failed to download the Aufs sources."
 	( cd aufs${aufs_version}-${kernel_branch}-git${today} ; rm -rf .git )
-	log_msg "Creating the Aufs sources tarball"
 	tar -c aufs${aufs_version}-${kernel_branch}-git${today} | \
 		bzip2 -9 > dist/sources/vanilla/aufs${aufs_version}-${kernel_branch}-git${today}.tar.bz2
+fi
+
+## download aufs-utils -- for after compiling the kernel (*)
+if [ ! -f dist/sources/vanilla/aufs-util${today}.tar.bz2 ] ; then
+	log_msg "Downloading aufs-utils for userspace"
+	rm -rf aufs-util
+	git clone ${aufs_utils_git} aufs-util || { rm -rf aufs-util ; exit_error "Failed to get aufs-util from git" ; }
+	cd aufs-util #--
+	git branch -a | grep "aufs$kernel_series" | \
+		grep -v -E 'rcN|\)' | cut -d '.' -f2 | \
+		sort -n > /tmp/aufs-util-version #we go for stable only
+	while read line ; do 
+		if [ "$line" -le "$kernel_branch" ] ; then #less or equal than $kernel_branch
+			branch=$line
+			#echo $line ##debug
+		else
+			break
+		fi
+	done < /tmp/aufs-util-version
+	git checkout origin/aufs${kernel_series}.${branch} >> ${BUILD_LOG} 2>&1
+	[ $? -ne 0 ] && exit_error "Failed to get aufs-util from git, do it manually. Kernel is compiled OK :)"
+	rm -rf .git
+	cd .. #--
+	tar -c aufs-util | bzip2 -9 > dist/sources/vanilla/aufs-util${today}.tar.bz2
+fi
+
+## download firmware tarball/fdrv - specified in build.conf (**)
+if [ "$FW_PKG_URL" ] ; then
+	fw_pkg=${FW_PKG_URL##*/} #basename
+	FDRV=fdrv.sfs-${kernel_version}-${package_name_suffix}
+	if [ ! -f dist/packages/${fw_pkg} ] ; then
+		if [ ! -f "$FW_PKG_URL" ] ; then #may be a local file
+			log_msg "Downloading $FW_PKG_URL"
+			wget ${WGET_OPT} -c ${FW_PKG_URL} -P dist/packages
+			[ $? -ne 0 ] && exit_error "failed to download ${fw_pkg}"
+		fi
+	fi
+fi
+
+
+#==============================================================
+#                    compile the kernel
+#==============================================================
+
+log_msg "Extracting the Aufs sources"
+tar jxf dist/sources/vanilla/aufs${aufs_version}-${kernel_branch}-git${today}.tar.bz2 >> ${BUILD_LOG} 2>&1
+if [ $? -ne 0 ] ; then
+	rm -f dist/sources/vanilla/aufs${aufs_version}-${kernel_branch}-git${today}.tar.bz2
+	exit_error "Error: failed to extract the Aufs sources."
 fi
 
 ## patch Aufs
@@ -385,7 +423,10 @@ done
 ## extract the kernel
 log_msg "Extracting the kernel sources"
 tar xf dist/sources/vanilla/linux-${kernel_version}.tar.* >> ${BUILD_LOG} 2>&1
-[ $? -ne 0 ] && exit_error "Error: failed to extract the kernel sources."
+if [ $? -ne 0 ] ; then
+	rm -f dist/sources/vanilla/linux-${kernel_version}.tar.*
+	exit_error "Error: error extracting kernel sources. file was deleted..."
+fi
 
 #-------------------------
 cd linux-${kernel_version}
@@ -411,7 +452,7 @@ cp -r ../aufs${aufs_version}-${kernel_branch}-git${today}/{fs,Documentation} .
 cp ../aufs${aufs_version}-${kernel_branch}-git${today}/include/linux/aufs_type.h include/linux 2>/dev/null
 cp ../aufs${aufs_version}-${kernel_branch}-git${today}/include/uapi/linux/aufs_type.h include/linux 2>/dev/null
 [ -d ../aufs${aufs_version}-${kernel_branch}-git${today}/include/uapi ] && \
-	cp -r ../aufs${aufs_version}-${kernel_branch}-git${today}/include/uapi/linux/aufs_type.h include/uapi/linux
+cp -r ../aufs${aufs_version}-${kernel_branch}-git${today}/include/uapi/linux/aufs_type.h include/uapi/linux
 ################################################################################
 
 ## deblob the kernel
@@ -639,49 +680,13 @@ md5sum dist/sources/kernel_sources-${kernel_version}-${package_name_suffix}.sfs 
 
 
 #==============================================================
-#            build aufs-utils userspace modules
+#           build aufs-utils userspace modules (**)
 #==============================================================
-log_msg "Now to build the aufs-utils for userspace"
-if [ ! -f dist/sources/vanilla/aufs-util${today}.tar.bz2 ] ; then
-	if [ ! -d aufs-util ] ; then
-		git clone ${aufs_utils_git} aufs-util
-		if [ $? -ne 0 ] ; then
-			rm -rf aufs-util
-			exit_error "Failed to get aufs-util from git, do it manually. Kernel is compiled OK :)"
-		fi
-	fi
-	#-----------
-	cd aufs-util
-	#-----------
-	git branch -a | grep "aufs$kernel_series" | \
-		grep -v -E 'rcN|\)' | cut -d '.' -f2 | \
-		sort -n > /tmp/aufs-util-version #we go for stable only
-	while read line ; do 
-		if [ "$line" -le "$kernel_branch" ] ; then #less or equal than $kernel_branch
-			branch=$line
-			echo $line
-		else
-			break
-		fi
-	done < /tmp/aufs-util-version
-	git checkout origin/aufs${kernel_series}.${branch} >> ${BUILD_LOG} 2>&1
-	[ $? -ne 0 ] && exit_error "Failed to get aufs-util from git, do it manually. Kernel is compiled OK :)"
-	## patch Makefile for static build
-	log_msg "Patching aufs-util sources"
-	cp Makefile Makefile.orig
-	sed -i 's/-static //' Makefile
-	sed -i 's|ver_test ||' Makefile # ver_test might fail
-	sed -i 's|BuildFHSM = .*||' Makefile
-	diff -ru Makefile.orig Makefile > ../dist/sources/patches/aufs-util-dynamic.patch
-	rm *.orig
-else
-	log_msg "Extracting the Aufs-util sources"
-	tar xf dist/sources/vanilla/aufs-util${today}.tar.bz2 >> ${BUILD_LOG} 2>&1
-	[ $? -ne 0 ] && exit_error "Error: failed to extract the aufs-util sources."
-	cd aufs-util
-	patch -p1 < ../dist/sources/patches/aufs-util-dynamic.patch >> ${BUILD_LOG} 2>&1
-	[ "$?" -ne 0 ] && exit_error "Failed to patch the aufs-util sources, do it manually. Kernel is compiled ok"
-fi
+log_msg "Extracting the Aufs-util sources"
+tar xf dist/sources/vanilla/aufs-util${today}.tar.bz2 >> ${BUILD_LOG} 2>&1
+[ $? -ne 0 ] && exit_error "Error: failed to extract the aufs-util sources."
+log_msg "Patching aufs-util sources"
+( cd aufs-util ; sed -i -e 's/-static //' -e 's|ver_test ||' -e 's|BuildFHSM = .*||' Makefile ; ) # ver_test might fail
 
 ## see if fhsm is enabled in kernel config
 if grep -q 'CONFIG_AUFS_FHSM=y' ${CONFIG} ; then
@@ -725,25 +730,16 @@ cp -a --remove-destination dist/packages/aufs-util-${kernel_version}-${arch}/* \
 #==============================================================
 
 if [ $LIBRE -eq 0 ] ; then
+ #firmware pkg/fdrv (*)
  if [ "$FW_PKG_URL" ] ; then
 	fw_pkg=${FW_PKG_URL##*/} #basename
 	case $fw_pkg in
 		*.sfs)
 			FDRV=fdrv.sfs-${kernel_version}-${package_name_suffix}
-			if [ ! -f dist/packages/${fw_pkg} ] ; then
-				if [ -f "$FW_PKG_URL" ] ; then #can be a local file - full path
-					cp "$FW_PKG_URL" dist/packages/${FDRV}
-				else
-					wget ${WGET_OPT} -c ${FW_PKG_URL} -P dist/packages || exit 1
-					cp dist/packages/${fw_pkg} dist/packages/${FDRV}
-				fi
-			fi
+			[ -f "$FW_PKG_URL" ] && cp "$FW_PKG_URL" dist/packages/${FDRV} #may be a local file
+			[ -f dist/packages/${fw_pkg} ] && cp dist/packages/${fw_pkg} dist/packages/${FDRV}
 			;;
 		*.tar.*)
-			if [ ! -f dist/packages/${fw_pkg} ] ; then
-				wget ${WGET_OPT} -t0 -c ${FW_PKG_URL} -P dist/packages
-				[ $? -ne 0 ] && exit_error "failed to download ${fw_pkg}"
-			fi
 			mkdir -p dist/packages/${linux_kernel_dir}/lib
 			tar -xjf dist/packages/${fw_pkg} -C dist/packages/${linux_kernel_dir}/lib/
 			[ $? -ne 0 ] && exit_error "failed to unpack ${fw_pkg}"
@@ -828,8 +824,6 @@ tar -cjvf huge-${kernel_version}-${package_name_suffix}.tar.bz2 \
 md5sum huge-${kernel_version}-${package_name_suffix}.tar.bz2 > huge-${kernel_version}-${package_name_suffix}.tar.bz2.md5.txt
 echo
 cd -
-
-tar -c aufs-util | bzip2 -9 > dist/sources/vanilla/aufs-util${today}-${arch}.tar.bz2
 
 log_msg "Compressing the log"
 bzip2 -9 build.log
