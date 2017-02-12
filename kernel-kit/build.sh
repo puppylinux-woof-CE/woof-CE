@@ -409,17 +409,6 @@ if [ $? -ne 0 ] ; then
 	exit_error "Error: failed to extract the Aufs sources."
 fi
 
-## patch Aufs
-# aufs-allow-sfs.patch - removed for K3.9 experiment
-# aufs-kconfig.patch   - #special for K3.9
-for i in aufs-allow-sfs.patch aufs-kconfig.patch ; do
-	[ -f "$i" ] || continue
-	log_msg "Patching the Aufs sources"
-	patch -d aufs${aufs_version}-${kernel_branch}-git${today} -p1 < $i >> ${BUILD_LOG} 2>&1
-	[ $? -ne 0 ] && exit_error "Error: failed to patch the Aufs sources."
-	cp $i dist/sources/patches
-done
-
 ## extract the kernel
 log_msg "Extracting the kernel sources"
 tar xf dist/sources/vanilla/linux-${kernel_version}.tar.* >> ${BUILD_LOG} 2>&1
