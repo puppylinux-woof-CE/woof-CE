@@ -171,7 +171,6 @@ FW_URL=${FW_URL:-http://distro.ibiblio.org/puppylinux/firmware}
 # $package_name_suffix $custom_suffix $kernel_ver
 kernel_version_full=${kernel_version}${custom_suffix}
 kernel_srcsfs_version=${kernel_version}
-aufs_utils_git="git://git.code.sf.net/p/aufs/aufs-util.git"
 aufs_git_3="git://git.code.sf.net/p/aufs/aufs3-standalone.git"
 aufs_git_4="git://github.com/sfjro/aufs4-standalone.git"
 [ ! "$kernel_mirrors" ] && kernel_mirrors="ftp://www.kernel.org/pub/linux/kernel"
@@ -336,9 +335,11 @@ fi
 
 ## download aufs-utils -- for after compiling the kernel (*)
 if [ ! -f dist/sources/vanilla/aufs-util${today}.tar.bz2 ] ; then
+	echo
 	log_msg "Downloading aufs-utils for userspace"
 	rm -rf aufs-util
-	git clone ${aufs_utils_git} aufs-util || { rm -rf aufs-util ; exit_error "Failed to get aufs-util from git" ; }
+	git clone git://git.code.sf.net/p/aufs/aufs-util.git aufs-util || \
+	GIT_SSL_NO_VERIFY=true git clone https://git.code.sf.net/p/aufs/aufs-util aufs-util || { rm -rf aufs-util ; exit_error "Failed to get aufs-util from git" ; }
 	cd aufs-util #--
 	git branch -a | grep "aufs$kernel_series" | \
 		grep -v -E 'rcN|\)' | cut -d '.' -f2 | \
