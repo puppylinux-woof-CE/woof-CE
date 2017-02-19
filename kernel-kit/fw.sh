@@ -35,13 +35,13 @@ if [ ! -d "${kernel_package}" ] ; then
 	kernel_package=`find $CWD -type d -name 'linux_kernel*' | head -1`
 fi
 
-if [ ! -d "${kernel_package}" ] ; then
-	echo "WARNING: No kernel package..."
-	#exit 1
-else
+#if [ ! -d "${kernel_package}" ] ; then
+#	echo "WARNING: No kernel package..."
+#	#exit 1
+#else
 	dest_kernel_package=${kernel_package}/lib/firmware
 	[ ! -d ${dest_kernel_package} ] && mkdir -p $dest_kernel_package
-fi
+#fi
 
 
 #################################################################
@@ -169,7 +169,9 @@ licence_func () {
 #################################################################
 
 # update or clone git firmware
-func_git || { echo "ERROR" ; exit 1 ; }
+if [ "$GIT_ALREADY_DOWNLOADED" != "yes" ] ; then
+	func_git || { echo "ERROR" ; exit 1 ; }
+fi
 
 cd ${CWD}
 

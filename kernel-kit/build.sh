@@ -395,6 +395,75 @@ if [ "$FW_PKG_URL" ] ; then
 			[ $? -ne 0 ] && exit_error "failed to download ${fw_pkg}"
 		fi
 	fi
+else
+	# menu
+	echo
+	log_msg "-- Pausing"
+	log_msg "Extra firmware to be added after compiling the kernel"
+	echo "Choose an option (generating list...):"
+	## download the fw or offer to copy
+	tmpfw=/tmp/fw$$
+	x=1
+	wget -q ${FW_URL} -O - | \
+		sed '/href/!d; /\.tar\./!d; /md5\.txt/d; s/.*href="//; s/".*//' | \
+		while read f;do
+			[ "$f" ] && echo "$x $f" >> ${tmpfw}
+			x=$(($x + 1 ))
+		done
+	y=`cat ${tmpfw} | wc -l `
+	[ "$y" = 0 ] && echo "WARNING: no firmware at that URL" # we carry on
+	x=$(($x + $y))
+	echo "$x I'll copy in my own." >> ${tmpfw}
+	x=$(($x + 1))
+	echo "$x I'll grab the latest firmware from kernel.org. (slow)" >> ${tmpfw}
+	cat ${tmpfw}
+	echo -n "Enter a number, 1 to $x:  "
+	read fw
+	case $fw in
+		[0-9]*) ok=1 ;;
+		*)	log_msg "invalid option... falling back to option $(($x - 1))"
+			fw=$(($x - 1))
+			;;
+	esac
+	echo
+	## if $fw is not a number then the conditionals below will fail
+	if [ "$fw" -gt "$x" ] ; then
+		exit_error "error, wrong number"
+	elif [ "$fw" = "$(($x - 1))" ] ; then
+		FIRMWARE_OPT=manual
+		log_msg "you will manually add firmware after the kernel is compiled"
+		sleep 6
+	elif [ "$fw" = "$x" ] ; then
+		FIRMWARE_OPT=git
+		## fw.sh - linux-firmware git ##
+		echo "You have chosen to get the latest firmware from kernel.org"
+		if [ -d ../linux-firmware ] ; then #outside kernel-kit
+			cd ../linux-firmware
+			echo "Updating the git firmware repo"
+			git pull || log_msg "Warning: 'git pull' failed"
+		else
+			log_msg "This may take a long time as the firmware repository is around 180MB"
+			cd ..
+			git clone git://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git
+			[ $? -ne 0 ] && exit
+		fi
+		cd $CWD
+	else
+		FIRMWARE_OPT=tarball
+		fw_pkg=`grep ^$fw ${tmpfw}`
+		fw_pkg=${fw_pkg##* }
+		if [ -f dist/packages/${fw_pkg} ] ; then
+			log_msg "Verifying dist/packages/${fw_pkg}"
+			tar -taf dist/packages/${fw_pkg} &>/dev/null
+			[ $? -ne 0 ] && exit_error "failed verify ${fw_pkg##* }"
+		else
+			log_msg "You chose ${fw_pkg}. If that isn't correct change it manually later."
+			log_msg "downloading ${FW_URL}/${fw_pkg}"
+			wget ${WGET_OPT} -c ${FW_URL}/${fw_pkg} -P dist/packages
+			[ $? -ne 0 ] && exit_error "failed to download ${fw_pkg##* }"
+		fi
+		FW_PKG_URL=${fw_pkg}
+	fi
 fi
 
 
@@ -730,55 +799,22 @@ if [ $LIBRE -eq 0 ] ; then
 			;;
 		*.tar.*)
 			mkdir -p dist/packages/${linux_kernel_dir}/lib
-			tar -xjf dist/packages/${fw_pkg} -C dist/packages/${linux_kernel_dir}/lib/
+			tar -xaf dist/packages/${fw_pkg} -C dist/packages/${linux_kernel_dir}/lib/
 			[ $? -ne 0 ] && exit_error "failed to unpack ${fw_pkg}"
 			;;
 	esac
  else
 	log_msg "Pausing here to add extra firmware."
-	echo "Choose an option:"
-	## download the fw or offer to copy
-	tmpfw=/tmp/fw$$
-	x=1
-	wget -q ${FW_URL} -O - | \
-		sed '/href/!d; /\.tar\./!d; /md5\.txt/d; s/.*href="//; s/".*//' | \
-		while read f;do
-			[ "$f" ] && echo "$x $f" >> ${tmpfw}
-			x=$(($x + 1 ))
-		done
-	y=`cat ${tmpfw} | wc -l `
-	[ "$y" = 0 ] && echo "WARNING: no firmware at that URL" # we carry on
-	x=$(($x + $y))
-	echo "$x I'll copy in my own." >> ${tmpfw}
-	x=$(($x + 1))
-	echo "$x I'll grab the latest firmware from kernel.org. (slow)" >> ${tmpfw}
-	cat ${tmpfw}
-	echo -n "Enter a number, 1 to $x:  "
-	read fw
-	case $fw in
-		[0-9]*) ok=1 ;;
-		*)	log_msg "invalid option... falling back to option $(($x - 1))"
-			fw=$(($x - 1))
-			;;
-	esac
-	## if $fw is not a number then the conditionals below will fail
-	if [ "$fw" -gt "$x" ] ; then
-		exit_error "error, wrong number"
-	elif [ "$fw" = "$(($x - 1))" ] ; then
+	case ${FIRMWARE_OPT} in
+	manual)
 		log_msg "once you have manually added firmware to "
 		log_msg "dist/packages/${linux_kernel_dir}/lib/firmware"
 		echo "hit ENTER to continue"
 		read firm
-	elif [ "$fw" = "$x" ] ; then
-		## fw.sh - linux-firmware git ##
-		echo "You have chosen to get the latest firmware from kernel.org"
-		if [ -d ../linux-firmware ] ; then #outside kernel-kit
-			log_msg "'git pull' will run so it wont take long to update the"
-			log_msg "firmware repository"
-		else
-			log_msg "This may take a long time as the firmware repository is around 180MB"
-		fi
+	;;
+	git)
 		## run the firmware script and re-enter here
+		export GIT_ALREADY_DOWNLOADED=yes
 		./fw.sh ${fw_flag} # optonal param; see fw.sh and build.conf
 		if [ $? -eq 0 ] ; then
 			log_msg "Extracting firmware from the kernel.org git repo has succeeded."
@@ -786,18 +822,8 @@ if [ $LIBRE -eq 0 ] ; then
 			log_msg "WARNING: Extracting firmware from the kernel.org git repo has failed."
 			log_msg "While your kernel is built, your firmware is incomplete."
 		fi
-	else
-		fw_pkg=`grep ^$fw ${tmpfw}`
-		fw_pkg=${fw_pkg##* }
-		log_msg "You chose ${fw_pkg}. If that isn't correct change it manually later."
-		log_msg "downloading ${FW_URL}/${fw_pkg}"
-		wget ${WGET_OPT} -t0 -c ${FW_URL}/${fw_pkg} -P dist/packages
-		[ $? -ne 0 ] && exit_error "failed to download ${fw_pkg##* }"
-		mkdir -p dist/packages/${linux_kernel_dir}/lib
-		tar -xjf dist/packages/${fw_pkg} -C dist/packages/${linux_kernel_dir}/lib/
-		[ $? -ne 0 ] && exit_error "failed to unpack ${fw_pkg}"
-		log_msg "Successfully extracted ${fw_pkg}."
-	fi
+	;;
+	esac
  fi
 fi
 
