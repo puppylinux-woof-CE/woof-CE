@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 # get all xorg input/video drivers from Packages-distro-*
 # .. and paste the result in yes|xserver_xorg|...|exe,dev,doc,nls
 # specially for ubuntu as it has many drivers in the Universe repo
