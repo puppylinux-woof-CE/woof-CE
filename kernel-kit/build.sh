@@ -197,7 +197,7 @@ FW_URL=${FW_URL:-http://distro.ibiblio.org/puppylinux/firmware}
 # $package_name_suffix $custom_suffix $kernel_ver
 kernel_version_full=${kernel_version}${custom_suffix}
 kernel_srcsfs_version=${kernel_version}
-aufs_utils_git="git://git.code.sf.net/p/aufs/aufs-util.git"
+aufs_utils_git="https://git.code.sf.net/p/aufs/aufs-util"
 aufs_git_3="git://git.code.sf.net/p/aufs/aufs3-standalone.git"
 aufs_git_4="git://github.com/sfjro/aufs4-standalone.git"
 [ ! "$kernel_mirrors" ] && kernel_mirrors="ftp://www.kernel.org/pub/linux/kernel"
