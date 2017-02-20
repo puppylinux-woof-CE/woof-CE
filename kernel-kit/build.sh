@@ -269,8 +269,8 @@ log_msg "aufs=$aufsv"
 
 #kernel mirror - Aufs series (must match the kernel version)
 case $kernel_series in
-	3) ksubdir=${ksubdir_3} ; aufs_git=${aufs_git_3} ;;
-	4) ksubdir=${ksubdir_4} ; aufs_git=${aufs_git_4} ;;
+	3) ksubdir=${ksubdir_3} ; aufs_git=${aufs_git_3} ; aufs_git_dir=aufs3_sources_git ;;
+	4) ksubdir=${ksubdir_4} ; aufs_git=${aufs_git_4} ; aufs_git_dir=aufs4_sources_git ;;
 esac
 
 ## create directories for the results
@@ -323,14 +323,22 @@ if [ $LIBRE -eq 1 ] ; then
 fi
 
 ## download Aufs
-if [ ! -f dist/sources/vanilla/aufs${aufs_version}-${kernel_branch}-git${today}.tar.bz2 ] ; then
-	log_msg "Downloading the Aufs sources"
-	rm -rf aufs${aufs_version}-${kernel_branch}-git${today}
-	git clone -b aufs${aufsv} --depth 1 ${aufs_git} aufs${aufs_version}-${kernel_branch}-git${today} >> ${BUILD_LOG} 2>&1
-	[ $? -ne 0 ] && exit_error "Error: failed to download the Aufs sources."
-	( cd aufs${aufs_version}-${kernel_branch}-git${today} ; rm -rf .git )
-	tar -c aufs${aufs_version}-${kernel_branch}-git${today} | \
-		bzip2 -9 > dist/sources/vanilla/aufs${aufs_version}-${kernel_branch}-git${today}.tar.bz2
+if [ ! -f /tmp/${aufs_git_dir}_done -o ! -d dist/sources/${aufs_git_dir}/.git ] ; then
+	cd dist/sources
+	if [ ! -d ${aufs_git_dir}/.git ] ; then
+		git clone ${aufs_git} ${aufs_git_dir}
+		[ $? -ne 0 ] && exit_error "Error: failed to download the Aufs sources."
+		touch /tmp/${aufs_git_dir}_done
+	else
+		cd ${aufs_git_dir}
+		git pull --all
+		if [ $? -ne 0 ] ; then
+			log_msg "WARNING: 'git pull --all' command failed" && sleep 5
+		else
+			touch /tmp/${aufs_git_dir}_done
+		fi
+	fi
+	cd $MWD
 fi
 
 ## download aufs-utils -- for after compiling the kernel (*)
@@ -447,11 +455,9 @@ fi
 #==============================================================
 
 log_msg "Extracting the Aufs sources"
-tar jxf dist/sources/vanilla/aufs${aufs_version}-${kernel_branch}-git${today}.tar.bz2 >> ${BUILD_LOG} 2>&1
-if [ $? -ne 0 ] ; then
-	rm -f dist/sources/vanilla/aufs${aufs_version}-${kernel_branch}-git${today}.tar.bz2
-	exit_error "Error: failed to extract the Aufs sources."
-fi
+rm -rf aufs_sources
+cp -a dist/sources/${aufs_git_dir} aufs_sources
+( cd aufs_sources ; git checkout aufs${aufsv} )
 
 ## extract the kernel
 log_msg "Extracting the kernel sources"
@@ -468,11 +474,11 @@ cd linux-${kernel_version}
 log_msg "Adding Aufs to the kernel sources"
 ## hack - Aufs adds this file in the mmap patch, but it may be already there
 if [ -f mm/prfile.c ] ; then
-	mmap=../aufs${aufs_version}-${kernel_branch}-git${today}/aufs${aufs_version}-mmap.patch
+	mmap=../aufs_sources/aufs${aufs_version}-mmap.patch
 	[ -f $mmap ] && grep -q 'mm/prfile.c' $mmap && rm -f mm/prfile.c #delete or mmap patch will fail
 fi
 for i in kbuild base standalone mmap; do #loopback tmpfs-idr vfs-ino
-	patchfile=../aufs${aufs_version}-${kernel_branch}-git${today}/aufs${aufs_version}-$i.patch
+	patchfile=../aufs_sources/aufs${aufs_version}-$i.patch
 	( echo ; echo "patch -N -p1 < ${patchfile##*/}" ) &>> ${BUILD_LOG}
 	patch -N -p1 < ${patchfile} &>> ${BUILD_LOG}
 	if [ $? -ne 0 ] ; then
@@ -481,11 +487,11 @@ for i in kbuild base standalone mmap; do #loopback tmpfs-idr vfs-ino
 		read goon
 	fi
 done
-cp -r ../aufs${aufs_version}-${kernel_branch}-git${today}/{fs,Documentation} .
-cp ../aufs${aufs_version}-${kernel_branch}-git${today}/include/linux/aufs_type.h include/linux 2>/dev/null
-cp ../aufs${aufs_version}-${kernel_branch}-git${today}/include/uapi/linux/aufs_type.h include/linux 2>/dev/null
-[ -d ../aufs${aufs_version}-${kernel_branch}-git${today}/include/uapi ] && \
-cp -r ../aufs${aufs_version}-${kernel_branch}-git${today}/include/uapi/linux/aufs_type.h include/uapi/linux
+cp -r ../aufs_sources/{fs,Documentation} .
+cp ../aufs_sources/include/linux/aufs_type.h include/linux 2>/dev/null
+cp ../aufs_sources/include/uapi/linux/aufs_type.h include/linux 2>/dev/null
+[ -d ../aufs_sources/include/uapi ] && \
+cp -r ../aufs_sources/include/uapi/linux/aufs_type.h include/uapi/linux
 ################################################################################
 
 ## deblob the kernel
