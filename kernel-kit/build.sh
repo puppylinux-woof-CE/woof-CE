@@ -288,16 +288,28 @@ today=`date +%d%m%y`
 
 ## download the kernel
 testing=
-echo ${kernel_version##*-} | grep -q "rc" && testing=testing
+echo ${kernel_version##*-} | grep -q "rc" && testing=/testing
 
 DOWNLOAD_KERNEL=1
-[ -f dist/sources/vanilla/linux-${kernel_version}.tar.* ] && DOWNLOAD_KERNEL=0
+[ -f dist/sources/vanilla/linux-${kernel_version}.tar.xz ] && DOWNLOAD_KERNEL=0
+if [ -f dist/sources/vanilla/linux-${kernel_version}.tar.xz.md5.txt ] ; then
+	cd dist/sources/vanilla
+	md5sum -c linux-${kernel_version}.tar.xz.md5.txt
+	if [ $? -ne 0 ] ; then
+		log_msg "md5sum FAILED: will resume kernel download..."
+		DOWNLOAD_KERNEL=1
+	fi
+	cd $MWD
+else
+	DOWNLOAD_KERNEL=1
+fi
+
 if [ $DOWNLOAD_KERNEL -eq 1 ] ; then
 	KERROR=1
 	for kernel_mirror in $kernel_mirrors ; do
 		kernel_mirror=${kernel_mirror}/${ksubdir}
-		log_msg "Downloading: ${kernel_mirror}/${testing}/linux-${kernel_version}.tar.xz"
-		wget ${WGET_OPT} -P dist/sources/vanilla ${kernel_mirror}/${testing}/linux-${kernel_version}.tar.xz >> ${BUILD_LOG}
+		log_msg "Downloading: ${kernel_mirror}${testing}/linux-${kernel_version}.tar.xz"
+		wget ${WGET_OPT} -c -P dist/sources/vanilla ${kernel_mirror}${testing}/linux-${kernel_version}.tar.xz >> ${BUILD_LOG}
 		if [ $? -ne 0 ] ; then
 			echo "Error"
 		else
@@ -305,10 +317,10 @@ if [ $DOWNLOAD_KERNEL -eq 1 ] ; then
 			break
 		fi
 	done
-	if [ $KERROR ] ; then
-		rm -f dist/sources/vanilla/linux-${kernel_version}.tar.*
-		exit 1
-	fi
+	[ $KERROR ] && exit 1
+	cd dist/sources/vanilla
+	md5sum linux-${kernel_version}.tar.xz > linux-${kernel_version}.tar.xz.md5.txt
+	cd $MWD
 fi
 
 ## download Linux-libre scripts
@@ -476,10 +488,10 @@ cp -a dist/sources/${aufs_git_dir} aufs_sources
 
 ## extract the kernel
 log_msg "Extracting the kernel sources"
-tar xf dist/sources/vanilla/linux-${kernel_version}.tar.* >> ${BUILD_LOG} 2>&1
+tar -axf dist/sources/vanilla/linux-${kernel_version}.tar.xz >> ${BUILD_LOG} 2>&1
 if [ $? -ne 0 ] ; then
-	rm -f dist/sources/vanilla/linux-${kernel_version}.tar.*
-	exit_error "Error: error extracting kernel sources. file was deleted..."
+	rm -f dist/sources/vanilla/linux-${kernel_version}.tar.xz
+	exit_error "ERROR extracting kernel sources. file was deleted..."
 fi
 
 #-------------------------
@@ -850,3 +862,4 @@ echo "Done!"
 [ -f /usr/share/sounds/2barks.au ] && aplay /usr/share/sounds/2barks.au
 
 ### END ###
+
