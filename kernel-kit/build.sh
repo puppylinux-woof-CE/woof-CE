@@ -527,9 +527,9 @@ for i in include/linux/printk.h kernel/printk/printk.c kernel/printk.c
 do
 	[ ! -f "$i" ] && continue
 	cp ${i} ${i}.orig
-	sed -i 's|#define CONSOLE_LOGLEVEL_DEFAULT 7.*|#define CONSOLE_LOGLEVEL_DEFAULT 3|' $i
-	sed -i 's|#define DEFAULT_CONSOLE_LOGLEVEL 7.*|#define DEFAULT_CONSOLE_LOGLEVEL 3|' $i
-	sed -i 's|#define MAX_CMDLINECONSOLES 8.*|#define MAX_CMDLINECONSOLES 5|' $i
+	sed -i 's|#define CONSOLE_LOGLEVEL_DEFAULT .*|#define CONSOLE_LOGLEVEL_DEFAULT 3|' $i
+	sed -i 's|#define DEFAULT_CONSOLE_LOGLEVEL .*|#define DEFAULT_CONSOLE_LOGLEVEL 3|' $i
+	sed -i 's|#define MAX_CMDLINECONSOLES .*|#define MAX_CMDLINECONSOLES 5|' $i
 	diff -q ${i}.orig ${i} &>/dev/null || diff -up ${i}.orig ${i} > ../dist/sources/patches/less-consoles_lower-verbosity.patch
 done
 
