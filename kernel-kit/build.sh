@@ -342,29 +342,24 @@ if [ ! -f /tmp/${aufs_git_dir}_done -o ! -d dist/sources/${aufs_git_dir}/.git ] 
 fi
 
 ## download aufs-utils -- for after compiling the kernel (*)
-if [ ! -f dist/sources/vanilla/aufs-util${today}.tar.bz2 ] ; then
-	echo
-	log_msg "Downloading aufs-utils for userspace"
-	rm -rf aufs-util
-	git clone git://git.code.sf.net/p/aufs/aufs-util.git aufs-util || \
-	GIT_SSL_NO_VERIFY=true git clone https://git.code.sf.net/p/aufs/aufs-util aufs-util || { rm -rf aufs-util ; exit_error "Failed to get aufs-util from git" ; }
-	cd aufs-util #--
-	git branch -a | grep "aufs$kernel_series" | \
-		grep -v -E 'rcN|\)' | cut -d '.' -f2 | \
-		sort -n > /tmp/aufs-util-version #we go for stable only
-	while read line ; do 
-		if [ "$line" -le "$kernel_branch" ] ; then #less or equal than $kernel_branch
-			branch=$line
-			#echo $line ##debug
+if [ ! -f /tmp/aufs-util_done -o ! -d dist/sources/aufs-util_git/.git ] ; then
+	cd dist/sources
+	if [ ! -d aufs-util_git/.git ] ; then
+		log_msg "Downloading aufs-utils for userspace"
+		git clone git://git.code.sf.net/p/aufs/aufs-util.git aufs-util_git || \
+		GIT_SSL_NO_VERIFY=true git clone https://git.code.sf.net/p/aufs/aufs-util aufs-util_git
+		[ $? -ne 0 ] && exit_error "Error: failed to download the Aufs utils..."
+		touch /tmp/aufs-util_done
+	else
+		cd aufs-util_git
+		git pull --all
+		if [ $? -ne 0 ] ; then
+			log_msg "WARNING: 'git pull --all' command failed" && sleep 5
 		else
-			break
+			touch /tmp/aufs-util_done
 		fi
-	done < /tmp/aufs-util-version
-	git checkout origin/aufs${kernel_series}.${branch} >> ${BUILD_LOG} 2>&1
-	[ $? -ne 0 ] && exit_error "Failed to get aufs-util from git, do it manually. Kernel is compiled OK :)"
-	rm -rf .git
-	cd .. #--
-	tar -c aufs-util | bzip2 -9 > dist/sources/vanilla/aufs-util${today}.tar.bz2
+	fi
+	cd $MWD
 fi
 
 ## download firmware tarball/fdrv - specified in build.conf (**)
@@ -453,6 +448,26 @@ fi
 #==============================================================
 #                    compile the kernel
 #==============================================================
+
+log_msg "Extracting the Aufs-util sources"
+rm -rf aufs-util
+cp -a dist/sources/aufs-util_git aufs-util
+(
+	cd aufs-util
+	git branch -a | grep "aufs$kernel_series" | \
+		grep -v -E 'rcN|\)' | cut -d '.' -f2 | \
+		sort -n > /tmp/aufs-util-version #we go for stable only
+	while read line ; do 
+		if [ "$line" -le "$kernel_branch" ] ; then #less or equal than $kernel_branch
+			branch=$line
+			#echo $line ##debug
+		else
+			break
+		fi
+	done < /tmp/aufs-util-version
+	git checkout aufs${kernel_series}.${branch} #>> ${BUILD_LOG} 2>&1
+	sed -i -e 's/-static //' -e 's|ver_test ||' -e 's|BuildFHSM = .*||' Makefile
+)
 
 log_msg "Extracting the Aufs sources"
 rm -rf aufs_sources
@@ -721,11 +736,7 @@ md5sum dist/sources/kernel_sources-${kernel_version}-${package_name_suffix}.sfs 
 #==============================================================
 #           build aufs-utils userspace modules (**)
 #==============================================================
-log_msg "Extracting the Aufs-util sources"
-tar xf dist/sources/vanilla/aufs-util${today}.tar.bz2 >> ${BUILD_LOG} 2>&1
-[ $? -ne 0 ] && exit_error "Error: failed to extract the aufs-util sources."
-log_msg "Patching aufs-util sources"
-( cd aufs-util ; sed -i -e 's/-static //' -e 's|ver_test ||' -e 's|BuildFHSM = .*||' Makefile ; ) # ver_test might fail
+#log_msg "Extracting the Aufs-util sources"
 
 ## see if fhsm is enabled in kernel config
 if grep -q 'CONFIG_AUFS_FHSM=y' ${CONFIG} ; then
