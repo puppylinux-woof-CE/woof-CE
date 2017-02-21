@@ -653,22 +653,22 @@ fi
 
 log_msg "Compiling the kernel" | tee -a ${BUILD_LOG}
 make ${JOBS} bzImage modules >> ${BUILD_LOG} 2>&1
-cp .config ../dist/sources/DOTconfig-${kernel_version}-${today}
-CONFIG=../dist/sources/DOTconfig-${kernel_version}-${today}
+KCONFIG="dist/sources/DOTconfig-${kernel_version}-${HOST_ARCH}-${today}"
+cp .config ../${KCONFIG}
 
 ## we need the arch of the system being built
-if grep -q 'CONFIG_X86_64=y' ${CONFIG} ; then
+if grep -q 'CONFIG_X86_64=y' ../${KCONFIG} ; then
 	arch=x86_64
 	karch=x86
-elif grep -q 'CONFIG_X86_32=y' ${CONFIG} ; then
-	if grep -q 'CONFIG_X86_32_SMP=y' ${CONFIG} ; then
+elif grep -q 'CONFIG_X86_32=y' ../${KCONFIG} ; then
+	if grep -q 'CONFIG_X86_32_SMP=y' ../${KCONFIG} ; then
 		arch=i686
 		karch=x86
 	else
 		arch=i486 #gross assumption
 		karch=x86
 	fi
-elif grep -q 'CONFIG_ARM=y' ${CONFIG} ; then
+elif grep -q 'CONFIG_ARM=y' ../${KCONFIG} ; then
 	arch=arm
 	karch=arm
 else
@@ -751,7 +751,7 @@ md5sum dist/sources/kernel_sources-${kernel_version}-${package_name_suffix}.sfs 
 #log_msg "Extracting the Aufs-util sources"
 
 ## see if fhsm is enabled in kernel config
-if grep -q 'CONFIG_AUFS_FHSM=y' ${CONFIG} ; then
+if grep -q 'CONFIG_AUFS_FHSM=y' ${KCONFIG} ; then
 	export MAKE="make BuildFHSM=yes"
 else
 	export MAKE="make BuildFHSM=no"
