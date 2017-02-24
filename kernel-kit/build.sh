@@ -765,6 +765,7 @@ $MAKE
 make DESTDIR=$CWD/dist/packages/aufs-util-${kernel_version}-${arch} install
 " > compile ## debug
 
+cd aufs-util
 make clean &>/dev/null
 $MAKE >> ${BUILD_LOG} 2>&1 || exit_error "Failed to compile aufs-util, do it manually. Kernel is compiled OK :)"
 make DESTDIR=$CWD/dist/packages/aufs-util-${kernel_version}-${arch} install >> ${BUILD_LOG} 2>&1 #needs absolute path
