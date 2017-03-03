@@ -10,7 +10,6 @@ For boot options, type0d BOOTLABEL07 then a space, then each option. Some opti
 0dpfix=nocopy07  do not copy .sfs files to RAM (faster boot, slower running),
 0dpfix=fsck07    do filesystem check on DISTRO_FILE_PREFIXsave (and host partition)
 0dpfix=clean07   file cleanup (simulate version upgrade),
-0dpfix=purge07   more radical file cleanup (to fix broken system).
 0dplang=<xxxx>07 Locale -- not normally required as asked after bootup.
 0dpkeys=<xx>07   Keyboard layout, choices: azerty be-latin1 br-abnt2 br-abnt
     br-latin1-abnt2 br-latin1-us by cf croat cz de de-latin1 dk dvorak dvorak-l
