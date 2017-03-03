@@ -120,7 +120,7 @@ if [ "$FNDIT" = "yes" ];then
  BADKERNPTNS="`grep -o '\-k2\.6\.[^-|a-zA-Z]*' /tmp/petget/filterpkgs.results | cut -f 1 -d '|' | grep -v "$GOODKERNPTN" | sed -e 's%$%-%' -e 's%\.%\\\.%g' -e 's%\-%\\\-%g'`" #ex: \-k2\.6\.32\.28\-
  if [ "$BADKERNPTNS" ];then
   echo "$BADKERNPTNS" >> /tmp/petget_badkernptns
-  grep -E -v -f /tmp/petget_badkernptns /tmp/petget/filterpkgs.results > /tmp/petget/filterpkgs.resultsxxx
+  grep -v -f /tmp/petget_badkernptns /tmp/petget/filterpkgs.results > /tmp/petget/filterpkgs.resultsxxx
   mv -f /tmp/petget/filterpkgs.resultsxxx /tmp/petget/filterpkgs.results
  fi
 fi
@@ -134,8 +134,8 @@ else
  
  #120827 search may find pkgs that are already installed...
  if [ -f /tmp/petget_installed_patterns_all ];then #precaution.
-  grep -E -f /tmp/petget_installed_patterns_all -v /tmp/petget/filterpkgs.results > /tmp/petget/filterpkgs.results.notinstalled
-  grep -E -f /tmp/petget_installed_patterns_all /tmp/petget/filterpkgs.results > /tmp/petget/filterpkgs.results.installed
+  grep -f /tmp/petget_installed_patterns_all -v /tmp/petget/filterpkgs.results > /tmp/petget/filterpkgs.results.notinstalled
+  grep -f /tmp/petget_installed_patterns_all /tmp/petget/filterpkgs.results > /tmp/petget/filterpkgs.results.installed
   cp -f /tmp/petget/filterpkgs.results.notinstalled /tmp/petget/filterpkgs.results
   if [ -s /tmp/petget/filterpkgs.results.installed ];then
    #change category field to "complete" (display /usr/share/icons/hicolor/scalable/status/complete.svg)...
