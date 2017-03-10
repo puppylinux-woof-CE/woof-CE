@@ -742,7 +742,7 @@ if [ "$DESKTOPFILE" != "" ];then
 fi
 
 # Fix for Debian executables showing as shared libs in ROX.
-if [ "$DISTRO_FILE_PREFIX" = "stretch" -o "$DISTRO_FILE_PREFIX" = "ascii" ]; then
+if [ "$DISTRO_FILE_PREFIX" = "stretch" -o "$DISTRO_FILE_PREFIX" = "ascii" -o "$DISTRO_FILE_PREFIX" = "xenial" ]; then
  if [ "$(ps aux | grep ROX |grep -v grep)" ]; then # Other managers are OK
   if [ "$(which elfedit)" ];then
    grep -E '/bin/|/sbin/' /root/.packages/${DLPKG_NAME}.files |
