@@ -741,6 +741,24 @@ if [ "$DESKTOPFILE" != "" ];then
  fi
 fi
 
+# Fix for Debian executables showing as shared libs in ROX.
+if [ "$DISTRO_FILE_PREFIX" = "stretch" -o "$DISTRO_FILE_PREFIX" = "ascii" ]; then
+ if [ "$(ps aux | grep ROX |grep -v grep)" ]; then # Other managers are OK
+  if [ "$(which elfedit)" ];then
+   grep -E '/bin/|/sbin/' /root/.packages/${DLPKG_NAME}.files |
+   while read FLINE
+   do
+    if [ "$(file $FLINE | grep -i 'shared object')" ];then
+     elfedit --input-type=dyn --output-type=exec $FLINE
+    fi
+   done
+  else
+   /usr/lib/gtkdialog/box_ok "$(gettext 'Puppy package manager')" error\
+    "$(gettext 'Debian executables show as shared libraries in ROX. For PPM to fix that during installation you should install elfutils or have devx loaded')"
+  fi
+ fi
+fi
+
 echo "$DB_ENTRY" >> /root/.packages/user-installed-packages
 
 #120907 post-install hacks...
