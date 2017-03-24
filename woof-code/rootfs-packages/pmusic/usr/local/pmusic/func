@@ -6,6 +6,32 @@ export TEXTDOMAIN=pmusic
 export OUTPUT_CHARSET=UTF-8
 
 case "$1" in
+-play_direct)
+	SOURCE=${2#[0-9]*:}; SOURCE=${SOURCE#[0-9]* }
+	echo 0 > $WORKDIR/SS
+	$APPDIR/func_player -stop -skip_update
+	$APPDIR/func_player -playing "$SOURCE" play_direct &
+	;;
+-playqueue_change) #call from multiple playqueue tab
+	NEW_TAB=${2}
+	read OLD_TAB < $WORKDIR/PLAYLIST_X
+	cp -f $WORKDIR/playlist $WORKDIR/playlist_$OLD_TAB
+	echo ${NEW_TAB} > $WORKDIR/PLAYLIST_X #active playqueue
+	[ ! -f $WORKDIR/playlist_${NEW_TAB} ] && echo -n > $WORKDIR/playlist_${NEW_TAB}
+	cp -f $WORKDIR/playlist_${NEW_TAB} $WORKDIR/playlist
+	#switch icon
+	cp -f $APPDIR/themes/$THEME/blank.svg $WORKDIR/PLAYLIST_${OLD_TAB}_ICON.svg
+	cp -f $APPDIR/themes/$THEME/icon_playqueue_marker.svg $WORKDIR/PLAYLIST_${NEW_TAB}_ICON.svg
+	;;
+-export_playqueue) #call from menu in main gui
+	if [ "`LC_ALL=C grep -F pmusic <<< "$(LC_ALL=C ps -eo pid,command)" | grep -F func_export`" ]; then #already running --> add to list
+		cut -d"|" -f4 $WORKDIR/playlist >> $WORKDIR/exportlist
+	else
+		$APPDIR/func_export &
+		sleep 0.1
+		cut -d"|" -f4 $WORKDIR/playlist > $WORKDIR/exportlist
+	fi
+	;;
 -youtube_msg) #show msg in main gui
 	NAME=''
 	for I in `seq 0 9`; do
@@ -31,7 +57,7 @@ case "$1" in
 	fi
 	#get adress
 	IFS='|' read NAME ADR < $HOME/.pmusic/nowplaying
-	NAME=${YOUTUBE_OUTFILE##*/}; NAME=${NAME%%.*} #$YOUTUBE_OUTFILE holds edited name - better than $NAME in $HOME/.pmusic/nowplaying
+	NAME=${YOUTUBE_OUTFILE##*/}; NAME=${NAME%.*} #$YOUTUBE_OUTFILE holds edited name - better than $NAME in $HOME/.pmusic/nowplaying
 	#update in case user has changed name
 	echo "${NAME}|${ADR}" > $HOME/.pmusic/nowplaying
 	$APPDIR/func_svg -nowplaying "$NAME"
@@ -81,17 +107,17 @@ pMusic will work just fine even if missing all recommended and optional items.')
 	   <eventbox name="svgheading">
 	    <hbox space-expand="true" space-fill="true">
 	     <text width-request="20" space-expand="false" space-fill="false"><label>""</label></text>
-		 <text ypad="40" use-markup="true" space-expand="false" space-fill="false"><label>"<i>'$(gettext 'Click an item to browse its homepage')'</i>"</label></text>
-		 <text space-expand="true" space-fill="true"><label>""</label></text>
-		 <hbox spacing="0" '$SF'>
-		  <vbox>
-		   <button relief="2" can-focus="false" space-expand="false" space-fill="false">
-		    <input file stock="gtk-help"></input>
-		    <action>info</action>
-		   </button>
-		   <text space-expand="true" space-fill="true"><label>""</label></text>
-		  </vbox>
-		 </hbox>
+	     <text ypad="40" use-markup="true" space-expand="false" space-fill="false"><label>"<i>'$(gettext 'Click an item to browse its homepage')'</i>"</label></text>
+	     <text space-expand="true" space-fill="true"><label>""</label></text>
+	     <hbox spacing="0" '$SF'>
+	      <vbox>
+	       <button relief="2" can-focus="false" space-expand="false" space-fill="false">
+	        <input file stock="gtk-help"></input>
+	        <action>info</action>
+	       </button>
+	       <text space-expand="true" space-fill="true"><label>""</label></text>
+	      </vbox>
+	     </hbox>
 	    </hbox>
 	   </eventbox>
 	  </hbox>
@@ -222,7 +248,7 @@ $(gettext 'Requested filter:') $TMP"
 					'#EXT'*) #we use #EXT info in m3u if available
 						LENGTH=${I#*:}
 						LENGTH=${LENGTH%%,*}
-						[ "$LENGTH" -gt 0 ] || LENGTH='' && LENGTH=`$APPDIR/func -sec2time $LENGTH` #m3u stores length in seconds, we want a human readable length
+						[ "$LENGTH" -gt 0 ] || LENGTH='' && LENGTH=`$APPDIR/func_C -sec2time $LENGTH` #m3u stores length in seconds, we want a human readable length
 						NAME=${I#*,}
 						continue #if EXT line, go to next line...
 						;;
@@ -244,7 +270,7 @@ $(gettext 'Requested filter:') $TMP"
 				ADR=${I#*=}
 				#length
 				LENGTH="`grep -F "Length${NR}=" "$SOURCE" | cut -d= -f2`"
-				[ "$LENGTH" -gt 0 ] || LENGTH='' && LENGTH=`$APPDIR/func -sec2time $LENGTH` #pls stores length in seconds, we want a human readable length
+				[ "$LENGTH" -gt 0 ] || LENGTH='' && LENGTH=`$APPDIR/func_C -sec2time $LENGTH` #pls stores length in seconds, we want a human readable length
 				#---
 				NAME="`grep -F "Title${NR}=" "$SOURCE" | cut -d= -f2`"
 				[ ! "$NAME" ] && NAME=${ADR##*/}
@@ -257,9 +283,14 @@ $(gettext 'Requested filter:') $TMP"
 	;;
 
 -browse)
-	[ "$PTR_BTN" = "3" ] && exit #right-click menu
+	[[ "$PTR_BTN" = @"2|3" ]] && exit #right-click menu or play from sourcelist
 	[ -f "${SOURCE}" ] && exit #see func_add
 	case $SOURCE in 
+		pmusicbrowse_search:*)
+			SEARCH=${SOURCE#*:}
+			$APPDIR/func -search_refresh
+			echo true > $WORKDIR/UPDATE_SOURCELIST2
+			;;
 		pmusicbrowse_expand:*)
 			SOURCE=${SOURCE#*:} #remove pmusicbrowse_expand:
 #			case $SOURCE in *.pmu|*.m3u|*.pls) . $APPDIR/func_add -check_source;; esac #is it where db points?
@@ -419,7 +450,7 @@ $(gettext 'Requested filter:') $TMP"
  </hbox>
 </vbox>
 </window>' > $WORKDIR/xml_pmusic_plugins
-	[ $TOOLTIPS = false ] && sed -i 's%tooltip-text%tooltipXXXtext%g' $WORKDIR/xml_pmusic_plugins #deactivate tooltips
+	[ $TOOLTIPS = false ] && sed -i 's%tooltip-%tooltipXXX%g' $WORKDIR/xml_pmusic_plugins #deactivate tooltips
 	I=$IFS; IFS=""
 	for STATEMENTS in $($GTKDIALOG -f $WORKDIR/xml_pmusic_plugins); do
 		eval $STATEMENTS
@@ -479,12 +510,6 @@ $(gettext 'Requested filter:') $TMP"
 	$APPDIR/func -search_albumart_update
 	;;
 
--sec2time) #transform 100 sec to 01:40
-	MIN=$(($2/60))
-	SEC=$(($2-($MIN*60)))
-	echo $(printf "%02d" $MIN):$(printf "%02d" $SEC)
-	;;
-
 -jump_to_time) #start song with given time
 	. $APPDIR/func -reset_gtk
 	#can't jump in a radio-stream
@@ -518,7 +543,6 @@ $(gettext 'Requested filter:') $TMP"
 	export GTK2_RC_FILES="`grep -m 1 gtkrc $HOME/.gtkrc-2.0 | cut -d'\"' -f2 2>> $STDERR`" #use global gtk-theme for browser
 	$BROWSER http://www.puppylinux.org/wikka/pmusicDoc &
 	;;
-	
 
 -statusbar_playlist)
 	#calculate length by sum up columns
@@ -552,7 +576,7 @@ $(gettext 'Requested filter:') $TMP"
 	fi
  	echo true > $WORKDIR/UPDATE_SOURCELIST #update source-list
 	;;
-	
+
 -playlist_move)
 	#button right-click --> already run -playlist_menu
 	if [ $BUTTON = 3 ]; then echo -n > $WORKDIR/RIGHT_MENU; exit; fi
@@ -664,7 +688,11 @@ $(gettext 'Requested filter:') $TMP"
 	#remove play-icon in playlist
 	sed -i "s/gtk-media-play//" $WORKDIR/playlist
 	#deactivate equalizer
-	mv -f $HOME/.asoundrc $HOME/.asoundrc.bak 2>> $STDERR
+	if [ -f $HOME/.asoundrc.pequalizer ]; then #using include-mechanism
+		cat $HOME/.asoundrc | grep -vF '.asoundrc.pequalizer' > $HOME/.asoundrc
+	else
+		mv -f $HOME/.asoundrc $HOME/.asoundrc.bak 2>> $STDERR
+	fi
 	#remove temporary cd-audio files
 	rm $WORKDIR/*.wav 2>> $STDERR
 	rm $WORKDIR/*.inf 2>> $STDERR
@@ -855,6 +883,7 @@ Be aware that use of some special chars (like \"|) in filename clears value.')"
 		eval $STATEMENTS
 	done
 	IFS=$I
+	SAVEFILE="${SAVEPATH}/${SAVEFILE}"
 	if [ "$EXIT" = "ok" ]; then
 		case $SAVEFILE in
 			*.pmu|*.m3u|*.pls|*.txt)
@@ -1080,6 +1109,11 @@ Be aware that use of some special chars (like \"|) in filename clears value.')"
 		echo "find \"$STORAGE_DIR/albumart/\" -iname \"*${SEARCH%% *}*\" -printf \"%p\n\" > $WORKDIR/tmp_search_albumart1" >> $WORKDIR/tmp_exec
 		echo -n "cat $WORKDIR/tmp_search_albumart1" >> $WORKDIR/tmp_exec
 		for I in $SEARCH; do TMP="`echo "$I" | sed 's%"%\\\\\"%g'`"; echo -n "| grep -iF \"$TMP\" " >> $WORKDIR/tmp_exec; done
+		#pMusic allows '-' to define what should NOT be in searchresult
+		if [ "$NOT_SEARCH" ]; then
+			for I in $NOT_SEARCH; do TMP="`echo "$I" | sed 's%"%\\\\\"%g'`"; echo -n "| grep -viF \"$TMP\" " >> $WORKDIR/tmp_exec; done
+		fi
+		#---
 		echo " > $WORKDIR/tmp_search_albumart" >> $WORKDIR/tmp_exec
 	fi
 
@@ -1087,7 +1121,7 @@ Be aware that use of some special chars (like \"|) in filename clears value.')"
 	if [ $SEARCH_RADIO = true ]; then
 		echo "echo -e '\npmusic_radio|__  $(gettext 'R A D I O')  __' >> $WORKDIR/search_sources" >> $WORKDIR/tmp_exec
 		if [ -s "$STORAGE_DIR/index_radio" ]; then
-			echo -n "awk -F'\\n' '{print \$1 \"|||||||||||gtk-audio_url\"}' \"$STORAGE_DIR/index_radio\"" >> $WORKDIR/tmp_exec
+			echo -n "awk -F'\\n' '{print \$1 \"|||||||gtk-audio_url\"}' \"$STORAGE_DIR/index_radio\"" >> $WORKDIR/tmp_exec
 			for I in $SEARCH; do echo -n '| grep -iF "'${I//\"/\\\"}'" ' >> $WORKDIR/tmp_exec; done
 			echo " >> $WORKDIR/search_sources" >> $WORKDIR/tmp_exec
 		else #message
@@ -1105,6 +1139,13 @@ Be aware that use of some special chars (like \"|) in filename clears value.')"
 		else #message
 			echo "echo -e \"pmusic_podcast|$(gettext 'Missing index')|||||||||||||gtk-info\npmusic_podcast|$(gettext 'Doubleclick here to setup')\" >> $WORKDIR/search_sources" >> $WORKDIR/tmp_exec
 		fi
+	fi
+
+	#lyrics - does not support free search. Searches for the given phrase
+	if [ $SEARCH_LYRICS = true ]; then
+		echo "echo -e '\n|__  L Y R I C S  __' >> $WORKDIR/search_sources" >> $WORKDIR/tmp_exec
+		echo "cd \"$STORAGE_DIR\"/lyrics; grep -iFl '$2' ./* | cut -d '/' -f2 | cut -d'.' -f1 > $WORKDIR/search_sources_lyrics" >> $WORKDIR/tmp_exec
+		echo "awk -F'\\n' '{print \"pmusicbrowse_search:\" \$1 \"|\" \$1 \"|\"}' $WORKDIR/search_sources_lyrics >> $WORKDIR/search_sources" >> $WORKDIR/tmp_exec
 	fi
 
 	#jamendo.com
@@ -1130,6 +1171,7 @@ Be aware that use of some special chars (like \"|) in filename clears value.')"
 		echo "echo -e '\n|__  Y O U T U B E  __' >> $WORKDIR/search_sources" >> $WORKDIR/tmp_exec
 		echo "$APPDIR/func -search_youtube \"$SEARCH\" &" >> $WORKDIR/tmp_exec
 	fi
+
 
 	#remove first empty lines
 	echo "head -n 1001 $WORKDIR/search_sources | tac | head -n-1 | tac > $WORKDIR/tmp_search_sources" >> $WORKDIR/tmp_exec

@@ -9,8 +9,8 @@ SF='space-expand="false" space-fill="false"'
 ST='space-expand="true" space-fill="true"'
 
 template(){
-	if [ "$4" = "require_file" ] && [ "`echo "$PLAYLIST" | grep -E 'cdda:|http'`" ]; then SENSITIVE='<sensitive>false</sensitive>'; fi #in case cdda or stream, disable some choices and some new
-	if [ "$5" = "require_editor" ] && [ ! "$AUDIO_EDITOR" ]; then SENSITIVE='<sensitive>false</sensitive>'; fi
+	[[ "$4" = "require_file" && "$PLAYLIST" = @(*cdda:*|*http*) ]] && SENSITIVE='<sensitive>false</sensitive>' #in case cdda or stream, disable some choices and some new
+	[[ "$5" = "require_editor" && ! "$AUDIO_EDITOR" ]] && SENSITIVE='<sensitive>false</sensitive>'
 
 	echo '
 	<eventbox above-child="true" visible-window="true">
@@ -111,6 +111,7 @@ An empty field adds a favorite Mark')'">
 
      $(template " $(gettext 'Show location')" show_location icon_directory.svg require_file)
      $(template " $(gettext 'Edit audio-stream (and keep meta-info)')" edit_audio icon_edit_audio.svg require_file require_editor)
+     $(template " $(gettext 'Send to export')" send_to_export icon_pmusic_redo.svg)
      $(template " $(gettext 'Send to masstagger')" masstagger icon_pmusic_redo.svg require_file)
      <hseparator height-request=\"5\"></hseparator>
      $(template " $(gettext 'Rename source file')" rename icon_rename.svg require_file)
@@ -134,57 +135,72 @@ IFS=$I
 
 export PTR_BTN=""
 case "$EXIT" in
-	play)
-		echo 0 > $WORKDIR/SS
-		$APPDIR/func_player -stop -skip_update
-		$APPDIR/func_player -playing "$(grep -Fm1 "$PLAYLIST" $WORKDIR/playlist)" &
+
+play)
+	echo 0 > $WORKDIR/SS
+	$APPDIR/func_player -stop -skip_update
+	$APPDIR/func_player -playing "$(grep -Fm1 "$PLAYLIST" $WORKDIR/playlist)" &
 	;;
-	masstagger)
-		TMP="`LC_ALL=C ps -eo pid,command`"
-		case $TMP in
-			*pmusic*func_id3tagger*) echo;;
-			*) $APPDIR/func_id3tagger &	;;
-		esac
-		echo ${PLAYLIST#*\ } >> $WORKDIR/id3tagger
+
+send_to_export)
+	TMP="`LC_ALL=C ps -eo pid,command`"
+	case $TMP in
+		*pmusic*func_export*) echo;;
+		*) $APPDIR/func_export & ;;
+	esac
+	echo ${PLAYLIST#*\ } >> $WORKDIR/exportlist
 	;;
-	add_favorites)
-		gettext 'Add to Favorites' > $WORKDIR/splashtext
-		$APPDIR/box_splash &
-		#---
-		[ "$(<$WORKDIR/tmp_favorite_list)" ] && LIST="$(<$WORKDIR/tmp_favorite_list).pmd"
-		TMP="`cut -d' ' -f2- <<< "$PLAYLIST"`"
-		$APPDIR/func_favorites -add_favorites "$TMP" "$LIST"
-		#---
-		sleep 0.5
-		echo 100 > $WORKDIR/splash
+
+masstagger)
+	TMP="`LC_ALL=C ps -eo pid,command`"
+	case $TMP in
+		*pmusic*func_id3tagger*) echo;;
+		*) $APPDIR/func_id3tagger &	;;
+	esac
+	echo ${PLAYLIST#*\ } >> $WORKDIR/id3tagger
 	;;
-	edit_audio)
-		#store meta-info because editor will most likely destroy them
-		. $APPDIR/func_id3io "${PLAYLIST#*\ }" -read
-		OLD_LENGTH="$LENGTH"
-		#Run editor
-		export GTK2_RC_FILES="$HOME/.gtkrc-2.0" #use global gtk-theme for editor
-		$AUDIO_EDITOR "${PLAYLIST#*\ }"
-		#save meta-info to new (edited) file
-		. $APPDIR/func_id3io "${PLAYLIST#*\ }" -write
-		#update length in db
-		ffmpeg -i "${PLAYLIST#*\ }" > $WORKDIR/tmp_id3ffmpeg 2>&1
-		LENGTH="`grep -wm1 "Duration:" $WORKDIR/tmp_id3ffmpeg | cut -d. -f1 | awk -F':' '{print $3":"$4}'`"
-		( flock -e 200
-			grep -F "${PLAYLIST#*\ }" "$STORAGE_DIR/index_mymusic" | awk -F'|' -v VAR1="$LENGTH" '{print $1 "|" $2 "|" $3 "|" $4 "|" $5 "|" $6 "|" $7 "|" $8 "|" $9 "|" $10 "|" $11 "|" VAR1 "|" $13 "|" $14 "|" $15 "|" $16 "|" $17 "|" $18 "|" $19 "|" $20 "|" $21}' > $WORKDIR/tmp_edit_audio
-			grep -Fv "${PLAYLIST#*\ }" "$STORAGE_DIR/index_mymusic" >> $WORKDIR/tmp_edit_audio
-			mv $WORKDIR/tmp_edit_audio "$STORAGE_DIR/index_mymusic"
-		) 200>$WORKDIR/mymusic_db.lockfile
-		#update playlist
-		( flock -e 201
-			sed -i "s%$OLD_LENGTH%$LENGTH%g" $WORKDIR/playlist
-		) 201>$WORKDIR/playlist.lockfile
-		echo true > $WORKDIR/UPDATE_GUI
+
+add_favorites)
+	gettext 'Add to Favorites' > $WORKDIR/splashtext
+	$APPDIR/box_splash &
+	#---
+	[ "$(<$WORKDIR/tmp_favorite_list)" ] && LIST="$(<$WORKDIR/tmp_favorite_list).pmd"
+	TMP="`cut -d' ' -f2- <<< "$PLAYLIST"`"
+	$APPDIR/func_favorites -add_favorites "$TMP" "$LIST"
+	#---
+	sleep 0.5
+	echo 100 > $WORKDIR/splash
 	;;
-	remove)			$APPDIR/func -remove_from_list;;
-	info)			$APPDIR/func_trackinfo "${PLAYLIST#*\ }" -norefresh & ;;
-	show_location)	$APPDIR/func -show_location "${PLAYLIST#*\ }" & ;; #remove numbering
-	rename)			$APPDIR/func -rename "${PLAYLIST#*\ }";;
-	copy)			$APPDIR/func -copy "${PLAYLIST#*\ }";;
-	delete)			$APPDIR/func -delete "${PLAYLIST#*\ }";;
+
+edit_audio)
+	#store meta-info because editor will most likely destroy them
+	. $APPDIR/func_id3io "${PLAYLIST#*\ }" -read
+	OLD_LENGTH="$LENGTH"
+	#Run editor
+	export GTK2_RC_FILES="$HOME/.gtkrc-2.0" #use global gtk-theme for editor
+	$AUDIO_EDITOR "${PLAYLIST#*\ }"
+	#save meta-info to new (edited) file
+	. $APPDIR/func_id3io "${PLAYLIST#*\ }" -write
+	#update length in db
+	ffmpeg -i "${PLAYLIST#*\ }" > $WORKDIR/tmp_id3ffmpeg 2>&1
+	LENGTH="`grep -wm1 "Duration:" $WORKDIR/tmp_id3ffmpeg | cut -d. -f1 | awk -F':' '{print $3":"$4}'`"
+	( flock -e 200
+		grep -aF "${PLAYLIST#*\ }" "$STORAGE_DIR/index_mymusic" | awk -F'|' -v VAR1="$LENGTH" '{print $1 "|" $2 "|" $3 "|" $4 "|" $5 "|" $6 "|" $7 "|" $8 "|" $9 "|" $10 "|" $11 "|" VAR1 "|" $13 "|" $14 "|" $15 "|" $16 "|" $17 "|" $18 "|" $19 "|" $20 "|" $21}' > $WORKDIR/tmp_edit_audio
+		grep -aFv "${PLAYLIST#*\ }" "$STORAGE_DIR/index_mymusic" >> $WORKDIR/tmp_edit_audio
+		mv $WORKDIR/tmp_edit_audio "$STORAGE_DIR/index_mymusic"
+	) 200>$WORKDIR/mymusic_db.lockfile
+	#update playlist
+	( flock -e 201
+		sed -i "s%$OLD_LENGTH%$LENGTH%g" $WORKDIR/playlist
+	) 201>$WORKDIR/playlist.lockfile
+	echo true > $WORKDIR/UPDATE_GUI
+	;;
+
+remove)			$APPDIR/func -remove_from_list;;
+info)			$APPDIR/func_trackinfo "${PLAYLIST#*\ }" -norefresh & ;;
+show_location)	$APPDIR/func -show_location "${PLAYLIST#*\ }" & ;; #remove numbering
+rename)			$APPDIR/func -rename "${PLAYLIST#*\ }";;
+copy)			$APPDIR/func -copy "${PLAYLIST#*\ }";;
+delete)			$APPDIR/func -delete "${PLAYLIST#*\ }";;
+
 esac
