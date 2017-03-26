@@ -486,7 +486,10 @@ cp -a sources/aufs-util_git aufs-util
 log_msg "Extracting the Aufs sources"
 rm -rf aufs_sources
 cp -a sources/${aufs_git_dir} aufs_sources
-( cd aufs_sources ; git checkout aufs${aufsv} )
+(
+	cd aufs_sources ; git checkout aufs${aufsv}
+	../patches/aufs_sources/apply ${kernel_version}
+)
 
 ## extract the kernel
 log_msg "Extracting the kernel sources"
