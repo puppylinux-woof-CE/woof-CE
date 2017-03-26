@@ -4,6 +4,7 @@
 # Compile fatdog style kernel [v3+ - 3.10+ recommended].
 
 . ./build.conf || exit 1
+. ./funcs.sh
 
 CWD=`pwd`
 wget --help | grep -q '\-\-show\-progress' && WGET_SHOW_PROGRESS='-q --show-progress'
@@ -596,6 +597,14 @@ if ! grep -q "CONFIG_AUFS_FS=y" .config ; then
 	echo -e "\033[0m" #reset to original
 fi
 
+if [ "$x86_disable_pae" = "yes" ] ; then
+	if grep -q CONFIG_X86_PAE=y ; then
+		unset_pae .config
+		make oldconfig
+	fi
+fi
+[ ! -f ../DOTconfig ] && cp .config ../DOTconfig
+
 #####################
 # pause to configure
 function do_kernel_config() {
@@ -609,7 +618,6 @@ function do_kernel_config() {
 	else
 		exit 1
 	fi
-	[ ! -f ../DOTconfig ] && cp .config ../DOTconfig
 }
 
 if [ "$AUTO" = "yes" ] ; then
