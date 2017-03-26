@@ -274,10 +274,10 @@ case $kernel_series in
 esac
 
 ## create directories for the results
-rm -rf dist/sources/patches
-[ ! -d dist/sources/vanilla ] && mkdir -p dist/sources/vanilla
-[ ! -d dist/sources/patches ] && mkdir -p dist/sources/patches
-[ ! -d dist/packages ] && mkdir -p dist/packages
+rm -rf output/patches-${kernel_version}-${HOST_ARCH}
+[ ! -d sources/vanilla ] && mkdir -p sources/vanilla
+[ ! -d output/patches-${kernel_version}-${HOST_ARCH} ] && mkdir -p output/patches-${kernel_version}-${HOST_ARCH}
+[ ! -d output ] && mkdir -p output
 
 ## get today's date
 today=`date +%d%m%y`
@@ -291,9 +291,9 @@ testing=
 echo ${kernel_version##*-} | grep -q "rc" && testing=/testing
 
 DOWNLOAD_KERNEL=1
-[ -f dist/sources/vanilla/linux-${kernel_version}.tar.xz ] && DOWNLOAD_KERNEL=0
-if [ -f dist/sources/vanilla/linux-${kernel_version}.tar.xz.md5.txt ] ; then
-	cd dist/sources/vanilla
+[ -f sources/vanilla/linux-${kernel_version}.tar.xz ] && DOWNLOAD_KERNEL=0
+if [ -f sources/vanilla/linux-${kernel_version}.tar.xz.md5.txt ] ; then
+	cd sources/vanilla
 	md5sum -c linux-${kernel_version}.tar.xz.md5.txt
 	if [ $? -ne 0 ] ; then
 		log_msg "md5sum FAILED: will resume kernel download..."
@@ -309,7 +309,7 @@ if [ $DOWNLOAD_KERNEL -eq 1 ] ; then
 	for kernel_mirror in $kernel_mirrors ; do
 		kernel_mirror=${kernel_mirror}/${ksubdir}
 		log_msg "Downloading: ${kernel_mirror}${testing}/linux-${kernel_version}.tar.xz"
-		wget ${WGET_OPT} -c -P dist/sources/vanilla ${kernel_mirror}${testing}/linux-${kernel_version}.tar.xz >> ${BUILD_LOG}
+		wget ${WGET_OPT} -c -P sources/vanilla ${kernel_mirror}${testing}/linux-${kernel_version}.tar.xz >> ${BUILD_LOG}
 		if [ $? -ne 0 ] ; then
 			echo "Error"
 		else
@@ -318,7 +318,7 @@ if [ $DOWNLOAD_KERNEL -eq 1 ] ; then
 		fi
 	done
 	[ $KERROR ] && exit 1
-	cd dist/sources/vanilla
+	cd sources/vanilla
 	md5sum linux-${kernel_version}.tar.xz > linux-${kernel_version}.tar.xz.md5.txt
 	cd $MWD
 fi
@@ -327,16 +327,16 @@ fi
 if [ $LIBRE -eq 1 ] ; then
 	minor_version=${kernel_version##*.}
 	for i in deblob-${kernel_major_version} deblob-check; do
-		if [ ! -f dist/sources/vanilla/$i ] ; then
-			wget ${WGET_OPT} -O dist/sources/vanilla/$i http://linux-libre.fsfla.org/pub/linux-libre/releases/LATEST-${kernel_major_version}.N/$i
+		if [ ! -f sources/vanilla/$i ] ; then
+			wget ${WGET_OPT} -O sources/vanilla/$i http://linux-libre.fsfla.org/pub/linux-libre/releases/LATEST-${kernel_major_version}.N/$i
 			[ $? -ne 0 ] && exit_error "Error: failed to download $i."
 		fi
 	done
 fi
 
 ## download Aufs
-if [ ! -f /tmp/${aufs_git_dir}_done -o ! -d dist/sources/${aufs_git_dir}/.git ] ; then
-	cd dist/sources
+if [ ! -f /tmp/${aufs_git_dir}_done -o ! -d sources/${aufs_git_dir}/.git ] ; then
+	cd sources
 	if [ ! -d ${aufs_git_dir}/.git ] ; then
 		git clone ${aufs_git} ${aufs_git_dir}
 		[ $? -ne 0 ] && exit_error "Error: failed to download the Aufs sources."
@@ -354,8 +354,8 @@ if [ ! -f /tmp/${aufs_git_dir}_done -o ! -d dist/sources/${aufs_git_dir}/.git ] 
 fi
 
 ## download aufs-utils -- for after compiling the kernel (*)
-if [ ! -f /tmp/aufs-util_done -o ! -d dist/sources/aufs-util_git/.git ] ; then
-	cd dist/sources
+if [ ! -f /tmp/aufs-util_done -o ! -d sources/aufs-util_git/.git ] ; then
+	cd sources
 	if [ ! -d aufs-util_git/.git ] ; then
 		log_msg "Downloading aufs-utils for userspace"
 		git clone git://git.code.sf.net/p/aufs/aufs-util.git aufs-util_git || \
@@ -378,10 +378,10 @@ fi
 if [ "$FW_PKG_URL" ] ; then
 	fw_pkg=${FW_PKG_URL##*/} #basename
 	FDRV=fdrv.sfs-${kernel_version}-${package_name_suffix}
-	if [ ! -f dist/packages/${fw_pkg} ] ; then
+	if [ ! -f sources/${fw_pkg} ] ; then
 		if [ ! -f "$FW_PKG_URL" ] ; then #may be a local file
 			log_msg "Downloading $FW_PKG_URL"
-			wget ${WGET_OPT} -c ${FW_PKG_URL} -P dist/packages
+			wget ${WGET_OPT} -c ${FW_PKG_URL} -P sources
 			[ $? -ne 0 ] && exit_error "failed to download ${fw_pkg}"
 		fi
 	fi
@@ -442,14 +442,14 @@ else
 		FIRMWARE_OPT=tarball
 		fw_pkg=`grep ^$fw ${tmpfw}`
 		fw_pkg=${fw_pkg##* }
-		if [ -f dist/packages/${fw_pkg} ] ; then
-			log_msg "Verifying dist/packages/${fw_pkg}"
-			tar -taf dist/packages/${fw_pkg} &>/dev/null
+		if [ -f sources/${fw_pkg} ] ; then
+			log_msg "Verifying sources/${fw_pkg}"
+			tar -taf sources/${fw_pkg} &>/dev/null
 			[ $? -ne 0 ] && exit_error "failed verify ${fw_pkg##* }"
 		else
 			log_msg "You chose ${fw_pkg}. If that isn't correct change it manually later."
 			log_msg "downloading ${FW_URL}/${fw_pkg}"
-			wget ${WGET_OPT} -c ${FW_URL}/${fw_pkg} -P dist/packages
+			wget ${WGET_OPT} -c ${FW_URL}/${fw_pkg} -P sources
 			[ $? -ne 0 ] && exit_error "failed to download ${fw_pkg##* }"
 		fi
 		FW_PKG_URL=${fw_pkg}
@@ -463,7 +463,7 @@ fi
 
 log_msg "Extracting the Aufs-util sources"
 rm -rf aufs-util
-cp -a dist/sources/aufs-util_git aufs-util
+cp -a sources/aufs-util_git aufs-util
 (
 	cd aufs-util
 	git branch -a | grep "aufs$kernel_series" | \
@@ -478,19 +478,21 @@ cp -a dist/sources/aufs-util_git aufs-util
 		fi
 	done < /tmp/aufs-util-version
 	git checkout aufs${kernel_series}.${branch} #>> ${BUILD_LOG} 2>&1
+	cp Makefile Makefile-orig
 	sed -i -e 's/-static //' -e 's|ver_test ||' -e 's|BuildFHSM = .*||' Makefile
+	diff -ru Makefile-orig Makefile > ../output/patches-${kernel_version}-${HOST_ARCH}/aufs-util.patch
 )
 
 log_msg "Extracting the Aufs sources"
 rm -rf aufs_sources
-cp -a dist/sources/${aufs_git_dir} aufs_sources
+cp -a sources/${aufs_git_dir} aufs_sources
 ( cd aufs_sources ; git checkout aufs${aufsv} )
 
 ## extract the kernel
 log_msg "Extracting the kernel sources"
-tar -axf dist/sources/vanilla/linux-${kernel_version}.tar.xz >> ${BUILD_LOG} 2>&1
+tar -axf sources/vanilla/linux-${kernel_version}.tar.xz >> ${BUILD_LOG} 2>&1
 if [ $? -ne 0 ] ; then
-	rm -f dist/sources/vanilla/linux-${kernel_version}.tar.xz
+	rm -f sources/vanilla/linux-${kernel_version}.tar.xz
 	exit_error "ERROR extracting kernel sources. file was deleted..."
 fi
 
@@ -526,9 +528,9 @@ if [ $LIBRE -eq 1 ] ; then
 	cd ..
 	cp -r linux-${kernel_version} linux-${kernel_version}-orig
 	cd linux-${kernel_version}
-	sh ../dist/sources/vanilla/deblob-${kernel_major_version} 2>&1 | tee -a ${BUILD_LOG}
+	sh ../sources/vanilla/deblob-${kernel_major_version} 2>&1 | tee -a ${BUILD_LOG}
 	cd ..
-	diff -rupN linux-${kernel_version}-orig linux-${kernel_version} > dist/sources/patches/deblob.patch
+	diff -rupN linux-${kernel_version}-orig linux-${kernel_version} > output/patches-${kernel_version}-${HOST_ARCH}/deblob.patch
 	rm -rf linux-${kernel_version}-orig
 	cd linux-${kernel_version}
 fi
@@ -546,18 +548,19 @@ fi
 if [ -n "${custom_suffix}" ] || [ $LIBRE -eq 1 ] ; then
 	sed -i "s/^EXTRAVERSION =.*/EXTRAVERSION = ${custom_suffix}/" Makefile
 fi
-diff -up Makefile-orig Makefile > ../dist/sources/patches/version.patch
+diff -up Makefile-orig Makefile || diff -up Makefile-orig Makefile > ../output/patches-${kernel_version}-${HOST_ARCH}/version.patch
 rm Makefile-orig
 
 log_msg "Reducing the number of consoles and verbosity level"
 for i in include/linux/printk.h kernel/printk/printk.c kernel/printk.c
 do
 	[ ! -f "$i" ] && continue
+	z=$(echo "$i" | sed 's|/|_|g')
 	cp ${i} ${i}.orig
 	sed -i 's|#define CONSOLE_LOGLEVEL_DEFAULT .*|#define CONSOLE_LOGLEVEL_DEFAULT 3|' $i
 	sed -i 's|#define DEFAULT_CONSOLE_LOGLEVEL .*|#define DEFAULT_CONSOLE_LOGLEVEL 3|' $i
 	sed -i 's|#define MAX_CMDLINECONSOLES .*|#define MAX_CMDLINECONSOLES 5|' $i
-	diff -q ${i}.orig ${i} &>/dev/null || diff -up ${i}.orig ${i} > ../dist/sources/patches/less-consoles_lower-verbosity.patch
+	diff -q ${i}.orig ${i} &>/dev/null || diff -up ${i}.orig ${i} > ../output/patches-${kernel_version}-${HOST_ARCH}/${z}.patch
 done
 
 for patch in ../patches/* ; do
@@ -565,7 +568,7 @@ for patch in ../patches/* ; do
 	log_msg "Applying $patch"
 	patch -p1 < $patch >> ${BUILD_LOG} 2>&1
 	[ $? -ne 0 ] && exit_error "Error: failed to apply $patch on the kernel sources."
-	cp $patch ../dist/sources/patches
+	cp $patch ../output/patches-${kernel_version}-${HOST_ARCH}
 done
 
 log_msg "Cleaning the kernel sources"
@@ -642,18 +645,18 @@ fi
 
 ## kernel headers
 kheaders_dir="kernel_headers-${kernel_version}-${package_name_suffix}"
-rm -rf ../dist/packages/${kheaders_dir}
-if [ ! -d ../dist/packages/${kheaders_dir} ] ; then
+rm -rf ../output/${kheaders_dir}
+if [ ! -d ../output/${kheaders_dir} ] ; then
 	log_msg "Creating the kernel headers package"
 	make headers_check >> ${BUILD_LOG} 2>&1
 	make INSTALL_HDR_PATH=${kheaders_dir}/usr headers_install >> ${BUILD_LOG} 2>&1
 	find ${kheaders_dir}/usr/include \( -name .install -o -name ..install.cmd \) -delete
-	mv ${kheaders_dir} ../dist/packages
+	mv ${kheaders_dir} ../output
 fi
 
 log_msg "Compiling the kernel" | tee -a ${BUILD_LOG}
 make ${JOBS} bzImage modules >> ${BUILD_LOG} 2>&1
-KCONFIG="dist/sources/DOTconfig-${kernel_version}-${HOST_ARCH}-${today}"
+KCONFIG="output/DOTconfig-${kernel_version}-${HOST_ARCH}-${today}"
 cp .config ../${KCONFIG}
 
 ## we need the arch of the system being built
@@ -714,13 +717,13 @@ BZIMAGE=`find . -type f -name bzImage | head -1`
 cp ${BZIMAGE} ${linux_kernel_dir}/boot
 cp ${BZIMAGE} ${linux_kernel_dir}/boot/vmlinuz
 
-mv ${linux_kernel_dir} ../dist/packages ## ../dist/packages/${linux_kernel_dir}
+mv ${linux_kernel_dir} ../output ## ../output/${linux_kernel_dir}
 
 ## make fatdog kernel module package
-mv ../dist/packages/${linux_kernel_dir}/boot/vmlinuz \
-	../dist/packages/vmlinuz-${kernel_version}-${package_name_suffix}
-[ -f ../dist/packages/${linux_kernel_dir}/boot/bzImage ] && \
-	rm -f ../dist/packages/${linux_kernel_dir}/boot/bzImage
+mv ../output/${linux_kernel_dir}/boot/vmlinuz \
+	../output/vmlinuz-${kernel_version}-${package_name_suffix}
+[ -f ../output/${linux_kernel_dir}/boot/bzImage ] && \
+	rm -f ../output/${linux_kernel_dir}/boot/bzImage
 log_msg "Huge kernel ${kernel_version}-${package_name_suffix} is ready in dist"
 
 log_msg "Cleaning the kernel sources"
@@ -741,8 +744,8 @@ if [ ! -f kernel_sources-${kernel_version}-${package_name_suffix}/usr/src/linux/
 		kernel_sources-${kernel_version}-${package_name_suffix}/usr/src/linux/include/linux/version.h
 fi
 ln -s /usr/src/linux kernel_sources-${kernel_version}-${package_name_suffix}/lib/modules/${kernel_srcsfs_version}${custom_suffix}/source
-mksquashfs kernel_sources-${kernel_version}-${package_name_suffix} dist/sources/kernel_sources-${kernel_version}-${package_name_suffix}.sfs $COMP
-md5sum dist/sources/kernel_sources-${kernel_version}-${package_name_suffix}.sfs > dist/sources/kernel_sources-${kernel_version}-${package_name_suffix}.sfs.md5.txt
+mksquashfs kernel_sources-${kernel_version}-${package_name_suffix} output/kernel_sources-${kernel_version}-${package_name_suffix}.sfs $COMP
+md5sum output/kernel_sources-${kernel_version}-${package_name_suffix}.sfs > output/kernel_sources-${kernel_version}-${package_name_suffix}.sfs.md5.txt
 
 
 #==============================================================
@@ -762,33 +765,33 @@ export CPPFLAGS="-I $LinuxSrc/usr/include"
 echo "export CPPFLAGS=\"-I $LinuxSrc/usr/include\"
 make clean
 $MAKE
-make DESTDIR=$CWD/dist/packages/aufs-util-${kernel_version}-${arch} install
+make DESTDIR=$CWD/output/aufs-util-${kernel_version}-${arch} install
 " > compile ## debug
 
 cd aufs-util
 make clean &>/dev/null
 $MAKE >> ${BUILD_LOG} 2>&1 || exit_error "Failed to compile aufs-util, do it manually. Kernel is compiled OK :)"
-make DESTDIR=$CWD/dist/packages/aufs-util-${kernel_version}-${arch} install >> ${BUILD_LOG} 2>&1 #needs absolute path
+make DESTDIR=$CWD/output/aufs-util-${kernel_version}-${arch} install >> ${BUILD_LOG} 2>&1 #needs absolute path
 make clean >> ${BUILD_LOG} 2>&1
 
 # temp hack - https://github.com/puppylinux-woof-CE/woof-CE/issues/889
-mkdir -p $CWD/dist/packages/aufs-util-${kernel_version}-${arch}/usr/lib
-mv -fv $CWD/dist/packages/aufs-util-${kernel_version}-${arch}/libau.so* \
-	$CWD/dist/packages/aufs-util-${kernel_version}-${arch}/usr/lib 2>/dev/null
+mkdir -p $CWD/output/aufs-util-${kernel_version}-${arch}/usr/lib
+mv -fv $CWD/output/aufs-util-${kernel_version}-${arch}/libau.so* \
+	$CWD/output/aufs-util-${kernel_version}-${arch}/usr/lib 2>/dev/null
 
 if [ "$arch" = "x86_64" ] ; then
-	mv $CWD/dist/packages/aufs-util-${kernel_version}-${arch}/usr/lib \
-		$CWD/dist/packages/aufs-util-${kernel_version}-${arch}/usr/lib64
+	mv $CWD/output/aufs-util-${kernel_version}-${arch}/usr/lib \
+		$CWD/output/aufs-util-${kernel_version}-${arch}/usr/lib64
 fi
-log_msg "aufs-util-${kernel_version} is in dist"
+log_msg "aufs-util-${kernel_version} is in output"
 
 #----
 cd ..
 #----
 
 log_msg "Installing aufs-utils into kernel package"
-cp -a --remove-destination dist/packages/aufs-util-${kernel_version}-${arch}/* \
-	dist/packages/${linux_kernel_dir}
+cp -a --remove-destination output/aufs-util-${kernel_version}-${arch}/* \
+	output/${linux_kernel_dir}
 
 #==============================================================
 
@@ -799,12 +802,12 @@ if [ $LIBRE -eq 0 ] ; then
 	case $fw_pkg in
 		*.sfs)
 			FDRV=fdrv.sfs-${kernel_version}-${package_name_suffix}
-			[ -f "$FW_PKG_URL" ] && cp "$FW_PKG_URL" dist/packages/${FDRV} #may be a local file
-			[ -f dist/packages/${fw_pkg} ] && cp dist/packages/${fw_pkg} dist/packages/${FDRV}
+			[ -f "$FW_PKG_URL" ] && cp "$FW_PKG_URL" output/${FDRV} #may be a local file
+			[ -f sources/${fw_pkg} ] && cp sources/${fw_pkg} output/${FDRV}
 			;;
 		*.tar.*)
-			mkdir -p dist/packages/${linux_kernel_dir}/lib
-			tar -xaf dist/packages/${fw_pkg} -C dist/packages/${linux_kernel_dir}/lib/
+			mkdir -p output/${linux_kernel_dir}/lib
+			tar -xaf sources/${fw_pkg} -C output/${linux_kernel_dir}/lib/
 			[ $? -ne 0 ] && exit_error "failed to unpack ${fw_pkg}"
 			;;
 	esac
@@ -813,7 +816,7 @@ if [ $LIBRE -eq 0 ] ; then
 	case ${FIRMWARE_OPT} in
 	manual)
 		log_msg "once you have manually added firmware to "
-		log_msg "dist/packages/${linux_kernel_dir}/lib/firmware"
+		log_msg "output/${linux_kernel_dir}/lib/firmware"
 		echo "hit ENTER to continue"
 		read firm
 	;;
@@ -832,30 +835,30 @@ if [ $LIBRE -eq 0 ] ; then
  fi
 fi
 
-mksquashfs dist/packages/${linux_kernel_dir} dist/packages/kernel-modules.sfs-${kernel_version}-${package_name_suffix} $COMP
+mksquashfs output/${linux_kernel_dir} output/kernel-modules.sfs-${kernel_version}-${package_name_suffix} $COMP
 [ $? = 0 ] || exit 1
 log_msg "Huge compatible kernel packages are ready to package./"
 log_msg "Packaging huge-${kernel_version}-${package_name_suffix} kernel"
-cd dist/packages/
+cd output/
 tar -cjvf huge-${kernel_version}-${package_name_suffix}.tar.bz2 \
 	vmlinuz-${kernel_version}-${package_name_suffix} ${FDRV} \
 	kernel-modules.sfs-${kernel_version}-${package_name_suffix} || exit 1
-	echo "huge-${kernel_version}-${package_name_suffix}.tar.bz2 is in dist/packages"
+	echo "huge-${kernel_version}-${package_name_suffix}.tar.bz2 is in output"
 md5sum huge-${kernel_version}-${package_name_suffix}.tar.bz2 > huge-${kernel_version}-${package_name_suffix}.tar.bz2.md5.txt
 echo
 cd -
 
 log_msg "Compressing the log"
 bzip2 -9 build.log
-cp build.log.bz2 dist/sources
+cp build.log.bz2 output
 
 log_msg "------------------
 Output files:
-- dist/packages/huge-${kernel_version}-${package_name_suffix}.tar.bz2
+- output/huge-${kernel_version}-${package_name_suffix}.tar.bz2
   (kernel tarball: vmlinuz, modules.sfs - used in the woof process)
   you can use this to replace vmlinuz and zdrv.sfs from the current wce puppy install..
 
-- dist/sources/kernel_sources-${kernel_version}-${package_name_suffix}.sfs
+- output/kernel_sources-${kernel_version}-${package_name_suffix}.sfs
   (you can use this to compile new kernel modules - load or install first..)
 ------------------"
 
@@ -863,4 +866,3 @@ echo "Done!"
 [ -f /usr/share/sounds/2barks.au ] && aplay /usr/share/sounds/2barks.au
 
 ### END ###
-

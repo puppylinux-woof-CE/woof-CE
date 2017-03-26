@@ -16,20 +16,20 @@ SRC_FW_DIR='../linux-firmware'
 DEST_FW_DIR='zfirmware_workdir/lib'
 
 SRC_FILE_FW=${SRC_FW_DIR}/WHENCE
-dotconfig=`find dist/sources -maxdepth 1 -type f -name 'DOTconfig*' | head -1`
+dotconfig=`find output -maxdepth 1 -type f -name 'DOTconfig*' | head -1`
 if [ -f "$dotconfig" ] ; then
 	DOTCONFIG_str=$(grep -v -E '^#|is not set$' $dotconfig)
 else
-	echo "WARNING: No DOTconfig file in dist/sources/"
+	echo "WARNING: No DOTconfig file in output/"
 	echo "Put a DOTconfig file there..."
 	#exit 1
 fi
 
-FIRMWARE_SFS="dist/packages/fdrv_${kernel_version}_${package_name_suffix}.sfs"
+FIRMWARE_SFS="sources/fdrv_${kernel_version}_${package_name_suffix}.sfs"
 FIRMWARE_RESULT_DIR='zfirmware_workdir/lib/firmware'
 FIRMWARE_EXTRA_DIR='zfirmware_workdir/lib/linux-firmware'
 
-kernel_package=`find dist -type d -name 'linux_kernel*' | head -1`
+kernel_package=`find output -type d -name 'linux_kernel*' | head -1`
 
 if [ ! -d "${kernel_package}" ] ; then
 	kernel_package=`find $CWD -type d -name 'linux_kernel*' | head -1`
