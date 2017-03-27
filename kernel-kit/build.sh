@@ -233,7 +233,16 @@ IFS=. read -r kernel_series \
 kernel_branch=${kernel_major_version} #3.x 4.x kernels
 kernel_major_version=${kernel_series}.${kernel_major_version} #crazy!! 3.14 2.6 etc
 aufs_version=${kernel_series} ## aufs major version
-[ "$kernel_minor_version" ] && kmv=.${kernel_minor_version}
+if [ "$kernel_minor_version" ] ; then
+	kmv=.${kernel_minor_version}
+	kernel_tarball_version=${kernel_version}
+else
+	#single numbered kernel
+	kmv=".0"
+	kernel_version=${kernel_major_version}${kmv}
+	kernel_tarball_version=${kernel_major_version}
+	FIX_KERNEL_VER=yes
+fi
 [ "$kernel_minor_revision" ] && kmr=.${kernel_minor_revision}
 
 log_msg "Linux: ${kernel_major_version}${kmv}${kmr}" #${kernel_series}.
@@ -294,10 +303,10 @@ testing=
 echo ${kernel_version##*-} | grep -q "rc" && testing=/testing
 
 DOWNLOAD_KERNEL=1
-[ -f sources/vanilla/linux-${kernel_version}.tar.xz ] && DOWNLOAD_KERNEL=0
-if [ -f sources/vanilla/linux-${kernel_version}.tar.xz.md5.txt ] ; then
+[ -f sources/vanilla/linux-${kernel_tarball_version}.tar.xz ] && DOWNLOAD_KERNEL=0
+if [ -f sources/vanilla/linux-${kernel_tarball_version}.tar.xz.md5.txt ] ; then
 	cd sources/vanilla
-	md5sum -c linux-${kernel_version}.tar.xz.md5.txt
+	md5sum -c linux-${kernel_tarball_version}.tar.xz.md5.txt
 	if [ $? -ne 0 ] ; then
 		log_msg "md5sum FAILED: will resume kernel download..."
 		DOWNLOAD_KERNEL=1
@@ -311,8 +320,8 @@ if [ $DOWNLOAD_KERNEL -eq 1 ] ; then
 	KERROR=1
 	for kernel_mirror in $kernel_mirrors ; do
 		kernel_mirror=${kernel_mirror}/${ksubdir}
-		log_msg "Downloading: ${kernel_mirror}${testing}/linux-${kernel_version}.tar.xz"
-		wget ${WGET_OPT} -c -P sources/vanilla ${kernel_mirror}${testing}/linux-${kernel_version}.tar.xz >> ${BUILD_LOG}
+		log_msg "Downloading: ${kernel_mirror}${testing}/linux-${kernel_tarball_version}.tar.xz"
+		wget ${WGET_OPT} -c -P sources/vanilla ${kernel_mirror}${testing}/linux-${kernel_tarball_version}.tar.xz >> ${BUILD_LOG}
 		if [ $? -ne 0 ] ; then
 			echo "Error"
 		else
@@ -322,7 +331,7 @@ if [ $DOWNLOAD_KERNEL -eq 1 ] ; then
 	done
 	[ $KERROR ] && exit 1
 	cd sources/vanilla
-	md5sum linux-${kernel_version}.tar.xz > linux-${kernel_version}.tar.xz.md5.txt
+	md5sum linux-${kernel_tarball_version}.tar.xz > linux-${kernel_tarball_version}.tar.xz.md5.txt
 	cd $MWD
 fi
 
@@ -496,10 +505,15 @@ cp -a sources/${aufs_git_dir} aufs_sources
 
 ## extract the kernel
 log_msg "Extracting the kernel sources"
-tar -axf sources/vanilla/linux-${kernel_version}.tar.xz >> ${BUILD_LOG} 2>&1
+tar -axf sources/vanilla/linux-${kernel_tarball_version}.tar.xz >> ${BUILD_LOG} 2>&1
 if [ $? -ne 0 ] ; then
-	rm -f sources/vanilla/linux-${kernel_version}.tar.xz
+	rm -f sources/vanilla/linux-${kernel_tarball_version}.tar.xz
 	exit_error "ERROR extracting kernel sources. file was deleted..."
+fi
+
+if [ "$FIX_KERNEL_VER" = "yes" ] ; then
+	rm -rf linux-${kernel_version}
+	mv -f linux-${kernel_tarball_version} linux-${kernel_version}
 fi
 
 #-------------------------
@@ -546,8 +560,6 @@ cp Makefile Makefile-orig
 if [ "$remove_sublevel" = "yes" ] ; then
 	log_msg "Resetting the minor version number" #!
 	sed -i "s/^SUBLEVEL =.*/SUBLEVEL = 0/" Makefile
-	dots=$(echo "$kernel_version" | tr -cd '.' | wc -c)                #ex: 4.8.11=2 4.9=1
-	[ $dots -gt 1 ] && kernel_srcsfs_version=${kernel_major_version}.0 #ex: 4.8.0    4.9
 	log_msg "kernel_srcsfs_version=$kernel_srcsfs_version"
 fi
 ## custom suffix
