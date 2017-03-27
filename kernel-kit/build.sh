@@ -287,7 +287,7 @@ esac
 
 ## create directories for the results
 rm -rf output/patches-${kernel_version}-${HOST_ARCH}
-[ ! -d sources/vanilla ] && mkdir -p sources/vanilla
+[ ! -d sources/kernels ] && mkdir -p sources/kernels
 [ ! -d output/patches-${kernel_version}-${HOST_ARCH} ] && mkdir -p output/patches-${kernel_version}-${HOST_ARCH}
 [ ! -d output ] && mkdir -p output
 
@@ -303,9 +303,9 @@ testing=
 echo ${kernel_version##*-} | grep -q "rc" && testing=/testing
 
 DOWNLOAD_KERNEL=1
-[ -f sources/vanilla/linux-${kernel_tarball_version}.tar.xz ] && DOWNLOAD_KERNEL=0
-if [ -f sources/vanilla/linux-${kernel_tarball_version}.tar.xz.md5.txt ] ; then
-	cd sources/vanilla
+[ -f sources/kernels/linux-${kernel_tarball_version}.tar.xz ] && DOWNLOAD_KERNEL=0
+if [ -f sources/kernels/linux-${kernel_tarball_version}.tar.xz.md5.txt ] ; then
+	cd sources/kernels
 	md5sum -c linux-${kernel_tarball_version}.tar.xz.md5.txt
 	if [ $? -ne 0 ] ; then
 		log_msg "md5sum FAILED: will resume kernel download..."
@@ -321,7 +321,7 @@ if [ $DOWNLOAD_KERNEL -eq 1 ] ; then
 	for kernel_mirror in $kernel_mirrors ; do
 		kernel_mirror=${kernel_mirror}/${ksubdir}
 		log_msg "Downloading: ${kernel_mirror}${testing}/linux-${kernel_tarball_version}.tar.xz"
-		wget ${WGET_OPT} -c -P sources/vanilla ${kernel_mirror}${testing}/linux-${kernel_tarball_version}.tar.xz >> ${BUILD_LOG}
+		wget ${WGET_OPT} -c -P sources/kernels ${kernel_mirror}${testing}/linux-${kernel_tarball_version}.tar.xz >> ${BUILD_LOG}
 		if [ $? -ne 0 ] ; then
 			echo "Error"
 		else
@@ -330,7 +330,7 @@ if [ $DOWNLOAD_KERNEL -eq 1 ] ; then
 		fi
 	done
 	[ $KERROR ] && exit 1
-	cd sources/vanilla
+	cd sources/kernels
 	md5sum linux-${kernel_tarball_version}.tar.xz > linux-${kernel_tarball_version}.tar.xz.md5.txt
 	cd $MWD
 fi
@@ -339,8 +339,8 @@ fi
 if [ $LIBRE -eq 1 ] ; then
 	minor_version=${kernel_version##*.}
 	for i in deblob-${kernel_major_version} deblob-check; do
-		if [ ! -f sources/vanilla/$i ] ; then
-			wget ${WGET_OPT} -O sources/vanilla/$i http://linux-libre.fsfla.org/pub/linux-libre/releases/LATEST-${kernel_major_version}.N/$i
+		if [ ! -f sources/kernels/$i ] ; then
+			wget ${WGET_OPT} -O sources/kernels/$i http://linux-libre.fsfla.org/pub/linux-libre/releases/LATEST-${kernel_major_version}.N/$i
 			[ $? -ne 0 ] && exit_error "Error: failed to download $i."
 		fi
 	done
@@ -505,9 +505,9 @@ cp -a sources/${aufs_git_dir} aufs_sources
 
 ## extract the kernel
 log_msg "Extracting the kernel sources"
-tar -axf sources/vanilla/linux-${kernel_tarball_version}.tar.xz >> ${BUILD_LOG} 2>&1
+tar -axf sources/kernels/linux-${kernel_tarball_version}.tar.xz >> ${BUILD_LOG} 2>&1
 if [ $? -ne 0 ] ; then
-	rm -f sources/vanilla/linux-${kernel_tarball_version}.tar.xz
+	rm -f sources/kernels/linux-${kernel_tarball_version}.tar.xz
 	exit_error "ERROR extracting kernel sources. file was deleted..."
 fi
 
@@ -548,7 +548,7 @@ if [ $LIBRE -eq 1 ] ; then
 	cd ..
 	cp -r linux-${kernel_version} linux-${kernel_version}-orig
 	cd linux-${kernel_version}
-	sh ../sources/vanilla/deblob-${kernel_major_version} 2>&1 | tee -a ${BUILD_LOG}
+	sh ../sources/kernels/deblob-${kernel_major_version} 2>&1 | tee -a ${BUILD_LOG}
 	cd ..
 	diff -rupN linux-${kernel_version}-orig linux-${kernel_version} > output/patches-${kernel_version}-${HOST_ARCH}/deblob.patch
 	rm -rf linux-${kernel_version}-orig
