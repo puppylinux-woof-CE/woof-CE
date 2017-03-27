@@ -755,7 +755,7 @@ if [ "$DISTRO_COMPAT_VERSION" = "stretch" -o "$DISTRO_COMPAT_VERSION" = "ascii" 
   else
    [ ! -f /tmp/stop_debian_warning ] && /usr/lib/gtkdialog/box_yesno --error --yes-label \
     "$(gettext 'I will')"  --no-label "$(gettext 'Not now')" "$(gettext 'Puppy package manager')" \
-    "$(gettext 'Debian executables show as shared libraries in ROX. For PPM to fix that during installation you should install elfutils or have devx loaded')"
+    "$(gettext 'Debian executables show as shared libraries in ROX. For PPM to fix that during installation you should install binutils or have devx loaded')"
    [ $? -eq 1 ] &&  touch /tmp/stop_debian_warning
   fi
  fi
