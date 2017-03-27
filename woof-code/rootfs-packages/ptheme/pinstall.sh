@@ -185,7 +185,7 @@ sleep 1 # reading time
 
 ##### CURSOR
 if [ -d root/.icons/ ];then
-	[ ! "`grep 'ORIGINAL THEME' <<< "$PTHEME_MOUSE"`" ] && ln -snf root/.icons/$PTHEME_MOUSE root/.icons/default
+	[ ! "`grep 'ORIGINAL THEME' <<< "$PTHEME_MOUSE"`" ] && ln -snf $PTHEME_MOUSE root/.icons/default
 	echo "cursor: ${PTHEME_MOUSE}"
 	sleep 1 # reading time
 fi
