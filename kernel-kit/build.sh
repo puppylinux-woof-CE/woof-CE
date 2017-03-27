@@ -619,7 +619,7 @@ fi
 [ "$MAKEOLDCONFIG" != "" ] && make silentoldconfig
 #----
 
-[ ! -f ../DOTconfig ] && cp .config ../DOTconfig
+[ -f .config -a ! -f ../DOTconfig ] && cp .config ../DOTconfig
 
 #####################
 # pause to configure
@@ -639,11 +639,16 @@ function do_kernel_config() {
 if [ "$AUTO" = "yes" ] ; then
 	do_kernel_config oldconfig
 else
-	echo -en "
+	if [ -f .config ] ; then
+		echo -en "
 You now should configure your kernel. The supplied .config
 should be already configured but you may want to make changes, plus
-the date should be updated.
+the date should be updated."
+	else
+		echo -en "\nYou must now configure the kernel"
+	fi
 
+	echo -en "
 Hit a number or s to skip:
 1. make menuconfig [default] (ncurses based)
 2. make gconfig (gtk based gui)
