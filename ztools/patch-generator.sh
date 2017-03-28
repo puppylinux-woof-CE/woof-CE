@@ -15,9 +15,16 @@ if [ "$(which git)" = "" ]; then
 fi
 WDIR=$(pwd) # Should be just above your freshly cloned woof-CE git
 if [ ! -d $WDIR/woof-CE ]; then
- Xdialog --title "Error" --msgbox \
- "This script should be in the same folder as the woof-CE git folder" 0 0
- exit 1
+ # Check if script was started by "dropping" a file on it with ROX
+ SCRIPT_PATH="`realpath $0`"
+ if [ "${SCRIPT_PATH%/woof-CE/ztools/patch-generator.sh}" != "$SCRIPT_PATH" -a "$1" != '' ]; then
+  WDIR="${SCRIPT_PATH%/woof-CE/ztools/patch-generator.sh}"
+  cd $WDIR
+ else
+  Xdialog --title "Error" --msgbox \
+  "This script should be in the same folder as the woof-CE git folder" 0 0
+  exit 1
+ fi
 fi
 GIT_BRANCH=$(cut -f3 -d'/' $WDIR/woof-CE/.git/HEAD)
 if [ ! "$GIT_BRANCH" ]; then
@@ -61,9 +68,11 @@ case "$1" in
  ;;
  *) if [ ! -f "$1" ]; then
      echo "No such file: $1"
+     Xdialog --title "Error" --msgbox "No such file: $1" 0 0
      exit 1
     elif [ "`expr "$1" : '.*\(woof-out\)'`" = '' ]; then
      echo "File must exist in woof-out_*"
+     Xdialog --title "Error" --msgbox "File must exist in woof-out_*" 0 0
      exit 1
     fi
     mkdir -p $WDIR/patches
@@ -72,6 +81,10 @@ case "$1" in
     FILE="`expr "$1" : '.*woof-out[^/]*/\(.*\)'`"
     echo "Making patch from $FILE"
     diff -u -N $FILE ../../$WOOFOUT_DIR/$FILE > $WDIR/patches/$(basename $FILE).patch
+    cd $WDIR
+    Xdialog --title "Finished" --msgbox "Made patch from $FILE \n \
+It can be found in \n \
+$WDIR/patches/" 0 0
     exit
  ;;
 esac
