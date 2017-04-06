@@ -612,31 +612,33 @@ if ! grep -q "CONFIG_AUFS_FS=y" .config ; then
 	echo -e "\033[0m" #reset to original
 fi
 
-#---- old/legacy stuff
-if [ "$x86_disable_pae" = "yes" ] ; then
-	if grep 'CONFIG_X86_PAE=y' .config ; then #CONFIG_HIGHMEM64G=y
-		log_msg "Disabling PAE..."
-		MAKEOLDCONFIG=1
-		unset_pae .config
-	fi
-fi
-if [ "$x86_enable_pae" = "yes" ] ; then
-	if ! grep 'CONFIG_X86_PAE=y' .config ; then
-		log_msg "Enabling PAE..."
-		MAKEOLDCONFIG=1
-		set_pae .config
-	fi
-fi
-if [ "$x86_set_i486" = "yes" ] ; then
-	if grep -q 'CONFIG_OUTPUT_FORMAT="elf32-i386"' .config ; then
-		if ! grep -q 'CONFIG_M486=y' .config ; then
-			log_msg "Forcing i486..."
+#----
+if [ "$HOST_ARCH" = "x86" ] ; then
+	if [ "$x86_disable_pae" = "yes" ] ; then
+		if grep 'CONFIG_X86_PAE=y' .config ; then #CONFIG_HIGHMEM64G=y
+			log_msg "Disabling PAE..."
 			MAKEOLDCONFIG=1
-			set_i486 .config
+			unset_pae .config
 		fi
 	fi
+	if [ "$x86_enable_pae" = "yes" ] ; then
+		if ! grep 'CONFIG_X86_PAE=y' .config ; then
+			log_msg "Enabling PAE..."
+			MAKEOLDCONFIG=1
+			set_pae .config
+		fi
+	fi
+	if [ "$x86_set_i486" = "yes" ] ; then
+		if grep -q 'CONFIG_OUTPUT_FORMAT="elf32-i386"' .config ; then
+			if ! grep -q 'CONFIG_M486=y' .config ; then
+				log_msg "Forcing i486..."
+				MAKEOLDCONFIG=1
+				set_i486 .config
+			fi
+		fi
+	fi
+	[ "$MAKEOLDCONFIG" != "" ] && make silentoldconfig
 fi
-[ "$MAKEOLDCONFIG" != "" ] && make silentoldconfig
 #----
 
 [ -f .config -a ! -f ../DOTconfig ] && cp .config ../DOTconfig
