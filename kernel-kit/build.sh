@@ -21,6 +21,7 @@ for i in $@ ; do
 		clean) DO_CLEAN=1 ; break ;;
 		auto) AUTO=yes ; shift ;;
 		nopae) x86_disable_pae=yes ; shift ;;
+		pae) x86_enable_pae=yes ; shift ;;
 		i486) x86_set_i486=yes ; shift ;;
 	esac
 done
@@ -617,6 +618,13 @@ if [ "$x86_disable_pae" = "yes" ] ; then
 		log_msg "Disabling PAE..."
 		MAKEOLDCONFIG=1
 		unset_pae .config
+	fi
+fi
+if [ "$x86_enable_pae" = "yes" ] ; then
+	if ! grep 'CONFIG_X86_PAE=y' .config ; then
+		log_msg "Enabling PAE..."
+		MAKEOLDCONFIG=1
+		set_pae .config
 	fi
 fi
 if [ "$x86_set_i486" = "yes" ] ; then
