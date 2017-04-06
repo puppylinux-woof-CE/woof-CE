@@ -115,10 +115,24 @@ else
 fi
 sync
 
+# move aufs-utils to zdrv
+for r in auibusy auplink mount.aufs umount.aufs aufs libau.so* aufs aufs.5 aubrsync aubusy auchk
+do
+	find rootfs-complete/ -type f -name $r | sed 's|^rootfs-complete/||' | \
+	while read f ; do
+		dir=zdrv/$(dirname $f)
+		mkdir -p $dir
+		mv -f rootfs-complete/${f} $dir
+	done
+done
+
 sync
-${MKSQUASHFS} zdrv ${ZDRVSFS} ${COMPCHOICE} #100911 110713
+#==========================================
+${MKSQUASHFS} zdrv ${ZDRVSFS} ${COMPCHOICE}
+#==========================================
+
 sync
-chmod 644 ${ZDRVSFS} #100903 100911
+chmod 644 ${ZDRVSFS}
 
 mv -f ${ZDRVSFS} build/
 
