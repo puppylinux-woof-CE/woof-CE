@@ -717,6 +717,10 @@ else
 	karch=arm
 fi
 
+#.....................................................................
+linux_kernel_dir=linux_kernel-${kernel_version}-${package_name_suffix}
+#.....................................................................
+
 ## kernel headers
 kheaders_dir="kernel_headers-${kernel_version}-${package_name_suffix}"
 rm -rf ../output/${kheaders_dir}
@@ -727,6 +731,46 @@ if [ ! -d ../output/${kheaders_dir} ] ; then
 	find ${kheaders_dir}/usr/include \( -name .install -o -name ..install.cmd \) -delete
 	mv ${kheaders_dir} ../output
 fi
+
+#---------------------------------------------------------------------
+#  build aufs-utils userspace modules (**) - requires kernel headers 
+#---------------------------------------------------------------------
+	log_msg "Building aufs-utils - userspace modules"
+	## see if fhsm is enabled in kernel config
+	if grep -q 'CONFIG_AUFS_FHSM=y' .config ; then
+		export MAKE="make BuildFHSM=yes"
+	else
+		export MAKE="make BuildFHSM=no"
+	fi
+	LinuxSrc=${CWD}/output/${kheaders_dir} #needs absolute path
+	#---
+	cd ../aufs-util
+	export CPPFLAGS="-I $LinuxSrc/usr/include"
+	echo "export CPPFLAGS=\"-I $LinuxSrc/usr/include\"
+make clean
+$MAKE
+make DESTDIR=$CWD/output/aufs-util-${kernel_version}-${arch} install
+" > compile ## debug
+	make clean &>/dev/null
+	$MAKE >> ${BUILD_LOG} 2>&1 || exit_error "Failed to compile aufs-util"
+	make DESTDIR=$CWD/output/aufs-util-${kernel_version}-${arch} install >> ${BUILD_LOG} 2>&1 #needs absolute path
+	make clean >> ${BUILD_LOG} 2>&1
+	# temp hack - https://github.com/puppylinux-woof-CE/woof-CE/issues/889
+	mkdir -p $CWD/output/aufs-util-${kernel_version}-${arch}/usr/lib
+	mv -fv $CWD/output/aufs-util-${kernel_version}-${arch}/libau.so* \
+		$CWD/output/aufs-util-${kernel_version}-${arch}/usr/lib 2>/dev/null
+	if [ "$arch" = "x86_64" ] ; then
+		mv $CWD/output/aufs-util-${kernel_version}-${arch}/usr/lib \
+			$CWD/output/aufs-util-${kernel_version}-${arch}/usr/lib64
+	fi
+	log_msg "aufs-util-${kernel_version} is in output"
+	#---
+	cd ..
+	log_msg "Installing aufs-utils into kernel package"
+	cp -a --remove-destination output/aufs-util-${kernel_version}-${arch}/* \
+		output/${linux_kernel_dir}
+#------------------------------------------------------
+cd linux-${kernel_version}
 
 log_msg "Compiling the kernel" | tee -a ${BUILD_LOG}
 make ${JOBS} bzImage modules >> ${BUILD_LOG} 2>&1
@@ -742,10 +786,6 @@ else
 		exit_error "Error: failed to compile the kernel sources."
 	fi
 fi
-
-#.....................................................................
-linux_kernel_dir=linux_kernel-${kernel_version}-${package_name_suffix}
-#.....................................................................
 
 #---------------------------------------------------------------------
 
@@ -799,52 +839,6 @@ fi
 ln -s /usr/src/linux kernel_sources-${kernel_version}-${package_name_suffix}/lib/modules/${kernel_srcsfs_version}${custom_suffix}/source
 mksquashfs kernel_sources-${kernel_version}-${package_name_suffix} output/kernel_sources-${kernel_version}-${package_name_suffix}.sfs $COMP
 md5sum output/kernel_sources-${kernel_version}-${package_name_suffix}.sfs > output/kernel_sources-${kernel_version}-${package_name_suffix}.sfs.md5.txt
-
-
-#==============================================================
-#           build aufs-utils userspace modules (**)
-#==============================================================
-#log_msg "Extracting the Aufs-util sources"
-
-## see if fhsm is enabled in kernel config
-if grep -q 'CONFIG_AUFS_FHSM=y' ${KCONFIG} ; then
-	export MAKE="make BuildFHSM=yes"
-else
-	export MAKE="make BuildFHSM=no"
-fi
-LinuxSrc=$(find $CWD -type d -name "kernel_headers*" | head -1)
-export CPPFLAGS="-I $LinuxSrc/usr/include"
-
-echo "export CPPFLAGS=\"-I $LinuxSrc/usr/include\"
-make clean
-$MAKE
-make DESTDIR=$CWD/output/aufs-util-${kernel_version}-${arch} install
-" > compile ## debug
-
-cd aufs-util
-make clean &>/dev/null
-$MAKE >> ${BUILD_LOG} 2>&1 || exit_error "Failed to compile aufs-util, do it manually. Kernel is compiled OK :)"
-make DESTDIR=$CWD/output/aufs-util-${kernel_version}-${arch} install >> ${BUILD_LOG} 2>&1 #needs absolute path
-make clean >> ${BUILD_LOG} 2>&1
-
-# temp hack - https://github.com/puppylinux-woof-CE/woof-CE/issues/889
-mkdir -p $CWD/output/aufs-util-${kernel_version}-${arch}/usr/lib
-mv -fv $CWD/output/aufs-util-${kernel_version}-${arch}/libau.so* \
-	$CWD/output/aufs-util-${kernel_version}-${arch}/usr/lib 2>/dev/null
-
-if [ "$arch" = "x86_64" ] ; then
-	mv $CWD/output/aufs-util-${kernel_version}-${arch}/usr/lib \
-		$CWD/output/aufs-util-${kernel_version}-${arch}/usr/lib64
-fi
-log_msg "aufs-util-${kernel_version} is in output"
-
-#----
-cd ..
-#----
-
-log_msg "Installing aufs-utils into kernel package"
-cp -a --remove-destination output/aufs-util-${kernel_version}-${arch}/* \
-	output/${linux_kernel_dir}
 
 #==============================================================
 
