@@ -697,6 +697,26 @@ fi
 
 #------------------------------------------------------------------
 
+## we need the arch of the system being built
+if grep -q 'CONFIG_X86_64=y' .config ; then
+	arch=x86_64
+	karch=x86
+elif grep -q 'CONFIG_X86_32=y' .config ; then
+	karch=x86
+	if grep -q 'CONFIG_X86_32_SMP=y' .config ; then
+		arch=i686
+	else
+		arch=i486 #gross assumption
+	fi
+elif grep -q 'CONFIG_ARM=y' .config ; then
+	arch=arm
+	karch=arm
+else
+	log_msg "Your arch is unsupported."
+	arch=unknown #allow build anyway
+	karch=arm
+fi
+
 ## kernel headers
 kheaders_dir="kernel_headers-${kernel_version}-${package_name_suffix}"
 rm -rf ../output/${kheaders_dir}
@@ -713,28 +733,7 @@ make ${JOBS} bzImage modules >> ${BUILD_LOG} 2>&1
 KCONFIG="output/DOTconfig-${kernel_version}-${HOST_ARCH}-${today}"
 cp .config ../${KCONFIG}
 
-## we need the arch of the system being built
-if grep -q 'CONFIG_X86_64=y' ../${KCONFIG} ; then
-	arch=x86_64
-	karch=x86
-elif grep -q 'CONFIG_X86_32=y' ../${KCONFIG} ; then
-	if grep -q 'CONFIG_X86_32_SMP=y' ../${KCONFIG} ; then
-		arch=i686
-		karch=x86
-	else
-		arch=i486 #gross assumption
-		karch=x86
-	fi
-elif grep -q 'CONFIG_ARM=y' ../${KCONFIG} ; then
-	arch=arm
-	karch=arm
-else
-	log_msg "Your arch is unsupported."
-	arch=unknown #allow build anyway
-	karch=arm
-fi
-
-if [ $karch == 'x86' ] ; then
+if [ "$karch" = "x86" ] ; then
 	if [ ! -f arch/x86/boot/bzImage -o ! -f System.map ] ; then
 		exit_error "Error: failed to compile the kernel sources."
 	fi
