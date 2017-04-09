@@ -27,21 +27,10 @@ for i in $@ ; do
 done
 
 if [ $DO_CLEAN ] ; then
-	echo -en "\033[1;35m""WARNING\033[0m" #purple?
-	echo " This will delete all builds and sources but wont touch configs."
-	echo "Hit CTRL+C and save your stuff manually if you don't want to clean."
-	echo "Hit ENTER to clean"
-	read clean
 	echo "Please wait..."
-	rm -rf ./{dist,aufs*,kernel*,build.log*,linux-*}
+	rm -rf ./{aufs*,kernel*,build.log*,linux-*}
 	echo "Cleaning complete"
 	exit 0
-fi
-
-if [ -d ./dist ] ; then
-	echo "This is not a clean kit. Hit ENTER to continue"
-	echo "or CTRL+C to quit and run './build.sh clean'"
-	[ "$AUTO" != "yes" ] && read notcleango || echo
 fi
 
 ## delete the previous log
