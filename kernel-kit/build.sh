@@ -20,10 +20,10 @@ for i in $@ ; do
 	case $i in
 		clean) DO_CLEAN=1 ; break ;;
 		auto) AUTO=yes ; shift ;;
-		nopae) x86_disable_pae=yes ; shift ;;
-		pae) x86_enable_pae=yes ; shift ;;
-		i486) x86_set_i486=yes ; shift ;;
-		i686) x86_set_i686=yes ; shift ;;
+		nopae) x86_disable_pae=yes ; shift ;; #funcs.sh
+		pae)   x86_enable_pae=yes  ; shift ;; #funcs.sh
+		i486)  x86_set_i486=yes    ; shift ;; #funcs.sh
+		i686)  x86_set_i686=yes    ; shift ;; #funcs.sh
 	esac
 done
 
@@ -603,41 +603,7 @@ if ! grep -q "CONFIG_AUFS_FS=y" .config ; then
 fi
 
 #----
-if [ "$HOST_ARCH" = "x86" ] ; then
-	if [ "$x86_disable_pae" = "yes" ] ; then
-		if grep 'CONFIG_X86_PAE=y' .config ; then #CONFIG_HIGHMEM64G=y
-			log_msg "Disabling PAE..."
-			MAKEOLDCONFIG=1
-			unset_pae .config
-		fi
-	fi
-	if [ "$x86_enable_pae" = "yes" ] ; then
-		if ! grep 'CONFIG_X86_PAE=y' .config ; then
-			log_msg "Enabling PAE..."
-			MAKEOLDCONFIG=1
-			set_pae .config
-		fi
-	fi
-	if [ "$x86_set_i486" = "yes" ] ; then
-		if grep -q 'CONFIG_OUTPUT_FORMAT="elf32-i386"' .config ; then
-			if ! grep -q 'CONFIG_M486=y' .config ; then
-				log_msg "Forcing i486..."
-				MAKEOLDCONFIG=1
-				set_i486 .config
-			fi
-		fi
-	fi
-	if [ "$x86_set_i686" = "yes" ] ; then
-		if grep -q 'CONFIG_OUTPUT_FORMAT="elf32-i386"' .config ; then
-			if ! grep -q 'CONFIG_M686=y' .config ; then
-				log_msg "Forcing i686..."
-				MAKEOLDCONFIG=1
-				set_i686 .config
-			fi
-		fi
-	fi
-	[ "$MAKEOLDCONFIG" != "" ] && make silentoldconfig
-fi
+i386_specific_stuff #pae/nopae i486/i686 - funcs.sh
 #----
 
 [ -f .config -a ! -f ../DOTconfig ] && cp .config ../DOTconfig
