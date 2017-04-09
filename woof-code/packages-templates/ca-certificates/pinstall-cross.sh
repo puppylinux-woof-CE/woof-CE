@@ -55,5 +55,7 @@ c_rehash . > /dev/null
 chmod 0644 "$TEMPBUNDLE"
 mv -f "$TEMPBUNDLE" "$CERTBUNDLE"
 
+cd "$CWD"
+
 # END OF ca-certicates pinstall.sh ..
 #------------------------------------------------
