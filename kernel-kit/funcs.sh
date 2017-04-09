@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 #y = builtin
 #m = module
 
@@ -85,6 +85,7 @@ function fix_config() {
 ## EXAMPLES ##
 ##############
 
+# $1: kernel config file
 function set_pae() {
 	#http://askubuntu.com/questions/395771/in-32-bit-ubuntu-12-04-how-can-i-find-out-if-pae-has-been-enabled
 	config_set builtin CONFIG_X86_PAE $1
@@ -92,15 +93,26 @@ function set_pae() {
 	config_unset CONFIG_HIGHMEM4G $1
 }
 
+# $1: kernel config file
 function unset_pae() {
 	config_delete CONFIG_X86_PAE $1
 	config_unset CONFIG_HIGHMEM64G $1
 	config_set builtin CONFIG_HIGHMEM4G $1
 }
 
+# $1: kernel config file
 function set_i486() {
 	config_set builtin CONFIG_M486 $1
 	for i in CONFIG_M386 CONFIG_M686 CONFIG_M586 CONFIG_M586TSC CONFIG_M586MMX CONFIG_MPENTIUMII CONFIG_MPENTIUMIII CONFIG_MPENTIUMM CONFIG_MPENTIUM4 CONFIG_MK6 CONFIG_MK7 CONFIG_MK8 CONFIG_MCRUSOE CONFIG_MEFFICEON CONFIG_MWINCHIPC6 CONFIG_MWINCHIP3D CONFIG_MELAN CONFIG_MGEODEGX1 CONFIG_MGEODE_LX CONFIG_MCYRIXIII CONFIG_MVIAC3_2 CONFIG_MVIAC7 CONFIG_MCORE2 CONFIG_MATOM
+	do
+		config_unset $i $1
+	done
+}
+
+# $1: kernel config file
+function set_i686() {
+	config_set builtin CONFIG_M686 $1
+	for i in CONFIG_M386 CONFIG_M486 CONFIG_M586 CONFIG_M586TSC CONFIG_M586MMX CONFIG_MPENTIUMII CONFIG_MPENTIUMIII CONFIG_MPENTIUMM CONFIG_MPENTIUM4 CONFIG_MK6 CONFIG_MK7 CONFIG_MK8 CONFIG_MCRUSOE CONFIG_MEFFICEON CONFIG_MWINCHIPC6 CONFIG_MWINCHIP3D CONFIG_MELAN CONFIG_MGEODEGX1 CONFIG_MGEODE_LX CONFIG_MCYRIXIII CONFIG_MVIAC3_2 CONFIG_MVIAC7 CONFIG_MCORE2 CONFIG_MATOM
 	do
 		config_unset $i $1
 	done
