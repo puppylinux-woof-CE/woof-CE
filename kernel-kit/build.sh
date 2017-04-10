@@ -731,9 +731,6 @@ make DESTDIR=$CWD/output/aufs-util-${kernel_version}-${arch} install
 	log_msg "aufs-util-${kernel_version} is in output"
 	#---
 	cd ..
-	log_msg "Installing aufs-utils into kernel package"
-	cp -a --remove-destination output/aufs-util-${kernel_version}-${arch}/* \
-		output/${linux_kernel_dir}
 #------------------------------------------------------
 cd linux-${kernel_version}
 
@@ -791,6 +788,10 @@ make prepare >> ${BUILD_LOG} 2>&1
 #----
 cd ..
 #----
+
+log_msg "Installing aufs-utils into kernel package"
+cp -a --remove-destination output/aufs-util-${kernel_version}-${arch}/* \
+		output/${linux_kernel_dir}
 
 log_msg "Creating a kernel sources SFS"
 mkdir -p kernel_sources-${kernel_version}-${package_name_suffix}/usr/src
