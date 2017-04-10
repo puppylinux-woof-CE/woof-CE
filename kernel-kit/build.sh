@@ -687,15 +687,13 @@ linux_kernel_dir=linux_kernel-${kernel_version}-${package_name_suffix}
 #.....................................................................
 
 ## kernel headers
-kheaders_dir="kernel_headers-${kernel_version}-${package_name_suffix}"
+kheaders_dir="kernel_headers-${kernel_version}-${package_name_suffix}-$arch"
 rm -rf ../output/${kheaders_dir}
-if [ ! -d ../output/${kheaders_dir} ] ; then
-	log_msg "Creating the kernel headers package"
-	make headers_check >> ${BUILD_LOG} 2>&1
-	make INSTALL_HDR_PATH=${kheaders_dir}/usr headers_install >> ${BUILD_LOG} 2>&1
-	find ${kheaders_dir}/usr/include \( -name .install -o -name ..install.cmd \) -delete
-	mv ${kheaders_dir} ../output
-fi
+log_msg "Creating the kernel headers package"
+make headers_check >> ${BUILD_LOG} 2>&1
+make INSTALL_HDR_PATH=${kheaders_dir}/usr headers_install >> ${BUILD_LOG} 2>&1
+find ${kheaders_dir}/usr/include \( -name .install -o -name ..install.cmd \) -delete
+mv ${kheaders_dir} ../output
 
 #---------------------------------------------------------------------
 #  build aufs-utils userspace modules (**) - requires kernel headers 
