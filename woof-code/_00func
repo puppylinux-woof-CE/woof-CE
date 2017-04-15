@@ -95,39 +95,45 @@ function create_local_repos_dirs() {
 	fi
 }
 
-function set_layer_type() { # sets $LAYER_TYPE
-	LAYER_TYPE='aufs'
-	modprobe aufs &>/dev/null
-	cat /proc/filesystems | grep -q 'aufs' && return
-	mount | grep ' / ' | grep -q 'aufs' && return
-	lsmod | grep -q '^aufs ' && return
-	#-
-	LAYER_TYPE='overlay'
-	modprobe overlay &>/dev/null
-	cat /proc/filesystems | grep -q 'overlay' && return
-	lsmod | grep -q '^overlay ' && return
-	#-
-	echo "ERROR: need aufs or overlay"
-	exit 1
-}
-
-function clean_out_whiteouts() { #dir
-	local dir="$@"
-	# aufs whiteouts
-	#find "$dir" -name '.wh*' -delete
-	find "$dir" -name '.wh.*' -exec rm -rf '{}' 2>/dev/null \;
-	# overlayfs whiteouts
-	if [ "$LAYER_TYPE" = 'overlay' ]; then
-		for ONE_CHAR_NODE in `find "$dir" -type c`
-		do
-			if [ "`stat -c '%t, %T' $ONE_CHAR_NODE`" = '0, 0' ]; then
-				# paranoid test, regular files are also '0, 0'
-				if [ "`stat -c '%F' $ONE_CHAR_NODE`" = 'character special file' ]; then
-					rm $ONE_CHAR_NODE
-				fi
+function copy_pkgs_to_build() {
+	. ./DISTRO_SPECS
+	SFS_DIR=$2
+	case $SFS_DIR in
+		*drv)xPRE=${SFS_DIR:0:1};; #adrv,ydrv etc
+		*)xPRE='';;
+	esac
+	while read -d ' ' ONEPKG
+	do
+	if [ ! -d packages-${DISTRO_FILE_PREFIX}/${ONEPKG} ];then
+		if [ ! -d packages-${DISTRO_FILE_PREFIX}/${ONEPKG}_DEV ];then #pkg may go entirely into devx.
+			if [ ! -d packages-${DISTRO_FILE_PREFIX}/${ONEPKG}_DOC ];then #pkg may go entirely into docs.
+				echo "WARNING, PKG DOES NOT EXIST: packages-${DISTRO_FILE_PREFIX}/${ONEPKG}"
+				continue
 			fi
+		fi
+    fi
+    case "$ONEPKG" in
+		mscw|sfs_load|pupx|busybox)continue;; #use woofce apps; busy box may conflict with core apps
+    esac
+    echo -n " ${ONEPKG}"
+    cp -a --remove-destination packages-${DISTRO_FILE_PREFIX}/${ONEPKG}/* sandbox3/${SFS_DIR}/ 2> /tmp/3builddistro-cp-errlog
+    sync
+    if [ -s /tmp/3builddistro-cp-errlog ];then #130430 next line fixes those quote chars...
+		cat /tmp/3builddistro-cp-errlog | grep 'cannot overwrite non-directory' | tr '[`‘’]' "'" | cut -f 2 -d "'" |
+		while read ONEDIRSYMLINK
+		do
+			xONEDIRSYMLINK="`echo -n "$ONEDIRSYMLINK" | sed -e "s%sandbox3/${SFS_DIR}%%"`"
+			cp -a --remove-destination packages-${DISTRO_FILE_PREFIX}/${ONEPKG}${xONEDIRSYMLINK}/* sandbox3/${SFS_DIR}${xONEDIRSYMLINK}/
 		done
-	fi
+    fi
+	if [ -f sandbox3/${SFS_DIR}/pinstall.sh ];then
+		#note, do not filter #! /bin/sh (with a space)...
+		grep  -E -v '^\#\!\/bin\/sh' sandbox3/${SFS_DIR}/pinstall.sh >> sandbox3/${xPRE}pinstall.sh
+		rm -f sandbox3/${SFS_DIR}/pinstall.sh
+    fi
+    #get rid of .specs file...
+    rm -f sandbox3/${SFS_DIR}/*.specs
+    done <<<$(printf "$1")
 }
 
 #=========================================================================

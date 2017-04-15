@@ -254,7 +254,29 @@ fi
 rm $CHOICE
 #creates devx-only-installed-packages.
 ./support/findwoofinstalledpkgs # moved to here so we can add /tmp/rootfs-packages.specs
+
+### new adrv stuff - this creates a full 'woof-installed-packages' in adrv and subtracts the
+# adrv installed packages from the the full 'woof-installed-packages' that goes to the main sfs.
+if [ -n "$ADRV_INC" ];then 
+	sync
+	[ -d sandbox3/adrv ] && rm -rf sandbox3/adrv
+	mkdir -p sandbox3/adrv/root/.packages/
+	[ -f /tmp/a-woof-packages ] && rm /tmp/a-woof-packages
+	while read -r line
+	do 
+		IFS='|' read -r a b c <<<$line
+		if echo "$ADRV_INC" | grep -q "$b" ;then
+			continue
+		else
+			echo "$line" >> /tmp/a-woof-packages
+		fi
+	done < woof-installed-packages
+	cat woof-installed-packages > sandbox3/adrv/root/.packages/woof-installed-packages
+	cat /tmp/a-woof-packages > woof-installed-packages
+fi
+###
 rm -f sandbox3/rootfs-complete/pinstall.sh
+set_archdir_var #ex: ARCHDIR=x86_64-linux-gnu
 
 if [ "$ARCHDIR" ];then #ex: i386-linux-gnu
  ln -snf ./ sandbox3/rootfs-complete/lib${lsuffix}/${ARCHDIR}
@@ -269,47 +291,33 @@ if [ -d packages-templates/${ZHACKSDIR} ] ; then
 fi
 
 echo "Copying to sandbox3/rootfs-complete..."
-PKGLIST="`echo "$PKGS_SPECS_TABLE" | grep '^yes' | cut -f 2 -d '|' | tr '\n' ' '`"
-for ONEPKG in $PKGLIST $ZHACKS
-do
- if [ ! -d packages-${DISTRO_FILE_PREFIX}/${ONEPKG} ];then
-  if [ ! -d packages-${DISTRO_FILE_PREFIX}/${ONEPKG}_DEV ];then #pkg may go entirely into devx.
-   if [ ! -d packages-${DISTRO_FILE_PREFIX}/${ONEPKG}_DOC ];then #pkg may go entirely into docs.
-    echo "WARNING, PKG DOES NOT EXIST: packages-${DISTRO_FILE_PREFIX}/${ONEPKG}"
-    continue
-   fi
-  fi
- fi
-
- case "$ONEPKG" in
-   mscw|sfs_load|pupx) continue ;; #use only woofce apps
-   busybox) continue ;; #see below (avoid conflict between busybox applets and full utilities)
- esac
-
- echo -n " ${ONEPKG}"
- cp -a --remove-destination packages-${DISTRO_FILE_PREFIX}/${ONEPKG}/* sandbox3/rootfs-complete/ 2> /tmp/3builddistro-cp-errlog
- sync #110727 running drake pup 0.3 with k2.6.39-3 new laptop, mysterious loss of dirs/files. try sync.
- if [ -s /tmp/3builddistro-cp-errlog ];then #130430 next line fixes those quote chars...
-  cat /tmp/3builddistro-cp-errlog | grep 'cannot overwrite non-directory' | tr '[`‘’]' "'" | cut -f 2 -d "'" |
-   while read ONEDIRSYMLINK
-   do
-    xONEDIRSYMLINK="`echo -n "$ONEDIRSYMLINK" | sed -e 's%sandbox3/rootfs-complete%%'`"
-    #adding that extra trailing / does the trick...
-    cp -a --remove-destination packages-${DISTRO_FILE_PREFIX}/${ONEPKG}${xONEDIRSYMLINK}/* sandbox3/rootfs-complete${xONEDIRSYMLINK}/
-   done
- fi
- #...now seems ok. note, there are two places in woof v003 where this problem occurs: /usr/lib/seamonkey
- # and /usr/share/cups/model.
- 
- if [ -f sandbox3/rootfs-complete/pinstall.sh ];then
-  #note, do not filter #! /bin/sh (with a space)...
-  grep  -E -v '^\#\!\/bin\/sh' sandbox3/rootfs-complete/pinstall.sh >> sandbox3/pinstall.sh
-  rm -f sandbox3/rootfs-complete/pinstall.sh
- fi
- #get rid of a .specs file...
- rm -f sandbox3/rootfs-complete/*.specs
-done
+PKGLIST="`echo "$PKGS_SPECS_TABLE" | grep '^yes' | grep -vE "${ADRV_INC/ /|/}" | cut -f 2 -d '|' | tr '\n' ' '`"
+PKGLIST="${PKGLIST}${ZHACKS} x" # append a dummy for "read -d ' ' ..."
+copy_pkgs_to_build "${PKGLIST}" rootfs-complete
 echo
+
+### new adrv build - this sorts the packages and builds the adrv filesystem
+if [ -n "$ADRV_INC" ];then # may not exist
+	ADRV_INC="${ADRV_INC}x" # append a dummy
+	echo
+	echo "Now building sandbox3/adrv with apps redirected to $ADRVSFS"
+	echo '#!/bin/sh' > sandbox3/apinstall.sh
+	mkdir -p sandbox3/adrv/usr/local/bin
+	copy_pkgs_to_build "${ADRV_INC}" adrv
+	chmod 755 sandbox3/apinstall.sh
+	echo
+fi
+# if exists in adrv a .desktop file we symlink it to root/.config/rox.sourceforge.net/OpenWith/
+mkdir -p sandbox3/adrv/root/.config/rox.sourceforge.net/OpenWith/
+(
+cd sandbox3/adrv/root/.config/rox.sourceforge.net/OpenWith/
+for d in ../../../../usr/share/applications/*.desktop;do
+	app=${d##*/}
+	app=${app%\.*}
+	ln -sf $d $app
+done
+)
+### end adrv
 
 #some old packages have xpm and png images in /
 mv -f sandbox3/rootfs-complete/{*.xpm,*.png} sandbox3/rootfs-complete/usr/share/pixmaps 2>/dev/null
@@ -396,6 +404,9 @@ echo "Executing sandbox3/pinstall.sh post-install script..."
 cd $WKGDIR/sandbox3/rootfs-complete
 SAVEWKGDIR="$WKGDIR"
 $WKGDIR/sandbox3/pinstall.sh
+### new adrv stuff - execute the 'apinstall.sh'
+[ -f "$WKGDIR/sandbox3/apinstall.sh" ] && {(cd $WKGDIR/sandbox3/adrv;$WKGDIR/sandbox3/apinstall.sh)}
+###
 echo "Now setting /etc/os-release file"
 mk_os_release() {
 	dir=/etc
@@ -1720,6 +1731,17 @@ if [ "$BUILD_SFS" = 'yes' ]; then
 	${MKSQUASHFS} rootfs-complete build/${PUPPYSFS} ${SFSCOMP} #100911 110713
 	sync
 	###########
+	if [ -d adrv ];then
+		###########
+		#build the adrive sfs...
+		echo
+		echo "Now building the adrive f.s., ${ADRVSFS}..."
+		sync
+		rm -f build/${ADRVSFS} 2>/dev/null
+		${MKSQUASHFS} adrv build/${ADRVSFS} ${SFSCOMP} #170330
+		sync
+		###########	
+	fi
 fi # if BUILD_SFS
 
 # very big 'if'
