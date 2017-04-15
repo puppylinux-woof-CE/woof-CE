@@ -43,6 +43,7 @@ for app in git gcc make ; do
 	$app --version &>/dev/null || exit_error "\033[1;31m""$app is not installed""\033[0m"
 done
 which mksquashfs &>/dev/null || exit_error "\033[1;30m""mksquashfs is not installed""\033[0m"
+log_ver #funcs.sh
 
 if [ "$AUTO" = "yes" ] ; then
 	[ ! "$DOTconfig_file" ] && exit_error "Must specify DOTconfig_file=<file> in build.conf"
