@@ -7,6 +7,22 @@ function pause() {
 	read zzz
 }
 
+function log_ver() {
+	touch ${BUILD_LOG}
+	(
+	if [ -f /etc/DISTRO_SPECS ] ; then
+		. /etc/DISTRO_SPECS
+		echo "$DISTRO_NAME $DISTRO_VERSION [$(uname -m)]"
+	fi
+	gcc --version | head -1
+	git --version | head -1
+	mksquashfs -version | head -1
+	echo
+	) | tee -a ${BUILD_LOG}
+}
+
+#======================================================================
+
 function config_is_set() {
 	[ ! "$1" -o ! "$2" ] && return
 	local opt=$1 file=$2
@@ -118,7 +134,7 @@ function set_i686() {
 	done
 }
 
-# $HOST_ARCH and $x86_* are set in build.sh
+# $HOST_ARCH and $x86_* are set in build.conf and/or build.sh
 # edits .config in current dir
 # part of build.sh ...
 function i386_specific_stuff() {
