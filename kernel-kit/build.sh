@@ -44,6 +44,7 @@ for app in git gcc make ; do
 done
 which mksquashfs &>/dev/null || exit_error "\033[1;30m""mksquashfs is not installed""\033[0m"
 log_ver #funcs.sh
+which cc &>/dev/null || ln -sv $(which gcc) /usr/bin/cc
 
 if [ "$AUTO" = "yes" ] ; then
 	[ ! "$DOTconfig_file" ] && exit_error "Must specify DOTconfig_file=<file> in build.conf"
