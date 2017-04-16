@@ -63,12 +63,12 @@ echo "Setting $theme to default"
 
 
 ##### JWM
+[ ! -d root/.jwm ] && mkdir -p root/.jwm
 cp -af usr/share/jwm/themes/"${PTHEME_JWM_COLOR}-jwmrc" root/.jwm/jwmrc-theme
 #cp -af usr/share/jwm/themes/"${PTHEME_JWM_COLOR}-colors" root/.jwm/jwm_colors
 echo "jwm colors: ${PTHEME_JWM_COLOR}"
 
 cp -f usr/share/jwm/tray_templates/"$PTHEME_JWM_TRAY"/jwmrc-tray* root/.jwm/
-[ ! -d root/.jwm ] && mkdir root/.jwm
 #hybrid
 rm -f root/.jwm/jwmrc-tray*_hybrid
 for I in 1 2 3 4; do
@@ -132,7 +132,7 @@ echo "gtk: ${PTHEME_GTK}"
 # icon theme
 [ -n "$PTHEME_ICONS_GTK" ] && \
 USE_ICON_THEME="`find usr/share/icons -type d -name "$PTHEME_ICONS_GTK" -maxdepth 1`"
-[ -z "$USE_ICON_THEME" ] && USE_ICON_THEME="Puppy Standard" # default if exists
+[ -z "$USE_ICON_THEME" ] && USE_ICON_THEME="Puppy Standard" || USE_ICON_THEME="$PTHEME_ICONS_GTK" # default if exists
 if [ -d "usr/share/icons/$USE_ICON_THEME" ];then
 	# first global
 	echo -e "gtk-icon-theme-name = \"$USE_ICON_THEME\"" >> root/.gtkrc-2.0
