@@ -574,7 +574,7 @@ do
 	diff -q ${i}.orig ${i} &>/dev/null || diff -up ${i}.orig ${i} > ../output/patches-${kernel_version}-${HOST_ARCH}/${z}.patch
 done
 
-for patch in ../patches/* ; do
+for patch in ../patches/*.patch ../patches/${kernel_major_version}/*.patch ; do
 	[ ! -f "$patch" ] && continue #../patches/ might not exist or it may be empty
 	log_msg "Applying $patch"
 	patch -p1 < $patch >> ${BUILD_LOG} 2>&1
