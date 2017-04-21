@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 # new for fatdog style kernel
 # we need udev >= 176
 
@@ -255,24 +255,33 @@ rm $CHOICE
 #creates devx-only-installed-packages.
 ./support/findwoofinstalledpkgs # moved to here so we can add /tmp/rootfs-packages.specs
 
-### new adrv stuff - this creates a full 'woof-installed-packages' in adrv and subtracts the
-# adrv installed packages from the the full 'woof-installed-packages' that goes to the main sfs.
-if [ "$(echo $ADRV_INC)" != "" ];then 
+### new {a,f,y}drv stuff - this creates a full 'woof-installed-packages' in {a,y}drv and subtracts the
+# {a,y}drv installed packages from the the full 'woof-installed-packages' that goes to the main sfs.
+if [ "$(echo $ADRV_INC)" != "" -o "$(echo $FDRV_INC)" != "" -o "$(echo $YDRV_INC)" != "" ];then 
 	sync
-	[ -d sandbox3/adrv ] && rm -rf sandbox3/adrv
-	mkdir -p sandbox3/adrv/root/.packages/
-	[ -f /tmp/a-woof-packages ] && rm /tmp/a-woof-packages
-	while read -r line
-	do 
-		IFS='|' read -r a b c <<<$line
-		if echo "$ADRV_INC" | grep -q "$b" ;then
-			continue
-		else
-			echo "$line" >> /tmp/a-woof-packages
-		fi
-	done < woof-installed-packages
-	cat woof-installed-packages > sandbox3/adrv/root/.packages/woof-installed-packages
-	cat /tmp/a-woof-packages > woof-installed-packages
+	fields="${ADRV_INC}:${FDRV_INC}:${YDRV_INC}:)"
+	IFS=':' read -a field <<< $fields
+	fcnt=0
+	for dtype in a f y; do
+		[ -d sandbox3/${dtype}drv ] && rm -rf sandbox3/${dtype}drv
+		[ "$dtype" = 'a' -a -z "$ADRV_INC" ] && continue
+		[ "$dtype" = 'f' ] && continue #don't bother with fdrv
+		[ "$dtype" = 'y' -a -z "$YDRV_INC" ] && break
+		mkdir -p sandbox3/${dtype}drv/root/.packages/
+		[ -f /tmp/${dtype}-woof-packages ] && rm /tmp/${dtype}-woof-packages
+		while read -r line
+		do 
+			IFS='|' read -r a b c <<<$line
+			if echo "${fields[${fcnt}]}" | grep -q "$b" ;then
+				continue
+			else
+				echo "$line" >> /tmp/${dtype}-woof-packages
+			fi
+		done < woof-installed-packages
+		cat woof-installed-packages > sandbox3/${dtype}drv/root/.packages/woof-installed-packages
+		cat /tmp/${dtype}-woof-packages > woof-installed-packages
+		fcnt=$(($fcnt + 1))
+	done
 fi
 ###
 rm -f sandbox3/rootfs-complete/pinstall.sh
@@ -290,38 +299,68 @@ if [ -d packages-templates/${ZHACKSDIR} ] ; then
 fi
 
 echo "Copying to sandbox3/rootfs-complete..."
-PKGLIST="`echo "$PKGS_SPECS_TABLE" | grep '^yes' | grep -vE "${ADRV_INC// /|}XXXX" | cut -f 2 -d '|' | tr '\n' ' '`" #unless they make a Qld beer proggy 'XXXX' will never match; besides need a trailing field 
+EXTRAS_LIST="${ADRV_INC// /|} ${YDRV_INC// /|} ${AFDRV_INC// /|}"
+if echo "$EXTRAS_LIST" | grep -qvE "[a-z]";then
+	DUMMY=" " 
+else
+	DUMMY=XXXX #unless they make a Qld beer proggy 'XXXX' will never match; besides need a trailing field
+	EXTRAS_LIST="${EXTRAS_LIST// /|}${DUMMY}"
+	EXTRAS_LIST="${EXTRAS_LIST//^|}" #strip leading "|"
+	EXTRAS_LIST="${EXTRAS_LIST//||/|}" #stip double "||"
+fi
+PKGLIST="`echo "$PKGS_SPECS_TABLE" | grep '^yes' | grep -vE "${EXTRAS_LIST}" | cut -f 2 -d '|' | tr '\n' ' '`" 
 PKGLIST="${PKGLIST}${ZHACKS}"
 copy_pkgs_to_build "${PKGLIST}" rootfs-complete
 echo
 
-### new adrv build - this sorts the packages and builds the adrv filesystem
-if [ "$(echo $ADRV_INC)" != "" ];then 
-	echo
-	echo "Now building sandbox3/adrv with apps redirected to $ADRVSFS"
-	echo '#!/bin/sh' > sandbox3/apinstall.sh
-	mkdir -p sandbox3/adrv/usr/local/bin
-	copy_pkgs_to_build "${ADRV_INC}" adrv
-	chmod 755 sandbox3/apinstall.sh
-	echo
-	# if exists in adrv a .desktop file we symlink it to root/.config/rox.sourceforge.net/OpenWith/
-	mkdir -p sandbox3/adrv/root/.config/rox.sourceforge.net/OpenWith/
-	(
-	cd sandbox3/adrv/root/.config/rox.sourceforge.net/OpenWith/
-	for d in ../../../../usr/share/applications/*.desktop;do
-		app=${d##*/}
-		lo=$app # weird bug with libreoffice*.desktop 'permission denied'
-		app=${app%\.*}
-		if echo $app | grep -q 'libreoffice';then
-			echo $app | grep -qE "qstart|startcenter|xsltfilter" && continue
-			ln -sf $d $lo # maintains '.desktop' extension
-		else
-			ln -sf $d $app
+### new {a,f,y}drv build - this sorts the packages and builds the {a,f,y}drv filesystem
+ADRV_INCLUDE='';FDRV_INCLUDE_='';YDRV_INCLUDE=''
+[ "$(echo $ADRV_INC)" != "" ] && ADRV_INCLUDE=adrv
+[ "$(echo $FDRV_INC)" != "" ] && FDRV_INCLUDE=fdrv
+[ "$(echo $YDRV_INC)" != "" ] && YDRV_INCLUDE=ydrv
+if [ -n "$ADRV_INCLUDE" -o -n "$FDRV_INCLUDE" -o -n "$YDRV_INCLUDE" ];then
+	for _DRV in  $ADRV_INCLUDE $FDRV_INCLUDE $YDRV_INCLUDE;do
+		echo
+		echo "Now building sandbox3/${_DRV} with apps redirected to ${_DRV}_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION}.sfs"
+		case ${_DRV} in
+		adrv)echo '#!/bin/sh' > sandbox3/apinstall.sh
+			mkdir -p sandbox3/adrv/usr/local/bin
+			copy_pkgs_to_build "${ADRV_INC}" adrv
+			chmod 755 sandbox3/apinstall.sh
+			echo;;
+		fdrv)echo '#!/bin/sh' > sandbox3/fpinstall.sh
+			mkdir -p sandbox3/fdrv/
+			copy_pkgs_to_build "${FDRV_INC}" fdrv
+			chmod 755 sandbox3/fpinstall.sh
+			echo
+			CONF_DIR=no;;
+		ydrv)echo '#!/bin/sh' > sandbox3/ypinstall.sh
+			mkdir -p sandbox3/ydrv/usr/local/bin
+			copy_pkgs_to_build "${YDRV_INC}" ydrv
+			chmod 755 sandbox3/ypinstall.sh
+			echo;;
+		esac
+		# if exists in {a,y}drv a .desktop file we symlink it to root/.config/rox.sourceforge.net/OpenWith/
+		if [ ! "$CONF_DIR" = 'no' ];then
+			mkdir -p sandbox3/${_DRV}/root/.config/rox.sourceforge.net/OpenWith/
+			(
+			cd sandbox3/${_DRV}/root/.config/rox.sourceforge.net/OpenWith/
+			for d in ../../../../usr/share/applications/*.desktop;do
+				app=${d##*/}
+				lo=$app # weird bug with libreoffice*.desktop 'permission denied'
+				app=${app%\.*}
+				if echo $app | grep -q 'libreoffice';then
+					echo $app | grep -qE "qstart|startcenter|xsltfilter" && continue
+					ln -sf $d $lo # maintains '.desktop' extension
+				else
+					ln -sf $d $app
+				fi
+			done
+			)
 		fi
 	done
-	)
 fi
-### end adrv
+### end {a,f,y}drv
 
 #some old packages have xpm and png images in /
 mv -f sandbox3/rootfs-complete/{*.xpm,*.png} sandbox3/rootfs-complete/usr/share/pixmaps 2>/dev/null
@@ -408,8 +447,14 @@ echo "Executing sandbox3/pinstall.sh post-install script..."
 cd $WKGDIR/sandbox3/rootfs-complete
 SAVEWKGDIR="$WKGDIR"
 $WKGDIR/sandbox3/pinstall.sh
-### new adrv stuff - execute the 'apinstall.sh'
-[ -f "$WKGDIR/sandbox3/apinstall.sh" ] && {(cd $WKGDIR/sandbox3/adrv;$WKGDIR/sandbox3/apinstall.sh)}
+### new {a,f,y}drv stuff - execute the '{a,f,y}pinstall.sh'
+(
+cd $WKGDIR/sandbox3/
+for post_inst in adrv fdrv ydrv;do
+	prefix=${post_inst:0:1}
+	[ -f ${prefix}pinstall.sh ] && {(cd ${post_inst};$WKGDIR/sandbox3/${prefix}pinstall.sh)}
+done
+)
 ###
 echo "Now setting /etc/os-release file"
 mk_os_release() {
@@ -1738,15 +1783,23 @@ if [ "$BUILD_SFS" = 'yes' ]; then
 	${MKSQUASHFS} rootfs-complete build/${PUPPYSFS} ${SFSCOMP} #100911 110713
 	sync
 	###########
-	if [ -d adrv ];then
+	if [ -d adrv -o -d fdrv -o -d ydrv ];then
 		###########
-		#build the adrive sfs...
-		echo
-		echo "Now building the adrive f.s., ${ADRVSFS}..."
-		sync
-		rm -f build/${ADRVSFS} 2>/dev/null
-		${MKSQUASHFS} adrv build/${ADRVSFS} ${SFSCOMP} #170330
-		sync
+		#build the {a,f,y}drive sfs...
+		for SYS_SFS in adrv fdrv ydrv
+		do
+			case $SYS_SFS in
+				adrv) TYPE_SYS_SFS="${ADRVSFS}";;
+				fdrv) TYPE_SYS_SFS="${FDRVSFS}";;
+				ydrv) TYPE_SYS_SFS="${YDRVSFS}";;
+			esac
+			echo
+			echo "Now building the $SYS_SFS f.s., $TYPE_SYS_SFS ..."
+			sync
+			rm -f build/${TYPE_SYS_SFS} 2>/dev/null
+			${MKSQUASHFS} $SYS_SFS build/${TYPE_SYS_SFS} ${SFSCOMP} #170330
+			sync
+		done
 		###########	
 	fi
 fi # if BUILD_SFS
