@@ -28,12 +28,17 @@
 #120324 fix syntax error gettext.
 #130221 vertical scrollbar if more than 9 wireless networks found.
 #131227 zigbert: gui (gtkdialog) improvements.
+#170329 rerwin: set as current network exec, retaining previous exec name.
+#170402 change check for dhcpcd success, to rely on dhcpcd exit code.
 
 export TEXTDOMAIN=sns___sns
 export OUTPUT_CHARSET=UTF-8
 . gettext.sh
 
 [ "`whoami`" != "root" ] && exec sudo -A ${0} ${@} #110505
+
+#170329 Update current exec name. 
+connectwizard_exec sns
 
 #each line of /etc/simple_network_setup/connections has everything known about a connection:
 #(please ignore spaces, put here for readability only)
@@ -202,7 +207,7 @@ if [ -s /etc/simple_network_setup/connections ];then
  if [ "$FLAGINTERNETSTATUS" = "yes" ];then
   CONNECTBTN_XML="<button>`/usr/lib/gtkdialog/xml_button-icon internet_connect_no.svg`<label>$(gettext 'Disconnect Now')</label><action>/usr/sbin/networkdisconnect</action><action type=\"exit\">EXITNOW</action></button>"
  else
-  CONNECTBTN_XML="<button>`/usr/lib/gtkdialog/xml_button-icon internet_connect_yes.svg`<label>$(gettext 'Connect Now')</label><action>/usr/sbin/networkdisconnect</action><action>/usr/local/simple_network_setup/rc.network start & </action><action>yaf-splash -timeout 2 -bg orange -close never -fontsize large -text \"Please wait...\"</action><action type=\"exit\">EXITNOW</action></button>"
+  CONNECTBTN_XML="<button>`/usr/lib/gtkdialog/xml_button-icon internet_connect_yes.svg`<label>$(gettext 'Connect Now')</label><action>/usr/sbin/networkdisconnect</action><action>/usr/local/simple_network_setup/rc.network start & </action><action>yaf-splash -timeout 5 -bg orange -close never -fontsize large -text \"Please wait...\"</action><action type=\"exit\">EXITNOW</action></button>"
  fi
  PROFILE_XML="`/usr/lib/gtkdialog/xml_info fixed "internet_connect.svg" 60 "$(gettext 'Connection profiles have previously been created by SNS.')" "$(gettext "The <b>Connect</b> button will try to establish an internet connection by any of the available profiles.")"`
  <hbox border-width=\"7\" spacing=\"10\"><text use-markup=\"true\"><label>\"`cat /tmp/sns_CNT_P`\"</label></text><text use-markup=\"true\"><label>\"`cat /tmp/sns_I_P`\"</label></text><text use-markup=\"true\"><label>\"`cat /tmp/sns_T_P`\"</label></text><text use-markup=\"true\"><label>\"`cat /tmp/sns_D_P`\"</label></text><text use-markup=\"true\"><label>\"`cat /tmp/sns_B_P`\"</label></text><text use-markup=\"true\"><label>\"`cat /tmp/sns_M_P`\"</label></text><text use-markup=\"true\"><label>\"`cat /tmp/sns_S_P`\"</label></text><text use-markup=\"true\"><label>\"`cat /tmp/sns_SEC_P`\"</label></text></hbox>
@@ -757,27 +762,21 @@ network={
       else
     
        #finally, run dhcpcd...
-       MODTIME1="`stat --format=%Y /etc/resolv.conf`"
+       rm -f /tmp/sns_interface_success #170402
        for iterDHCPCD in a b #100320
        do
         [ "$iterDHCPCD" = "a" ] && DHCPCDFIX=""
         [ "$iterDHCPCD" = "b" ] && DHCPCDFIX="-I ''" #some dhcp servers require empty Client ID (default is macaddress).
         echo "STEP6${iterDHCPCD}: dhcpcd $DHCPCDFIX $INTERFACE" >> /tmp/sns_wireless_log
         dhcpcd $DHCPCDFIX $INTERFACE >> /tmp/sns_wireless_log 2>&1 ####DHCP CLIENT#### 121117
-        mCNT=0
-        while [ 1 ];do
-         MODTIME2="`stat --format=%Y /etc/resolv.conf`"
-         [ "$MODTIME2" != "$MODTIME1" ] && break 2
+        if [ $? -eq 0 ] && [ "`grep -v '^#' /etc/resolv.conf`" != "" ];then #170402
+         echo "$INTERFACE" > /tmp/sns_interface_success #100325
+        else #170402
          sleep 1
-         mCNT=`expr $mCNT + 1`
-         if [ $mCNT -gt 20 ];then
-          [ "$iterDHCPCD" != "b" ] && dhcpcd --release $INTERFACE
-          break
-         fi
-        done
+         [ "$iterDHCPCD" != "b" ] && dhcpcd --release $INTERFACE
+        fi #170402
        done
-       [ "$MODTIME2" == "$MODTIME1" ] && FLAGERR=6
-       [ "`grep -v '^#' /etc/resolv.conf`" == "" ] && FLAGERR=6
+       [ -f /tmp/sns_interface_success ] || FLAGERR=6 #170402
         
        if [ $FLAGERR ];then
         if [ "`pidof wpa_supplicant`" != "" ];then
@@ -923,10 +922,9 @@ if [ "$IF_INTTYPE" == "Wired" ];then
  Description: $IF_INFO
  " > /tmp/sns_wired_log
  
- MODTIME1="1"; MODTIME2="1"
  ifconfig $INTERFACE up >> /tmp/sns_wired_log 2>&1
- [ $? -eq 0 ] && MODTIME2="0"
- if [ "$MODTIME2" == "0" ];then
+ [ $? -eq 0 ] && IFACEUP=true || IFACEUP=false #170402
+ if [ $IFACEUP = true ];then #170402
   if ! ifplugstatus-0.18 "$INTERFACE" | grep -F -q 'link beat detected' ;then
    sleep 1
    if ! ifplugstatus "$INTERFACE" | grep -F -q 'link beat detected' ;then
@@ -947,22 +945,24 @@ if [ "$IF_INTTYPE" == "Wired" ];then
     fi
    fi
   fi
-  MODTIME1="`stat --format=%Y /etc/resolv.conf`"
+  rm -f /tmp/sns_interface_success #170402
   DHCPCDFIX=""
   dhcpcd $INTERFACE >> /tmp/sns_wired_log 2>&1
-  MODTIME2="`stat --format=%Y /etc/resolv.conf`"
-  [ "`grep -v '^#' /etc/resolv.conf`" == "" ] && MODTIME2=$MODTIME1 #fail.
-  if [ "$MODTIME2" = "$MODTIME1" ];then #100325 fail, try again.
+  if [ $? -eq 0 ] && [ "`grep -v '^#' /etc/resolv.conf`" != "" ];then #170402...
+   echo "$INTERFACE" > /tmp/sns_interface_success
+  else #170402 end  fail, try again.
    DHCPCDFIX="-I ''"
    dhcpcd --release $INTERFACE
    dhcpcd -I '' $INTERFACE >> /tmp/sns_wired_log 2>&1
-   MODTIME2="`stat --format=%Y /etc/resolv.conf`"
-   [ "`grep -v '^#' /etc/resolv.conf`" == "" ] && MODTIME2=$MODTIME1 #fail.
+   if [ $? -eq 0 ] && [ "`grep -v '^#' /etc/resolv.conf`" != "" ];then #170402...
+    echo "$INTERFACE" > /tmp/sns_interface_success
+   fi #170402 end
   fi
  fi
  kill $PIDXX
 
- if [ "$MODTIME2" != "$MODTIME1" ];then
+ if [ $IFACEUP = true ] \
+   && [ -f /tmp/sns_interface_success ];then #170402
   export SNS_complete='
   <window title="'$(gettext 'SNS: Simple Network Setup')'" icon-name="gtk-network">
   <vbox>
