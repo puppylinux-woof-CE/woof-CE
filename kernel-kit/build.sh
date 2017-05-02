@@ -165,8 +165,6 @@ fi
 #------------------------------------------------------------------
 FW_URL=${FW_URL:-http://distro.ibiblio.org/puppylinux/firmware}
 # $package_name_suffix $custom_suffix $kernel_ver
-kernel_version_full=${kernel_version}${custom_suffix}
-kernel_srcsfs_version=${kernel_version}
 aufs_git_3="git://git.code.sf.net/p/aufs/aufs3-standalone.git"
 aufs_git_4="git://github.com/sfjro/aufs4-standalone.git"
 [ ! "$kernel_mirrors" ] && kernel_mirrors="ftp://www.kernel.org/pub/linux/kernel"
@@ -553,7 +551,6 @@ cp Makefile Makefile-orig
 if [ "$remove_sublevel" = "yes" ] ; then
 	log_msg "Resetting the minor version number" #!
 	sed -i "s/^SUBLEVEL =.*/SUBLEVEL = 0/" Makefile
-	log_msg "kernel_srcsfs_version=$kernel_srcsfs_version"
 fi
 ## custom suffix
 if [ -n "${custom_suffix}" ] || [ $LIBRE -eq 1 ] ; then
@@ -734,6 +731,9 @@ make DESTDIR=$CWD/output/aufs-util-${kernel_version}-${arch} install
 #------------------------------------------------------
 cd linux-${kernel_version}
 
+echo "make ${JOBS} bzImage modules
+make INSTALL_MOD_PATH=${linux_kernel_dir} modules_install" > compile ## debug
+
 log_msg "Compiling the kernel" | tee -a ${BUILD_LOG}
 make ${JOBS} bzImage modules >> ${BUILD_LOG} 2>&1
 KCONFIG="output/DOTconfig-${kernel_version}-${HOST_ARCH}-${today}"
@@ -753,19 +753,19 @@ fi
 
 log_msg "Creating the kernel package"
 make INSTALL_MOD_PATH=${linux_kernel_dir} modules_install >> ${BUILD_LOG} 2>&1
-rm -f ${linux_kernel_dir}/lib/modules/${kernel_srcsfs_version}${custom_suffix}/{build,source}
+rm -f ${linux_kernel_dir}/lib/modules/${kernel_version}${custom_suffix}/{build,source}
 mkdir -p ${linux_kernel_dir}/boot
 mkdir -p ${linux_kernel_dir}/etc/modules
 ## /boot/config-$(uname -m)     ## http://www.h-online.com/open/features/Good-and-quick-kernel-configuration-creation-1403046.html
-cp .config ${linux_kernel_dir}/boot/config-${kernel_version_full}
+cp .config ${linux_kernel_dir}/boot/config-${kernel_version}${custom_suffix}
 ## /boot/Sytem.map-$(uname -r)  ## https://en.wikipedia.org/wiki/System.map
-cp System.map ${linux_kernel_dir}/boot/System.map-${kernel_version_full}
+cp System.map ${linux_kernel_dir}/boot/System.map-${kernel_version}${custom_suffix}
 ## /etc/moodules/..
 cp .config ${linux_kernel_dir}/etc/modules/DOTconfig-${kernel_version}-${today}
-cp ${linux_kernel_dir}/lib/modules/${kernel_srcsfs_version}${custom_suffix}/modules.builtin \
-	${linux_kernel_dir}/etc/modules/modules.builtin-${kernel_version_full}
-cp ${linux_kernel_dir}/lib/modules/${kernel_srcsfs_version}${custom_suffix}/modules.order \
-	${linux_kernel_dir}/etc/modules/modules.order-${kernel_version_full}
+cp ${linux_kernel_dir}/lib/modules/${kernel_version}${custom_suffix}/modules.builtin \
+	${linux_kernel_dir}/etc/modules/modules.builtin-${kernel_version}${custom_suffix}
+cp ${linux_kernel_dir}/lib/modules/${kernel_version}${custom_suffix}/modules.order \
+	${linux_kernel_dir}/etc/modules/modules.order-${kernel_version}${custom_suffix}
 
 #cp arch/x86/boot/bzImage ${linux_kernel_dir}/boot/vmlinuz
 BZIMAGE=`find . -type f -name bzImage | head -1`
@@ -796,13 +796,13 @@ cp -a --remove-destination output/aufs-util-${kernel_version}-${arch}/* \
 log_msg "Creating a kernel sources SFS"
 mkdir -p kernel_sources-${kernel_version}-${package_name_suffix}/usr/src
 mv linux-${kernel_version} kernel_sources-${kernel_version}-${package_name_suffix}/usr/src/linux
-mkdir -p kernel_sources-${kernel_version}-${package_name_suffix}/lib/modules/${kernel_srcsfs_version}${custom_suffix}
-ln -s /usr/src/linux kernel_sources-${kernel_version}-${package_name_suffix}/lib/modules/${kernel_srcsfs_version}${custom_suffix}/build
+mkdir -p kernel_sources-${kernel_version}-${package_name_suffix}/lib/modules/${kernel_version}${custom_suffix}
+ln -s /usr/src/linux kernel_sources-${kernel_version}-${package_name_suffix}/lib/modules/${kernel_version}${custom_suffix}/build
 if [ ! -f kernel_sources-${kernel_version}-${package_name_suffix}/usr/src/linux/include/linux/version.h ] ; then
 	ln -s /usr/src/linux/include/generated/uapi/linux/version.h \
 		kernel_sources-${kernel_version}-${package_name_suffix}/usr/src/linux/include/linux/version.h
 fi
-ln -s /usr/src/linux kernel_sources-${kernel_version}-${package_name_suffix}/lib/modules/${kernel_srcsfs_version}${custom_suffix}/source
+ln -s /usr/src/linux kernel_sources-${kernel_version}-${package_name_suffix}/lib/modules/${kernel_version}${custom_suffix}/source
 mksquashfs kernel_sources-${kernel_version}-${package_name_suffix} output/kernel_sources-${kernel_version}-${package_name_suffix}.sfs $COMP
 md5sum output/kernel_sources-${kernel_version}-${package_name_suffix}.sfs > output/kernel_sources-${kernel_version}-${package_name_suffix}.sfs.md5.txt
 
