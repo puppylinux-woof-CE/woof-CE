@@ -7,6 +7,7 @@
 # Update: Oct. 10th: add safeguards in case PREV_LOCATION is blank
 # Update: Oct. 11th: fix the "ok" of the chooser exit...
 # Update: Oct. 26th: localize
+#170509 rerwin: replace gtkdialog3 with gtkdialog.
 
 #=============================================================================
 #============= FUNCTIONS USED IN THE SCRIPT ==============
@@ -35,7 +36,7 @@ selectDriverFile()
 </window>"
 
     I=$IFS; IFS=""
-    for STATEMENT in  $(gtkdialog3 --program NETWIZ_Ndiswrapper_Chooser 2>/dev/null); do
+    for STATEMENT in  $(gtkdialog --program NETWIZ_Ndiswrapper_Chooser 2>/dev/null); do
       eval $STATEMENT
     done
     IFS=$I
