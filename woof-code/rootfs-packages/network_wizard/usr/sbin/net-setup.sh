@@ -73,6 +73,7 @@
 # 25feb10: shinobar: old and new ifplugstatus
 #111015 BK: strip out chars that might upset gtkdialog.
 #170329 rerwin: set as current network exec, retaining previous exec name.
+#170509 rerwin: replace gtkdialog3 with gtkdialog.
 
 APPDIR="$(dirname $0)"
 [ "$APPDIR" = "." ] && APPDIR="$(pwd)"
@@ -128,7 +129,7 @@ showMainWindow()
 		buildMainWindow
 
 		I=$IFS; IFS=""
-		for STATEMENT in  $(gtkdialog3 --program NETWIZ_Main_Window); do
+		for STATEMENT in  $(gtkdialog --program NETWIZ_Main_Window); do
 			eval $STATEMENT 2>/dev/null
 		done
 		IFS=$I
@@ -373,7 +374,7 @@ showLoadModuleWindow()
 </window>"
 
   I=$IFS; IFS=""
-  for STATEMENT in  $(gtkdialog3 --program NETWIZ_LOAD_MODULE_DIALOG); do
+  for STATEMENT in  $(gtkdialog --program NETWIZ_LOAD_MODULE_DIALOG); do
 	eval $STATEMENT 2>/dev/null
   done
   IFS=$I
@@ -505,7 +506,7 @@ showLoadModuleWindow()
 	
 	# Run new dialog
 	I=$IFS; IFS=""
-    for STATEMENT in  $(gtkdialog3 --program NETWIZ_NEW_MODULE_DIALOG); do
+    for STATEMENT in  $(gtkdialog --program NETWIZ_NEW_MODULE_DIALOG); do
 	  eval $STATEMENT 2>/dev/null
     done
     IFS=$I
@@ -595,7 +596,7 @@ giveAcxDialog(){
 </window>"
 
     I=$IFS; IFS=""
-    for STATEMENT in  $(gtkdialog3 --program NETWIZ_Acx_Module_Dialog); do
+    for STATEMENT in  $(gtkdialog --program NETWIZ_Acx_Module_Dialog); do
     	eval $STATEMENT
     done
     IFS=$I
@@ -644,7 +645,7 @@ askWhichInterfaceForNdiswrapper(){
 </window>"
 
 	I=$IFS; IFS=""
-	for STATEMENT in  $(gtkdialog3 --program NETWIZ_Select_Ndiswrapper_Interface_Dialog); do
+	for STATEMENT in  $(gtkdialog --program NETWIZ_Select_Ndiswrapper_Interface_Dialog); do
 	eval $STATEMENT
 	done
 	IFS=$I
@@ -769,7 +770,7 @@ loadSpecificModule (){
 </window>"
 
   I=$IFS; IFS=""
-  for STATEMENT in  $(gtkdialog3 --program NETWIZ_Load_Specific_Module_Window); do
+  for STATEMENT in  $(gtkdialog --program NETWIZ_Load_Specific_Module_Window); do
 	eval $STATEMENT 2>/dev/null
   done
   IFS=$I
@@ -874,7 +875,7 @@ offerToBlacklistModule(){
 </window>"
 
     I=$IFS; IFS=""
-    for STATEMENT in  $(gtkdialog3 --program NETWIZ_Blacklist_Module_Dialog); do
+    for STATEMENT in  $(gtkdialog --program NETWIZ_Blacklist_Module_Dialog); do
     	eval $STATEMENT
     done
     IFS=$I
@@ -930,7 +931,7 @@ unloadSpecificModule(){
 </window>"
 
   I=$IFS; IFS=""
-  for STATEMENT in  $(gtkdialog3 --program NETWIZ_Unload_Module_Window); do
+  for STATEMENT in  $(gtkdialog --program NETWIZ_Unload_Module_Window); do
 	eval $STATEMENT 2>/dev/null
   done
   IFS=$I
@@ -1077,7 +1078,7 @@ showConfigureInterfaceWindow()
     buildConfigureInterfaceWindow
     
     I=$IFS; IFS=""
-    for STATEMENT in  $(gtkdialog3 --program NETWIZ_Configure_Interface_Window); do
+    for STATEMENT in  $(gtkdialog --program NETWIZ_Configure_Interface_Window); do
       eval $STATEMENT
     done
     IFS=$I
@@ -1335,7 +1336,7 @@ EOF
 	do
 		buildStaticIPWindow
 		I=$IFS; IFS=""
-		for STATEMENT in  $(gtkdialog3 --program NETWIZ_Static_IP_Window); do
+		for STATEMENT in  $(gtkdialog --program NETWIZ_Static_IP_Window); do
 			eval $STATEMENT
 		done
 		IFS=$I
