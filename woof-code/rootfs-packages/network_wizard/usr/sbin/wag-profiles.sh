@@ -105,6 +105,8 @@
 #121117 rerwin: add dropwait option to dhcpcd startup; correct "abort" button action for pid; correct dhcpcd error test.
 #131225 shinobar: retry with WPA/AES
 #150606 revert dropwait mod (121117, obsolete).
+#170504 correct clean_up_gtkdialog PID extraction 
+#170509 rerwin: replace gtkdialog3 with gtkdialog.
 
 #
 # Paul Siu
@@ -229,7 +231,7 @@ setupDHCP()
   </hbox>
  </vbox>
 </window>" #121117 fix Abort action
-		gtkdialog3 --program=Dhcpcd_Progress_Dialog <$PROGRESS_OUTPUT >/dev/null &
+		gtkdialog --program=Dhcpcd_Progress_Dialog <$PROGRESS_OUTPUT >/dev/null &
 		local XPID=$!
 	else
 		local PROGRESS_OUTPUT=$DEBUG_OUTPUT
@@ -248,7 +250,7 @@ setupDHCP()
 				sleep 1
 				# see if user aborted 
 				if [ "$HAVEX" = "yes" ]; then
-					pidof gtkdialog3 2>&1 |grep -q "$1" || return
+					pidof gtkdialog 2>&1 |grep -q "$1" || return
 					# exit the function
 				else
 					if [ -f "$TmpMarker" ] ; then
@@ -274,7 +276,7 @@ setupDHCP()
 		echo "$HAS_ERROR" > /tmp/net-setup_HAS_ERROR.txt
 		# close progressbar
 		if [ "$HAVEX" = "yes" ] ; then
-			pidof gtkdialog3 2>&1 | grep -q "$XPID" && echo "100"
+			pidof gtkdialog 2>&1 | grep -q "$XPID" && echo "100"
 		else
 			touch "$TmpMarker"
 		fi
@@ -354,7 +356,7 @@ showProfilesWindow()
 
 		I=$IFS; IFS=""
 		## Add escaping of funny chars before we eval the statement!
-		for STATEMENT in  $(gtkdialog3 --program NETWIZ_Profiles_Window | sed 's%\$%\\$%g ; s%`%\\`%g ; s%"%\\"%g ; s%=\\"%="%g ; s%\\"$%"%g' ); do
+		for STATEMENT in  $(gtkdialog --program NETWIZ_Profiles_Window | sed 's%\$%\\$%g ; s%`%\\`%g ; s%"%\\"%g ; s%=\\"%="%g ; s%\\"$%"%g' ); do
 			eval $STATEMENT
 		done
 		IFS=$I
@@ -460,7 +462,7 @@ showProfilesWindow()
  #</vbox>
 #</window>"
 
-	#gtkdialog3 --program NETWIZ_No_WPA_Dialog >/dev/null 2>&1
+	#gtkdialog --program NETWIZ_No_WPA_Dialog >/dev/null 2>&1
 	#clean_up_gtkdialog NETWIZ_No_WPA_Dialog
 	#unset NETWIZ_No_WPA_Dialog
 #}
@@ -491,7 +493,7 @@ giveNoWPADialog(){
  </vbox>
 </window>"
 
-	for ONE in $( gtkdialog3 --program=NETWIZ_No_WPA_Dialog )
+	for ONE in $( gtkdialog --program=NETWIZ_No_WPA_Dialog )
 	do eval $ONE
 	done
 	clean_up_gtkdialog NETWIZ_No_WPA_Dialog
@@ -527,7 +529,7 @@ giveNoWPADialog(){
  </vbox>
 </window>"
 
-	for ONE in $( gtkdialog3 --program=NETWIZ_WPA_Details_Dialog )
+	for ONE in $( gtkdialog --program=NETWIZ_WPA_Details_Dialog )
 	do eval $ONE
 	done
 	clean_up_gtkdialog NETWIZ_WPA_Details_Dialog
@@ -1214,7 +1216,7 @@ giveErrorDialog(){
  </vbox>
 </window>"
 
-	gtkdialog3 --program NETWIZ_ERROR_DIALOG >/dev/null 2>&1
+	gtkdialog --program NETWIZ_ERROR_DIALOG >/dev/null 2>&1
 	clean_up_gtkdialog NETWIZ_ERROR_DIALOG
 	unset NETWIZ_ERROR_DIALOG
 }
@@ -1237,7 +1239,7 @@ giveErrorDialog(){
  #</vbox>
 #</window>"
 
-	#gtkdialog3 --program NO_NETWORK_ERROR_DIALOG >/dev/null 2>&1
+	#gtkdialog --program NO_NETWORK_ERROR_DIALOG >/dev/null 2>&1
 	#clean_up_gtkdialog NO_NETWORK_ERROR_DIALOG
 	#unset NO_NETWORK_ERROR_DIALOG
 #}
@@ -1367,7 +1369,7 @@ $ERROR
 ## dialog variable passed as param
 clean_up_gtkdialog(){
  [ "$1" ] || return
- for I in $( ps -eo pid,command | grep "$1" | grep -v grep | grep -F 'gtkdialog3' | cut -d' ' -f1 )
+ for I in $( ps -fC gtkdialog | grep "$1" | tr -s ' ' | cut -f 2 -d ' ' | tr '\n' ' ' ) #170504
  do kill $I
  done 
 }
@@ -1385,7 +1387,7 @@ useIwconfig ()
   <text><label>\"${L_MESSAGE_Configuring_Interface_p1}${INTERFACE}${L_MESSAGE_Configuring_Interface_p2}${PROFILE_ESSID}...
 \"</label></text>
  </vbox></window>"
-	  gtkdialog3 --program NETWIZ_Connecting_DIALOG &
+	  gtkdialog --program NETWIZ_Connecting_DIALOG &
 	  local XPID=$!	  
 	fi
 	#killWpaSupplicant
@@ -1444,7 +1446,7 @@ useWlanctl(){
   <text><label>\"${L_MESSAGE_Configuring_Interface_p1}${INTERFACE}${L_MESSAGE_Configuring_Interface_p2}${PROFILE_ESSID}...
 \"</label></text>
  </vbox></window>"
-	  gtkdialog3 --program NETWIZ_Connecting_DIALOG &
+	  gtkdialog --program NETWIZ_Connecting_DIALOG &
 	  local XPID=$!	  
 	fi
 	#killWpaSupplicant
@@ -1507,7 +1509,7 @@ validateWpaAuthentication(){
 		sleep 1
 		# see if user aborted 
 		if [ "$2" ] ; then
-		  pidof gtkdialog3 2>&1 |grep -q "$2" || return 2
+		  pidof gtkdialog 2>&1 |grep -q "$2" || return 2
 		fi
 		# change to lower case, to make it more clear when displayed
 		RESULT=$(wpa_cli -i "$1" status 2>>$DEBUG_OUTPUT |grep 'wpa_state=' | tr A-Z a-z |tr '_' ' ')
@@ -1595,7 +1597,7 @@ $L_MESSAGE_No_Wpaconfig_p2"
   </hbox>
  </vbox>
 </window>"
-		gtkdialog3 --program=NETWIZ_Scan_Progress_Dialog <$PROGRESS_OUTPUT &
+		gtkdialog --program=NETWIZ_Scan_Progress_Dialog <$PROGRESS_OUTPUT &
 		local XPID=$!
 	else
 		PROGRESS_OUTPUT=$DEBUG_OUTPUT
@@ -1713,7 +1715,7 @@ $L_MESSAGE_No_Wpaconfig_p2"
 </window>"
 
 		I=$IFS; IFS=""
-		for STATEMENT in  $(gtkdialog3 --program NETWIZ_No_WPA_Connection_Dialog); do
+		for STATEMENT in  $(gtkdialog --program NETWIZ_No_WPA_Connection_Dialog); do
 			eval $STATEMENT
 		done
 		IFS=$I
@@ -1751,7 +1753,7 @@ $L_MESSAGE_No_Wpaconfig_p2"
  </vbox>
 </window>"
 		    I=$IFS; IFS=""
-		    for STATEMENT in  $(gtkdialog3 --program NETWIZ_WPA_Status_Dialog); do
+		    for STATEMENT in  $(gtkdialog --program NETWIZ_WPA_Status_Dialog); do
 			  eval $STATEMENT
 		    done
 		    IFS=$I
@@ -1791,7 +1793,7 @@ waitForPCMCIA(){
 	for i in 1 2 3 4 5 ; do
 		sleep 1
 		echo X
-	done | gtkdialog3 --program=NETWIZ_Wait_For_PCMCIA_Dialog >/dev/null
+	done | gtkdialog --program=NETWIZ_Wait_For_PCMCIA_Dialog >/dev/null
 	clean_up_gtkdialog NETWIZ_Wait_For_PCMCIA_Dialog
 } # end of waitForPCMCIA
 
@@ -1914,7 +1916,7 @@ ${L_SCANWINDOW_Strength}${CELL_QUALITY}\""
 	${SCANWINDOW_BUTTONS} 2> /dev/null" > /tmp/net-setup_scanwindow
 		fi
 		echo "X"
-	)  | gtkdialog3 --program=NETWIZ_Scan_Progress_Dialog >/dev/null
+	)  | gtkdialog --program=NETWIZ_Scan_Progress_Dialog >/dev/null
 	clean_up_gtkdialog NETWIZ_Scan_Progress_Dialog
 	
 	#Xdialog --title "Puppy Ethernet Wizard" --progress "Scanning wireless networks" 0 0 3
@@ -1930,7 +1932,7 @@ ${L_SCANWINDOW_Strength}${CELL_QUALITY}\""
 createNoNetworksDialog(){
   echo 'clean_up_gtkdialog(){
  [ "$1" ] || return
- for I in $(ps -eo pid,command | grep "$1" | grep -v grep | grep -F "gtkdialog3" | cut -d" " -f1)
+ for I in $(ps -fC gtkdialog | grep "$1" | tr -s ' ' | cut -f 2 -d ' ' | tr '\n' ' ')
  do kill $I
  done 
 }
@@ -1949,17 +1951,17 @@ export NETWIZ_SCAN_ERROR_DIALOG="<window title=\"'"$L_TITLE_Puppy_Network_Wizard
  </vbox>
 </window>"
 
-gtkdialog3 --program NETWIZ_SCAN_ERROR_DIALOG
+gtkdialog --program NETWIZ_SCAN_ERROR_DIALOG
 clean_up_gtkdialog NETWIZ_SCAN_ERROR_DIALOG
 exit 0
-' > /tmp/net-setup_scanwindow
+' > /tmp/net-setup_scanwindow #170504
 }
 
 #=============================================================================
 createRetryScanDialog(){
     echo 'clean_up_gtkdialog(){
  [ "$1" ] || return
- for I in $(ps -eo pid,command | grep "$1" | grep -v grep | grep -F "gtkdialog3" | cut -d" " -f1)
+ for I in $(ps -fC gtkdialog | grep "$1" | tr -s ' ' | cut -f 2 -d ' ' | tr '\n' ' ')
  do kill $I
  done 
 }
@@ -1984,7 +1986,7 @@ export NETWIZ_SCAN_ERROR_DIALOG="<window title=\"'"$L_TITLE_Puppy_Network_Wizard
 </window>"
 
 I=$IFS; IFS=""
-for STATEMENT in  $(gtkdialog3 --program NETWIZ_SCAN_ERROR_DIALOG); do
+for STATEMENT in  $(gtkdialog --program NETWIZ_SCAN_ERROR_DIALOG); do
 	eval $STATEMENT
 done
 IFS=$I
@@ -1994,14 +1996,14 @@ case $EXIT in
 Cancel) exit 0 ;;
 retry) exit 111 ;;
 esac
-' > /tmp/net-setup_scanwindow
+' > /tmp/net-setup_scanwindow #170504
 }
 
 #=============================================================================
 createRetryPCMCIAScanDialog(){
   echo 'clean_up_gtkdialog(){
  [ "$1" ] || return
- for I in $(ps -eo pid,command | grep "$1" | grep -v grep | grep -F "gtkdialog3" | cut -d" " -f1)
+ for I in $(ps -fC gtkdialog | grep "$1" | tr -s ' ' | cut -f 2 -d ' ' | tr '\n' ' ')
  do kill $I
  done 
 }
@@ -2026,7 +2028,7 @@ export NETWIZ_SCAN_ERROR_DIALOG="<window title=\"'"$L_TITLE_Puppy_Network_Wizard
 </window>"
 
 I=$IFS; IFS=""
-for STATEMENT in  $(gtkdialog3 --program NETWIZ_SCAN_ERROR_DIALOG); do
+for STATEMENT in  $(gtkdialog --program NETWIZ_SCAN_ERROR_DIALOG); do
 	eval $STATEMENT
 done
 IFS=$I
@@ -2036,7 +2038,7 @@ case $EXIT in
 Cancel) exit 0 ;;
 retry) exit 101 ;;
 esac
-' > /tmp/net-setup_scanwindow
+' > /tmp/net-setup_scanwindow #170504
 }
 
 #=============================================================================
@@ -2105,7 +2107,7 @@ buildPrismScanWindow()
 	  fi
 	fi
 	echo "X"
-  )  | gtkdialog3 --program=NETWIZ_Scan_Progress_Dialog >/dev/null
+  )  | gtkdialog --program=NETWIZ_Scan_Progress_Dialog >/dev/null
 	# clean up
 	clean_up_gtkdialog NETWIZ_Scan_Progress_Dialog
 	
