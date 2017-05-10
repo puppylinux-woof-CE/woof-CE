@@ -1,0 +1,202 @@
+#!/bin/sh
+
+# called from 3builddistro{-Z}
+echo ${WKGDIR} # should be /wherever/woof/is/woof-out*
+. ${WKGDIR}/support/fw.conf
+
+TMP=/tmp/fw$$
+mkdir -p $TMP
+SANDBOX=${WKGDIR}/sandbox3
+OUT=${SANDBOX}/fdrv/lib/firmware
+#rm -rf $OUT
+mkdir -p $OUT
+export FIRMWARE_INSTALL_DIR="${OUT}"  #/lib/firmware for b43-fwcutter
+LOGDIR=${WKGDIR}/status
+mkdir -p $LOGDIR
+LOG=${LOGDIR}/get_fw.log
+rm -f $LOG
+
+#======== misc funcs ==========
+clear_tmp() {
+	rm -rf ${TMP}/* # ditch it all
+}
+
+fixup_conf() {
+	echo "#############################################################
+If you build b43_all you can't build b43_new and old.
+Likewise you can't have b43_old=true and b43_new=true
+Just choose one to be 'true'
+Ressetting only 'b43_all=true'. Others to false
+#############################################################"
+	sed -i -e 's/b43_new.*/b43_new=false/' \
+		   -e 's/b43_old.*/b43_old=false/' ${WKGDIR}/support/fw.conf
+	echo
+	b43_new=false
+	b43_old=false
+}
+
+return_msg() {
+	. ${WKGDIR}/support/fw.conf
+	[ "$1" = false ] && echo "$2 value: false" || echo "$2 fail"
+	[ "$1" = false ] && echo "$2 value: false" >> $LOG || echo "$2 fail" >> $LOG
+}
+
+success_msg() {
+	echo "$1: successfully installed to fdrv"
+	echo "$1: successfully installed to fdrv" >> $LOG
+}
+
+#======== the actual working funcs ==========
+# B43
+B43_URL='http://www.lwfinger.com/b43-firmware/broadcom-wl-5.100.138.tar.bz2'
+B43_LEG_URL='http://downloads.openwrt.org/sources/wl_apsta-3.130.20.0.o'
+FW_CUT_URL='http://bues.ch/b43/fwcutter/b43-fwcutter-018.tar.bz2'
+
+build_cutter() {
+	echo "WARNING: this script installs b43-fwcutter on your system."
+	echo "(if not already installed)"
+	sleep 3
+	echo
+	if [ ! -e "b43-fwcutter-018.tar.bz2" ];then
+		wget "$FW_CUT_URL" -P ${TMP} || return 1
+	fi
+	tar xjf ${TMP}/b43-fwcutter-018.tar.bz2 -C ${TMP} || return 1
+	(
+	cd ${TMP}/b43-fwcutter-018
+	make || return 1
+	make install || return 1
+	echo "b43-fwcutter is now installed to your system."
+	sleep 1
+	)
+	clear_tmp
+}
+
+extract_b43() {
+	which b43-fwcutter 2>&1 >/dev/null || build_cutter
+	[ $? -ne 0 ] && return 1
+	wget "$B43_URL" -P ${TMP} || return 1
+	tar xjf ${TMP}/broadcom-wl-5.100.138.tar.bz2 -C ${TMP} || return 1
+	b43-fwcutter -w "$FIRMWARE_INSTALL_DIR" ${TMP}/broadcom-wl-5.100.138/linux/wl_apsta.o
+	clear_tmp
+}
+
+extract_legacy() {
+	wget "$B43_LEG_URL" -P ${TMP} || return 1
+	b43-fwcutter -w "$FIRMWARE_INSTALL_DIR" ${TMP}/wl_apsta-3.130.20.0.o
+	clear_tmp
+}
+
+b43_func() {
+	which b43-fwcutter 2>&1 >/dev/null || build_cutter
+	[ $? -ne 0 ] && return 1
+	case $1 in
+		new)extract_b43 || return 1;;
+		old)extract_legacy || return 1;;
+		  *)extract_b43 || return 1
+		    extract_legacy || return 1;;
+	esac
+}
+
+# WIRELESS
+zd_func() {
+	wget 'https://nchc.dl.sourceforge.net/project/linux-lc100020/%28NEW%29%20zd1201%20driver/zd1201.%20Version%200.14/zd1201-0.14-fw.tar.gz' -P $TMP #<==>zd1201''
+	tar xvf ${TMP}/zd1201-0.14-fw.tar.gz -C ${TMP}
+	cp -af ${TMP}/zd1201-0.14-fw/zd1201.fw ${OUT}
+	cp -af ${TMP}/zd1201-0.14-fw/zd1201-ap.fw ${OUT}
+	clear_tmp
+}
+
+atmel_func() {
+	wget http://www.thekelleys.org.uk/atmel/atmel-firmware-1.3.tar.gz -P $TMP || return 1  #<==>atmel
+	tar xvf ${TMP}/atmel-firmware-1.3.tar.gz -C ${TMP} || return 1
+	cp -af ${TMP}/atmel-firmware-1.3/images/* ${OUT}
+	cp -af ${TMP}/atmel-firmware-1.3/images.usb/* ${OUT}
+	mkdir -p ${WKGDIR}/${SANDBOX}/fdrv/usr/sbin
+	mkdir -p ${WKGDIR}/${SANDBOX}/fdrv/etc/pcmcia
+	cp -af ${TMP}/atmel-firmware-1.3/atmel.conf ${WKGDIR}/${SANDBOX}/fdrv/etc/pcmcia
+	cp -af ${TMP}/atmel-firmware-1.3/atmel_fwl.pl ${WKGDIR}/${SANDBOX}/fdrv/usr/sbin/atmel_fwl
+	chmod 755 ${WKGDIR}/${SANDBOX}/fdrv/usr/sbin/atmel_fwl
+	clear_tmp
+}
+
+# DVB
+af9005_func() {
+	wget -O ${TMP}/af9005.fw http://ventoso.org/luca/af9005/af9005.fw-6.11.23.01 -P $TMP || return 1  #<==>af9005
+	mv -f ${TMP}/af9005.fw ${OUT}
+}
+
+af9015_func() {
+	wget http://palosaari.fi/linux/v4l-dvb/firmware/af9015/5.24.0.0/dvb-usb-af9015.fw -P $TMP || return 1  #<==>af9015
+	mv -f ${TMP}/dvb-usb-af9015.fw ${OUT}
+} 
+
+af9013_func() {
+	wget https://jenda.hrach.eu/f2/dvb-firmware/firmware/dvb-fe-af9013.fw -P $TMP || return 1  #<==>af9013
+	mv -f ${TMP}/dvb-fe-af9013.fw ${OUT}
+} 
+
+af9035_func() {
+	wget -O ${TMP}/dvb-usb-af9035-02.fw \
+	http://palosaari.fi/linux/v4l-dvb/firmware/af9035/dvb-usb-af9035-02.fw_085e676dc50addf538b6cb18f4ca233a_12.13.15.0_6.20.15.0 \
+	 || return 1  #<==>af9035
+	mv -f ${TMP}/dvb-usb-af9035-02.fw ${OUT}
+} 
+
+dvb_multi_func() {
+	wget https://linuxtv.org/downloads/firmware/dvb-firmwares.tar.bz2 -P $TMP || return 1 #<==>dvb-usb* multiple files that may be of use
+	tar xvf ${TMP}/dvb-firmwares.tar.bz2 -C ${TMP} || return 1
+	echo "copying: $tlist" # only copy what's needed
+	for i in `echo $tlist`; do cp -af ${TMP}/${i} ${OUT};done
+	[ $? -eq 0 ] && echo "dvb_multi copied files: $tlist" >> $LOG
+	clear_tmp
+}
+
+# build em and install em
+build_func() {
+	# $4 is optional
+	[ "$1" = 'true' ] && ${2} ${4} && success_msg $3 || return_msg $1 $3
+}
+
+
+
+######### main ###########
+### wireless
+# b43
+# sometimes we do silly fings
+if [ "$b43_all" = 'true' -a "$b43_new" = 'true' ];then
+	fixup_conf
+elif [ "$b43_all" = 'false' -a "$b43_new" = 'true' -a "$b43_old" = 'true' ];then
+	fixup_conf
+elif [ "$b43_all" = 'true' -a "$b43_old" = 'true' ];then
+	fixup_conf
+fi
+build_func $b43_all b43_func b43_all all
+build_func $b43_new b43_func b43_new new
+build_func $b43_old b43_func b43_old old
+# other wireless tarballs
+build_func $zd1201 zd_func zd1201
+build_func $atmel atmel_func atmel
+### single dvbs
+build_func $af9005 af9005_func af9005
+build_func $af9013 af9013_func af9013
+build_func $af9015 af9015_func af9015
+build_func $af9035 af9035_func af9035
+### multi tarball dvbs
+[ "$xc5000" = 'true' ]   && tlist=" dvb-fe-xc5000-1.6.114.fw"
+[ "$bluebird" = 'true' ] && tlist="$tlist dvb-usb-bluebird-01.fw"
+[ "$dib0700" = 'true' ]  && tlist="$tlist dvb-usb-dib0700-1.20.fw"
+[ "$dibusb5" = 'true' ]  && tlist="$tlist dvb-usb-dibusb-5.0.0.11.fw"
+[ "$dibusb6" = 'true' ]  && tlist="$tlist dvb-usb-dibusb-6.0.0.8.fw"
+[ "$dtt200u" = 'true' ]  && tlist="$tlist dvb-usb-dtt200u-01.fw"
+[ "$umt" = 'true' ]      && tlist="$tlist dvb-usb-umt-010-02.fw"
+[ "$vp702x" = 'true' ]   && tlist="$tlist dvb-usb-vp702x-01.fw"
+[ "$vp7045" = 'true' ]   && tlist="$tlist dvb-usb-vp7045-01.fw"
+[ "$wt220u01" = 'true' ] && tlist="$tlist dvb-usb-wt220u-01.fw"
+[ "$wt220u02" = 'true' ] && tlist="$tlist dvb-usb-wt220u-02.fw"
+[ "$tlist" != "" ] && dvb_multi_func && success_msg dvb_multi || echo "status: $?"
+
+# cleanup
+rm -r $TMP
+
+echo "We're done. logs are found at $LOG"
+## END ##
