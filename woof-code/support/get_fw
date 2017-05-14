@@ -4,6 +4,10 @@
 echo ${WKGDIR} # should be /wherever/woof/is/woof-out*
 . ${WKGDIR}/support/fw.conf
 
+# globals
+FKVER=${KERNEL_VERSION%%-*} # to cross reference firmware in kernel config 
+DOTCONFIGVER=`find $WKGDIR/kernel-kit*/output -type f -name 'DOTconfig*' -maxdepth 2 | sort -u | tail -n1`
+echo $DOTCONFIGVER | grep -q $FKVER && DCONFIG=true
 TMP=/tmp/fw$$
 mkdir -p $TMP
 SANDBOX=${WKGDIR}/sandbox3
@@ -14,13 +18,24 @@ export FIRMWARE_INSTALL_DIR="${OUT}"  #/lib/firmware for b43-fwcutter
 LOGDIR=${WKGDIR}/status
 mkdir -p $LOGDIR
 LOG=${LOGDIR}/get_fw.log
-rm -f $LOG
+echo `date` > $LOG
+echo $FKVER >> $LOG
+echo $DOTCONFIGVER >> $LOG
+echo "DCONFIG=$DCONFIG" >> $LOG
+REPO_UPONE=${WKGDIR%/*}/local-repositories/non-free-firmware
+REPO=${WKGDIR}/non-free-firmware
 
 #======== misc funcs ==========
 clear_tmp() {
 	rm -rf ${TMP}/* # ditch it all
 }
 
+mk_repo() {
+	mkdir -p $REPO_UPONE
+	ln -snf $REPO_UPONE . # dot ('.') ..  not fly poo on screen
+}
+
+# fix config for user error
 fixup_conf() {
 	echo "#############################################################
 If you build b43_all you can't build b43_new and old.
@@ -28,6 +43,7 @@ Likewise you can't have b43_old=true and b43_new=true
 Just choose one to be 'true'
 Ressetting only 'b43_all=true'. Others to false
 #############################################################"
+	echo "Ressetting only 'b43_all=true'. Others to false (user error)" >> $LOG
 	sed -i -e 's/b43_new.*/b43_new=false/' \
 		   -e 's/b43_old.*/b43_old=false/' ${WKGDIR}/support/fw.conf
 	echo
@@ -46,6 +62,46 @@ success_msg() {
 	echo "$1: successfully installed to fdrv" >> $LOG
 }
 
+download_func() {
+	PKGURL=$1
+	PKG=$2
+	TGT=${TMP}
+	if [ "$save_dld" = "true" ];then
+		[ -e "${REPO}/${PKG}" ] && cp -af ${REPO}/${PKG} ${TMP} && return $? # bale here
+		TGT=${REPO}
+	fi
+	[ -z "$3" ] && OPT="-P ${TGT}" || OPT="-O ${TGT}/${PKG}"
+	wget ${PKGURL} ${OPT} || return 1
+	[ ! -e "${TMP}/${PKG}" ] && cp -af ${REPO}/${PKG} ${TMP} || return 1
+}
+
+## filter
+filter_fix_conf() {
+	modfix
+	grep -q "${modfix}=[my]$" ${DOTCONFIGVER}
+	case $? in
+		0)[ "$1" = true ] && return 0;;
+		*)
+		sed -i "s%${1}.*%${1}=false%" ${WKGDIR}/support/fw.conf
+		echo "${1}=true was changed to false" >> $LOG ;;
+	esac
+}
+
+filter_fw_kver() {
+	case $1 in
+		b43_all)for mod in CONFIG_B43 CONFIG_B43LEGACY;do
+			filter_fix_conf $1 $mod
+			done ;;
+		b43_new)mod=CONFIG_B43;;
+		b43_old)mod=CONFIG_B43LEGACY;;
+		zd1201)mod=CONFIG_USB_ZD1201;;
+		atmel)mod=CONFIG_ATMEL;;
+		ipw)mod='CONFIG_IPW2[12]00';;
+	esac
+	filter_fix_conf $1 $mod
+}
+##
+
 #======== the actual working funcs ==========
 # B43
 B43_URL='http://www.lwfinger.com/b43-firmware/broadcom-wl-5.100.138.tar.bz2'
@@ -57,9 +113,7 @@ build_cutter() {
 	echo "(if not already installed)"
 	sleep 3
 	echo
-	if [ ! -e "b43-fwcutter-018.tar.bz2" ];then
-		wget "$FW_CUT_URL" -P ${TMP} || return 1
-	fi
+	download_func "$FW_CUT_URL" b43-fwcutter-018.tar.bz2
 	tar xjf ${TMP}/b43-fwcutter-018.tar.bz2 -C ${TMP} || return 1
 	(
 	cd ${TMP}/b43-fwcutter-018
@@ -74,14 +128,14 @@ build_cutter() {
 extract_b43() {
 	which b43-fwcutter 2>&1 >/dev/null || build_cutter
 	[ $? -ne 0 ] && return 1
-	wget "$B43_URL" -P ${TMP} || return 1
+	download_func "$B43_URL" broadcom-wl-5.100.138.tar.bz2
 	tar xjf ${TMP}/broadcom-wl-5.100.138.tar.bz2 -C ${TMP} || return 1
 	b43-fwcutter -w "$FIRMWARE_INSTALL_DIR" ${TMP}/broadcom-wl-5.100.138/linux/wl_apsta.o
 	clear_tmp
 }
 
 extract_legacy() {
-	wget "$B43_LEG_URL" -P ${TMP} || return 1
+	download_func "$B43_LEG_URL" wl_apsta-3.130.20.0.o
 	b43-fwcutter -w "$FIRMWARE_INSTALL_DIR" ${TMP}/wl_apsta-3.130.20.0.o
 	clear_tmp
 }
@@ -99,7 +153,8 @@ b43_func() {
 
 # WIRELESS
 zd_func() {
-	wget 'https://nchc.dl.sourceforge.net/project/linux-lc100020/%28NEW%29%20zd1201%20driver/zd1201.%20Version%200.14/zd1201-0.14-fw.tar.gz' -P $TMP #<==>zd1201''
+	download_func 'https://nchc.dl.sourceforge.net/project/linux-lc100020/%28NEW%29%20zd1201%20driver/zd1201.%20Version%200.14/zd1201-0.14-fw.tar.gz' \
+	 zd1201-0.14-fw.tar.gz  #<==>zd1201''
 	tar xvf ${TMP}/zd1201-0.14-fw.tar.gz -C ${TMP}
 	cp -af ${TMP}/zd1201-0.14-fw/zd1201.fw ${OUT}
 	cp -af ${TMP}/zd1201-0.14-fw/zd1201-ap.fw ${OUT}
@@ -107,7 +162,7 @@ zd_func() {
 }
 
 atmel_func() {
-	wget http://www.thekelleys.org.uk/atmel/atmel-firmware-1.3.tar.gz -P $TMP || return 1  #<==>atmel
+	download_func http://www.thekelleys.org.uk/atmel/atmel-firmware-1.3.tar.gz atmel-firmware-1.3.tar.gz  #<==>atmel
 	tar xvf ${TMP}/atmel-firmware-1.3.tar.gz -C ${TMP} || return 1
 	cp -af ${TMP}/atmel-firmware-1.3/images/* ${OUT}
 	cp -af ${TMP}/atmel-firmware-1.3/images.usb/* ${OUT}
@@ -119,35 +174,79 @@ atmel_func() {
 	clear_tmp
 }
 
+acx_func() {
+	download_func  http://mirrors.zju.edu.cn/archlinux/other/packages/tiacx-firmware/acx-firmware-20060207.tar.bz2 acx-firmware-20060207.tar.bz2   #<==>acx (ti)
+	tar xvf ${TMP}/acx-firmware-20060207.tar.bz2 -C ${TMP} || return 1
+	(
+	cd ${TMP}/fw
+	for i in *;do cp -af ${i}/* ${OUT};done
+	)
+	clear_tmp	
+}
+
+ipw_func() {
+	download_func ftp://slackware.mirror.ac.za/opensuse/ports/armv7hl/tumbleweed/repo/oss/suse/noarch/ipw-firmware-9-20.2.noarch.rpm ipw-firmware-9-20.2.noarch.rpm  #<==>ipwireless
+	(
+	cd $TMP
+	exploderpm -x ipw-firmware-9-20.2.noarch.rpm
+	cp -af lib/firmware/* ${OUT}
+	)
+	clear_tmp	
+}
+
 # DVB
-af9005_func() {
-	wget -O ${TMP}/af9005.fw http://ventoso.org/luca/af9005/af9005.fw-6.11.23.01 -P $TMP || return 1  #<==>af9005
+af9005_func() {	
+	download_func http://ventoso.org/luca/af9005/af9005.fw-6.11.23.01 af9005.fw otrue  #<==>af9005
 	mv -f ${TMP}/af9005.fw ${OUT}
 }
 
 af9015_func() {
-	wget http://palosaari.fi/linux/v4l-dvb/firmware/af9015/5.24.0.0/dvb-usb-af9015.fw -P $TMP || return 1  #<==>af9015
+	download_func http://palosaari.fi/linux/v4l-dvb/firmware/af9015/5.24.0.0/dvb-usb-af9015.fw dvb-usb-af9015.fw  #<==>af9015
 	mv -f ${TMP}/dvb-usb-af9015.fw ${OUT}
 } 
 
 af9013_func() {
-	wget https://jenda.hrach.eu/f2/dvb-firmware/firmware/dvb-fe-af9013.fw -P $TMP || return 1  #<==>af9013
+	download_func https://jenda.hrach.eu/f2/dvb-firmware/firmware/dvb-fe-af9013.fw dvb-fe-af9013.fw  #<==>af9013
 	mv -f ${TMP}/dvb-fe-af9013.fw ${OUT}
 } 
 
 af9035_func() {
-	wget -O ${TMP}/dvb-usb-af9035-02.fw \
+	download_func \
 	http://palosaari.fi/linux/v4l-dvb/firmware/af9035/dvb-usb-af9035-02.fw_085e676dc50addf538b6cb18f4ca233a_12.13.15.0_6.20.15.0 \
-	 || return 1  #<==>af9035
+	dvb-usb-af9035-02.fw otrue  #<==>af9035
 	mv -f ${TMP}/dvb-usb-af9035-02.fw ${OUT}
 } 
 
 dvb_multi_func() {
-	wget https://linuxtv.org/downloads/firmware/dvb-firmwares.tar.bz2 -P $TMP || return 1 #<==>dvb-usb* multiple files that may be of use
+	download_func https://linuxtv.org/downloads/firmware/dvb-firmwares.tar.bz2 dvb-firmwares.tar.bz2 #<==>dvb-usb* multiple files that may be of use
 	tar xvf ${TMP}/dvb-firmwares.tar.bz2 -C ${TMP} || return 1
 	echo "copying: $tlist" # only copy what's needed
 	for i in `echo $tlist`; do cp -af ${TMP}/${i} ${OUT};done
 	[ $? -eq 0 ] && echo "dvb_multi copied files: $tlist" >> $LOG
+	clear_tmp
+}
+
+nouveau_func() {
+	download_func https://raw.github.com/imirkin/re-vp2/master/extract_firmware.py extract_firmware.py #python extraction tool that can be run in place
+	download_func http://us.download.nvidia.com/XFree86/Linux-x86/325.15/NVIDIA-Linux-x86-325.15.run NVIDIA-Linux-x86-325.15.run #nvidia driver to extract firmware from
+	(
+	cd $TMP
+	sh NVIDIA-Linux-x86-325.15.run --extract-only
+	python extract_firmware.py
+	mkdir -p ${OUT}/nouveau
+	cp -d nv* vuc-*  ${OUT}/nouveau
+	)
+	clear_tmp
+}
+
+nouveau_cut_func() {
+	download_func http://distro.ibiblio.org/puppylinux/pet_packages-noarch/firmware_nouveau-170511.pet firmware_nouveau-170511.pet #<==>nouveau
+	tar xvf ${TMP}/firmware_nouveau-170511.pet -C ${TMP} 2>/dev/null #exits with 2
+	mkdir -p ${OUT}/nouveau
+	(
+	cd ${TMP}
+	cp -af firmware_nouveau-170511/lib/modules/all-firmware/nouveau/lib/firmware/nouveau/* ${OUT}/nouveau/
+	)
 	clear_tmp
 }
 
@@ -157,9 +256,19 @@ build_func() {
 	[ "$1" = 'true' ] && ${2} ${4} && success_msg $3 || return_msg $1 $3
 }
 
-
+trap_func() {
+	echo
+	rm -rf $TMP
+	cd $WKGDIR
+}
 
 ######### main ###########
+# cleanup
+trap trap_func EXIT
+
+# save downloads?
+[ "$save_dld" = "true" ] && mk_repo # see conf
+
 ### wireless
 # b43
 # sometimes we do silly fings
@@ -170,18 +279,36 @@ elif [ "$b43_all" = 'false' -a "$b43_new" = 'true' -a "$b43_old" = 'true' ];then
 elif [ "$b43_all" = 'true' -a "$b43_old" = 'true' ];then
 	fixup_conf
 fi
+# filter
+if [ "$DCONFIG" = 'true' ];then
+	for module in b43_all b43_new b43_old zd1201 atmel ipw
+	do 
+		# don't override user chosen; some are big and may not be wanted
+		[ "$module" = 'true' ] &&  filter_fw_kver $module
+	done
+	cat ${WKGDIR}/support/fw.conf >> $LOG
+fi
+if [ "$nouveau" = 'true' -a "$nouveau_cut" = 'true' ];then
+	echo "can't have nouveau and nouveau_cut set as true!"
+	echo "resetting nouveau_cut as default (it's smaller)"
+	echo "resetting nouveau_cut as default (user error)" >> $LOG
+	sed -i 's%nouveau=.*%nouveau=false%'  ${WKGDIR}/support/fw.conf
+fi
+# download and build fdrv
 build_func $b43_all b43_func b43_all all
 build_func $b43_new b43_func b43_new new
 build_func $b43_old b43_func b43_old old
 # other wireless tarballs
 build_func $zd1201 zd_func zd1201
 build_func $atmel atmel_func atmel
+build_func $acx acx_func acx
+build_func $ipw ipw_func ipw
 ### single dvbs
 build_func $af9005 af9005_func af9005
 build_func $af9013 af9013_func af9013
 build_func $af9015 af9015_func af9015
 build_func $af9035 af9035_func af9035
-### multi tarball dvbs
+### multi tarball dvbs - appends each 'true' value to tlist
 [ "$xc5000" = 'true' ]   && tlist=" dvb-fe-xc5000-1.6.114.fw"
 [ "$bluebird" = 'true' ] && tlist="$tlist dvb-usb-bluebird-01.fw"
 [ "$dib0700" = 'true' ]  && tlist="$tlist dvb-usb-dib0700-1.20.fw"
@@ -194,9 +321,7 @@ build_func $af9035 af9035_func af9035
 [ "$wt220u01" = 'true' ] && tlist="$tlist dvb-usb-wt220u-01.fw"
 [ "$wt220u02" = 'true' ] && tlist="$tlist dvb-usb-wt220u-02.fw"
 [ "$tlist" != "" ] && dvb_multi_func && success_msg dvb_multi || echo "status: $?"
-
-# cleanup
-rm -r $TMP
-
+build_func $nouveau nouveau_func nouveau
+build_func $nouveau_cut nouveau_cut_func nouveau_cut
 echo "We're done. logs are found at $LOG"
 ## END ##
