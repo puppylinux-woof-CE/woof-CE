@@ -616,26 +616,57 @@ else # Huge_Kernel
 echo "Installing HUGE kernel"
 sleep 1
 # see if there is one in kernel-kit
-	if [ -d '../kernel-kit/dist' ];then
-		KIT_KERNEL=`find ../kernel-kit/dist/packages -maxdepth 1 -type f -name 'huge*.tar.bz2' | head -n1`
+	if [ -d '../kernel-kit/output' ];then
+		KIT_KERNEL=`find ../kernel-kit/output -maxdepth 1 -type f -name 'huge*.tar*' | head -n1`
 		[ -z "$KIT_KERNEL" ] || cp $KIT_KERNEL ../huge_kernel/
 		# while we are here, we'll copy in fdrive if it exists
-		FDRIVE=`find ../kernel-kit/dist/packages -maxdepth 1 -type f -name 'fdrv*.sfs'`
+		FDRIVE=`find ../kernel-kit/sources -maxdepth 1 -type f -name 'fdrv*.sfs'`
 		if [ "$FDRIVE" ];then
+		  if [ -z "$KFDRIVE" ];then
 			FSIZE=`stat -c %s $FDRIVE`
 			FSIZE=$(($FSIZE / 1000000))
 			echo "An 'F' drive if has been found. This contains supplementary firmware"
 			echo "that can be included in the final build. It will add ${FSIZE}MB to the"
 			echo "final image. It does no harm not to include, just some exotic drivers"
 			echo "may not work."
-			echo "Press 'F' then 'Enter' to include it or just 'Enter' to skip."
+			echo "Alternatively, you can shift the contents of ${FDRIVE##*/}"
+			echo "to sandbox3/fdrv and later in this script you are offered to download"
+			echo "and build some non-free firmwares that will be added to the ${FDRIVE##*/}"
+			echo "Press 'F' then 'Enter' to include, 'M' then enter to mount the fdrive"
+			echo "and copy the contents to sandbox3 it or just 'Enter' to skip."
 			read include_fdrive
-			if [ "$include_fdrive" = 'f' ];then
+			case $include_fdrive in
+			  f|F)
 				echo "copying $FDRVSFS to build"
 				cp $FDRIVE build/$FDRVSFS
-			else
+				KFDRIVE=yes # will conflict with non-free fdrv below
+				;;
+			  m|M)
+			    echo "mounting $FDRIVE" # this is compatible with non-free fdrv
+			    FREEDEV=$(losetup -f)
+			    losetup ${FREEDEV} ${FDRIVE}
+			    mkdir -p /mnt/fdrv
+			    mount -r -t squashfs ${FREEDEV} /mnt/fdrv
+			    mkdir -p fdrv #we're in sandbox3
+			    echo "copying files..."
+			    cp -a -u --remove-destination /mnt/fdrv/* fdrv/
+			    sync
+			    umount /mnt/fdrv
+			    rm -rf /mnt/fdrv
+			    echo "done"
+			    ;;
+			  *)
 				echo "Skipping f drive."
-			fi
+				KFDRIVE=no
+				;;
+			esac
+		  else
+			case $KFDRIVE in
+			  yes)echo "copying $FDRVSFS to build"
+				cp $FDRIVE build/$FDRVSFS;;
+			  *)echo "not copying ${FDRIVE##*/}";; # KFDRIVE is already 'no'
+			esac
+		  fi
 		fi
 	fi
 	
@@ -1749,8 +1780,7 @@ fi
 echo
 echo
 if [ "$BUILD_SFS" = 'yes' ];then
-  if [ -z "$FDRV_INC" ];then
-    if [ -z "$NONFREE_FW" ];then
+  if [ -z "$NONFREE_FW" -a "$KFDRIVE" = no ];then
       echo "You now have the opportunity to grab some non-free firmware
 to include in ${FDRVSFS}. There is a file in
  'support/fw.conf' 
@@ -1759,24 +1789,23 @@ you like to 'true' or 'false'.
 
 Do you want to grab extra non-free firmware?
 (type 'y' and press 'enter' if you wish or 'enter' to skip..)"
-      read nonfree
-      case $nonfree in 
+    read nonfree
+    case $nonfree in 
 		 y|Y)cd $WKGDIR
 		    echo; echo
 			support/get_fw 
 			echo; echo
 			cd - ;;
-	  esac
-	else
-	  if [ "$NONFREE_FW" = 'yes' ];then
-		 cd $WKGDIR
-		 echo
-		 echo "grabbing extra non-free firmware..."
-		 echo; echo
-		 support/get_fw
-		 echo; echo
-		 cd -
-	  fi
+	esac
+  else
+	if [ "$NONFREE_FW" = 'yes' -a "$KFDRIVE" = no ];then
+	  cd $WKGDIR
+	  echo
+	  echo "grabbing extra non-free firmware..."
+	  echo; echo
+	  support/get_fw
+	  echo; echo
+	  cd -
     fi
   fi
 fi
