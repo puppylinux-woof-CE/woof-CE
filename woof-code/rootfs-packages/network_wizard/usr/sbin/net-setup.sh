@@ -74,6 +74,7 @@
 #111015 BK: strip out chars that might upset gtkdialog.
 #170329 rerwin: set as current network exec, retaining previous exec name.
 #170509 rerwin: replace gtkdialog3 with gtkdialog.
+#170514 add message about already running
 
 APPDIR="$(dirname $0)"
 [ "$APPDIR" = "." ] && APPDIR="$(pwd)"
@@ -1817,8 +1818,11 @@ cleanUpTmp(){
 cleanUpTmp
 
 #170329 Update current exec name. 
-[ -x /usr/sbin/connectwizard_exec ] \
- && connectwizard_exec net-setup.sh
+if which connectwizard_exec &>/dev/null \
+  && ! connectwizard_exec net-setup.sh; then #170514...
+ Xdialog --left --title "$L_TITLE_Puppy_Network_Wizard"  --backtitle "\n$L_ECHO_Already_Running_Message" --icon /usr/local/lib/X11/pixmaps/error.xpm --msgbox "\n$L_ECHO_Use_or_Terminate_Existing_Message\n" 0 70
+ exit 1
+fi #170514 end
 
 # Do we have pcmcia hardware?...
 if elspci -l | grep -E -q '60700|60500' ; then
