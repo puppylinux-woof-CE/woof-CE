@@ -19,6 +19,7 @@
 #170309 ensure current exec name set
 #170330 restore module loading wait loop by reverting 101122 check to "avoid re-waiting on same module" - duplicates eliminated by 'sort -u'.
 #170402 change check for dhcpcd success, to rely on dhcpcd exit code.
+#170505 use current ifplugstatus (0.28) with 0.18 as alternative if present; cancel possible connect splash message before exiting.
 
 export TEXTDOMAIN=sns___rc.network
 export OUTPUT_CHARSET=UTF-8
@@ -37,8 +38,19 @@ LANGORIG=$LANG
 
 #IMPORTANT: the INTERFACE field may be different at boot time, due to different plugged in network devices.
 
+cancel_splash_and_exit() { #170505...
+	if [ -f /tmp/sns_splash_pid ];then
+	 SPLASHPID="$(cat /tmp/sns_splash_pid)"
+	 rm -f /tmp/sns_splash_pid
+	 [ -n "$SPLASHPID" ] \
+	  && ps -fC yaf-splash | grep -wq "$SPLASHPID" \
+	  && kill $SPLASHPID
+	fi
+	exit
+} #170505 end
+
 export LANG='C'
-[ ! -s /etc/simple_network_setup/connections ] && exit
+[ ! -s /etc/simple_network_setup/connections ] && cancel_splash_and_exit #170505
 rm -f /tmp/sns_rc.network_exit 2>/dev/null #100703
 
 if [ $1 ];then #100325
@@ -99,7 +111,7 @@ do
  done
 done
 
-[ ! -s /tmp/sns_connections_available ] && exit
+[ ! -s /tmp/sns_connections_available ] && cancel_splash_and_exit #170505
 INTERFACES="`ifconfig -a | grep -F 'Link encap:Ethernet' | cut -f1 -d' ' | tr '\n' ' '`"
 
 ##########WIRELESS##########
@@ -208,7 +220,7 @@ do
      [ "$DISPLAY" ] &&  yaf-splash -placement bottom -bg green -timeout 5 -text "Network interface ${INTERFACE} has been activated" &
      #break
      touch /tmp/sns_rc.network_exit #'exit' only terminates this code block (which is running as a separate process).
-     exit #one internet connection is enough!
+     cancel_splash_and_exit #one internet connection is enough! #170505
     else
      echo "     FAIL" >> /tmp/simple_network_setup/rc_network_wireless_connection_log
      [ "`pidof wpa_supplicant`" != "" ] && wpa_cli terminate #kill wpa_supplicant.
@@ -223,7 +235,7 @@ do
  [ -f /tmp/sns_rc.network_exit ] && break #100320 bug fix, if more than one wireless interface.
 done
 
-[ -f /tmp/sns_rc.network_exit ] && exit
+[ -f /tmp/sns_rc.network_exit ] && cancel_splash_and_exit #170505
 
 ##########WIRED##########
 grep '|Wired|' /tmp/sns_connections_available > /tmp/sns_connections_wired
@@ -234,22 +246,19 @@ do
  ifconfig $INTERFACE up > /tmp/sns_wired_log 2>&1
  [ $? -ne 0 ] && continue
 
- if ! ifplugstatus-0.18 "$INTERFACE" | grep -F -q 'link beat detected' ;then
+ REMAININGTRIES=4 #170505...
+ until ifplugstatus "$INTERFACE" | grep -F -q 'link beat detected' ;do
   sleep 1
-  if ! ifplugstatus "$INTERFACE" | grep -F -q 'link beat detected' ;then
+  [ $((REMAININGTRIES--)) -gt 0 ] && continue
+  if [ ! -x /sbin/ifplugstatus-0.18 ] \
+    || ! ifplugstatus-0.18 "$INTERFACE" | grep -F -q 'link beat detected' ;then #170505 end
    sleep 1
-   if ! ifplugstatus-0.18 "$INTERFACE" | grep -F -q 'link beat detected' ;then
-    sleep 1
-    if ! ifplugstatus "$INTERFACE" | grep -F -q 'link beat detected' ;then
-     sleep 1
-     if ! ethtool "$INTERFACE" | grep -Fq 'Link detected: yes' ; then
-      ifconfig $INTERFACE down
-      continue #no network.
-     fi
-    fi
+   if ! ethtool "$INTERFACE" | grep -Fq 'Link detected: yes' ; then
+    ifconfig $INTERFACE down
+    continue 2 #no network. #170505
    fi
   fi
- fi
+ done #170505
 
  MACADDRESS="`ifconfig -a $INTERFACE | grep -o 'HWaddr .*' | cut -f 2 -d ' '`"
  maPATTERN='|'"$MACADDRESS"'|'
@@ -258,7 +267,7 @@ do
  dhcpcd $DHCPCDFIX $INTERFACE >> /tmp/sns_wired_log 2>&1
  if [ $? -eq 0 ] && [ "`grep -v '^#' /etc/resolv.conf`" != "" ];then #170402
   echo "$INTERFACE" > /tmp/sns_interface_success #100325
-  exit #success.
+  cancel_splash_and_exit #success. #170505
  else
   ifconfig $INTERFACE down
   dhcpcd --release $INTERFACE 2>/dev/null
@@ -266,6 +275,7 @@ do
  fi
  
 done
+cancel_splash_and_exit #170505
 
 
 ###END###
