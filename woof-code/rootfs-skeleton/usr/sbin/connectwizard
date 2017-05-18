@@ -28,6 +28,7 @@
 #170308 rerwin: use only new pgprs (2.0+) and frisbee (1.4.x) interfaces; remove gkdial check.
 #170309 rerwin: retain choice in case multiple setups tried; disconnect any unchosen network setup.
 #170418 rerwin: leave frisbee state unchanged after choosing new defaultconnect.
+#170510 rerwin: replace 170309 implemention with connectwizard_exec; kill other connectwizard dialogs, to avoid conflict; exit if dialog killed; support optional pupdial.
 
 export TEXTDOMAIN=connectwizard
 export OUTPUT_CHARSET=UTF-8
@@ -43,21 +44,8 @@ firewall_func() {
 }
 export -f firewall_func
 
-change_current_exec_func() { # Arg = new network exec name #170309...
- DEFAULTEXEC="`cat /usr/local/bin/defaultconnect | tail -n 1 | tr -s " " | cut -f 2 -d " "`"
- if [ -f /root/.connectwizardrc ];then
-  . /root/.connectwizardrc #sets CURRENT_EXEC
- else
-  CURRENT_EXEC="$DEFAULTEXEC"
- fi
- if [ "$CURRENT_EXEC" != 'connectwizard' -a "$1" != "$CURRENT_EXEC" ];then
-  /usr/local/apps/Connect/AppRun --disconnect
-  [ "$FLAGFRISBEE" -a "$1" != 'frisbee' ] && frisbee --deactivate
-  echo "$CURRENT_EXEC" > /tmp/.connectwizard_previous_exec
-  echo "CURRENT_EXEC=$1" > /root/.connectwizardrc
- fi
-}
-export -f change_current_exec_func #170309 end
+WIZARDPIDS="$(ps --no-headers -fC gtkdialog | grep -E 'Network_Connection_Wizard|InternetConnectionWizard' | tr -s ' ' | cut -f 2 -d ' ' | tr '\n' ' ')" #170510
+[ -n "$WIZARDPIDS" ] && kill $WIZARDPIDS #170510
 
 # test conectivity
 if wget -q --spider http://distro.ibiblio.org ;then # returns other than 0 we're not connected
@@ -129,6 +117,23 @@ if [ ! "`which gnome-ppp 2>/dev/null`" = "" ];then
  FLAGGNOMEPPP="<radiobutton><label>$(gettext 'GnomePPP (modem dialup)')</label><variable>RADIOGNOMEPPP</variable><default>$DEFGNOMEPPP</default></radiobutton>"
 fi
 
+FLAGPUPDIAL="" #170510...
+CONNECTPUPDIAL=""
+if [ "`which pupdial 2>/dev/null`" != "" ];then
+ FLAGPUPDIAL="<radiobutton><label>'$(gettext "PupDial (modem dialup)")'</label><variable>RADIOPUPDIAL</variable><default>'$DEFPUPDIAL'</default></radiobutton>"
+ CONNECTPUPDIAL='
+ <hbox space-expand="true" space-fill="true">
+   <button space-expand="false" space-fill="false">
+     '"`/usr/lib/gtkdialog/xml_button-icon modem.svg big`"'
+     <action>connectwizard_exec pupdial</action>
+     <action>/usr/sbin/pupdial & </action>
+     <action type="exit">true_exit</action>
+   </button>
+   <text space-expand="false" space-fill="false"><label>'$(gettext "Dialup analog or wireless modem (2g/3g)")'</label></text>
+   <text space-expand="true" space-fill="true"><label>""</label></text>
+ </hbox>'
+fi #170510 end
+
 FLAGROARINGPENGUIN=""
 CONNECTROARINGPENGUIN="" #v409
 if [ "`which pppoe_gui 2>/dev/null`" != "" ];then
@@ -137,7 +142,7 @@ if [ "`which pppoe_gui 2>/dev/null`" != "" ];then
  <hbox space-expand="true" space-fill="true">
    <button space-expand="false" space-fill="false">
      '"`/usr/lib/gtkdialog/xml_button-icon internet_connect.svg big`"'
-     <action>change_current_exec_func pppoe_gui</action>
+     <action>connectwizard_exec pppoe_gui</action>
      <action>/usr/sbin/pppoe_gui &</action>
      <action type="exit">exit</action>
    </button>
@@ -169,7 +174,7 @@ if [ -x /usr/sbin/pgprs ];then #160120
  <hbox space-expand="true" space-fill="true">
    <button space-expand="false" space-fill="false">
      '"`/usr/lib/gtkdialog/xml_button-icon wireless.svg big`"'
-     <action>change_current_exec_func pgprs</action>
+     <action>connectwizard_exec pgprs</action>
      <action>/usr/sbin/pgprs --setup &</action>
      <action type="exit">exit</action>
    </button>
@@ -198,7 +203,7 @@ CHOOSEDEFAULT='
       <vbox space-expand="true" space-fill="true">
   <frame '$(gettext "Connect action")'>
       <vbox space-expand="true" space-fill="true">
-        <radiobutton><label>'$(gettext "PupDial (modem dialup)")'</label><variable>RADIOPUPDIAL</variable><default>'$DEFPUPDIAL'</default></radiobutton>
+        '$FLAGPUPDIAL'
         '$FLAGSNS'
         '$FLAGNETWIZARD'
         '$FLAGFRISBEE'
@@ -234,16 +239,7 @@ export InternetConnectionWizard='
                 <text space-expand="false" space-fill="false"><label>'$(gettext "Wired or wireless LAN")'</label></text>
                 <text space-expand="true" space-fill="true"><label>""</label></text>
               </hbox>
-              <hbox space-expand="true" space-fill="true">
-                <button space-expand="false" space-fill="false">
-                  '"`/usr/lib/gtkdialog/xml_button-icon modem.svg big`"'
-                    <action>change_current_exec_func pupdial</action>
-                    <action>/usr/sbin/pupdial & </action>
-                    <action type="exit">true_exit</action>
-                </button>
-                <text space-expand="false" space-fill="false"><label>'$(gettext "Dialup analog or wireless modem (2g/3g)")'</label></text>
-                <text space-expand="true" space-fill="true"><label>""</label></text>
-              </hbox>
+              '${CONNECTPUPDIAL}'
               '${CONNECTMTGPRS}'
               '${CONNECTPPPOECONF}'
               '${CONNECTROARINGPENGUIN}'
@@ -319,6 +315,7 @@ export InternetConnectionWizard='
 . /usr/lib/gtkdialog/xml_info gtk #build bg_pixmap for gtk-theme
 RETSTR="`gtkdialog -p InternetConnectionWizard`" 
 
+[ $? -gt 2 ] && exit #170510
 [ $1 ] && exit #v411
 [ "`echo "$RETSTR" | grep 'true_exit'`" != "" ] && exit #100412 after return from sns. 100902 and pupdial.
 
