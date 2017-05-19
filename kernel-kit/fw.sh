@@ -82,6 +82,7 @@ process_driver() {
 		I915)     DRIVER='DRM_I915='      ;;
 		KEYSPAN)  DRIVER='SERIAL_KEYSPAN=';;
 		LIBERTAS) DRIVER=LIBERTAS_USB     ;;
+		RTL8821AE)DRIVER=8821AE           ;;
 		MWIFIEX)  DRIVER=MWIFIEX_USB      ;;
 		MWLWIFI)  DRIVER='CONFIG_MAC80211';; #see WHENCE, .config
 	esac
