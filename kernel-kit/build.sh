@@ -323,6 +323,7 @@ if [ $DOWNLOAD_KERNEL -eq 1 ] ; then
 	[ $KERROR ] && exit 1
 	cd sources/kernels
 	md5sum linux-${kernel_tarball_version}.tar.xz > linux-${kernel_tarball_version}.tar.xz.md5.txt
+	sha256sum linux-${kernel_tarball_version}.tar.xz > linux-${kernel_tarball_version}.tar.xz.sha256.txt
 	cd $MWD
 fi
 
@@ -805,6 +806,7 @@ fi
 ln -s /usr/src/linux kernel_sources-${kernel_version}-${package_name_suffix}/lib/modules/${kernel_version}${custom_suffix}/source
 mksquashfs kernel_sources-${kernel_version}-${package_name_suffix} output/kernel_sources-${kernel_version}-${package_name_suffix}.sfs $COMP
 md5sum output/kernel_sources-${kernel_version}-${package_name_suffix}.sfs > output/kernel_sources-${kernel_version}-${package_name_suffix}.sfs.md5.txt
+sha256sum output/kernel_sources-${kernel_version}-${package_name_suffix}.sfs > output/kernel_sources-${kernel_version}-${package_name_suffix}.sfs.sha256.txt
 
 #==============================================================
 
@@ -858,6 +860,7 @@ tar -cjvf huge-${kernel_version}-${package_name_suffix}.tar.bz2 \
 	kernel-modules.sfs-${kernel_version}-${package_name_suffix} || exit 1
 	echo "huge-${kernel_version}-${package_name_suffix}.tar.bz2 is in output"
 md5sum huge-${kernel_version}-${package_name_suffix}.tar.bz2 > huge-${kernel_version}-${package_name_suffix}.tar.bz2.md5.txt
+sha256sum huge-${kernel_version}-${package_name_suffix}.tar.bz2 > huge-${kernel_version}-${package_name_suffix}.tar.bz2.sha256.txt
 echo
 cd -
 
