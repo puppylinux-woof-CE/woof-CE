@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 # new for fatdog style kernel
 # we need udev >= 176
 
@@ -15,6 +15,7 @@ export CDRECORD MKISOFS
 . ./_00func
 . ./_00build.conf
 export PTHEME #build.conf - woof-code/rootfs-packages/ptheme
+export XTRA_FLG # build.conf - extra naming for iso
 KERNEL_REPO_URL=${KERNEL_REPO_URL:-http://distro.ibiblio.org/puppylinux/huge_kernels} #can change var
 
 . ./DISTRO_SPECS      #this has DISTRO_VERSION.
@@ -35,7 +36,7 @@ set_archdir_var # ex: ARCHDIR=x86_64-linux-gnu
 PKGLISTS_COMPAT="`echo "$PKG_DOCS_DISTRO_COMPAT" | tr ' ' '\n' | cut -f 3 -d '|' | tr '\n' ' ' | sed -e 's% $%%'`" #see file DISTRO_PKGS_SPECS-ubuntu
 #...format ex: 'Packages-ubuntu-intrepid-main Packages-ubuntu-intrepid-universe'
 
-WKGDIR="`pwd`"
+export WKGDIR="`pwd`"
 
 echo
 echo "Do you want to create a live-CD .iso file, which is the normal choice for a
@@ -286,6 +287,36 @@ fi
 rm $CHOICE
 #creates devx-only-installed-packages.
 ./support/findwoofinstalledpkgs # moved to here so we can add /tmp/rootfs-packages.specs
+
+### new {a,f,y}drv stuff - this creates a full 'woof-installed-packages' in {a,y}drv and subtracts the
+# {a,y}drv installed packages from the the full 'woof-installed-packages' that goes to the main sfs.
+if [ "$(echo $ADRV_INC)" != "" -o "$(echo $FDRV_INC)" != "" -o "$(echo $YDRV_INC)" != "" ];then 
+	sync
+	fields="${ADRV_INC}:${FDRV_INC}:${YDRV_INC}:)"
+	IFS=':' read -a field <<< $fields
+	fcnt=0
+	for dtype in a f y; do
+		[ -d sandbox3/${dtype}drv ] && rm -rf sandbox3/${dtype}drv
+		[ "$dtype" = 'a' -a -z "$ADRV_INC" ] && continue
+		[ "$dtype" = 'f' ] && continue #don't bother with fdrv
+		[ "$dtype" = 'y' -a -z "$YDRV_INC" ] && break
+		mkdir -p sandbox3/${dtype}drv/root/.packages/
+		[ -f /tmp/${dtype}-woof-packages ] && rm /tmp/${dtype}-woof-packages
+		while read -r line
+		do 
+			IFS='|' read -r a b c <<<$line
+			if echo "${fields[${fcnt}]}" | grep -q "$b" ;then
+				continue
+			else
+				echo "$line" >> /tmp/${dtype}-woof-packages
+			fi
+		done < woof-installed-packages
+		cat woof-installed-packages > sandbox3/${dtype}drv/root/.packages/woof-installed-packages
+		cat /tmp/${dtype}-woof-packages > woof-installed-packages
+		fcnt=$(($fcnt + 1))
+	done
+fi
+###
 rm -f sandbox3/rootfs-complete/pinstall.sh
 
 if [ "$ARCHDIR" ];then #ex: i386-linux-gnu
@@ -301,47 +332,75 @@ if [ -d packages-templates/${ZHACKSDIR} ] ; then
 fi
 
 echo "Copying to sandbox3/rootfs-complete..."
-PKGLIST="`echo "$PKGS_SPECS_TABLE" | grep '^yes' | cut -f 2 -d '|' | tr '\n' ' '`"
-for ONEPKG in $PKGLIST $ZHACKS
-do
- if [ ! -d packages-${DISTRO_FILE_PREFIX}/${ONEPKG} ];then
-  if [ ! -d packages-${DISTRO_FILE_PREFIX}/${ONEPKG}_DEV ];then #pkg may go entirely into devx.
-   if [ ! -d packages-${DISTRO_FILE_PREFIX}/${ONEPKG}_DOC ];then #pkg may go entirely into docs.
-    echo "WARNING, PKG DOES NOT EXIST: packages-${DISTRO_FILE_PREFIX}/${ONEPKG}"
-    continue
-   fi
-  fi
- fi
-
- case "$ONEPKG" in
-   mscw|sfs_load|pupx) continue ;; #use only woofce apps
-   busybox) continue ;; #see below (avoid conflict between busybox applets and full utilities)
- esac
-
- echo -n " ${ONEPKG}"
- cp -a --remove-destination packages-${DISTRO_FILE_PREFIX}/${ONEPKG}/* sandbox3/rootfs-complete/ 2> /tmp/3builddistro-cp-errlog
- sync #110727 running drake pup 0.3 with k2.6.39-3 new laptop, mysterious loss of dirs/files. try sync.
- if [ -s /tmp/3builddistro-cp-errlog ];then #130430 next line fixes those quote chars...
-  cat /tmp/3builddistro-cp-errlog | grep 'cannot overwrite non-directory' | tr '[`‘’]' "'" | cut -f 2 -d "'" |
-   while read ONEDIRSYMLINK
-   do
-    xONEDIRSYMLINK="`echo -n "$ONEDIRSYMLINK" | sed -e 's%sandbox3/rootfs-complete%%'`"
-    #adding that extra trailing / does the trick...
-    cp -a --remove-destination packages-${DISTRO_FILE_PREFIX}/${ONEPKG}${xONEDIRSYMLINK}/* sandbox3/rootfs-complete${xONEDIRSYMLINK}/
-   done
- fi
- #...now seems ok. note, there are two places in woof v003 where this problem occurs: /usr/lib/seamonkey
- # and /usr/share/cups/model.
- 
- if [ -f sandbox3/rootfs-complete/pinstall.sh ];then
-  #note, do not filter #! /bin/sh (with a space)...
-  grep  -E -v '^\#\!\/bin\/sh' sandbox3/rootfs-complete/pinstall.sh >> sandbox3/pinstall.sh
-  rm -f sandbox3/rootfs-complete/pinstall.sh
- fi
- #get rid of a .specs file...
- rm -f sandbox3/rootfs-complete/*.specs
-done
+EXTRAS_LIST="${ADRV_INC// /|} ${YDRV_INC// /|} ${AFDRV_INC// /|}"
+if echo "$EXTRAS_LIST" | grep -qvE "[a-z]";then
+	DUMMY="" 
+else
+	DUMMY=XXXX #unless they make a Qld beer proggy 'XXXX' will never match; besides need a trailing field
+	EXTRAS_LIST="${EXTRAS_LIST// /|}${DUMMY}"
+	EXTRAS_LIST="${EXTRAS_LIST//^|}" #strip leading "|"
+	EXTRAS_LIST="${EXTRAS_LIST//||/|}" #replace double "||" with "|"
+fi
+if [ -n "${DUMMY}" ];then
+	PKGLIST="`echo "$PKGS_SPECS_TABLE" | grep '^yes' | grep -vE "${EXTRAS_LIST}" | cut -f 2 -d '|' | tr '\n' ' '`" 
+else
+	PKGLIST="`echo "$PKGS_SPECS_TABLE" | grep '^yes' | cut -f 2 -d '|' | tr '\n' ' '`"
+fi
+PKGLIST="${PKGLIST}${ZHACKS}"
+copy_pkgs_to_build "${PKGLIST}" rootfs-complete
 echo
+
+### new {a,f,y}drv build - this sorts the packages and builds the {a,f,y}drv filesystem
+ADRV_INCLUDE='';FDRV_INCLUDE_='';YDRV_INCLUDE=''
+[ "$(echo $ADRV_INC)" != "" ] && ADRV_INCLUDE=adrv
+[ "$(echo $FDRV_INC)" != "" ] && FDRV_INCLUDE=fdrv
+[ "$(echo $YDRV_INC)" != "" ] && YDRV_INCLUDE=ydrv
+if [ -n "$ADRV_INCLUDE" -o -n "$FDRV_INCLUDE" -o -n "$YDRV_INCLUDE" ];then
+	rm -f sandbox3/?pinstall.sh
+	for _DRV in  $ADRV_INCLUDE $FDRV_INCLUDE $YDRV_INCLUDE;do
+		echo
+		echo "Now building sandbox3/${_DRV} with apps redirected to ${_DRV}_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION}.sfs"
+		case ${_DRV} in
+		adrv)echo '#!/bin/sh' > sandbox3/apinstall.sh
+			mkdir -p sandbox3/adrv/usr/local/bin
+			copy_pkgs_to_build "${ADRV_INC}" adrv
+			chmod 755 sandbox3/apinstall.sh
+			echo;;
+		fdrv)echo '#!/bin/sh' > sandbox3/fpinstall.sh
+			mkdir -p sandbox3/fdrv/
+			copy_pkgs_to_build "${FDRV_INC}" fdrv
+			chmod 755 sandbox3/fpinstall.sh
+			echo
+			CONF_DIR=no;;
+		ydrv)echo '#!/bin/sh' > sandbox3/ypinstall.sh
+			mkdir -p sandbox3/ydrv/usr/local/bin
+			copy_pkgs_to_build "${YDRV_INC}" ydrv
+			chmod 755 sandbox3/ypinstall.sh
+			echo;;
+		esac
+		# if exists in {a,y}drv a .desktop file we symlink it to root/.config/rox.sourceforge.net/OpenWith/
+		if [ ! "$CONF_DIR" = 'no' ];then
+			mkdir -p sandbox3/${_DRV}/root/.config/rox.sourceforge.net/OpenWith/
+			(
+			cd sandbox3/${_DRV}/root/.config/rox.sourceforge.net/OpenWith/
+			for d in ../../../../usr/share/applications/*.desktop;do
+				app=${d##*/}
+				lo=$app # weird bug with libreoffice*.desktop 'permission denied'
+				app=${app%\.*}
+				if echo $app | grep -q 'libreoffice';then
+					echo $app | grep -qE "qstart|startcenter|xsltfilter" && continue
+					ln -sf $d $lo # maintains '.desktop' extension
+				else
+					ln -sf $d $app
+				fi
+			done
+			)
+		fi
+	done
+else
+	rm -rf sandbox3/?drv #precaution
+fi
+### end {a,f,y}drv
 
 #some old packages have xpm and png images in /
 mv -f sandbox3/rootfs-complete/{*.xpm,*.png} sandbox3/rootfs-complete/usr/share/pixmaps 2>/dev/null
@@ -419,39 +478,7 @@ rm -rf sandbox3/rootfs-complete/usr/share/cups/doc-root/help/* 2>/dev/null
 
 # new wallpaper maker - test if exec exists
 if which mkwallpaper &>/dev/null ; then # must be on the system
-	# check what version it is
-	MK_VER=$(mkwallpaper|head -n1|cut -d'-' -f2)
-	ls /usr/share/fonts/default/TTF|grep -q 'Orbitron' && FONT=Orbitron || FONT=Sans # fancy font
-	DIMS_X_Y="640 350"
-	XCWD=`pwd`
-	IMG=${XCWD}/rootfs-skeleton/usr/share/doc/puppylogo96-trans.png # embedded image for newer mkwallpaper
-	WCWD=${XCWD}/sandbox3/rootfs-complete
-	OUT_BG=${WCWD}/usr/share/backgrounds
-	if [ "$CUSTOM_WALLPAPERS" = "yes" ];then
-		mkwallpaper | grep -wq '\-k' && opt='-kyes' || opt=''
-		cd sandbox3/rootfs-complete
-		. etc/DISTRO_SPECS
-		for e in 1 2 3 4 5 6 7 8; do
-			case $e in
-				1)color='0.2 0.2 0.2'		;; #dark grey
-				2)color='0.70 0.30 0.40'	;; #raspberry
-				3)color='0.00 0.75 0.75'	;; #teale
-				4)color='0.2 0.7 0.1'		;; #green
-				5)color='0.55 0.25	0.60'	;; #purply violet
-				6)color='0.1 0.1 0.8'		;; #darkish blue
-				7)color='0.73 0.55 0.52'	;; #salmon
-				8)color='0.6 0.7 0.8'		;; #light blue
-			esac
-			if vercmp $MK_VER ge 0.8;then
-				echo #do new stuff
-				mkwallpaper -n ${DISTRO_FILE_PREFIX}-wall${e} -l "$DISTRO_FILE_PREFIX" \
-				-f $FONT -i0 -s 42 -x1280 -y800 -kyes -jbr -z "$color" -e"${IMG} $DIMS_X_Y" -d${OUT_BG} #-ppng hmm.. maybe smaller
-			else
-				mkwallpaper -n ${DISTRO_FILE_PREFIX}-wall${e} -l "$DISTRO_FILE_PREFIX" -x1024 -y768 -z "$color" ${opt} -w woof
-			fi
-		done
-		cd -
-	fi
+	support/mk_walls.sh
 fi
 echo 
 #run post-install script...
@@ -460,6 +487,15 @@ echo "Executing sandbox3/pinstall.sh post-install script..."
 cd $WKGDIR/sandbox3/rootfs-complete
 SAVEWKGDIR="$WKGDIR"
 $WKGDIR/sandbox3/pinstall.sh
+### new {a,f,y}drv stuff - execute the '{a,f,y}pinstall.sh'
+(
+cd $WKGDIR/sandbox3/
+for post_inst in adrv fdrv ydrv;do
+	prefix=${post_inst:0:1}
+	[ -f ${prefix}pinstall.sh ] && {(cd ${post_inst};$WKGDIR/sandbox3/${prefix}pinstall.sh)}
+done
+)
+###
 echo "Now setting /etc/os-release file"
 mk_os_release() {
 	dir=/etc
@@ -613,28 +649,59 @@ else # Huge_Kernel
 echo "Installing HUGE kernel"
 sleep 1
 # see if there is one in kernel-kit
-if [ -d '../kernel-kit/dist' ];then
-	KIT_KERNEL=`find ../kernel-kit/dist/packages -maxdepth 1 -type f -name 'huge*.tar.bz2' | head -n1`
-	[ -z "$KIT_KERNEL" ] || cp $KIT_KERNEL ../huge_kernel/
-	# while we are here, we'll copy in fdrive if it exists
-	FDRIVE=`find ../kernel-kit/dist/packages -maxdepth 1 -type f -name 'fdrv*.sfs'`
-	if [ "$FDRIVE" ];then
-		FSIZE=`stat -c %s $FDRIVE`
-		FSIZE=$(($FSIZE / 1000000))
-		echo "An 'F' drive if has been found. This contains supplementary firmware"
-		echo "that can be included in the final build. It will add ${FSIZE}MB to the"
-		echo "final image. It does no harm not to include, just some exotic drivers"
-		echo "may not work."
-		echo "Press 'F' then 'Enter' to include it or just 'Enter' to skip."
-		read include_fdrive
-		if [ "$include_fdrive" = 'f' ];then
-			echo "copying $FDRVSFS to build"
-			cp $FDRIVE build/$FDRVSFS
-		else
-			echo "Skipping f drive."
+	if [ -d '../kernel-kit/output' ];then
+		KIT_KERNEL=`find ../kernel-kit/output -maxdepth 1 -type f -name 'huge*.tar*' |grep -v 'txt$' | head -n1`
+		[ -z "$KIT_KERNEL" ] || cp $KIT_KERNEL ../huge_kernel/
+		# while we are here, we'll copy in fdrive if it exists
+		FDRIVE=`find ../kernel-kit/sources -maxdepth 1 -type f -name 'fdrv*.sfs'`
+		if [ "$FDRIVE" ];then
+		  if [ -z "$KFDRIVE" ];then
+			FSIZE=`stat -c %s $FDRIVE`
+			FSIZE=$(($FSIZE / 1000000))
+			echo "An 'F' drive if has been found. This contains supplementary firmware"
+			echo "that can be included in the final build. It will add ${FSIZE}MB to the"
+			echo "final image. It does no harm not to include, just some exotic drivers"
+			echo "may not work."
+			echo "Alternatively, you can shift the contents of ${FDRIVE##*/}"
+			echo "to sandbox3/fdrv and later in this script you are offered to download"
+			echo "and build some non-free firmwares that will be added to the ${FDRIVE##*/}"
+			echo "Press 'F' then 'Enter' to include, 'M' then enter to mount the fdrive"
+			echo "and copy the contents to sandbox3 it or just 'Enter' to skip."
+			read include_fdrive
+			case $include_fdrive in
+			  f|F)
+				echo "copying $FDRVSFS to build"
+				cp $FDRIVE build/$FDRVSFS
+				KFDRIVE=yes # will conflict with non-free fdrv below
+				;;
+			  m|M)
+			    echo "mounting $FDRIVE" # this is compatible with non-free fdrv
+			    FREEDEV=$(losetup -f)
+			    losetup ${FREEDEV} ${FDRIVE}
+			    mkdir -p /mnt/fdrv
+			    mount -r -t squashfs ${FREEDEV} /mnt/fdrv
+			    mkdir -p fdrv #we're in sandbox3
+			    echo "copying files..."
+			    cp -a -u --remove-destination /mnt/fdrv/* fdrv/
+			    sync
+			    umount /mnt/fdrv
+			    rm -rf /mnt/fdrv
+			    echo "done"
+			    ;;
+			  *)
+				echo "Skipping f drive."
+				KFDRIVE=no
+				;;
+			esac
+		  else
+			case $KFDRIVE in
+			  yes)echo "copying $FDRVSFS to build"
+				cp $FDRIVE build/$FDRVSFS;;
+			  *)echo "not copying ${FDRIVE##*/}";; # KFDRIVE is already 'no'
+			esac
+		  fi
 		fi
 	fi
-fi
 	
 # install huge kernel to build 140617
 mkdir -p ../huge_kernel
@@ -677,14 +744,14 @@ choose_kernel_to_download() {
 	rm $TMP2
 }
 
-if [ "$IS_KERNEL" = 0 ] ; then
-	#no kernel, get 1
-	if [ "$KERNEL_TARBALL_URL" != "" ] ; then
-		download_kernel ${KERNEL_TARBALL_URL} #build.conf
-	else
-		choose_kernel_to_download
+	if [ "$IS_KERNEL" = 0 ] ; then
+		#no kernel, get 1
+		if [ "$KERNEL_TARBALL_URL" != "" ] ; then
+			download_kernel ${KERNEL_TARBALL_URL} #build.conf
+		else
+			choose_kernel_to_download
+		fi
 	fi
-fi
 
 choose_kernel() {
 	TMP=/tmp/kernels3$$
@@ -714,6 +781,7 @@ IS_KERNEL=`ls ../huge_kernel|wc -l`
 [ "$IS_KERNEL" == 1 ] && KERNEL_VERSION=`ls ../huge_kernel|grep -v 'md5'|cut -d '-' -f2-|rev|cut -d '.' -f3-|rev`
 
 echo "Kernel is $KERNEL_VERSION version"
+export KERNEL_VERSION
 
 cp -a ../huge_kernel/huge-${KERNEL_VERSION}.tar.* build/
 cd build
@@ -1309,7 +1377,8 @@ if [ "$WOOF_HOSTARCH" = "$WOOF_TARGETARCH" ];then #120502 strip will not work fo
     esac
   done
   echo
-  find rootfs-complete/usr/lib rootfs-complete/usr/X11R7/lib -type f -name \*.so* |
+  [ -e rootfs-complete/usr/X11R7/lib ] && RFSC_X11R7=rootfs-complete/usr/X11R7/lib
+  find rootfs-complete/usr/lib $RFSC_X11R7 -type f -name \*.so* |
   while read ONEFILE ; do
     echo -n "${ONEFILE##*/} " #basename "$ONEFILE"
     FILE_INFO=$(file "$ONEFILE")
@@ -1723,10 +1792,13 @@ echo "Setting default apps specified in build.conf ..."
 echo "$DEFAULTAPPS" | sed -e '/^$/d' | while read entry ; do
 	IFS="=" read -r field value <<< "$entry"
 	[ "$field" = "" -o "$value" = "" ] && continue
-	echo "$field -> $value"
+	DRV_TGT=rootfs-complete NICE_TGT=main
+	echo "$ADRV_INC" | grep -q "${value%% *}" && DRV_TGT=adrv NICE_TGT=adrive # determine if app is on main sfs or adrv (not allowed in ydrv,fdrv)
+	echo "$field -> $value ($NICE_TGT sfs)"
+	[ -e "$DRV_TGT/usr/local/bin/" ] || mkdir -p ${DRV_TGT}/usr/local/bin/ # may not exist on adrv
 	echo "#!/bin/sh
-exec $value \"\$@\"" > rootfs-complete/usr/local/bin/$field
-	chmod 755 rootfs-complete/usr/local/bin/$field
+exec $value \"\$@\"" > ${DRV_TGT}/usr/local/bin/$field
+	chmod 755 ${DRV_TGT}/usr/local/bin/$field
 done
 
 BUILD_SFS='yes'
@@ -1741,7 +1813,38 @@ if [ "$SDFLAG" != "" ]; then
   BUILD_SFS='no'
  fi
 fi
+echo
+echo
+if [ "$BUILD_SFS" = 'yes' ];then
+  if [ -z "$NONFREE_FW" -a "$KFDRIVE" = no ];then
+      echo "You now have the opportunity to grab some non-free firmware
+to include in ${FDRVSFS}. There is a file in
+ 'support/fw.conf' 
+to configure what firmwares are included. Just set whatever 
+you like to 'true' or 'false'.
 
+Do you want to grab extra non-free firmware?
+(type 'y' and press 'enter' if you wish or 'enter' to skip..)"
+    read nonfree
+    case $nonfree in 
+		 y|Y)cd $WKGDIR
+		    echo; echo
+			support/get_fw 
+			echo; echo
+			cd - ;;
+	esac
+  else
+	if [ "$NONFREE_FW" = 'yes' -a "$KFDRIVE" = no ];then
+	  cd $WKGDIR
+	  echo
+	  echo "grabbing extra non-free firmware..."
+	  echo; echo
+	  support/get_fw
+	  echo; echo
+	  cd -
+    fi
+  fi
+fi
 
 #-------------------------
 #before building puppy.sfs from rootfs-complete, check for any invalid symlinks
@@ -1787,6 +1890,26 @@ if [ "$BUILD_SFS" = 'yes' ]; then
 	${MKSQUASHFS} rootfs-complete build/${PUPPYSFS} ${SFSCOMP} #100911 110713
 	sync
 	###########
+	if [ -d adrv -o -d fdrv -o -d ydrv ];then
+		###########
+		#build the {a,f,y}drive sfs...
+		for SYS_SFS in adrv fdrv ydrv
+		do
+			[ ! -d "$SYS_SFS" ] && echo "no $SYS_SFS" && continue
+			case $SYS_SFS in
+				adrv) TYPE_SYS_SFS="${ADRVSFS}";;
+				fdrv) TYPE_SYS_SFS="${FDRVSFS}";;
+				ydrv) TYPE_SYS_SFS="${YDRVSFS}";;
+			esac
+			echo
+			echo "Now building the $SYS_SFS f.s., $TYPE_SYS_SFS ..."
+			sync
+			rm -f build/${TYPE_SYS_SFS} 2>/dev/null
+			${MKSQUASHFS} $SYS_SFS build/${TYPE_SYS_SFS} ${SFSCOMP} #170330
+			sync
+		done
+		###########	
+	fi
 fi # if BUILD_SFS
 
 # very big 'if'
@@ -1794,27 +1917,28 @@ if [ "$SDFLAG" = "" ];then #120506
  if [ "$UFEI_ISO" = 'yes' ];then
 	# new 160404 UEFI iso - see support/uefi_cd.sh
 	UFLG=-uefi
-	WOOF_OUTPUT="woof-output-${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${UFLG}"
+	WOOF_OUTPUT="woof-output-${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${UFLG}${XTRA_FLG}"
 	../support/uefi_cd.sh
  elif [ "$G4DOS_ISO" = 'yes' ];then
-	WOOF_OUTPUT="woof-output-${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}" #woodenshoe-wi idea. #140619
+	WOOF_OUTPUT="woof-output-${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${XTRA_FLG}" #woodenshoe-wi idea. #140619
 	[ -d ../$WOOF_OUTPUT ] || mkdir -p ../$WOOF_OUTPUT
-	echo "Now building ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}.iso"
-	rm -f ../${WOOF_OUTPUT}/${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}.iso 2>/dev/null
+	echo "Now building ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${XTRA_FLG}.iso"
+	rm -f ../${WOOF_OUTPUT}/${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${XTRA_FLG}.iso 2>/dev/null
 	cp -a ../boot/grub4dos/* build/
 	sed -i "s/#distrodesc#/${DISTRO_NAME} ${DISTRO_VERSION}/" build/menu.lst
 	VOLUMEID=$(echo "${DISTRO_FILE_PREFIX}${DISTRO_VERSION}" | tr -d '.')
-	$MKISOFS -D -R -V ${VOLUMEID} -o ../${WOOF_OUTPUT}/${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}.iso -b grldr -c boot.cat -no-emul-boot -boot-load-size 4 -boot-info-table ./build/
+	$MKISOFS -D -R -V ${VOLUMEID} -o ../${WOOF_OUTPUT}/${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${XTRA_FLG}.iso -b grldr -c boot.cat -no-emul-boot -boot-load-size 4 -boot-info-table ./build/
 	sync
-	which isohybrid && isohybrid ../${WOOF_OUTPUT}/${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}.iso
+	which isohybrid && isohybrid ../${WOOF_OUTPUT}/${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${XTRA_FLG}.iso
 	( cd ../${WOOF_OUTPUT}
-	   md5sum ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}.iso > ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}.iso.md5.txt )
+	   md5sum ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${XTRA_FLG}.iso > ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${XTRA_FLG}.iso.md5.txt
+	   sha256sum ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${XTRA_FLG}.iso > ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${XTRA_FLG}.iso.sha256.txt )
  else
-	WOOF_OUTPUT="woof-output-${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}" #woodenshoe-wi idea. #140619
+	WOOF_OUTPUT="woof-output-${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${XTRA_FLG}" #woodenshoe-wi idea. #140619
 	[ -d ../$WOOF_OUTPUT ] || mkdir -p ../$WOOF_OUTPUT
 	#build live-cd .iso file...
-	echo "Now building ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}.iso"
-	rm -f ../${WOOF_OUTPUT}/${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}.iso 2>/dev/null
+	echo "Now building ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${XTRA_FLG}.iso"
+	rm -f ../${WOOF_OUTPUT}/${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${XTRA_FLG}.iso 2>/dev/null
 	if [ -f rootfs-complete/usr/lib${lsuffix}/syslinux/isolinux.bin ];then
 	 cp -a rootfs-complete/usr/lib${lsuffix}/syslinux/isolinux.bin build/
 	else
@@ -1879,12 +2003,13 @@ if [ "$SDFLAG" = "" ];then #120506
 	cut3PATTERN="s%CUT3INSERT%${CUT3INSERT}%"
 	sed -e "$verPATTERN" -e "$prefixPATTERN" -e "$cut2PATTERN" -e "$cut3PATTERN" ../boot/README.HTM > build/README.HTM
 	sync
-	$MKISOFS -D -R -o ../${WOOF_OUTPUT}/${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}.iso -b isolinux.bin -c boot.cat -no-emul-boot -boot-load-size 4 -boot-info-table ./build/
+	$MKISOFS -D -R -o ../${WOOF_OUTPUT}/${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${XTRA_FLG}.iso -b isolinux.bin -c boot.cat -no-emul-boot -boot-load-size 4 -boot-info-table ./build/
 	sync
 	# 131227 iguleder: made the generated ISO image hybrid, so it can be written to flash drives using dd
-	which isohybrid && isohybrid ../${WOOF_OUTPUT}/${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}.iso
+	which isohybrid && isohybrid ../${WOOF_OUTPUT}/${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${XTRA_FLG}.iso
 	( cd ../${WOOF_OUTPUT}
-	  md5sum ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}.iso > ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}.iso.md5.txt )
+	  md5sum ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${XTRA_FLG}.iso > ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${XTRA_FLG}.iso.md5.txt
+	  sha256sum ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${XTRA_FLG}.iso > ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${XTRA_FLG}.iso.sha256.txt )
  fi
 fi
 #end very big if
@@ -1912,7 +2037,7 @@ if [ "$SDFLAG" = "" ];then
 -- also be sure that it is unmounted."
   echo -n "Then hit ENTER key: "
   read yayburn
-  $CDRECORD $BURNMULTI -data -eject -v speed=4 padsize=300k dev=$CDR ../${WOOF_OUTPUT}/${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${UFLG}.iso
+  $CDRECORD $BURNMULTI -data -eject -v speed=4 padsize=300k dev=$CDR ../${WOOF_OUTPUT}/${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${UFLG}${XTRA_FLG}.iso
   sync
   eject $CDR
   echo "...done"
@@ -2240,7 +2365,8 @@ fi
 #100622 remove overhead of this script running every bootup...
 mkdir -p sandbox3/devx/etc/profile.d
 rm -f sandbox3/devx/etc/profile.d/pkgconfig* 2>/dev/null
-PKG_CONFIG_PATH="`find sandbox3/devx/usr/lib sandbox3/devx/usr/X11R7/lib sandbox3/devx/opt sandbox3/devx/usr/local/lib -type d -name pkgconfig | sed -e 's%sandbox3/devx%%' | tr '\n' ':'`"
+[ -e sandbox3/devx/usr/X11R7/lib ] && DEVX_X11R7=sandbox3/devx/usr/X11R7/lib
+PKG_CONFIG_PATH="`find sandbox3/devx/usr/lib $DEVX_X11R7 sandbox3/devx/opt sandbox3/devx/usr/local/lib -type d -name pkgconfig | sed -e 's%sandbox3/devx%%' | tr '\n' ':'`"
 echo "export PKG_CONFIG_PATH='${PKG_CONFIG_PATH}'" > sandbox3/devx/etc/profile.d/pkgconfig
 
 #maybe stray /install dir from slackware pkgs...
@@ -2283,6 +2409,7 @@ chmod 644 ./${WOOF_OUTPUT}/${DEVXSFS}
 CUR_DIR="$PWD"
 cd ./${WOOF_OUTPUT}
 md5sum ${DEVXSFS} > ${DEVXSFS}.md5.txt #100911
+sha256sum ${DEVXSFS} > ${DEVXSFS}.sha256.txt
 cd "$CUR_DIR"
 sync
 echo "...done"
