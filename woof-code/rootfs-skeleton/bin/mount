@@ -14,6 +14,13 @@
 #if an ntfs partition, puppy uses user-mode ntfs-3g driver.
 #the mount and umount scripts allow seamless mounting and unmounting of ntfs f.s.
 
+[ "`whoami`" != "root" ] && exec sudo -A ${0} ${@}
+
+if grep -q fido /etc/inittab ; then
+	USER_OTPS="uid=1001,gid=500," #fido
+	USER_OTPS_2="-o uid=1001,gid=500" #fido
+fi
+
 [ ! $1 ] && exec busybox mount
 
 #i realised this script has to allow reentrancy. So, all temp file now unique,
@@ -29,12 +36,26 @@ MYPID=${$}
 DASHOPTS="`echo "$*" | tr '\t' ' '  | sed -e 's/ -- .*//' | tr ' ' '\n' | grep '^\-'`"
 
 case "$*" in
+	*' vfat '*) VFAT_FLAG=yes ;;
 	*' exfat '*) EXFAT_FLAG=yes ;;
 	*' ntfs '*) NTFS_FLAG=yes ;;
 	*' crypto_LUKS '*) LUKS_FLAG=yes ;;
 esac
 
-if [ "$EXFAT_FLAG" = "yes" ];then
+if [ "$VFAT_FLAG" = "yes" ];then
+  CMDPRMS="`echo -n "$*" | tr '\t' ' ' | tr -s ' ' | tr ' ' '\n' | grep '^/' | tr '\n' ' '`"
+  NLS_PARAM=""
+  if [ -f /etc/codepage ]; then
+    grep -q -i '850' /etc/codepage && [ "$(echo $LANG|cut -d'.' -f1)" != "en_US" ] && NLS_PARAM=",codepage=850"
+    grep -q -i '852' /etc/codepage && NLS_PARAM=",codepage=852,iocharset=iso8859-2"
+  fi
+  grep '^LANG=' /etc/profile | grep -q -i -E '\.utf|\.UTF' && NLS_PARAM="$NLS_PARAM,utf8"
+  OPT="-o ${USER_OTPS}shortname=mixed,quiet${NLS_PARAM}"
+  mount-FULL -t vfat ${OPT} -n $CMDPRMS
+  echo "mount-FULL -t vfat ${OPT} -n $CMDPRMS" > /tmp/zz
+  RETVAL=$?
+
+elif [ "$EXFAT_FLAG" = "yes" ];then
   #older mount version: exfat systems fail with mount-FULL -n
   mount-FULL "${@}" || {
     # musl static mount.exfat fails
@@ -49,34 +70,18 @@ if [ "$EXFAT_FLAG" = "yes" ];then
 elif [ "$LUKS_FLAG" = "yes" ] ; then
   exec mount.crypto_LUKS "$@" #mount.crypto_LUKS has specific rox code
 
-### everything else ###
-elif [ "$NTFS_FLAG" != "yes" ];then
-  #needs an explicit '-t ntfs', does not work with /etc/fstab...
-  # busybox mount does not support '--bind'
-  # as have mtab file (see below), can now use full mount...
-  # v409 put in '-n' option as now have /etc/mtab symlink to /proc/mounts...
-  mount-FULL -n "${@}" #SFR quotes
-  RETVAL=$?
-
-### NTFS ###
-else
+elif [ "$NTFS_FLAG" = "yes" ];then
  #screen out all the options...
  CMDPRMS="`echo -n "$*" | tr '\t' ' ' | tr -s ' ' | tr ' ' '\n' | grep '^/' | tr '\n' ' '`"
  #kirk advised these options so Rox will not complain about file
  #permissions when copy a file to a ntfs partition...
  [ -f /tmp/ntfsmnterr${MYPID}.txt ] && rm -f /tmp/ntfsmnterr${MYPID}.txt
- 
- ntfs-3g $CMDPRMS -o umask=0,no_def_opts,silent 2>/tmp/ntfsmnterr${MYPID}.txt #120103 shinobar: need silent
+ ntfs-3g $CMDPRMS -o ${USER_OTPS}silent 2>/tmp/ntfsmnterr${MYPID}.txt
  RETVAL=$?
  #v2.16 ntfs-3g v1.417, part. scheduled for check, failed with value 10...
  #v4.00 ntfs-3g v1.2412 does not have 4,10, has 15 for dirty f.s., 14 hiberneted...
- if [ $RETVAL -eq 4 -o $RETVAL -eq 10 -o $RETVAL -eq 15 -o $RETVAL -eq 14 ];then  #try to force it...
-  if [ $RETVAL -eq 14 ];then
-   #ntfs-3g $CMDPRMS -o umask=0,no_def_opts,remove_hiberfile 2>/tmp/ntfsmnterr${MYPID}.txt
-   #RETVAL=$?
-   echo > /dev/null
-  else
-   ntfs-3g $CMDPRMS -o force,umask=0,no_def_opts,silent 2>/tmp/ntfsmnterr${MYPID}.txt #120103 shinobar: need silent.
+ case $RETVAL in 4|10|15) #14 = must mount read-only
+   ntfs-3g $CMDPRMS -o ${USER_OTPS}force,silent 2>/tmp/ntfsmnterr${MYPID}.txt
    RETVAL=$?
    ERRMSG1="`cat /tmp/ntfsmnterr${MYPID}.txt`"
    echo "$ERRMSG1"
@@ -90,8 +95,9 @@ It is mounted read/write, but advice is only write
 to it in emergency situation. Recommendation is
 boot Windows and fix the filesystem first!!!" &
    fi
-  fi
- fi
+  [ ! -s /tmp/ntfsmnterr${MYPID}.txt ] && rm -f /tmp/ntfsmnterr${MYPID}.txt
+  ;;
+ esac
  
  #ntfs-3g plays very safe and will not mount if thinks anything
  #wrong with ntfs f.s. But, we may want to recover files from a
@@ -112,6 +118,15 @@ So, the inbuilt kernel NTFS driver has been used
 to mount the partition read-only." &
   fi
  fi
+
+### everything else ###
+else
+  #needs an explicit '-t ntfs', does not work with /etc/fstab...
+  # busybox mount does not support '--bind'
+  # as have mtab file (see below), can now use full mount...
+  # v409 put in '-n' option as now have /etc/mtab symlink to /proc/mounts...
+  mount-FULL -n "${@}" #SFR quotes
+  RETVAL=$?
 fi
 
 #v4.02 if there is a desktop icon (see pup_eventd), then refresh it...
