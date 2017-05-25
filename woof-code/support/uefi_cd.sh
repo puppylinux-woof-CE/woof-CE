@@ -41,13 +41,13 @@ mk_efi_img() {
 }
 
 # RESOURCES=`find ../ -type d -name UEFI -maxdepth 2`
-RESOURCES=`find ../sandbox3/rootfs-complete/usr/share/ -type d -name 'grub2-efi' -maxdepth 2`
-ISOLINUX=`find ../sandbox3/rootfs-complete/usr -type f -name 'isolinux.bin' -maxdepth 3`
-VESAMENU=`find ../sandbox3/rootfs-complete/usr -type f -name 'vesamenu.c32' -maxdepth 3`
-FIXUSB=`find ../sandbox3/rootfs-complete/usr -type f -name 'fix-usb.sh' -maxdepth 2`
+RESOURCES=`find ../sandbox3/rootfs-complete/usr/share/ -maxdepth 2 -type d -name 'grub2-efi'`
+ISOLINUX=`find ../sandbox3/rootfs-complete/usr -maxdepth 3 -type f -name 'isolinux.bin'`
+VESAMENU=`find ../sandbox3/rootfs-complete/usr -maxdepth 3 -type f -name 'vesamenu.c32'`
+FIXUSB=`find ../sandbox3/rootfs-complete/usr -maxdepth 2 -type f -name 'fix-usb.sh'`
 GRUBNAME=grubx64.efi
 NEWNAME=bootx64.efi
-GRUB2=`find ../sandbox3/rootfs-complete/usr/share -type f -name "${GRUBNAME}*" -maxdepth 2`
+GRUB2=`find ../sandbox3/rootfs-complete/usr/share -maxdepth 2 -type f -name "${GRUBNAME}*"`
 BUILD=../sandbox3/build
 HELP=${BUILD}/help
 MSG1=../boot/boot-dialog/help.msg
@@ -61,9 +61,9 @@ WOOF_OUTPUT="woof-output-${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${SCSIFLAG}${UFL
 [ -d ../$WOOF_OUTPUT ] || mkdir -p ../$WOOF_OUTPUT
 OUT=../${WOOF_OUTPUT}/${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${SCSIFLAG}${UFLG}${XTRA_FLG}.iso
 
-[ -z "$ISOLINUX" ] && echo "Can't find isolinux" && exit
-[ -z "$VESAMENU" ] && echo "Can't find vesamenu" && exit
-[ -z "$GRUB2" ] && echo "Can't find Grub2" && exit
+[ -z "$ISOLINUX" ] && echo "Can't find isolinux" && exit 32
+[ -z "$VESAMENU" ] && echo "Can't find vesamenu" && exit 33
+[ -z "$GRUB2" ] && echo "Can't find Grub2" && exit 34
 
 # custom backdrop
 pic=puppy
