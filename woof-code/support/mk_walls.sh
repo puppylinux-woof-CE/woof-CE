@@ -2,21 +2,28 @@
 # execute one up
 . ./_00build.conf
 . ./DISTRO_SPECS
+XCWD=`pwd`
 # check what version it is
 MK_VER=$(mkwallpaper|head -n1|cut -d'-' -f2)
+[ -f ${XCWD}/support/mkwall.conf ] && . mkwall.conf
 ls /usr/share/fonts/default/TTF|grep -q 'Orbitron' && FONT=Orbitron || FONT=Sans # fancy font
+[ -n "$CFONT" ] && FONT=$CFONT
 DIMS_X_Y="640 350"
-XCWD=`pwd`
+FSIZE=42
+[ -n "$CFSIZE" ] && FSIZE=$CFSIZE
 IMG=${XCWD}/rootfs-skeleton/usr/share/doc/puppylogo96-trans.png # embedded image for newer mkwallpaper
+[ -n "$CIMG" ] && IMG=$CIMG
 WCWD=${XCWD}/sandbox3/rootfs-complete
 OUT_BG=${WCWD}/usr/share/backgrounds
+STRING=$DISTRO_FILE_PREFIX
+[ -n "$CSTRING" ] && STRING="$CSTRING"
 if [ "$CUSTOM_WALLPAPERS" = "yes" ];then
 	mkwallpaper | grep -wq '\-k' && opt='-kyes' || opt=''
 	(cd sandbox3/rootfs-complete
 	. etc/DISTRO_SPECS
 	for e in 1 2 3 4 5 6 7 8; do
 		case $e in
-			1)color='0.2 0.2 0.2'		;; #dark grey
+			1)color='0.3 0.3 0.3'		;; #dark grey
 			2)color='0.70 0.30 0.40'	;; #raspberry
 			3)color='0.00 0.75 0.75'	;; #teale
 			4)color='0.2 0.7 0.1'		;; #green
@@ -27,8 +34,8 @@ if [ "$CUSTOM_WALLPAPERS" = "yes" ];then
 		esac
 		if vercmp $MK_VER ge 0.8;then
 			echo #do new stuff
-			mkwallpaper -n ${DISTRO_FILE_PREFIX}-wall${e} -l "$DISTRO_FILE_PREFIX" \
-			-f $FONT -i0 -s 42 -x1280 -y800 -kyes -jbr -z "$color" -e"${IMG} $DIMS_X_Y" -d${OUT_BG} #-ppng hmm.. maybe smaller
+			mkwallpaper -n ${DISTRO_FILE_PREFIX}-wall${e} -l "$STRING" \
+			-f $FONT -i0 -s $FSIZE -x1280 -y800 -kyes -jbr -z "$color" -e"${IMG} $DIMS_X_Y" -d${OUT_BG} #-ppng hmm.. maybe smaller
 		else
 			mkwallpaper -n ${DISTRO_FILE_PREFIX}-wall${e} -l "$DISTRO_FILE_PREFIX" -x1024 -y768 -z "$color" ${opt} -w woof
 		fi

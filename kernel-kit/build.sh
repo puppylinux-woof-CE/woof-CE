@@ -431,7 +431,15 @@ else
 		FIRMWARE_OPT=git
 		## fw.sh - linux-firmware git ##
 		echo "You have chosen to get the latest firmware from kernel.org"
-		if [ -d ../linux-firmware ] ; then #outside kernel-kit
+		if [ -e ../linux-firmware ] ; then #outside kernel-kit
+			if [ -d ../linux-firmware -a ! -h ../linux-firmware ];then # move legacy
+				if [ -e ../../local-repositories ];then
+					echo "  wait while we move the repository..."
+					mv -f ../linux-firmware ../../local-repositories
+					( cd .. ; ln -snf ../local-repositories/linux-firmware . )
+					echo "  repo moved!"
+				fi
+			fi
 			cd ../linux-firmware
 			echo "Updating the git firmware repo"
 			git pull || log_msg "Warning: 'git pull' failed"
