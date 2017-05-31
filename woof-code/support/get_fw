@@ -5,12 +5,11 @@ echo ${WKGDIR} # should be /wherever/woof/is/woof-out*
 . ${WKGDIR}/support/fw.conf
 
 # globals
+SANDBOX=${WKGDIR}/sandbox3
 FKVER=${KERNEL_VERSION%%-*} # to cross reference firmware in kernel config 
-DOTCONFIGVER=`find $WKGDIR/kernel-kit*/output -type f -name 'DOTconfig*' -maxdepth 2 | sort -u | tail -n1`
-echo $DOTCONFIGVER | grep -q $FKVER && DCONFIG=true
+DOTCONFIGVER=
 TMP=/tmp/fw$$
 mkdir -p $TMP
-SANDBOX=${WKGDIR}/sandbox3
 OUT=${SANDBOX}/fdrv/lib/firmware
 #rm -rf $OUT
 mkdir -p $OUT
@@ -19,9 +18,6 @@ LOGDIR=${WKGDIR}/status
 mkdir -p $LOGDIR
 LOG=${LOGDIR}/get_fw.log
 echo `date` > $LOG
-echo $FKVER >> $LOG
-echo $DOTCONFIGVER >> $LOG
-echo "DCONFIG=$DCONFIG" >> $LOG
 REPO=${WKGDIR}/non-free-firmware
 
 #======== misc funcs ==========
@@ -35,6 +31,26 @@ mk_repo() { # must be relative link
 	mkdir -p ../local-repositories/non-free-firmware
 	ln -snf ../local-repositories/non-free-firmware . # dot ('.') ..  not fly poo on screen
 	)
+}
+
+log_fail() {
+	echo "$1 failed" >> $LOG && return 1
+}
+
+get_dotconfig() {
+	ZDRIVE=`ls ${SANDBOX}/build | grep 'zdrv'`
+	[ -z "$ZDRIVE" ] && log_fail "zdrive variable" && return 1 
+	echo "mounting $ZDRIVE"
+    FREEDEV=$(losetup -f) || ( log_fail "losetup: free device" && return 1 )
+    losetup ${FREEDEV} ${SANDBOX}/build/${ZDRIVE} || ( log_fail "losetup: make device" && return 1 )
+    mkdir -p $TMP/zdrv || ( log_fail "making mount point" && return 1 )
+    mount -r -t squashfs ${FREEDEV} $TMP/zdrv || ( log_fail "mounting $ZDRIVE" && return 1 )
+    export DOTCONFIGVER=`ls $TMP/zdrv/boot | grep '^config'` 
+    [ -z "$DOTCONFIGVER" ] && ( log_fail "Failed to get config" && return 1 )
+    umount $TMP/zdrv
+    rm -rf $TMP/zdrv
+    losetup -a | grep -o -q "${FREEDEV##*/}" && losetup -d $FREEDEV
+    echo "done" && return 0
 }
 
 # fix config for user error
@@ -282,13 +298,17 @@ elif [ "$b43_all" = 'true' -a "$b43_old" = 'true' ];then
 	fixup_conf
 fi
 # filter
+get_dotconfig || echo "failed to get kernel config"
+echo $DOTCONFIGVER | grep -q $FKVER && DCONFIG=true
+echo $FKVER >> $LOG
+echo $DOTCONFIGVER >> $LOG
+echo "DCONFIG=$DCONFIG" >> $LOG
 if [ "$DCONFIG" = 'true' ];then
 	for module in b43_all b43_new b43_old zd1201 atmel ipw
 	do 
 		# don't override user chosen; some are big and may not be wanted
 		[ "$module" = 'true' ] &&  filter_fw_kver $module
 	done
-	cat ${WKGDIR}/support/fw.conf >> $LOG
 fi
 if [ "$nouveau" = 'true' -a "$nouveau_cut" = 'true' ];then
 	echo "can't have nouveau and nouveau_cut set as true!"
@@ -296,6 +316,8 @@ if [ "$nouveau" = 'true' -a "$nouveau_cut" = 'true' ];then
 	echo "resetting nouveau_cut as default (user error)" >> $LOG
 	sed -i 's%nouveau=.*%nouveau=false%'  ${WKGDIR}/support/fw.conf
 fi
+
+cat ${WKGDIR}/support/fw.conf >> $LOG
 # download and build fdrv
 build_func $b43_all b43_func b43_all all
 build_func $b43_new b43_func b43_new new
