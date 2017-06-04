@@ -1,0 +1,362 @@
+#!/bin/sh
+# see also /sbin scripts: usablefs, set_plang, wait4usb, switch
+#
+# _FN = _FILENAME
+# _MP = _MOUNTPOINT
+#
+
+######################## localization ########################
+#ex: /locale/<locale>/init.mo
+L_WINDOWS_HIBERNATED="ERROR: Windows NTFS hibernated partition, cannot mount"
+L_DONE="done"
+L_FAILED="failed"
+L_DUMPING_BOOTINIT_LOG="Dumping last lines of /tmp/bootinit.log..."
+L_DUMPING_KERNEL_LOG="Dumping last lines of kernel log..."
+L_ERROR_IS_TOO_CRITICAL="Error is too critical, dropping out to console..."
+L_PAUSING_60_SECONDS="Pausing for 60 seconds..."
+L_WAITING_FOR_USB="Waiting for USB storage."
+L_LOADING_KEYBOARD_LAYOUT="Loading '%s' keyboard layout..." #printf
+L_DROPPED_TO_INITRD_SHELL="Dropped to initramfs shell. Type 'exec switch' to continue booting Puppy."
+L_ADDING_MODULE="Adding module %s" #printf
+L_NO_DISTRO_SPECS="No DISTRO_SPECS file found, assuming that personal storage is empty."
+L_DEBUG_SAVE="To save debug info to a partition, type 'debugsave'"
+##############################################################
+
+# alread called by /init
+#/sbin/usablefs # mount: /proc /sys /dev / (proc sysfs devtmpfs rootfs)
+
+export TERM="xterm"
+export TERMINFO="/usr/share/terminfo"
+export LANG=C
+PATH="/bin:/sbin"
+export KERNELVER="$(uname -r)"
+VFAT_OUT_PARAM='shortname=mixed,quiet,utf8' #see also /sbin/set_plang
+. /DISTRO_SPECS #v412 has DISTRO_VERSION, DISTRO_FILE_PREFIX
+
+if [ $loglevel ] ; then
+  LOGLEVEL=$loglevel
+else
+  # If no loglevel is specified, the kernel uses its default loglevel..
+  # but it may be too verbose and flood the screen.
+  # '3' is the standard loglevel.
+  echo '3' > /proc/sys/kernel/printk
+fi
+
+#=============================================================
+#                        FUNCTIONS
+#=============================================================
+
+fsck_func() {
+# "$1" - partition device - ex: /dev/sdb2
+# "$2" - fstype - ex: ext2
+ case $2 in
+  ext2|ext3|ext4) fsck_app='e2fsck' ; fsck_OPT='-y' ;;
+  vfat|msdos) fsck_app='fsck.fat' ; fsck_OPT='-y' ;;
+  exfat) fsck_app='exfatfsck' ; fsck_OPT='' ;;
+  *) return ;;
+ esac
+ which "${fsck_app}" || {
+   echo "WARNING: '${fsck_app}' not found"
+   FSCKDPARTS="${FSCKDPARTS}${1}|"
+   return
+ }
+ if [ "$(echo "$FSCKDPARTS" | grep "${1}|")" = "" ];then
+  ${fsck_app} ${fsck_OPT} ${1} > /dev/console 2>&1 || sleep 3 #so the user has time to read the error msg..
+  FSCKDPARTS="${FSCKDPARTS}${1}|"
+ fi
+}
+
+mntfunc() {
+ MNT_T="$1"    #ex: vfat
+ MNT_DEV="$2"  #ex: /dev/sda1
+ MNT_DIR="$3"  #ex: /mnt/sda1
+ MNT_O="$4"    #ex: noatime   [optional]
+ MNT_DSK="${MNT_DEV:5:3}"
+ if [ "$PTRIM" = "yes" -a "$MNT_DSK" != "" -a "$(cat /sys/block/$MNT_DSK/queue/rotational)" = "0" ];then
+  if [ "$MNT_T" = "ext4" -o "$MNT_T" = "f2fs" ];then
+   if [ "$MNT_O" = "" ];then
+    MNT_O="discard"
+   else
+    MNT_O="${MNT_O},discard"
+   fi
+  fi
+ fi
+ [ "$PFSCKP" = "yes" ] && fsck_func "$MNT_DEV" "$MNT_T"
+ case $MNT_T in
+  ntfs)
+   ntfs-3g $MNT_DEV $MNT_DIR -o umask=0,no_def_opts,noatime,rw,silent 2>/dev/null #default is rw. 130211 add silent.
+   ntfsRETVAL=$?
+   [ $ntfsRETVAL -eq 0 ] && return 0
+   if [ $ntfsRETVAL -eq 14 ];then
+    echo -e "\\033[1;31m${L_WINDOWS_HIBERNATED}\\033[0;39m" >/dev/console #31=red
+    return 14
+   else
+    ntfs-3g $MNT_DEV $MNT_DIR -o umask=0,no_def_opts,noatime,rw,force,silent 2>/dev/null #130211 add silent.
+   fi
+  ;;
+  vfat)  mount -t $MNT_T -o $VFAT_OUT_PARAM $MNT_DEV $MNT_DIR ;;
+  exfat) mount.exfat-fuse $MNT_DEV $MNT_DIR ;;
+  *)
+   if [ "$MNT_O" = "" ];then
+    mount -t $MNT_T $MNT_DEV $MNT_DIR
+   else
+    mount -t $MNT_T -o $MNT_O $MNT_DEV $MNT_DIR
+   fi
+  ;;
+ esac
+ return $?
+}
+
+check_status() #args: [-critical] $RET_VAL "$ERROR_MSG"
+{
+  ERROR_CRITICAL=""
+  [ "$1" = "-critical" ] && { ERROR_CRITICAL="yes" ; shift; }
+  RET_VAL=$1
+  shift
+  ERROR_MSG="$@"
+  if [ $RET_VAL -eq 0 ] ; then
+    echo -en "\\033[74G" >/dev/console #move to column 72. 110426: 74
+    echo -e "\\033[1;32m${L_DONE}\\033[0;39m" >/dev/console #32=green
+  else
+    echo -en "\\033[72G" >/dev/console #move to column 72.
+    echo -e "\\033[1;31m${L_FAILED}\\033[0;39m" >/dev/console #31=red
+    echo -e "\\033[1;35m${L_DUMPING_BOOTINIT_LOG}\\033[0;39m" >/dev/console #35=purple
+    echo -en "\\033[1;31m" >/dev/console #31=red
+    cat /tmp/bootinit.log | tail -n 4 >/dev/console
+    echo -en "\\033[0;39m" >/dev/console
+    echo -e "\\033[1;35m${L_DUMPING_KERNEL_LOG}\\033[0;39m" >/dev/console #35=purple
+    echo -en "\\033[1;31m" >/dev/console #31=red
+    dmesg | tail -n 4 >/dev/console
+    echo -en "\\033[0;39m" >/dev/console
+    #exit to initial ramdisk shell...
+    [ "$RDSH" != "" ] && exec /bin/sh >/dev/console 2>&1
+    if [ "$ERROR_CRITICAL" = "yes" ] ; then
+      echo -en "\\033[1;35m" >/dev/console #35=purple
+      if [ "$ERROR_MSG" != "" ] ; then
+        echo "*** $ERROR_MSG" >/dev/console
+        echo "*** $ERROR_MSG" #debug
+      fi
+      echo "*** ${L_ERROR_IS_TOO_CRITICAL}" #debug
+      echo "*** ${L_ERROR_IS_TOO_CRITICAL}" >/dev/console
+      echo -en "\\033[0;39m" >/dev/console
+      echo -e "\\033[1;32m*** $L_DEBUG_SAVE\\033[0;39m" >/dev/console
+      exec /bin/sh >/dev/console 2>&1
+    else
+      echo "${L_PAUSING_60_SECONDS}" >/dev/console
+      sleep 60
+    fi
+  fi
+}
+
+decode_id() {
+ ONE_PART=""
+ [ "${1}" ] || return
+ if [ "$(echo -n ${1} | grep -E '^[a-z]+[0-9]')" -a "$(grep -m1 " ${1}$" /proc/partitions)" ];then
+  ONE_PART="$1"  #is a real partition
+ else
+  [ "$BLKIDOUT" ] || BLKIDOUT="$(blkid)"
+  ONE_PART="$(echo "$BLKIDOUT" | grep -m1 -E " LABEL=.${1}| UUID=.${1}" | cut -f1 -d: | cut -f3 -d/)" #is LABEL or UUID
+ fi
+}
+
+ensure_mounted() {
+# "$1" - partition - ex: sda3
+# "$2" - mountpoint - ex: /mnt/pdrv
+ ONE_MP="$(mount | grep -m1 "/dev/${1} " | cut -f 3 -d ' ')"
+ [ "$ONE_MP" ] && return
+ ONE_FS="$(echo "$HAVE_PARTS" | grep -m1 "${1}|" | cut -f 2 -d '|')"
+ ONE_MP="${2}"
+ [ -d "$ONE_MP" ] || mkdir -p $ONE_MP
+ mntfunc $ONE_FS /dev/${1} $ONE_MP #-t $ONE_FS /dev/$ONE_PART $ONE_MP
+ if [ $? -ne 0 ] ; then
+  sleep 3 # usb optical drive showing as /sys/block/sr0, but won't mount, needs more delay...
+  mntfunc $ONE_FS /dev/${1} $ONE_MP
+  [ $? -ne 0 ] && { echo "${1} on $ONE_MP as $ONE_FS mount failed."; ONE_MP=""; return 1; }
+ fi
+ # fsckme.flg is created by rc.sysinit and deleted by rc.shutdown
+ # this flag will be set for any prior improper shutdown. if have lots of installations
+ # of puppy on the pc, the flag may not even be for this install of puppy, however, this is
+ # the simplest implementation...
+ if [ -f ${ONE_MP}/fsckme.flg ] ; then
+  #sda1,ext3,/PUPPYBOOT/precise/precisesave.4fs
+  FSCKME="`cat ${ONE_MP}/fsckme.flg`"
+  echo -e "${ONE_MP}/fsckme.flg\n  $FSCKME"
+  FSCK_PART="$(echo "$FSCKME" | cut -f 1 -d ",")"
+  FSCK_EXT="$(echo "$FSCKME" | cut -f 2 -d ",")"
+  FSCK_SAVEFILE="$(echo "$FSCKME" | cut -f 3 -d ",")"
+  rm -f ${ONE_MP}/fsckme.flg
+  [ "$FSCK_SAVEFILE" ] && PFSCK="yes"
+  [ "$PFSCKP" = "yes" ] && return # boot param, partition already fsck'ed
+  case ${FSCK_EXT} in ext2|ext3|ext4|vfat|msdos|exfat)
+    umount ${ONE_MP}
+    [ "$FSCKME" ] && fsck_func /dev/${FSCK_PART} ${FSCK_EXT}
+    ensure_mounted "$1" "$2" ;;
+  esac
+ fi
+}
+
+get_part_info() {
+ probedisk > /tmp/ALLDRVS
+ ls -1 /sys/block | grep -E '^scd|^sd|^mmc|^sr' > /tmp/ALLDRVS0
+ PCPARTSALL="$(/sbin/probepart_init -k)"
+ HAVE_PARTS="$(echo "$PCPARTSALL" | grep '^/dev/' | cut -f 1-2 -d '|'  | grep -E 'f2fs|udf|iso9660|ext2|ext3|ext4|reiserfs|msdos|vfat|minix|ntfs' | sed -e 's%/dev/%%')"
+ [ "$PDEBUG" ] && echo "$HAVE_PARTS" > /tmp/HAVE_PARTS
+}
+
+wait_for_usb() {
+ [ -e /tmp/flag-usb-ready ] && return
+ echo -n "${L_WAITING_FOR_USB}" > /dev/console 
+ /sbin/wait4usb
+ get_part_info
+ BLKIDOUT=""
+ check_status 0
+}
+
+fatal_error() {
+# "$1" - message - ex: puppy_tahr_6.0.5.sfs not found
+# "$2" - pre-status-message - ex: Finding puppy
+ [ "${2}" ] && echo -n "${2}" > /dev/console
+ check_status -critical 1 "$1"
+}
+
+#=============================================================
+#                           MAIN
+#=============================================================
+
+clear #clear the screen.
+
+echo -en "\\033[0;34m***\\033[0;37m ${DISTRO_NAME} ${DISTRO_VERSION}"
+echo -en "\\033[0;34m -\\033[0;37m Linux ${KERNELVER} "
+echo -en "\\033[0;31m[\\033[0;37m`uname -m`\\033[0;31m]"
+echo -e "\\033[0;34m ***\\033[0;39m"
+
+[ ! "$LOGLEVEL" ] && exec 1>/tmp/bootinit.log 2>&1 #remove o/p from console. v2.22 loglevel added.
+
+# sets PLANG, PKEYS, VFAT_OUT_PARAM, FONTMAP, KMAP, CODEPAGE
+[ -f /sbin/set_plang ] && . /sbin/set_plang
+
+[ $pdrv ] && PDRV=$pdrv   #boot parameter, partition have booted off. ex: hda3
+[ $pdev1 ] && PDRV=$pdev1 #boot parameter, partition have booted off. ex: hda3
+[ $root ] && PDRV=$root   #boot parameter, partition have booted off
+[ $rootdev ] && PDRV=$rootdev   #boot parameter, partition have booted off
+
+RDSH=""
+if [ "$pfix" ];then
+ for ONEFIX in $(echo -n "$pfix" | tr ',' ' ')
+ do
+  case $ONEFIX in
+   rdsh)    RDSH="yes";;          #exit to shell in initial ramdisk.
+   xorgwizard) PXORGWIZARD="yes";;#force xorgwizard for this session
+   nox)     PNOX="yes";;          #do not start X.
+   trim)    PTRIM="yes";;         #add "discard" to mount options if SSD
+   fsck)    PFSCK="yes";;         #do a fsck of ${DISTRO_FILE_PREFIX}save file.
+   fsckp)   PFSCKP="yes";;        #do fsck before first mount of ext partitions
+   *)       echo "pfix=$ONEFIX is not a known boot parameter for a full install";;
+  esac
+ done
+fi
+
+[ "$TZ" ] && export TZ
+hwclock -l -s
+
+#-----------------------------
+# see if actually a non-huge kernel is being used..
+not_a_huge_kernel_stuff && check_status 0
+#-----------------------------
+
+get_part_info
+grep -v '^sr' /tmp/ALLDRVS0 > /tmp/ATADRIVES0
+ATAOPTICALDRIVES="$(grep '^sr' /tmp/ALLDRVS0 | tr '\n' ' ')"
+
+# process PDRV
+if [ "$PDRV" = "" ] ; then
+  for i in $(cat /proc/cmdline)
+  do
+    case $i in "root="*) PDRV=${i#root=} ;; esac
+  done
+fi
+case $PDRV in
+  UUID=*) PDRV=${PDRV#UUID=} ;; #remove leading UUID=
+  PARTUUID=*) fatal_error "Sorry PARTUUID= is not supported. Use root=UUID=<uuid> instead" ;;
+  */*) PDRV=$(basename $PDRV) ;;
+esac
+BLKIDOUT=""
+decode_id $PDRV #decode UUID
+PDRV=$ONE_PART
+
+# PDRV must be a linux fs
+FSTYPE="$(blkid /dev/$PDRV | grep -o ' TYPE=.*' | cut -f 2 -d '"')"
+case $FSTYPE in
+  ext2|ext3|ext4|reiserfs|minix|f2fs) ONE_FS_IS_LINUX="yes" ;;
+  *) fatal_error "Partition must be ext2/ext3/ext4..." ;;
+esac
+
+# mount PDRV
+ensure_mounted $PDRV /pup_new || fatal_error "Could not mount $PDRV ..."
+
+# is it a valid full install?
+if [ -d /pup_new/initrd ] ; then
+  fatal_error "Found /initrd dir. Refusing to continue. Delete that directory if it's an actual full install.."
+fi
+for i in boot/initrd.gz boot/vmlinuz etc/DISTRO_SPECS etc/rc.d/PUPSTATE
+do
+  [ -e /pup_new/${i} ] || fatal_error "File /$i is missing and it must already be there"
+done
+
+[ "$DEV1FS" ] || DEV1FS="$(echo "$PDRV" | cut -f 2 -d ',')"
+[ "$ATADRIVES" ] || ATADRIVES="$(cat /tmp/ATADRIVES0 | tr '\n' ' ')"
+
+mkdir -p /pup_new/etc/rc.d
+( # > /pup_new/etc/rc.d/PUPSTATE
+echo "PUPMODE=2"
+echo "PUP_HOME='/'"
+echo "PDEV1='$PDRV'"
+echo "DEV1FS='$DEV1FS'"
+echo "PMEDIA='$PMEDIA'"
+echo '#ATADRIVES is all internal ide/pata/sata drives, excluding optical, excluding usb...'
+echo "ATADRIVES='$ATADRIVES'"
+echo '#ATAOPTICALDRIVES is list of non-usb optical drives...'
+echo "ATAOPTICALDRIVES='$ATAOPTICALDRIVES'"
+[ -f /sbin/set_plang ] && plang_pupstate #echo
+) > /pup_new/etc/rc.d/PUPSTATE
+
+echo -------------------- # debug
+mount
+echo -------------------- # debug
+
+# make sure /pup_new/sbin/mount.exfat is not missing...
+[ ! -f /pup_new/sbin/mount.exfat ] && cp -vu /bin/mount.exfat* /pup_new/sbin/
+
+# copy cryptsetup to /pup_new if it's missing
+if [ "$COPY_CRYPTSETUP" = "yes" ] ; then
+  [ ! -f /pup_new/bin/cryptsetup -a ! -f /pup_new/sbin/cryptsetup ] && \
+      cp -v /bin/cryptsetup /pup_new/sbin/
+fi
+
+[ "$PXORGWIZARD" = "yes" ] && touch /pup_new/tmp/xwin_xorgwizard_cli
+#PNOX is a boot param. /etc/profile prevents X from starting if this file exists...
+[ "$PNOX" = "yes" ] && touch /pup_new/tmp/bootcnt.txt
+dmesg > /tmp/dmesg.txt
+mkdir -p /pup_new/var/initrd/tmp
+cp -af /tmp/* /pup_new/var/initrd/tmp #keep any log files.
+cp -af /init /pup_new/var/initrd
+cp -af /sbin/* /pup_new/var/initrd
+
+[ -f /sbin/set_plang ] && plang_copy_to_newroot #$LANG, /etc/keymap|fontmap|codepage
+
+if [ "$RDSH" = "yes" ];then
+ echo > /dev/console
+ echo "${L_DROPPED_TO_INITRD_SHELL}" > /dev/console
+ exec /bin/sh >/dev/console 2>&1
+fi
+
+sync
+[ -d "/proc/bus/usb" ] && umount /proc/bus/usb
+umount /sys
+umount /dev
+umount /proc
+
+#now using cpio archive for initramfs 'initial ramdisk'...
+exec switch_root /pup_new /sbin/init
+
+### END ###
