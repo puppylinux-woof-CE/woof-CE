@@ -1641,18 +1641,14 @@ $(gettext 'Click window close box to quit...')" 0 0
   fi
 
   #info for creating a grub entry...
-  DRV_TYPE="`echo -n "$DESTPART" | cut -b 1-3`" #ex: hda
   DESTPART_UUID=$(blkid /dev/${DESTPART} | grep -o ' UUID=".*' | cut -d '"' -f2)
   if [ "$DESTPART_UUID" ] ; then
-    GRUBPART="#root (hd0,0) <-- GRUB legacy, ex: hd1,0
+    GRUBPART="#root (hd0,0) <-- GRUB legacy, ex: (hd1,0)
 uuid ${DESTPART_UUID}"
-    KERNEL_ROOT="root=${DESTPART_UUID}"
-    KERNEL_ROOT_ALT="
-#                                root=/dev/${DESTPART}"
   else
     GRUBPART="root (hd0,0)"
-    KERNEL_ROOT="root=/dev/${DESTPART}"
   fi
+
   #INSTOPTION, install puppy to DESTPART...
   if [ "$INSTOPTION" = "1" ];then #frugal.
   
@@ -1749,7 +1745,8 @@ $(gettext 'your PC for all installations of Puppy and other operating systems)')
    #finished. could put up a final dlg here, then quit script.
    /usr/lib/gtkdialog/box_ok "$L_PUPPY_INSTALLER" info "$(gettext 'Okay, all done')"
    exit
-  #--------- h.d. install option2
+
+  #--------- FULL INSTALL option2
   else
    #upgrade, ask if want delete partition...
    if [ -f "${DESTMNTPT}/etc/DISTRO_SPECS" ];then
@@ -1851,23 +1848,45 @@ $(gettext 'your PC for all installations of Puppy and other operating systems)')
     depmod -b ${DESTMNTPT}
    fi
    sync
-   # also copy from running system, might have even more updates...
-   cp -a -u --remove-destination /etc/rc.d/rc.* ${DESTMNTPT}/etc/rc.d/
-   cp -a -u --remove-destination /etc/rc.d/func* ${DESTMNTPT}/etc/rc.d/
-   cp -a -u --remove-destination /usr/local/* ${DESTMNTPT}/usr/local/
+   
+   FULL_INSTALL_INITRD=no
+   if [ -f /initrd/tmp/not_a_huge_kernel -o -f /var/initrd/tmp/not_a_huge_kernel ] ; then
+      # non-huge kernel
+      FULL_INSTALL_INITRD=yes
+   else
+     # huge kernel
+     /usr/lib/gtkdialog/box_yesno --yes-first --yes-icon none --no-icon none "$L_PUPPY_INSTALLER" \
+     "Do you want to have a full install with a initial RAM disk (initrd.gz)?" \
+     "This adds, let's say, a layer of sanity providing more services and options than the regular full-install boot... (even more stability)."
+     [ $? -eq 0 ] && FULL_INSTALL_INITRD=yes
+   fi
    rm -f ${DESTMNTPT}/etc/networkmodules*
    #[ $UPGRADE_INSTALL ] && touch ${DESTMNTPT}/var/local/full_install_update_flag #full update
    sync
-   # fstab
-    mv -f ${DESTMNTPT}/etc/fstab ${DESTMNTPT}/etc/fstab.bak
-    echo "none          /proc        proc     defaults               0 0" > $DESTMNTPT/etc/fstab
-    echo "none          /sys         sysfs    defaults               0 0" >> $DESTMNTPT/etc/fstab
-    echo "none          /dev/pts     devpts   gid=2,mode=620         0 0" >> $DESTMNTPT/etc/fstab
-    echo "/dev/fd0      /mnt/floppy  auto     noauto,rw              0 0" >> $DESTMNTPT/etc/fstab
-    sync
+
    mkdir -p ${DESTMNTPT}/boot
-   cp -p --remove-destination ${SRCPATH}/vmlinuz /mnt/${DESTPART}/boot/
-   cp -p --remove-destination ${SRCPATH}/initrd.gz /mnt/${DESTPART}/boot/
+   cp -p --remove-destination ${SRCPATH}/vmlinuz $DESTMNTPT/boot/
+
+   mv -f ${DESTMNTPT}/etc/fstab ${DESTMNTPT}/etc/fstab.bak
+
+   if [ "$FULL_INSTALL_INITRD" = "yes" ] ; then
+     ROOTDEV="root=UUID=${DESTPART_UUID}"
+     ROOTDEV_ALT="
+#                                root=/dev/${DESTPART}"
+     cp -p --remove-destination ${SRCPATH}/initrd.gz $DESTMNTPT/boot/
+     GRUB_INITRD='initrd /boot/initrd.gz'
+     echo "none          /proc        proc     defaults               0 0" > $DESTMNTPT/etc/fstab
+   else
+     ROOTDEV="root=/dev/${DESTPART}"
+     echo "/dev/$DESTPART     /            $DESTFS     defaults               0 1" > $DESTMNTPT/etc/fstab
+     echo "#UUID=${DESTPART_UUID}     /            $DESTFS     defaults               0 1" >> $DESTMNTPT/etc/fstab
+     echo "none          /proc        proc     defaults               0 0" >> $DESTMNTPT/etc/fstab
+   fi
+   echo "none          /sys         sysfs    defaults               0 0" >> $DESTMNTPT/etc/fstab
+   echo "none          /dev/pts     devpts   gid=2,mode=620         0 0" >> $DESTMNTPT/etc/fstab
+   echo "/dev/fd0      /mnt/floppy  auto     noauto,rw              0 0" >> $DESTMNTPT/etc/fstab
+   sync
+
    ( 
      cd ${DESTMNTPT}/
      rm -rf archive initrd tmp
@@ -1888,8 +1907,8 @@ in / in the partition in which GRUB4DOS is installed) and insert this:\"`
 " > /tmp/NEWGRUBTEXT
     echo "title Puppy Linux - $DISTRO_NAME ${NEWVER} full install in ${DESTPART}
 ${GRUBPART}
-kernel /boot/vmlinuz fullinstall ${KERNEL_ROOT} pmedia=${FINALPMEDIA} ${KERNEL_ROOT_ALT}
-initrd /boot/initrd.gz
+kernel /boot/vmlinuz fullinstall ${ROOTDEV} pmedia=${FINALPMEDIA} ${ROOTDEV_ALT}
+${GRUB_INITRD}
 
 -----
 For GRUB you must set root (hdX,X) to the correct values and comment/remove uuid. root (hdX,X) is also supported by grub4dos..
