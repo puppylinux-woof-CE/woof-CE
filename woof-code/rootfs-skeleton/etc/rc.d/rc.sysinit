@@ -149,7 +149,7 @@ firmware_tarball_func() {
 mount -t devtmpfs devtmpfs /dev 2>/dev/null
 
 #if have just done a switch_root, output a 'done' message...
-[ -d /initrd ] && status_func 0 #note, /initrd does not exist when a full-hd installation.
+[ -d /initrd -o -f /var/tmp/initrd_full_install_flag ] && status_func 0
 
 ORIGLANG="`grep '^LANG=' /etc/profile | cut -f 2 -d '=' | cut -f 1 -d ' '`" #120217
 ORIGLANG1="${ORIGLANG%_*}" #ex: en
@@ -176,14 +176,10 @@ STATUS=0
 
 ##############MAKE FILESYSTEM USABLE################
 
-if [ -d /initrd ] ; then
-	echo -n "Making the filesystem usable..." >/dev/console
-else
-	echo -n "Starting system..." >/dev/console
-fi
+echo -n "Making the filesystem usable..." >/dev/console
 
 if [ ! -e /dev/loop0 ] ; then
-	if [ "`mount | cut -f 1 -d ' ' | grep -q devtmpfs`" = "" ] ; then
+	if [ "`mount | cut -f 1 -d ' ' | grep devtmpfs`" = "" ] ; then
 		( cd / ; tar -zxf /var/lib/dev.tar.gz ; ) #no devtmpfs
 	fi
 fi
@@ -229,10 +225,12 @@ if [ ! -d /initrd ];then
  #EXT3-fs (sda10): warning: maximal mount count reached, running e2fsck is recommended
  #--
  #write to PUPSTATE after remount r/w.
- echo 'PUPMODE=2' > /etc/rc.d/PUPSTATE
- if [ "$ORIGLANG1" != "en" ];then #120217
-  echo "OUTPUT_CHARSET=UTF-8
+ if [ ! -f /var/tmp/initrd_full_install_flag ] ; then
+   echo 'PUPMODE=2' > /etc/rc.d/PUPSTATE
+   if [ "$ORIGLANG1" != "en" ];then #120217
+    echo "OUTPUT_CHARSET=UTF-8
 export OUTPUT_CHARSET" >> /etc/rc.d/PUPSTATE
+   fi
  fi
 fi
 . /etc/rc.d/PUPSTATE #variables created at bootup by init script in initrd.
@@ -318,7 +316,7 @@ fi
 rm -f /mnt/home 2>/dev/null
 if [ ! -d /initrd ];then
  PUP_HOME='/'
- echo "PUP_HOME='/'" >> /etc/rc.d/PUPSTATE
+ [ ! -f /var/tmp/initrd_full_install_flag ] && echo "PUP_HOME='/'" >> /etc/rc.d/PUPSTATE
  ln -sv / /mnt/home
 else
  if [ "$PUP_HOME" ];then #see /etc/rc.d/PUPSTATE
@@ -464,35 +462,37 @@ done
 if [ ! -d /initrd ];then #full hd installation.
  modprobe nls_cp437 > /dev/null 2>&1 #these needed by vfat/ntfs/ext2 f.s.'s. 110712 maybe builtin.
  modprobe nls_iso8859-1 > /dev/null 2>&1 # "
- modprobe fuse
- modprobe aufs
- modprobe squashfs
- #we can determine ide/sata drives at this point (drivers builtin to kernel)...
- #define ATADRIVES as all internal ide/pata/sata drives (not usb), except optical...
- #110712 rewritten to handle kernel with usb driver built-in...
- ALLDRVS0="`find /sys/block -maxdepth 1 -name 'mmc*' -o -name 'sd*' -o -name 'sr*' | xargs -l readlink 2>/dev/null | grep -v '/usb[0-9]' | rev | cut -f 1 -d '/' | rev`" #all *except* usb!
- ALLDRVS="`echo "$ALLDRVS0" | tr '\n' ' '`" #all *except* usb!
- [ "$ALLDRVS" = " " ] && ALLDRVS=""
- ATADRIVES="`echo "$ALLDRVS0" | grep -v '^sr' | tr '\n' ' '`"
- [ "$ATADRIVES" = " " ] && ATADRIVES=""
- ATAOPTICALDRIVES="`echo "$ALLDRVS0" | grep '^sr' | tr '\n' ' '`"
- [ "$ATAOPTICALDRIVES" = " " ] && ATAOPTICALDRIVES=""
- if [ -e /proc/ide ];then
-  for ONEIDE in `ls -1 /proc/ide | grep '^hd' | tr '\n' ' '`
-  do
-   if [ "`cat /proc/ide/${ONEIDE}/media`" = "cdrom" ];then
-    ATAOPTICALDRIVES="${ATAOPTICALDRIVES}${ONEIDE} "
-   else
-    ATADRIVES="${ATADRIVES}${ONEIDE} "
+ modprobe fuse 2>/dev/null
+ modprobe aufs 2>/dev/null
+ modprobe squashfs  2>/dev/null
+ if [ ! -f /var/tmp/initrd_full_install_flag ] ; then
+   #we can determine ide/sata drives at this point (drivers builtin to kernel)...
+   #define ATADRIVES as all internal ide/pata/sata drives (not usb), except optical...
+   #110712 rewritten to handle kernel with usb driver built-in...
+   ALLDRVS0="`find /sys/block -maxdepth 1 -name 'mmc*' -o -name 'sd*' -o -name 'sr*' | xargs -l readlink 2>/dev/null | grep -v '/usb[0-9]' | rev | cut -f 1 -d '/' | rev`" #all *except* usb!
+   ALLDRVS="`echo "$ALLDRVS0" | tr '\n' ' '`" #all *except* usb!
+   [ "$ALLDRVS" = " " ] && ALLDRVS=""
+   ATADRIVES="`echo "$ALLDRVS0" | grep -v '^sr' | tr '\n' ' '`"
+   [ "$ATADRIVES" = " " ] && ATADRIVES=""
+   ATAOPTICALDRIVES="`echo "$ALLDRVS0" | grep '^sr' | tr '\n' ' '`"
+   [ "$ATAOPTICALDRIVES" = " " ] && ATAOPTICALDRIVES=""
+   if [ -e /proc/ide ];then
+    for ONEIDE in `ls -1 /proc/ide | grep '^hd' | tr '\n' ' '`
+    do
+     if [ "`cat /proc/ide/${ONEIDE}/media`" = "cdrom" ];then
+      ATAOPTICALDRIVES="${ATAOPTICALDRIVES}${ONEIDE} "
+     else
+      ATADRIVES="${ATADRIVES}${ONEIDE} "
+     fi
+    done
    fi
-  done
+   ATADRIVES0="`echo -n "$ATADRIVES" | tr ' ' '\n'`"
+   ATAOPTICALDRIVES0="`echo -n "$ATAOPTICALDRIVES" | tr ' ' '\n'`"
+   echo '#ATADRIVES is all internal ide/pata/sata drives, excluding optical, excluding usb...' >> /etc/rc.d/PUPSTATE
+   echo "ATADRIVES='${ATADRIVES}'" >> /etc/rc.d/PUPSTATE
+   echo '#ATAOPTICALDRIVES is list of non-usb optical drives...'  >> /etc/rc.d/PUPSTATE #110206
+   echo "ATAOPTICALDRIVES='$ATAOPTICALDRIVES'"  >> /etc/rc.d/PUPSTATE
  fi
- ATADRIVES0="`echo -n "$ATADRIVES" | tr ' ' '\n'`"
- ATAOPTICALDRIVES0="`echo -n "$ATAOPTICALDRIVES" | tr ' ' '\n'`"
- echo '#ATADRIVES is all internal ide/pata/sata drives, excluding optical, excluding usb...' >> /etc/rc.d/PUPSTATE
- echo "ATADRIVES='${ATADRIVES}'" >> /etc/rc.d/PUPSTATE
- echo '#ATAOPTICALDRIVES is list of non-usb optical drives...'  >> /etc/rc.d/PUPSTATE #110206
- echo "ATAOPTICALDRIVES='$ATAOPTICALDRIVES'"  >> /etc/rc.d/PUPSTATE
 fi
 
 [ ! -d /proc/acpi ] && modprobe apm #load apm.ko if no acpi.
@@ -873,6 +873,8 @@ if [ ! "$PUPMODE" = 5 ];then
     fi
   fi
 fi
+
+[ -f /var/tmp/initrd_full_install_flag ] && rm -f /var/tmp/initrd_full_install_flag
 
 #that's it. next stop is /etc/profile...
 ###END###
