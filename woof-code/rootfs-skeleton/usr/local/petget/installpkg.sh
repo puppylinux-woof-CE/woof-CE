@@ -177,6 +177,32 @@ if [ "$PUPMODE" = "2" ]; then # from BK's quirky6.1
 	 [ "$DLPKG_PATH" != "" ] && rm -f "${DLPKG_PATH}"/${DLPKG_BASE}
 	 exit 1
 	fi
+
+#boot from flash: bypass tmpfs top layer, install direct to pup_save file...
+elif [ $PUPMODE -eq 3 -o $PUPMODE -eq 7 -o $PUPMODE -eq 13 ];then
+	# SFR: let user chose...
+	if [ -f /var/local/petget/install_mode ] ; then
+	 IM="`cat /var/local/petget/install_mode`"
+	else
+	 IMODE="savefile"
+	fi
+	[ "$IM" = "true" ] && IMODE="tmpfs" || IMODE="savefile"
+	if [ "$IMODE" != "tmpfs" ]; then
+	 FLAGNODIRECT=1
+	 #100426 aufs can now write direct to save layer...
+	 #note: fsnotify now preferred not inotify, udba=notify uses whichever is enabled in module...
+	 busybox mount -t aufs -o remount,udba=notify unionfs / #remount aufs with best evaluation mode.
+	 FLAGNODIRECT=$?
+	 [ $FLAGNODIRECT -ne 0 ] && logger -s -t "installpkg.sh" "Failed to remount aufs / with udba=notify"
+	 if [ $FLAGNODIRECT -eq 0 ];then
+	  #note that /sbin/pup_event_frontend_d will not run snapmergepuppy if installpkg.sh or downloadpkgs.sh are running.
+	  while [ "`pidof snapmergepuppy`" != "" ];do
+	   sleep 1
+	  done
+	  DIRECTSAVEPATH="/initrd${SAVE_LAYER}" #SAVE_LAYER is in /etc/rc.d/PUPSTATE.
+	  rm -f $DIRECTSAVEPATH/pet.specs $DIRECTSAVEPATH/pinstall.sh $DIRECTSAVEPATH/puninstall.sh $DIRECTSAVEPATH/install/doinst.sh
+	 fi
+	fi
 fi
 
 if [ $DISPLAY -a ! -f /tmp/install_quietly ];then #131222

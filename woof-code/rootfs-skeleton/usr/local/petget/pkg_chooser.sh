@@ -46,6 +46,9 @@ options_status () {
 	[ -f /root/.packages/download_path ] && [ "$DL_PATH" != "/root" ] && \
 	 MSG_DPATH="$(gettext 'Download packages in ')${DL_PATH}.
 	 $(gettext '')"
+	[ "$(cat /var/local/petget/install_mode 2>/dev/null)" = "true" ] && \
+	 MSG_TEMPFS="$(gettext 'Save installed programs when we save to savefile.')
+	 $(gettext '')"
 	[ "$(cat /var/local/petget/nt_category 2>/dev/null)" = "true" ] && \
 	 MSG_NOTERM="$(gettext 'Do NOT show terminal with PPM activity.')
 	 $(gettext '')"
