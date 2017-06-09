@@ -61,18 +61,6 @@ else
 	SIZEBOX=''
 fi
 
-if [ $PUPMODE -eq 3 -o $PUPMODE -eq 7 -o $PUPMODE -eq 13 ]; then
-	[ -f /var/local/petget/sc_category ] && \
-     CATEGORY_IM=$(cat /var/local/petget/install_mode) || CATEGORY_IM="false"
-	IMODE="<checkbox>
-        <label>$(gettext 'Install to tmpfs instead  of the savefile, till session is saved')</label>
-        <variable>CATEGORY_IM</variable>
-        <default>${CATEGORY_IM}</default>
-     </checkbox>"
-else
-	IMODE=''
-fi
-
 # pet download folder
 SAVEPATH=""
 if [ -f /root/.packages/download_path ]; then
@@ -203,7 +191,6 @@ S='<window title="'$(gettext 'Puppy Package Manager - Configure')'" icon-name="g
         <variable>CATEGORY_NT</variable>'
         [ "$(</var/local/petget/nt_category)" = "true" ] && S=$S'<default>true</default>'
       S=$S'</checkbox>
-      '${IMODE}'
       <checkbox>
         <label>'$(gettext "Always redownload packages when they preexist")'</label>
         <variable>CATEGORY_RD</variable>'
@@ -278,11 +265,6 @@ echo -n "$RETPARAMS" | grep 'CATEGORY_NT' | cut -d= -f2 | tr -d '"' > /var/local
 echo -n "$RETPARAMS" | grep 'CATEGORY_RD' | cut -d= -f2 | tr -d '"' > /var/local/petget/rd_category
 echo -n "$RETPARAMS" | grep 'CATEGORY_ND' | cut -d= -f2 | tr -d '"' > /var/local/petget/nd_category
 echo -n "$RETPARAMS" | grep 'CATEGORY_SI' | cut -d= -f2 | tr -d '"' > /var/local/petget/si_category
-
-# handle install mode
-if [ $PUPMODE -eq 3 -o $PUPMODE -eq 7 -o $PUPMODE -eq 13 ]; then
-  echo -n "$RETPARAMS" | grep 'CATEGORY_IM' | cut -d= -f2 | tr -d '"' > /var/local/petget/install_mode
-fi
 
 # handle savepath
 SAVEPATH="`echo -n "$RETPARAMS" | grep 'SAVEPATH' | cut -f 2 -d '"'`"
