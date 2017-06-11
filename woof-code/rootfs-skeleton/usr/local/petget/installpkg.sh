@@ -147,15 +147,14 @@ if [ "`grep "$PTN1" /root/.packages/user-installed-packages`" != "" ];then
 fi
 
 DIRECTSAVEPATH=""
- 
+read -r TFS TMAX TUSED TMPK TPERCENT TMNTPT <<<$(df -k | grep -w '^tmpfs') #free space in /tmp
+SIZEB=`stat --format=%s "${DLPKG_PATH}"/${DLPKG_BASE}`
+SIZEK=`expr $SIZEB \/ 1024`
+EXPK=`expr $SIZEK \* 5` #estimated worst-case expanded size.
 if [ "$PUPMODE" = "2" ]; then # from BK's quirky6.1
 	#131220  131229 detect if not enough room in /tmp...
 	DIRECTSAVEPATH="/tmp/petget/directsavepath"
-	SIZEB=`stat --format=%s "${DLPKG_PATH}"/${DLPKG_BASE}`
-	SIZEK=`expr $SIZEB \/ 1024`
-	EXPK=`expr $SIZEK \* 5` #estimated worst-case expanded size.
 	NEEDK=$EXPK
-	TMPK=`df -k /tmp | grep '^tmpfs' | tr -s ' ' | cut -f 4 -d ' '` #free space in /tmp
 	if [ $EXPK -ge $TMPK ];then
 	  DIRECTSAVEPATH="/audit/directsavepath"
 	  NEEDK=`expr $NEEDK \* 2`
@@ -183,10 +182,13 @@ elif [ $PUPMODE -eq 3 -o $PUPMODE -eq 7 -o $PUPMODE -eq 13 ];then
 	# SFR: let user chose...
 	if [ -f /var/local/petget/install_mode ] ; then
 	 IM="`cat /var/local/petget/install_mode`"
+	 [ "$IM" = "true" ] && IMODE="tmpfs" || IMODE="savefile"
 	else
 	 IMODE="savefile"
+	 if [ -n "$TMPK" ];then
+	  [ $TMPK -gt $EXPK ] && IMODE="tmpfs" # EXPK is 5x package size
+	 fi
 	fi
-	[ "$IM" = "true" ] && IMODE="tmpfs" || IMODE="savefile"
 	if [ "$IMODE" != "tmpfs" ]; then
 	 FLAGNODIRECT=1
 	 #100426 aufs can now write direct to save layer...
@@ -200,7 +202,18 @@ elif [ $PUPMODE -eq 3 -o $PUPMODE -eq 7 -o $PUPMODE -eq 13 ];then
 	   sleep 1
 	  done
 	  DIRECTSAVEPATH="/initrd${SAVE_LAYER}" #SAVE_LAYER is in /etc/rc.d/PUPSTATE.
-	  rm -f $DIRECTSAVEPATH/pet.specs $DIRECTSAVEPATH/pinstall.sh $DIRECTSAVEPATH/puninstall.sh $DIRECTSAVEPATH/install/doinst.sh
+	  #rm -f $DIRECTSAVEPATH/pet.specs $DIRECTSAVEPATH/pinstall.sh $DIRECTSAVEPATH/puninstall.sh $DIRECTSAVEPATH/install/doinst.sh
+	  # create the symlinks needed if DISTRO_ARCHDIR is set
+	  if [ -n "$DISTRO_ARCHDIR" ];then
+		if [ ! -e "$DIRECTSAVEPATH/lib/$DISTRO_ARCHDIR" -o ! -e "$DIRECTSAVEPATH/usr/lib/$DISTRO_ARCHDIR" -o ! -e "$DIRECTSAVEPATH/usr/bin/$DISTRO_ARCHDIR" ];then
+		 mkdir -p $DIRECTSAVEPATH/lib
+		 mkdir -p $DIRECTSAVEPATH/usr/lib
+		 mkdir -p $DIRECTSAVEPATH/usr/bin
+		 ln -snf ./ $DIRECTSAVEPATH/lib/$DISTRO_ARCHDIR
+		 ln -snf ./ $DIRECTSAVEPATH/usr/lib/$DISTRO_ARCHDIR
+		 ln -snf ./ $DIRECTSAVEPATH/usr/bin/$DISTRO_ARCHDIR
+		fi
+	  fi
 	 fi
 	fi
 fi
@@ -475,27 +488,29 @@ ls -dl /tmp | grep -q '^drwxrwxrwt' || chmod 1777 /tmp #130305 rerwin.
 
 #post-install script?...
 #          puppy         slackware       debian/ubuntu/etc
-for i in /pinstall.sh /install/doinst.sh /DEBIAN/postinst
+for i in pinstall.sh install/doinst.sh DEBIAN/postinst
 do
-	[ ! -e "$i" ] && continue
-	chmod +x ${i}
-	cd /
+	[ ! -e "$DIRECTSAVEPATH/$i" ] && continue
+	chmod +x $DIRECTSAVEPATH/${i}
+	cd $DIRECTSAVEPATH/
 	LANG=$LANG_USER nohup sh ${i} &
 	sleep 0.2
 	rm -f ${i}
+	rm -rf install
+	rm -rf DEBIAN
 done
 
 #130314 run arch linux pkg post-install script...
-if [ -f /.INSTALL ];then #arch post-install script.
+if [ -f $DIRECTSAVEPATH/.INSTALL ];then #arch post-install script.
  if [ -f /usr/local/petget/ArchRunDotInstalls ];then #precaution. see 3builddistro, script created by noryb009.
   #this code is taken from below...
   dlPATTERN='|'"`echo -n "$DLPKG_BASE" | sed -e 's%\\-%\\\\-%'`"'|'
   archVER="`cat /tmp/petget_missing_dbentries-Packages-* | grep "$dlPATTERN" | head -n 1 | cut -f 3 -d '|'`"
   if [ "$archVER" ];then #precaution.
-   cd /
+   cd $DIRECTSAVEPATH/
    mv -f .INSTALL .INSTALL1-${archVER}
-   cp -a /usr/local/petget/ArchRunDotInstalls /ArchRunDotInstalls
-   LANG=$LANG_USER /ArchRunDotInstalls
+   cp -a /usr/local/petget/ArchRunDotInstalls ArchRunDotInstalls
+   LANG=$LANG_USER ./ArchRunDotInstalls
    rm -f ArchRunDotInstalls
    rm -f .INSTALL*
   fi
@@ -503,22 +518,22 @@ if [ -f /.INSTALL ];then #arch post-install script.
 fi
 
 #v424 .pet pkgs may have a post-uninstall script...
-if [ -f /puninstall.sh ];then
- mv -f /puninstall.sh /root/.packages/${DLPKG_NAME}.remove
+if [ -f $DIRECTSAVEPATH/puninstall.sh ];then
+ mv -f $DIRECTSAVEPATH/puninstall.sh /root/.packages/${DLPKG_NAME}.remove
 fi
 
 #w465 <pkgname>.pet.specs is in older pet pkgs, just dump it...
 #maybe a '$APKGNAME.pet.specs' file created by dir2pet script...
-rm -f /*.pet.specs 2>/dev/null
+rm -f $DIRECTSAVEPATH/*.pet.specs 2>/dev/null
 #...note, this has a setting to prevent .files and entry in user-installed-packages, so install not registered.
 
 #add entry to /root/.packages/user-installed-packages...
 #w465 a pet pkg may have /pet.specs which has a db entry...
-if [ -f /pet.specs -a -s /pet.specs ];then #w482 ignore zero-byte file.
- DB_ENTRY="`cat /pet.specs | head -n 1`"
- rm -f /pet.specs
+if [ -f $DIRECTSAVEPATH/pet.specs -a -s $DIRECTSAVEPATH/pet.specs ];then #w482 ignore zero-byte file.
+ DB_ENTRY="`cat $DIRECTSAVEPATH/pet.specs | head -n 1`"
+ rm -f $DIRECTSAVEPATH/pet.specs
 else
- [ -f /pet.specs ] && rm -f /pet.specs #w482 remove zero-byte file.
+ [ -f $DIRECTSAVEPATH/pet.specs ] && rm -f $DIRECTSAVEPATH/pet.specs #w482 remove zero-byte file.
  dlPATTERN='|'"`echo -n "$DLPKG_BASE" | sed -e 's%\\-%\\\\-%'`"'|'
  DB_ENTRY="`cat /tmp/petget_missing_dbentries-Packages-* | grep "$dlPATTERN" | head -n 1`"
 fi
