@@ -10,5 +10,5 @@ fi
 )
 
 # special
-[ -f root/.retrovolNOT ] && mv -f root/.retrovolNOT root/.retrovol
+[ -e root/.retrovolNOT ] && mv -f root/.retrovolNOT root/.retrovol
 	
