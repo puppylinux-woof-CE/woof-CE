@@ -174,9 +174,9 @@ label ${DISTRO_FILE_PREFIX}-fsck
 linux vmlinuz
 initrd initrd.gz
 append pfix=fsck pmedia=cd
-menu label ${DISTRO_FILE_PREFIX}
+menu label ${DISTRO_FILE_PREFIX} filesystem check
 text help
-Start ${DISTRO_FILE_PREFIX} normally with filesystem check.
+Start ${DISTRO_FILE_PREFIX} normally with save filesystem check.
 endtext
 
 
@@ -186,7 +186,7 @@ initrd initrd.gz
 append pfix=ram pmedia=cd
 menu label $DISTRO_FILE_PREFIX with no savefile
 text help
-Start Slacko64 with no savefile RAM only.
+Start ${DISTRO_FILE_PREFIX} with no savefile RAM only.
 endtext
 
 
