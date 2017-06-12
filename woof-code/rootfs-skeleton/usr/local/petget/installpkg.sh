@@ -496,10 +496,9 @@ do
 	LANG=$LANG_USER nohup sh ${i} &
 	sleep 0.2
 	rm -f ${i}
-	rm -rf install
-	rm -rf DEBIAN
 done
-
+rm -rf $DIRECTSAVEPATH/install
+rm -rf $DIRECTSAVEPATH/DEBIAN
 #130314 run arch linux pkg post-install script...
 if [ -f $DIRECTSAVEPATH/.INSTALL ];then #arch post-install script.
  if [ -f /usr/local/petget/ArchRunDotInstalls ];then #precaution. see 3builddistro, script created by noryb009.
