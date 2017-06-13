@@ -15,11 +15,16 @@
 #110203 improve scanning.
 #120204 BK: internationalized.
 #130411 skip dhcpcd if in frisbee mode
+#160922 misplaced code. fix channels for wireless scan. 160926
+#161008 do not wait for a module to load if it is built-in (ex: ethernet smsc95xx in raspberry pi2).
 #170301 correct logging of ifconfig return code; revert unnecessary frisbee tests (130411).
 #170309 ensure current exec name set
 #170330 restore module loading wait loop by reverting 101122 check to "avoid re-waiting on same module" - duplicates eliminated by 'sort -u'.
 #170402 change check for dhcpcd success, to rely on dhcpcd exit code.
-#170505 use current ifplugstatus (0.28) with 0.18 as alternative if present; cancel possible connect splash message before exiting.
+#170505 cancel possible connect splash message before exiting.
+#170522 /tmp/sns_interface_success file written by 'sns' and 'rc.network', but in case not.
+#170606 tolerate absence of ifplugstatus-0.18.
+#170612 verify wifi country of regulation matches user specified country.
 
 export TEXTDOMAIN=sns___rc.network
 export OUTPUT_CHARSET=UTF-8
@@ -56,17 +61,21 @@ rm -f /tmp/sns_rc.network_exit 2>/dev/null #100703
 if [ $1 ];then #100325
  case $1 in
   stop)
-   if [ -f /tmp/sns_interface_success ];then
-    INTERFACE="`cat /tmp/sns_interface_success`"
+   INTERFACE="`cat /tmp/sns_interface_success`"
+   #170522 ...file written by 'sns' and 'rc.network', but in case not...
+   INTERFACES="$INTERFACE"
+   [ ! "$INTERFACES" ] && INTERFACES="$(ifconfig | cut -f 1 -d ' ' | grep -v '^lo' | tr '\n' ' ')"
+   for INTERFACE in $INTERFACES
+   do
     rm -f /tmp/sns_interface_success
     [ "`pidof wpa_supplicant`" != "" ] && wpa_cli terminate #kill wpa_supplicant.
     ifconfig $INTERFACE down
     [ "`iwconfig $INTERFACE | grep "$INTERFACE" | grep "ESSID"`" != "" ] && iwconfig $INTERFACE essid off
     dhcpcd --release $INTERFACE 2>/dev/null
     ip route flush dev $INTERFACE #100703
+   done
     #in situation bring down interface from desktop icon...
-    [ "$DISPLAY" ] && LANG=$LANGORIG yaf-splash -placement bottom -bg pink -timeout 5 -text "$(gettext 'Network interface') ${INTERFACE} $(gettext 'has been disabled')" &
-   fi
+   [ "$INTERFACES" ] && [ "$DISPLAY" ] && LANG=$LANGORIG yaf-splash -placement bottom -bg pink -timeout 5 -text "$(gettext 'Network interface') ${INTERFACE} $(gettext 'has been disabled')" &
    exit
   ;;
  esac
@@ -77,17 +86,22 @@ rm -f /tmp/sns_interface_success 2>/dev/null
 
 [ "`grep '|ndiswrapper|' /etc/simple_network_setup/connections`" != "" ] && modprobe ndiswrapper #100314
 
+KERN_FOLDER="$(uname -r)" #161008 ex: 4.4.8
+
 #wait for interfaces to become available...
 #note, do not test for wlan0 or wlan1 (etc) to become available, as these can change depending on plugged-in devices.
-WAITCNT=0 #170330
+WAITCNT=0 ; TESTLIST='|'
 sleep 1
 echo -n "" > /tmp/sns_connections_available
 for ONEMODULE in `cut -f 3 -d '|' /etc/simple_network_setup/connections | sort -u | tr '\n' ' '` #100804
 do
  oPATTERN='^'"$ONEMODULE"'$'
  mPATTERN='|'"$ONEMODULE"'|'
- while [ 1 ];do #101122 wait for module to load.
+ iPATTERN='/'"$ONEMODULE"'.ko$'
+ while [ 1 ];do #101122 wait for module to load. 161008 but not if builtin...
+  [ "$(grep "${iPATTERN}" /lib/modules/${KERN_FOLDER}/modules.builtin)" != "" ] && break
   [ "`lsmod  | grep -v '^Module' | cut -f 1 -d ' ' | grep "$oPATTERN"`" != "" ] && break
+  [ "`echo "$TESTLIST" | grep "$mPATTERN"`" != "" ] && continue 2 #avoid re-waiting on same module
   sleep 1
   WAITCNT=$(($WAITCNT + 1))
   [ $WAITCNT -gt 8 ] && continue 2 #no module loaded.
@@ -109,6 +123,7 @@ do
    sleep 1
   done
  done
+ TESTLIST="${TESTLIST}${ONEMODULE}|" #101122. 160922 moved down.
 done
 
 [ ! -s /tmp/sns_connections_available ] && cancel_splash_and_exit #170505
@@ -116,6 +131,9 @@ INTERFACES="`ifconfig -a | grep -F 'Link encap:Ethernet' | cut -f1 -d' ' | tr '\
 
 ##########WIRELESS##########
 echo -n "" > /tmp/simple_network_setup/rc_network_wireless_connection_log
+
+[ -x /usr/sbin/connectwizard_crd ] && connectwizard_crd >> /tmp/simple_network_setup/rc_network_wireless_connection_log #170612
+ 
 grep '|Wireless|' /tmp/sns_connections_available > /tmp/sns_connections_wireless
 ESSIDSwant="$(grep '|Wireless|' /etc/simple_network_setup/connections | cut -f 12 -d '|')"
 echo -n "$ESSIDSwant" > /tmp/simple_network_setup/essids-want
@@ -246,19 +264,25 @@ do
  ifconfig $INTERFACE up > /tmp/sns_wired_log 2>&1
  [ $? -ne 0 ] && continue
 
- REMAININGTRIES=4 #170505...
- until ifplugstatus "$INTERFACE" | grep -F -q 'link beat detected' ;do
+ which ifplugstatus-0.18 >/dev/null \
+  && IFPLUGSTATUS018="ifplugstatus-0.18" \
+  || IFPLUGSTATUS018="ifplugstatus" #170606
+ if ! $IFPLUGSTATUS018 "$INTERFACE" | grep -F -q 'link beat detected' ;then #170606
   sleep 1
-  [ $((REMAININGTRIES--)) -gt 0 ] && continue
-  if [ ! -x /sbin/ifplugstatus-0.18 ] \
-    || ! ifplugstatus-0.18 "$INTERFACE" | grep -F -q 'link beat detected' ;then #170505 end
+  if ! ifplugstatus "$INTERFACE" | grep -F -q 'link beat detected' ;then
    sleep 1
-   if ! ethtool "$INTERFACE" | grep -Fq 'Link detected: yes' ; then
-    ifconfig $INTERFACE down
-    continue 2 #no network. #170505
+   if ! $IFPLUGSTATUS018 "$INTERFACE" | grep -F -q 'link beat detected' ;then #170606
+    sleep 1
+    if ! ifplugstatus "$INTERFACE" | grep -F -q 'link beat detected' ;then
+     sleep 1
+     if ! ethtool "$INTERFACE" | grep -Fq 'Link detected: yes' ; then
+      ifconfig $INTERFACE down
+      continue #no network.
+     fi
+    fi
    fi
   fi
- done #170505
+ fi
 
  MACADDRESS="`ifconfig -a $INTERFACE | grep -o 'HWaddr .*' | cut -f 2 -d ' '`"
  maPATTERN='|'"$MACADDRESS"'|'
