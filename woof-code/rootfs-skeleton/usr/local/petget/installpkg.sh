@@ -276,8 +276,8 @@ case $DLPKG_BASE in
 	   for f in $(find /tmp/$DLPKG_BASE \( -type f -o -type l \))
     do
        xpath=$(echo $f |  cut  -f 4-30 -d "/" | sed "s/$DISTRO_ARCHDIR\///")
-       mkdir -p /$(dirname $xpath)
-       cp -a $f /$(dirname $xpath)/
+       mkdir -p ${DIRECTSAVEPATH}/$(dirname $xpath)
+       cp -a $f ${DIRECTSAVEPATH}/$(dirname $xpath)/
     done
 	   rm -rf /tmp/$DLPKG_BASE
   else
