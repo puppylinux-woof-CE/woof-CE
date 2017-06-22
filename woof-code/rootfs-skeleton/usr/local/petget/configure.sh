@@ -215,7 +215,7 @@ S='<window title="'$(gettext 'Puppy Package Manager - Configure')'" icon-name="g
         [ "$(</var/local/petget/nd_category)" = "true" ] && S=$S'<default>true</default>'
       S=$S'</checkbox>
       <checkbox>
-        <label>'$(gettext "Skip scanning all files for missing depenencies (faster)")'</label>
+        <label>'$(gettext "Skip scanning extracted files for missing depenencies (faster)")'</label>
         <variable>CATEGORY_SD</variable>'
         [ "$(</var/local/petget/sd_category)" = "true" ] && S=$S'<default>true</default>'
       S=$S'</checkbox>
