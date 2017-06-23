@@ -168,7 +168,7 @@ if [ "$PUPMODE" = "2" ]; then # from BK's quirky6.1
 	PARTK=`df -k / | grep '/$' | tr -s ' ' | cut -f 4 -d ' '` #free space in partition.
 	if [ $NEEDK -gt $PARTK ];then
 	 LANG=$LANG_USER
-	 if [ $DISPLAY ];then
+	 if [ "$DISPLAY" ];then
 	  /usr/lib/gtkdialog/box_ok "$(gettext 'Puppy package manager')" error "$(gettext 'Not enough free space in the partition to install this package'):" "<i>${DLPKG_BASE}</i>"
 	 else
 	  echo -e "$(gettext 'Not enough free space in the partition to install this package'):\n${DLPKG_BASE}"
@@ -177,16 +177,38 @@ if [ "$PUPMODE" = "2" ]; then # from BK's quirky6.1
 	 exit 1
 	fi
 
-#boot from flash: bypass tmpfs top layer, install direct to pup_save file...
+#boot from flash: bypass tmpfs top layer, install direct to pup_save file... #170623 reverse this!
 elif [ $PUPMODE -eq 3 -o $PUPMODE -eq 7 -o $PUPMODE -eq 13 ];then
 	# SFR: let user chose...
 	if [ -f /var/local/petget/install_mode ] ; then
 	 IM="`cat /var/local/petget/install_mode`"
-	 [ "$IM" = "true" ] && IMODE="tmpfs" || IMODE="savefile"
+	 [ "$IM" = "false" ] && IMODE="tmpfs" || IMODE="savefile"
 	else
-	 IMODE="savefile"
+	 IMODE="tmpfs"
 	 if [ -n "$TMPK" ];then
-	  [ $TMPK -gt $EXPK ] && IMODE="tmpfs" # EXPK is 5x package size
+	  if [ $TMPK -lt $EXPK ] ;then # EXPK is 5x package size
+	   YMSG1=$(gettext "There is not enough temporary space to install the package: ")
+	   YMSG2=$(gettext "Recommendation: Press 'No' to abort the installation and create some swap space. ('swap file' or 'swap partition'). You can press 'Yes' but corruption could occur in the installation.")
+	   if [ "$DISPLAY" ];then
+	    YTTLE=$(gettext "Puppy Package Manager")
+	    /usr/lib/gtkdialog/box_yesno "$YTTLE" "${YMSG1}<i>${DLPKG_BASE}</i>" "$YMSG2"
+	    yret=$?
+	    case $yret in
+	     1|255)exit 0;;
+	     0)IMODE=savefile;;
+	    esac
+	   else
+	    echo "$YMSG1 ${DLPKG_BASE}"
+	    echo "$(gettext 'Recommendation: Abort this installation and create some swap space. Continue only if you know what you are doing.')"
+	    echo "Abort? [y/N]"
+	    read ABRT
+	    case $ABRT in
+	     y|Y)exit 0;;
+	     n|N)IMODE=savefile;echo 'installing';;
+	     *)exit 0;;
+	    esac
+	   fi
+	  fi
 	 fi
 	fi
 	if [ "$IMODE" != "tmpfs" ]; then
