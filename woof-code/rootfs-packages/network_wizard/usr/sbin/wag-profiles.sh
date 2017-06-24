@@ -107,6 +107,7 @@
 #150606 revert dropwait mod (121117, obsolete).
 #170504 correct clean_up_gtkdialog PID extraction 
 #170509 rerwin: replace gtkdialog3 with gtkdialog.
+#170622 display networks in order of signal quality (except prism2); remove cell number from display.
 
 #
 # Paul Siu
@@ -1889,9 +1890,9 @@ buildScanWindow()
 		#SCAN_LIST=$(echo "$SCANALL" | grep 'Cell\|ESSID\|Mode\|Frequency\|Quality\|Encryption\|Channel\|IE:\|Extra:')
 		#echo "$SCAN_LIST" > /tmp/net-setup_scanlist
 		echo "$ScanListFile" > /tmp/net-setup_scanlistfile
-		CELL_LIST=$(grep -Eo "Cell [0-9]+" $ScanListFile | cut -f2 -d " ")
+		grep -Eo 'Cell [0-9]+|Signal level=-*[0-9]+ dBm' $ScanListFile | sed -e '/Cell / {;N;s/Cell \([0-9][0-9]*\).*=\([0-9-][0-9]*\).*/\1@\2/;}' > /tmp/net-setup_cell_signal.tmp #170622
 		#if [ -z "$SCAN_LIST" ]; then
-		if [ -z "$CELL_LIST" ]; then
+		if [ ! -s /tmp/net-setup_cell_signal.tmp ]; then #170622
 			# Dougal: a little awkward... want to give an option to reset pcmcia card
 			FI_DRIVER=$(readlink /sys/class/net/$INTERFACE/device/driver)
 			if [ "$1" = "retry" ] ; then # we're on the second try already
@@ -1905,15 +1906,16 @@ buildScanWindow()
 		else
 			# give each Cell its own button
 			#CELL_LIST=$(echo "$SCAN_LIST" | grep -Eo "Cell [0-9]+" | cut -f2 -d " ")
-			for CELL in $CELL_LIST ; do
+			CELL_LIST="$(sort -g -r -t @ -k 2 /tmp/net-setup_cell_signal.tmp)" #170622
+			for CELL in $(echo "$CELL_LIST" | cut -f 1 -d '@') ; do #170622
 				#getCellParameters $CELL
 				Get_Cell_Parameters $CELL
 				[ -z "$CELL_ESSID" ] && CELL_ESSID="(hidden ESSID)"
 				SCANWINDOW_BUTTONS="$SCANWINDOW_BUTTONS \"$CELL\" \"$CELL_ESSID (${CELL_MODE}; ${L_SCANWINDOW_Encryption}$CELL_ENC_TYPE)\" off \"${L_SCANWINDOW_Channel}${CELL_CHANNEL}; ${L_SCANWINDOW_Frequency}${CELL_FREQ}; ${L_SCANWINDOW_AP_MAC}${CELL_AP_MAC};
 ${L_SCANWINDOW_Strength}${CELL_QUALITY}\"" 
 			done
-			echo "Xdialog --left --item-help --stdout --title \"$L_TITLE_Puppy_Network_Wizard\" --radiolist \"$L_TEXT_Scanwindow\"  20 60 4  \
-	${SCANWINDOW_BUTTONS} 2> /dev/null" > /tmp/net-setup_scanwindow
+			echo "Xdialog --left --no-tags --item-help --stdout --title \"$L_TITLE_Puppy_Network_Wizard\" --radiolist \"$L_TEXT_Scanwindow\"  20 60 4  \
+	${SCANWINDOW_BUTTONS} 2> /dev/null" > /tmp/net-setup_scanwindow #170622
 		fi
 		echo "X"
 	)  | gtkdialog --program=NETWIZ_Scan_Progress_Dialog >/dev/null
