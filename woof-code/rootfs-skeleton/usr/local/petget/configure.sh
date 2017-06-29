@@ -65,7 +65,7 @@ if [ $PUPMODE -eq 3 -o $PUPMODE -eq 7 -o $PUPMODE -eq 13 ]; then
 	[ -f /var/local/petget/sc_category ] && \
      CATEGORY_IM=$(cat /var/local/petget/install_mode) || CATEGORY_IM="false"
 	IMODE="<checkbox>
-        <label>$(gettext 'Install to tmpfs instead of the savefile, till session is saved')</label>
+        <label>$(gettext 'Install to savefile instead of directly (only useful if low RAM - NOT recommended)')</label>
         <variable>CATEGORY_IM</variable>
         <default>${CATEGORY_IM}</default>
      </checkbox>"
