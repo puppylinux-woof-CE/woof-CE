@@ -29,7 +29,9 @@ cutDISTRONAME="`echo -n "$DISTRO_NAME" | cut -f 1 -d ' '`"
 cPATTERN="s/cutDISTRONAME/${cutDISTRONAME}/g"
 RIGHTVER="$DISTRO_VERSION"
 PUPPYDATE="`date | tr -s " " | cut -f 2,6 -d " "`"
+RELEASE_DATE="`date "+%B, %Y"`"
 dPATTERN="s/PUPPYDATE/${PUPPYDATE}/g"
+rPATTERN="s/RELEASE_DATE/${RELEASE_DATE}/g"
 
 echo "Writing version number and distro name and date to Help page..."
 PATTERN1="s/RIGHTVER/${RIGHTVER}/g"
@@ -45,7 +47,7 @@ sed -i -e "$nPATTERN" usr/share/doc/home.htm
 echo "Creating base release notes..."
 if [ ! -e usr/share/doc/release-${cutDISTRONAME}-${DISTRO_VERSION}.htm ];then
  mv -f usr/share/doc/release-skeleton.htm usr/share/doc/release-${cutDISTRONAME}-${DISTRO_VERSION}.htm
- sed -i -e "$PATTERN1" -e "$PATTERN2" -e "$nPATTERN" -e "$dPATTERN" usr/share/doc/release-${cutDISTRONAME}-${DISTRO_VERSION}.htm
+ sed -i -e "$PATTERN1" -e "$PATTERN2" -e "$nPATTERN" -e "$rPATTERN" usr/share/doc/release-${cutDISTRONAME}-${DISTRO_VERSION}.htm
 #else
 # rm -f usr/share/doc/release-skeleton.htm
 fi
@@ -126,14 +128,4 @@ SCR="mtpaint -s"
 fi
 echo "Setting $SCR as defaultscreenshot app"
 
-# firefox
-FF=`find usr -type d -name 'firefox*'`
-if [ "$FF" ];then echo '#!/bin/sh
-exec firefox "$@"' > usr/local/bin/defaultbrowser
-chmod 755 usr/local/bin/defaultbrowser
-echo '#!/bin/sh
-exec firefox "$@"' > usr/local/bin/defaulthtmlviewer
-chmod 755 usr/local/bin/defaulthtmlviewer
- echo "Setting Firefox as defaultbrowser"
-fi
 #end#
