@@ -1,21 +1,25 @@
 #!/bin/bash
-#also see:
-#  http://autobuild.buildroot.org/toolchains/tarballs/
+# compile musl static apps
 
 . ./build.conf
 export MKFLG
 export MWD=`pwd`
 
-ARCH_LIST="default i686 x86_64 arm" #arm64
-ARCH_LIST_EX="i486 i586 i686 x86_64 armv4l armv4tl armv5l armv6l m68k mips mips64 mipsel powerpc powerpc-440fp sh2eb sh2elf sh4 sparc"
+ARCH_LIST="default i486 x86_64 arm arm64"
 
-DEFAULT_x86=i686
-DEFAULT_ARM=armv6l
-#DEFAULT_ARM64=aarch64
+DEFAULT_x86=i486
+DEFAULT_ARM64=aarch64
 
-PREBUILT_BINARIES="http://01micko.com/wdlkmpx/woof-CE/initrd_progs-20170322-static.tar.xz"
+X86_CC_VER=20170703
+X86_64_CC_VER=
+ARM_CC_VER=
+ARM64_CC_VER=
+
+SITE="http://01micko.com/wdlkmpx"
+PREBUILT_BINARIES="${SITE}/woof-CE/initrd_progs-20170322-static.tar.xz"
 
 ARCH=`uname -m`
+case $ARCH in i*86) ARCH=i486 ;; esac
 OS_ARCH=$ARCH
 
 function get_initrd_progs() {
@@ -76,12 +80,7 @@ Options:
   -help       : show help and exit
 
   Valid <targets> for -arch:
-      $ARCH_LIST_EX
-
-  The most relevant <targets> for Puppy are:
       ${ARCH_LIST#default }
-
-  Note that one target not yet supported by musl is aarch64 (arm64)
 "
 }
 
@@ -154,7 +153,6 @@ function use_prebuilt_binaries() {
 function set_compiler() {
 	which make &>/dev/null || fatal_error echo "It looks like development tools are not installed.. stopping"
 	if [ "$USE_SYS_GCC" = "no" -a "$CROSS_COMPILE" = "no" ] ; then
-		# the cross compilers from landley.net were compiled on x86
 		# if we're using the script in a non-x86 system
 		# it means that the system gcc must be chosen by default
 		# perhaps we're running qemu or a native linux os
@@ -186,20 +184,18 @@ function select_target_arch() {
 	case $TARGET_ARCH in
 		default) TARGET_ARCH=${ARCH} ;;
 		x86) TARGET_ARCH=${DEFAULT_x86} ;;
-		arm) TARGET_ARCH=${DEFAULT_ARM} ;;
-		#arm64) TARGET_ARCH=${DEFAULT_ARM64} ;;
+		arm64) TARGET_ARCH=${DEFAULT_ARM64} ;;
 	esac
 	VALID_TARGET_ARCH=no
 	if [ "$TARGET_ARCH" != "" ] ; then #no -arch specified
-		for a in $ARCH_LIST_EX ; do
+		for a in $ARCH_LIST ; do
 			[ "$TARGET_ARCH" = "$a" ] && VALID_TARGET_ARCH=yes && break
 		done
 		if [ "$VALID_TARGET_ARCH" = "no" ] ; then
 			echo "Invalid target arch: $TARGET_ARCH"
 			exit 1
-		else
-			[ "$TARGET_ARCH" != "default" ] && ARCH=${TARGET_ARCH}
 		fi
+		[ "$TARGET_ARCH" != "default" ] && ARCH=${TARGET_ARCH}
 	fi
 	#--
 	if [ "$VALID_TARGET_ARCH" = "no" -a "$PROMPT" = "yes" ] ; then
@@ -218,7 +214,6 @@ function select_target_arch() {
 		echo
 		x=1
 		for a in $ARCH_LIST ; do [ "$x" = "$choice" ] && selected_arch=$a && break ; let x++ ; done
-		for a in $ARCH_LIST_EX ; do [ "$a" = "$choice" ] && selected_arch=$a ; done
 		case $selected_arch in
 			default|"")ok=yes ;;
 			*) ARCH=$selected_arch ;;
@@ -233,6 +228,18 @@ function select_target_arch() {
 			*) case $ARCH in *64) fatal_error "\n*** Trying to compile for a 64bit arch in a 32bit system?\n*** That's not possible.. exiting.." ;; esac ;;
 		esac
 	fi
+	#--
+	case $ARCH in
+		i*86)   CC_VER=$X86_CC_VER ;;
+		x86_64) CC_VER=$X86_64_CC_VER ;;
+		arm*)   CC_VER=$ARM_CC_VER ;;
+		arm64)  CC_VER=$ARM64_CC_VER ;;
+	esac
+	if [ -z "$CC_VER" ] ; then
+		echo "Cross compiler for $TARGET_ARCH is not available at the moment..."
+		exit 1
+	fi
+	#--
 	echo "Arch: $ARCH"
 	sleep 1.5
 }
@@ -240,17 +247,15 @@ function select_target_arch() {
 #--
 
 function setup_cross_compiler() {
-	# Aboriginal Linux #
 	[ "$CROSS_COMPILE" = "no" ] && return
 	CCOMP_DIR=cross-compiler-${ARCH}
-	URL=http://landley.net/aboriginal/downloads/binaries
-	PACKAGE=${CCOMP_DIR}.tar.gz
+	PACKAGE=${CCOMP_DIR}-${CC_VER}.tar.xz
 	echo
 	## download
 	if [ ! -f "0sources/${PACKAGE}" ];then
-		echo "Download cross compiler from Aboriginal Linux"
+		echo "Download cross compiler"
 		[ "$PROMPT" = "yes" ] && echo -n "Press enter to continue, CTRL-C to cancel..." && read zzz
-		wget -c -P 0sources ${URL}/${PACKAGE}
+		wget -c -P 0sources ${SITE}/woof-CE/${PACKAGE}
 		if [ $? -ne 0 ] ; then
 			rm -rf ${CCOMP_DIR}
 			echo "failed to download ${PACKAGE}"
@@ -272,9 +277,6 @@ function setup_cross_compiler() {
 	fi
 	#--
 	[ ! -d "$CCOMP_DIR" ] && { echo "$CCOMP_DIR not found"; exit 1; }
-	if [ -d cross-compiler-${ARCH}/cc/lib ] ; then
-		cp cross-compiler-${ARCH}/cc/lib/* cross-compiler-${ARCH}/lib
-	fi
 	echo -e "\nUsing cross compiler from Aboriginal Linux\n"
 	export OVERRIDE_ARCH=${ARCH}     # = cross compiling # see ./func
 	export XPATH=${PWD}/${CCOMP_DIR} # = cross compiling # see ./func
