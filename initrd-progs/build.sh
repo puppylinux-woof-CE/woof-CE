@@ -5,15 +5,15 @@
 export MKFLG
 export MWD=`pwd`
 
-ARCH_LIST="default i486 x86_64 arm arm64"
+ARCH_LIST="default i486 x86_64 arm aarch64"
 
 DEFAULT_x86=i486
 DEFAULT_ARM64=aarch64
 
 X86_CC_VER=20170704
-X86_64_CC_VER=
-ARM_CC_VER=
-ARM64_CC_VER=
+X86_64_CC_VER=20170705
+ARM_CC_VER=20170705
+ARM64_CC_VER=20170705
 
 SITE="http://01micko.com/wdlkmpx"
 PREBUILT_BINARIES="${SITE}/woof-CE/initrd_progs-20170322-static.tar.xz"
@@ -234,6 +234,7 @@ function select_target_arch() {
 		x86_64) CC_VER=$X86_64_CC_VER ;;
 		arm*)   CC_VER=$ARM_CC_VER ;;
 		arm64)  CC_VER=$ARM64_CC_VER ;;
+		aarch64)  CC_VER=$ARM64_CC_VER ;;
 	esac
 	if [ -z "$CC_VER" ] ; then
 		echo "Cross compiler for $TARGET_ARCH is not available at the moment..."
