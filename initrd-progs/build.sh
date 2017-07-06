@@ -16,7 +16,7 @@ ARM_CC_VER=20170706
 ARM64_CC_VER=20170705
 
 SITE="http://01micko.com/wdlkmpx"
-PREBUILT_BINARIES="${SITE}/woof-CE/initrd_progs-20170322-static.tar.xz"
+PREBUILT_BINARIES="${SITE}/woof-CE/initrd_progs-20170706-static.tar.xz"
 
 ARCH=`uname -m`
 case $ARCH in i*86) ARCH=i486 ;; esac
