@@ -10,6 +10,7 @@ export OUTPUT_CHARSET=UTF-8
 imgFile="$1"
 [ ! -f "$imgFile" ] && echo "No regular file: $imgFile" && exit 1
 imgFileBASE=${imgFile##*/} ## imgFileBASE="`basename "$imgFile"`" #BK
+[ "$(dirname "$imgFile")" = "." ] && imgFile=$(pwd)/${imgFileBASE}
 
 # may need to replace with /mnt/home...
 HOMELINK="`readlink /mnt/home`"
@@ -21,7 +22,8 @@ esac
 #ex: /mnt/home/kernel_src-3.0.7-patched.sfs becomes /mnt/+mnt+home+kernel_src-3.0.7-patched.sfs
 MOUNTPOINT='/mnt/'"`echo "$imgFile" |sed "s#^\.##g" |sed "s#/#+#g" | tr ' ' '_'`" # SFR, added 'tr'
 # BK is it already mounted?
-MNTEDLOOP="$(cat /proc/mounts | grep -F "$MOUNTPOINT" | cut -f 1 -d ' ')"
+MNTEDLOOP="$(cat /proc/mounts | grep -F " $MOUNTPOINT " | cut -f 1 -d ' ')"
+[ ! -z $MNTEDLOOP ] && MNTEDLOOP=$(echo "$MNTEDLOOP" | sed 's|/dev/loop/|/dev/loop|') 
 
 if [ "$MNTEDLOOP" = "" ];then #not mounted on $MOUNTPOINT
 
@@ -33,9 +35,19 @@ if [ "$MNTEDLOOP" = "" ];then #not mounted on $MOUNTPOINT
     4fs) Type='ext4'     ; check_luks=yes ;;
     sfs) Type='squashfs' ;;
     iso) Type='iso'      ;;
+    wim) Type='wim'      ;;
     *) Type=$(blkid "$imgFile" | grep -o ' TYPE=.*' | cut -f 2 -d '"') ;;
   esac
-  [ "$Type" = "" ] && { echo "Unrecognized format" ; exit 1 ; }
+  if [ "$Type" = "" ] ; then
+    echo "Unrecognized format"
+    exit 1
+  fi
+  if [ "$Type" = "wim" ] ; then
+    if ! which wimmountrw ; then
+      echo "You must install wimlib - https://wimlib.net/"
+      exit 1
+    fi
+  fi
   echo -e "\nType=${Type}\n"
 
   if [ "$check_luks" = "yes" ] ; then
@@ -113,6 +125,10 @@ if [ "$MNTEDLOOP" = "" ];then #not mounted on $MOUNTPOINT
          losetup $DEVLOOP "$imgFile"
          mount -t ntfs $DEVLOOP "$MOUNTPOINT"
          ;;
+      wim)
+         wimmountrw "$imgFile" "$MOUNTPOINT" || \
+           wimmount "$imgFile" "$MOUNTPOINT"
+         ;;
       *) 
          mount -t $Type -o loop,rw "$imgFile" "$MOUNTPOINT"
          ;;
@@ -143,17 +159,12 @@ else
       luks_umount "$mntinfo"
       ;;
     *)
-      # dpup stretch:
-      # i had a weird issue with a ntfs img file whose path contains spaces
-      # better free loop device now
-      DEVLOOP=$(mount-FULL -v | grep " $MOUNTPOINT " | cut -f 1 -d " ")
-      if [ ! -z "$DEVLOOP" ] ; then
-        DEVLOOP=$(echo "$DEVLOOP" | sed 's|/dev/loop/|/dev/loop|') 
-        if losetup -a | grep -q "${DEVLOOP}:" ; then
-          losetup -d ${DEVLOOP}
-        fi
-      fi
-      umount "$MOUNTPOINT"
+      # better free loop device before calling umount...
+      losetup -d ${MNTEDLOOP}
+      case "$imgFile" in
+         *.[w-W][i-I][m-M]) wimunmount --commit "$MOUNTPOINT" ;;
+         *) umount "$MOUNTPOINT" ;;
+      esac
       ;;
   esac
 
