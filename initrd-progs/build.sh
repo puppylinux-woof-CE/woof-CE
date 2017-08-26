@@ -5,9 +5,9 @@
 export MKFLG
 export MWD=`pwd`
 
-ARCH_LIST="default i486 x86_64 arm aarch64"
+ARCH_LIST="default i686 x86_64 arm aarch64"
 
-DEFAULT_x86=i486
+DEFAULT_x86=i686
 DEFAULT_ARM64=aarch64
 
 X86_CC_VER=20170704
@@ -19,7 +19,7 @@ SITE="http://01micko.com/wdlkmpx"
 PREBUILT_BINARIES="${SITE}/woof-CE/initrd_progs-20170706-static.tar.xz"
 
 ARCH=`uname -m`
-case $ARCH in i*86) ARCH=i486 ;; esac
+case $ARCH in i*86) ARCH=i686 ;; esac
 OS_ARCH=$ARCH
 
 function get_initrd_progs() {
