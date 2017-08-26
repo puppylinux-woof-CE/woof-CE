@@ -69,7 +69,7 @@ Options:
   -all        : force building all *_static pkgs
   -arch target: compile for target arch
   -sysgcc     : use system gcc
-  -cross      : use the cross compilers from Aboriginal Linux
+  -cross      : use cross compiler
   -download   : download pkgs only, this overrides other options
   -specs file : DISTRO_SPECS file to use
   -prebuilt   : use prebuilt binaries
@@ -167,7 +167,6 @@ function set_compiler() {
 		echo -e "\n* Using system gcc\n"
 		sleep 1.5
 	else
-		#   aboriginal linux   #
 		CROSS_COMPILE=yes #precaution
 		case $ARCH in
 			i?86|x86_64) ok=yes ;;
@@ -278,7 +277,7 @@ function setup_cross_compiler() {
 	fi
 	#--
 	[ ! -d "$CCOMP_DIR" ] && { echo "$CCOMP_DIR not found"; exit 1; }
-	echo -e "\nUsing cross compiler from Aboriginal Linux\n"
+	echo -e "\nUsing cross compiler\n"
 	export OVERRIDE_ARCH=${ARCH}     # = cross compiling # see ./func
 	export XPATH=${PWD}/${CCOMP_DIR} # = cross compiling # see ./func
 }
