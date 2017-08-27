@@ -84,7 +84,7 @@ fi
 #----------
 
 mkdir -p ../huge_kernel
-IS_KERNEL=`ls ../huge_kernel|wc -l`
+IS_KERNEL=`ls ../huge_kernel/*.tar.* 2>/dev/null | wc -l`
 
 #==========
 # functions
@@ -190,7 +190,7 @@ choose_kernel_to_download() {
 choose_kernel() {
 	TMP=/tmp/kernels3$$
 	x=1
-	for j in `ls -1 ../huge_kernel|grep -v 'md5'`
+	for j in `ls -1 ../huge_kernel/*.tar.* 2>/dev/null |grep -v 'md5'`
 	do
 		echo "$x $j" >> $TMP
 		x=$(($x + 1))
@@ -220,7 +220,7 @@ if [ "$IS_KERNEL" = 0 ] ; then
 	fi
 fi
 
-IS_KERNEL2=`ls ../huge_kernel | wc -l`
+IS_KERNEL2=`ls ../huge_kernel/*.tar.* 2>/dev/null | wc -l`
 
 if [ "$IS_KERNEL2" -gt 1 ] ; then
 	#too many, choose 1
@@ -234,11 +234,11 @@ elif [ "$IS_KERNEL2" == 1 ] ; then
 		if [ "$KERNEL_TARBALL_URL" != "" ] ; then
 			download_kernel ${KERNEL_TARBALL_URL} #build.conf
 		else
-			KERNEL_VERSION=`ls ../huge_kernel|grep -v 'md5'|cut -d '-' -f2-|rev|cut -d '.' -f3-|rev`
+			KERNEL_VERSION=`ls ../huge_kernel/*.tar.* 2>/dev/null | grep -v 'md5'|cut -d '-' -f2-|rev|cut -d '.' -f3-|rev`
 			download_kernel "$KERNEL_REPO_URL/$(basename ../huge_kernel/huge-${KERNEL_VERSION}.tar.*)"
 		fi
 	fi
-	KERNEL_VERSION=`ls ../huge_kernel|grep -v 'md5'|cut -d '-' -f2-|rev|cut -d '.' -f3-|rev`
+	KERNEL_VERSION=`ls ../huge_kernel/*.tar.* 2>/dev/null | grep -v 'md5'|cut -d '-' -f2-|rev|cut -d '.' -f3-|rev`
 fi
 
 echo "Kernel is $KERNEL_VERSION version"
