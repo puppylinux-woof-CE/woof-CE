@@ -4,22 +4,34 @@
 . ./build.conf
 export MKFLG
 export MWD=`pwd`
+export TARGET_TRIPLET=
 
-ARCH_LIST="default i686 x86_64 arm aarch64"
+SITE=http://01micko.com/wdlkmpx/woof-CE
 
-DEFAULT_x86=i686
+#X86_CC=cross-compiler-i486-20170704.tar.xz
+X86_CC=cross-compiler-i686-20170828.tar.xz
+X86_64_CC=cross-compiler-x86_64-20170705.tar.xz
+#ARM_CC=cross-compiler-arm-20170705.tar.xz #armv5
+ARM_CC=cross-compiler-arm-20170706.tar.xz #armv6
+ARM64_CC=cross-compiler-aarch64-20170705.tar.xz
+
+INITRD_PROGS_STATIC=initrd_progs-20170706-static.tar.xz
+
+DEFAULT_x86=$(echo $X86_CC | cut -d '-' -f 3)
 DEFAULT_ARM64=aarch64
 
-X86_CC_VER=20170828
-X86_64_CC_VER=20170705
-ARM_CC_VER=20170706
-ARM64_CC_VER=20170705
+TARGET_TRIPLET_x86=${DEFAULT_x86}-linux-musl
+TARGET_TRIPLET_x86_64="x86_64-linux-musl"
+#TARGET_TRIPLET_arm="arm-linux-musleabi"  #arm v5
+TARGET_TRIPLET_arm="arm-linux-musleabihf" #arm v6
+TARGET_TRIPLET_arm64="aarch64-linux-musl"
 
-SITE="http://01micko.com/wdlkmpx"
-PREBUILT_BINARIES="${SITE}/woof-CE/initrd_progs-20170706-static.tar.xz"
+ARCH_LIST="default $DEFAULT_x86 x86_64 arm aarch64"
+
+PREBUILT_BINARIES="${SITE}/${INITRD_PROGS_STATIC}"
 
 ARCH=`uname -m`
-case $ARCH in i*86) ARCH=i686 ;; esac
+case $ARCH in i*86) ARCH=$DEFAULT_x86 ;; esac
 OS_ARCH=$ARCH
 
 function get_initrd_progs() {
@@ -212,7 +224,11 @@ function select_target_arch() {
 		echo -en "\nEnter your choice: " ; read choice
 		echo
 		x=1
-		for a in $ARCH_LIST ; do [ "$x" = "$choice" ] && selected_arch=$a && break ; let x++ ; done
+		for a in $ARCH_LIST
+		do
+			[ "$x" = "$choice" ] && selected_arch=$a && break
+			let x++
+		done
 		case $selected_arch in
 			default|"")ok=yes ;;
 			*) ARCH=$selected_arch ;;
@@ -229,18 +245,24 @@ function select_target_arch() {
 	fi
 	#--
 	case $ARCH in
-		i*86)   CC_VER=$X86_CC_VER ;;
-		x86_64) CC_VER=$X86_64_CC_VER ;;
-		arm*)   CC_VER=$ARM_CC_VER ;;
-		arm64)  CC_VER=$ARM64_CC_VER ;;
-		aarch64)  CC_VER=$ARM64_CC_VER ;;
+		i*86)    CC_TARBALL=$X86_CC    ;;
+		x86_64)  CC_TARBALL=$X86_64_CC ;;
+		arm*)    CC_TARBALL=$ARM_CC    ;;
+		arm64|aarch64) CC_TARBALL=$ARM64_CC  ;;
 	esac
-	if [ -z "$CC_VER" ] ; then
+	if [ -z "$CC_TARBALL" ] ; then
 		echo "Cross compiler for $TARGET_ARCH is not available at the moment..."
 		exit 1
 	fi
 	#--
 	echo "Arch: $ARCH"
+	case $ARCH in
+		arm) TARGET_TRIPLET=${TARGET_TRIPLET_arm} ;;
+		*)
+			TARGET_TRIPLET=$(echo $CC_TARBALL | cut -d '-' -f 3)
+			TARGET_TRIPLET=${TARGET_TRIPLET}-linux-musl
+			;;
+	esac
 	sleep 1.5
 }
 
@@ -248,38 +270,48 @@ function select_target_arch() {
 
 function setup_cross_compiler() {
 	[ "$CROSS_COMPILE" = "no" ] && return
-	CCOMP_DIR=cross-compiler-${ARCH}
-	PACKAGE=${CCOMP_DIR}-${CC_VER}.tar.xz
+	CC_DIR=cross-compiler-${ARCH}
 	echo
 	## download
-	if [ ! -f "0sources/${PACKAGE}" ];then
+	if [ ! -f "0sources/${CC_TARBALL}" ];then
 		echo "Download cross compiler"
 		[ "$PROMPT" = "yes" ] && echo -n "Press enter to continue, CTRL-C to cancel..." && read zzz
-		wget -c -P 0sources ${SITE}/woof-CE/${PACKAGE}
+		wget -c -P 0sources ${SITE}/${CC_TARBALL}
 		if [ $? -ne 0 ] ; then
-			rm -rf ${CCOMP_DIR}
-			echo "failed to download ${PACKAGE}"
+			rm -rf ${CC_DIR}
+			echo "failed to download ${CC_TARBALL}"
 			exit 1
 		fi
 	else
-		[ "$DLD_ONLY" = "yes" ] && echo "Already downloaded ${PACKAGE}"
+		[ "$DLD_ONLY" = "yes" ] && echo "Already downloaded ${CC_TARBALL}"
 	fi
 	[ "$DLD_ONLY" = "yes" ] && return
 	## extract
-	if [ ! -d "$CCOMP_DIR" ] ; then
-		tar --directory=$PWD -xaf 0sources/${PACKAGE}
+	if [ ! -d "$CC_DIR" ] ; then
+		tar --directory=$PWD -xaf 0sources/${CC_TARBALL}
 		if [ $? -ne 0 ] ; then
-			rm -rf ${CCOMP_DIR}
-			rm -fv 0sources/${PACKAGE}
-			echo "failed to extract ${PACKAGE}"
+			rm -rf ${CC_DIR}
+			rm -fv 0sources/${CC_TARBALL}
+			echo "failed to extract ${CC_TARBALL}"
 			exit 1
 		fi
 	fi
 	#--
-	[ ! -d "$CCOMP_DIR" ] && { echo "$CCOMP_DIR not found"; exit 1; }
+	if [ ! -d "$CC_DIR" ] ; then
+		echo "$CC_DIR not found"
+		exit 1
+	fi
+	case $OS_ARCH in i*86)
+		_gcc=$(find $CC_DIR/bin -name '*gcc' | head -1)
+		if [ ! -z $_gcc ] && file $_gcc | grep '64-bit' ; then
+			echo
+			echo "ERROR: trying to use a 64-bit (static) cross compiler in a 32-bit system"
+			exit
+		fi
+	esac
 	echo -e "\nUsing cross compiler\n"
-	export OVERRIDE_ARCH=${ARCH}     # = cross compiling # see ./func
-	export XPATH=${PWD}/${CCOMP_DIR} # = cross compiling # see ./func
+	export OVERRIDE_ARCH=${ARCH}  # = cross compiling # see ./func
+	export XPATH=${PWD}/${CC_DIR} # = cross compiling # see ./func
 }
 
 #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
