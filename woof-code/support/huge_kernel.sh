@@ -7,6 +7,12 @@
 . ../_00build.conf
 . ../DISTRO_SPECS
 
+if [ ! -d ../../local-repositories/huge_kernels ] ; then
+	rm -f ../../local-repositories/huge_kernels
+fi
+
+mkdir -p ../../local-repositories/huge_kernels
+
 # precaution
 mkdir -p build
 [ -z $PUPPYSFS ] && PUPPYSFS="puppy_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION}.sfs"
@@ -95,13 +101,13 @@ download_kernel() {
 	if [ -f ../../local-repositories/huge_kernels/${TARBALL} ] ; then
 		echo "Verifying ../../local-repositories/huge_kernels/${TARBALL}"
 		if tar -taf ../../local-repositories/huge_kernels/${TARBALL} &>/dev/null ; then
-			cp -f ../../local-repositories/huge_kernels/${TARBALL} ../huge_kernel
+			cp -fv ../../local-repositories/huge_kernels/${TARBALL} ../huge_kernel/
 			return
 		fi
 	elif [ -f ../huge_kernel/${TARBALL} ] ; then
 		echo "Verifying ../huge_kernel/${TARBALL}"
 		if tar -taf ../huge_kernel/${TARBALL} &>/dev/null ; then
-			cp -fv ../huge_kernel/${TARBALL} ../huge_kernel
+			cp -fv ../huge_kernel/${TARBALL} ../../local-repositories/huge_kernels/
 			return
 		fi
 	fi
@@ -144,7 +150,7 @@ download_kernel() {
 		fi
 		echo "Checksum passed"
 	fi
-	cp -f ../huge_kernel/${TARBALL} ../../local-repositories/huge_kernels
+	cp -f ../huge_kernel/${TARBALL} ../../local-repositories/huge_kernels/
 }
 
 choose_kernel_to_download() {
