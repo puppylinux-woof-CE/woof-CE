@@ -1683,13 +1683,166 @@ if [ "$BUILD_SFS" = 'yes' ]; then
 	fi
 fi # if BUILD_SFS
 
+#==================================================================================
+# DEVX.SFS
+
+#now do the devx...
+case $BUILD_DEVX in #_00build.conf
+	yes|no) echo -n ;;
+	*)
+		echo
+		echo -n "Hit ENTER to build the 'devx' SFS file, any other key to skip: "
+		read dodevx
+		[ "$dodevx" = "" ] && BUILD_DEVX=yes
+		;;
+esac
+
+if [ "$BUILD_DEVX" = "yes" ] ; then
+	cd $WKGDIR
+	echo
+	echo "Building ${DEVXSFS}..."
+	echo " building sandbox3/devx ..."
+	echo "$PKGS_SPECS_TABLE" | grep '^yes' | cut -f 2 -d '|' | sed -e 's%$%_DEV%' > /tmp/ALLGENNAMESD
+	##rm -f ./${WOOF_OUTPUT}/${DEVXSFS} 2>/dev/null #100911
+	rm -f ./sandbox3/${DEVXSFS} 2>/dev/null #100911
+	for ONEDEV in `ls -1 packages-${DISTRO_FILE_PREFIX} | grep '_DEV$' | tr '\n' ' '`
+	do
+	 if grep -q -m1 "^$ONEDEV" /tmp/ALLGENNAMESD ;then
+	  cp -a --remove-destination packages-${DISTRO_FILE_PREFIX}/${ONEDEV}/* sandbox3/devx/
+	  sync
+	 fi
+	done
+	rm -f /tmp/ALLGENNAMESD
+	sync
+
+	#earlier above i moved all invalid symlinks into the devx module, yeah but i
+	#think should delete them if they really point nowhere...
+	echo " Deleting really invalid symlinks in devx..."
+	mkdir layer_top
+	if [ "$LAYER_TYPE" = 'overlay' ]; then
+		mkdir overlay_workdir
+		mount -t overlay overlay -olowerdir=sandbox3/rootfs-complete,upperdir=sandbox3/devx,workdir=overlay_workdir layer_top
+	else
+		mount -t aufs -o udba=reval,diropq=w,dirs=sandbox3/devx=rw:sandbox3/rootfs-complete=ro layerfs layer_top
+	fi
+
+	if [ "$WOOF_HOSTARCH" = "$WOOF_TARGETARCH" ] ; then
+		dirs=$(ls -d layer_top/* | sed 's|layer_top||' | grep -vE '/dev/|/proc/|/sys/') #|/initrd/|/tmp/|/var/|/run/|/mnt/
+		chroot layer_top find -L $dirs -type l -delete
+	else
+		#do it without chroot...
+		find layer_top/ -type l | sed -e '\%/dev/%d' -e '\%/proc/%d' -e '\%/usr/share/icons/%d' | \
+		while read ONESYMLINK ; do
+		  xONESYMLINK="${ONESYMLINK#layer_top}" #sed -e 's/^layer_top//'`
+		  LINKTO="`readlink "layer_top${xONESYMLINK}"`"
+		  [ -e "layer_top${LINKTO}" ] && continue #absolute path
+		  UPONE=${xONESYMLINK%/*}        #UPONE="`dirname "$xONESYMLINK"`"
+		  [ "$UPONE" = "" ] && UPONE='/' #empty -> '/'
+		  [ -e "layer_top${UPONE}/${LINKTO}" ] && continue #relative path
+		  echo " $ONESYMLINK"
+		  rm -f "$ONESYMLINK"
+		done
+	fi
+	sync  ;  umount layer_top  ;  rmdir layer_top
+
+	###HACK###
+	if [ "$(echo "$PKGS_SPECS_TABLE" | grep '^yes|python|' | grep 'exe>dev')" != "" ];then #121022
+	 [ -e sandbox3/devx/usr/bin/python2.5 ] && ln -s python2.5 sandbox3/devx/usr/bin/python 2>/dev/null
+	 [ -e sandbox3/devx/usr/bin/python2.6 ] && ln -s python2.6 sandbox3/devx/usr/bin/python 2>/dev/null
+	 [ -e sandbox3/devx/usr/bin/python2.7 ] && ln -s python2.7 sandbox3/devx/usr/bin/python 2>/dev/null
+	fi
+	 rm -f sandbox3/devx/usr/lib${lsuffix}/mozilla/plugins/* #100407 maybe .a, .la files in here.
+	###END HACK###
+
+	#v424 no, i have needed docs in usr/share/doc...
+	#w003 there's docs here, move them out...
+	rm -rf packages-${DISTRO_FILE_PREFIX}/devx_DOC 2>/dev/null
+	mkdir -p packages-${DISTRO_FILE_PREFIX}/devx_DOC/usr/share
+	#mv sandbox3/devx/usr/share/doc packages-${DISTRO_FILE_PREFIX}/devx_DOC/usr/share/ 2>/dev/null
+	mv sandbox3/devx/usr/share/doc-base packages-${DISTRO_FILE_PREFIX}/devx_DOC/usr/share/ 2>/dev/null
+	mv sandbox3/devx/usr/share/man packages-${DISTRO_FILE_PREFIX}/devx_DOC/usr/share/ 2>/dev/null
+
+	#100831 hack, this symlink needed...
+	if [ -d sandbox3/devx/usr/X11R7/include/xorg ];then
+	 [ ! -e sandbox3/devx/usr/include/xorg ] && ln -s ../X11/include/xorg sandbox3/devx/usr/include/xorg
+	fi
+
+	#100622 remove overhead of this script running every bootup...
+	mkdir -p sandbox3/devx/etc/profile.d
+	rm -f sandbox3/devx/etc/profile.d/pkgconfig* 2>/dev/null
+	[ -e sandbox3/devx/usr/X11R7/lib ] && DEVX_X11R7=sandbox3/devx/usr/X11R7/lib
+	PKG_CONFIG_PATH="`find sandbox3/devx/usr/lib $DEVX_X11R7 sandbox3/devx/opt sandbox3/devx/usr/local/lib -type d -name pkgconfig | sed -e 's%sandbox3/devx%%' | tr '\n' ':'`"
+	echo "export PKG_CONFIG_PATH='${PKG_CONFIG_PATH}'" > sandbox3/devx/etc/profile.d/pkgconfig
+
+	#maybe stray /install dir from slackware pkgs...
+	rm -rf sandbox3/devx/install 2>/dev/null
+	[ -f sandbox3/devx/pet.specs ] && rm -f sandbox3/devx/pet.specs #w478
+	#another slackware hack 131124
+	[ -x sandbox3/devx/usr/bin/strings-GNU ] && mv sandbox3/devx/usr/bin/strings-GNU sandbox3/devx/usr/bin/strings
+	sync
+
+	#110429 see above, think want glibc scsi headers in usr/include/scsi...
+	if [ -d sandbox3/devx/usr/include/scsi-GLIBC ];then
+	 #probably have kernel scsi headers in usr/include/scsi, fix...
+	 cp -a -f sandbox3/devx/usr/include/scsi-GLIBC/* sandbox3/devx/usr/include/scsi/
+	fi
+
+	# 151019 - delete duplicate symlinks
+	echo "deleting duplicate symlinks"
+	find sandbox3/devx -type l | while read ONESYMLINK
+	do # if the symlink exists in sandbox3/rootfs-complete we delete it
+	 ESYMLINK=${ONESYMLINK//devx/rootfs-complete}
+	 [ -h "$ESYMLINK" ] && echo -n "$ONESYMLINK " && rm -f "$ONESYMLINK"
+	done
+	sync
+	# do same for duplicates in /etc
+	echo -e "\ndeleting duplicate entries in /etc"
+	find sandbox3/devx/etc -type f | while read ONEDUPE
+	do
+	 EDUPE=${ONEDUPE//devx/rootfs-complete}
+	 [ -f "$EDUPE" ] && echo -n "$ONEDUPE " && rm -f "$ONEDUPE"
+	done
+	sync
+
+	echo -e "\ncleaning out whiteouts"
+	clean_out_whiteouts $sandbox3/devx # _00func
+
+	echo "Now creating ${DEVXSFS} ..."
+	${MKSQUASHFS} sandbox3/devx ./sandbox3/${DEVXSFS} ${SFSCOMP} #100911 110713
+	sync
+	chmod 644 ./sandbox3/${DEVXSFS}
+	CUR_DIR="$PWD"
+	cd ./${WOOF_OUTPUT}
+	md5sum ${DEVXSFS} > ${DEVXSFS}.md5.txt #100911
+	sha256sum ${DEVXSFS} > ${DEVXSFS}.sha256.txt
+	cd "$CUR_DIR"
+	sync
+	echo "...done"
+
+	cd sandbox3
+fi
+
+#==================================================================================
+# ISO file
+
 # very big 'if'
-[ ! -e rootfs-complete/usr/share/grub2-efi ] && UFEI_ISO=no
 if [ "$SDFLAG" = "" ];then #120506
+	if [ ! -e rootfs-complete/usr/share/grub2-efi ] ; then
+		UFEI_ISO=no
+	fi
+	if [ "$UFEI_ISO" = 'yes' ];then
+		UFLG=-uefi
+	fi
+
+	WOOF_OUTPUT="woof-output-${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${UFLG}${XTRA_FLG}"
+	[ -d ../$WOOF_OUTPUT ] || mkdir -p ../$WOOF_OUTPUT
+
+	if [ -f ${DEVXSFS} ] ; then
+		mv -f ${DEVXSFS} ../${WOOF_OUTPUT}/
+	fi
+
  if [ "$UFEI_ISO" = 'yes' ];then
 	# new 160404 UEFI iso - see support/uefi_cd.sh
-	UFLG=-uefi
-	WOOF_OUTPUT="woof-output-${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${UFLG}${XTRA_FLG}"
 	../support/uefi_cd.sh
 	uret=$?
 	if [ $uret -ne 0 ];then
@@ -1699,8 +1852,6 @@ Check the script support/uefi_cd.sh to see what this means."
 	  exit 1
 	fi
  elif [ "$G4DOS_ISO" = 'yes' ];then
-	WOOF_OUTPUT="woof-output-${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${XTRA_FLG}" #woodenshoe-wi idea. #140619
-	[ -d ../$WOOF_OUTPUT ] || mkdir -p ../$WOOF_OUTPUT
 	echo "Now building ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${XTRA_FLG}.iso"
 	rm -f ../${WOOF_OUTPUT}/${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${XTRA_FLG}.iso 2>/dev/null
 	cp -a ../boot/grub4dos/* build/
@@ -1713,8 +1864,6 @@ Check the script support/uefi_cd.sh to see what this means."
 	   md5sum ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${XTRA_FLG}.iso > ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${XTRA_FLG}.iso.md5.txt
 	   sha256sum ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${XTRA_FLG}.iso > ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${XTRA_FLG}.iso.sha256.txt )
  else
-	WOOF_OUTPUT="woof-output-${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${XTRA_FLG}" #woodenshoe-wi idea. #140619
-	[ -d ../$WOOF_OUTPUT ] || mkdir -p ../$WOOF_OUTPUT
 	#build live-cd .iso file...
 	echo "Now building ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${XTRA_FLG}.iso"
 	rm -f ../${WOOF_OUTPUT}/${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${XTRA_FLG}.iso 2>/dev/null
@@ -1793,6 +1942,7 @@ Check the script support/uefi_cd.sh to see what this means."
 fi
 #end very big if
 
+#==================================================================================
 
 if [ "$SDFLAG" = "" ];then
  echo
@@ -2065,133 +2215,6 @@ ${SDFS2} partition to fill the remaining space -- this is for your own use."
  fi # if WRITE_SD
 
 fi
-
-cd $WKGDIR
-
-#now do the devx...
-echo
-echo -n "Hit ENTER to build the 'devx' SFS file, any other key to exit: "
-read dodevx
-[ "$dodevx" != "" ] && exit
-echo
-echo "Building ${DEVXSFS}..."
-
-echo " building sandbox3/devx ..."
-echo "$PKGS_SPECS_TABLE" | grep '^yes' | cut -f 2 -d '|' | sed -e 's%$%_DEV%' > /tmp/ALLGENNAMESD
-rm -f ./${WOOF_OUTPUT}/${DEVXSFS} 2>/dev/null #100911
-for ONEDEV in `ls -1 packages-${DISTRO_FILE_PREFIX} | grep '_DEV$' | tr '\n' ' '`
-do
- if grep -q -m1 "^$ONEDEV" /tmp/ALLGENNAMESD ;then
-  cp -a --remove-destination packages-${DISTRO_FILE_PREFIX}/${ONEDEV}/* sandbox3/devx/
-  sync
- fi
-done
-rm -f /tmp/ALLGENNAMESD
-sync
-
-#earlier above i moved all invalid symlinks into the devx module, yeah but i
-#think should delete them if they really point nowhere...
-echo " Deleting really invalid symlinks in devx..."
-mkdir layer_top
-if [ "$LAYER_TYPE" = 'overlay' ]; then
-	mkdir overlay_workdir
-	mount -t overlay overlay -olowerdir=sandbox3/rootfs-complete,upperdir=sandbox3/devx,workdir=overlay_workdir layer_top
-else
-	mount -t aufs -o udba=reval,diropq=w,dirs=sandbox3/devx=rw:sandbox3/rootfs-complete=ro layerfs layer_top
-fi
-
-if [ "$WOOF_HOSTARCH" = "$WOOF_TARGETARCH" ] ; then
-	dirs=$(ls -d layer_top/* | sed 's|layer_top||' | grep -vE '/dev/|/proc/|/sys/') #|/initrd/|/tmp/|/var/|/run/|/mnt/
-	chroot layer_top find -L $dirs -type l -delete
-else
-	#do it without chroot...
-	find layer_top/ -type l | sed -e '\%/dev/%d' -e '\%/proc/%d' -e '\%/usr/share/icons/%d' | \
-	while read ONESYMLINK ; do
-	  xONESYMLINK="${ONESYMLINK#layer_top}" #sed -e 's/^layer_top//'`
-	  LINKTO="`readlink "layer_top${xONESYMLINK}"`"
-	  [ -e "layer_top${LINKTO}" ] && continue #absolute path
-	  UPONE=${xONESYMLINK%/*}        #UPONE="`dirname "$xONESYMLINK"`"
-	  [ "$UPONE" = "" ] && UPONE='/' #empty -> '/'
-	  [ -e "layer_top${UPONE}/${LINKTO}" ] && continue #relative path
-	  echo " $ONESYMLINK"
-	  rm -f "$ONESYMLINK"
-	done
-fi
-sync  ;  umount layer_top  ;  rmdir layer_top
-
-###HACK###
-if [ "$(echo "$PKGS_SPECS_TABLE" | grep '^yes|python|' | grep 'exe>dev')" != "" ];then #121022
- [ -e sandbox3/devx/usr/bin/python2.5 ] && ln -s python2.5 sandbox3/devx/usr/bin/python 2>/dev/null
- [ -e sandbox3/devx/usr/bin/python2.6 ] && ln -s python2.6 sandbox3/devx/usr/bin/python 2>/dev/null
- [ -e sandbox3/devx/usr/bin/python2.7 ] && ln -s python2.7 sandbox3/devx/usr/bin/python 2>/dev/null
-fi
- rm -f sandbox3/devx/usr/lib${lsuffix}/mozilla/plugins/* #100407 maybe .a, .la files in here.
-###END HACK###
-
-#v424 no, i have needed docs in usr/share/doc...
-#w003 there's docs here, move them out...
-rm -rf packages-${DISTRO_FILE_PREFIX}/devx_DOC 2>/dev/null
-mkdir -p packages-${DISTRO_FILE_PREFIX}/devx_DOC/usr/share
-#mv sandbox3/devx/usr/share/doc packages-${DISTRO_FILE_PREFIX}/devx_DOC/usr/share/ 2>/dev/null
-mv sandbox3/devx/usr/share/doc-base packages-${DISTRO_FILE_PREFIX}/devx_DOC/usr/share/ 2>/dev/null
-mv sandbox3/devx/usr/share/man packages-${DISTRO_FILE_PREFIX}/devx_DOC/usr/share/ 2>/dev/null
-
-#100831 hack, this symlink needed...
-if [ -d sandbox3/devx/usr/X11R7/include/xorg ];then
- [ ! -e sandbox3/devx/usr/include/xorg ] && ln -s ../X11/include/xorg sandbox3/devx/usr/include/xorg
-fi
-
-#100622 remove overhead of this script running every bootup...
-mkdir -p sandbox3/devx/etc/profile.d
-rm -f sandbox3/devx/etc/profile.d/pkgconfig* 2>/dev/null
-[ -e sandbox3/devx/usr/X11R7/lib ] && DEVX_X11R7=sandbox3/devx/usr/X11R7/lib
-PKG_CONFIG_PATH="`find sandbox3/devx/usr/lib $DEVX_X11R7 sandbox3/devx/opt sandbox3/devx/usr/local/lib -type d -name pkgconfig | sed -e 's%sandbox3/devx%%' | tr '\n' ':'`"
-echo "export PKG_CONFIG_PATH='${PKG_CONFIG_PATH}'" > sandbox3/devx/etc/profile.d/pkgconfig
-
-#maybe stray /install dir from slackware pkgs...
-rm -rf sandbox3/devx/install 2>/dev/null
-[ -f sandbox3/devx/pet.specs ] && rm -f sandbox3/devx/pet.specs #w478
-#another slackware hack 131124
-[ -x sandbox3/devx/usr/bin/strings-GNU ] && mv sandbox3/devx/usr/bin/strings-GNU sandbox3/devx/usr/bin/strings
-sync
-
-#110429 see above, think want glibc scsi headers in usr/include/scsi...
-if [ -d sandbox3/devx/usr/include/scsi-GLIBC ];then
- #probably have kernel scsi headers in usr/include/scsi, fix...
- cp -a -f sandbox3/devx/usr/include/scsi-GLIBC/* sandbox3/devx/usr/include/scsi/
-fi
-
-# 151019 - delete duplicate symlinks
-echo "deleting duplicate symlinks"
-find sandbox3/devx -type l | while read ONESYMLINK
-do # if the symlink exists in sandbox3/rootfs-complete we delete it
- ESYMLINK=${ONESYMLINK//devx/rootfs-complete}
- [ -h "$ESYMLINK" ] && echo -n "$ONESYMLINK " && rm -f "$ONESYMLINK"
-done
-sync
-# do same for duplicates in /etc
-echo -e "\ndeleting duplicate entries in /etc"
-find sandbox3/devx/etc -type f | while read ONEDUPE
-do
- EDUPE=${ONEDUPE//devx/rootfs-complete}
- [ -f "$EDUPE" ] && echo -n "$ONEDUPE " && rm -f "$ONEDUPE"
-done
-sync
-
-echo -e "\ncleaning out whiteouts"
-clean_out_whiteouts $sandbox3/devx # _00func
-
-echo "Now creating ${DEVXSFS} ..."
-${MKSQUASHFS} sandbox3/devx ./${WOOF_OUTPUT}/${DEVXSFS} ${SFSCOMP} #100911 110713
-sync
-chmod 644 ./${WOOF_OUTPUT}/${DEVXSFS}
-CUR_DIR="$PWD"
-cd ./${WOOF_OUTPUT}
-md5sum ${DEVXSFS} > ${DEVXSFS}.md5.txt #100911
-sha256sum ${DEVXSFS} > ${DEVXSFS}.sha256.txt
-cd "$CUR_DIR"
-sync
-echo "...done"
 
 echo -e "\nScript finished."
 [ "$WOOF_GUI" ] && { echo -n "Press ENTER key to exit: " ; read zzz ; }
