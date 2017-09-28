@@ -216,11 +216,11 @@ check_total_size () {
    . /etc/rc.d/PUPSTATE
    case $PUPMODE in
 	 2) AVAILABLE=$(df -m | grep / | head -n 1 | awk '{print $4}');;
-	 5|6) AVAILABLE=$(df -m | grep pup_rw | awk '{print $4}')
+	 5) AVAILABLE=$(df -m | grep pup_rw | awk '{print $4}')
 	 	[ "$AVAILABLE" = "" ] && AVAILABLE=$(df -m | grep \/tmpfs | awk '{print $4}');;
 	 7|13) AVAILABLE=$(df -m | grep pup_ro1 | awk '{print $4}')
 	 	[ "$AVAILABLE" = "" ] && AVAILABLE=$(df -m | grep \/tmpfs | awk '{print $4}');;
-	 12) AVAILABLE=$(df -m | grep pup_rw | awk '{print $4}')
+	 6|12) AVAILABLE=$(df -m | grep pup_rw | awk '{print $4}')
 		[ "$AVAILABLE" = "" ] && AVAILABLE=$(df -m | grep dev_save | awk '{print $4}');;
    esac
    if [ ! "$AVAILABLE" ]; then
