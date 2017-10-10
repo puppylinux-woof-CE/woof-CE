@@ -434,16 +434,9 @@ else
 fi
 
 if [ "$UPDATE_MENUS" = "yes" ]; then
-#w482 adjust msg as appropriate, restart jwm and update menu if required...
 INSTALLEDCAT="menu" #any string.
 [ "`cat /tmp/petget-installed-pkgs-log | grep -o 'CATEGORY' | grep -v 'none'`" = "" ] && INSTALLEDCAT="none"
 RESTARTMSG="$(gettext 'Please wait, updating help page and menu...')"
-if [ "`pidof jwm`" != "" ];then #120101
- JWMVER=`jwm -v|head -n1|cut -d ' ' -f2|cut -d - -f2`
- if vercmp $JWMVER lt 574;then #120116 introduced rev 547, but 574 fixes -reload.
-  RESTARTMSG="$(gettext 'Please wait, updating help page and menu (the screen will flicker!)...')"
- fi
-fi
 [ "$INSTALLEDCAT" = "none" ] &&  RESTARTMSG="$(gettext 'Please wait, updating help page...')"
  if [ ! -f /tmp/install_quietly ]; then
   /usr/lib/gtkdialog/box_splash -text "${RESTARTMSG}" &
@@ -470,13 +463,7 @@ fi
 #Reconstruct configuration files for JWM, Fvwm95, IceWM...
 if [ "$UPDATE_MENUS" = "yes" -a "$INSTALLEDCAT" != "none" ];then
  nohup /usr/sbin/fixmenus
- if [ "`pidof jwm`" != "" ];then #120101
-  if vercmp $JWMVER lt 574;then #120116 547 to 574.
-   jwm -restart #w482
-  else
-   jwm -reload
-  fi
- fi
+ [ "`pidof jwm`" != "" ] && { jwm -reload || jwm -restart ; }
 fi
 [ ! -f /tmp/install_quietly ] && kill $X3PID || echo
 

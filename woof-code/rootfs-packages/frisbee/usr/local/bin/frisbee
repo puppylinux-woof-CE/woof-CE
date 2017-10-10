@@ -1,0 +1,157 @@
+#!/bin/sh
+# frisbee - [--setup], --deactivate, --connect, --disconnect, --test_active, --help
+# Exit state is false if (1) not in frisbee mode or (2) no wireless interface
+#160201 New common frisbee interface -- old script renamed to frisbee-main, moved to frisbee directory.
+#170412 1.4.3 Stop network connections other than by this script; add mode-disable logic unrelated to frisbee.
+#set -x; exec &>/tmp/debug.log #send feedback and trace to debug.log
+
+export VERSION='1.4.6'  #UPDATE this with each release!
+
+export TEXTDOMAIN=frisbee
+export OUTPUT_CHARSET=UTF-8
+. gettext.sh
+
+[ -d /usr/lib/frisbee ] \
+ && export FRISBEEFUNCDIR="/usr/lib/frisbee" \
+ || export FRISBEEFUNCDIR="/usr/local/frisbee" #accomodate debian dogs
+
+[ -f /root/.config/gprs.conf ] \
+ || echo -e "GPRSDEV=\nGPRSAPN=\nGPRSNBR=\nGPRSPIN=\nGPRSUSER=\nGPRSPAPONLY=" > /root/.config/gprs.conf
+. /root/.config/gprs.conf
+mkdir -p /var/lock/gprs
+ICONLIB=/usr/local/lib/X11/pixmaps
+
+#Lock management - for unblocked locking only.
+eval $(grep '^GPRS_SETUP_LOCK_FD=' /etc/ppp/gprs.conf)
+[ "$GPRS_SETUP_LOCK_FD" ] || exit 1 
+eval exec "$GPRS_SETUP_LOCK_FD>/var/lock/gprs/setup"
+eval $(grep '^GPRS_CONNECT_LOCK_FD=' /etc/ppp/gprs.conf)
+[ "$GPRS_CONNECT_LOCK_FD" ] || exit 1 
+eval exec "$GPRS_CONNECT_LOCK_FD>/var/lock/gprs/connect"
+
+fix_config_file() {
+	grep -q '^pppoe_' /etc/frisbee/frisbee.conf \
+	 || echo -e "pppoe_select=0\npppoe_paponly=0" >> /etc/frisbee/frisbee.conf
+	grep -q '^terminal' /etc/frisbee/frisbee.conf \
+	 || echo -e "terminal=rxvt" >> /etc/frisbee/frisbee.conf #140607
+	grep -q '^editor' /etc/frisbee/frisbee.conf \
+	 || echo -e "editor=defaulttexteditor" >> /etc/frisbee/frisbee.conf #140607
+}
+
+# Determine option, Interpreting legacy interface calls via links.
+case $(basename $0) in
+ frisbee) OPTION="$1"; OPTION="${OPTION:=--setup}" ;;
+ connect) OPTION="--connect" ;;
+ disconnect) OPTION="--disconnect" ;;
+ frisbee_mode_disable) OPTION="--deactivate" ;;
+esac
+
+while [ "$OPTION" ]; do
+	OPT=$OPTION; OPTION=''
+	case $OPT in
+	  --setup)
+		if flock --exclusive --nonblock $GPRS_SETUP_LOCK_FD; then
+			[ -x /usr/sbin/connectwizard_exec ] \
+			 && connectwizard_exec frisbee #170412
+			[ $(wc -l </etc/frisbee/frisbee.conf) -lt 10 ] && fix_config_file
+			/usr/local/frisbee/frisbee-main
+			flock --unlock $GPRS_SETUP_LOCK_FD
+		else
+			if [ -n "$(busybox pidof frisbee-main)" ]; then
+				Xdialog --center --wmclass "frisbee" --title "Frisbee" --icon $ICONLIB/error.xpm --msgbox "\n$(gettext 'Frisbee cannot start now because it is already active.')\n$(gettext 'Please use the active Frisbee session.')\n" 0 70
+			elif [ -n "$(busybox pidof pgprs-setup)" ]; then
+				Xdialog --center --wmclass "frisbee" --title "Frisbee" --icon $ICONLIB/error.xpm --ok-label "OK" --cancel-label $(gettext 'Retry') --yesno "\n$(gettext 'Frisbee cannot start now because the PGPRS wireless modem controller is active.')\n$(gettext 'If you terminate PGPRS, you can Retry Frisbee.')\n" 0 70
+				[ $? -eq 1 ] && OPTION='--setup'
+			else #stale lock - delete, recreate and retry
+				rm -f /var/lock/gprs/setup
+				eval exec "$GPRS_SETUP_LOCK_FD>/var/lock/gprs/setup"
+				logger "frisbee: $(gettext 'Stale "setup" lock detected and replaced')"
+				OPTION='--setup'
+			fi
+		fi
+		;;
+	  --deactivate)
+		/usr/local/frisbee/frisbee-mode-disable
+		if grep -q '^dhcpcd_state_notify=1' /etc/frisbee/frisbee.conf;then #170412...
+			[ -f /etc/dhcpcd_state_notify ] || touch /etc/dhcpcd_state_notify
+		else
+			rm -f /etc/dhcpcd_state_notify
+		fi
+		if [ -d /tmp/.network_tray ];then
+			rm -f /tmp/.network_tray/use_wireless_control_menu_labels
+		else
+			rm -f /tmp/.network_tray-use_wireless_control_menu_labels #140209
+		fi #170412 end
+		;;
+	  --connect)
+		if [ -s /etc/frisbee/interface ];then
+			/usr/local/frisbee/frisbee-wifi-connect
+		fi
+		;;
+	  --disconnect)
+		if [ -s /etc/frisbee/interface ];then
+			if grep -qs '^frisbee_mode=1' /etc/frisbee/frisbee.conf;then #170412
+				/usr/local/frisbee/frisbee-wifi-disconnect
+			fi #170412
+		fi
+		;;
+	  --connect-gprs)
+		if [ "${GPRSDEV:0:4}" != "/dev" ]; then
+			Xdialog --center --wmclass "frisbee" --title "Frisbee $(gettext 'GPRS Connect')" --icon $ICONLIB/error.xpm --msgbox "$(gettext 'Cannot connect - No modem interface (/dev/...) specified.')" 0 0
+		elif [ -z "$GPRSAPN" ];then
+			Xdialog --center --wmclass "frisbee" --title "Frisbee $(gettext 'GPRS Connect')" --icon $ICONLIB/error.xpm --msgbox "$(gettext 'Cannot connect - No Access Point Name (APN) specified.')" 0 0
+		elif [ -z "$GPRSNBR" ];then
+			Xdialog --center --wmclass "frisbee" --title "Frisbee $(gettext 'GPRS Connect')" --icon $ICONLIB/error.xpm --msgbox "$(gettext 'Cannot connect - No Access Number specified.')" 0 0
+		elif [ -f /var/run/ppp-gprs.pid ];then
+			ACTIVEDEV="$(busybox ps | grep "^ *$(cat /var/run/ppp-gprs.pid)" | grep 'pppd' | grep -v 'grep' | grep -o '/dev/[a-z][^ ]*')"
+			if [ "$ACTIVEDEV" ];then
+				Xdialog --center --wmclass "frisbee" --title "Frisbee $(gettext 'GPRS Connect')" --icon $ICONLIB/error.xpm --msgbox "$(eval_gettext "Cannot connect with mobile device \\\$GPRSDEV.")\n$(eval_gettext "Mobile device \$ACTIVEDEV is currently connected.")" 0 0
+			fi
+		elif flock --exclusive --nonblock $GPRS_CONNECT_LOCK_FD; then
+			/usr/local/frisbee/frisbee-gprs-connect
+			flock --unlock $GPRS_CONNECT_LOCK_FD
+		else #connection active
+			if [ -n "$(busybox pidof pgprs-connect)" -o -n "$(busybox pidof frisbee-gprs-connect)" ]; then
+				Xdialog --center --wmclass "frisbee" --title "Frisbee $(gettext 'GPRS Connect')" --icon $ICONLIB/info.xpm --msgbox "\n$(eval_gettext "Modem device '\$GPRSDEV' connection window is active.")\n\n$(gettext 'Please go to the active GPRS Connection Log window.')\n" 0 70
+			else #stale lock - delete, recreate and retry
+				rm -f /var/lock/gprs/connect
+				eval exec "$GPRS_CONNECT_LOCK_FD>/var/lock/gprs/connect"
+				logger "frisbee: $(gettext 'Stale "connect" lock detected and replaced')"
+				OPTION='--connect'
+			fi
+		fi
+		;;
+	  --disconnect-gprs)
+		if [ -s /var/run/ppp-gprs.pid ];then
+			/usr/local/frisbee/frisbee-gprs-disconnect
+		else
+			Xdialog --center --wmclass "frisbee"  --title "Frisbee GPRS"  --msgbox "GPRS connection inactive." 0 0
+		fi
+		;;
+	  --test_active) # Return current state of frisbee mode (=true).
+		grep -qs '^frisbee_mode=1' /etc/frisbee/frisbee.conf
+		exit #exit status = result of grep
+		;;
+	  --version)
+		echo "$VERSION"
+		;;
+	  *)
+		echo "$(gettext 'Usage: frisbee [option]')
+
+$(gettext 'Manage ethernet and wireless (wifi, GPRS/3G) network connections')
+
+$(gettext 'Options'):
+ --setup           $(gettext 'Show control panel (default)')
+ --deactivate      $(gettext 'Indicate active network manager is not frisbee')
+ --connect         $(gettext 'Connect to wifi')
+ --disconnect      $(gettext 'Disconnect from wifi')
+ --connect-gprs    $(gettext 'Connect to mobile wireless')
+ --disconnect-gprs $(gettext 'Disconnect from mobile wireless')
+ --test_active     $(gettext 'True if frisbee is last-used network manager')
+ --version         $(gettext 'Display frisbee version')
+ --help            $(gettext 'Display this text')
+ "
+		;;
+	esac
+done
+exit 0

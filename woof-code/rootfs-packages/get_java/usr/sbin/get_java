@@ -1,0 +1,874 @@
+#!/bin/sh
+#       This program is free software; you can redistribute it and/or modify
+#       it under the terms of the GNU General Public License as published by
+#       the Free Software Foundation; either version 2 of the License, or
+#       (at your option) any later version.
+#       
+#       This program is distributed in the hope that it will be useful,
+#       but WITHOUT ANY WARRANTY; without even the implied warranty of
+#       MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#       GNU General Public License for more details.
+#       
+#       SEE /usr/share/doc/legal/
+#       
+#       This script, get_java, is a hybrid made from components adapted
+#       from sfs-java.sh and get_libreoffice.
+#
+#       Credits: 01micko: Portion of get_libreoffice - function load_sfs
+#                uten: Portions of sfs-java.sh - functions 
+#                      java_set_defaults, java_dump_variables, err,
+#                      java_get_version_info, java_download_java,
+#                      java_unpack_java, java_make_sfs and main
+#       Integrator/adapter: rerwin
+#
+
+export TEXTDOMAIN=get_java
+export OUTPUT_CHARSET=UTF-8
+. gettext.sh
+
+# For debugging:
+#TERMINATE_ON_ERROR=true #if uncommented, script will terminate o an error
+#set -x
+#exec 1>&2    #send feedback and trace to xerrs.log
+#exec &>/tmp/get_java.log    #for use in fatdog64
+
+. /etc/rc.d/PUPSTATE
+. /etc/DISTRO_SPECS
+
+function initialize_global_variables(){
+	local HOMEDIR
+    [ -z "$PUP_HOME" ] && PUP_HOME="/"
+    [ -z "$PUPMODE" ] && PUPMODE=2
+    case $PUPMODE in
+     2|3)
+      HOMESAVE="$PUP_HOME"
+      HOMEDIR="$PUP_HOME"
+      ;;
+     5)
+      HOMESAVE="/"
+      [ -d /file ] && HOMEDIR="/file" || HOMEDIR="/root"
+      ;;
+     6|7|12|13)
+      if [ "$PUPSAVE" ]; then
+       HOMESAVE=$(echo $PUPSAVE | cut -d ',' -f 1)
+       HOMEDIR="/initrd$PUP_HOME"
+      else #fatdog
+       HOMESAVE=$PUP_HOME
+       HOMEDIR="$PUP_HOME"
+      fi
+      ;;
+    esac
+    case $(uname -m) in
+     x86_64) MACHINEARCH=x64 ;;
+     i?86) MACHINEARCH=i586 ;;
+     *) echo "Unsupported architecture: $(uname -m)" && exit 1 ;;
+    esac
+    if echo $DISTRO_NAME | grep -q -E '64 |64$'; then
+     DISTROARCH='64'
+    else
+     DISTROARCH='32'
+    fi
+    . /etc/get_java.conf #must be here for version
+    TITLE="Get_java $GET_JAVA_VERSION"
+    DESCRIPTION="$(gettext 'Build Java JRE/JDK Package')"
+    LONG_TITLE="$TITLE - $DESCRIPTION"
+    BASEPATHPART=/
+    BASEPATHHOME="$(echo "$HOMEDIR/" | tr -s /)"
+    BASEPATHTMP=/tmp/
+    EXPANDSUBDIR=get_java
+    #format: variable=${variable-defaultvalue}
+    JAVA_DOWNLOAD_HOME_DIR=$HOMEDIR
+    TARGET_HOME_DIR=$HOMEDIR
+    case $PUPMODE in
+     3|7|13)
+      JAVA_DOWNLOAD_PATH=/tmp/
+      TARGET_PATH=/tmp/
+      ;;
+     *)
+      JAVA_DOWNLOAD_PATH="$(echo "$JAVA_DOWNLOAD_HOME_DIR/" | tr -s /)"
+      TARGET_PATH="$(echo "$TARGET_HOME_DIR/" | tr -s /)"
+      ;;
+    esac
+    if [ -h /mnt/home ]; then
+     [ "$(readlink /mnt/home)" = "$JAVA_DOWNLOAD_HOME_DIR" ] \
+      && JAVA_DOWNLOAD_HOME_DIR=/mnt/home
+    fi
+    if [ -h /mnt/home ]; then
+     [ "$(readlink /mnt/home)" = "$TARGET_HOME_DIR" ] \
+      && TARGET_HOME_DIR=/mnt/home
+    fi
+}
+
+function check_space_available(){ 
+	#Verify sufficient RAM or disk space to convert java tarball to an sfs
+	#or pet, only in fast partitions and RAM
+	. /etc/get_java.conf #must be here so space estimates available
+	JRERAMOK=false; JREHDOK=false; JREHDRAMOK=false
+	JDKRAMOK=false; JDKHDOK=false; JDKHDRAMOK=false
+	
+    if [ "$EXPANDSUBDIR" ]; then
+     rm -fr ${BASEPATHPART}${EXPANDSUBDIR}
+     rm -fr ${BASEPATHHOME}${EXPANDSUBDIR}
+     rm -fr ${BASEPATHTMP}${EXPANDSUBDIR}
+    fi
+    
+	TMPSPACEMB=$(df -m | grep ' /tmp$' | awk '{print $4}')
+	[ -z "$TMPSPACEMB" ] \
+	 && TMPSPACEMB=$(df -m / | head -n 2 | tail -n 1 | awk '{print $4}')
+	case $PUPMODE in #/tmp space
+	 2|5|6|12) #can't be slow media
+	  [ $TMPSPACEMB -gt $MAX_JRE_EXPANDED_MB ] && JRERAMOK=true
+	  [ $TMPSPACEMB -gt $MAX_JDK_EXPANDED_MB ] && JDKRAMOK=true
+	  ;;
+	 3|7|13)
+	  local RAMNEEDEDMB
+	  RAMNEEDEDMB=$(($MAX_JRE_EXPANDED_MB+$MAX_JRE_PKG_MB))
+	  [ $TMPSPACEMB -gt $RAMNEEDEDMB ] && JRERAMOK=true
+	  RAMNEEDEDMB=$(($MAX_JDK_EXPANDED_MB+$MAX_JDK_PKG_MB))
+	  [ $TMPSPACEMB -gt $RAMNEEDEDMB ] && JDKRAMOK=true
+	  ;;
+	esac
+
+	case $PUPMODE in #home partition or tempfs space
+	 6|12) SPACEAVAILABLE=$(df -m | grep -w "${HOMESAVE}" | awk '{print $4}') ;;
+	 2|5) SPACEAVAILABLE=$(df -m / | head -n 2 | tail -n 1 | awk '{print $4}') ;;
+	 3|7|13)
+	  SPACEAVAILABLE=$(($MAX_JDK_EXPANDED_MB+$MAX_JDK_PKG_MB+$LEAVE_SPACE_MB)) ;; #optimistic -- checked later to use if available
+	 *) SPACEAVAILABLE=$LEAVE_SPACE_MB ;;
+	esac
+	local SPACENEEDED
+	SPACEAVAILABLE=$(($SPACEAVAILABLE-$LEAVE_SPACE_MB))
+	if [ $PUPMODE -eq 5 ]; then
+	 if [ "$JRERAMOK" = true ]; then #*HDOK = all in ram OK for 5
+	 [ $SPACEAVAILABLE -gt $(($MAX_JRE_PKG_MB+$MAX_JRE_EXPANDED_MB)) ] && JREHDOK=true
+	  if [ "$JDKRAMOK" = true ]; then
+	  [ $SPACEAVAILABLE -gt $(($MAX_JDK_PKG_MB+$MAX_JDK_EXPANDED_MB)) ] && JDKHDOK=true 
+	  fi
+	 fi
+	elif [ "$JRERAMOK" = true ]; then
+	 [ $SPACEAVAILABLE -ge $MAX_JRE_PKG_MB ] && JREHDRAMOK=true
+	 if [ "$JDKRAMOK" = true ]; then
+	  [ $SPACEAVAILABLE -ge $MAX_JDK_PKG_MB ] && JDKHDRAMOK=true
+	 else
+	  SPACENEEDED=$(($MAX_JDK_PKG_MB+$MAX_JDK_EXPANDED_MB))
+	  [ $SPACEAVAILABLE -ge $SPACENEEDED ] && JDKHDOK=true
+	 fi
+	else
+	 SPACENEEDED=$(($MAX_JRE_PKG_MB+$MAX_JRE_EXPANDED_MB))
+	 [ $SPACEAVAILABLE -ge $SPACENEEDED ] && JREHDOK=true
+	 SPACENEEDED=$(($MAX_JDK_PKG_MB+$MAX_JDK_EXPANDED_MB))
+	 [ $SPACEAVAILABLE -ge $SPACENEEDED ] && JDKHDOK=true 
+	fi
+
+	case $PUPMODE in #expansion base dir
+	 12|6)
+	  [ "$JREHDRAMOK" = true ] && JREBASEPATH=$BASEPATHTMP || JREBASEPATH=$BASEPATHHOME
+	  [ "$JDKHDRAMOK" = true ] && JDKBASEPATH=$BASEPATHTMP || JDKBASEPATH=$BASEPATHHOME
+	  ;;
+	 2)
+	  [ "$JREHDRAMOK" = true ] && JREBASEPATH=$BASEPATHTMP || JREBASEPATH=$BASEPATHPART
+	  [ "$JDKHDRAMOK" = true ] && JDKBASEPATH=$BASEPATHTMP || JDKBASEPATH=$BASEPATHPART
+	  ;;
+	 5)
+	  JREBASEPATH=''
+	  if [ "$JREHDOK" = true ]; then
+	   JREBASEPATH=$BASEPATHTMP
+	   [ "$JDKHDOK" = true ] && JDKBASEPATH=$BASEPATHTMP || JDKBASEPATH=''
+	  else
+	   killall yaf-splash
+	   Xdialog --title "$LONG_TITLE" $ERROR_ICON --left --wrap --msgbox "\n$(gettext 'Insufficient RAM space for Live CD/DVD Java builds.')\n" 0 70 
+	   exit
+	  fi
+	  ;;
+	 3|7|13)
+	  [ "$JREHDRAMOK" = true ] && JREBASEPATH=$BASEPATHTMP
+	  [ "$JDKHDRAMOK" = true ] && JDKBASEPATH=$BASEPATHTMP
+	  ;;
+	 *)
+	  killall yaf-splash
+	  Xdialog --title "$LONG_TITLE" $ERROR_ICON --left --wrap --msgbox "\n$(gettext 'Low RAM Java builds not supported.')\n" 0 70 
+	  exit
+	  ;;
+	esac
+	if [ "$JREHDRAMOK" = false -a "$JREHDOK" = false ]; then
+	 killall yaf-splash
+	 [ "$JRERAMOK" = true ] \
+	  && SPACENEEDJREMB=$(($MAX_JRE_PKG_MB+$LEAVE_SPACE_MB)) \
+	  || SPACENEEDJREMB=$(($MAX_JRE_PKG_MB+$MAX_JRE_EXPANDED_MB+$LEAVE_SPACE_MB))
+	 SPACENEEDJDKMB=$(($SPACENEEDJREMB-$MAX_JRE_PKG_MB+$MAX_JDK_PKG_MB))
+	 if [ $PUPMODE -eq 5 ]; then
+	  FDBK="$(eval_gettext "Free space needed for JRE in personal storage: \$SPACENEEDJREMB MB\nFor JDK: \$SPACENEEDJDKMB MB")"
+	 else
+	  local PARTITION
+	  [ "$HOMESAVE" -a "$HOMESAVE" != "/"] \
+	   && PARTITION=" $HOMESAVE" \
+	   || PARTITION=''
+	  FDBK="$(eval_gettext "Free space needed in partition\$PARTITION: \$SPACENEEDJREMB MB\nFor JDK: \$SPACENEEDJDKMB MB")"
+	 fi
+	 Xdialog --title "$LONG_TITLE" --backtitle "\n$(gettext 'Insufficient space to construct a JRE package.')" $ERROR_ICON --left --wrap --msgbox "\n$FDBK\n" 0 70
+	 exit
+	fi
+}
+
+# Adapted from uten's sfs_java.sh
+function err() { # $? [msg]   
+   # If TERMINATE_ON_ERROR has a value script will terminate
+   local err=${1:-1}
+   local COLOR_LIGHT_RED='\e[91m'
+   local COLOR_BOLD='\e[1m'
+   local COLOR_RESET='\e[0m'
+   if [ $# -gt 0 ] && [ $1 -gt 0 ]; then
+    local msg=${2:-'no err msg'}
+    local funcname=${FUNCNAME[1]}
+    local line=${BASH_LINENO[0]}
+    local script=${BASH_SOURCE[1]}
+    echo -e "${COLOR_LIGHT_RED}${COLOR_BOLD}ERR    ${COLOR_RESET}($line) err:=$err, $msg :: [$funcname] [$script]"
+    if [ -n "$TERMINATE_ON_ERROR" ]; then
+     echo "----------------------------------------------------------------"
+     java_dump_variables
+     echo "----------------------------------------------------------------"
+     echo "terminating due to error $err"
+     exit $1
+    fi
+   fi
+   
+   return $1
+}
+
+function java_dump_variables() { #
+   echo "JAVA_ARCH:					$JAVA_ARCH"
+   echo "JAVA_DOWNLOAD_PATH:		$JAVA_DOWNLOAD_PATH"
+   echo "JAVA_DOWNLOAD_HOME_DIR:	$JAVA_DOWNLOAD_HOME_DIR"
+   echo "JAVA_ARCHIVE_PATH:			$JAVA_ARCHIVE_PATH"
+   echo "EXPAND_BASE_DIR:			$EXPAND_BASE_DIR"
+   echo "TARGET_PATH:				$TARGET_PATH"
+   echo "TARGET_HOME_DIR:			$TARGET_HOME_DIR"
+   echo "JAVA_VERSION:				$JAVA_VERSION"
+   echo "JAVA_ARCHIVE_FILE_NAME:	$JAVA_ARCHIVE_FILE_NAME"
+   echo "EXPAND_DIR:				$EXPAND_DIR"
+}
+
+function get_input_choices() { # Obtain and set user's selection
+   local RTNCD=0
+   YES_LABEL="--ok-label $(gettext 'Yes')"
+   YESNO_LABELS="$YES_LABEL --cancel-label $(gettext 'No')"
+   YESCAN_LABELS="$YES_LABEL --cancel-label $(gettext 'Cancel')"
+   EXITOK_LABEL="--ok-label $(gettext 'Exit')"
+   EXITCAN_LABEL="--cancel-label $(gettext 'Exit')"
+   ERROR_ICON="--icon /usr/local/lib/X11/pixmaps/error.xpm"
+   OK_ICON="--icon /usr/local/lib/X11/pixmaps/ok.xpm"
+   QUESTION_ICON="--icon /usr/local/lib/X11/pixmaps/question.xpm"
+   if [ -f /usr/local/lib/X11/pixmaps/info.xpm ]; then
+    INFO_ICON="--icon /usr/local/lib/X11/pixmaps/info.xpm"
+   elif [ -f /usr/local/lib/X11/pixmaps/info48.xpm ]; then
+    INFO_ICON="--icon /usr/local/lib/X11/pixmaps/info48.xpm"
+   fi
+
+   #Welcome message
+   FDBK1="$(gettext 'This comprehensive Java upgrade utility can:\n  *  Download the latest version of Java\n  *  Build it into an installable package file\n  *  Install the package immediately')"
+   TXT1="$(gettext 'Unless you choose otherwise, this will download a Java Runtime Environment (JRE) tar.gz file from the Oracle Java server, convert it to a Squash File System (SFS) package or Puppy PET package and then install the package.')\n\n$(gettext 'The 70+ MB JRE download can take a long time on a slow connection.')\n$(gettext 'The conversion can take a long time on slow machines.')"
+   Xdialog --title "$LONG_TITLE" --backtitle "\n$FDBK1" $INFO_ICON --left --wrap --msgbox "\n$TXT1\n" 0 70
+   case $? in
+    0) ;;
+    1) exit ;;
+    *) exit ;;
+   esac
+
+   FDBK2="$(gettext 'You can download the newest version of Java\nor build from an already downloaded archive file.')"
+   TXT2="$(gettext 'Download the latest version of Java?')" 
+   Xdialog --title "$LONG_TITLE" --backtitle "\n$FDBK2" $QUESTION_ICON --left --wrap $YESNO_LABELS --yesno "\n$TXT2\n" 0 70
+   case $? in
+    0) DO_DOWNLOAD=true ;; #download
+    1) DO_DOWNLOAD=false ;; #file
+    *) exit ;;
+   esac
+
+   while [ $DO_DOWNLOAD = false ]; do
+    ARCHIVE="$(Xdialog --title "$(gettext 'Please choose a jre (or jdk) tar.gz file')" --stdout --cancel-label "$(gettext 'Download instead')" --no-buttons --fselect $JAVA_DOWNLOAD_HOME_DIR 0 0)"
+    case $? in
+     0) if echo "$ARCHIVE" | grep -q '/j[rd][ek]-[0-9]\+u[0-9]\+-linux-[ix]..\+\.tar\.gz$'; then
+         break
+        else 
+         Xdialog --title "$LONG_TITLE" --backtitle "\n$(eval_gettext "File name:  \$ARCHIVE\n\nnot recognised as a Java JRE or JDK archive.")" $ERROR_ICON --left --wrap --msgbox "\n$(gettext "Example:") jre-8u51-linux-i586.tar.gz\n\n$(gettext "Please click 'Ok' and select another file.")\n" 0 70
+         continue
+        fi
+        ;;
+     1) DO_DOWNLOAD=true ;; #download
+     *) exit ;;
+    esac
+   done
+
+   if [ $DO_DOWNLOAD = true ]; then #download
+    FDBK3="$(gettext 'You can download the Java Runtime Environment (JRE),\nor the Java Development Kit (JDK)')"
+    TXT3="$(gettext 'Download the Java Runtime Environment?')" 
+    Xdialog --title "$LONG_TITLE" --backtitle "\n$FDBK3" $QUESTION_ICON --left --wrap $YESNO_LABELS --yesno "\n$TXT3\n" 0 70
+    case $? in
+     0) JAVA_PACKAGE=jre #JRE
+        JAVA_PACKAGE_NAME="Java Runtime Environment (JRE)"
+        EXPAND_BASE_DIR=${JREBASEPATH}${EXPANDSUBDIR}
+        ;;
+     1) JAVA_PACKAGE=jdk #JDK
+        JAVA_PACKAGE_NAME="Java Development Kit (JDK)"
+        EXPAND_BASE_DIR=${JDKBASEPATH}${EXPANDSUBDIR}
+        ;;
+     *) exit ;;
+    esac
+    JAVA_ARCH="x64"
+    local ARCHBITS="64"
+    FDBK4="$(eval_gettext "You can download a Java package built for either 32-bit or 64-bit Linux distributions, but install only the package made for the running system.")"
+    [ "$DISTROARCH" != "64" -a -d /lib32 ] \
+     && TXT4a="$(eval_gettext "The current operating system is \${DISTROARCH}-bit, but also supports 32-bit applications.")" \
+     || TXT4a="$(eval_gettext "The current operating system is \${DISTROARCH}-bit.")"
+    TXT4b="$(eval_gettext "Download the \${DISTROARCH}-bit package?")" 
+    Xdialog --title "$LONG_TITLE" --backtitle "\n$FDBK4" $QUESTION_ICON --left --wrap $YESNO_LABELS --yesno "\n$TXT4a\n\n$TXT4b\n" 0 70
+    case $? in
+     0) [ "$DISTROARCH" != "64" ] && JAVA_ARCH="i586" && ARCHBITS="32" ;; #same as distro
+     1) [ "$DISTROARCH" = "64" ] && JAVA_ARCH="i586" && ARCHBITS="32" ;; #opposite of distro
+     *) exit ;;
+    esac
+    JAVA_ARCHIVE_PATH="$JAVA_DOWNLOAD_PATH"
+    FDBK5="$(eval_gettext "Ready to download and convert the latest\n\${ARCHBITS}-bit \$JAVA_PACKAGE_NAME.")"
+    TXT5="$(gettext 'This may take more than a few minutes, particularly on slower PCs.')" 
+   else #use file
+    if [ "$ARCHIVE" ]; then 
+     JAVA_ARCHIVE_PATH="$(echo "$(dirname $ARCHIVE)/" | tr -s /)"
+     JAVA_ARCHIVE_FILE_NAME="$(basename $ARCHIVE)"
+     JAVA_PACKAGE=$(echo $JAVA_ARCHIVE_FILE_NAME | cut -c 1-3)
+     JAVA_VERSION=$(echo $JAVA_ARCHIVE_FILE_NAME | cut -f 2 -d -)
+     JAVA_ARCH="$(echo $JAVA_ARCHIVE_FILE_NAME | cut -f 4 -d - | cut -f 1 -d .)"
+     case $JAVA_PACKAGE in
+      jre) JAVA_PACKAGE_NAME="Java Runtime Environment (JRE)"
+       EXPAND_BASE_DIR=${JREBASEPATH}${EXPANDSUBDIR}
+       ;;
+      jdk) JAVA_PACKAGE_NAME="Java Development Kit (JDK)"
+       EXPAND_BASE_DIR=${JDKBASEPATH}${EXPANDSUBDIR}
+       ;;
+     esac
+     FDBK5="$(eval_gettext "Ready to convert archive file \$JAVA_ARCHIVE_FILE_NAME.")"
+     TXT5="$(gettext 'OK?')" 
+    fi
+   fi
+   Xdialog --title "$LONG_TITLE" --backtitle "\n$FDBK5" $INFO_ICON --left --wrap --msgbox "\n$TXT5\n" 0 70
+   [ $? -ne 0 ] && exit
+   return $RTNCD
+}
+
+function get_java_version_and_download_url () {
+    local RTNCD=0
+    local WGET_TEMP_FILE=/tmp/get_java-wget_download_info
+    local DOWNLOAD_PKG_URL
+    . /etc/get_java.conf #must be here so sed scripts use now-set values for JAVA_ARCH and JAVA_PACKAGE
+    # Get information
+    for ONEINDEX in $ORACLE_URL $JAVA_URL
+    do
+     JAVA_VERSION=''
+     JAVA_DOWNLOAD_URL=''
+     wget -O $WGET_TEMP_FILE $ONEINDEX
+     RTNCD=$?
+     err $RTNCD "wget failed to get download information"
+     WGETRC=$RTNCD
+     if [ $RTNCD -eq 0 -a -f $WGET_TEMP_FILE ]; then
+      case $ONEINDEX in
+       http://www.oracle.com*)
+        JAVA_VERSION="$(sed -n "$ORACLE_VRSN_SED_SCRIPT" $WGET_TEMP_FILE)"
+        RTNCD=$?
+        err $RTNCD "Failed to parse version info"
+        [ "$JAVA_VERSION" ] || err $? "JAVA_VERSION not found"
+        DOWNLOAD_PKG_URL="$(sed -n "$ORACLE_PKG_SED_SCRIPT" $WGET_TEMP_FILE)"
+        RTNCD=$?
+        err $RTNCD "Failed to parse package information"
+        DOWNLOAD_PKG_URL="$(echo $DOWNLOAD_PKG_URL | sed 1q)"
+        if [ "$DOWNLOAD_PKG_URL" ]; then
+         rm -f $WGET_TEMP_FILE
+         wget -O $WGET_TEMP_FILE $DOWNLOAD_PKG_URL
+         RTNCD=$?
+         err $RTNCD "wget failed to get package information"
+         WGETRC=$RTNCD
+         if [ $RTNCD -eq 0 -a -f $WGET_TEMP_FILE ]; then
+          JAVA_DOWNLOAD_URL="$(sed -n "$ORACLE_DNLD_SED_SCRIPT" $WGET_TEMP_FILE)"
+          RTNCD=$?
+          err $RTNCD "Failed to parse download URL"
+          JAVA_DOWNLOAD_URL="$(echo -n "$JAVA_DOWNLOAD_URL" | tail -n 1)"
+          if [ "$JAVA_DOWNLOAD_URL" ]; then
+           break
+          else
+           err $? "wget failed to get package information"
+          fi
+         else
+          err $? "DOWNLOAD_PKG_URL page not found"
+         fi
+        else
+         err $? "DOWNLOAD_PKG_URL not found"
+        fi
+        ;;
+       http://www.java.com*)
+        if [ "$JAVA_PACKAGE" = "jre" ]; then
+         JAVA_VERSION="$(sed -n "$JAVA_VRSN_SED_SCRIPT" $WGET_TEMP_FILE)"
+         RTNCD=$?
+         err $RTNCD "Failed to parse version info"
+         [ "$JAVA_VERSION" ] || err $? "JAVA_VERSION not found"
+         JAVA_DOWNLOAD_URL="$(sed -n "$JAVA_DNLD_SED_SCRIPT" $WGET_TEMP_FILE)"
+         RTNCD=$?
+         err $RTNCD "Failed to parse download URL"
+         JAVA_DOWNLOAD_URL="$(echo $JAVA_DOWNLOAD_URL | tr ' ' '\n' | sed 1q)"
+        [ "$JAVA_DOWNLOAD_URL" ] || err $? "JAVA_DOWNLOAD_URL not found"
+        fi
+        ;;
+      esac
+     fi
+    done
+    if [ $RTNCD -eq 0 -a "$JAVA_DOWNLOAD_URL" -a "$JAVA_VERSION" -a -f $WGET_TEMP_FILE ]; then
+     rm -f $WGET_TEMP_FILE
+    fi
+    return $RTNCD
+}
+
+# Adapted from uten's sfs_java.sh and jamesbond's getjava.sh
+function download_latest_build() {
+    local RTNCD=0
+	# get_latest_version
+	while true; do
+	 if get_java_version_and_download_url; then
+	  if [ "$JAVA_VERSION" -a "$JAVA_DOWNLOAD_URL" ]; then
+       echo "NOTE: DOWNLOAD: $JAVA_DOWNLOAD_URL"
+	   JAVA_ARCHIVE_FILE_NAME=$JAVA_PACKAGE-$JAVA_VERSION-linux-$JAVA_ARCH.tar.gz
+	   if [ -f $JAVA_DOWNLOAD_PATH$JAVA_ARCHIVE_FILE_NAME ]; then
+	    FDBK7="$(eval_gettext "The archive file for the latest Java version:\n\$JAVA_ARCHIVE_FILE_NAME,\nis already present at \$JAVA_DOWNLOAD_HOME_DIR.")"
+	    TXT7="$(gettext "You can move or rename it yourself, use it instead of downloading, or replace it with the downloaded copy.")\n\n$(gettext 'Download the new Java archive file?')" 
+	    Xdialog --title "$LONG_TITLE" --backtitle "\n$FDBK7" $QUESTION_ICON --left --wrap $YESNO_LABELS --yesno "\n$TXT7\n" 0 70
+	    case $? in
+	     0) rm -f $JAVA_DOWNLOAD_PATH$JAVA_ARCHIVE_FILE_NAME ;;
+	     1) ;;
+	     *) exit ;;
+	    esac
+	   fi
+	   if [ ! -f $JAVA_DOWNLOAD_PATH$JAVA_ARCHIVE_FILE_NAME ]; then
+	    WGETTASK="$(gettext 'Download of archive file')"
+	    ( wget -c --no-check-certificate --no-cookies \
+	     --header "Cookie: oraclelicense=accept-securebackup-cookie" \
+	     --output-document=${JAVA_DOWNLOAD_PATH}$JAVA_ARCHIVE_FILE_NAME \
+	     "$JAVA_DOWNLOAD_URL" 2>&1; echo -n $? > /tmp/get_java-wgetrc ) | \
+	    tee /tmp/get_java-wget.log | \
+	    sed -nru "/%/ s/.* ([0-9]+%) +([^ ]+).*$/\1/p" | \
+	    Xdialog --left --wrap --title "$LONG_TITLE" --progress "\n$(eval_gettext "Downloading Java archive file \$JAVA_ARCHIVE_FILE_NAME:")\n" 0 70 100
+	    RTNCD=$(cat /tmp/get_java-wgetrc)
+	    WGETRC=$RTNCD
+	    rm -f /tmp/get_java-wgetrc
+	   fi
+      else
+	   Xdialog --title "$LONG_TITLE" --backtitle "\n$(eval_gettext "Failed to locate the Oracle \$JAVA_PACKAGE_NAME archive download packages.")" $ERROR_ICON --left --wrap --msgbox "\n$(gettext 'This might be due to changes in the web pages used to find the packages.')\n\n$(gettext 'In that case, developers can modify, in /etc/get_java.conf, the SED editing scripts used to extract the link URLs')\n" 0 70 
+	   exit
+      fi #JAVA_VERSION & JAVA_DOWNLOAD_URL
+     else
+      RTNCD=$?
+      err $RTNCD "java_get_version_info failed"
+     fi #java_get_version_info
+	 if [ $WGETRC -ne 0 ]; then
+	  FDBK8="$(gettext 'Cannot connect to Java server.')"
+ 	  if [ $WGETRC -eq 4 ]; then
+	   TXT8="$(gettext 'Please ensure you are connected to a network with access to the Internet.')\n\n$(gettext 'When a network connection is available, you can retry the download.')\n\n$(gettext 'Retry downloading?')" 
+	  else
+	   TXT8="$(eval_gettext "\$WGETTASK\nfailed with wget error \$WGETRC")"
+	  fi
+	  Xdialog --title "$LONG_TITLE" --backtitle "\n$FDBK8" $ERROR_ICON --left --wrap --ok-label "$(gettext 'Retry')" $EXITCAN_LABEL --yesno "\n$TXT8\n" 0 70
+	  [ $? -eq 0 ] && continue
+	  exit
+	 fi
+	 break
+	done
+	return $RTNCD
+}
+
+# Adapted from uten's sfs_java.sh
+function java_unpack_java(){ # Unpack the downloaded binaries
+   # TODO_CODE: Verify that wget did not fail
+   #
+   # Unpack java
+   # TODO_CODE: Verify directories
+   local RTNCD=0
+   if [ "$JAVA_ARCHIVE_FILE_NAME" ] \
+     && [ -f ${JAVA_ARCHIVE_PATH}$JAVA_ARCHIVE_FILE_NAME ]; then
+    Xdialog --title "$LONG_TITLE" --backtitle "\n$(eval_gettext "Expanding content of archive file \$JAVA_ARCHIVE_FILE_NAME.")" --no-buttons --ignore-eof --left --wrap --infobox "\n$(gettext 'This window will disappear when the expansion completes.')\n$(gettext 'Please wait...')\n" 0 70 0 &
+    DIALOGPID=$!
+    sleep 1
+    TARGET_PACKAGE_NAME="$(echo $JAVA_ARCHIVE_FILE_NAME | sed -e 's/linux-//' -e 's/\.tar\.gz'//)"
+    EXPAND_DIR="$EXPAND_BASE_DIR/$TARGET_PACKAGE_NAME"
+    echo "NOTE: Creating: $EXPAND_DIR/opt"
+    mkdir -p $EXPAND_DIR/opt
+    echo "NOTE: ${JAVA_ARCHIVE_PATH}$JAVA_ARCHIVE_FILE_NAME unpacking to $EXPAND_DIR/opt/"
+    tar --checkpoint=1500 --directory=$EXPAND_DIR/opt/ -axf  ${JAVA_ARCHIVE_PATH}$JAVA_ARCHIVE_FILE_NAME
+    RTNCD=$?
+    kill $DIALOGPID
+    if [ $RTNCD -eq 0 ]; then
+     EXPAND_SIZE=$(du -s -m $EXPAND_DIR | cut -f 1)
+     chown -R root:root $EXPAND_DIR/opt/
+     sync
+    else
+     err $RTNCD "java_unpack_java untar failed."
+    fi
+   else
+    RTNCD=$?
+    err $RTNCD "java_unpack_java missing JAVA_ARCHIVE_FILE_NAME."
+   fi
+   return $RTNCD
+}
+
+function get_output_choice() { # Obtain and set user's selection
+   local RTNCD=0
+   local DNLDHOMEPATH="$(echo "$JAVA_DOWNLOAD_HOME_DIR/" | tr -s /)"
+   if [ "$EXPAND_DIR" ] && [ -d $EXPAND_DIR ]; then
+    MAKE_SFS=false; MAKE_PET=false
+    FREE_SAVE_SPACE=$(df -m | grep '/pup_ro1$' | awk '{print $4}')
+    [ -z "$FREE_SAVE_SPACE" ] \
+     && FREE_SAVE_SPACE=$(df -m / | head -n 2 | tail -n 1 | awk '{print $4}')
+    if [ $PUPMODE -eq 2 ];then
+     INSTALLSPACE="partition"
+    else
+     INSTALLSPACE="pupsave"
+    fi
+    local ARCHBITS="64"
+    [ "$JAVA_ARCH" != "x64" ] && ARCHBITS="32"
+    FDBK6="$(eval_gettext "Ready to build a package for the \${ARCHBITS}-bit\n\$JAVA_PACKAGE_NAME version \$JAVA_VERSION.")"
+    TXT6a="$(gettext 'You can build either a Squash File (SFS) or Puppy PET package.')"
+    TXT6b=''; TXT6c=''
+    if [ $DO_DOWNLOAD = true -a -f ${JAVA_DOWNLOAD_PATH}$JAVA_ARCHIVE_FILE_NAME ];then
+     TXT6b="\n$(gettext "Or close (X) this window to retain the downloaded Java archive file.")"
+     case $PUPMODE in
+      3|7|13)
+       TXT6c="\n\n$(eval_gettext "To make space for the package, downloaded archive file\n'\$TARGET_PATH\$JAVA_ARCHIVE_FILE_NAME' will be removed.")\n$(eval_gettext "To retain that file, you can move it now, or\nclose (X) this window to save it in \$JAVA_DOWNLOAD_HOME_DIR, then restart get_java to build from that archive file.")"
+       ;;
+      *)
+       TXT6c="\n\n$(eval_gettext "To make space for the package, downloaded archive file\n'\$DNLDHOMEPATH\$JAVA_ARCHIVE_FILE_NAME' will be removed.")\n$(gettext 'To retain that file, you can move or rename it now, or\nclose (X) this window, then restart get_java to build from that archive file.')"
+       ;;
+     esac
+    fi
+    TXT6d="$(eval_gettext "If you build a PET package, installing it would consume at least \${EXPAND_SIZE} MB of \${INSTALLSPACE} space unless it replaces an installed JRE or JDK package.  Currently available space:  ${FREE_SAVE_SPACE} MB.")\n\n$(gettext "Choose the type of package to be built.")"
+    Xdialog --title "$LONG_TITLE" --backtitle "\n${FDBK6}" $QUESTION_ICON --left --wrap --ok-label "$(gettext 'Make SFS')" --cancel-label "$(gettext 'Make PET')" --yesno "\n${TXT6a}${TXT6b}${TXT6c}\n\n${TXT6d}\n" 0 70
+    case $? in
+     0) MAKE_SFS=true ;;
+     1) MAKE_PET=true ;;
+     *) #move archive to intended place, if downloaded to flash drive.
+      if [ $DO_DOWNLOAD = true ]; then
+       case $PUPMODE in
+        7|13) SPACEAVAILABLE=$(df -m | grep -w "${HOMESAVE}" | awk '{print $4}') ;;
+        3) SPACEAVAILABLE=$(df -m / | head -n 2 | tail -n 1 | awk '{print $4}') ;;
+        *) exit ;;
+       esac
+       local SPACENEEDED
+       case $JAVA_PACKAGE in
+        jre) SPACENEEDED=$(($MAX_JRE_PKG_MB+$LEAVE_SPACE_MB)) ;;
+        jdk) SPACENEEDED=$(($MAX_JDK_PKG_MB+$LEAVE_SPACE_MB)) ;;
+       esac
+       if [ $SPACEAVAILABLE -ge $SPACENEEDED ]; then
+        mv ${JAVA_DOWNLOAD_PATH}${JAVA_ARCHIVE_FILE_NAME} $DNLDHOMEPATH
+        err $? "failed to move temporary archive to destination"
+       fi
+      fi
+      rm -fr $EXPAND_BASE_DIR
+      exit
+      ;;
+    esac
+    if [ $DO_DOWNLOAD = true ]; then
+     rm -f $JAVA_DOWNLOAD_PATH$JAVA_ARCHIVE_FILE_NAME
+     sync
+    fi
+   fi
+   return $RTNCD
+}
+
+# Adapted from uten's sfs_java.sh
+function java_make_sfs() { # Make the new sfs file
+   local RTNCD=0
+   if [ "$EXPAND_DIR" ] && [ -d $EXPAND_DIR ]; then
+    # insert hyphen into home directory name
+    local JAVAHOMEDIR="$(ls -d $EXPAND_DIR/opt/j*)"
+    local DASHHOMEDIR="$(echo "$JAVAHOMEDIR" | sed 's%\([a-z][a-z]*\)-*\([0-9][^/]*$\)%\1-\2%')"
+    mv -T $JAVAHOMEDIR $DASHHOMEDIR
+    JAVA_HOME_NAME="$(basename $DASHHOMEDIR)"
+    # Create the sfs file   
+    [ "$(which sfs_filelist)" ] && sfs_filelist $EXPAND_DIR
+    local OPTION=''; local COMP=_gz
+    if [ "$(uname -r | cut -f 1 -d .)" -ge 3 ];then
+     OPTION='-comp xz'; COMP=_xz
+    fi
+    TARGET_PACKAGE_FILE_NAME="${TARGET_PACKAGE_NAME}${COMP}.sfs"
+    cd $TARGET_PATH
+    echo "mksquashfs:=  $EXPAND_DIR ${TARGET_PACKAGE_FILE_NAME} "$OPTION" -noappend"
+
+    XPOS="$(($(xrandr | sed -n '/\*/ s/ \+\([0-9]\+\).*/\1/p')/2-280))"
+    YPOS="$(($(xrandr | sed -n '/\*/ s/[ 0-9]\+x\([0-9]\+\).*/\1/p')/2-80))"
+    rxvt -bg \#dcdcdc -fg \#000000 -geometry 70x10+${XPOS}+${YPOS} -title "$TITLE - Creating ${TARGET_PACKAGE_FILE_NAME}" -e mksquashfs  $EXPAND_DIR ${TARGET_PACKAGE_FILE_NAME} $OPTION -noappend
+    RTNCD=$?
+    if [ $RTNCD -eq 0 -a -f ${TARGET_PATH}${TARGET_PACKAGE_FILE_NAME} ]; then
+     sync
+     rm -fr $EXPAND_BASE_DIR
+     move_tmp_package_to_destination
+     FDBK10="$(eval_gettext "Oracle \$JAVA_PACKAGE_NAME built as squash file package.")"
+     TXT10a="$(eval_gettext "The package has been generated and placed in\n\$TARGET_HOME_DIR  as  \${TARGET_PACKAGE_FILE_NAME}.")"
+     if [ "$JAVA_ARCH" = "x64" -a "$DISTROARCH" = "64" ] \
+       || [ "$JAVA_ARCH" != "x64" -a "$DISTROARCH" != "64" -o -d /lib32 ]; then
+      if [ -f /etc/rc.d/BOOTCONFIG ]; then #bootmanager present
+       if [ $PUPMODE -ne 5 ]; then
+        TXT10b="$(gettext 'You can now load the SFS package and use it immediately.')\n\n$(gettext 'Note that if you load it later, you will need to reboot afterward to complete the installation.')\n\n$(gettext 'Load the package now?')" 
+        Xdialog --title "$LONG_TITLE" --backtitle "\n${FDBK10}" $QUESTION_ICON --left --wrap $YES_LABEL $EXITCAN_LABEL --yesno "\n${TXT10a}\n\n${TXT10b}\n" 0 70
+        [ $? -ne 0 ] && exit
+       else
+        Xdialog --title "$LONG_TITLE" --backtitle "\n${FDBK10}" $OK_ICON --left --wrap $EXITOK_LABEL --msgbox "\n${TXT10a}\n\n$(gettext 'However, this package cannot be loaded because a required personal data (pupsave) file or directory has not yet been created.')\n" 0 70
+        exit
+       fi
+      else
+       Xdialog --title "$LONG_TITLE" --backtitle "\n${FDBK10}" $OK_ICON --left --wrap $EXITOK_LABEL --msgbox "\n${TXT10a}\n\n$(gettext 'However, this package cannot be loaded because the Puppy Boot Manager is not available.')\n\n$(gettext 'Please load the package another way and then reboot before using Java.')\n" 0 70
+       exit
+      fi
+     else
+      local ARCHBITS="64"
+      [ "$JAVA_ARCH" != "x64" ] && ARCHBITS="32"
+      Xdialog --title "$LONG_TITLE" --backtitle "\n${FDBK10}" $OK_ICON --left --wrap $EXITOK_LABEL --msgbox "\n${TXT10a}\n\n$(eval_gettext "However, this \${ARCHBITS}-bit SFS package cannot be used with the current \${DISTROARCH}-bit operating system.")\n" 0 70
+      exit
+     fi
+    else
+     err $? "java_make_sfs rxvt/mksquash failed - RC = $RTNCD."
+     RTNCD=$?
+    fi
+   else
+    RTNCD=$?
+    err $RTNCD "java_unpack_java missing EXPAND_DIR."
+   fi
+   return $RTNCD
+}
+
+# Extracted from 01micko's get_libreroffice
+function java_load_sfs() {
+	local RTNCD=0
+	if [ "$TARGET_PACKAGE_NAME" ] \
+	  && [ -f ${TARGET_PATH}${TARGET_PACKAGE_FILE_NAME} ]; then
+     if [ "$JAVA_ARCH" = "x64" -a "$DISTROARCH" = "64" ] \
+       || [ "$JAVA_ARCH" != "x64" -a "$DISTROARCH" != "64" -o -d /lib32 ]; then
+	  #loading options
+	  if [ -x /usr/sbin/sfs_load ];then #use shino's sfs_load first if there
+	   /usr/sbin/sfs_load -c -u ${TARGET_PATH}${TARGET_PACKAGE_FILE_NAME}
+	   /usr/sbin/sfs_load -q ${TARGET_PATH}${TARGET_PACKAGE_FILE_NAME}
+	  elif [ "$(which load_sfs.sh 2>/dev/null)" != "" ];then #fatdog and slackbone
+	   load_sfs.sh --load ${TARGET_PATH}${TARGET_PACKAGE_FILE_NAME} #use jamesbond's load_sfs.sh if there
+	  elif [ -x /usr/sbin/sfs_installation.sh ];then
+	   /usr/sbin/sfs_installation.sh ${TARGET_PATH}${TARGET_PACKAGE_FILE_NAME} #use 01micko's sfs_installation if there
+	  fi
+	  if grep -q -s "^EXTRASFSLIST=.*[' ]${TARGET_PACKAGE_FILE_NAME}" \
+	    /etc/rc.d/BOOTCONFIG; then
+	   set_java_links
+	  else
+	   #neither there then use traditional method
+	   if [ $PUPMODE -eq 2 ];then
+	    killall yaf-splash
+	    Xdialog --title "$LONG_TITLE" $OK_ICON --left --wrap --msgbox "\n$(gettext 'You must now unpack the sfs to install, then reboot to complete the installation.')\n" 0 70
+	   else
+	    killall yaf-splash
+	    Xdialog --title "$LONG_TITLE" $OK_ICON --left --wrap --msgbox "\n$(eval_gettext "You can now load \${TARGET_PACKAGE_FILE_NAME} from the Bootmanager Utility.")\n" 0 70
+	    #pop up bootmanager
+	    bootmanager extrasfs quiet
+	   fi
+	  fi
+	 fi
+	fi
+    return $RTNCD
+}
+
+function java_make_pet() { # Make the new pet file
+    local RTNCD=0
+    if [ "$EXPAND_DIR" ] && [ -d $EXPAND_DIR ]; then
+     # Remove version from home directory name
+     local JAVAHOMEDIR="$(ls -d $EXPAND_DIR/opt/j*)"
+     local SHORTHOMEDIR="$(echo "$JAVAHOMEDIR" | sed 's%\-*[0-9][0-9\._]*$%%')"
+     mv -T $JAVAHOMEDIR $SHORTHOMEDIR
+     JAVA_HOME_NAME="$(basename $SHORTHOMEDIR)"
+
+     # Build the pet package.
+     #petspec format:
+     #pkgname|nameonly|version|pkgrelease|category|size|path|fullfilename|dependencies|description|
+     #optionally on the end: compileddistro|compiledrelease|repo| (fields 11,12,13)
+     #Ex:  jdk-7u80-2-i586|jdk|7u80-2-i586||Utility;development|311576K||jdk-7u80-2-i586.pet||Oracle Java Development Kit 1.7.0_80, 7u80, for linux i586||||
+
+     local PKGNAME="$TARGET_PACKAGE_NAME"
+     local NAMEONLY="$(echo -n "$PKGNAME" | sed -e 's/\-[0-9].*$//g')"
+     local VERSION="$(echo -n "$PKGNAME" | sed -e 's/.*\-\([0-9].*\)$/\1/')"
+     local CATEGORY="BuildingBlock"
+     local SIZEK="$(du -s -k $EXPAND_DIR | cut -f 1)"
+     local FILENAME="$PKGNAME.pet"
+     local DESCRIPTION="Oracle $JAVA_PACKAGE_NAME $JAVA_VERSION $JAVA_ARCH"
+     echo "$PKGNAME|$NAMEONLY|$VERSION||$CATEGORY|${SIZEK}K||$FILENAME||$DESCRIPTION||||" > $EXPAND_DIR/pet.specs
+     echo '#!/bin/sh
+     [ "$(which javaifchange 2>/dev/null)" ] && javaifchange' | tee $EXPAND_DIR/pinstall.sh > $EXPAND_DIR/puninstall.sh
+     chmod a+x $EXPAND_DIR/pinstall.sh $EXPAND_DIR/puninstall.sh
+
+     echo "Creating package ${TARGET_PACKAGE_NAME}"
+     Xdialog --wrap --left --title "$LONG_TITLE" --backtitle "\n$(eval_gettext "Building PET package for \${TARGET_PACKAGE_NAME}.")" --no-buttons --ignore-eof --infobox "\n$(gettext 'This window will disappear when the build completes.')\n$(gettext 'Please wait...')\n" 0 70 0 &
+     DIALOGPID=$!
+     local CWD=$(pwd)
+     cd $EXPAND_BASE_DIR/
+     tar -c -f ${TARGET_PATH}${TARGET_PACKAGE_NAME}.tar ${TARGET_PACKAGE_NAME}/
+     cd $CWD
+     sync
+     gzip ${TARGET_PATH}${TARGET_PACKAGE_NAME}.tar
+     local TARBALL="${TARGET_PATH}${TARGET_PACKAGE_NAME}.tar.gz"
+
+     echo
+     MD5SUM="`md5sum $TARBALL | cut -f 1 -d ' '`"
+     echo -n "$MD5SUM" >> $TARBALL
+     sync
+     TARGET_PACKAGE_FILE_NAME="${TARGET_PACKAGE_NAME}.pet"
+     mv -f $TARBALL ${TARGET_PATH}${TARGET_PACKAGE_FILE_NAME}
+     sync
+     kill $DIALOGPID
+     echo "File ${TARGET_PATH}${TARGET_PACKAGE_FILE_NAME} created."
+
+     if [ -f ${TARGET_PATH}${TARGET_PACKAGE_FILE_NAME} ]; then
+      rm -fr $EXPAND_BASE_DIR
+      move_tmp_package_to_destination
+      FDBK11="$(eval_gettext "Oracle \$JAVA_PACKAGE_NAME built as PET file package.")"
+      TXT11a="$(eval_gettext "The package has been generated and placed in\n\$TARGET_HOME_DIR  as  \${TARGET_PACKAGE_FILE_NAME}")"
+      if [ -d /usr/local/petget ]; then
+       if [ "$JAVA_ARCH" = "x64" -a "$DISTROARCH" = "64" ] \
+         || [ "$JAVA_ARCH" != "x64" -a "$DISTROARCH" != "64" -o -d /lib32 ]; then
+        TXT11b="$(gettext 'You can now install the PET package and use it immediately.')  $(eval_gettext "The one-minute-long installation will use at least \${EXPAND_SIZE} MB of \${INSTALLSPACE} space.")\n\n$(gettext 'Please uninstall -- now -- any unneeded JRE or JDK PET package to free the space and avoid conflict between Java versions.')   $(gettext "Then, if you have a 'Save' icon on your desktop, use it to update the free space in your 'pupsave' data.")\n$(eval_gettext "Currently available space:  ${FREE_SAVE_SPACE} MB.")\n\n$(gettext 'Install the package now?')" 
+        Xdialog --title "$LONG_TITLE" --backtitle "\n$FDBK11" $QUESTION_ICON --left --wrap $YES_LABEL $EXITCAN_LABEL --yesno "\n${TXT11a}\n\n${TXT11b}\n" 0 70
+        [ $? -ne 0 ] && exit
+       else
+        local ARCHBITS="64"
+        [ "$JAVA_ARCH" != "x64" ] && ARCHBITS="32"
+        Xdialog --title "$LONG_TITLE" --backtitle "\n${FDBK11}" $OK_ICON --left --wrap $EXITOK_LABEL --msgbox "\n${TXT11a}\n\n$(eval_gettext "However, this \${ARCHBITS}-bit PET package cannot be used with the current \${DISTROARCH}-bit operating system.")\n" 0 70
+        exit
+       fi
+      else
+       Xdialog --title "$LONG_TITLE" --backtitle "\n${FDBK11}" $OK_ICON --left --wrap $EXITOK_LABEL --msgbox "\n${TXT11a}\n\n$(gettext 'However, this PET package cannot be installed by the current operating system due to its nonstandard method of installation.')\n\n$(gettext 'Please install the package yourself and then reboot before using Java.')\n" 0 70
+       exit
+      fi
+     else
+      RTNCD=$?
+      err $RTNCD "java_unpack_java missing generated pet file."
+     fi
+    else
+     RTNCD=$?
+     err $RTNCD "java_unpack_java missing EXPAND_DIR."
+    fi
+    return $RTNCD
+}
+
+function java_install_pet() {
+	local RTNCD=0
+	local FREESPACE
+	if [ "$TARGET_PACKAGE_NAME" ] \
+	  && [ -f ${TARGET_PATH}${TARGET_PACKAGE_FILE_NAME} ]; then
+     if [ "$JAVA_ARCH" = "x64" -a "$DISTROARCH" = "64" ] \
+       || [ "$JAVA_ARCH" != "x64" -a "$DISTROARCH" != "64" -o -d /lib32 ]; then
+	  INSTPETS="$(grep -o "^${JAVA_PACKAGE}-[^|]*" /root/.packages/user-installed-packages | tr '\n' ' ')"
+	  for ONEINSTPET in $INSTPETS; do
+       petget -${ONEINSTPET}
+       sync
+       sleep 1
+      done
+      while true; do
+       FREESPACE=$(df -m | grep '/pup_ro1$' | awk '{print $4}')
+       [ -z "$FREESPACE" ] \
+        && FREESPACE=$(df -m / | head -n 2 | tail -n 1 | awk '{print $4}')
+       if [ $FREESPACE -gt $EXPAND_SIZE ]; then
+        petget ${TARGET_PATH}${TARGET_PACKAGE_FILE_NAME}
+        grep -q " ${TARGET_PACKAGE_NAME} " /tmp/petget-installed-pkgs-log \
+	     && set_java_links
+	    break
+       else
+	    Xdialog --title "$LONG_TITLE" --backtitle "\n$(eval_gettext "Package \${TARGET_PACKAGE_FILE_NAME} cannot be installed due to insufficient space for it.")" $ERROR_ICON --left --wrap --ok-label "$(gettext 'Retry')" $EXITCAN_LABEL --yesno "\n$(eval_gettext "Need: \$EXPAND_SIZE MB  -  Available: \$FREESPACE MB")\n\n$(gettext "If you can free more space, please do so (and click the desktop 'Save' icon, if available), then retry the installation.")\n\n$(gettext 'Retry installing?')\n" 0 70
+	    [ $? -eq 0 ] && continue
+	    exit
+       fi
+      done
+     fi
+    fi
+	return $RTNCD
+}
+
+function move_tmp_package_to_destination() {
+	case $PUPMODE in
+	 7|13) SPACEAVAILABLE=$(df -m | grep -w "${HOMESAVE}" | awk '{print $4}') ;;
+	 3) SPACEAVAILABLE=$(df -m / | head -n 2 | tail -n 1 | awk '{print $4}') ;;
+	 *) return 0
+	esac
+	local SPACENEEDED
+	case $JAVA_PACKAGE in
+	 jre) SPACENEEDED=$(($MAX_JRE_PKG_MB+$LEAVE_SPACE_MB)) ;;
+	 jdk) SPACENEEDED=$(($MAX_JDK_PKG_MB+$LEAVE_SPACE_MB)) ;;
+	esac
+	if [ $SPACEAVAILABLE -ge $SPACENEEDED ]; then
+	 mv $TARGET_PATH${TARGET_PACKAGE_FILE_NAME} $(echo "$TARGET_HOME_DIR/" | tr -s /)
+	 err $? "failed to move temporary package to destination"
+	 TARGET_PATH="$(echo "$TARGET_HOME_DIR/" | tr -s /)"
+	else
+     TARGET_HOME_DIR="$(echo $TARGET_PATH | sed -e 's%/$%%' -e 's%^$%/%')"
+	 return 1 #cannot move pkg
+	fi
+	return 0
+}
+
+function check_java_interface() {
+    local RTNCD=0
+    if [ -z "$(which javaifchange 2>/dev/null)" ]; then
+     Xdialog --title "$LONG_TITLE" --backtitle "\n$(eval_gettext "The \$JAVA_PACKAGE_NAME cannot be installed in this system.")" $ERROR_ICON --left --wrap --msgbox "\n$(eval_gettext "Installation of Oracle \$JAVA_PACKAGE_NAME \$JAVA_VERSION requires the Java Interface (javaif) pet package in the running session, to detect the Java package and provide the necessary path and linkages to it.")\n\n$(eval_gettext "\${TARGET_PACKAGE_FILE_NAME}  is in  \$TARGET_HOME_DIR")\n" 0 70
+     RTNCD=131
+    fi
+	return $RTNCD
+}
+
+function set_java_links() {
+	local PKGTYPE="$(echo ${TARGET_PACKAGE_FILE_NAME} | sed -n 's/.*\.\(.*$\)/\1/')"
+	local RTNCD=0
+	local PKGLOC
+	if [ "$(which javaifchange 2>/dev/null)" ] \
+	  && [ -f /etc/profile.d/java.sh ]; then
+	 if [ "$JAVA_HOME_NAME" ] && [ -d /opt/$JAVA_HOME_NAME ]; then
+	  javaifchange #set icon and plugin links
+	  . /etc/javaif.conf
+	  if [ "$JAVAHOME" = "/opt/$JAVA_HOME_NAME" ]; then
+	   if [ "$PKGTYPE" = "sfs" -a "$PUPMODE" -eq 5 ]; then
+	    PKGLOC="."
+	   else
+	    PKGLOC=": \n\n$(eval_gettext "\${TARGET_PACKAGE_FILE_NAME}  in  \$TARGET_HOME_DIR")"
+	    if [ "$PKGTYPE" = "pet" ]; then
+	     PKGLOC="$PKGLOC\n\n$(gettext 'The pet package can now be moved or deleted without impacting its installation.')"
+	    fi
+	   fi
+	   Xdialog --title "$LONG_TITLE" --backtitle "\n$(eval_gettext "Linkages completed for the new Java installation, at \${JAVAHOME}.")" $OK_ICON --left --wrap --msgbox "\n$(eval_gettext "The various links to Java components are now set,\ncompleting the installation of the\nOracle \$JAVA_PACKAGE_NAME \$JAVA_VERSION package")$PKGLOC\n" 0 70
+	  else
+	   Xdialog --title "$LONG_TITLE" --backtitle "\n$(eval_gettext "Linkages completed for a different Java installation, at \${JAVAHOME}.")" $OK_ICON --left --wrap --msgbox "\n$(eval_gettext "The various links to Java components are now set for another Java installation, either:\n * a newer version of JRE or JDK\n * JDK of the same version as the package\n * a PET installation of the same version of JRE or JDK\n\nPackage \${TARGET_PACKAGE_FILE_NAME}  in  \$TARGET_HOME_DIR remains installed, but is not used.")\n" 0 70
+	  fi
+	 else
+      RTNCD=$?
+	  err $RTNCD "set_java_links missing java home directory"
+	 fi
+	else
+     RTNCD=$?
+	 err $RTNCD "set_java_links finds javaif not instaled"
+	fi
+	return $RTNCD
+}
+
+
+# Main
+initialize_global_variables
+check_space_available
+get_input_choices             || err 99 "get_input_choices failed"
+if [ "$DO_DOWNLOAD" = true ]; then
+#   java_dump_variables        || err 99 "java_dump_variables failed"
+   download_latest_build      || err 99 "download_latest_build failed"
+fi
+java_unpack_java              || err 99 "java_unpack_java failed"
+get_output_choice             || err 99 "get_output_choice failed"
+if [ "$MAKE_SFS" = true ]; then
+   java_make_sfs              || err 99 "java_make_sfs failed"
+   check_java_interface \
+    && java_load_sfs \
+    || err 99 "check_java_interface failed"
+elif [ "$MAKE_PET" = true ]; then
+   java_make_pet              || err 99 "java_make_pet failed"
+   check_java_interface \
+    && java_install_pet \
+    || err 99 "check_java_interface failed"
+fi

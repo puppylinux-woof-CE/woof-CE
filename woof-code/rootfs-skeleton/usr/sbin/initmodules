@@ -1,0 +1,188 @@
+#!/bin/ash
+
+. /etc/DISTRO_SPECS
+. /etc/rc.d/PUPSTATE
+
+if [ -f /initrd/tmp/not_a_huge_kernel -o -f /var/initrd/tmp/not_a_huge_kernel ] ; then
+	#there is 'initmodules -q' in quicksetup
+	exit 1
+fi
+
+QUIETMODE=""
+[ "${1}" = "-q" ] && QUIETMODE="yes"
+
+get_save_dir() {
+	SAVE_DIR="${PUPSAVE##*,}"
+	[ "$SAVE_DIR" ] && SAVE_DIR="${SAVE_DIR%/*}"
+}
+
+pimod_missing() {
+	ISTHERE=""
+	INITMNPT="$(grep -m1 "$PDEV1" /proc/mounts)"
+	if [ "$INITMNPT" = "" ]; then
+		mount -t $DEV1FS -o ro /dev/$PDEV1 /mnt/data
+		if [ $? -eq 0 ]; then
+			ISTHERE="$(gunzip -c /mnt/data${PSUBDIR}/initrd.gz | grep -s pimod | grep matches)"
+			umount /mnt/data
+		fi
+	else
+		INITMNPT="${INITMNPT#* }"
+		ISTHERE="$(gunzip -c ${INITMNPT%% *}${PSUBDIR}/initrd.gz | grep -s pimod | grep matches)"
+	fi
+	[ "$ISTHERE" ] && return 1
+	return 0
+}
+
+get_modlist() {
+	MODLIST=""
+
+	#############Get lists of modules loaded from "/hid/" and from "/usb/host"
+
+	HIDLIST=""
+	USBLIST=""
+	while read -r MODNAME ONELINE; do
+		MODFILE="$(modinfo -n $MODNAME)"
+		case ${MODFILE} in
+			*"/hid/"*) HIDLIST="${HIDLIST}${MODNAME} " ;; #contains '/hid/'
+			*"/usb/host/"*) USBLIST="${USBLIST}${MODNAME} " ;; #contains '/usb/host/'
+		esac
+	done < /proc/modules
+
+	[ "$HIDLIST" = "" -a "$USBLIST" = "" ] && return
+
+	BASETMPDIR="/tmp/initmodules"
+
+	#############Check for module dependencies
+
+	MODTMPDIR="$BASETMPDIR/mods"
+	[ -d "$MODTMPDIR" ] && rm -r -f "$MODTMPDIR"
+	mkdir -p "$MODTMPDIR"
+
+	for ONEMOD in $HIDLIST $USBLIST; do
+		touch "$MODTMPDIR/$ONEMOD"
+		MODDEPLIST="$(modinfo -F 'depends' $ONEMOD)"
+		for MODNAME in ${MODDEPLIST//,/ }; do
+			touch "$MODTMPDIR/$MODNAME"
+		done
+	done
+
+	#############Make module list
+
+	#MODLIST="" #done earlier
+	for MODNAME in $MODTMPDIR/*; do
+		MODLIST="${MODLIST}${MODNAME##*/} " #remove upto last '/'
+	done
+
+	[ -d "$BASETMPDIR" ] && rm -r -f "$BASETMPDIR"
+}
+
+write_modlist() {
+	MODFILELIST=""
+	if [ "${1}" ]; then
+		for MODNAME in ${1}; do
+			MODFILE="$(modinfo -n $MODNAME)"
+			if [ "$MODFILE" ]; then
+				MODFILELIST="$MODFILELIST${MODFILE#*/*/*/*/}," #remove upto first '/', 5 times
+			fi
+		done
+		[ "$MODFILELIST" ] && MODFILELIST="${MODFILELIST%,}" #remove trailing ','
+	fi
+
+	CFGFN="${DISTRO_FILE_PREFIX}initmodules.txt"
+	get_save_dir
+	if [ "$SAVE_DIR" ]; then
+		PIMODFILE="/mnt/home${SAVE_DIR}/${CFGFN}"
+	else
+		PIMODFILE="/tmp/$CFGFN"
+	fi
+	if [ "$MODFILELIST" ]; then
+		echo "$MODFILELIST" > "$PIMODFILE"
+	else
+		rm -f "$PIMODFILE"
+	fi
+}
+
+if [ "$QUIETMODE" ]; then
+	[ "$PUPMODE" = "77" ] && exit 1
+	[ "$PUPMODE" = "2" ] && exit 1
+	if pimod_missing; then
+		exit 1
+	fi
+	get_modlist
+	[ "$MODLIST" ] && write_modlist "$MODLIST"
+	exit 0
+fi
+
+is_cd() {
+	if [ "${1}" -a -d "/sys/block/${1}" ]; then
+		[ "$(grep '5' /sys/block/${1}/device/type)" ] && return 0
+	fi
+	return 1
+}
+
+start_splash() {
+	/usr/lib/gtkdialog/box_splash -close never -fontsize large -text "$(gettext 'Checking system, please wait...')" &
+	MSGPID=$!
+}
+
+start_splash
+
+MSGT="$(gettext 'Initmodules: Modules to load in init script')"
+MSGCONT="$(gettext 'You may continue with Initmodules, or exit at this point.')"
+
+if [ "$PUPMODE" = "2" ] ; then
+	kill $MSGPID
+	Xdialog --wmclass "module16" --title "$MSGT" --left --msgbox "$(gettext 'You have booted a full-install OS.\nInitmodules cannot do anything in this particular setup.')\n\n$(gettext 'Initmodules will exit at this point.')" 0 0
+	exit 1
+fi
+
+if pimod_missing; then
+	kill $MSGPID
+	Xdialog --wmclass "module16" --title "$MSGT" --ok-label "Continue" --cancel-label "Exit" --yesno "$(gettext 'The initrd.gz file of your current puppy does not support module loading in the init script.\nAny configuration file written by initmodules would be ignored at boot time.')\n\n$MSGCONT" 0 0
+	[ $? -ne 0 ] && exit 1
+	start_splash
+fi
+
+if is_cd "${ZDRV%%,*}"; then
+	MSGALT="$(gettext 'To load a module during "init" without changing the current setup,\nyou could specify the module as a "pimod=" boot parameter.\n\nOr you could use a completely different setup,\ne.g. use isoBooter to boot the iso file from a usb stick or drive.')"
+	kill $MSGPID
+	if [ "$PUPMODE" = "77" ]; then
+		Xdialog --wmclass "module16" --title "$MSGT" --left --msgbox "$(gettext 'You have booted from a multi-session CD or DVD.\nInitmodules cannot do anything in this particular setup.')\n\n$MSGALT\n\n$(gettext 'Initmodules will exit at this point.')" 0 0
+		exit 1
+	elif [ "$PUPMODE" = "5" ]; then
+		Xdialog --wmclass "module16" --title "$MSGT" --left --ok-label "Continue" --cancel-label "Exit" --yesno "$(gettext 'You have booted from a CD or DVD in first-boot mode.\nIf Initmodules will work or not depends on what you do at first-shutdown.\n\nIf you choose to save back to a multi-session CD/DVD,\nInitmodules cannot do anything in such a setup.\n\nIf you choose to save to a savefile/savefolder on a HD partition,\nInitmodules will work if you also ensure there is a copy of the zdrv...sfs\nin the same directory as the savefile/savefolder.')\n\n$MSGCONT" 0 0
+		[ $? -ne 0 ] && exit 1
+		start_splash
+	else
+		Xdialog --wmclass "module16" --title "$MSGT" --left --ok-label "Continue" --cancel-label "Exit" --yesno "$(gettext 'You have booted from a CD or DVD with a savefile/savefolder,\nbut with the zdrv...sfs file still on the CD.\n\nInitmodules will work if you copy the zdrv...sfs file\nto the same directory as the savefile/savefolder.')\n\n$MSGALT\n\n$MSGCONT" 0 0
+		[ $? -ne 0 ] && exit 1
+		start_splash
+	fi
+fi
+
+get_modlist
+
+DLGMODLIST=""
+LOADEDMODULES="$(cut -f 1 -d ' ' /proc/modules | sort | tr '\n' ' ')"
+for ONEMOD in $LOADEDMODULES; do
+	case ${MODLIST} in
+		*"$ONEMOD"*) DLGMODLIST="$DLGMODLIST $ONEMOD $ONEMOD on" ;; #contains $ONEMOD
+		*) DLGMODLIST="$DLGMODLIST $ONEMOD $ONEMOD off" ;; #does not contain $ONEMOD
+	esac
+done
+
+kill $MSGPID
+
+if [ "$MODLIST" ]; then
+   MSG_MOD="$(gettext '\nThe right pane shows the modules that Initmodules has determined\nshould be loaded by "init" so the keyboard works during startup.')"
+else
+   MSG_MOD="$(gettext '\nThe right pane is empty because Initmodules did not find any \nkeyboard needed modules that should be loaded by "init".')"
+fi
+
+RESMODLIST="$(Xdialog --wmclass "module16" --title "$MSGT" --left --stdout --separator " " --buildlist "$(gettext 'The left pane shows the modules that are currently loaded.') $MSG_MOD $(gettext '\n\nThis can still be modified by moving modules betweeen panes\nusing the "Add" and "Remove" buttons.\nWhen finished, click the "OK" button, to write a configuration file.\n\nOn reboot, modules shown in the right pane will be loaded during\n"init" so the keyboard may now work to select a savefile/folder.\nNotice that clicking on "OK" while the right pane is empty, will\nremove any previous Initmodules configuration file.\n\nIf you do not know which module(s) need to be loaded by "init",\naccept the defaults as determined by Initmodules, simply click "OK".')" 0 0 8 $DLGMODLIST)"
+[ $? -ne 0 ] && exit 1
+
+write_modlist "$RESMODLIST"
+[ -f "$PIMODFILE" ] && Xdialog --wmclass "module16" --title "$MSGT" --left --msgbox "$(gettext 'A configuration file for Initmodules has been written to') \"$PIMODFILE\"." 0 0
+
+exit 0

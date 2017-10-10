@@ -136,7 +136,6 @@ esac
 if [ "`pwd`" = "/" ];then #installing PET in a running puppy.
  if [ "$LANG1" != "en" ];then
   #need to update SSS translations...
-  fixscripts
   fixdesk
   fixmenus
   [ -r /pinstall_hacks.sh ] && . /pinstall_hacks.sh #121011 L18L

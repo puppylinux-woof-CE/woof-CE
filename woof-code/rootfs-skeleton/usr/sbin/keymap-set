@@ -7,14 +7,14 @@
 # 11 Aug 2010 keymap_previous to prevent xwin rewrites
 # 12 Aug 2010 azerty(fr) fixed
 #  5 Jan 2011 Allow keymaps work with with X but do not on the consile
-#111020 fix spelling typo.
 #120627 handle different path to keymaps in kbd pkg.
 #120715 fix wrong pattern, 'de' was finding 'de-latin1'. fix symbols different location.
 
-MYNAME=$(basename $0)
-VERSION=20100812
+. /etc/rc.d/functions_x #keymap_country
+
 usage() {
-	echo "$MYNAME ver.-$VERSION
+	MYNAME=$(basename $0)
+	echo "
 usage: $MYNAME [ somekeymap ]
 		set keymap to 'somekeymap' or ask with dialog
 	$MYNAME cli
@@ -27,6 +27,7 @@ usage: $MYNAME [ somekeymap ]
 		show available key maps"
 	exit 1
 }
+
 xmap() {
   M=$1
   case "$M" in
@@ -45,6 +46,7 @@ xmap() {
   esac
   echo $M
 }
+
 makelist() {
     DEFMAP="us"
     MAPS=$(echo "$MAPS"| grep -v "^$OLDMAP\$"| grep -v "^$DEFMAP"| sed -e 's/\.map//')
@@ -59,18 +61,47 @@ makelist() {
         [ "$M" != "" ] && echo " ($M)" || echo " ."
       done
     else
-      #echo "$OLDMAP"
-      #[ "$DEFMAP" != "" ] && echo "$DEFMAP" 
-      #echo "$MAPS"
       for MP in $OLDMAP $DEFMAP $MAPS; do
-        echo "$MP ."
+        ACNTRY=$(keymap_country $MP)
+        echo "$MP $ACNTRY"
       done
     fi
 }
 
+set_default() {
+	KEXT=''
+	[ -f ${KMAPPATH}/qwerty/us.map ] && KEXT='.map'
+	[ -f ${KMAPPATH}/qwerty/us.map.gz ] && KEXT='.map'
+	[ -f ${KMAPPATH}/qwerty/us.kmap ] && KEXT='.kmap'
+	[ -f ${KMAPPATH}/qwerty/us.kmap.gz ] && KEXT='.kmap'
+	[ ! -f /etc/keymap ] && echo -n "us${KEXT}" > /etc/keymap
+	[ ! -f /etc/keymap_previous ] && echo -n "us${KEXT}" > /etc/keymap_previous
+}
+
+# check if /etc/keymap and /etc/keymap_previous differ
+# and update xorg.conf accordingly..
+update_xorg_keyboard_layout() {
+	set_default
+	KEYMAPNOW="`cat /etc/keymap`"
+	KEYMAPPREV="`cat /etc/keymap_previous`"
+	if [ "$KEYMAPNOW" != "$KEYMAPPREV" ];then
+	  echo "Updating keyboard layout [ $KEYMAPPREV > $KEYMAPNOW ]"
+	  cp -fv /etc/keymap /etc/keymap_previous
+	  XKEYMAP=$(xmap $KEYMAPNOW)
+	  if [ -f /etc/X11/xorg.conf ] ; then
+	      sed -i -e "s%.*#xkeymap0%	Option      \"XkbLayout\" \"${XKEYMAP}\" #xkeymap0%" \
+	         /etc/X11/xorg.conf
+	  fi
+	fi
+	exit
+}
+#=============================================================
+
 [ $# -le 2 ] || usage
 LANGORG=$LANG
 LANG=C
+
+. /etc/DISTRO_SPECS
 
 KMAPPATH='/lib/keymaps'
 [ -d /usr/share/kbd/keymaps/i386 ] && KMAPPATH='/usr/share/kbd/keymaps/i386'
@@ -91,28 +122,46 @@ OLDMAP=""
 [ "$OLDMAP" = "" ] && OLDMAP="us"
 [ "$DISPLAY" ] && XSTATUS="yes" || XSTATUS=""
 
+#=============================================================
+
 # options
 NEWMAP=""
 XOPT=""
 VERBOSE=""
-case "$1" in
+for i in $@
+do
+ case "$1" in
   *-li*) # show available key maps
     makelist
     exit ;;
   *-lo*) # load keymap according /etc/keymap
     NEWMAP=$(cat /etc/keymap 2>/dev/null)
+    [ -z "$NEWMAP" ] && exit 1
     VERBOSE="yes"
     ;;
   *-x*)
     XOPT="yes"
     shift
     [ "$1" != "" ] ||  NEWMAP=$(cat /etc/keymap 2>/dev/null)
+    [ -z "$NEWMAP" ] && NEWMAP=us
    ;;
-  cli) XSTATUS=""; shift;;
-  -ver)	echo "$MYNAME ver.-$VERSION"; exit;;
-  -*) usage;;
-esac
+  --update) update_xorg_keyboard_layout ;;
+  --startup) set_default ;;
+  cli) XSTATUS="" ;;
+  -*) usage ;;
+  *)
+    if [ -e /lib/keymaps/${1}.gz ] ; then
+      KMAPPATH='/lib/keymaps'
+      NEWMAP=${1}
+      echo "$NEWMAP" > /etc/keymap
+    fi
+    ;;
+ esac
+ shift
+done
 [ $# -le 1 ] || usage
+
+#=============================================================
 
 # verify
 [ "$NEWMAP" != "" ] || NEWMAP=$(basename "$1" .gz)
@@ -175,9 +224,13 @@ if [ "$NEW" != "" ];then
   echo -n $NEWMAP > /etc/keymap
   cp -f /etc/keymap /etc/keymap_previous	# prevent xwin rewrites
   case $NEWMAP in
-    *.map|*.kmap) loadkeys $NEWMAP || exit 1 #120627
+    *.map|*.kmap)
+       loadkeys $NEWMAP || exit 1 #120627
+       echo "'${NEWMAP}' keymap loaded"
     ;;
-    *) /bin/gzip -dcf /lib/keymaps/$NEWMAP.gz | /sbin/loadkmap || exit 1
+    *)
+       gzip -dcf /lib/keymaps/$NEWMAP.gz | loadkmap || exit 1
+       echo "/lib/keymaps/${NEWMAP}.gz loaded"
     ;;
   esac
 elif [ -s /usr/share/i18n/layouts ]; then
@@ -187,48 +240,19 @@ fi
 [ "$NEW" != "" ] && NEWMAP=$NEW || exit 1
 echo -n $NEWMAP > /etc/keymap
 
-#[ "$NEWMAP" = "$OLDMAP" ] && exit 0
+#=============================================================
 # apply xkeymap now
-XVARIANT=""
-[ "$VARIANT" != "" ] && XVARIANT="-variant $VARIANT"
-setxkbmap -rules xorg -model "$MODEL" -layout "$LAYOUT" $XVARIANT || exit 1
 
-# rewrite xorg.conf
-F=/etc/X11/xorg.conf
-TMPF=/tmp/xorg.conf
-# read old settings
-ALINE=$(grep -i '^[[:blank:]]*Option.*XkbModel' $F| head -n 1| cut -d'#' -f1)
-for W in $ALINE; do :; done	# set last word to W
-OLDMODEL=$(echo $W|tr -d '"')
-ALINE=$(grep -i '^[[:blank:]]*Option.*XkbLayOut' $F| head -n 1| cut -d'#' -f1)
-for W in $ALINE; do :; done
-OLDLAYOUT=$(echo $W|tr -d '"')
-ALINE=$(grep -i '^[[:blank:]]*Option.*XkbVariant' $F| head -n 1| cut -d'#' -f1)
-for W in $ALINE; do :; done	# set last word to W
-OLDVARIANT=$(echo $W|tr -d '"')
-#[ "$OLDMODEL" =  "" -a "$OLDLAYOUT" = "" ] && exit
-# rewrite xorg.conf
-if [ "$MODEL" != "$OLDMODEL" -o "$LAYOUT" != "$OLDLAYOUT" -o "$VARIANT" != "$OLDVARIANT" ]; then
-  (while read ALINE; do
-    FOUND="yes"
-    echo $ALINE| grep -v '^[[:blank:]]*Option.*Xkb' || break
-    FOUND=""
-   done
-   if [ "$FOUND" = "" ]; then
-   echo 'Section "InputDevice"
-	Identifier  "Keyboard0"
-	Driver      "kbd"'
-   fi
-   echo "    Option         \"XkbRules\" \"xorg\""
-   echo "    Option         \"XkbModel\" \"$MODEL\""
-   echo "    Option         \"XkbLayout\" \"$LAYOUT\" #xkeymap0"
-   [ "$VARIANT" != "" ] && echo "    Option         \"XkbVariant\" \"$VARIANT\""
-   if [ "$FOUND" = "" ]; then
-   echo 'EndSection'
-   fi
-   while read ALINE; do
-	 echo $ALINE| grep -v '^[[:blank:]]*Option.*Xkb' && break
-   done
-   while read ALINE; do echo $ALINE; done) <$F >$TMPF
-  [ -s $TMPF ] && mv -f $F $F.bak && mv $TMPF $F
+if [ "`pidof X 2>/dev/null`" != "" -o "`pidof Xorg 2>/dev/null`" != "" ] ; then
+	[ "$MODEL" ] && setxkbmap -model "$MODEL"
+	[ "$LAYOUT" ] && { setxkbmap -layout "$LAYOUT" || exit 1 ; }
+	[ "$VARIANT" ] && setxkbmap -variant "$VARIANT"
 fi
+
+[ -f /etc/X11/xorg.conf ] || exit
+# update xorg.conf
+[ "$MODEL" ] && sed -i "s%.*#xkbmodel0%	Option      \"XkbModel\" \"${MODEL}\" #xkbmodel0%" /etc/X11/xorg.conf
+[ "$LAYOUT" ] && sed -i "s%.*#xkeymap0%	Option      \"XkbLayout\" \"${LAYOUT}\" #xkeymap0%" /etc/X11/xorg.conf
+[ "$XVARIANT" ] && sed -i "s%.*#xkbvariant0%	Option      \"XkbVariant\" \"${XVARIANT}\" #xkbvariant0%" /etc/X11/xorg.conf
+
+### END ###

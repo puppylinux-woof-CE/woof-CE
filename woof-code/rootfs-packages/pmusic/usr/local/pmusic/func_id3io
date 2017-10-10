@@ -17,22 +17,31 @@ fi
 update_gui (){
 	#playlist
 	IFS='|' read C1 C2 NAME C <<< "`grep -F "$FILE" $WORKDIR/playlist`"
-	if [ "$NAME" ]; then	
+	if [ "$NAME" ]; then
 		( flock -e 201
 			sed -i "s%|${NAME//&/\\&}|%|${NEW_NAME//&/\\&}|%g" $WORKDIR/playlist $WORKDIR/PLAYLIST_ALL
 		) 201>$WORKDIR/playlist.lockfile 
 	fi
 	#update svg in main gui and now_playing file
 	echo "|$FILE" > $HOME/.pmusic/nowplaying #this makes func_progressbar to activate full reading of playing track
-	#sourcelist
+	echo true > $WORKDIR/UPDATE_GUI
+	#avoid updating of sourcelist for masstagger. func_id3tagger will do that after all tagging
 	IFS='|' read C1 OLD_ARTIST OLD_TITLE C <<< "`grep -F "$FILE" $WORKDIR/sourcelist`"
 	if [[ "$OLD_ARTIST" || "$OLD_TITLE" ]]; then
 		SEARCH="$(tail -n1 "$STORAGE_DIR/index_history" | cut -d'|' -f3 | cut -c 5-)"
 		case $SEARCH in
-			*pMusic:\ Favorites*) 	$APPDIR/func_favorites -show_favorites;;
-			*pMusic:*) 				false;;
-			*)						sleep 0.2; $APPDIR/func -search_sources "$SEARCH" & ;; #sleep 0.2 because merge_stack runs in background and we reach here too quick
+			*pMusic:\ Favorites*)	echo "$APPDIR/func_favorites -show_favorites" > $WORKDIR/exec_id3io_post;;
+			*pMusic:*) 				echo "false" > $WORKDIR/exec_id3io_post;;
+			*)						echo "$APPDIR/func -search_sources \"$SEARCH\"" > $WORKDIR/exec_id3io_post;;
 		esac
+	fi
+	if [[ "$1" != *_no_update ]]; then
+		$APPDIR/func_index -merge_stack &
+		sleep 0.3  #because merge_stack runs in background and we reach here too quick
+		chmod 722 $WORKDIR/exec_id3io_post
+		$WORKDIR/exec_id3io_post
+		echo -n > $WORKDIR/exec_id3io_post
+		echo true > $WORKDIR/UPDATE_SOURCELIST
 	fi
 }
 
@@ -58,7 +67,7 @@ case "$2" in
 	#-read			(func_index)
 	#-read_quick 	(func_progressbar)	Quick as possible - do not write to DB
 	#-read_ffmpeg 	(func_trackinfo)	Ensure to read actual id3tags - things might have changed...
-	IFS='|' read COMMAND ARTIST TITLE ALBUM NR YEAR GENRE COMMENT RATING FORMAT BITRATE LENGTH C13 ADR ICON DISC_ID ARTIST_ID LYRICS_ID ALBUMART_ID C20 TIMESTAMPS <<< "$(grep -Fm1 "${FILE}|" "$DB")"
+	IFS='|' read COMMAND ARTIST TITLE ALBUM NR YEAR GENRE COMMENT RATING FORMAT BITRATE LENGTH C13 ADR ICON DISC_ID ARTIST_ID LYRICS_ID ALBUMART_ID C20 TIMESTAMPS <<< "$(grep -Fam1 "${FILE}|" "$DB")"
 	[ ! "$ICON" ] && case $FILE in *.pmu|*.m3u|*.pls) ICON='gtk-audio_playlist';; *) ICON='gtk-audio';; esac
 	[ "$INPUT_MB_DISC_ID" ] && DISC_ID="$INPUT_MB_DISC_ID" #$INPUT_MB_DISC_ID - overwrite existing with specified. See trackinfo - album-tag
 	[ "$LENGTH" ] && DB_INFO=true || DB_INFO=false #show scan-msg in main gui if false
@@ -68,7 +77,7 @@ case "$2" in
 	else
 		if [[ "${FILE}" = @(*kar|*KAR|*mid|*MID) ]]; then
 			TMP="`timidity -OuM8 -o $WORKDIR/tmp_midi.au "$SOURCE" | grep -F 'Playing time' | cut -d'~' -f2 | cut -d' ' -f1`" #seconds
-			LENGTH=`$APPDIR/func -sec2time $TMP`
+			LENGTH=`$APPDIR/func_C -sec2time $TMP`
 			FORMAT="midi"
 			A=${FILE##*/}; ARTIST=${A% - *}
 			T=${FILE##* - }; TITLE=${T%.*}
@@ -76,8 +85,9 @@ case "$2" in
 			while read I; do
 				case $I in
 					*Duration:*)
-						IFS=: read C1 C2 MIN SEC C <<< "${I%%.*}"
-						LENGTH="${MIN}:${SEC}"
+						IFS=: read C1 HOUR MIN SEC C <<< "${I%%.*}"
+						MIN=$((${MIN} + (${HOUR} * 60)))
+						LENGTH=$(printf "%02d" $MIN):$(printf "%02d" $SEC)
 						;;
 					*Audio:*)
 						IFS=: read C1 C2 C3 TMP C <<< "$I"
@@ -88,7 +98,7 @@ case "$2" in
 					*artist*:*)	A=${I#*:}; ARTIST=${A/ /};;
 					*album*:*)	A=${I#*:}; ALBUM=${A/ /};;
 					*year*:*)	Y=${I#*:}; YEAR=${Y/ /};;
-					*comment*:*)C=${I#*:}; COMMEMNT=${C/ /};;
+					*comment*:*)C=${I#*:}; COMMENT=${C/ /};;
 					*track*:*)	N=${I#*:}; NR=${N/ /};;
 					*genre*:*)	G=${I#*:}; G=${G/ /}; GENRE="$(genre2human "$G")";;
 					*Video:*)	ALBUMART=embedded;;
@@ -98,8 +108,8 @@ case "$2" in
 		ADR="$FILE"
 		COMMAND="$FILE"
 	fi
-	#write to db if new info. -read_quick is used by func_trackinfo while -read is used by func_index
-	if [[ "$2" != "-read_quick" && "$SKIP_DB_WRITE" != "true" ]]; then
+	#write to db if new info. -read_quick is used by func_progressbar while -read is used by func_index
+	if [[ -f "$ADR" && "$2" != "-read_quick" && "$SKIP_DB_WRITE" != "true" ]]; then
 		[ ! "$ARTIST" ] && ARTIST2="${ADR##*/}" || ARTIST2="$ARTIST" #Don't change $ARTIST - empty variable is used by func_trackinfo
 		if [ "$SUFFIX" = "func_index" ]; then #no need to lock file since func_index is working with a copy of the db.
 			echo "$COMMAND|$ARTIST2|$TITLE|$ALBUM|$NR|$YEAR|$GENRE|$COMMENT|$RATING|$FORMAT|$BITRATE|$LENGTH||$ADR|$ICON|$DISC_ID|$ARTIST_ID|$LYRICS_ID|$ALBUMART_ID||$TIMESTAMPS" >> $DB_OUT
@@ -111,7 +121,7 @@ case "$2" in
 	fi
 	;;
 
--write)
+-write*)
 	A=${ARTIST/${TXT_SEARCH}.../};	ARTIST=${A/${TXT_NO_WWW}/}
 	T=${TITLE/${TXT_SEARCH}.../};	TITLE=${T/${TXT_NO_WWW}/}
 	A=${ALBUM/${TXT_SEARCH}.../};	ALBUM=${A/${TXT_NO_WWW}/}
@@ -119,31 +129,34 @@ case "$2" in
 	N=${NR/${TXT_SEARCH}.../};		NR=${N/${TXT_NO_WWW}/}
 	GENRE="$(genre2human "$GENRE")"
 	#---
-	ffmpeg -i "$FILE" -acodec copy -id3v2_version 3 -metadata title="$TITLE" -metadata artist="$ARTIST" -metadata album="$ALBUM" -metadata year="$YEAR" -metadata track="$NR" -metadata comment="$COMMENT" -metadata genre="$GENRE" -y $WORKDIR/tmp_ffmpeg_copy_$SUFFIX.${FILE##*.}
-	mv -f $WORKDIR/tmp_ffmpeg_copy_$SUFFIX.${FILE##*.} "$FILE"
-	#update db
-	( flock -e 202
-		grep -F "$FILE" "$STORAGE_DIR/index_mymusic" | awk -F'|' -v VAR1="$ARTIST" -v VAR2="$TITLE" -v VAR3="$ALBUM" -v VAR4="$NR" -v VAR5="$YEAR" -v VAR6="$GENRE" -v VAR7="$COMMENT" '{print $1 "|" VAR1 "|" VAR2 "|" VAR3 "|" VAR4 "|" VAR5 "|" VAR6 "|" VAR7 "|" $9 "|" $10 "|" $11 "|" $12 "|" $13 "|" $14 "|" $15 "|" $16 "|" $17 "|" $18 "|" $19 "|" $20 "|" $21}' >> $WORKDIR/mymusic_stack
-	) 202>$WORKDIR/mymusic_stack.lockfile 
-	$APPDIR/func_index -merge_stack &
-	#update gui
-	if [[ "$TITLE" && "$ARTIST" ]]; then
-		NEW_NAME="$ARTIST - $TITLE"
-		update_gui
+	echo "ffmpeg -i \"$FILE\" ${I_ALBUMART} -acodec copy -id3v2_version 3 -metadata title=\"$TITLE\" -metadata artist=\"$ARTIST\" -metadata album=\"$ALBUM\" -metadata year=\"$YEAR\" -metadata track=\"$NR\" -metadata comment=\"$COMMENT\" -metadata genre=\"$GENRE\" -y $WORKDIR/tmp_ffmpeg_copy_$SUFFIX.${FILE##*.}" > $WORKDIR/exec_id3io #echo to exec-file to optionally embed albumart to the audio file.
+	chmod 722 $WORKDIR/exec_id3io
+	$WORKDIR/exec_id3io
+	#tag file if supported. Unsupported files gives an empty tmp-file
+	if [ -s $WORKDIR/tmp_ffmpeg_copy_$SUFFIX.${FILE##*.} ]; then
+		mv -f $WORKDIR/tmp_ffmpeg_copy_$SUFFIX.${FILE##*.} "$FILE"
+		#update db
+		( flock -e 202
+			grep -aF "$FILE" "$STORAGE_DIR/index_mymusic" | awk -F'|' -v VAR1="$ARTIST" -v VAR2="$TITLE" -v VAR3="$ALBUM" -v VAR4="$NR" -v VAR5="$YEAR" -v VAR6="$GENRE" -v VAR7="$COMMENT" '{print $1 "|" VAR1 "|" VAR2 "|" VAR3 "|" VAR4 "|" VAR5 "|" VAR6 "|" VAR7 "|" $9 "|" $10 "|" $11 "|" $12 "|" $13 "|" $14 "|" $15 "|" $16 "|" $17 "|" $18 "|" $19 "|" $20 "|" $21}' >> $WORKDIR/mymusic_stack
+		) 202>$WORKDIR/mymusic_stack.lockfile 
+		#update gui
+		if [[ "$TITLE" && "$ARTIST" ]]; then
+			NEW_NAME="$ARTIST - $TITLE"
+			update_gui "$2"
+		fi
 	fi
 	;;
 
--clear)
+-clear*)
 	ffmpeg -i "$FILE" -acodec copy -id3v2_version 3 -metadata title='' -metadata artist='' -metadata album='' -metadata year='' -metadata track='' -metadata comment='' -metadata genre='' -y $WORKDIR/tmp_ffmpeg_copy_$SUFFIX.${FILE##*.}
 	mv -f $WORKDIR/tmp_ffmpeg_copy_$SUFFIX.${FILE##*.} "$FILE"
 
 	#update db
 	( flock -e 202
-		grep -F "$FILE" "$STORAGE_DIR/index_mymusic" | awk -F'|' '{print $1 "||||||||" $9 "|" $10 "|" $11 "|" $12 "|" $13 "|" $14 "|" $15 "|" $16 "|" $17 "|" $18 "|" $19 "|" $20 "|" $21}' >> $WORKDIR/mymusic_stack
+		grep -aF "$FILE" "$STORAGE_DIR/index_mymusic" | awk -F'|' '{print $1 "||||||||" $9 "|" $10 "|" $11 "|" $12 "|" $13 "|" $14 "|" $15 "|" $16 "|" $17 "|" $18 "|" $19 "|" $20 "|" $21}' >> $WORKDIR/mymusic_stack
 	) 202>$WORKDIR/mymusic_stack.lockfile 
-	$APPDIR/func_index -merge_stack &
 	#update gui
 	NEW_NAME="${FILE##*/}"
-	update_gui
+	update_gui "$2"
 	;;
 esac

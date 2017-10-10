@@ -10,11 +10,6 @@
 export TEXTDOMAIN=report-video
 export OUTPUT_CHARSET=UTF-8
 
-if [ -f /etc/DISTRO_SPECS ] ; then
-  . /etc/DISTRO_SPECS
-  PUPPY=1
-fi
-
 function help() {
   echo
   echo " Syntax: "
@@ -38,11 +33,7 @@ function help() {
   echo
 }
 
-video_driver=
-
 function XorgVideoDriver() {
-  #if [ ! -f /tmp/xorg_video_driver ] ; then
-    # xorg.conf does not necessarily tell us what driver is loaded
     LOADED=$(grep 'Loading .*/xorg/modules/drivers/.*_drv.so' /var/log/Xorg.0.log | sed -e 's/.*\///' -e 's/_.*//')
     for ALOADED in $LOADED
     do
@@ -57,11 +48,6 @@ function XorgVideoDriver() {
     [ ! "$VIDEODRIVER" ] && exit 1
     echo -n ${VIDEODRIVER} > /tmp/xorg_video_driver
     echo ${VIDEODRIVER}
-  #else
-  #  read -r VIDEODRIVER < /tmp/xorg_video_driver
-  #  [ ! "$VIDEODRIVER" ] && return 1
-  #  echo ${VIDEODRIVER}
-  #fi
 }
 
 function XorgLoadedModules() {
@@ -89,13 +75,6 @@ function XorgLoadedModules() {
 function VideoChip() {
   local GRAPHICSCHIP
   GRAPHICSCHIP="`lspci | grep -i -E 'graphic|video|display|vga' | cut -f 2- -d ' '`" #130214
-  if [ "$GRAPHICSCHIP" = "" ];then
-    if [ -f /tmp/ddcprobe.txt ];then
-    GRAPHICSCHIP="`cat /tmp/ddcprobe.txt | grep -E '^oem: |^product: '`"
-    else
-    GRAPHICSCHIP="`ddcprobe | grep -E '^oem: |^product: '`"
-    fi
-  fi
   [ -z "$GRAPHICSCHIP" ] && GRAPHICSCHIP=" unknown"
   echo $GRAPHICSCHIP
 }
@@ -124,26 +103,22 @@ function XorgConf() {
   esac
 }
 
-function ActualResolution() {
-  local VIDEORES
+function ScreenResolution() {
   if which xdpyinfo &>/dev/null ; then
-    XDPYINFO="$(xdpyinfo)"
-    VIDEORES="$(echo "$XDPYINFO" | grep ' dimensions: ' | sed -e 's%dimensions: %%' | tr -s ' ' | head -n 1)"
-  elif [ "`which xrandr`" ] ; then
-    VIDEORES=$(xrandr 2>/dev/null | grep '*' | head -n 1 | tr -s ' ' | cut -f 2 -d ' ')
+    VIDEORES="$(LANG=C xdpyinfo | grep ' dimensions: ')"
+    read -r ZZ VIDEORES <<< $VIDEORES
+  elif which xrandr &>/dev/null ; then
+    VIDEORES=$(xrandr 2>/dev/null | grep '\*' | awk '{print $1}')
   else
     VIDEORES=$(gettext 'unknown')
   fi
   echo $VIDEORES
 }
 
-function ActualDepth() {
-  if which xdpyinfo &>/dev/null ; then
-    XDPYINFO="$(xdpyinfo)"
-    VIDEODEPTH="$(echo "$XDPYINFO" | grep 'depth of root window:' | sed -e 's%depth of root window:%%' | tr -s ' ' | head -n 1)"
-  else
-    VIDEODEPTH=$(gettext 'unknown')
-  fi
+function ScreenColorDepth() {
+  VIDEODEPTH="$(LANG=C xdpyinfo | grep 'depth of root window:')"
+  VIDEODEPTH="${VIDEODEPTH##*: }"
+  [ "$VIDEODEPTH" = "" ] && VIDEODEPTH=$(gettext 'unknown')
   echo $VIDEODEPTH
 }
 
@@ -151,8 +126,8 @@ case $1 in
   driver)   XorgVideoDriver   ; exit $? ;;
   modules)  XorgLoadedModules ; exit $? ;;
   chip)     VideoChip         ; exit $? ;;
-  res)      ActualResolution | sed -e 's| .*||' ; exit ;;
-  depth)    ActualDepth | sed -e 's| .*||' ; exit ;;
+  res)      res=$(ScreenResolution) ; echo ${res%% *} ; exit ;;
+  depth)    depth=$(ScreenColorDepth) ; echo ${depth%% *} ; exit ;;
   xorgconf) XorgConf $2       ; exit $? ;;
   -h|--help|-help) help ; exit ;;
   ""|-q) continue=1 ;;
@@ -164,44 +139,45 @@ esac
 ##############################################
 
 XSERVER="$(readlink /usr/bin/X)"
+. /etc/DISTRO_SPECS
 
-echo "$(gettext 'VIDEO REPORT:') ${DISTRO_NAME}, $(gettext 'version') ${DISTRO_VERSION}" > /tmp/report-video
-
-echo -e "\n$(gettext 'Chip description:')\n$(VideoChip)" >> /tmp/report-video
+(
+echo "$(gettext 'VIDEO REPORT:') ${DISTRO_NAME}, $(gettext 'version') ${DISTRO_VERSION}"
+echo -e "\n$(gettext 'Chip description:')\n$(VideoChip)"
 
 if [ "$XSERVER" = "Xorg" ];then
-
   if [ -f /etc/X11/xorg.conf ];then
     sPTN='/^Section "Screen"/,/^$/p' #this is a multi-line block find expression.
     reqVIDEODEPTH=$(XorgConf videodepth)
     reqVIDEORES=$(XorgConf videores)
-    echo -e "\nRequested by /etc/X11/xorg.conf:" >> /tmp/report-video
-    [ "$reqVIDEORES" ] && echo "  $(gettext 'Resolution (widthxheight, in pixels): ')${reqVIDEORES}" >> /tmp/report-video
-    [ "$reqVIDEODEPTH" ] && echo "  $(gettext 'Depth (bits, or planes):              ')${reqVIDEODEPTH}"  >> /tmp/report-video
+    echo -e "\nRequested by /etc/X11/xorg.conf:"
+    [ "$reqVIDEORES" ] && echo "  $(gettext 'Resolution (widthxheight, in pixels): ')${reqVIDEORES}"
+    [ "$reqVIDEODEPTH" ] && echo "  $(gettext 'Depth (bits, or planes):              ')${reqVIDEODEPTH}"
     REQMODS=$(XorgConf reqmods)
-    [ "$REQMODS" ] && echo "  $(gettext 'Modules requested to be loaded:       ')${REQMODS}" >> /tmp/report-video
+    [ "$REQMODS" ] && echo "  $(gettext 'Modules requested to be loaded:       ')${REQMODS}"
     DISABLEMODS=$(XorgConf disabledmods)
-    [ "$DISABLEMODS" ] && echo "  $(gettext 'Modules requested to not be loaded:   ')${DISABLEMODS}" >> /tmp/report-video
+    [ "$DISABLEMODS" ] && echo "  $(gettext 'Modules requested to not be loaded:   ')${DISABLEMODS}"
     #this section is normally commented out...
     reqDRIVER=$(XorgConf reqdriver)
-    [ "$reqDRIVER" ] && echo "  $(gettext 'Drivers requested to be loaded:       ')${reqDRIVER}" >> /tmp/report-video
+    [ "$reqDRIVER" ] && echo "  $(gettext 'Drivers requested to be loaded:       ')${reqDRIVER}"
   else
-    echo -e "\n$(gettext 'NOTE: there is no /etc/X11/xorg.conf configuration file.')" >> /tmp/report-video
+    echo -e "\n$(gettext 'NOTE: there is no /etc/X11/xorg.conf configuration file.')"
   fi
 
-  ( echo -e "\n$(gettext 'Probing Xorg startup log file (/var/log/Xorg.0.log):')"
+  echo -e "\n$(gettext 'Probing Xorg startup log file (/var/log/Xorg.0.log):')"
   video_driver=$(XorgVideoDriver)
   [ "$video_driver" ] && echo "  $(gettext 'Driver loaded (and currently in use):') ${video_driver}"
   loaded_modules=$(XorgLoadedModules)
-  echo "  $(gettext 'Loaded modules:')${loaded_modules}" ) >> /tmp/report-video
+  echo "  $(gettext 'Loaded modules:')${loaded_modules}"
 
-  ( echo -e "\n$(gettext 'Actual rendering on monitor:')"
-  actual_res=$(ActualResolution)
+  echo -e "\n$(gettext 'Actual rendering on monitor:')"
+  actual_res=$(ScreenResolution)
   echo "  $(gettext 'Resolution:  ')${actual_res}"
-  actual_depth=$(ActualDepth)
-  echo "  $(gettext 'Depth:       ')${actual_depth}" ) >> /tmp/report-video
-
+  actual_depth=$(ScreenColorDepth)
+  echo "  $(gettext 'Depth:       ')${actual_depth}"
 fi
+
+) > /tmp/report-video
 
 cat /tmp/report-video
 echo

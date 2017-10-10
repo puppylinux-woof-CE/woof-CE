@@ -1,0 +1,102 @@
+#!/bin/sh
+# busybox_static
+# Builds from https://github.com/puppylinux-woof-CE/petbuilds
+
+### LINKS
+## http://ewontfix.com/12/
+## https://github.com/kanj/elfs/issues/4
+## http://wiki.musl-libc.org/wiki/Building_Busybox
+
+STATIC=1
+
+. ../../func
+
+URL=http://busybox.net/downloads
+PKG=busybox_static
+SRC=busybox
+VER=1.26.2
+COMP=tar.bz2
+DESC="BusyBox - The Swiss Army Knife of Embedded Linux - statically built"
+DEPS=
+CAT=BuildingBlock
+
+build() {
+	cd ${SRC}-${VER}
+	# diff -Naur busybox-1.24.2 busybox-1.24.2_patched > busybox.patch
+	for p in $(ls ../patches/*.patch 2>/dev/null | sort) ; do
+		patch -p1 < $p
+	done
+	[ -f ../DOTconfig ] && cp -f ../DOTconfig .config
+	#-
+	BLACKLIST="
+CONFIG_FEATURE_DEVFS -> tells busybox to look for names like /dev/loop/0 instead of /dev/loop/0
+CONFIG_DEVFSD (obsolete)
+"
+	#-
+	if [ "$STATIC" = "1" ] ; then
+		# initrd
+		ENABLE_KONFIG="
+CONFIG_FEATURE_PREFER_APPLETS
+CONFIG_STATIC
+"
+		DISABLE_KONFIG="
+CONFIG_ASH_JOB_CONTROL
+"
+	else # main sfs
+		ENABLE_KONFIG="
+CONFIG_ASH_JOB_CONTROL
+"
+		DISABLE_KONFIG="
+CONFIG_FEATURE_PREFER_APPLETS
+CONFIG_STATIC
+"
+	fi
+	#-
+	BLACKLIST="$(echo "$BLACKLIST" | sed -e 's| .*||')"
+	ENABLE_KONFIG="$(echo "$ENABLE_KONFIG" | sed -e 's| .*||')"
+	DISABLE_KONFIG="$(echo "$DISABLE_KONFIG" | sed -e 's| .*||')"
+	#-
+	for KONFIG in $ENABLE_KONFIG
+	do
+		sed -i "s|.*${KONFIG}.*|${KONFIG}=y|" .config
+	done
+	for KONFIG in $DISABLE_KONFIG $BLACKLIST
+	do
+		sed -i "s|.*${KONFIG}=.*|# ${KONFIG} is not set|" .config
+	done
+	#-
+	[ -d "$XPATH" ] && CRC="CROSS_COMPILE=${ARCH}-"
+	_make ${MKFLAG} ${CRC} LDFLAGS="--static"
+	abort_if_file_not_found busybox
+	alist=$(./busybox --list 2>/dev/null)
+	if [ "x$alist" != "x" ] ; then
+		alist=$(echo "$alist" | tr '\n' ' ')
+		sed -i -e "s|applet_list='.*|applet_list='${alist}'|" \
+			../bb-create-symlinks
+	fi
+	cd -
+	install -d -m 0755 ./${PKG}-${VER}-${ARCH}/bin
+	_install ${SRC}-${VER}/busybox ./${PKG}-${VER}-${ARCH}/bin
+	install -m 0755 bb-create-symlinks ./${PKG}-${VER}-${ARCH}/bin
+	install -m 0755 bb-delete-symlinks ./${PKG}-${VER}-${ARCH}/bin
+}
+
+package() {
+	# add this recipe
+	install -d -m 0755 ./${PKG}-${VER}-${ARCH}/build
+	cat ${PKG}.petbuild > ./${PKG}-${VER}-${ARCH}/build/$PKG-build-recipe
+	install -m 0644 DOTconfig ./${PKG}-${VER}-${ARCH}/build
+	# move, don't package
+	cp -a --remove-destination ./${PKG}-${VER}-${ARCH}/* ../../00_${ARCH}
+	rm -r ${SRC}-${VER}
+	rm -r ${PKG}-${VER}-$ARCH
+	echo "moved to initrd"
+	echo "done!"
+}
+
+# main
+retrieve ${SRC}-${VER}.${COMP}
+[ "$DLD_ONLY" = "yes" ] && exit
+extract ${SRC}-${VER}.${COMP}
+build
+package

@@ -1,0 +1,1208 @@
+#!/bin/bash
+#Frisbee Copyright Jemimah Ruhala 2012 jemimah@gmx.com
+#Localization - argolance - January 2013
+#140607 Add --version option; add terminal emulator selection to frisbee.conf
+#140816 Scooby: Ensure only one instance of frisbee running, using flock.
+#140816 Remove dropwait adjustment function; check for dhcpcd messages additional place for gentoo/metalog logs.
+#140818 Use changed init script name.
+#140819 Fix multiple interfaces test to detect changes in connected devices; use loop instead of restarting frisbee for interface change.
+#140824 Add check for hotplug-initiated wpa_supplicant daemon & stop it; reverted by 141019.
+#140829 Add network interface Refresh button; also refresh when wireless network restarted.
+#140901 Update profile only if no input errors.
+#140908 Rework profile_editor user interface for entries with static-IP fields.
+#140912 Avoid periodic network scan while a wireless network is selected.
+#141019 Prevent execution of wpa_supplicant hook file, to avoid spurious wpa_supplicant for hotplugged wireless devices -- until frisbee adapted to use the hook.
+#160201 Restructure components with new common frisbee interface; integrate mobile and pgprs use of gprs.conf; rename this script and move to frisbee directory; add locks to avoid duplicate instances and conflicts with pgprs.
+#170413 Prepend FRISBEE_ to dialog names to find them for killing.
+#170623 Refresh network list every 30 seconds instead of 15.
+
+. gettext.sh
+. $FRISBEEFUNCDIR/func
+. /root/.config/gprs.conf
+
+rm -f /tmp/.frisbee/* 2>/dev/null
+
+if grep -q '^frisbee_mode=0' /etc/frisbee/frisbee.conf;then
+	gtkdialog-splash -placement center -bg orange -text "$(gettext 'Checking network devices')" &
+	SPLASHPID=$!
+	/usr/local/frisbee/frisbee-mode-enable
+	setsid /etc/init.d/frisbee.sh start #140818
+	kill $SPLASHPID 2>/dev/null
+fi
+
+#Pre-set sensitivity for PPPoE & mobile frames...
+if [ "$(which pppoe-start 2>/dev/null)" ];then #140602...
+	PPPOEMBLSELSENS=sensitive=\"true\"
+	PPPOEMBLSELTIP="$(gettext 'If internet service provider requires PPPoE, click this button and enter the specifics below.')"
+else
+	PPPOEMBLSELSENS=sensitive=\"false\"
+	PPPOEMBLSELTIP="$(gettext "Disabled due to absence of Roaring Penguin PPPoE package.")" #140602 end
+	grep -q '^pppoe_select=1' /etc/frisbee/frisbee.conf \
+	 && sed -i -e '/^pppoe_select=/ s/=.*/=0/' /etc/frisbee/frisbee.conf
+fi
+if grep -q '^pppoe_select=1' /etc/frisbee/frisbee.conf;then
+	PPPOEFRMSENS="true"
+	MBLFRMSENS="false"
+else
+	PPPOEFRMSENS="false"
+	MBLFRMSENS="true"
+fi
+
+#Ensure pppoe device file present...
+if [ ! -s /tmp/.frisbee/pppoedevlist ];then
+	grep -q -s "^ETH='*." /etc/ppp/pppoe.conf \
+	 && echo -n "$(sed -n -e "s/^ETH='*\([^' ]*\).*/\1/p" /etc/ppp/pppoe.conf 2>/dev/null)" > /tmp/.frisbee/pppoedevlist \
+	 || echo "--$(gettext 'None detected')--" > /tmp/.frisbee/pppoedevlist
+fi
+
+#Ensure pppoe firewall selection list present...
+if [ ! -s /tmp/.frisbee/pppoefirewalllist ];then
+	FIREWALL=$(grep -s '^FIREWALL=' /etc/ppp/pppoe.conf | cut -f 2 -d =)
+	[ -z "$FIREWALL" ] && FIREWALL=NONE
+	FIREWALLLIST="$(echo -e "STANDALONE\nMASQUERADE\nNONE" | grep -v "$FIREWALL")"
+	echo "$FIREWALL $FIREWALLLIST" | tr ' ' '\n' > /tmp/.frisbee/pppoefirewalllist
+fi
+
+#Pre-set visibility for PPPoE & mobile username and password...
+if grep -q -s "^USER='*[^ $]" /etc/ppp/pppoe.conf;then
+	SHOWPPPOEUID=visible=\"true\"
+else
+	SHOWPPPOEUID=visible=\"false\"
+fi
+if [ "$GPRSUSER" ];then
+	SHOWMBLUID=visible=\"true\"
+else
+	SHOWMBLUID=visible=\"false\"
+fi
+
+#Pre-set visibility for PPPoE DNS IP addresses...
+if grep -q -s "^DNSTYPE='*SERVER" /etc/ppp/pppoe.conf;then
+	SHOWPPPOEDNSVALUE=visible=\"false\"
+else
+	SHOWPPPOEDNSVALUE=visible=\"true\"
+fi
+
+#Pre-set telephone network user passwords, because variables apparently initialized randomly - user not initially set when password needs it...
+PPPOEPSWD="$(read_password_from_secret "$(sed -n -e "s/^USER='*\([^' ]*\).*/\1/p" /etc/ppp/pppoe.conf 2>/dev/null)")"
+[ "$PPPOEPSWD" ] && PPPOEPSWDDFLT="<default>$PPPOEPSWD</default>"
+GPRSPSWD="$(read_password_from_secret $GPRSUSER)"
+[ "$GPRSPSWD" ] && GPRSPSWDDFLT="<default>$GPRSPSWD</default>"
+
+#Create the mobile access number list.
+eval "$(grep 'GPRS_ACCESS_NUMBERS=' /etc/ppp/gprs.conf)"
+echo "$GPRS_ACCESS_NUMBERS" | tr ' ' '\n' > /tmp/.frisbee/mobilenbrlist
+
+export CLEAR_AND_DISABLE_STATIC_IP_FIELDS="
+        <action>clear:IP</action>
+        <action>disable:IP</action>
+        <action>disable:IPLAB</action>
+        <action>clear:SUBNET</action>
+        <action>disable:SUBNET</action>
+        <action>disable:SUBNETLAB</action>
+        <action>clear:GATEWAY</action>
+        <action>disable:GATEWAY</action>
+        <action>disable:GATEWAYLAB</action>
+        <action>clear:DNS1</action>
+        <action>disable:DNS1</action>
+        <action>disable:DNS1LAB</action>
+        <action>clear:DNS2</action>
+        <action>disable:DNS2</action>
+        <action>disable:DNS2LAB</action>
+"
+
+export CLEAR_AND_DISABLE_WPA_FIELDS="
+	    <action>clear:ENCKEY</action>
+	    <action>disable:ENCKEY</action>
+	    <action>disable:ENCKEYLAB</action>
+	    <action>clear:IDENT</action>
+	    <action>disable:IDENT</action>
+	    <action>disable:IDENTLAB</action>
+	    <action>clear:SSID</action>
+	    <action>disable:SSID</action>
+	    <action>clear:PRIORITY</action>
+	    <action>disable:PRIORITY</action>
+	    <action>disable:PRIORITYLAB</action>
+	    <action>clear:BSSID</action>
+	    <action>disable:BSSID</action>
+	    <action>clear:AUTH</action>
+	    <action>disable:AUTH</action>
+	    <action>clear:PROTO</action>
+	    <action>disable:PROTO</action>
+	    <action>clear:AUTHALG</action>
+	    <action>disable:AUTHALG</action>
+	    <action>clear:ENC</action>
+	    <action>disable:ENC</action>
+	    <action>clear:ENABLED</action>
+	    <action>disable:ENABLED</action>
+"
+
+export SET_STATE_OF_STATIC_IP_FIELDS="
+        <action>if true clear:IP</action>
+        <action>if true disable:IP</action>
+        <action>if true disable:IPLAB</action>
+        <action>if true clear:SUBNET</action>
+        <action>if true disable:SUBNET</action>
+        <action>if true disable:SUBNETLAB</action>
+        <action>if true clear:GATEWAY</action>
+        <action>if true disable:GATEWAY</action>
+        <action>if true disable:GATEWAYLAB</action>
+        <action>if true clear:DNS1</action>
+        <action>if true disable:DNS1</action>
+        <action>if true disable:DNS1LAB</action>
+        <action>if true clear:DNS2</action>
+        <action>if true disable:DNS2</action>
+        <action>if true disable:DNS2LAB</action>
+        <action>if false refresh:IP</action>
+        <action>if false enable:IP</action>
+        <action>if false enable:IPLAB</action>
+        <action>if false refresh:SUBNET</action>
+        <action>if false enable:SUBNET</action>
+        <action>if false enable:SUBNETLAB</action>
+        <action>if false refresh:GATEWAY</action>
+        <action>if false enable:GATEWAY</action>
+        <action>if false enable:GATEWAYLAB</action>
+        <action>if false refresh:DNS1</action>
+        <action>if false enable:DNS1</action>
+        <action>if false enable:DNS1LAB</action>
+        <action>if false refresh:DNS2</action>
+        <action>if false enable:DNS2</action>
+        <action>if false enable:DNS2LAB</action>
+"
+
+
+function profile_editor {
+	export TEXTDOMAIN=frisbee
+	export OUTPUT_CHARSET=UTF-8
+	. gettext.sh
+
+	export FRISBEE_PROFEDIT="
+	<window title=\"Frisbee $VERSION - $(gettext 'Manage Saved Network Profiles')\"image-name=\"/usr/share/pixmaps/frisbee.png\" window-position=\"1\">
+	<vbox>
+	    <frame $(gettext 'Select a Profile to Edit or Delete')>
+	     <table>
+              <width>600</width>
+              <height>100</height>
+	      <label>$(gettext 'ID   | SSID                               |BSSID                 |Flags')</label>
+	      <variable>ID</variable>
+	      <input>get_ssids</input>
+	      <action>echo \$ID > /tmp/.frisbee/id</action>
+	      <action>clear:ENCKEY</action>
+	      <action>refresh:ENCKEY</action>
+	      <action>enable:ENCKEY</action>
+	      <action>enable:ENCKEYLAB</action>
+	      <action>clear:IDENT</action>
+	      <action>refresh:IDENT</action>
+	      <action>enable:IDENT</action>
+	      <action>enable:IDENTLAB</action>
+	      <action>refresh:SSID</action>
+	      <action>enable:SSID</action>
+	      <action>clear:PRIORITY</action>
+	      <action>refresh:PRIORITY</action>
+	      <action>enable:PRIORITY</action>
+	      <action>enable:PRIORITYLAB</action>
+	      <action>clear:BSSID</action>
+	      <action>refresh:BSSID</action>
+	      <action>enable:BSSID</action>
+	      <action>refresh:AUTH</action>
+	      <action>enable:AUTH</action>
+	      <action>refresh:AUTHALG</action>
+	      <action>enable:AUTHALG</action>
+	      <action>refresh:PROTO</action>
+	      <action>enable:PROTO</action>
+	      <action>refresh:ENC</action>
+	      <action>enable:ENC</action>
+	      <action>refresh:ENCKEY</action>
+	      <action>enable:ENCKEY</action>
+	      <action>refresh:ENABLED</action>
+	      <action>enable:ENABLED</action>
+          <action>enable:DHCPFRM</action>
+	      <action>refresh:AUTODHCP</action>
+          <action>enable:AUTODHCP</action>
+          <action>refresh:IP</action>
+          <action>enable:IP</action>
+          <action>enable:IPLAB</action>
+          <action>refresh:SUBNET</action>
+          <action>enable:SUBNET</action>
+          <action>enable:SUBNETLAB</action>
+          <action>refresh:GATEWAY</action>
+          <action>enable:GATEWAY</action>
+          <action>enable:GATEWAYLAB</action>
+          <action>refresh:DNS1</action>
+          <action>enable:DNS1</action>
+          <action>enable:DNS1LAB</action>
+          <action>refresh:DNS2</action>
+          <action>enable:DNS2</action>
+          <action>enable:DNS2LAB</action>
+          <action condition=\"command_is_true(test \$ID && echo true)\">enable:SAVEPROFBTN</action>
+          <action condition=\"command_is_true(test \$ID && echo true)\">enable:DELETEPROFBTN</action>
+          <action function=\"break\" condition=\"command_is_true(test \$ID -a \$AUTODHCP = false && echo true)\">true</action>
+          $CLEAR_AND_DISABLE_STATIC_IP_FIELDS    
+          <action function=\"break\" condition=\"command_is_true(test \$ID && echo true)\">true</action>
+          <action condition=\"command_is_true(test \$ID || echo true)\">disable:AUTODHCP</action>
+          <action condition=\"command_is_true(test \$ID || echo true)\">disable:DHCPFRM</action>
+	      $CLEAR_AND_DISABLE_WPA_FIELDS
+          <action condition=\"command_is_true(test \$ID || echo true)\">disable:SAVEPROFBTN</action>
+          <action condition=\"command_is_true(test \$ID || echo true)\">disable:DELETEPROFBTN</action>
+	     </table>
+	     <hbox>
+	      <vbox>
+	       <hbox>
+	         <text tooltip-text=\"$(gettext 'To change the SSID, you must delete the profile and add it again')\">
+             <sensitive>false</sensitive>
+	         <variable>SSID</variable>
+	         <input>echo -n SSID:\ ; get_ssid</input> 
+	        </text>
+	      <text tooltip-text=\"$(gettext 'If you need to change this, delete the profile and add the network again; encryption settings are automatically detected')\">
+           <sensitive>false</sensitive>
+	       <variable>AUTH</variable>
+	       <input>echo -n Auth-type:\ ;get_auth \"\$ID\"</input> 
+	      </text>
+	      <text  tooltip-text=\"$(gettext 'If you need to change this, delete the profile and add the network again; encryption settings are automatically detected')\">
+           <sensitive>false</sensitive>
+	       <variable>PROTO</variable>
+	       <input>echo -n Proto:\ ; get_proto \"\$ID\"</input>
+	      </text>
+	      <text  tooltip-text=\"$(gettext 'If you need to change this, delete the profile and add the network again; encryption settings are automatically detected')\">
+           <sensitive>false</sensitive>
+	       <variable>AUTHALG</variable>
+	       <input>echo -n Auth-Alg:\ ; get_auth_alg \"\$ID\"</input>
+	      </text>
+	     <text  tooltip-text=\"$(gettext 'If you need to change this, delete the profile and add the network again; encryption settings are automatically detected')\">
+           <sensitive>false</sensitive>
+	       <variable>ENC</variable>
+	       <input>echo -n Encryption:\ ; get_enc \"\$ID\"</input>
+	      </text>
+	       </hbox>
+	     <hbox>
+	     <checkbox tooltip-text=\"$(gettext 'Wpa_supplicant will not try to connect to a network that is disabled')\">
+	      <label>\"$(gettext 'Network Enabled')\"</label>
+          <sensitive>false</sensitive>
+	      <variable>ENABLED</variable>
+	      <input>get_enabled \"\$ID\"</input>
+	     </checkbox>
+	      <hbox>
+	       <text>
+            <sensitive>false</sensitive>
+            <variable>PRIORITYLAB</variable>
+            <label>\"$(gettext 'Priority')\"</label>
+	       </text>
+	       <entry tooltip-text=\"$(gettext 'Wpa_supplicant will prefer to connect to the network with the largest number in the Priority field')\">
+            <sensitive>false</sensitive>
+	        <variable>PRIORITY</variable>
+	        <input>get_priority \"\$ID\"</input> 
+	       </entry>
+	       </hbox>
+	       </hbox>
+	       <hbox>
+	        <text>
+            <sensitive>false</sensitive>
+            <variable>IDENTLAB</variable>
+	         <label>\"$(gettext 'Identity')\"</label>
+	        </text>
+	        <entry tooltip-text=\"$(gettext 'Enter your EAP authorisation identifier, if required.')\">
+             <sensitive>false</sensitive>
+	         <variable>IDENT</variable>
+	         <input>echo</input> 
+	         <input>get_identity \"\$ID\"</input> 
+	        </entry>
+	        <text>
+            <sensitive>false</sensitive>
+            <variable>ENCKEYLAB</variable>
+	         <label>\"$(gettext 'Key or Password')\"</label>
+	        </text>
+	        <entry tooltip-text=\"$(gettext 'Enter your ASCII or HEX key or password here; for best results with WEP, use the HEX key')\">
+             <sensitive>false</sensitive>
+	         <visible>password</visible>
+	         <variable>ENCKEY</variable>
+	         <input>echo</input> 
+	         <input>get_key \"\$ID\"</input> 
+	        </entry>
+	       </hbox>
+	     </vbox>
+	   </hbox>
+	  </frame>
+	  <frame $(gettext 'DHCP Settings')>
+	   <hbox>
+     <vbox>
+        <checkbox tooltip-text=\"$(gettext 'Request IP address and routing information from a DHCP server')\">
+        <label>$(gettext 'Auto DHCP')</label>
+        <sensitive>false</sensitive>
+        <variable>AUTODHCP</variable>
+        <input>get_dhcp_auto_wireless \"\$(get_ssid)\"</input>
+        $SET_STATE_OF_STATIC_IP_FIELDS
+       </checkbox>
+      <hbox>
+       <text>
+       <sensitive>false</sensitive>
+       <variable>IPLAB</variable><label>$(gettext 'Static IP Address')</label></text>
+       <entry tooltip-text=\"$(gettext 'Enter static IP address')\">
+        <sensitive>false</sensitive>
+        <variable>IP</variable>
+        <input>get_static_ip_wireless \"\$(get_ssid)\"</input>
+       </entry>
+      </hbox>
+      <hbox>
+       <text>
+        <sensitive>false</sensitive>
+        <variable>SUBNETLAB</variable>
+        <label>\"$(gettext 'Subnet Mask')\"</label>
+       </text>
+       <entry tooltip-text=\"$(gettext 'Enter subnet mask')\">
+        <sensitive>false</sensitive>
+        <variable>SUBNET</variable>
+        <input>get_mask_wireless \"\$(get_ssid)\"</input>
+       </entry>
+      </hbox>
+      </vbox>
+      <vbox>
+       <hbox>
+       <text>
+        <sensitive>false</sensitive>
+        <variable>GATEWAYLAB</variable><label>$(gettext 'Gateway')</label></text>
+        <entry tooltip-text=\"$(gettext 'Enter gateway IP address')\">
+         <sensitive>false</sensitive>
+         <variable>GATEWAY</variable> 
+         <input>get_gateway_wireless \"\$(get_ssid)\"</input>
+        </entry>
+       </hbox>
+      <hbox>
+       <text>
+        <sensitive>false</sensitive>
+        <variable>DNS1LAB</variable><label>$(gettext 'DNS Server 1')</label>
+       </text>
+       <entry tooltip-text=\"$(gettext 'Enter the IP address for the DNS server')\">
+        <sensitive>false</sensitive>
+        <variable>DNS1</variable>
+        <input>get_dns1_wireless \"\$(get_ssid)\"</input>
+       </entry>
+      </hbox>
+      <hbox>
+         <text>
+          <sensitive>false</sensitive>
+          <variable>DNS2LAB</variable><label>$(gettext 'DNS Server 2')</label>
+         </text>
+	 <entry tooltip-text=\"$(gettext 'Enter IP address for backup DNS server; this field is optional')\">
+          <sensitive>false</sensitive>
+          <variable>DNS2</variable>
+          <input>get_dns2_wireless \"\$(get_ssid)\"</input>
+         </entry>
+        </hbox>
+       </vbox>
+      </hbox>
+      <sensitive>false</sensitive>
+      <variable>DHCPFRM</variable>
+      </frame>
+	  <hbox space-expand=\"true\">
+	   <button tooltip-text=\"$(gettext 'Select a profile, make changes, then click this button to save the changes')\">
+	    <input file stock=\"gtk-save\"></input>
+	    <label>$(gettext 'Save Profile')</label>
+        <sensitive>false</sensitive>
+        <variable>SAVEPROFBTN</variable>
+        <action>disable:SAVEPROFBTN</action>
+        <action>disable:DELETEPROFBTN</action>
+	    <action>update_dhcp_wireless \"\$(get_ssid)|\$AUTODHCP|\$IP|\$SUBNET|\$GATEWAY|\$DNS1|\$DNS2\" && update_profile \"\$ID|\$SSID|\$BSSID|\$ENCKEY|\$PRIORITY|\$ENABLED|\$AUTH|\$ENC|\$IDENT\"</action>
+	    <action>clear:ID</action>
+	    <action>refresh:ID</action>
+	    $CLEAR_AND_DISABLE_WPA_FIELDS
+        <action>disable:DHCPFRM</action>
+        <action>clear:AUTODHCP</action>
+        <action>disable:AUTODHCP</action>
+        $CLEAR_AND_DISABLE_STATIC_IP_FIELDS   
+	   </button>
+	   <button tooltip-text=\"$(gettext 'Delete the selected profile')\" >
+	    <input file stock=\"gtk-delete\"></input>
+	    <label>$(gettext 'Delete Profile')</label>
+        <sensitive>false</sensitive>
+        <variable>DELETEPROFBTN</variable>
+        <action>disable:SAVEPROFBTN</action>
+        <action>disable:DELETEPROFBTN</action>
+	    <action>delete_profile \"\$ID\"</action>
+	    <action>clear:ID</action>
+	    <action>refresh:ID</action>
+	    $CLEAR_AND_DISABLE_WPA_FIELDS
+        <action>disable:DHCPFRM</action>
+        <action>clear:AUTODHCP</action>
+        <action>disable:AUTODHCP</action>
+        $CLEAR_AND_DISABLE_STATIC_IP_FIELDS   
+	   </button>
+	  </hbox>
+	 </vbox>
+	 </window>"
+	
+		 
+   rm -f /tmp/.frisbee/id
+   gtkdialog --program=FRISBEE_PROFEDIT --center
+}
+export -f profile_editor
+
+function diag {
+		export TEXTDOMAIN=frisbee
+		export OUTPUT_CHARSET=UTF-8
+		. gettext.sh
+		#140602 pre-set button for diagnostic data (pdiag) option...
+		if [ "$(which pdiag 2>/dev/null)" ];then
+			DIAGGENSENS=sensitive=\"true\"
+			DIAGGENTIP="$(gettext 'Generate an archive file containing diagnostic logs and data.')"
+		else
+			DIAGGENSENS=sensitive=\"false\"
+			DIAGGENTIP="$(gettext "Disabled due to absence of 'pdiag' package that creates diagnostic archive file.")"
+		fi
+		TERMEMLTR=$(grep '^terminal=' /etc/frisbee/frisbee.conf | sed 's/.*=\([^ 	#]*\).*/\1/') #140607
+		[ "$TERMEMLTR" ] && [ "$(which $TERMEMLTR 2>/dev/null)" ] || TERMEMLTR=rxvt #140607
+		get_status
+		export FRISBEE_DIAGNOSTICS="
+		<window title=\"Frisbee $VERSION - $(gettext 'Wireless Diagnostic Tools')\" image-name=\"/usr/share/pixmaps/frisbee.png\" window-position=\"1\">
+		   <vbox> 
+
+	    <frame `eval_gettext \"Status of \\\$INTERFACE\"`>
+	     <edit editable=\"false\">
+	      <variable>STATUS</variable>
+	      <input file>/tmp/.frisbee/status</input>
+	      <height>200</height>
+	      <width>600</width>
+	     </edit>
+		 <hbox space-expand=\"true\">
+		  <checkbox tooltip-text=\"$(gettext 'Log wpa_supplicant activities; restart networks to activate - creates large /tmp/wpa_supplicant.log file')\">
+		   <variable>ENDEBUG</variable>
+		   <input>grep -q '^wpa_log_mode=1' /etc/frisbee/frisbee.conf && echo true || echo false</input>
+		   <label>$(gettext 'Enable Debug Logging')</label>
+		   <action>if true grep -q '^wpa_log_mode=1' /etc/frisbee/frisbee.conf || sed -i -e '/^wpa_log_mode=/ s/=.*/=1/' /etc/frisbee/frisbee.conf</action>
+		   <action>if false grep -q '^wpa_log_mode=0' /etc/frisbee/frisbee.conf || sed -i -e '/^wpa_log_mode=/ s/=.*/=0/' /etc/frisbee/frisbee.conf</action>
+		  </checkbox>
+          <button>
+           <label>$(gettext 'Refresh')</label>
+            <input file stock=\"gtk-refresh\"></input>
+            <action>get_status</action>
+             <action>refresh:STATUS</action>    
+          </button>
+		 </hbox>
+	    </frame>
+	    <hbox> 
+	    <frame $(gettext 'WPA_Supplicant Tools')>
+	    <vbox> 
+ 	   <hbox space-expand=\"true\">
+	      <button tooltip-text=\"$(gettext 'View the wpa_supplicant log file')\">
+	     <input file stock=\"gtk-find\"></input>
+	     <label>$(gettext 'View Log')</label>
+	     <action>Xdialog --wmclass \"frisbee\" --title \"Frisbee - $(gettext 'Wpa_Supplicant Log')\" --no-cancel --ok-label \"Close\"  --textbox /tmp/wpa_supplicant.log 30 100& </action>
+	    </button>
+ 	   </hbox>
+ 	   <hbox space-expand=\"true\">
+	    <button tooltip-text=\"$(gettext 'Edit the wpa_supplicant configuration file')\"> 
+	     <input file stock=\"gtk-edit\"></input>
+	     <label>$(gettext 'Edit Configuration')</label>
+	     <action>wpaconf_edit</action>
+	    </button>
+ 	   </hbox>
+ 	   <hbox space-expand=\"true\">
+	     <button tooltip-text=\"$(gettext 'Control Wi-Fi Protected Access by command line interface commands to wpa_supplicant')\">
+	     <input file stock=\"gtk-execute\"></input>
+	     <label>$(gettext 'Control WPA Functions')</label>
+	     <action>$TERMEMLTR -e wpa_cli -i \$INTERFACE&</action>
+	    </button>
+ 	   </hbox>
+	    </vbox> 
+	    </frame>
+	    <frame $(gettext 'Other Actions')>
+	    <vbox> 
+ 	   <hbox space-expand=\"true\">
+	    <button tooltip-text=\"$(gettext 'Set ap_scan parameter')\">
+	     <input file stock=\"gtk-preferences\"></input>
+	     <label>$(gettext 'Set AP scan mode')</label>
+	     <action>set_ap_scan</action>
+	    </button>
+ 	   </hbox>
+ 	   <hbox space-expand=\"true\">
+	     <button $DIAGGENSENS tooltip-text=\"$DIAGGENTIP\">
+	     <input file stock=\"gtk-execute\"></input>
+	     <label>$(gettext 'Generate Diagnostic Data')</label>
+	     <action>pdiag --wpa&</action>
+	    </button>
+ 	   </hbox>
+	    </vbox> 
+	   </frame>
+	   </hbox>
+	    
+	  </vbox>
+	  </window>
+	" #140816
+	gtkdialog --program=FRISBEE_DIAGNOSTICS --center
+}
+export -f diag
+
+
+#MAIN_DIALOG - Tabs, then Main...
+
+while true; do #140819
+	###Get the wireless device, i.e. ath0, wlan0, ra0, etc...
+	WIRELESSEN=sensitive=\"true\"
+	export INTERFACE=`cat /etc/frisbee/interface 2>/dev/null`
+	if [[ -z $INTERFACE ]] || [[ -z "$(get_ifs_wireless)" ]] ; then #140819
+		[[ -z $INTERFACE ]] && INTERFACE=none #140303
+		WIRELESSEN=sensitive=\"false\"
+	fi
+
+	#pre-set buttons for wifi option...
+	if grep -q '^wireless_enabled=1' /etc/frisbee/frisbee.conf;then
+		ENABLEWIRELESS=sensitive=\"true\"
+	else
+		ENABLEWIRELESS=sensitive=\"false\"
+	fi
+
+	grep -q '^wireless_enabled=1' /etc/frisbee/frisbee.conf \
+	 && if_connected \
+	 && wpa_cli -i $INTERFACE scan >/dev/null &
+	get_log
+	
+	#Ensure list files present.
+	touch /tmp/.frisbee/pppoedevlist
+	touch /tmp/.frisbee/pppoefirewalllist
+	touch /tmp/.frisbee/mobiledevlist
+
+	WIRELESS_TAB="
+   <vbox>
+    <hbox>
+     <hbox space-expand=\"true\">
+      <checkbox tooltip-text=\"$(gettext 'Enable wireless networking')\">
+       <variable>ENWIRE</variable>
+       <input>grep -q '^wireless_enabled=1' /etc/frisbee/frisbee.conf && echo true || echo false</input>
+       <label>$(gettext 'Enable Wireless')</label>
+       <action>if true enable:ENAUTO</action>
+       <action>if false disable:ENAUTO</action>
+       <action>if true enable:TABLE</action>
+       <action>if false disable:TABLE</action>
+       <action condition=\"command_is_true(test \$TABLE && echo true)\">if true enable:CONNECTBUTTON</action>
+       <action>if false disable:CONNECTBUTTON</action>
+       <action>if true enable:REFRESHBUTTON</action>
+       <action>if false disable:REFRESHBUTTON</action>
+       <action>if true enable:CURSTAT</action>
+       <action>if false disable:CURSTAT</action>
+       <action>if true enable:CURIP</action>
+       <action>if false disable:CURIP</action>
+       <action>refresh:CURSTAT</action>
+       <action>refresh:CURIP</action>
+       <action>if true grep -q '^wireless_enabled=1' /etc/frisbee/frisbee.conf || sed -i -e '/^wireless_enabled=/ s/=.*/=1/' /etc/frisbee/frisbee.conf</action>
+       <action>if false grep -q '^wireless_enabled=0' /etc/frisbee/frisbee.conf || sed -i -e '/^wireless_enabled=/ s/=.*/=0/' /etc/frisbee/frisbee.conf</action>
+       <action>if true if_connected || ( get_ifs_wireless > /dev/null && connect && wpa_cli -i \$INTERFACE scan )</action>
+       <action>if false if_connected && disconnect</action>
+       <action>if false get_ifs_wireless > /dev/null || echo -n '' > /etc/frisbee/interface</action>
+      </checkbox>
+      <checkbox $ENABLEWIRELESS tooltip-text=\"$(gettext 'Connect last-used, available wireless network automatically when Puppy starts; must be checked to retain any saved network profiles (because the configuration file is only temporary, for current session)')\">
+       <variable>ENAUTO</variable>
+       <input>grep -q '^wireless_autostart=1' /etc/frisbee/frisbee.conf && echo true || echo false</input>
+       <label>$(gettext 'Connect WiFi Automatically')</label>
+       <action>if true sed -i -e '/^wireless_autostart=[^1]/ s/=.*/=1/' /etc/frisbee/frisbee.conf</action>
+       <action>if false sed -i -e '/^wireless_autostart=[^0]/ s/=.*/=0/' /etc/frisbee/frisbee.conf</action>
+       <action>reset_wpa&</action>
+       <action>reset_dhcp&</action>
+      </checkbox>
+     </hbox>
+     <button tooltip-text=\"$(gettext 'Select an interface, if you have multiple wireless cards')\"> <input file stock=\"gtk-preferences\"></input>
+      <label>$(gettext 'Change Interface')</label>
+      <action>change_if_wireless</action>
+      <action function=\"exit\" condition=\"command_is_true([ -s /etc/frisbee/userif ] && echo -n true)\">RESTART</action>
+     </button>
+     <button tooltip-text=\"$(gettext 'Diagnose wireless problems')\"> <input file stock=\"gtk-execute\"></input>
+      <label>$(gettext 'Diagnostics')</label>
+      <action>get_status</action>
+      <action>diag&</action>
+     </button>
+    </hbox>
+    <vbox $WIRELESSEN>
+    <frame `eval_gettext \"Scan results for \\\$INTERFACE\"`>
+     <table $ENABLEWIRELESS>
+      <width>700</width>
+      <height>180</height>
+      <variable>TABLE</variable>
+      <label>$(gettext 'BSSID                  |Freq  |Strength|SSID              |Encryption')</label>
+      <input>get_scan_results</input>
+      <action condition=\"command_is_true(test \$TABLE && echo true)\">enable:CONNECTBUTTON</action>
+      <action condition=\"command_is_true(test \$TABLE || echo true)\">disable:CONNECTBUTTON</action>
+     </table>
+     <hbox space-expand=\"true\">
+      <text $ENABLEWIRELESS tooltip-text=\"$(gettext 'Connection status')\">
+      <variable>CURSTAT</variable>
+      <input>current_status</input>
+      </text>
+      <text $ENABLEWIRELESS tooltip-text=\"$(gettext 'Connection status')\">
+       <variable>CURIP</variable>
+       <input>current_ip</input>
+      </text>
+      <button tooltip-text=\"$(gettext 'Connect to selected network')\">
+       <input file stock=\"gtk-connect\"></input>
+       <label>$(gettext 'Connect')</label>
+       <sensitive>false</sensitive>
+       <variable>CONNECTBUTTON</variable>
+       <action>add_profile \"\$TABLE\"</action>
+       <action>clear:TABLE</action>
+       <action>refresh:TABLE</action>
+       <action>refresh:CURSTAT</action>
+       <action>refresh:CURIP</action>
+      </button>
+      <button $ENABLEWIRELESS tooltip-text=\"$(gettext 'Update the network list and resume periodic scanning for networks')\">
+       <label>$(gettext 'Refresh')</label>
+       <input file stock=\"gtk-refresh\"></input>
+       <variable>REFRESHBUTTON</variable>
+       <action>clear:TABLE</action>
+       <action>refresh:TABLE</action>
+       <action>disable:CONNECTBUTTON</action>
+       <action>refresh:CURSTAT</action>
+       <action>refresh:CURIP</action>
+      </button>
+     </hbox>
+    </frame>
+     <hbox space-expand=\"true\">
+      <button tooltip-text=\"$(gettext 'Edit or delete saved network profiles')\"> <input file stock=\"gtk-preferences\"></input>
+       <label>$(gettext 'Manage Saved Networks')</label>
+       <action>profile_editor&</action>
+      </button>
+      <button tooltip-text=\"$(gettext 'Restart the wpa_supplicant daemon')\">
+       <input file stock=\"gtk-redo\"></input> 
+       <label>$(gettext 'Restart Networks')</label>
+       <action>gtkdialog-splash -placement center -timeout 3 -bg orange -text  \"$(gettext 'Resetting network processes')\"&</action>
+       <action>grep -q '^wireless_enabled=1' /etc/frisbee/frisbee.conf && reset_wpa&</action>
+       <action>reset_dhcp&</action>
+       <action>clear:IF</action>    
+       <action>refresh:IF</action> 
+       <action>clear:AUTODHCP</action>
+       <action>disable:AUTODHCP</action>
+       $CLEAR_AND_DISABLE_STATIC_IP_FIELDS   
+      </button>
+     </hbox>
+    </vbox>
+    <hbox><timer interval=\"30\" visible=\"false\">
+        <action>refresh:CURSTAT</action>
+        <action>refresh:CURIP</action>
+        <action function=\"break\" condition=\"command_is_true(test \$TABLE && echo true)\">true</action>
+        <action>disable:CONNECTBUTTON</action>
+        <action>clear:TABLE</action>
+        <action>refresh:TABLE</action>
+    </timer></hbox>
+   </vbox>"
+	#End of WIRELESS_TAB
+
+NETWORKS_TAB="   
+   <vbox>
+   <frame>
+    <table>
+     <label>$(gettext 'Interface   | Type                                        |Action')</label>
+     <variable>IF</variable>
+     <input>get_interfaces</input>
+     <action>refresh:IGNORE</action>
+     <action>enable:IGNORE</action>
+     <action condition=\"command_is_true(test \$IGNORE = false && echo true)\">refresh:AUTODHCP</action>
+     <action condition=\"command_is_true(test \$IGNORE = false && echo true)\">enable:AUTODHCP</action>
+     <action condition=\"command_is_false(test \$IGNORE = false || echo false)\">disable:AUTODHCP</action>
+     <action condition=\"command_is_true(test \$IF && echo true)\">enable:SAVEBUTTON</action>
+     <action condition=\"command_is_true(test \$IF || echo true)\">disable:SAVEBUTTON</action>
+     <action condition=\"command_is_true(test \$IGNORE = false -a \$AUTODHCP = false && echo true)\">refresh:IP</action>
+     <action condition=\"command_is_true(test \$IGNORE = false -a \$AUTODHCP = false && echo true)\">enable:IP</action>
+     <action condition=\"command_is_true(test \$IGNORE = false -a \$AUTODHCP = false && echo true)\">enable:IPLAB</action>
+     <action condition=\"command_is_true(test \$IGNORE = false -a \$AUTODHCP = false && echo true)\">refresh:SUBNET</action>
+     <action condition=\"command_is_true(test \$IGNORE = false -a \$AUTODHCP = false && echo true)\">enable:SUBNET</action>
+     <action condition=\"command_is_true(test \$IGNORE = false -a \$AUTODHCP = false && echo true)\">enable:SUBNETLAB</action>
+     <action condition=\"command_is_true(test \$IGNORE = false -a \$AUTODHCP = false && echo true)\">refresh:GATEWAY</action>
+     <action condition=\"command_is_true(test \$IGNORE = false -a \$AUTODHCP = false && echo true)\">enable:GATEWAY</action>
+     <action condition=\"command_is_true(test \$IGNORE = false -a \$AUTODHCP = false && echo true)\">enable:GATEWAYLAB</action>
+     <action condition=\"command_is_true(test \$IGNORE = false -a \$AUTODHCP = false && echo true)\">refresh:DNS1</action>
+     <action condition=\"command_is_true(test \$IGNORE = false -a \$AUTODHCP = false && echo true)\">enable:DNS1</action>
+     <action condition=\"command_is_true(test \$IGNORE = false -a \$AUTODHCP = false && echo true)\">enable:DNS1LAB</action>
+     <action condition=\"command_is_true(test \$IGNORE = false -a \$AUTODHCP = false && echo true)\">refresh:DNS2</action>
+     <action condition=\"command_is_true(test \$IGNORE = false -a \$AUTODHCP = false && echo true)\">enable:DNS2</action>
+     <action condition=\"command_is_true(test \$IGNORE = false -a \$AUTODHCP = false && echo true)\">enable:DNS2LAB</action>
+     <action function=\"break\" condition=\"command_is_true(test \$IF && echo true)\" condition=\"command_is_true(test \$IGNORE = false -a \$AUTODHCP = false && echo true)\">true</action>
+     $CLEAR_AND_DISABLE_STATIC_IP_FIELDS    
+     <action condition=\"command_is_true(test \$IF || echo true)\">disable:AUTODHCP</action>
+     <action condition=\"command_is_true(test \$IF || echo true)\">disable:IGNORE</action>
+    </table>
+    <hbox>
+     <vbox>
+      <hbox>
+       <checkbox tooltip-text=\"$(gettext 'Tell dhcpcd to ignore this interface')\">
+        <label>$(gettext 'Ignore')</label>
+        <sensitive>false</sensitive>
+        <variable>IGNORE</variable>
+        <input>get_dhcp_ignored \"\$IF\"</input>
+        <action function=\"break\" condition=\"command_is_false(test \$IF || echo false)\">true</action>
+        <action>if true clear:AUTODHCP</action>
+        <action>if true disable:AUTODHCP</action>
+        <action>if false enable:AUTODHCP</action>
+        $SET_STATE_OF_STATIC_IP_FIELDS
+       </checkbox>
+       </hbox>
+      <hbox>
+       <text>
+       <sensitive>false</sensitive>
+       <variable>IPLAB</variable><label>$(gettext 'Static IP Address')</label></text>
+       <entry tooltip-text=\"$(gettext 'Enter static IP address')\">
+        <sensitive>false</sensitive>
+        <variable>IP</variable>
+        <input>get_static_ip \"\$IF\"</input>
+       </entry>
+      </hbox>
+      <hbox>
+       <text>
+        <sensitive>false</sensitive>
+        <variable>SUBNETLAB</variable>
+        <label>$(gettext 'Subnet Mask')</label>
+       </text>
+       <entry tooltip-text=\"$(gettext 'Enter subnet mask')\">
+        <sensitive>false</sensitive>
+        <variable>SUBNET</variable>
+        <input>get_mask \"\$IF\"</input>
+       </entry>
+      </hbox>
+      <hbox>
+       <text>
+        <sensitive>false</sensitive>
+        <variable>GATEWAYLAB</variable><label>$(gettext 'Gateway')</label></text>
+        <entry tooltip-text=\"$(gettext 'Enter gateway IP address')\">
+         <sensitive>false</sensitive>
+         <variable>GATEWAY</variable> 
+         <input>get_gateway \"\$IF\"</input>
+        </entry>
+       </hbox>
+      </vbox>
+      <vbox>
+             <checkbox tooltip-text=\"$(gettext 'Request IP address and routing information from a DHCP server')\">
+        <label>$(gettext 'Auto DHCP')</label>
+        <sensitive>false</sensitive>
+        <variable>AUTODHCP</variable>
+        <input>get_dhcp_auto \"\$IF\"</input>
+        <action function=\"break\" condition=\"command_is_false(test \$IF || echo false)\">true</action>
+        $SET_STATE_OF_STATIC_IP_FIELDS
+       </checkbox>
+      <hbox>
+       <text>
+        <sensitive>false</sensitive>
+        <variable>DNS1LAB</variable><label>$(gettext 'DNS Server 1')</label>
+       </text>
+       <entry tooltip-text=\"$(gettext 'Enter the IP address for the DNS server')\">
+        <sensitive>false</sensitive>
+        <variable>DNS1</variable>
+        <input>get_dns1 \"\$IF\"</input>
+       </entry>
+      </hbox>
+      <hbox>
+       <text>
+        <sensitive>false</sensitive>
+        <variable>DNS2LAB</variable><label>$(gettext 'DNS Server 2')</label>
+       </text>
+	   <entry tooltip-text=\"$(gettext 'Enter IP address for backup DNS server; this field is optional')\">
+        <sensitive>false</sensitive>
+        <variable>DNS2</variable>
+        <input>get_dns2 \"\$IF\"</input>
+       </entry>
+      </hbox>
+      <hbox space-expand=\"true\">
+       <button tooltip-text=\"$(gettext 'Save interface settings; dhcpcd will restart')\">
+        <input file stock=\"gtk-save\"></input>
+        <label>$(gettext 'Save')</label>
+        <sensitive>false</sensitive>
+        <variable>SAVEBUTTON</variable>
+        <action>update_dhcp \"\$IF|\$IGNORE|\$AUTODHCP|\$IP|\$SUBNET|\$GATEWAY|\$DNS1|\$DNS2\"</action>
+        <action>clear:IF</action>
+        <action>refresh:IF</action>
+        <action>clear:IGNORE</action>
+        <action>disable:IGNORE</action>
+        <action>clear:AUTODHCP</action>
+        <action>disable:AUTODHCP</action>
+        $CLEAR_AND_DISABLE_STATIC_IP_FIELDS
+        <action>disable:SAVEBUTTON</action>
+       </button>
+       <button tooltip-text=\"$(gettext 'Update the network interface list, usually after inserting or removing a USB wireless or ethernet device. ')\">
+        <input file stock=\"gtk-refresh\"></input>
+        <label>$(gettext 'Refresh')</label>
+        <action>clear:IF</action>    
+        <action>refresh:IF</action>
+        <action>clear:IGNORE</action>
+        <action>disable:IGNORE</action>
+        <action>clear:AUTODHCP</action>
+        <action>disable:AUTODHCP</action>
+        $CLEAR_AND_DISABLE_STATIC_IP_FIELDS    
+        <action>disable:SAVEBUTTON</action>
+       </button>
+      </hbox>
+     </vbox>
+    </hbox>
+    </frame>
+    <hbox space-expand=\"true\">
+     <button tooltip-text=\"$(gettext 'View network information')\"> <input file stock=\"gtk-execute\"></input>
+      <label>$(gettext 'Network Status')</label>
+      <action>ipinfo&</action>
+     </button>
+     <button tooltip-text=\"$(gettext 'View the dhcpcd log file')\">
+      <input file stock=\"gtk-find\"></input>
+      <label>$(gettext 'View DHCP Log')</label>
+      <action> [ -f /var/log/messages ] && grep dhcpcd /var/log/messages > /tmp/dhcpcd.log</action>
+      <action> [ -f /var/log/everything/current ] && grep dhcpcd /var/log/everything/current > /tmp/dhcpcd.log</action>
+      <action>Xdialog --wmclass \"frisbee\" --title \"Frisbee - $(gettext 'DHCP Log')\" --no-cancel --ok-label \"Close\"  --textbox /tmp/dhcpcd.log 30 100& </action>
+     </button>
+    </hbox>
+    <hbox space-expand=\"true\">
+     <button tooltip-text=\"$(gettext 'Edit the dhcpcd configuration file')\"> 
+	  <input file stock=\"gtk-edit\"></input>
+	  <label>$(gettext 'Edit dhcpcd.conf')</label>
+	  <action>dhcpconf_edit</action>
+	 </button>
+     <button tooltip-text=\"$(gettext 'Restart the dhcpcd daemon')\">
+      <input file stock=\"gtk-redo\"></input> 
+      <label>$(gettext 'Restart DHCP')</label>
+      <action>gtkdialog-splash -placement center -timeout 3 -bg orange -text  \"$(gettext 'Resetting DHCP processes')\"&</action>
+      <action>reset_dhcp&</action>
+     </button>
+    </hbox>
+   </vbox>"
+	#End of NETWORKS_TAB
+
+	TELEPHONE_TAB="
+   <vbox>
+    <hbox space-expand=\"true\">
+     <radiobutton $PPPOEMBLSELSENS tooltip-text=\"$PPPOEMBLSELTIP\">
+      <label>"$(gettext 'Configure PPPoE for DSL')"</label>
+      <variable>PPPOESEL</variable>
+      <input>grep -q '^pppoe_select=1' /etc/frisbee/frisbee.conf && echo true || echo false</input>
+      <action>if true grep -q '^pppoe_select=1' /etc/frisbee/frisbee.conf || sed -i -e '/^pppoe_select=/ s/=.*/=1/' /etc/frisbee/frisbee.conf</action>
+      <action>if true refresh:PPPOEPSWD</action>
+      <action>if true refresh:PPPOEFRM</action>
+      <action>if true enable:PPPOEFRM</action>
+      <action>if false refresh:PPPOEUIDREQD</action>
+      <action>if false save_pppoe_configuration</action>
+      <action>if false disable:PPPOEFRM</action>
+      <action>if true disable:SAVEBTN</action>
+     </radiobutton>
+     <radiobutton tooltip-text=\"$(gettext 'Click this button to set up a mobile wireless connection and enter the specifics below.')\">
+      <label>"$(gettext 'Configure mobile wireless')"</label>
+      <variable>MBLSEL</variable>
+      <input>grep -q '^pppoe_select=0' /etc/frisbee/frisbee.conf && echo true || echo false</input>
+      <action>if true grep -q '^pppoe_select=0' /etc/frisbee/frisbee.conf || sed -i -e '/^pppoe_select=/ s/=.*/=0/' /etc/frisbee/frisbee.conf</action>
+      <action>if true refresh:GPRSPSWD</action>
+      <action>if true refresh:MBLFRM</action>
+      <action>if true enable:MBLFRM</action>
+      <action>if false refresh:MBLUIDREQD</action>
+      <action>if false save_mobile_configuration</action>
+      <action>if false disable:MBLFRM</action>
+      <action>if true disable:SAVEBTN</action>
+     </radiobutton>
+    </hbox>
+    <hbox space-expand=\"true\">
+     <vbox>
+      <frame $(gettext 'PPPoE for Digital Subscriber Line (DSL)')>
+       <vbox>
+        <hbox space-expand=\"true\">
+         <text tooltip-text=\"$(gettext 'Select ethernet interface for PPPoE')\">
+         <label>$(gettext 'Ethernet Interface:')</label>
+         </text>
+         <comboboxtext>
+         <variable>PPPOEDEV</variable>
+         <input file>/tmp/.frisbee/pppoedevlist</input>
+         <action>enable:SAVEBTN</action>
+         </comboboxtext>
+        </hbox>
+        <hbox space-expand=\"true\" space-fill=\"true\">
+         <checkbox tooltip-text=\"$(gettext 'If you want the link to come up on demand (instead of being up continuously), check this box.  The link is brought down after 5 minutes idle.')\">
+          <variable>PPPOEDEMAND</variable>
+          <input>read_telephone_value pppoedemand</input>
+          <label>$(gettext 'Connect on demand')</label>
+          <action>enable:SAVEBTN</action>
+         </checkbox>
+        </hbox>
+        <hbox space-expand=\"true\" space-fill=\"true\">
+         <checkbox tooltip-text=\"$(gettext 'To specify Domain Name Server IP addresses or to prevent obtaining the DNS IP address, check this box and enter 1 or 2 IP addresses or leave blank to make no change to current setting.')\">
+          <variable>PPPOEDNS</variable>
+          <input>read_telephone_value pppoedns</input>
+          <label>$(gettext 'Set/keep DNS1[ 2]:')</label>
+          <action>if true refresh:PPPOEDNSVALUE</action>
+          <action>if true show:PPPOEDNSVALUE</action>
+          <action>if false hide:PPPOEDNSVALUE</action>
+          <action>enable:SAVEBTN</action>
+         </checkbox>
+         <entry $SHOWPPPOEDNSVALUE>
+          <variable>PPPOEDNSVALUE</variable>
+          <input>read_telephone_value pppoednsvalue</input>
+          <action>enable:SAVEBTN</action>
+         </entry>
+        </hbox>
+        <hbox space-expand=\"true\">
+         <text tooltip-text=\"$(gettext 'Select firewall configuration for PPPoE.  Choose Standalone for a basic stand-alone web-surfing workstation, Masquerade for a machine acting as an Internet gateway or None')\">
+         <label>$(gettext 'Firewall Configuration:')</label>
+         </text>
+         <comboboxtext>
+          <variable>PPPOEFIREWALL</variable>
+          <input file>/tmp/.frisbee/pppoefirewalllist</input>
+          <action>enable:SAVEBTN</action>
+         </comboboxtext>
+        </hbox>
+        <hbox space-expand=\"true\" space-fill=\"true\">
+         <checkbox tooltip-text=\"$(gettext 'If internet service provider requires a user name and password, check this box and enter them below.  Unchecking the box will clear them without changing the saved copies.')\">
+          <variable>PPPOEUIDREQD</variable>
+          <input>read_telephone_value pppoeuidreq</input>
+          <label>$(gettext 'Authenticate')</label>
+          <action>if true refresh:PPPOEUSER</action>
+          <action>if true show:PPPOEUSER</action>
+          <action>if true refresh:PPPOEPSWD</action>
+          <action>if true show:PPPOEPSWD</action>
+          <action>if true refresh:PPPOEPAPONLY</action>
+          <action>if true show:PPPOEPAPONLY</action>
+          <action>if true refresh:PPPOEUSERBOX</action>
+          <action>if true show:PPPOEUSERBOX</action>
+          <action>if true refresh:PPPOEPSWDBOX</action>
+          <action>if true show:PPPOEPSWDBOX</action>
+          <action>if false clear:PPPOEUSER</action>
+          <action>if false clear:PPPOEPSWD</action>
+          <action>if false hide:PPPOEUSERBOX</action>
+          <action>if false hide:PPPOEPSWDBOX</action>
+          <action>if false hide:PPPOEPAPONLY</action>
+          <action>if false enable:SAVEBTN</action>
+         </checkbox>
+         <checkbox $SHOWPPPOEUID tooltip-text=\"$(gettext 'If internet service provider requires PAP authenticatiion, check this box.')\">
+          <variable>PPPOEPAPONLY</variable>
+          <input>read_telephone_value pppoepaponly</input>
+          <label>$(gettext 'PAP auth only')</label>
+          <action>enable:SAVEBTN</action>
+         </checkbox>
+        </hbox>
+        <hbox $SHOWPPPOEUID space-expand=\"true\">
+         <text>
+         <label>$(gettext 'Username:')</label>
+         </text>
+         <entry>
+         <variable>PPPOEUSER</variable>
+         <input>read_telephone_value pppoeuser</input>
+         <action>clear:PPPOEPSWD</action>
+         <action>refresh:PPPOEPSWD</action>
+         <action>enable:SAVEBTN</action>
+         </entry>
+         <variable>PPPOEUSERBOX</variable>
+        </hbox>
+        <hbox $SHOWPPPOEUID space-expand=\"true\">
+         <text tooltip-text=\"$(gettext "If you change this password, be aware that it will be saved by only the 'Save' and 'Connect' buttons and will be ignored if you change the 'Configure...' button.")\">
+         <label>$(gettext 'Password:')</label>
+         </text>
+         <entry>
+         <visible>password</visible>
+         <variable>PPPOEPSWD</variable>
+         $PPPOEPSWDDFLT
+         <input>read_telephone_value pppoepswd</input>
+         <action>enable:SAVEBTN</action>
+         </entry>
+         <variable>PPPOEPSWDBOX</variable>
+        </hbox>
+       </vbox>
+      <variable>PPPOEFRM</variable>
+      <sensitive>$PPPOEFRMSENS</sensitive>
+      </frame>
+     </vbox>
+
+     <vbox>
+      <frame $(gettext 'Mobile Wireless (GPRS/3G/GSM)')>
+       <vbox>
+        <hbox space-expand=\"true\">
+         <text tooltip-text=\"$(gettext "If no device detected, plug in a USB device and click the 'Refresh' button")\">
+         <label>$(gettext 'Modem Interface:')</label>
+         </text>
+         <comboboxtext>
+         <variable>GPRSDEV</variable>
+         <input>build_mobile_device_list</input>
+         <default>$(read_telephone_value device || echo =--Error--)</default>
+         <input file>/tmp/.frisbee/mobiledevlist</input>
+         <action>enable:SAVEBTN</action>
+         </comboboxtext>
+        </hbox>
+        <hbox space-expand=\"true\">
+         <text tooltip-text=\"$(gettext "Access Point Name for Internet Service Provider's data service")\">
+         <label>APN:</label>
+         </text>
+         <entry>
+         <input>read_telephone_value apn</input>
+         <variable>GPRSAPN</variable>
+         <action>enable:SAVEBTN</action>
+         </entry>
+        </hbox>
+        <hbox space-expand=\"true\">
+         <text tooltip-text=\"$(gettext "Dialup access number for Internet Service Provider's data service, such as *99#, *99***1#, #777")\">
+         <label>$(gettext 'Access Number:')</label>
+         </text>
+         <comboboxtext>
+          <variable>GPRSNBR</variable>
+          <default>\"$(read_telephone_value number)\"</default>
+          <input file>/tmp/.frisbee/mobilenbrlist</input>
+          <action>enable:SAVEBTN</action>
+         </comboboxtext>
+        </hbox>
+        <hbox space-expand=\"true\">
+         <text tooltip-text=\"$(gettext "A four-digit Personal Identification Number (PIN) associated with the phone/modem's SIM card")\">
+         <label>$(gettext 'SIM PIN:')</label>
+         </text>
+         <entry>
+         <input>read_telephone_value pin</input>
+         <variable>GPRSPIN</variable>
+         <action>enable:SAVEBTN</action>
+         </entry>
+        </hbox>
+        <hbox space-expand=\"true\" space-fill=\"true\">
+         <checkbox tooltip-text=\"$(gettext 'If internet service provider requires a user name and password, check this box and enter them below.  Unchecking the box will clear them without changing the saved copies.')\">
+          <variable>MBLUIDREQD</variable>
+          <input>read_telephone_value uidreq</input>
+          <label>$(gettext 'Authenticate')</label>
+          <action>if true refresh:GPRSUSER</action>
+          <action>if true show:GPRSUSER</action>
+          <action>if true refresh:GPRSPSWD</action>
+          <action>if true show:GPRSPSWD</action>
+          <action>if true refresh:GPRSPAPONLY</action>
+          <action>if true show:GPRSPAPONLY</action>
+          <action>if true refresh:MBLUSERBOX</action>
+          <action>if true show:MBLUSERBOX</action>
+          <action>if true refresh:MBLPSWDBOX</action>
+          <action>if true show:MBLPSWDBOX</action>
+          <action>if false clear:GPRSUSER</action>
+          <action>if false clear:GPRSPSWD</action>
+          <action>if false hide:MBLUSERBOX</action>
+          <action>if false hide:MBLPSWDBOX</action>
+          <action>if false hide:GPRSPAPONLY</action>
+          <action>if false enable:SAVEBTN</action>
+         </checkbox>
+         <checkbox $SHOWMBLUID tooltip-text=\"$(gettext 'If internet service provider requires PAP authenticatiion, check this box.')\">
+          <variable>GPRSPAPONLY</variable>
+          <input>read_telephone_value gprspaponly</input>
+          <label>$(gettext 'PAP auth only')</label>
+          <action>enable:SAVEBTN</action>
+         </checkbox>
+        </hbox>
+        <hbox $SHOWMBLUID space-expand=\"true\">
+         <text>
+         <label>$(gettext 'Username:')</label>
+         </text>
+         <entry>
+         <variable>GPRSUSER</variable>
+         <input>read_telephone_value gprsuser</input>
+         <action>clear:GPRSPSWD</action>
+         <action>refresh:GPRSPSWD</action>
+         <action>enable:SAVEBTN</action>
+         </entry>
+         <variable>MBLUSERBOX</variable>
+        </hbox>
+        <hbox $SHOWMBLUID space-expand=\"true\">
+         <text tooltip-text=\"$(gettext "If you change this password, be aware that it will be saved by only the 'Save' and 'Connect' buttons and will be ignored if you change the 'Configure...' button.")\">
+         <label>$(gettext 'Password:')</label>
+         </text>
+         <entry>
+         <visible>password</visible>
+         <variable>GPRSPSWD</variable>
+         $GPRSPSWDDFLT
+         <input>read_telephone_value gprspswd</input>
+         <action>enable:SAVEBTN</action>
+         </entry>
+         <variable>MBLPSWDBOX</variable>
+        </hbox>
+       </vbox>
+      <variable>MBLFRM</variable>
+      <sensitive>$MBLFRMSENS</sensitive>
+      </frame>
+     </vbox>
+    </hbox>
+      <hbox space-expand=\"true\">
+       <button tooltip-text=\"$(gettext 'Update the interface device selection list, usually after inserting or removing a USB wireless modem or ethernet device. ')\">
+       <input file stock=\"gtk-refresh\"></input>
+       <label>$(gettext 'Refresh')</label>
+       <action condition=\"sensitive_is_true(PPPOEFRM)\">build_pppoe_interface_list</action>
+       <action condition=\"sensitive_is_true(PPPOEFRM)\">clear:PPPOEDEV</action>    
+       <action condition=\"sensitive_is_true(PPPOEFRM)\">refresh:PPPOEDEV</action>    
+       <action condition=\"sensitive_is_true(MBLFRM)\">clear:GPRSDEV</action>    
+       <action condition=\"sensitive_is_true(MBLFRM)\">refresh:GPRSDEV</action>    
+       </button>
+       <button tooltip-text=\"$(gettext 'Save the configuration values. ')\">
+       <input file stock=\"gtk-save\"></input>
+       <label>$(gettext 'Save')</label>
+       <sensitive>false</sensitive>
+       <variable>SAVEBTN</variable>
+       <action condition=\"sensitive_is_true(PPPOEFRM)\">save_pppoe_configuration</action>
+       <action condition=\"sensitive_is_true(PPPOEFRM)\">save_pppoe_password</action>
+       <action condition=\"sensitive_is_true(PPPOEFRM)\">refresh:PPPOEUIDREQD</action>
+       <action condition=\"sensitive_is_true(MBLFRM)\">save_mobile_configuration</action>
+       <action condition=\"sensitive_is_true(MBLFRM)\">save_mobile_password</action>
+       <action condition=\"sensitive_is_true(MBLFRM)\">refresh:MBLUIDREQD</action>
+       <action>disable:SAVEBTN</action>
+       </button>
+       <button tooltip-text=\"$(gettext 'View status')\">
+       <input file stock=\"gtk-info\"></input>
+       <label>$(gettext 'Status')</label>
+       <action condition=\"sensitive_is_true(PPPOEFRM)\">Xdialog --wmclass \"frisbee\"  --title \"Frisbee PPPoE\"  --msgbox \"\$(pppoe-status)\" 0 0 &</action>
+       <action condition=\"sensitive_is_true(MBLFRM)\">mobile_status</action>
+       <action>disable:SAVEBTN</action>
+       </button>
+       <button tooltip-text=\"$(gettext 'Connect now')\">
+       <input file stock=\"gtk-connect\"></input>
+       <label>$(gettext 'Connect')</label>
+       <action condition=\"sensitive_is_true(PPPOEFRM)\">save_pppoe_configuration</action>
+       <action condition=\"sensitive_is_true(PPPOEFRM)\">save_pppoe_password</action>
+       <action condition=\"sensitive_is_true(PPPOEFRM)\">refresh:PPPOEUIDREQD</action>
+       <action condition=\"sensitive_is_true(MBLFRM)\">save_mobile_configuration</action>
+       <action condition=\"sensitive_is_true(MBLFRM)\">save_mobile_password</action>
+       <action condition=\"sensitive_is_true(MBLFRM)\">refresh:MBLUIDREQD</action>
+       <action>disable:SAVEBTN</action>
+       <action condition=\"sensitive_is_true(PPPOEFRM)\">connect_pppoe</action>
+       <action condition=\"sensitive_is_true(MBLFRM)\">frisbee --connect-gprs &</action>
+       </button>
+       <button tooltip-text=\"$(gettext 'Disconnect now')\">
+       <input file stock=\"gtk-disconnect\"></input>
+       <label>$(gettext 'Disconnect')</label>
+       <action condition=\"sensitive_is_true(PPPOEFRM)\">disconnect_pppoe</action>
+       <action condition=\"sensitive_is_true(MBLFRM)\">frisbee --disconnect-gprs</action>
+       </button>
+      </hbox>
+   </vbox>"
+	#("#geany) End of TELEPHONE_TAB
+
+	export FRISBEE_MAIN_DIALOG="
+<window title=\"Frisbee $VERSION - $(gettext 'Configure Networks')\" image-name=\"/usr/share/pixmaps/frisbee.png\" window-position=\"1\">
+ <vbox>
+  <notebook labels=\"$(gettext 'Wireless Networks|Network Interfaces|Telephone Networks')\">
+
+$WIRELESS_TAB
+$NETWORKS_TAB
+$TELEPHONE_TAB
+
+  </notebook>
+  <hbox>
+   <hbox space-expand=\"true\">
+    <checkbox tooltip-text=\"$(gettext 'Show notices of changes to network interface states')\">
+     <variable>ENNOTIFY</variable>
+     <input>grep -q '^announce_state_changes=1' /etc/frisbee/frisbee.conf && echo true || echo false</input>
+     <label>$(gettext 'Announce State Changes')</label>
+     <action>if true grep -q '^announce_state_changes=1' /etc/frisbee/frisbee.conf || sed -i -e '/^announce_state_changes=/ s/=.*/=1/' /etc/frisbee/frisbee.conf</action>
+     <action>if true [ -f /etc/dhcpcd_state_notify ] || touch /etc/dhcpcd_state_notify</action>
+     <action>if false grep -q '^announce_state_changes=0' /etc/frisbee/frisbee.conf || sed -i -e '/^announce_state_changes=/ s/=.*/=0/' /etc/frisbee/frisbee.conf</action>
+     <action>if false [ -f /etc/dhcpcd_state_notify ] && rm -f /etc/dhcpcd_state_notify</action>
+    </checkbox>
+   </hbox>
+   <button tooltip-text=\"$(gettext 'Exit')\">
+    <input file stock=\"gtk-quit\"></input>
+    <label>$(gettext 'Exit')</label>
+    <action condition=\"sensitive_is_true(PPPOEFRM)\">save_pppoe_configuration</action>
+    <action condition=\"sensitive_is_true(MBLFRM)\">save_mobile_configuration</action>
+    <action type=\"exit\">Exit-NOW</action>
+   </button>
+  </hbox>
+ </vbox>
+ <action signal=\"show\">grep -q '^wireless_enabled=1' /etc/frisbee/frisbee.conf && if_connected && gtkdialog-splash -placement center -bg orange -timeout 3 -text \"$(gettext 'Scanning for available networks. Please wait awhile for them to display.')\" &</action>
+</window>
+"
+	#("#geany) End of MAIN_DIALOG
+
+	EXIT=$(gtkdialog --program=FRISBEE_MAIN_DIALOG --center | grep ^EXIT | cut -f 2 -d = | grep -v 'Exit on' | tail -n 1 | tr -d \")
+	rm -f /tmp/.frisbee/* 2>/dev/null
+
+	[[ "$EXIT" != "RESTART" ]] && break #140819...
+	
+	gtkdialog-splash -placement center -bg orange -text "$(gettext 'Stopping network devices')" &
+	SPLASHPID=$!
+	/etc/init.d/frisbee.sh stop
+	kill $SPLASHPID 2>/dev/null
+	sleep 0.5
+	gtkdialog-splash -placement center -bg orange -text "$(gettext 'Restarting network devices')" &
+	SPLASHPID=$!
+	/etc/init.d/frisbee.sh start
+	kill $SPLASHPID 2>/dev/null
+done #140819 end
+exit 0

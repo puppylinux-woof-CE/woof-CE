@@ -6,21 +6,23 @@
 VERSION=2
 
 #wait for indexgen.sh to finish
-while [ "$(ps | grep indexgen | grep -v grep)" != "" ];do sleep 0.5;done
+while [ "$(busybox ps | grep indexgen | grep -v grep)" != "" ];do sleep 0.5;done
 
 export TEXTDOMAIN=petget___pkg_chooser.sh
 export OUTPUT_CHARSET=UTF-8
+
+# Do not allow another instance
+wait
+PCN=$(pidof pkg_chooser.sh | wc -w)
+PPN=$(pidof ppm | wc -w)
+[ "$(( $PCN + $PPN ))" -gt 2 ] && /usr/lib/gtkdialog/box_splash -timeout 3 -bg \
+	red -text "$(gettext 'PPM is already running. Exiting.')" && exit 0
+
 LANG1="${LANG%_*}" #ex: de
 HELPFILE="/usr/local/petget/help.htm"
 [ -f /usr/local/petget/help-${LANG1}.htm ] && HELPFILE="/usr/local/petget/help-${LANG1}.htm"
 
 [ "`whoami`" != "root" ] && exec sudo -A ${0} ${@} #110505
-
-# Do not allow another instance
-sleep 0.3
-[ "$( ps | grep -E '/usr/local/bin/ppm|/usr/local/petget/pkg_chooser' | grep -v -E 'grep|geany|leafpad' | wc -l)" -gt 2 ] \
-	&& . /usr/lib/gtkdialog/box_splash -timeout 3 -bg red -text "$(gettext 'PPM is already running. Exiting.')" \
-		&& exit 0
 
 # Set the skip-space flag
 if [ "$(cat /var/local/petget/sc_category 2>/dev/null)" = "true" ] && \
@@ -260,8 +262,8 @@ if [ ! -f /tmp/petget_installed_patterns_system ];then
  echo "$INSTALLED_PATTERNS_SYS" > /tmp/petget_installed_patterns_system
  #PKGS_SPECS_TABLE also has system-installed names, some of them are generic combinations of pkgs...
  . /etc/rc.d/BOOTCONFIG
- if [ "$(echo $EXTRASFSLIST | grep $DISTRO_ZDRVSFS)" = "" -a \
-   "$(echo $LASTUNIONRECORD | grep $DISTRO_ZDRVSFS)" = "" ]; then
+ if [ "$(echo $EXTRASFSLIST | grep devx_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION} )" = "" -a \
+   "$(echo $LASTUNIONRECORD | grep devx_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION} )" = "" ]; then
   INSTALLED_PATTERNS_GEN="`echo "$PKGS_SPECS_TABLE" | grep '^yes' | grep -v 'exe>dev' | cut -f 2 -d '|' |  sed -e 's%^%|%' -e 's%$%|%' -e 's%\\-%\\\\-%g'`"
  else
   INSTALLED_PATTERNS_GEN="`echo "$PKGS_SPECS_TABLE" | grep '^yes' | cut -f 2 -d '|' |  sed -e 's%^%|%' -e 's%$%|%' -e 's%\\-%\\\\-%g'`"
@@ -355,13 +357,8 @@ echo -n "" > /tmp/petget_active_repo_list
 REPOS_RADIO=""
 repocnt=0
 #sort with -puppy-* repos last...
-if [ "$DISTRO_BINARY_COMPAT" = "puppy" ];then
- aPRE="`echo -n "$PKG_REPOS_ENABLED" | tr ' ' '\n' | grep '\-puppy\-' | tr -s '\n' | tr '\n' ' '`"
- bPRE="`echo -n "$PKG_REPOS_ENABLED" | tr ' ' '\n' | grep -v '\-puppy\-' | tr -s '\n' | tr '\n' ' '`"
-else
- aPRE="`echo -n "$PKG_REPOS_ENABLED" | tr ' ' '\n' | grep -v '\-puppy\-' | tr -s '\n' | tr '\n' ' '`"
- bPRE="`echo -n "$PKG_REPOS_ENABLED" | tr ' ' '\n' | grep '\-puppy\-' | tr -s '\n' | tr '\n' ' '`"
-fi
+aPRE="`echo -n "$PKG_REPOS_ENABLED" | tr ' ' '\n' | grep -v '\-puppy\-' | tr -s '\n' | tr '\n' ' '`"
+bPRE="`echo -n "$PKG_REPOS_ENABLED" | tr ' ' '\n' | grep '\-puppy\-' | tr -s '\n' | tr '\n' ' '`"
 for ONEREPO in $aPRE $bPRE #ex: ' Packages-puppy-precise-official Packages-puppy-noarch-official Packages-ubuntu-precise-main Packages-ubuntu-precise-multiverse '
 do
  [ ! -f /root/.packages/$ONEREPO ] && continue
@@ -407,36 +404,36 @@ progressbar_info () {
 		# Info window/dialogue (display and option to save "missing" info)
 		export NEEDED_DIALOG='
 		<window title="'$(gettext 'Puppy Package Manager')'" icon-name="gtk-about" default_height="350">
-		 <vbox space-expand="true" space-fill="true">
-		 '"`/usr/lib/gtkdialog/xml_info fixed package_add.svg 60 " " "$(gettext "Dependencies needed")"`"'
-		 <hbox space-expand="true" space-fill="true">
-		  <hbox scrollable="true" hscrollbar-policy="2" vscrollbar-policy="2" space-expand="true" space-fill="true">
-		   <hbox space-expand="false" space-fill="false">
-            <eventbox name="bg_report" space-expand="true" space-fill="true">
-             <vbox margin="5" hscrollbar-policy="2" vscrollbar-policy="2" space-expand="true" space-fill="true">
-              '"`/usr/lib/gtkdialog/xml_pixmap dialog-info.svg 32`"'
-              <text angle="90" wrap="false" yalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"<big><b><span color='"'#15BC15'"'>'$(gettext 'Needed')'</span></b></big> "</label></text>
-            </vbox>
-           </eventbox>
-          </hbox>
-         <vbox scrollable="true" shadow-type="0" hscrollbar-policy="2" vscrollbar-policy="1" space-expand="true" space-fill="true">
-          <text ypad="5" xpad="5" yalign="0" xalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"<i><b>'${NEEDED_PGKS}' </b></i>"</label></text>
-         </vbox>
-        </hbox>
-       </hbox>
+		<vbox space-expand="true" space-fill="true">
+		  '"`/usr/lib/gtkdialog/xml_info fixed package_add.svg 60 " " "$(gettext "Dependencies needed")"`"'
+		  <hbox space-expand="true" space-fill="true">
+		    <hbox scrollable="true" hscrollbar-policy="2" vscrollbar-policy="2" space-expand="true" space-fill="true">
+		      <hbox space-expand="false" space-fill="false">
+		        <eventbox name="bg_report" space-expand="true" space-fill="true">
+		          <vbox margin="5" hscrollbar-policy="2" vscrollbar-policy="2" space-expand="true" space-fill="true">
+		            '"`/usr/lib/gtkdialog/xml_pixmap dialog-info.svg 32`"'
+		            <text angle="90" wrap="false" yalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"<big><b><span color='"'#15BC15'"'>'$(gettext 'Needed')'</span></b></big> "</label></text>
+		          </vbox>
+		        </eventbox>
+		      </hbox>
+		      <vbox scrollable="true" shadow-type="0" hscrollbar-policy="2" vscrollbar-policy="1" space-expand="true" space-fill="true">
+		        <text ypad="5" xpad="5" yalign="0" xalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"<i><b>'${NEEDED_PGKS}' </b></i>"</label></text>
+		      </vbox>
+		    </hbox>
+		  </hbox>
 
-       <hbox space-expand="false" space-fill="false">
-        <button>
-         <label>'$(gettext 'View details')'</label>
-         '"`/usr/lib/gtkdialog/xml_button-icon document_viewer`"'
-         <action>defaulttextviewer /tmp/overall_dependencies &</action>
-        </button>
-        <button ok></button>
-        '"`/usr/lib/gtkdialog/xml_scalegrip`"'
-       </hbox>
-      </vbox>
-     </window>'
-     RETPARAMS="`gtkdialog --center -p NEEDED_DIALOG`"
+		  <hbox space-expand="false" space-fill="false">
+		    <button>
+		      <label>'$(gettext 'View details')'</label>
+		      '"`/usr/lib/gtkdialog/xml_button-icon document_viewer`"'
+		      <action>defaulttextviewer /tmp/overall_dependencies &</action>
+		    </button>
+		    <button ok></button>
+		    '"`/usr/lib/gtkdialog/xml_scalegrip`"'
+		  </hbox>
+		</vbox>
+		</window>'
+	RETPARAMS="`gtkdialog --center -p NEEDED_DIALOG`"
 	fi
 }
 export -f progressbar_info
@@ -493,14 +490,14 @@ S='<window title="'$(gettext 'Puppy Package Manager v')''${VERSION}'" width-requ
         </button>
         <togglebutton tooltip-text="'$(gettext 'Open/Close the Uninstall packages window')'" space-expand="false" space-fill="false">
           <label>" '$(gettext 'Uninstall')' "</label>
-					<variable>tgb0</variable>
-					<input file>'"$ICONDIR"'/false.svg</input>
-					<input file>'"$ICONDIR"'/tgb0.svg</input>
-					<height>20</height>
-					<action>ln -sf '"$ICONDIR"'/$tgb0.svg '"$ICONDIR"'/tgb0.svg</action>
-					<action>refresh:tgb0</action>
-					<action>save:tgb0</action>
-					<output file>'"$ICONDIR"'/outputfile</output>
+          <variable>tgb0</variable>
+          <input file>'"$ICONDIR"'/false.svg</input>
+          <input file>'"$ICONDIR"'/tgb0.svg</input>
+          <height>20</height>
+          <action>ln -sf '"$ICONDIR"'/$tgb0.svg '"$ICONDIR"'/tgb0.svg</action>
+          <action>refresh:tgb0</action>
+          <action>save:tgb0</action>
+          <output file>'"$ICONDIR"'/outputfile</output>
           <variable>BUTTON_UNINSTALL</variable>
           <action>if true show:VBOX_REMOVE</action>
           <action>if false hide:VBOX_REMOVE</action>
@@ -724,6 +721,7 @@ S='<window title="'$(gettext 'Puppy Package Manager v')''${VERSION}'" width-requ
     '"`/usr/lib/gtkdialog/xml_scalegrip`"'
     <action signal="button-release-event">progressbar_info</action>
    </eventbox>
+   '"`/usr/lib/gtkdialog/xml_scalegrip`"'
    <variable>DEP_INFO</variable>
   </hbox>
 </vbox>

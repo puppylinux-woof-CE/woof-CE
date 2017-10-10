@@ -1,8 +1,7 @@
+#!/bin/sh
 #Barry Kauler 2007 www.puppylinux.com
 #2007 Lesser GPL licence v2 (http://www.fsf.org/licensing/licenses/lgpl.html)
 #created for v3.01, oct 2007.
-#v555 updated with DISTRO_FILE_PREFIX.
-#w478 update.
 #w482 use xorriso instead of cdrtools/cdrkit if installed,
 #w482 variables CDRECORD and MKISOFS are exportedby rc.shutdown and savesessio-dvd.
 #w482 replace -pad in cdrecord with padsize=300k.
@@ -13,9 +12,8 @@
 
 KERNELVER="`uname -r`" #w478
 
-DEVCONSOLE="/dev/console" #when X not running
-PSINFO="`ps`"
-[ "`echo "$PSINFO" | grep ' X :0'`" != "" ] && DEVCONSOLE="/dev/tty" #running in rxvt.
+DEVCONSOLE="/dev/tty" #running in rxvt.
+pidof X >/dev/null || pidof Xorg  >/dev/null || DEVCONSOLE="/dev/console" #when X not running
 
 #waittrayclosedfunc is used by /etc/rc.d/rc.shutdown and /usr/sbin/savesession-dvd.
 #v2.16...
@@ -29,12 +27,10 @@ waittrayclosed_func() {
  echo -e "\\033[1;34mIF STOPPED LONG TIME AT THIS MSG, MAKE SURE TRAY IS CLOSED THEN PRESS ENTER KEY:\\033[0;39m " >$DEVCONSOLE #34=blue
 }
 
-
 #multisavefunc is used by /etc/rc.d/rc.shutdown and /usr/sbin/savesession-dvd.
 #these variables must be preset before calling...
 #PUPSAVE=partition,filesystem,/${DISTRO_FILE_PREFIX}save.2fs where 1st 2 are the partition holding the file.
 #SAVEPART=filesystem which is same as above filesystem.
-#PUPPYVERSION=version example: 301.
 multisavefunc() {
  #save session to folder on multisession CD/DVD.
  [ "$CDRECORD" = "" ] && CDRECORD='cdrecord' #w482 precaution.
@@ -64,7 +60,6 @@ Press ENTER key..." 0 0 >$DEVCONSOLE
   
  ##v3.01 have restored this... 
  HDRCDR="$CDR" #w482
-  
  dialog --yes-label "SAVE" --no-label "NO SAVE" --yesno "Please insert the Puppy live-CD/DVD media that you booted from, into the same CD/DVD drive that you booted from -- this is /dev/$SAVEPART and it must be a burner drive!
 
 Insert CD/DVD media now, then press ENTER key to save session...
@@ -81,7 +76,7 @@ Press ENTER key to close drive tray" 0 0 >$DEVCONSOLE
   waittrayclosed_func $CDR #v2.16
   return
  fi
- 
+
  clear >$DEVCONSOLE
  if [ "`cddetect -d${CDR} | grep '^no disc!'`" != "" ];then #v2.22
   echo -e "\\033[1;31mIt seems that the media is not inserted." >$DEVCONSOLE #31=red
@@ -104,24 +99,30 @@ Press ENTER key to close drive tray" 0 0 >$DEVCONSOLE
  fi
  if [ "$DVDMNTPT" != "" ];then
   if [ $ORIGPUPMODE -eq 77 ];then #bypass first boot, PUPMODE=5. v2.22
-   [ "`find $DVDMNTPT -maxdepth 1 -type d -name 20[0-9][0-9]*`" = "" ] && NEWISO="yes"
+   [ "`find $DVDMNTPT -maxdepth 1 -type d -name '20[0-9][0-9]*'`" != "" ] && NEWISO="yes"
   fi
   umount $CDR 2>/dev/null
  fi
 
- #want to copy contents of /initrd/pup_rw to a new folder on /dev/$SAVEPART...
+ pup_rw="/initrd/pup_rw"
+ [ -L /initrd/pup_rw ] && pup_rw="$(readlink /initrd/pup_rw)" #new init
+
+ pup_ro1='/initrd/pup_ro1'
+ [ -L /initrd/pup_ro1 ] && pup_ro1="$(readlink /initrd/pup_ro1)" #new init
+
+ #want to copy contents of ${pup_rw} to a new folder on /dev/$SAVEPART...
  MYDATE="`date "+%Y-%m-%d-%H-%M"`" #this will become the folder name on cd.
 
  SAVEABORT="" #v3.01
- while [ 1 ];do #WHILELOOP1
-
+ while [ 1 ] #WHILELOOP1
+ do
   #if have new live-cd, need a 'full save', not just what is in pup_rw. Maybe easiest
   #way is to save two tracks, pup_ro1, which has all prior saved folders read from cd
   #at bootup, then save latest session, pup_rw...
   if [ "$NEWISO" = "yes" ];then
    echo "Burning data from previous $MEDIATYPE to first track..." >$DEVCONSOLE
    #use last folder name from previous cd, to avoid name conflict with next folder...
-   FOLDEROLD="`echo -n "$PUPSAVE" | cut -f 2 -d '/'`"
+   FOLDEROLD="`echo -n "$PUPSAVE" | cut -f 3 -d ','`"
    #minimal error checking here, errors reported when save current session (below)...
    if [ "$MEDIATYPE" = "CD" ];then
     waittrayclosed_func $CDR #v2.16 v3.01 now HDRCDR...
@@ -131,33 +132,31 @@ Press ENTER key to close drive tray" 0 0 >$DEVCONSOLE
      break
     else
      waittrayclosed_func $CDR #v2.16
-     #v2.02 added -pad ...  v3.01 now HDRCDR...
-     #v2.16 removed -pad from cdrecord as mkisofs has -pad by default... no, leave for now...
-     $MKISOFS -D -R -C $SECT -M $CDR -quiet -new-dir-mode 0755 -graft-points ${FOLDEROLD}=/initrd/pup_ro1 | $CDRECORD -multi -data -tao -eject -v speed=4 gracetime=2 padsize=300k dev=${HDRCDR} -
+     $MKISOFS -D -R -C $SECT -M $CDR -quiet -new-dir-mode 0755 -graft-points ${FOLDEROLD}=${pup_ro1} | \
+      $CDRECORD -multi -data -tao -eject -v speed=4 gracetime=2 padsize=300k dev=${HDRCDR} -
     fi
    else #dvd
     waittrayclosed_func $CDR #v2.16
     #v2.16 removed '-speed=4' as got 'failed to change write speed' error on one drive...
-    growisofs -M $CDR -D -R -quiet -new-dir-mode 0755 -graft-points ${FOLDEROLD}=/initrd/pup_ro1 2> /tmp/dvderr.txt
+    growisofs -M $CDR -D -R -quiet -new-dir-mode 0755 -graft-points ${FOLDEROLD}=${pup_ro1} 2> /tmp/dvderr.txt
    fi
   fi
-  #v2.22 NEWISO=""
 
   #normal session save of new/changed files...
   #exclude .sfs files... v3.97 no, allow to save...
   REMSFS=""
   #tack on this exclude as well... (samba network drives mount here)
-  [ -d /initrd/pup_rw/root/mnt ] && REMSFS="$REMSFS -x /initrd/pup_rw/root/mnt"
+  [ -d ${pup_rw}/root/mnt ] && REMSFS="$REMSFS -x ${pup_rw}/root/mnt"
   #if a new iso, do not want to save /.badfolders file...
   if [ "$NEWISO" = "yes" ];then
-   [ -f /initrd/pup_rw/.badfolders ] && REMSFS="$REMSFS -x /initrd/pup_rw/.badfolders"
+   [ -f ${pup_rw}/.badfolders ] && REMSFS="$REMSFS -x ${pup_rw}/.badfolders"
   fi
   
   #100820 relocate /var/local so it will get saved (see 'init' script at bootup)...
-  if [ -d /initrd/pup_rw/var/local ];then
-   rm -rf /initrd/pup_rw/root/.var_saved #precaution.
-   mkdir -p /initrd/pup_rw/root/.var_saved
-   cp -a /initrd/pup_rw/var/local /initrd/pup_rw/root/.var_saved/
+  if [ -d ${pup_rw}/var/local ];then
+   rm -rf ${pup_rw}/root/.var_saved #precaution.
+   mkdir -p ${pup_rw}/root/.var_saved
+   cp -a ${pup_rw}/var/local ${pup_rw}/root/.var_saved/
   fi
 
   if [ "$MEDIATYPE" = "CD" ];then
@@ -168,14 +167,11 @@ Press ENTER key to close drive tray" 0 0 >$DEVCONSOLE
     break #v3.01
    else
     waittrayclosed_func $CDR #v2.16
-    #TSIZE="`$MKISOFS -print-size -D -R -C $SECT -M $CDR -quiet -new-dir-mode 0755 -graft-points -x /initrd/pup_rw/tmp $REMSFS -x /initrd/pup_rw/proc -x /initrd/pup_rw/sys -x /initrd/pup_rw/var -x /initrd/pup_rw/initrd -x /initrd/pup_rw/mnt ${MYDATE}=/initrd/pup_rw`"
-    TSIZE="`$MKISOFS -print-size -D -R -C $SECT -M $CDR -quiet -new-dir-mode 0755 -graft-points -x /initrd/pup_rw/tmp $REMSFS -x /initrd/pup_rw/proc -x /initrd/pup_rw/sys -x /initrd/pup_rw/var -x /initrd/pup_rw/initrd -x /initrd/pup_rw/mnt -x /initrd/pup_rw/etc/.XLOADED ${MYDATE}=/initrd/pup_rw`" #120823
+    TSIZE="`$MKISOFS -print-size -D -R -C $SECT -M $CDR -quiet -new-dir-mode 0755 -graft-points -x ${pup_rw}/tmp $REMSFS -x ${pup_rw}/dev -x ${pup_rw}/proc -x ${pup_rw}/sys -x ${pup_rw}/var -x ${pup_rw}/initrd -x ${pup_rw}/mnt -x ${pup_rw}/root/.XLOADED ${MYDATE}=${pup_rw}`" #120823
     #-J Joliet extension disabled, sometimes causes failure...
-    #v2.02 added -pad ...
     waittrayclosed_func $CDR #v2.16 v3.01 now HDRCDR...
-    #v2.16 removed -pad from cdrecord as mkisofs has -pad by default... no, leave for now...
-    #$MKISOFS -D -R -C $SECT -M $CDR -quiet -new-dir-mode 0755 -graft-points -x /initrd/pup_rw/tmp $REMSFS -x /initrd/pup_rw/proc -x /initrd/pup_rw/sys -x /initrd/pup_rw/var -x /initrd/pup_rw/initrd -x /initrd/pup_rw/mnt ${MYDATE}=/initrd/pup_rw | $CDRECORD -multi -data -tao -eject -v speed=4 gracetime=2 padsize=300k tsize=${TSIZE}s dev=${HDRCDR} -
-    $MKISOFS -D -R -C $SECT -M $CDR -quiet -new-dir-mode 0755 -graft-points -x /initrd/pup_rw/tmp $REMSFS -x /initrd/pup_rw/proc -x /initrd/pup_rw/sys -x /initrd/pup_rw/var -x /initrd/pup_rw/initrd -x /initrd/pup_rw/mnt -x /initrd/pup_rw/etc/.XLOADED ${MYDATE}=/initrd/pup_rw | $CDRECORD -multi -data -tao -eject -v speed=4 gracetime=2 padsize=300k tsize=${TSIZE}s dev=${HDRCDR} - #120823
+    $MKISOFS -D -R -C $SECT -M $CDR -quiet -new-dir-mode 0755 -graft-points -x ${pup_rw}/tmp $REMSFS -x ${pup_rw}/dev -x ${pup_rw}/proc -x ${pup_rw}/sys -x ${pup_rw}/var -x ${pup_rw}/initrd -x ${pup_rw}/mnt -x ${pup_rw}/root/.XLOADED ${MYDATE}=${pup_rw} | \
+      $CDRECORD -multi -data -tao -eject -v speed=4 gracetime=2 padsize=300k tsize=${TSIZE}s dev=${HDRCDR} - #120823
     [ $? -eq 0 ] && break
    fi
    echo "Cannot write to CD" > /tmp/dvderr.txt
@@ -183,7 +179,7 @@ Press ENTER key to close drive tray" 0 0 >$DEVCONSOLE
     waittrayclosed_func $CDR #v2.16
     #-J Joliet extension disabled, sometimes causes failure...
     #v2.16 removed '-speed=4' as got 'failed to change write speed' error on one drive...
-    growisofs -M $CDR -D -R -quiet -new-dir-mode 0755 -graft-points -x /initrd/pup_rw/tmp $REMSFS -x /initrd/pup_rw/proc -x /initrd/pup_rw/sys -x /initrd/pup_rw/var -x /initrd/pup_rw/initrd -x /initrd/pup_rw/mnt ${MYDATE}=/initrd/pup_rw 2> /tmp/dvderr.txt
+    growisofs -M $CDR -D -R -quiet -new-dir-mode 0755 -graft-points -x ${pup_rw}/tmp $REMSFS -x ${pup_rw}/dev -x ${pup_rw}/proc -x ${pup_rw}/sys -x ${pup_rw}/var -x ${pup_rw}/initrd -x ${pup_rw}/mnt ${MYDATE}=${pup_rw} 2> /tmp/dvderr.txt
     [ $? -eq 0 ] && break
   fi
   dialog --yes-label "BLANK ${MEDIATYPE}-R" --no-label "UPGRADE ${MEDIATYPE}-R" --yesno "ERROR MESSAGE:
@@ -211,20 +207,28 @@ Just select the appropriate button..." 0 0 >$DEVCONSOLE
    #get vmlinuz etc off current dvd...
    echo "Copying some files off $CDR..." >$DEVCONSOLE
    mkdir /tmp/livecd
-   cp $DVDMNTPT/isolinux.bin /tmp/livecd/
-   cp $DVDMNTPT/isolinux.cfg /tmp/livecd/
-   cp $DVDMNTPT/vmlinuz /tmp/livecd/
-   cp $DVDMNTPT/initrd.gz /tmp/livecd/
-   cp $DVDMNTPT/boot.msg /tmp/livecd/ 2> /dev/null
-   cp $DVDMNTPT/goofy.16 /tmp/livecd/ 2> /dev/null
-   cp $DVDMNTPT/logo.16 /tmp/livecd/ 2> /dev/null #w478
-   cp $DVDMNTPT/help.msg /tmp/livecd/ 2> /dev/null #w478
-   #cp $DVDMNTPT/${DISTRO_PUPPYSFS} /tmp/livecd/ 2> /dev/null
-   cp $DVDMNTPT/${DISTRO_ZDRVSFS} /tmp/livecd/ 2> /dev/null #100913
-   cp $DVDMNTPT/${DISTRO_ADRVSFS} /tmp/livecd/ 2> /dev/null
-   cp $DVDMNTPT/${DISTRO_YDRVSFS} /tmp/livecd/ 2> /dev/null
-   cp $DVDMNTPT/${DISTRO_FDRVSFS} /tmp/livecd/ 2> /dev/null
+   (
+     cd $DVDMNTPT
+     for F in vmlinuz initrd.gz grldr *efi* *EFI* *.c32 *.sh *.lst *.xpm *.jpg *.png *.bin *.cfg *.msg *.16 *.HTM* *.ICO *.INF help \
+              ${DISTRO_ZDRVSFS} ${DISTRO_FDRVSFS} ${DISTRO_ADRVSFS} ${DISTRO_YDRVSFS}
+     do
+       [ -e "$F" ] && cp $F /tmp/livecd/
+       sync
+     done
+   )
    sync
+   BOOTLOADER=""
+   [ -f /tmp/livecd/grldr ] && BOOTLOADER="-b grldr"
+   [ -f /tmp/livecd/isolinux.bin ] && BOOTLOADER="-b isolinux.bin -c boot.cat"
+   if [ "$BOOTLOADER" = "" ]; then
+     SAVEABORT="$CDR"
+     ERRORMSG="
+No boot loaders found. You need isolinux.bin
+or grldr to make bootable ${MEDIATYPE}.
+"
+     break
+   fi
+
    umount $CDR
    [ ! $? -eq 0 ] && break
    eject $CDR
@@ -233,22 +237,14 @@ NOTE: Do not press tray-close button on $MEDIATYPE drive.
 Please insert new media in tray then press ENTER key..." 0 0 >$DEVCONSOLE
    eject -t $CDR
    
-   ##echo "/$PUPSFS" > /tmp/dvdextras.txt
-   echo -n "/initrd/mnt/tmpfs/" > /tmp/dvdextras.txt #v3.01
-   [ -f /initrd/mnt/tmpfs/${DISTRO_PUPPYSFS} ] && echo "/initrd/mnt/tmpfs/${DISTRO_PUPPYSFS}" >> /tmp/dvdextras.txt #100913
-   #ls -1 /initrd/mnt/tmpfs | grep "${DISTRO_FILE_PREFIX}r" >> /tmp/dvdextras.txt
-   ls -1 /initrd/mnt/tmpfs | grep "${DISTRO_FILE_PREFIX}\-" >> /tmp/dvdextras.txt #100913 superfluous now.
-   #[ -f /initrd/mnt/tmpfs/${DISTRO_DEVXSFS} ] && echo "/initrd/mnt/tmpfs/${DISTRO_DEVXSFS}" > /tmp/dvdextras.txt #100913
-   
    waittrayclosed_func $CDR #v2.16
    if [ "$MEDIATYPE" = "DVD" ];then
     #v2.16 removed '-speed=4' as got 'failed to change write speed' error on one drive...
-    growisofs -Z $CDR -R -D -quiet -b isolinux.bin -c boot.cat -no-emul-boot -boot-load-size 4 -boot-info-table -path-list /tmp/dvdextras.txt /tmp/livecd
+    growisofs -Z $CDR -R -D -quiet ${BOOTLOADER} -no-emul-boot -boot-load-size 4 -boot-info-table -path-list /tmp/livecd
     [ ! $? -eq 0 ] && break
    else
-    #v2.02 added -pad ...
-    #v2.16 removed -pad from cdrecord as mkisofs has -pad by default... no, leave for now...
-    $MKISOFS -D -R -quiet -b isolinux.bin -c boot.cat -no-emul-boot -boot-load-size 4 -boot-info-table -path-list /tmp/dvdextras.txt /tmp/livecd | $CDRECORD -multi -tao -data -v speed=4 gracetime=2 padsize=300k dev=$HDRCDR  -
+    $MKISOFS -D -R -quiet ${BOOTLOADER} -no-emul-boot -boot-load-size 4 -boot-info-table -path-list /tmp/livecd | \
+      $CDRECORD -multi -tao -data -v speed=4 gracetime=2 padsize=300k dev=$HDRCDR  -
     [ ! $? -eq 0 ] && break
    fi
   fi
@@ -277,7 +273,7 @@ ${CLOSEMSG}" 0 0 >$DEVCONSOLE
  else
   dialog --msgbox "A problem with the ${MEDIATYPE} drive ${SAVEABORT},
 unable to save to save to it. Sorry.
-
+${ERRORMSG}
 ${CLOSEMSG}" 0 0 >$DEVCONSOLE
  fi
  [ "$STILLMNTD" != "yes" ] && eject -t $CDR #close tray.
@@ -285,5 +281,4 @@ ${CLOSEMSG}" 0 0 >$DEVCONSOLE
  #waittrayclosed_func $CDR #v2.16
 } #end multisavefunc
 
-
-###END###
+### END ###

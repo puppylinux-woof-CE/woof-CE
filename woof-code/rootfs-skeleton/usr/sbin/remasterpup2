@@ -39,11 +39,9 @@
 #110808 PANZERKOPF: bug fix. 110822 reverted.
 #120323 replace 'xmessage' with 'pupmessage'.
 #120329 Xdialog bug --yesno supposed to "yes" "No" buttons, but they are "OK" "Cancel".
-#120512 01micko: support xz compression.
 #120605 rerwin: omit /dev/snd content, /dev/.udev subdirectory and modem daemons from new master (because daemons reinstalled from firmware if needed).
 #120606 rerwin: support users' replacement of stripped /root & /etc with complete directories (for "boot disk").
 #120607 rerwin: Remove indicators/files for integrated user-installed packages.
-#120628 shinobar: no change id-string for reuse
 #120721 revert 'wildcards' option (from 120605); improve /dev/snd file exclusion; exclude /usr/share/icons/hicolor/icon-theme.cache (shinobar).
 #121021 rerwin: revert 120605 modem daemon removals (because daemons no longer copied from firmware directory).
 #130203 change probedisk2 to probedisk.
@@ -83,7 +81,7 @@ choice_cdd () {
   m_14_2="$(gettext 'NO CD/DVD drives found.')"
   Xdialog --wrap --left --title "$m_01: $m_02" --msgbox "$m_14_2
 $MSG" 0 80
-  exit
+  exit 1
  fi
  if [ "$1" = "filter" ];then #130308 Filter out devices with a missing file.
   FILT_SELECTIONS=""
@@ -119,51 +117,14 @@ $(eval_gettext "(No CD or .iso file has both 'initrd.gz' and '${PUPPYSFS}'.)")"
 #LANG=C #faster, plus Xdialog happier.
 KERNELVER="`uname -r`"
 
-#120512 01micko: set compression
-COMP=""
-mksquashfs -help &>/tmp/mk #refuses to grep from stdout
-grep 'xz' /tmp/mk &>/dev/null
-[ "$?" = "0" ] && COMP="-comp xz"
-ARCH="`uname -m`"
-[ "$(uname -m|grep ^i)" ] && ARCH="`uname -m|cut -c3,4`"
-case "$ARCH" in
-86)AOPT="-Xbcj x86" ;;
-*)AOPT="" ;; #todo add other arches
-esac
-rm /tmp/mk
-COPTIONS=""${COMP}" "${AOPT}""
-#end set compression
-
 #variables created at bootup by /initrd/usr/sbin/init...
 . /etc/rc.d/PUPSTATE
 [ "$PUP_LAYER" = "" ] && PUP_LAYER="/pup_ro2"
 
 . /etc/DISTRO_SPECS
-if [ ! "$DISTRO_IDSTRING" ];then #101107
-  #need some stuff in here if want to support older puppies. maybe also more fixes needed further down.
- /usr/lib/gtkdialog/box_ok "$(gettext 'Puppy Remaster')" error "Sorry, your Puppy is too old for this script"
- exit
-else
- PUPPYSFS="$DISTRO_PUPPYSFS" #ex: puppy.sfs
- ZDRVSFS="$DISTRO_ZDRVSFS"   #ex: zdrv.sfs
- SFSBASE="`basename $PUPPYSFS .sfs`" #ex: puppy
-fi
-
-#100913 generate a new id-string...
-IDDATE="`date +%y%m%d%H%M%S`" #12 bytes, ex: 100911153319
-IDPREFIX="`echo -n "$DISTRO_FILE_PREFIX" | cut -b 1`"
-#...needs to be appended to vmlinuz, puppy.sfs, zdrv.sfs and devx.sfs
-#110422 increase size of idstring to 32 bytes...
-IDSTRING="${IDPREFIX}${IDDATE}ZZZZ${DISTRO_VERSION}"
-#...ZZZZ reserved space for future use.
-LEN1=`echo -n "$IDSTRING" | wc -c`
-LEN2=`expr 32 - $LEN1`
-EXTX=''
-while [ $LEN2 -gt 0 ];do
- LEN2=`expr $LEN2 - 1`
- EXTX="${EXTX}X"
-done
-IDSTRING="${IDSTRING}${EXTX}" #32 bytes ex: w110423092024ZZZZ5.1.2XXXXXXXXXX
+PUPPYSFS="$DISTRO_PUPPYSFS" #ex: puppy.sfs
+ZDRVSFS="$DISTRO_ZDRVSFS"   #ex: zdrv.sfs
+SFSBASE="`basename $PUPPYSFS .sfs`" #ex: puppy
 
 PPATTERN="/initrd${PUP_LAYER}"
 if [ "`mount | grep "$PPATTERN"`" = "" ];then
@@ -219,7 +180,7 @@ SIZESLACKM=`expr $SIZENEEDEDM \/ 3` #guess
 SIZENEEDEDM=`expr $SIZENEEDEDM + $SIZESLACKM`
 SIZENEEDEDM=`expr $SIZENEEDEDM + 25` #space for vmlinuz, initrd.gz, zdrv, etc
 #now choose working partition... v431 add ext4...  130216 add f2fs...
-PARTSLIST="`probepart -m 2> /dev/null | grep '^/dev/' | grep -E 'f2fs|ext2|ext3|ext4|reiserfs|msdos|vfat|ntfs' | cut -f 1-3 -d '|'`"
+PARTSLIST="`probepart -m 2> /dev/null | grep '^/dev/' | grep -E 'f2fs|ext2|ext3|ext4|reiserfs|btrfs|minix|msdos|vfat|exfat|ntfs' | cut -f 1-3 -d '|'`"
 
  echo -n "" > /tmp/schoices.txt
  echo "$PARTSLIST" |
@@ -231,7 +192,7 @@ PARTSLIST="`probepart -m 2> /dev/null | grep '^/dev/' | grep -E 'f2fs|ext2|ext3|
   ASIZE="`echo -n "$APART" | cut -f 3 -d '|'`"
   AFS="`echo -n "$APART" | cut -f 2 -d '|'`"
   AFPATTERN="^/dev/$ATAG " #v3.01
-  AFREE="`df -m | grep "$AFPATTERN" | tr -s " " | cut -f 4 -d " "`"
+  AFREE="`df -m | grep -m 1 "$AFPATTERN" | tr -s " " | cut -f 4 -d " "`"
   FLAG_RO='no' #v431
   if [ ! "$AFREE" ];then
    MNTSTATUS="($m_08)" #"not mounted"
@@ -239,18 +200,18 @@ PARTSLIST="`probepart -m 2> /dev/null | grep '^/dev/' | grep -E 'f2fs|ext2|ext3|
    mount -t $AFS /dev/$ATAG /mnt/$ATAG > /dev/null 2>&1
    if [ $? -eq 0 ];then
     if [ "$ATAG" = "fd0" ];then
-     FFREE=`df -k | grep "$AFPATTERN" | tr -s " " | cut -f 4 -d " "`
+     FFREE=`df -k | grep -m 1 "$AFPATTERN" | tr -s " " | cut -f 4 -d " "`
      AFREE="`LANG=C dc $FFREE 1024 \/ p`"
     else
-     AFREE="`df -m | grep "$AFPATTERN" | tr -s " " | cut -f 4 -d " "`"
+     AFREE="`df -m | grep -m 1 "$AFPATTERN" | tr -s " " | cut -f 4 -d " "`"
     fi
-    [ "`mount | grep "$AFPATTERN" | grep ' (rw'`" = "" ] && FLAG_RO='yes' #v431 make sure writable.
+    [ "`mount | grep -m 1 "$AFPATTERN" | grep ' (rw'`" = "" ] && FLAG_RO='yes' #v431 make sure writable.
     umount /dev/$ATAG
    else #v431
     continue
    fi
   else
-   [ "`mount | grep "$AFPATTERN" | grep ' (rw'`" = "" ] && FLAG_RO='yes' #v431 make sure writable.
+   [ "`mount | grep -m 1 "$AFPATTERN" | grep ' (rw'`" = "" ] && FLAG_RO='yes' #v431 make sure writable.
   fi
   [ "$FLAG_RO" = "yes" ] && continue #v431
   [ "$AFS" ] && echo "${ATAG} \"${m_09}: $AFS  ${m_10}: ${ASIZE}M  ${m_11}: ${AFREE}M ${MNTSTATUS}\" \\" >> /tmp/schoices.txt #v3.01 added precaution. #130302 L18L
@@ -258,11 +219,11 @@ PARTSLIST="`probepart -m 2> /dev/null | grep '^/dev/' | grep -E 'f2fs|ext2|ext3|
  SCHOICES="`cat /tmp/schoices.txt`"
 
 #add tmpfs ramdisk choice...
-SIZETMPFSM="`df -m | grep '^tmpfs' | grep '/initrd/pup_rw' | tr -s " " | cut -f 4 -d " "`"
+SIZETMPFSM=`df -m | grep '^tmpfs' | grep -E "/initrd/pup_rw|/initrd/mnt/tmpfs" | tr -s " " | cut -f 4 -d " "`
 TMPFSMSG=''
 
 if [ "$SIZETMPFSM" != "" ];then
- TOTALTMPFSM="`df -m | grep '^tmpfs' | grep '/initrd/pup_rw' | tr -s " " | cut -f 2 -d " "`"
+ TOTALTMPFSM=`df -m | grep '^tmpfs' | grep -E '/initrd/pup_rw|/initrd/mnt/tmpfs' | tr -s " " | cut -f 2 -d " "`
  if [ "$SCHOICES" = "" ];then #v3.01
   SCHOICES="ramdisk \"$m_09: tmpfs  $m_10: ${TOTALTMPFSM}M  $m_11: ${SIZETMPFSM}M ($m_07)\" \\"
  else
@@ -378,6 +339,7 @@ do
  oPTN="^${ONELOOP} "
  ONEISO="$(cat /proc/mounts | grep "$oPTN" | cut -f 2 -d ' ' | rev | cut -f 1 -d '+' | cut -f 1 -d '/' | rev)" #130301
  [ "$ONEISO" = "" ] && continue #130301 precaution.
+ ONELOOP=$(echo "$ONELOOP" | sed 's|/loop/|/loop|')
  VIRTUALCD="${VIRTUALCD} ${ONELOOP} ${ONEISO}"
 done
 m_14="$(gettext 'This remaster program needs to read some files off the current live-CD.')
@@ -423,13 +385,16 @@ Xdialog --wrap --left  --title "$m_01" --no-buttons --ignore-eof   --infobox "$m
 XPID=$!
 mkdir -p $WKGMNTPT/puppylivecdbuild
 #now copy the files... # v431JP HTM, ICO, INF
-   sync
-   for F in vmlinuz initrd.gz ${ZDRVSFS} grldr menu.lst '*.xpm' isolinux.bin isolinux.cfg '*.msg' '*.16' '*.HTM*' '*.ICO' '*.INF'
+sync
+(
+   cd $CDMNTPT
+   for F in ${ZDRVSFS} vmlinuz initrd.gz  grldr *efi* *EFI* *.c32 *.sh *.lst *.xpm *.jpg *.png *.bin *.cfg *.msg *.16 *.HTM* *.ICO *.INF help
    do
-    #130223 -n means do not override an existing file... 130304 hmmm, -n not supported, use -u ...
-    cp -a -u $CDMNTPT/$F $WKGMNTPT/puppylivecdbuild/ 2> /dev/null
-    sync
+     #130223 -n means do not override an existing file... 130304 hmmm, -n not supported, use -u ...
+     [ -e "$F" ] && cp -a -u $F $WKGMNTPT/puppylivecdbuild/
+     sync
    done
+)
 umount /dev/$BURNERDRV 2> /dev/null
 rox -D $CDMNTPT #130223
 kill $XPID
@@ -440,6 +405,17 @@ m_16_1="$(eval_gettext 'Do you like to make ${ZDRVSFS}, the separate driver file
 Xdialog --wrap --left  --title "$m_01" --default-no --ok-label "$Yes_lbl" --cancel-label "$No_lbl" --yesno "$m_16_1" 0 0
 [ $? -eq 0 ] && MKZDRV="yes" || MKZDRV=""
 [ $? -eq 255 ] && exit #130223
+
+# set compression
+/usr/lib/gtkdialog/box_yesno --yes-label "xz (default)" --no-label "gzip" --yes-first --info \
+--yes-icon "execute.svg" --no-icon "execute.svg" \
+"$m_01" "$(gettext 'You can use xz or gzip compression. Choose one...')"
+case $? in
+1) COMP="-comp gzip" ;;
+*) COMP="-comp xz -Xbcj x86" ;;
+esac
+echo "COMP=${COMP}"
+# -
 
 m_18="$(eval_gettext 'Creating the ${PUPPYSFS} file in ${WKGMNTPT}/puppylivecdbuild/.')
 $(gettext 'This can take quite a long time, so please wait.... and wait...')
@@ -479,8 +455,8 @@ TOPPLCDB=''
 [ -e /puppylivecdbuild ] && TOPPLCDB='/puppylivecdbuild'
 TOPPUPSFS=''
 [ -e /${PUPPYSFS} ] && TOPPUPSFS="/${PUPPYSFS}"
-# display terminal only for the first stage because it takes the most of time. 'squash' is a function, see above. 120512 $COPTIONS added...
-squash / $WKGMNTPT/puppylivecdbuild/$PUPPYSFS ${COPTIONS} -e /etc /proc /initrd /var /tmp /archive /mnt /root $TOPPLCDB $ANOTHER_REMOVE $DIRHOME $DIRSYS $DIRLOST $TOPPUPSFS $DIRDEVSNDFILES $DIRDEVUDEV $ICONCACHE  #120605 end #120721 avoid wildecards option, icon-theme.cache 121021
+# display terminal only for the first stage because it takes the most of time. 'squash' is a function, see above. 120512 $COMP added...
+squash / $WKGMNTPT/puppylivecdbuild/$PUPPYSFS ${COMP} -e /etc /proc /initrd /var /tmp /archive /mnt /root $TOPPLCDB $ANOTHER_REMOVE $DIRHOME $DIRSYS $DIRLOST $TOPPUPSFS $DIRDEVSNDFILES $DIRDEVUDEV $ICONCACHE  #120605 end #120721 avoid wildecards option, icon-theme.cache 121021
 sync
 
 #add pristine folders (out of current puppy.sfs)...
@@ -635,11 +611,8 @@ Xdialog --wrap --left --title "$m_01" --default-no --ok-label "$Yes_lbl" --cance
 if [ $? -eq 0 ];then
  cp -af /etc/codepage /tmp/etc/
  cp -af /etc/fontmap /tmp/etc/
- cp -af /etc/keyboardtype /tmp/etc/
  cp -af /etc/keymap /tmp/etc/
- cp -af /etc/mousebuttons /tmp/etc/
  cp -af /etc/mousedevice /tmp/etc/
- cp -af /etc/videomode /tmp/etc/
  cp -af /etc/eth0mode /tmp/etc/
  cp -af /etc/eth1mode /tmp/etc/
  cp -af /etc/resolv.conf /tmp/etc/
@@ -654,12 +627,11 @@ if [ $? -eq 0 ];then
  cp -af /etc/modprobe.d /tmp/etc/ #101020
  cp -af /etc/rdesktoprc /tmp/etc/
  cp -af /etc/windowmanager /tmp/etc/
- cp -af /etc/xextraoptions /tmp/etc/
  cp -af /etc/X11/xorg.conf /tmp/etc/X11
  cp -af /etc/network-wizard /tmp/etc/
  cp -af /etc/simple_network_setup/* /tmp/etc/simple_network_setup/
 m_22="$(gettext 'These files were customised in /etc:')
-codepage fontmap keyboardtype keymap mousebuttons mousedevice videomode eth0mode eth1mode resolv.conf localtime TZ cdburnerdevice dvddevice modemdevice securetelnetrc modprobe.d/* rdesktoprc windowmanager xextraoptions X11/xorg.conf
+codepage fontmap keymap mousedevice eth0mode eth1mode resolv.conf localtime TZ cdburnerdevice dvddevice modemdevice securetelnetrc modprobe.d/* rdesktoprc windowmanager X11/xorg.conf
 $(gettext 'Also these directories:')
 network-wizard."
  MSG1="$m_22"
@@ -669,9 +641,6 @@ fi
 cp -af /etc/Puppybackgroundpicture /tmp/etc/
 #TODO: other gtk and jwm customisations.
 
-#100913 fix id-string variable...
-idPATTERN="s%^DISTRO_IDSTRING.*%DISTRO_IDSTRING='${IDSTRING}'%"
-sed -i -e "$idPATTERN" /tmp/etc/DISTRO_SPECS
 cp -f /tmp/etc/DISTRO_SPECS /tmp/DISTRO_SPECSupdated #keep this to put into initrd.gz.
 
 m_23="${MSG1}
@@ -736,7 +705,7 @@ chmod a+r $WKGMNTPT/puppylivecdbuild/* &>/dev/null
 chmod a-x $WKGMNTPT/puppylivecdbuild/*.sfs &>/dev/null
 fi ###### end of long skip if, cleating new sfs
 
-if [ -f $WKGMNTPT/puppylivecdbuild/isolinux.cfg ]; then
+if [ -f $WKGMNTPT/puppylivecdbuild/isolinux.cfg -a ! $WKGMNTPT/puppylivecdbuild/efi.img ]; then #avoid this if EFI detected
  #edit isolinux.cfg...
  ISOLINUXCFG="`cat $WKGMNTPT/puppylivecdbuild/isolinux.cfg`"
  #small tweaks, like acpi=on, ide=nodma...
@@ -786,10 +755,6 @@ $(eval_gettext '(leaving ${WKGMNTPT}/puppylivecdbuild/ files in existence)')"
 fi
 
 if [ "$NEW" = "yes" ]; then	#120628: no change id-string for reuse
-#100913 append id-string. doesn't matter if already have an id-string appended...
-echo -n "$IDSTRING" >> $WKGMNTPT/puppylivecdbuild/vmlinuz
-[ -f $WKGMNTPT/puppylivecdbuild/$PUPPYSFS ] && echo -n "$IDSTRING" >> $WKGMNTPT/puppylivecdbuild/$PUPPYSFS
-[ -f $WKGMNTPT/puppylivecdbuild/$ZDRVSFS ] && echo -n "$IDSTRING" >> $WKGMNTPT/puppylivecdbuild/$ZDRVSFS
 sync
 
 #100913 need to update file DISTRO_SPECS in initrd.gz, so init script can find puppy files...
@@ -811,7 +776,8 @@ fi #120628 end
 
 #build new iso file, or direct burn to cd...
 #to save space, burn direct from $WKGMNTPT/puppylivecdbuild/ to cd...
-m_26="$(eval_gettext 'All the files that will be burnt to CD/DVD are in ${WKGMNTPT}/puppylivecdbuild/.')
+if [ ! -e $WKGMNTPT/puppylivecdbuild/efi.img ];then #uefi wont work going straight to CD/DVD just yet
+ m_26="$(eval_gettext 'All the files that will be burnt to CD/DVD are in ${WKGMNTPT}/puppylivecdbuild/.')
 
 $(gettext 'As the working partition may have limited space (for example, you are using a USB pen drive), these files are burnt direct to CD/DVD, rather than create an intermediary iso file. If you do need an iso file, you can copy it from the CD afterward:')
 $(eval_gettext '(dd if=/dev/${BURNERDRV} of=puppy.iso seek=0 bs=32k)')
@@ -820,22 +786,33 @@ $(gettext "However, if you just want to create an iso file now and not burn to C
 
 $(eval_gettext "Click 'No' button (or close-box on window) to quit program at this point (leaving \${WKGMNTPT}/puppylivecdbuild/ files in existence), and further option to create an iso file...")
 $(gettext "Click 'Yes' button to burn to CD/DVD...")"
-Xdialog --wrap --left --title "$m_01" --ok-label "$Yes_lbl" --cancel-label "$No_lbl" --yesno "$m_26" 0 80
-
-if [ ! $? -eq 0 ];then
+ Xdialog --wrap --left --title "$m_01" --ok-label "$Yes_lbl" --cancel-label "$No_lbl" --yesno "$m_26" 0 80
+fi
+if [ ! $? -eq 0 -o -e $WKGMNTPT/puppylivecdbuild/efi.img ];then
  MSG="$(gettext 'ISO file not created.')"
  m_27="$(eval_gettext "Click 'Yes' button to create a 'custom-puppy.iso' in \${WKGMNTPT}/ (assuming that there is 100MB-300MB free space)...")
 $(eval_gettext "Click 'No' button (or close-box on window) to quit program at this point (leaving  \${WKGMNTPT}/puppylivecdbuild/ files in existence)...")"
  Xdialog --wrap --left  --title "$m_01" --ok-label "$Yes_lbl" --cancel-label "$No_lbl" --yesno "$m_27" 0 80
  if [ $? -eq 0 ];then
-  VOLI=""
-  m_27_1="$(gettext 'You can add the CD volume ID, it can be used on Windows and on some Linux system.')"
-  VOLI=$(Xdialog --title "$m_01" --stdout --inputbox "$m_27_1" 0 60 "$SFSBASE")
-  [ "$VOLI" != "" ] && VOLI="-V $(echo "$VOLI"|tr ' ' '_')"
-  [ -f $WKGMNTPT/custom-puppy.iso ] && rm -f $WKGMNTPT/custom-puppy.iso #130223
-  # Joliet option
-  rxvt -bg orange -fg black -title "$m_01" -e mkisofs -J -D -R $VOLI -o $WKGMNTPT/custom-puppy.iso $BOOTPARM -no-emul-boot -boot-load-size 4 -boot-info-table $WKGMNTPT/puppylivecdbuild/
-  MSG="$(eval_gettext '${WKGMNTPT}/custom-puppy.iso created.')"
+  if [ -e $WKGMNTPT/puppylivecdbuild/efi.img ];then 
+   UEFI='-uefi'
+   # make uefi iso
+   rxvt -bg orange -fg black -title "$m_01" -e mkisofs -iso-level 4 -D -R -o $WKGMNTPT/custom-puppy${UEFI}.iso -b isolinux.bin -no-emul-boot -boot-load-size 4 -boot-info-table -eltorito-alt-boot -eltorito-platform efi -b efi.img -no-emul-boot $WKGMNTPT/puppylivecdbuild/
+   
+  else
+   VOLI=""
+   m_27_1="$(gettext 'You can add the CD volume ID, it can be used on Windows and on some Linux system.')"
+   VOLI=$(Xdialog --title "$m_01" --stdout --inputbox "$m_27_1" 0 60 "$SFSBASE")
+   [ "$VOLI" != "" ] && VOLI="-V $(echo "$VOLI"|tr ' ' '_')"
+   [ -f $WKGMNTPT/custom-puppy.iso ] && rm -f $WKGMNTPT/custom-puppy.iso #130223
+   # Joliet option
+   rxvt -bg orange -fg black -title "$m_01" -e mkisofs -J -D -R $VOLI -o $WKGMNTPT/custom-puppy.iso $BOOTPARM -no-emul-boot -boot-load-size 4 -boot-info-table $WKGMNTPT/puppylivecdbuild/
+  fi
+  if which isohybrid ; then
+    echo 'Converting ISO to isohybrid.'
+    isohybrid -u "$WKGMNTPT/custom-puppy${UEFI}.iso"
+  fi
+  MSG="$(eval_gettext '${WKGMNTPT}/custom-puppy${UEFI}.iso created.')"
  fi
  sync
  m_28="$(eval_gettext '${WKGMNTPT}/puppylivecdbuild/ files left in existence.')

@@ -14,56 +14,63 @@ done
 # poor man's pTheme!
 # choose a global theme
 ############################################################################
-echo
-[ -f /tmp/ptheme_choose ] && rm /tmp/ptheme_choose
-echo "You can choose from the following global themes"
-echo
-num=1
-while read i; do
-    echo "$num $i"
-    echo "$num $i" >> /tmp/ptheme_choose
-    num=$(($num + 1))
-done <<< "`ls usr/share/ptheme/globals`"
-echo
-echo "Type the number of the theme you want"
 
-xnum=1
-theme=""
-while [ $xnum -lt 4 ];do
-    read ptheme_num
-    echo "$ptheme_num" | grep -qv '[0-9]' && echo "A number is needed" && continue
-    if grep -q ${ptheme_num} /tmp/ptheme_choose;then
-        theme=`grep -w "${ptheme_num}" /tmp/ptheme_choose|cut -d ' ' -f2,3,4`
-        echo "You chose ${theme}. Excellent choice."
-        break
-    else
-        if [ $xnum -lt 3 ];then
-            echo "Sorry, that didn't work, try another number"
-        else
-            echo "Last chance..."
-        fi
-        xnum=$(($xnum + 1))
-    fi
-done
-if [ -z "$theme" ];then
-    theme=Stardust_bright_mouse
-    echo "OK, you didn't choose, defaulting to $theme"
+#woof-code/_00build.conf
+#the PTHEME variable con be specified in build.conf
+if [ "$PTHEME" != "" ] ; then
+	theme="$PTHEME"
+else
+	echo
+	[ -f /tmp/ptheme_choose ] && rm /tmp/ptheme_choose
+	echo "You can choose from the following global themes"
+	echo
+	num=1
+	while read i; do
+		echo "$num $i"
+		echo "$num $i" >> /tmp/ptheme_choose
+		num=$(($num + 1))
+	done <<< "`ls usr/share/ptheme/globals`"
+	echo
+	echo "Type the number of the theme you want"
+
+	xnum=1
+	theme=""
+	while [ $xnum -lt 4 ];do
+		read ptheme_num
+		echo "$ptheme_num" | grep -qv '[0-9]' && echo "A number is needed" && continue
+		if grep -q ${ptheme_num} /tmp/ptheme_choose;then
+			theme=`grep -w "${ptheme_num}" /tmp/ptheme_choose|cut -d ' ' -f2,3,4`
+			echo "You chose ${theme}. Excellent choice."
+			break
+		else
+			if [ $xnum -lt 3 ];then
+				echo "Sorry, that didn't work, try another number"
+			else
+				echo "Last chance..."
+			fi
+			xnum=$(($xnum + 1))
+		fi
+	done
+fi
+
+if [ ! -f usr/share/ptheme/globals/"${theme}" ];then
+    theme="Bright Mouse"
+    echo "Invalid theme, defaulting to $theme"
 fi
 echo "Setting $theme to default"
 
 . usr/share/ptheme/globals/"${theme}"
 
 
-
 ##### JWM
+[ ! -d root/.jwm ] && mkdir -p root/.jwm
 cp -af usr/share/jwm/themes/"${PTHEME_JWM_COLOR}-jwmrc" root/.jwm/jwmrc-theme
 #cp -af usr/share/jwm/themes/"${PTHEME_JWM_COLOR}-colors" root/.jwm/jwm_colors
 echo "jwm colors: ${PTHEME_JWM_COLOR}"
 
 cp -f usr/share/jwm/tray_templates/"$PTHEME_JWM_TRAY"/jwmrc-tray* root/.jwm/
-[ ! -d root/.jwm ] && mkdir root/.jwm
 #hybrid
-rm root/.jwm/jwmrc-tray*_hybrid
+rm -f root/.jwm/jwmrc-tray*_hybrid
 for I in 1 2 3 4; do
 	if [ "`grep -F '_hybrid</Include>' root/.jwm/jwmrc-tray$I`" ]; then
 		grep -vF '_hybrid</Include>' root/.jwm/jwmrc-tray$I | sed -e 's%autohide="\(top\|bottom\|left\|right\)" %autohide="off"%' -e "s%layer=\"above\"%layer=\"below\"%" > root/.jwm/jwmrc-tray${I}_hybrid
@@ -86,7 +93,7 @@ huge) echo "MENHEIGHT=40" > root/.jwm/menuheights;;
 esac
 echo "jwm size: ${PTHEME_JWM_SIZE}"
 
-mkdir root/.jwm/window_buttons
+mkdir -p root/.jwm/window_buttons
 Dir=usr/share/jwm/themes_window_buttons/${PTHEME_JWM_BUTTONS}
 for icon in $Dir/*; do
     ifile=$(basename $icon)
@@ -121,9 +128,21 @@ include "/root/.gtkrc-2.0.mine"
 gtk-theme-name = "${PTHEME_GTK}"
 _EOF
 echo "gtk: ${PTHEME_GTK}"
+
+# icon theme
+[ -n "$PTHEME_ICONS_GTK" ] && \
+USE_ICON_THEME="`find usr/share/icons -type d -name "$PTHEME_ICONS_GTK" -maxdepth 1`"
+[ -z "$USE_ICON_THEME" ] && USE_ICON_THEME="Puppy Standard" || USE_ICON_THEME="$PTHEME_ICONS_GTK" # default if exists
+if [ -d "usr/share/icons/$USE_ICON_THEME" ];then
+	# first global
+	echo -e "gtk-icon-theme-name = \"$USE_ICON_THEME\"" >> root/.gtkrc-2.0
+	# then ROX
+	ROX_THEME_FILE="root/.config/rox.sourceforge.net/ROX-Filer/Options" # this could change in future
+	sed -i "s%ROX%$USE_ICON_THEME%" $ROX_THEME_FILE
+	echo "icon theme: $USE_ICON_THEME"
+fi
+
 sleep 1 # reading time
-
-
 
 ##### WALLPAPER #copy it as mv messes the themes
 ext="${PTHEME_WALL##*.}"
@@ -166,7 +185,7 @@ sleep 1 # reading time
 
 ##### CURSOR
 if [ -d root/.icons/ ];then
-	[ ! "`grep 'ORIGINAL THEME' <<< "$PTHEME_MOUSE"`" ] && ln -snf root/.icons/$PTHEME_MOUSE root/.icons/default
+	[ ! "`grep 'ORIGINAL THEME' <<< "$PTHEME_MOUSE"`" ] && ln -snf $PTHEME_MOUSE root/.icons/default
 	echo "cursor: ${PTHEME_MOUSE}"
 	sleep 1 # reading time
 fi

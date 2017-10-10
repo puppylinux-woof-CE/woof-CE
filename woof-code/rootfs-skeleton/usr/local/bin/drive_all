@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 #(c) Copyright 2008 Barry Kauler, puppylinux.com
 #2008 Lesser GPL licence v2 (see /usr/share/doc/legal)
 #/sbin/pup_event_frontend_d creates a desktop icon and copy of this script for each drive, ex:
@@ -50,12 +50,16 @@ rm -f /tmp/desktop_drives_curpos #120110
 
 export LANG	# need to restart pmount with correct locale
 
+grep -q -m1 -i 'rox' /usr/local/bin/defaultfilemanager && ROX_FILER=yes
+
 #w002 extracted as a func...
 unmount_func() {
- rox -D $MNTPT
+ 
+ [ "$ROX_FILER" = "yes" ] && rox -D $MNTPT
  sync
  while [ 1 ];do
-  umount $MNTPT ; umVAL=$?
+  umount.crypto_LUKS "$MNTPT" || umount "$MNTPT"
+  umVAL=$?
   #fix zombie process prevents partition unmount, invisible to fuser...
   if [ $umVAL -ne 0 ];then
    #120129 karl godt: fix ZOMBIES, see http://murga-linux.com/puppy/viewtopic.php?t=71767&start=420 ...
@@ -129,8 +133,8 @@ fi
 # and param2 has the fs type...
 case $PARAM1 in
  drive|card|floppy|optical|usbdrv)
-  mPATTERN='^/dev/'"$ONEDRVNAME"' '
-  MNTPT="`df -a| grep -m1 "$mPATTERN" | tr -s ' ' | cut -f 6 -d ' '`" #140702 shinobar
+  mPATTERN="^/dev/${ONEDRVNAME} |^/dev/mapper/lukspartition_${ONEDRVNAME} "
+  MNTPT="`mount | grep -m1 -E "$mPATTERN" | tr -s ' ' | cut -f 3 -d ' '`" #140702 shinobar
   if [ "$MNTPT" ];then
    #get coords of desktop icon...
    drPTN=">/root/.pup_event/drive_${ONEDRVNAME}<"
@@ -167,8 +171,8 @@ if [ "$PARAM1" = "eventmanager" ];then #v403 chosen from drive icon menu.
 fi
 
 if [ "$PARAM1" = "unmount" ];then #v403 chose unmount from drive icon menu.
- mPATTERN='^/dev/'"$ONEDRVNAME"' '
- MNTPT="`df -a| grep -m1 "$mPATTERN" | tr -s ' ' | cut -f 6 -d ' '`" #140702 shinobar
+ mPATTERN="^/dev/${ONEDRVNAME} |^/dev/mapper/lukspartition_${ONEDRVNAME} "
+ MNTPT="`mount | grep -m1 -E "$mPATTERN" | tr -s ' ' | cut -f 3 -d ' '`" #140702 shinobar
  DRV_CATEGORY=""
  PROBEDISK="probedisk"
  DRV_CATEGORY=$($PROBEDISK | grep "^/dev/$ONEDRVNAME|" | cut -d'|' -f 2)
@@ -228,81 +232,102 @@ fi
 
 #oh, now have to analyse the media, decide what app to run...
 dPATTERN='^/dev/'"$ONEDRVNAME"' '
-FLAGOPTICAL='no'
-case $ONEDRVNAME in #110126
- sr*)
-  FLAGOPTICAL='yes'
- ;;
- hd*)
-  [ -e /proc/ide/$ONEDRVNAME/media ] && [ "`cat /proc/ide/$ONEDRVNAME/media`" = "cdrom" ] && FLAGOPTICAL='yes'
- ;;
-esac
-if [ "$FLAGOPTICAL" = "yes" ];then
- if [ "`busybox mount | grep "$dPATTERN"`" = "" ];then
-  cddetect -q -d/dev/${ONEDRVNAME}
-  RETVAL=$?
-  case $RETVAL in
-  2|3) #iso file: normal data cd.
-   true
-   ;;
-  1) #audio
-   ln -snf /dev/${ONEDRVNAME} /dev/cdrom
-   if [ -f /usr/local/bin/defaultcdplayer ];then #100118
-    exec defaultcdplayer
-   else
-    exec defaultmediaplayer cdda://
-   fi
-   ;;
-  50) #mixed. we don't want to mount it but we'll see if it plays
-   ln -snf /dev/${ONEDRVNAME} /dev/cdrom
-   if [ -f /usr/local/bin/defaultcdplayer ];then #100118
-    exec defaultcdplayer
-   else
-    exec defaultmediaplayer cdda://
-   fi
-   ;;
-  5|8) #video dvd  #140712 5|8)
-   ln -snf /dev/${ONEDRVNAME} /dev/dvd
-   [ -f /usr/local/bin/defaultdvdplayer ] && exec defaultdvdplayer
-   [ "`grep '^exec mplayer' /usr/local/bin/defaultmediaplayer`" != "" ] && exec defaultmediaplayer dvdnav:// #100719 #140712 ^exec
-   exec defaultmediaplayer dvd://
-   ;;
-  0) #failed to detect type.
-   #cddetect does not work properly for dvd's, try something else...
-   #100719 properly detect dvd video...
-   if [ "`df | grep "$dPATTERN"`" = "" ];then #only test if not mounted.
-    FLAGDVDVIDEO="`dvd+rw-mediainfo /dev/${ONEDRVNAME} | grep 'Mounted Media: .* DVD-ROM'`"
-    if [ "$FLAGDVDVIDEO" = "" ];then
-     #mount and look for 'video_ts' directory (dir should contain file video_ts.ifo)...
-     mkdir -p /mnt/${ONEDRVNAME}
-     mount -t iso9660 /dev/${ONEDRVNAME} /mnt/${ONEDRVNAME}
-     if [ $? -eq 0 ];then
-      [ -d /mnt/${ONEDRVNAME}/video_ts -o -d /mnt/${ONEDRVNAME}/VIDEO_TS ] && FLAGDVDVIDEO="yes"
-      umount /mnt/${ONEDRVNAME}
-     fi
-    fi
-    if [ "$FLAGDVDVIDEO" != "" ];then
-     ln -snf /dev/${ONEDRVNAME} /dev/dvd
-     [ -f /usr/local/bin/defaultdvdplayer ] && exec defaultdvdplayer
-     [ "`grep '^exec mplayer' /usr/local/bin/defaultmediaplayer`" != "" ] && exec defaultmediaplayer dvdnav:// #140712 ^exec
-     exec defaultmediaplayer dvd://
-    fi
-   fi
-   ;;
-   255) #might be blank, double check it's there #140712
-     DISK=`cddetect_quick -d/dev/${ONEDRVNAME}`
-     if [ "$DISK" = "disc inserted" ];then
-       BURNER="xmessage 'no burner?'"
-       type pburn &>/dev/null && BURNER=pburn
-       exec "$BURNER"
-     fi
-   ;;
+
+optical_func() {
+
+  [ "`busybox mount | grep "$dPATTERN"`" = "" ] || return
+  DRIVEINFO="$(dvd+rw-mediainfo /dev/${ONEDRVNAME})"
+  EXITCODE=$?
+  DRIVETYPE="$(echo "$DRIVEINFO" | grep 'INQUIRY:')"
+  DRIVETYPE2='['"${DRIVETYPE#*[}"
+
+  echo "/dev/${ONEDRVNAME} filesystem: $FSTYPE " # debug
+  echo "dvd+rw-mediainfo exit code: $EXITCODE"   # debug
+  echo "${DRIVETYPE}" # debug
+
+  case $EXITCODE in
+    150) # :-( not a DVD unit
+        case "${DRIVETYPE}" in *CD-R*) CDR="true" ;; esac
+        ;;
+    251) # :-( no media mounted
+        # cd/dvd might be blank
+        cddetect_quick -d/dev/${ONEDRVNAME} || exit 1
+        # might be and old dvd drive and the disc a DVD9/DL-DVD
+        echo "===================================="
+        echo "* The disc in /dev/${ONEDRVNAME} is blank (or may be unsupported by your dvd drive)..."
+        echo "===================================="
+        /usr/lib/gtkdialog/box_yesno --yes-first --ok-cancel --image-icon cdrom.svg --yes-label "Run Pburn" --yes-icon cdrom.svg \
+        "Blank disk" "$DRIVETYPE2" "The disc in /dev/${ONEDRVNAME} is blank" "(or may be the case that is not supported by your dvd drive," "could be a double-layer DVD, and your dvd drive too old...)"
+        [ $? -eq 0 ] && which pburn &>/dev/null && exec pburn
+        exit
+        ;;
+    252) CDR="true" ;; # :-( non-DVD media mounted
   esac
- fi
- #FSTYPE="iso9660"
- #130128 probepart now detects udf, FSTYPE should already be set to that...
- [ "$FSTYPE" != "udf" ] && FSTYPE="iso9660" #would already have been iso9660 anyway.
-fi
+
+  ####### CDS ########
+  if [ "$CDR" = "true" ] ; then
+     cddetect -d/dev/${ONEDRVNAME} #-q
+     RETVAL=$?
+     echo "cddetect exit code: $RETVAL"
+     case $RETVAL in
+        1|50) #1) audio 50) mixed. we don't want to mount it but we'll see if it plays
+          [ ${RETVAL} -eq 50 ] && mountcd='--extra-button Mount'
+          echo "/dev/${ONEDRVNAME}: Audio CD (most likely)"
+          /usr/lib/gtkdialog/box_yesno --yes-first --ok-cancel --image-icon cd_audio.svg --yes-label "Play" --yes-icon cd_audio.svg $mountcd \
+          "CD Audio detected..." "An audio CD has been detected. Do you want to play it?"
+          case $? in
+            0) ln -snf /dev/${ONEDRVNAME} /dev/cdrom
+               exec defaultcdplayer cdda:// ;;
+            2) true   ;; #continue to mount drive
+            *) exit 1 ;; #close/cancel
+          esac
+          ;;
+        255) #might be blank, double check it's there #140712
+          cddetect_quick -d/dev/${ONEDRVNAME} || exit 1
+          /usr/lib/gtkdialog/box_yesno --yes-first --ok-cancel --image-icon cdrom.svg --yes-label "Run Pburn" --yes-icon cdrom.svg \
+          "Blank CD (most likely)" "$DRIVETYPE2" "The disc in /dev/${ONEDRVNAME} is blank (most likely)" "(if you know it's not blank then the CD might be damaged...)"
+          [ $? -eq 0 ] && which pburn &>/dev/null && exec pburn
+          exit
+          ;;
+     esac
+
+  ####### DVDs and more ######
+  else
+     # check if it's blank
+     ITSBLANK=$(echo "$DRIVEINFO" | grep -i 'Disc status:' | grep -i 'blank')
+     if [ "$ITSBLANK" ] ; then
+        echo "/dev/${ONEDRVNAME}: DVD is blank"
+        /usr/lib/gtkdialog/box_yesno --yes-first --ok-cancel --image-icon cdrom.svg --yes-label "Run Pburn" --yes-icon cdrom.svg "Blank DVD" "The disk /dev/${ONEDRVNAME} is blank..."
+        [ $? -eq 0 ] && which pburn &>/dev/null && exec pburn
+        exit
+     fi
+     # --
+     # mount and look for 'video_ts' directory (dir should contain file video_ts.ifo)...
+     OPTICALMOUNTED="true" #don't try to mount the drive afterwards
+     echo "Trying to mount /dev/${ONEDRVNAME}"
+     mkdir -p /mnt/${ONEDRVNAME}
+     mount -t udf /dev/${ONEDRVNAME} /mnt/${ONEDRVNAME} || mount -t iso9660 /dev/${ONEDRVNAME} /mnt/${ONEDRVNAME}
+     RETVALX=$?
+     [ ${RETVALX} -ne 0 ] && return
+     if [ -d /mnt/${ONEDRVNAME}/video_ts -o -d /mnt/${ONEDRVNAME}/VIDEO_TS ] ; then
+        /usr/lib/gtkdialog/box_yesno --yes-first --ok-cancel --image-icon video.svg --yes-label "Play" --yes-icon cdrom.svg --extra-button Mount \
+        "Video DVD detected..." "This seems to be a Video DVD, do you want to play it?"
+        case $? in
+          0) #play
+            umount /mnt/${ONEDRVNAME} ; echo "/dev/${ONEDRVNAME}: Video DVD detected"
+            ln -snf /dev/${ONEDRVNAME} /dev/dvd
+            exec defaultmediaplayer dvd://
+            ;;
+          2) OPTICALMOUNTED="true" ;; #keep mounted
+          *) umount /mnt/${ONEDRVNAME} ; exit 1 ;;
+        esac
+     fi
+  fi
+}
+
+case ${ONEDRVNAME} in sr*|scd*|hd*)
+   [ "$(probedisk ${ONEDRVNAME} | grep '|optical')" != "" ] && optical_func ;;
+esac
 
 #if dropped down here, it is likely to be a data partition...
 
@@ -312,8 +337,7 @@ if [ "$FSTYPE" != "" ];then
  DOPARTS="${ONEDRVNAME}|${FSTYPE}" #120517
 else
  #ONEDRVNAME is probably a drive name, ex sda...
- pPTN="/dev/${ONEDRVNAME}" #no space on end!
- DOPARTS="`probepart -m | grep "$pPTN" | cut -f 1,2 -d '|' | cut -f 3 -d '/' | grep -E 'btrfs|ext2|ext3|ext4|f2fs|hfs|iso9660|jfs|minix|msdos|ntfs|reiser|udf|vfat|xfs' | tr '\n' ' '`" #ex: sda1|ext3 sda2|vfat sda3|ext3  130216 added f2fs	# SFR: enabled jfs & hfs
+ DOPARTS="`probepart -m /dev/${ONEDRVNAME} | cut -f 1,2 -d '|' | cut -f 3 -d '/' | grep -E 'btrfs|ext2|ext3|ext4|f2fs|hfs|iso9660|jfs|minix|msdos|ntfs|reiser|udf|vfat|exfat|xfs|crypto_LUKS' | tr '\n' ' '`" #ex: sda1|ext3 sda2|vfat sda3|ext3  130216 added f2fs    # SFR: enabled jfs & hfs
 fi
 
 #if it is a mountable partition then mount and open with rox. If already mntd then open in rox...
@@ -326,36 +350,25 @@ do
   #not mounted...
   mkdir -p /mnt/$xONEDRVNAME
   case $xFSTYPE in
-   ntfs)
-    #'mount' is a script that takes care of mounting ntfs...
-    mount -t ntfs /dev/$xONEDRVNAME /mnt/$xONEDRVNAME
-    RETVAL1=$?
-    ;;
-   vfat)
-    #w476 modify codepage and iocharset (note: this code also in /usr/sbin/pmount)...
-    #note, could also set iocharset=iso8859-2 (default: codepage=437, iocharset=iso8859-1)
-    # 27jul09 lookup /etc/codepage and LANG by Masaki Shinomiya <shino@pos.to>
-    NLS_PARAM=""
-    if [ -f /etc/codepage ]; then #100127...
-     grep -q -i '850' /etc/codepage && [ "$(echo $LANG|cut -d'.' -f1)" != "en_US" ] && NLS_PARAM=",codepage=850"
-     grep -q -i '852' /etc/codepage && NLS_PARAM=",codepage=852,iocharset=iso8859-2"
-    fi
-    echo $LANG | grep -q -i '\.utf' && NLS_PARAM="$NLS_PARAM,utf8"
-    mount -t vfat -o shortname=mixed,quiet${NLS_PARAM} /dev/$xONEDRVNAME /mnt/$xONEDRVNAME #v411
-    RETVAL1=$?
-    ;;
-   #100127 not certain about this (inserted by shinobar)... 100131 shinobar informs needed for cds created in windows...
-   iso9660|udf) #130128 add udf.
-    mount -t $xFSTYPE -o iocharset=utf8 /dev/$xONEDRVNAME /mnt/$xONEDRVNAME
-    RETVAL1=$?
-    ;;  
+   iso9660|udf)
+     if [ "$OPTICALMOUNTED" ] ; then
+       RETVAL1=${RETVALX}
+     else
+       mount -t udf /dev/$xONEDRVNAME /mnt/$xONEDRVNAME || mount -t iso9660 /dev/$xONEDRVNAME /mnt/$xONEDRVNAME
+       RETVAL1=$?
+     fi
+     ;;
    *)
     mount -t $xFSTYPE /dev/$xONEDRVNAME /mnt/$xONEDRVNAME
     RETVAL1=$?
     ;;
   esac
   if [ $RETVAL1 -eq 0 ];then
-   rox -x /mnt/$xONEDRVNAME -d /mnt/$xONEDRVNAME &
+   if [ "$ROX_FILER" = "yes" ] ; then
+     rox -x /mnt/$xONEDRVNAME -d /mnt/$xONEDRVNAME &
+   else
+     defaultfilemanager /mnt/$xONEDRVNAME &
+   fi
    EXITFLAG=yes
   else
    #091223 why did it fail?
@@ -386,7 +399,11 @@ do
     MNTPT="/" #open rox at top of aufs layers.
    ;;
   esac
-  rox -x $MNTPT -d $MNTPT &
+  if [ "$ROX_FILER" = "yes" ] ; then
+    rox -x $MNTPT -d $MNTPT &
+  else
+    defaultfilemanager $MNTPT &
+  fi
   EXITFLAG=yes
  fi
 done

@@ -1,0 +1,181 @@
+#!/bin/sh
+#note: script not internationalized, as this is a developer's tool.
+
+[ -f /etc/DISTRO_SPECS ] && . /etc/DISTRO_SPECS
+
+export LANG=C
+textviewer=leafpad
+which $textviewer &>/dev/null || textviewer=defaulttextviewer
+script=${0##*/}
+
+function ahelp() {
+	echo "check dependencies of a file or files within a directory
+
+usage:
+   $script -system [dir] (check system dirs for missing deps)
+   $script [-depth X] <dir>
+   $script <file>
+
+<file>: if <file> does not exist, look in \$PATH
+
+<dir>: look only for missing dependencies
+"
+	exit $1
+}
+
+dirdepth=10 # default dir depth
+case "$1" in
+	-h|-help|--help) ahelp 0 ;;
+	-depth)
+		dirdepth=$2
+		DEFAULT_DEPTH="TRUE"
+		shift 2
+		;;
+	-system)  SYSTEM="TRUE"  ; shift ;;
+	/)		  SYSTEM="TRUE" ;;
+	*.[dD][lL][lL]|*.[eE][xX][eE])
+		#file "$1"
+		objdump -p "$1" | grep DLL
+		exit
+		;;
+	"") ahelp 1 ;;
+esac
+
+function checkdeps_sys_file() {
+	filename="$1"
+	#it's way faster to just check the file no matter the file type
+	missinglibs=$(ldd -v "$filename" 2>/dev/null | grep "not found")
+	[ "$missinglibs" = "" ] && return
+	echo -e "${filename}\n$missinglibs\n"
+}
+
+########################################################
+#					SYSTEM CHECK
+########################################################
+
+if [ "$SYSTEM" = "TRUE" ] ; then
+
+	echo "SYSTEM CHECK" >&2
+	ROOTDIR=$1
+	if [ $ROOTDIR ] ; then
+		if [ "$ROOTDIR" = "/" ] ; then
+			ROOTDIR=''
+		else
+			[ -d "$ROOTDIR" ] || { echo "ERROR: $ROOTDIR no such directory" >&2 ; exit 1; }
+			[[ $ROOTDIR != /* ]] && ROOTDIR=${PWD}/${ROOTDIR}
+			[[ $ROOTDIR == */ ]] && ROOTDIR=${ROOTDIR%\/}
+		fi
+	fi
+
+	outputresult="/tmp/checkdeps_system.txt"
+	BINDIRS="${ROOTDIR}/bin ${ROOTDIR}/usr/libexec ${ROOTDIR}/sbin ${ROOTDIR}/usr/bin ${ROOTDIR}/usr/sbin ${ROOTDIR}/usr/games ${ROOTDIR}/usr/local/bin"
+	LIBDIRS="${ROOTDIR}/lib ${ROOTDIR}/usr/lib ${ROOTDIR}/usr/local/lib"
+
+	echo "${DISTRO_NAME}-${DISTRO_VERSION}" > ${outputresult}
+	echo "Start: $(date)"
+	echo "Start: $(date)" >> ${outputresult}
+	echo "--  Processing: ${BINDIRS} $LIBDIRS --"
+  (
+	echo -e "* Checking system dirs: ${BINDIRS}\n"
+	find -H $BINDIRS -type f | sort | grep -Ev "/${DISTRO_ARCHDIR}/" | \
+	while read filename ; do
+		[ ! -x "$filename" ] && continue #must have executable flag
+		checkdeps_sys_file "$filename"
+	done
+	echo -e "\n==================================================\n"
+	echo -e "* Checking system dirs: ${LIBDIRS}\n"
+	find -H $LIBDIRS -type f | sort | grep -Ev "/${DISTRO_ARCHDIR}/|^/lib/modules/|^/lib/firmware/|\.a$|\.h$|\.sh$|\.gz$|\.la$|\.py$|\.pm$|\.pl$|\.html$|\.rules$|pkgconfig|/X11/|/locale/|\.txt$" | \
+	while read f ; do checkdeps_sys_file "$f" ; done
+  ) >> ${outputresult}
+	echo '---'
+	echo "End  : $(date)"
+
+	[ "$DISPLAY" ] && ${textviewer} ${outputresult} &
+	echo
+	echo "Results are in $outputresult"
+	exit
+fi
+
+#@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+#@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+dir="$(dirname "$@")"
+basename="$(basename "$@")"
+[ "$dir" = "." ] && dir="$PWD"
+file=${dir}/${basename}
+outputresult="/tmp/checkdeps-${basename}.txt"
+fileonly=${file##*/}
+
+if [ -d "$file" ] ; then
+
+	###############################
+	#			DIR
+	###############################
+	DIR="$file"
+	if [ "$DISPLAY" ] ; then
+		if [ ! "$DEFAULT_DEPTH" ] ; then
+			export XDIALOG='<window title="checkdeps" window-position="1">
+	<vbox>
+		<hbox height-request="6"><text><label>"  "</label></text></hbox>
+		<hbox>
+			<text><label>"Directory depth:"</label></text>
+			<entry>
+				<default>10</default>
+				<variable>DIR_DEPTH</variable>
+			</entry>
+		</hbox>
+		<hbox><button ok></button><button cancel></button></hbox>
+	</vbox>
+</window>
+'
+			STATEMENTS="$(gtkdialog --center --program XDIALOG)"
+			eval "$STATEMENTS"
+			dirdepth=$DIR_DEPTH
+			[ "$EXIT" != "OK" ] && exit
+		fi
+	else #console
+		if [ ! "$DEFAULT_DEPTH" ] ; then
+			echo -n "Enter directory depth (default=${dirdepth}) : "
+			read dirdepth
+		fi
+	fi
+	[ "$dirdepth" = "" ] && exit 1
+	#-
+	echo "--  Processing: $DIR --"
+  (
+	echo -e "Directory: $DIR (Depth: ${dirdepth})\n"
+	echo -e "These files are missing dependencies:\n"
+	find "$DIR" -maxdepth $dirdepth -type f | sort |
+		while read filename; do
+			missinglibs=$(ldd -v $filename | grep "not found")
+			[ "$missinglibs" = "" ] && continue
+			echo -e "${filename}\n$missinglibs\n"
+		done
+  ) > ${outputresult}
+
+else
+
+	###############################
+	#			FILE
+	###############################
+	if [ ! -f "$file" ]; then
+		file=$(which $fileonly 2>/dev/null)
+		[ ! -f "$file" ] && { echo "$script error: can't find '$@' file/path " >&2; exit 1; }
+	fi
+	lddinfo=$(ldd -v $file) #full info
+	missinglibs=$(echo "$lddinfo" | grep "not found")
+  (
+	echo -e "File: ${file}\n\nMissing dependencies:"
+	echo "$missinglibs"
+	echo -e "\nExtended information:"
+	echo "$lddinfo"
+  ) > ${outputresult}
+
+fi
+
+cat "${outputresult}" ##STD-OUT, CONSOLE
+[ "$DISPLAY" ] && ${textviewer} ${outputresult} #X, GTK
+rm -f ${outputresult}
+exit 0
+
+### END ###

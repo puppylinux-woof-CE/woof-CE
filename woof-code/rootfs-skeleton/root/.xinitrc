@@ -5,6 +5,9 @@
 #130212 removed glipper code, see latest glipper pet.
 #130525 old pc celeron 2ghz cpu, 256mb ram, CPUSPEED=1999, 1st bootup rox failed to start. try experiment.
 
+[ -f /etc/desktop_app ] && read -r desktop < /etc/desktop_app
+[ "$desktop" = "" ] && desktop=rox
+
 . /etc/rc.d/PUPSTATE
 
 #v4.01 BK daemon to handle kernel uevents...
@@ -108,11 +111,6 @@ fi
 
 [ -f /usr/bin/xsetroot ] && xsetroot -cursor_name top_left_arrow
 
-#v555 w003
-#[ -f /usr/bin/xfce-mcs-manager ] && xfce-mcs-manager
-#[ "$CURRENTWM" = "xfwm4" ] && xfce-mcs-manager
-#...no need to start it here, fvwm4 below will start it automatically.
-
 #relocates right-side icons to actual right-side of screen...
 /usr/sbin/fixPuppyPin /root/Choices/ROX-Filer/PuppyPin #v1.0.7
 
@@ -123,11 +121,17 @@ CPUSPEED=`grep -m 1 -i '^cpu MHz' /proc/cpuinfo | tr -d ' ' | cut -f 2 -d ':' | 
 [ ! $CPUSPEED ] && CPUSPEED=250
 [ $CPUSPEED -lt 700 ] && sleep 0.5
 [ $CPUSPEED -lt 400 ] && sleep 0.5
-if [ -f /root/Choices/ROX-Filer/PuppyPan1 ];then
- rox -p /root/Choices/ROX-Filer/PuppyPin -r /root/Choices/ROX-Filer/PuppyPan1
-else
- rox -p /root/Choices/ROX-Filer/PuppyPin
-fi
+
+case $desktop in
+ pcmanfm) pcmanfm --desktop & ;;
+ rox)
+	if [ -f /root/Choices/ROX-Filer/PuppyPan1 ];then
+		roxfiler -p /root/Choices/ROX-Filer/PuppyPin -r /root/Choices/ROX-Filer/PuppyPan1
+	else
+		roxfiler -p /root/Choices/ROX-Filer/PuppyPin
+	fi
+	;;
+esac
 
 /sbin/pup_event_frontend_d & #130525 moved down.
 
@@ -164,24 +168,16 @@ if [ "$CURRENTWM" != "jwm" -a "$CURRENTWM" != "icewm" ];then
   [ ! -e /var/local/icons/home48.png ] && ln -fs /usr/local/lib/X11/pixmaps/* /var/local/icons/
   fbpanel &
  fi
- [ -f /usr/bin/lxpanel ] && lxpanel &
+ [ "$desktop" = "rox" ] && [ -f /usr/bin/lxpanel ] && lxpanel &
 fi
 
-##w468 rox may not start old hardware, try again... 120517 bring this back...
-##PS="`ps`"
-##if [ "`echo "$PS" | grep 'ROX\-Filer'`" = "" ];then
-#if ! busybox pidof ROX-Filer;then
-# touch /tmp/roxfilerstartupproblem #see /sbin/pup_event_frontend_d
-# sleep 0.5
-# if ! busybox pidof ROX-Filer;then #check again.
-#  rox -p /root/Choices/ROX-Filer/PuppyPin
-# fi
-#fi
+# enable xorg mousekeys
+# they should be enabled by default somewhere in /etc/X11/xkb
+# but who knows
+setxkbmap -option keypad:pointerkeys
 
-#exec $CURRENTWM
-#v2.11 GuestToo suggested this improvement...
 which $CURRENTWM && exec $CURRENTWM
 [ -x $CURRENTWM ] && exec $CURRENTWM
-exec jwm
+[ "$desktop" = "rox" ] && exec jwm
 
 ###END###

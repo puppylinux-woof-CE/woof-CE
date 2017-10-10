@@ -1,10 +1,7 @@
 #!/bin/sh
+# woof pinstall.sh for ca-certificates compat pkg
 CWD="`pwd`"
-if [ "$CWD" != "/" ]; then #woof
- cd ./usr/share/ca-certificates
- find -type f | cut -c 3- > ../../../etc/ca-certificates.conf
- cd "$CWD"
- chroot . /usr/sbin/update-ca-certificates --fresh
-else
- /usr/sbin/update-ca-certificates --fresh
-fi
+cd ./usr/share/ca-certificates
+find -type f | cut -c 3- > ../../../etc/ca-certificates.conf
+cd "$CWD"
+chroot . /usr/sbin/update-ca-certificates --fresh

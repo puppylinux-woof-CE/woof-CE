@@ -1,0 +1,101 @@
+#!/bin/bash
+#
+# unmount luks-encrypted files and partitions...
+#
+
+luks_umount() {
+	# something like this:
+	#  /dev/mapper/luksfile11171 on /mnt/+mnt+sda3+slackosave_luks.4fs type ext4 (rw,relatime,data=ordered)
+	read -r device on mountpoint etc <<< "$@"
+	[ "$MOUNTPOINT" ] && mountpoint="$MOUNTPOINT" # /mnt/+mnt+sda3+slackosave_luks.4fs
+	mpbase=$(basename "$mountpoint")  # +mnt+sda3+slackosave_luks.4fs
+	mpbase=${mpbase##*\+}             # slackosave_luks.4fs
+	#--
+	LUKS_DEVICE=$(basename "$device") # luksfile132434, lukspartition2453
+	DEVLOOP=$(losetup -a | grep "/${mpbase}$" | cut -f 1 -d ':')
+	#--
+	umount "$mountpoint"
+	cryptsetup luksClose -v ${LUKS_DEVICE}
+	retval=$?
+	if [ "$DEVLOOP" ] ; then
+		losetup -vd ${DEVLOOP}
+		retval=$?
+	fi
+	return $retval
+}
+
+
+#================================================================
+
+if [ "${0##*/}" != "umount.crypto_LUKS" ] ; then
+	#being sourced...
+	return
+fi
+
+if [ "$1" = "all" ] ; then
+	mount | grep -E '/dev/mapper/lukspartition|/dev/mapper/luksfile' | \
+	while read i ; do luks_umount "$i" ; done
+	for LUKS_DEVICE in $(ls /dev/mapper | grep -vE '^control$|savefile|savepartition')
+	do
+		echo cryptsetup luksClose -v ${LUKS_DEVICE}
+	done
+	exit
+fi
+
+#================================================================
+
+if [ "$1" ] ; then
+
+	MOUNTPOINT="$1"
+	mntinfo=$(mount | grep " $MOUNTPOINT ")
+	case "$mntinfo" in
+	"/dev/mapper/luksfile"*|"/dev/mapper/lukspartition"*)
+		luks_umount "$mntinfo"
+		RETVAL=$?
+		;;
+	*) exit 1 ;;
+	esac
+
+	#===============================================================
+	# rox - puppy
+
+	if [ $RETVAL -eq 0 -a "$(pidof ROX-Filer)" != "" ];then
+	  . /usr/local/pup_event/frontend_funcs #rox
+	  DEVNAME=${MOUNTPOINT##*/} #basename $MOUNTPOINT
+	  DRVNAME="`echo -n "$DEVNAME" | cut -b 1-3`" #ex: DRVNAME=sda
+	  #special case, SD card /dev/mmcblk0p1...
+	  [ "$DRVNAME" = "mmc" ] && DRVNAME="`echo -n "$DEVNAME" | sed -e 's/p[0-9]$//'`"
+	  DRV_CATEGORY="`probedisk /dev/${DRVNAME} | cut -f 2 -d '|'`"
+	  [ -d /root/.pup_event/drive_${DEVNAME} ] && DRVNAME="$DEVNAME" #icon for each partition. ex: DRVNAME=sda1
+	  if [ -d /root/.pup_event/drive_${DRVNAME} ];then
+	   #if any partitions still mounted, leave "MNTD" on icon...
+	   drvPATTERN='^/dev/'"${DRVNAME} "
+	   #"MNTD" text is intended as a reminder to user that drive needs to be unmounted,
+	   #   but partitions in use by Puppy cannot be unmounted.
+	   if [ "`mount-FULL -v | tr -s ' ' | cut -f 1,3 -d ' ' | grep "$drvPATTERN" | grep -v ' /initrd/' | grep -v ' /$'`" = "" ];then
+		if [ "`mount-FULL -v | tr -s ' ' | cut -f 1,3 -d ' ' | grep "$drvPATTERN" | grep -E ' /initrd/| /$'`" != "" ];then
+		 #only a partition left mntd that is in use by puppy, change green->yellow...
+		 icon_mounted_func $DRVNAME $DRV_CATEGORY crypto_LUKS #see frontend_funcs
+		else
+		 #redraw icon without "MNTD" text...
+		 icon_unmounted_func $DRVNAME $DRV_CATEGORY crypto_LUKS #see frontend_funcs
+		fi
+	   fi
+	  fi
+	fi
+
+	#v409, instead just make sure the symlink stays there...
+	if [ ! -L /etc/mtab ];then
+	 rm -f /etc/mtab
+	 ln -s /proc/mounts /etc/mtab
+	fi
+
+	##################################################################
+
+	exit $RETVAL
+
+fi
+
+exit 1
+
+### END ###

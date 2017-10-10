@@ -6,7 +6,7 @@ WORKDIR=$HOME/.pmusic/tmp
 read PLAYLIST_LENGTH < $WORKDIR/statusbar_playlist
 
 #play info
-if LC_ALL=C grep -F 'kbits' $WORKDIR/ffmpeg_output; then
+if [ "$(LC_ALL=C grep -F 'kbits' $WORKDIR/ffmpeg_output)" ]; then
 	export LC_ALL=C
 	#if new song differs from last played, then read song info
 	IFS='|' read TMP1 TMP2 < $HOME/.pmusic/nowplaying
@@ -54,10 +54,10 @@ if LC_ALL=C grep -F 'kbits' $WORKDIR/ffmpeg_output; then
 	TIME_MIN=$(($SEC_PLAYED/60))
 	TIME_SEC=$(($SEC_PLAYED-($TIME_MIN*60)))
 	if [[ "$SEC" -gt "0" && "$SEC_PLAYED" -gt "0" ]]; then #skip this if playing a radio stream ($SEC) and to avoid slider first goes to 0 when user moves it
-		echo $((($SEC_PLAYED*100/$SEC)+1)) > $WORKDIR/PERCENT_BAR 	#percent for progress slider
+		echo $((($SEC_PLAYED*100/$SEC)+1)) > $WORKDIR/PERCENT_BAR #percent for progress slider
 		#calculate time of seconds remaining if not playing a radio stream
 		SEC_PLAYED=$(($SEC-$SEC_PLAYED))
-#		TIME_REMAINING=" / $($APPDIR/func -sec2time $SEC_PLAYED)"
+#		TIME_REMAINING=" / $($APPDIR/func_C -sec2time $SEC_PLAYED)"
 		TIME_MIN2=$(($SEC_PLAYED/60))
 		TIME_SEC2=$(($SEC_PLAYED-($TIME_MIN2*60)))
 		TIME_REMAINING=" / ${TIME_MIN2}:$(printf "%02d" ${TIME_SEC2})"
@@ -67,6 +67,7 @@ if LC_ALL=C grep -F 'kbits' $WORKDIR/ffmpeg_output; then
 	echo "$PLAYLIST_LENGTH   (${TIME_MIN}:$(printf "%02d" ${TIME_SEC})$TIME_REMAINING) $TMP" > $WORKDIR/statusbar
 #output when no tracks playing
 else
+	export TEXTDOMAIN=pmusic
 	TEXT=' '
 	FF_OUT="$(<$WORKDIR/ffmpeg_output)"
 	read ERR_COUNT < $WORKDIR/statusbar_error
@@ -83,6 +84,30 @@ else
 			if grep -F '://' $WORKDIR/PLAYLIST_ALL; then #no connection
 				gettext 'No connection' > $WORKDIR/statusbar
 				echo "$(($ERR_COUNT+1))" > $WORKDIR/statusbar_error
+				#try alternative url in radio index
+				IFS='|' read -r COL1 LENGTH NAME ADR ID_ADR < $WORKDIR/PLAYLIST_ALL
+				GREP="$(grep -F "$ADR" "$STORAGE_DIR"/index_radio)"
+				if [ "$GREP" ]; then
+					IFS='|' read C1 C2 C3 C4 C5 C6 C7 ADRS C <<< "$GREP"
+					NEW_ADR=$(echo "$ADRS" | awk -F ',' -v COUNT=$(($ERR_COUNT+1)) '{print $COUNT}')  
+					#test alterantive url
+					if [ "$NEW_ADR" = "$ADR" ]; then #$ADR is alreay tested
+						echo "$(($ERR_COUNT+1))" > $WORKDIR/statusbar_error
+					elif [ "$NEW_ADR" != '-' ]; then
+						#check connection to radio channel
+						LC_ALL=C wget --spider --tries 1 -T 3 -F --max-redirect 0 $NEW_ADR 2> $WORKDIR/tmpinfo
+						if [ "`LC_ALL=C grep -F connected $WORKDIR/tmpinfo`" ]; then
+							( flock -e 201
+								sed -i "s%|${ADR//&/\\&}|%|${NEW_ADR//&/\\&}|%g" $WORKDIR/playlist $WORKDIR/PLAYLIST_ALL
+							) 201>$WORKDIR/playlist.lockfile 
+							$APPDIR/func_player -playing "$NEW_ADR" &
+#							echo 0 > $WORKDIR/statusbar_error
+						fi
+					else
+						echo 5 > $WORKDIR/statusbar_error #go to next
+					fi
+				fi
+				
 			else #corrupted file
 				gettext 'Corrupted file' > $WORKDIR/statusbar
 				echo "$((ERR_COUNT+1))" > $WORKDIR/statusbar_error
@@ -93,11 +118,8 @@ else
 			echo "$((ERR_COUNT+1))" > $WORKDIR/statusbar_error
 			;;
 		*)
-			if grep -F error $WORKDIR/aplay_error; then
-				gettext 'Playback error' > $WORKDIR/statusbar
-				echo "$(($ERR_COUNT+1))" > $WORKDIR/statusbar_error
 			#When adding a file, the source is checked, but when adding from ie. a m3u there is still a chance that source is not there.
-			elif [[ "${FF_OUT}" = *'no such file or directory'* || "${FF_OUT}" != *'Input #0'* ]]; then
+			if [[ "${FF_OUT}" = *'no such file or directory'* || "${FF_OUT}" != *'Input #0'* ]]; then
 				IFS='|' read -r COL1 LENGTH NAME ADR ID_ADR < $WORKDIR/PLAYLIST_ALL
 				case $ADR in
 					*://*)	gettext 'Connecting...' > $WORKDIR/statusbar;;
@@ -109,8 +131,8 @@ else
 							#search for alternative source in db. File has probably been moved.
 							A=${NAME%%\ -\ *}; A=${A%%\ (*}; A=${A%%(*}; A=${A%%\ feat*}; A=${A%%\ &\ *}; ARTIST=${A%%\ /\ *}
 							T=${NAME#*\ -\ }; T=${T%.*}; T=${T%%\ (*}; TITLE=${T%%(*}
-							NEW_ADR="`cut -d'|' -f1-3 "$STORAGE_DIR/index_mymusic" | grep -iF "|${TITLE}" | grep -Fi "|${ARTIST}|" | cut -d'|' -f1 | grep -iEm1 "$AUDIO_FORMATS"`"
-							[ ! "$NEW_ADR" ] && NEW_ADR="`cut -d'|' -f1-3 "$STORAGE_DIR/index_mymusic" | grep -iwF "${TITLE}" | grep -Fwi "${ARTIST}" | cut -d'|' -f1 | grep -iEm1 "$AUDIO_FORMATS"`"
+							NEW_ADR="`cut -d'|' -f1-3 "$STORAGE_DIR/index_mymusic" | grep -iF "|${TITLE}" | grep -Fi "|${ARTIST}|" | cut -d'|' -f1 | grep -vF "$ADR" |grep -iEm1 "$AUDIO_FORMATS"`"
+							[ ! "$NEW_ADR" ] && NEW_ADR="`cut -d'|' -f1-3 "$STORAGE_DIR/index_mymusic" | grep -iwF "${TITLE}" | grep -Fwi "${ARTIST}" | cut -d'|' -f1 | grep -vF "$ADR" | grep -iEm1 "$AUDIO_FORMATS"`"
 							#alternative is found - let's play
 							if [ -s "$NEW_ADR" ]; then
 								( flock -e 201
@@ -124,6 +146,15 @@ else
 						fi
 						;;
 				esac
+			elif grep -F error $WORKDIR/aplay_error; then
+				#Playback error might come from rtp server used for visualization. If so, we skip this
+				if [ "$ERR_COUNT" = 1 ]; then
+					sed -i "s# -ss .* -ss# -ss#" $WORKDIR/exec
+					$WORKDIR/exec &
+				fi
+				#---
+				[ "$ERR_COUNT" -ge 2 ] && gettext 'Playback error' > $WORKDIR/statusbar
+				echo "$(($ERR_COUNT+1))" > $WORKDIR/statusbar_error
 			fi
 			;;
 	esac

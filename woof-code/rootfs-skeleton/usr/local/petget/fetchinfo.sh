@@ -68,10 +68,7 @@ case $DB_DISTRO in
  ubuntu)
   nohup defaulthtmlviewer http://packages.ubuntu.com/${DB_RELEASE}/${DB_nameonly} &
  ;;
- arch)
-  nohup defaulthtmlviewer http://www.archlinux.org/packages/${DB_SUB}/i686/${DB_nameonly}/ &
- ;;
- puppy|t2|gentoo)
+ puppy|gentoo)
    #HOMELINK="`grep 'Homepage:' /tmp/gethomepage_2 | grep -o 'href=".*' | cut -f 2 -d '"'`"
   #w019 fast (see also /usr/sbin/indexgen.sh)...
   HOMESITE="http://en.wikipedia.org/wiki/${DB_nameonly}"
@@ -82,23 +79,6 @@ case $DB_DISTRO in
   [ "$REALHOME" = "" ] && REALHOME="`cat /root/.packages/PKGS_HOMEPAGES | grep -i "$nPTN2" | head -n 1 | cut -f 2 -d ' '`"
   [ "$REALHOME" != "" ] && HOMESITE="$REALHOME"
   nohup defaulthtmlviewer $HOMESITE &
- ;;
- scientific) #110523
-  ###THIS IS INCOMPLETE###
-  if [ ! -f /root/.packages/primary.xml ];then
-   if [ ! -f /tmp/install_quietly ];then
-    /usr/lib/gtkdialog/box_splash -close never -text "$(gettext 'Please wait, downloading database file to') /root/.packages/primary.xml..." &
-    X5PID=$!
-   fi
-   cd /root/.packages
-   wget http://ftp.scientificlinux.org/linux/scientific/${DISTRO_COMPAT_VERSION}/i386/os/repodata/primary.xml.gz
-   sync
-   gunzip primary.xml.gz
-   [ ! -f /tmp/install_quietly ] && kill $X5PID || echo
-  fi
-  sync
-  ###TODO: NEED TO EXTRACT INFO ON ONE PKG ONLY###
-  nohup defaulttextviewer /root/.packages/primary.xml &
  ;;
 esac
 

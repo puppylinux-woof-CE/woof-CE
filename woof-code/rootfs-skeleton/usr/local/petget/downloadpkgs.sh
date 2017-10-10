@@ -70,30 +70,32 @@ do
  
  case $LISTNAME in
   Packages-puppy-*) #a .pet pkg.
-   for ONEPETREPO in $PET_REPOS #ex: ibiblio.org|http://distro.ibiblio.org//quirky|Packages-puppy-quirky-official
+   for ONEPETREPO in $PET_REPOS #ex: z|http://distro.ibiblio.org//quirky|Packages-puppy-quirky-official
    do
     ONEPETREPO_3_PATTERN="`echo -n "$ONEPETREPO" | cut -f 3 -d '|' | sed -e 's%\\-%\\\\-%g' -e 's%\\*%.*%g'`"
-    ONEPETREPO_1_2="`echo -n "$ONEPETREPO" | cut -f 1,2 -d '|'`"
-    [ "`echo -n "$LISTNAME" | grep "$ONEPETREPO_3_PATTERN"`" != "" ] && echo "${ONEPETREPO_1_2}|${LISTNAME}" >> /tmp/petget_repos
+    ONEPETREPO_2="`echo -n "$ONEPETREPO" | cut -f 2 -d '|'`" #full URL
+    ONEPETREPO_1="$(echo "$ONEPETREPO_2" | cut -f 3 -d '/')" #ex: distro.ibiblio.org
+    [ "`echo -n "$LISTNAME" | grep "$ONEPETREPO_3_PATTERN"`" != "" ] && echo "${ONEPETREPO_1}|${ONEPETREPO_2}|${LISTNAME}" >> /tmp/petget_repos
     #...ex: ibiblio.org|http://distro.ibiblio.org//puppylinux|Packages-puppy-4-official
-    
    done
   ;;
   *) #a compat pkg.
    #have the compat-distro repo urls in /root/.packages/DISTRO_PKGS_SPECS,
    #variable REPOS_DISTRO_COMPAT ...
    #REPOS_DISTRO_COMPAT has the associated Packages-* local database file...
-   for ONEURLENTRY in $REPOS_DISTRO_COMPAT
+   for ONEURLENTRY in $REPOS_DISTRO_COMPAT #ex: z|http://mirror.aarnet.edu.au/pub/slackware/slackware-14.2|Packages-slackware-ponce-official
    do
     PARTPKGDB="`echo -n "$ONEURLENTRY" | cut -f 3 -d '|'`"
     #PARTPKGDB may have a glob * wildcard, convert to reg.expr., also backslash '-'...
     PARTPKGDB="`echo -n "$PARTPKGDB" | sed -e 's%\\-%\\\\-%g' -e 's%\\*%.*%g'`"
-    ONEURLENTRY_1_2="`echo -n "$ONEURLENTRY" | cut -f 1,2 -d '|'`"
-    [ "`echo "$LISTNAME" | grep "$PARTPKGDB"`" != "" ] && echo "${ONEURLENTRY_1_2}|${LISTNAME}" >> /tmp/petget_repos
+    ONEURLENTRY_2="`echo -n "$ONEURLENTRY" | cut -f 2 -d '|'`" #full URL
+    ONEURLENTRY_1="$(echo "$ONEURLENTRY_2" | cut -f 3 -d '/')" #ex: mirror.aarnet.edu.au
+    [ "`echo "$LISTNAME" | grep "$PARTPKGDB"`" != "" ] && echo "${ONEURLENTRY_1}|${ONEURLENTRY_2}|${LISTNAME}" >> /tmp/petget_repos
+    #...ex: mirror.aarnet.edu.au|http://mirror.aarnet.edu.au/pub/slackware/slackware-14.2|Packages-slackware-ponce-official
    done
   ;;
  esac
- 
+
  sort --key=1 --field-separator="|" --unique /tmp/petget_repos > /tmp/petget_repos-tmp
  mv -f /tmp/petget_repos-tmp /tmp/petget_repos
  

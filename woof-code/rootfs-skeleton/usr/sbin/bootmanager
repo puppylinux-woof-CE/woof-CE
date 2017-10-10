@@ -1,204 +1,20 @@
 #!/bin/ash
 #BK 2007, original idea from sunburnt
 #Lesser GPL licence v2 (/usr/share/doc/legal). 2007 www.puppylinux.com
-#written for Puppy 2.16.
-#/etc/rc.d/BOOTCONFIG has variable EXTRASFSLIST='kde.sfs devx_216.sfs'
-# ...space-delimited list of .sfs files to be loaded.
-# ...must be located at same place as the pup_save file (in /mnt/home)
-#    or at '/' for full hd installation.
-#v2.17
-#/etc/rc.d/MODULESCONFIG has variables PCI_OVERRIDES, SKIPLIST
-#that are read and managed by the BootManager.
-#v4.02 bugfix, modules now .ko.gz.
-#v4.02 /lib/modules/modules.dep.<kernver> no more.
-#v403 yeslist_func, parameters may be added to modules.
-#v409 bugfix, list of sfs files was picking up non-sfs files.
-#v411 bugfix, when choose to add more than one module.
-#v412 /etc/DISTRO_SPECS, renamed pup_xxx.sfs, pup_save.2fs etc.
-#w001 pup files renamed to woofr001.sfs, woofsave.2fs.
-#w007 renamed to woof-007.sfs
-#w015 allow 6 extra sfs files, up from 3. w020 zdrv fix.
-#w478 file prefix 'pup2' got screened out.
-#v423 need to check sfs 3.x or 4.x.
-#v424 do away with checkbox that overrides user choice and loads _nnn.sfs only.
-#v424 advise of sfs-version-converter.
-#100125 manage system services at bootup.
-#100221 slight change to a message. 100301 add msg for lameSMBxplorer.
-#100518 fixed showed wrong partition for /mnt/home.
-#100607 kernel 2.6.27.47 has squashfs4.
-#100710 if pupsave file is in a subdirectory, only look for extra sfs's in that subdirectory.
-#100711 modify to look in both top dir and subdirectory.
-#100809 some inappropriate sfs files were displaying as candidates in dual-pane window.
-#100831 fix KERNELSUBVER for olpc people, have 'uname -r' returning version with '_'.
-#100913 new simplified puppy filenames.
-#101221 yaf-splash fix.
-#110305 refine code for blacklist module.
-#110422 DISTRO_VERSION variable now has dotted format. note, also now using full dotted version# in puppy filenames.
-#110505 support sudo for non-root user.
-#111011 now using pupdialog instead of Xdialog for sfs chooser.
-#111015 support kernel 3.x.
-#111113 roll back to Xdialog for sfs chooser. pupdialog limited items, some people have 100s sfs's.
-#120201 rodin.s: internationalized.
-#120323 replace 'xmessage' with 'pupmessage'.
-#120527 shinobar's sfs-load on-the-fly pet has /etc/rc.d/BOOTCONFIG.save, sync it.
-#120626 only offer to load sfs files if have layered f.s., mention sfs_load.
-#121125 when install a Service Pack, DISTRO_VERSION gets bumped, however may still want to load devx*_<old-version>.sfs, remove filter.
-#131126 zigbert: gui (gtkdialog) improvements.
 
-[ "`whoami`" != "root" ] && exec sudo -A ${0} ${@} #110505
+[ "`whoami`" != "root" ] && exec sudo -A ${0} ${@} #support sudo for non-root user.
 
 export TEXTDOMAIN=bootmanager
 export OUTPUT_CHARSET=UTF-8
-. gettext.sh
+export BOOTMANAGER=1
 
 #reentrant.
-#$1='' then run the main window.
-#$1=extrasfs then run the extrasfs_func.
-CLPARAM1="$1"
-CLPARAM2="$2"
-
+CLPARAM1="$1" #$1='' then run the main window.
 MY_SELF="$0"
 CURRDIR="`pwd`"
+KERNVER="`uname -r`"
 . /etc/rc.d/PUPSTATE
 . /etc/DISTRO_SPECS
-#PUPPYVERSION="`cat /etc/puppyversion`"
-KERNVER="`uname -r`"
-
-[ ! -f /etc/rc.d/BOOTCONFIG ] && touch /etc/rc.d/BOOTCONFIG #v424
-. /etc/rc.d/BOOTCONFIG #v424
-
-if vercmp $KERNVER ge 3.0;then #111015
- SFSSTR='squashfs, version 4'
-else
- KERNELSUBVER=`echo -n "$KERNVER" | cut -f 3 -d '.' | cut -f 1 -d '-' | cut -f 1 -d '_'` #v423 100831
- SUB_SUB_KERNELVER=`echo -n "$KERNVER" | cut -f 1 -d '-' | cut -f 4 -d '.'` #100607
- SFSSTR='squashfs, version 3' #v423
- [ $KERNELSUBVER -gt 28 ] && SFSSTR='squashfs, version 4' #v423
- [ $KERNELSUBVER -eq 27 ] && [ $SUB_SUB_KERNELVER -gt 46 ] && SFSSTR='squashfs, version 4' #100607
-fi
-
-#v3.02
-. /etc/rc.d/MODULESCONFIG
-DEFAULT_SERIAL="false"
-DEFAULT_FAST="false"
-[ "$BYPASSSERIALPROBING" = "yes" ] && DEFAULT_SERIAL="true"
-[ "$FASTBOOTMODULESLIST" != "" ] && DEFAULT_FAST="true"
-
-xEXTRASFSMNTPTx="" #100711
-if [ "$PUP_HOME" = "" ];then #defined in PUPSTATE.
- EXTRASFSMNTPT='/'
- MSGx="`eval_gettext \"Note2: These files are at '/' (in \\\$PDEV1 partition)\"`"
- MSGz='/'
-else
- EXTRASFSMNTPT="/initrd${PUP_HOME}"
- xHOMEPART="$PDEV1" #100518
- [ "$PUPSAVE" ] && xHOMEPART="`echo -n "$PUPSAVE" | cut -f 1 -d ','`" #100518
- #MSGx="Note2: These files are at /mnt/home (same as '${DISTRO_FILE_PREFIX}save')"
- MSGz='/mnt/home'
- #100711 modify to look in both top dir and subdirectory...
- #100710 if pupsave is in a subdirectory, only look in that...
- if [ "$PUPSAVE" ];then #this test probably not needed
-  xPSUBDIR="`echo -n "$PUPSAVE" | cut -f 3 -d ',' | sed -e 's%/[^/]*$%%'`" #ex: sda3,ext2,/pup220/spupsave.2fs will return /pup220
-  if [ "$xPSUBDIR" ];then
-   MSGz="/mnt/home or /mnt/home${xPSUBDIR}"
-   xEXTRASFSMNTPTx="/initrd${PUP_HOME}${xPSUBDIR}"'/*.sfs' #100711
-  fi
- fi
- MSGx="`eval_gettext \"Note2: These files are at \\\${MSGz} (in \\\${xHOMEPART} partition)\"`" #100221 100518 100710
-fi
-#for multisession cd, extra sfs files have to be on the cd...
-#v3.97 sfs files are at '/', saved with a session...
-if [ "$PUPMODE" = "77" ];then
- MSGz='/'
-  EXTRASFSMNTPT='/'
- xEXTRASFSMNTPTx="" #100711
-  MSGx="$(gettext 'Note2: All SFS files have to get loaded into RAM from CD')"
-fi
-
-extrasfs_func() {
-
- echo -n "" > /tmp/bootmanager_sfs_dlglist
- UNMOUNTME=""
- #cd $EXTRASFSMNTPT
- #v409 lobster gets some non-sfs files in ALLSFSLIST ...i have no idea how, but
- #need an extra grep filter here... w007 new name woof-007.sfs ... w478 fix for 'pup2' prefix... 100809 bug fix...
- ALLSFSLIST="`ls -1 $EXTRASFSMNTPT/*.sfs $xEXTRASFSMNTPTx | grep '\.sfs$' | tr "\n" " "`"
- #cd $CURRDIR
- sync
- [ "$UNMOUNTME" != "" ] && umount $UNMOUNTME
-
- #eliminate other versions from list...
- BASEFIXEDSFSLIST=""; ITEMCNT=0
- rm -f /tmp/bootmanager_wrong_sfs_version 2>/dev/null #v423
- for ONESFS in $ALLSFSLIST
- do
-  BASEONESFS="`basename $ONESFS`" #100711
-  [ "`echo "$BASEONESFS" | grep '^zdrv'`" != "" ] && continue #100809
-  [ "`echo "$BASEONESFS" | grep '^fdrv'`" != "" ] && continue
-  [ "`echo "$BASEONESFS" | grep '^adrv'`" != "" ] && continue
-  [ "`echo "$BASEONESFS" | grep '^ydrv'`" != "" ] && continue
-  [ "`echo "$BASEONESFS" | grep '^pup_'`" != "" ] && continue #100809
-  [ "`echo "$BASEONESFS" | grep "^${DISTRO_FILE_PREFIX}\\-[0-9][0-9][0-9]\\.sfs$"`" != "" ] && continue #100809
-  [ "`echo "$BASEONESFS" | grep "^${DISTRO_FILE_PREFIX}[rz]"`" != "" ] && continue #100809
-  #121125 when install a Service Pack, DISTRO_VERSION gets bumped, however may still want to load devx*_<old-version>.sfs,
-  # so, remove this filter...
-  [ "`echo "$BASEONESFS" | grep "^${DISTRO_PUPPYSFS}"`" != "" ] && continue #100913
-  [ "`echo "$BASEONESFS" | grep "^${DISTRO_ZDRVSFS}"`" != "" ] && continue #100913
-  #v423 eliminate wrong squashfs version...
-  if [ "`disktype ${ONESFS} | grep "$SFSSTR"`" = "" ];then
-   echo "$BASEONESFS" >> /tmp/bootmanager_wrong_sfs_version
-   continue
-  fi
-  [ "`echo "$BASEFIXEDSFSLIST" | grep "$BASEONESFS"`" != "" ] && continue #100711 avoid duplicates.
-  BASEFIXEDSFSLIST="$BASEFIXEDSFSLIST $BASEONESFS"
- done
- BASEALLSFSLIST="$BASEFIXEDSFSLIST"
-
- #compose list for xdialog listbox...
- for ONESFS in $BASEALLSFSLIST
- do
-  if [ "$EXTRASFSLIST" = "" ];then
-   DLGLIST="$DLGLIST $ONESFS $ONESFS off"
-  else
-   [ "`echo -n "$EXTRASFSLIST" | grep -v "$ONESFS"`" != "" ] && DLGLIST="$DLGLIST $ONESFS $ONESFS off"
-  fi
- done
- for ONESFS in $EXTRASFSLIST
- do
-  DLGLIST="$DLGLIST $ONESFS $ONESFS on"
- done
-
- #v423 let user know wrong sfs's...
- if [ -e /tmp/bootmanager_wrong_sfs_version ];then
-  /usr/lib/gtkdialog/box_ok "$(gettext 'Boot manager')" error "`eval_gettext \"NOTICE: The following SFS files located in directory \\\${MSGz} are the wrong version for the current Linux kernel:\"`" "`cat /tmp/bootmanager_wrong_sfs_version`" "`eval_gettext \"The above files will be ignored. The kernel requires \\\${SFSSTR}, SFS files. Note, there is an SFS-version-converter in the Utility menu.\"`" &
- fi
-
- if [ "$DLGLIST" = "" ];then
-  [ "$CLPARAM2" = "quiet" ] && return 1
-  /usr/lib/gtkdialog/box_ok "$(gettext 'Boot manager')" error "`eval_gettext \"There are no SFS files in directory \\\$MSGz\"`" "$(gettext 'You will need to download and place one there first.')"
-  return 1
- fi
-
- #111113 revert to Xdialog...
- EXECME="Xdialog --wmclass \"module16\" --backtitle \"$(gettext 'Choose which SFS files are to be loaded at bootup.\n(top entry will be on top Aufs layer)')\" --title \"$(gettext 'BootManager: SFS files')\" --left --stdout --separator \" \" --help \"`eval_gettext \"Please click the 'install' icon on the desktop for information about SFS files.\nYou will find an introduction, plus links to SFS files that can be downloaded.\n\nNote, the BootManager performs some filtering of the available SFS files,\nscreening out some that might have incorrect version number -- files of the\nformat '*_nnn.sfs' should be '*_\\\${DISTRO_VERSION}.sfs' to pass the filter.\"`\" --buildlist \"$(gettext 'Note1: No more than 6 SFS files in right-pane!')\n${MSGx}\" 0 0 8 $DLGLIST >/tmp/bmrettags.txt"
- eval ${EXECME}
- RETVAL=$?
- [ ! $RETVAL -eq 0 ] && return 1
- RETTAGS="`cat /tmp/bmrettags.txt`"
- RETTAGS="`echo -n "$RETTAGS" | sed -e 's/ $//g'`"
-
- [ ! -e /etc/rc.d/BOOTCONFIG ] && touch /etc/rc.d/BOOTCONFIG
- grep -v 'EXTRASFSLIST' /etc/rc.d/BOOTCONFIG > /tmp/BOOTCONFIG
- cat /tmp/BOOTCONFIG > /etc/rc.d/BOOTCONFIG
- echo "EXTRASFSLIST='${RETTAGS}'" >> /etc/rc.d/BOOTCONFIG
-
- #120527 shinobar's sfs-load on-the-fly pet has this, sync it...
- if [ -f /etc/rc.d/BOOTCONFIG.save ];then
-  bPTN="s%^EXTRASFSLIST=.*%EXTRASFSLIST='${RETTAGS}'%"
-  sed -i -e "$bPTN" /etc/rc.d/BOOTCONFIG.save
- fi
-
-} #end extrasfs_func
 
 blacklist_func() {
  #blacklisting of modules at bootup.
@@ -206,12 +22,10 @@ blacklist_func() {
  MODLIST=""
  xSKIPLIST="`echo -n "$SKIPLIST" | tr ' ' '\n' | sort -u | tr '\n' ' ' | tr -s ' '`" #110305
  LOADEDMODULES="`lsmod | grep -v '^Module' | cut -f 1 -d ' ' | sort | tr '\n' ' '`" #110305
- for ONEMOD in $LOADEDMODULES
- do
+ for ONEMOD in $LOADEDMODULES ; do
   MODLIST="$MODLIST $ONEMOD $ONEMOD off"
  done
- for ONEMOD in $xSKIPLIST
- do
+ for ONEMOD in $xSKIPLIST ; do
   MODLIST="$MODLIST $ONEMOD $ONEMOD on"
  done
  EXECME="Xdialog --wmclass \"module16\" --title \"$(gettext 'BootManager: Module blacklist manager')\" --left --stdout --separator \" \" --buildlist \"$(gettext 'On the left pane are modules that are currently loaded.\n
@@ -229,39 +43,22 @@ Note, you need to reboot for any change to take effect.')\" 0 0 8 $MODLIST >/tmp
  sed -i -e "s%^SKIPLIST=.*%SKIPLIST='${SKIPLIST}'%" /etc/rc.d/MODULESCONFIG #110305
 } #end blacklist_func
 
+#---------------------------------------------------------------
+
 yeslist_func() {
  #choose extra modules to load at bootup.
  /usr/lib/gtkdialog/box_splash -close never -text "$(gettext 'Please wait, processing...')" &
  X1PID=$!
  . /etc/rc.d/MODULESCONFIG
  MODLIST=""
-
-old_slow_off_list(){
- #note, lsmod will show all modules with '-' as '_'...
- LOADEDMODULES=" `lsmod | grep -v '^Module' | cut -f 1 -d ' ' | tr '\n' ' '`"
- #v403 handles both .ko and .ko.gz modules...
- ALLMODULES="`cat /lib/modules/$KERNVER/modules.dep | cut -f 1 -d ':' | grep -o '[a-zA-Z0-9_-]*\.ko' | tr '\-' '_' | sort - | tr '\n' ' '`"
- for ONEMOD in $ALLMODULES
- do
-  NAMEONLY="`basename $ONEMOD .ko`"
-  MODPATTERN=" $NAMEONLY "
-  #leave off list if already loaded...
-  [ "`echo "$LOADEDMODULES" | grep "$MODPATTERN"`" != "" ] && continue
-  MODPATTERN=' '"$NAMEONLY"'[ :]'
-  #leave off left pane if already on right pane...
-  [ "`echo "$ADDLIST" | grep "$MODPATTERN"`" != "" ] && continue
-  MODLIST="$MODLIST $NAMEONLY $NAMEONLY off"
-  done
-} #old_slow_off_list
-
-  LOADEDMODULES=`cut -f1 -d' ' /proc/modules`
-  ALLMODULES=`cut -f 1 -d ':' /lib/modules/$KERNVER/modules.dep | grep -o '[a-zA-Z0-9_-]*\.ko' | tr '\-' '_' | sed 's%\.k.*$%%' | sort`
-  ALLMODULES=`echo "$ALLMODULES" | /bin/grep -vw "$LOADEDMODULES"`
-  ADDLIST_MOD_ONLY=`echo "$ADDLIST" | tr ' ' '\n' | sed 's%:.*%%;/^$/d'`
-  ALLMODULES=`echo "$ALLMODULES" | /bin/grep -vw "$ADDLIST_MOD_ONLY"`
-  ALLMODULES=`echo "$ALLMODULES" | sed 's%\(.*\)%& & off%'`
-  MODLIST=`echo "$ALLMODULES" | tr '\n' ' '`
-  #echo "$MODLIST" >&2
+ LOADEDMODULES=`cut -f1 -d' ' /proc/modules`
+ ALLMODULES=`cut -f 1 -d ':' /lib/modules/$KERNVER/modules.dep | grep -o '[a-zA-Z0-9_-]*\.ko' | tr '\-' '_' | sed 's%\.k.*$%%' | sort`
+ ALLMODULES=`echo "$ALLMODULES" | /bin/grep -vw "$LOADEDMODULES"`
+ ADDLIST_MOD_ONLY=`echo "$ADDLIST" | tr ' ' '\n' | sed 's%:.*%%;/^$/d'`
+ ALLMODULES=`echo "$ALLMODULES" | /bin/grep -vw "$ADDLIST_MOD_ONLY"`
+ ALLMODULES=`echo "$ALLMODULES" | sed 's%\(.*\)%& & off%'`
+ MODLIST=`echo "$ALLMODULES" | tr '\n' ' '`
+ #echo "$MODLIST" >&2
  for ONEMOD in $ADDLIST
  do
   NAMEONLY="$ONEMOD"
@@ -289,16 +86,16 @@ old_slow_off_list(){
  [ $? -ne 0 ] && return 1
  ADDLIST="`cat /tmp/modules_addlist_edit_out`"
  ADDLIST=' '"`echo "$ADDLIST" | tr ' ' ':' | tr '\n' ' ' | tr -s ' '`"
- #ADDLIST=" `cat /tmp/yesrettags.txt | tr '\n' ' '`"
  #now update /etc/rc.d/MODULESCONFIG...
  grep -v '^ADDLIST' /etc/rc.d/MODULESCONFIG > /tmp/MODULESCONFIG
  mv -f /tmp/MODULESCONFIG /etc/rc.d/MODULESCONFIG
  echo "ADDLIST='${ADDLIST}'" >> /etc/rc.d/MODULESCONFIG
 } #end yeslist_func
 
-#  \"Sometimes two modules are eligible for the same hardware, and you need to choose\none of them. An example is the rt2500usb and rt73usb wireless networking modules\n-- with some hardware these are both eligible however our experience has been that\nthe rt73usb works better. For such a situation, create a line here, of format\nmodule1:module2, where you want module2 to have preference over module1.\nNote: an alternative approach is to blacklist the rt2500usb module (see main menu)\nhowever that is gross as it always prevents rt2500usb from loading.\"
+#---------------------------------------------------------------
 
 preflist_func() {
+ . /etc/rc.d/MODULESCONFIG
  xPREFLIST="`echo -n "$PREFLIST" | sed -e 's/^ //' | tr ' ' '\n'`"
  echo "$xPREFLIST" > /tmp/bootmanager_preflist
  xxPREFLIST="`Xdialog --backtitle \"$(gettext 'Sometimes two modules are eligible for the same hardware,\n
@@ -311,7 +108,9 @@ and you need to choose one of them. Create a line here,\nof format module1:modul
  fi
 } #end preflist_func
 
-sysdaemons_func() { #100125
+#---------------------------------------------------------------
+
+sysdaemons_func() { #manage system services at bootup.
  osdcnt=0
  echo -n "" > /tmp/bootmanager_osd
  for ONESYSDAEMON in `find /etc/init.d -maxdepth 1 -type f | grep -v -E 'txt|pcmcia|alsa'`
@@ -412,6 +211,8 @@ sysdaemons_func() { #100125
 
 } #end sysdaemons_func
 
+#---------------------------------------------------------------
+
 initlist_func () {
    /usr/lib/gtkdialog/box_ok "$(gettext 'Initmodules: Modules to load in init script')" info "`gettext \"Initmodules allows loading of specific modules early in the boot process, before the full OS is established. Is particularly useful if for example, you have a keyboard that does not work when you need to chose a save file during boot, but is fully functional latter when you get to the Desktop.\"`"
     initmodules &
@@ -439,77 +240,90 @@ else
    INITBUTTON=""
 fi
 
-if [ "$CLPARAM1" = "extrasfs" ];then
- if [ "$PUPMODE" = "5" ]; then
-  if [ ! "$(which sfs_load)" ];then
-   /usr/lib/gtkdialog/box_ok "$(gettext 'Boot manager')" error "$(gettext 'To use this feature, you must first shutdown and create a personal save file or folder.')"
-   exit
-  else
-   sfs_load
-   exit
-  fi
- else
-  extrasfs_func
-  exit
- fi
+#----------------------------------------
+case "$CLPARAM1" in
+	blacklist)  blacklist_func  ; exit ;;
+	yeslist)    yeslist_func    ; exit ;;
+	preflist)   preflist_func   ; exit ;;
+	sysdaemons) sysdaemons_func ; exit ;;
+	initlist)   initlist_func   ; exit ;;
+esac
+#----------------------------------------
 
-elif [ "$CLPARAM1" = "blacklist" ];then
- blacklist_func
- exit
-
-elif [ "$CLPARAM1" = "yeslist" ];then
- yeslist_func
- exit
-
-elif [ "$CLPARAM1" = "preflist" ];then
- preflist_func
- exit
-
-elif [ "$CLPARAM1" = "sysdaemons" ];then #100125
- sysdaemons_func
- exit
-elif [ "$CLPARAM1" = "initlist" ];then
- initlist_func
- exit
-fi
-
-#120626 only offer to load sfs files if have layered f.s., mention sfs_load...
-if [ -d /initrd ];then #PUPMODE=2, full hd install, will not have this.
-    if [ "`cat /root/.packages/woof-installed-packages /root/.packages/user-installed-packages | grep '^sfs_load'`" != "" ];then
-        SFSLOAD_XML="$(gettext "ALTERNATIVE: Shinobar's SFS_Load application will enable you to install SFS files on-the-fly, that is, load and unload them without having to reboot -- see the 'Setup' menu.")"
-    #'geany
-    fi
-    SFSFRAME_XML='
-    <frame '$(gettext 'Load SFS files')'>
+generic_xml() {
+    echo '
+    <frame '${XML_FRAME}'>
       <vbox space-expand="true" space-fill="true">
-        '"`/usr/lib/gtkdialog/xml_info scale package_sfs.svg 60 "$(gettext "Puppy has a file named") ${DISTRO_PUPPYSFS} $(gettext "that is always loaded. However, extra SFS files can be loaded at bootup, for example 'kde.sfs' to provide KDE applications, and 'devx.sfs' to provide everything for compiling C/C++ source. These can be thought of as 'combo packs' of many packages in one file.")" " " "${SFSLOAD_XML}"`"'
+        '${XLM_INFO}'
         <vbox space-expand="false" space-fill="false">
           <text height-request="20"><label>""</label></text>
           <hbox>
-            <text><label>'$(gettext 'Choose which extra SFS files to load at bootup')'</label></text>
+            <text><label>'${XML_LABEL}'</label></text>
             <button>
-              '"`/usr/lib/gtkdialog/xml_button-icon package_sfs.svg big`"'
-              <action>'"$MY_SELF"' extrasfs &</action>
+              '`/usr/lib/gtkdialog/xml_button-icon ${XML_ICON} big`'
+              <action>'${XML_ACTION}'</action>
             </button>
           </hbox>
           <text height-request="5"><label>""</label></text>
         </vbox>
       </vbox>
     </frame>'
-else
-    if [ "`cat /root/.packages/woof-installed-packages /root/.packages/user-installed-packages  | grep '^sfs_load'`" != "" ];then
-        SFSLOAD_XML="$(gettext "Shinobar's SFS_Load application will enable you to install SFS files -- see the 'Setup' menu.")"
-    #'geany
-    else
-        SFSLOAD_XML="$(gettext "TECHNICAL: Clicking on an SFS file will open it, and it's contents can then be copied to /. It is recommended to use the '-a -f --remove-destination' parameters for the 'cp' command.")"
-    #'geany
-    fi
+}
+
+XML_FRAME=$(gettext 'Manage startup apps')
+XLM_INFO="`/usr/lib/gtkdialog/xml_info scale startup_app.svg 60 "$(gettext "Manage what apps are set to start when the graphical server (X) starts on your system. These apps include the notification icons in the system tray and some other hidden services that need the graphical server to be running.")"`"
+XML_ICON=startup_app.svg
+XML_LABEL=$(gettext 'Manage startup apps')
+XML_ACTION='wmstartups'
+STARTUP_XML="$(generic_xml)" #--
+
+XML_FRAME=$(gettext 'Manage system services')
+XLM_INFO="`/usr/lib/gtkdialog/xml_info scale startup_services.svg 60 "$(gettext "These are processes (applications) that are started at bootup and run continuously in the background. On slow PCs it may help to not run some of these.")"`"
+XML_ICON=startup_services.svg
+XML_LABEL=$(gettext 'Choose which system services to run at startup')
+XML_ACTION="$MY_SELF sysdaemons &"
+SERVICES_XML="$(generic_xml)" #--
+
+case $PUPMODE in 5|2) no_underdog=1 ;;
+*)
+	UD_1="$(gettext "The Underdog Distro")"
+	UD_2="$(gettext "At bootup Puppy will read underdog.lnx and will mount the partition as the bottom layer. If that partition happens to have a Linux distro installed in it, then the entire distro filesystem will 'show through' on the top layer of Puppy's unionfs.")"
+	UD_3="$(gettext "It will look like a normal Puppy, same desktop, but everything in the underlying distro is available to be executed. All the applications, compile environment, package manager, etc.")"
+	XML_FRAME=$(gettext 'Underdog')
+	XLM_INFO="`/usr/lib/gtkdialog/xml_info scale puppy.svg 60 "$UD_1" " " "$UD_2" "" "$UD_3"`"
+	XML_ICON=puppy.svg
+	XML_LABEL=$(gettext 'Run underdog gui')
+	XML_ACTION='underdog &'
+	UNDERDOG_XML="$(generic_xml)" #--
+	UNDERDOG_TAB='|'$(gettext 'Underdog')''
+	;;
+esac
+
+PUPSWAP_XML_1="$(gettext "As well as the swap partition, Linux also supports a swap file that you can create, prepare, and mount in a fashion similar to that of a swap partition. The advantage of swap files is that you don't need to find an empty partition or repartition a disk to add additional swap space.")"
+PUPSWAP_XML_2="$(gettext "It is possible to run a Linux system without a swap space, and the system will run well if you have a large amount of memory -- but if you run out of physical memory then the system will crash, as it has nothing else it can do, so it is advisable to have a swap space, especially since disk space is relatively cheap")"
+XML_FRAME=$(gettext 'Swapfile')
+XLM_INFO="`/usr/lib/gtkdialog/xml_info scale execute_add.svg 60 "$PUPSWAP_XML_1" "" "$PUPSWAP_XML_2"`"
+XML_ICON=execute_add.svg
+XML_LABEL=$(gettext 'Run pupswap')
+XML_ACTION='pupswap &'
+SWAPFILE_XML="$(generic_xml)" #--
+
+if [ $PUPMODE -eq 2 ];then #PUPMODE=2, full hd install, will not have this.
+    SFSLOAD_XML="$(gettext "SFS_Load application will enable you to install SFS files -- see the 'Setup' menu.")"
     SFSFRAME_XML='
     <frame '$(gettext 'Load SFS files')'>
       <vbox space-expand="true" space-fill="true">
         '"`/usr/lib/gtkdialog/xml_info scale package_sfs.svg 60 "$(gettext "NOTICE: As this is a full installation of Puppy without an initrd, SFS files cannot be loaded/unloaded at bootup. However, they can be permanently installed.")" " " "${SFSLOAD_XML}"`"'
       </vbox>
     </frame>'
+else
+    SFSLOAD_XML="$(gettext "The SFS-Load application will load SFS files immediately. Loaded SFS files will continue to be loaded through subsequent reboots, until they are unloaded.")"
+	XML_FRAME=$(gettext 'Load SFS files')
+	XLM_INFO=`/usr/lib/gtkdialog/xml_info scale package_sfs.svg 60 "$(gettext "Puppy has a file named") ${DISTRO_PUPPYSFS} $(gettext "that is always loaded. However, extra SFS files can be loaded at bootup, for example 'kde.sfs' to provide KDE applications, and 'devx.sfs' to provide everything for compiling C/C++ source. These can be thought of as 'combo packs' of many packages in one file.")" " " "${SFSLOAD_XML}"`
+	XML_ICON=package_sfs.svg
+	XML_LABEL=$(gettext 'Choose which extra SFS files to load')
+	XML_ACTION='sfs_load &'
+	SFSFRAME_XML="$(generic_xml)" #--
 fi
 
 #######################################################
@@ -517,27 +331,9 @@ fi
 export BootManager='
 <window title="'$(gettext 'Startup  Manager')'" icon-name="gtk-execute">
 <vbox space-expand="true" space-fill="true">
-  <notebook labels="'$(gettext 'Startup Apps')'|'$(gettext 'SFS-packages')'|'$(gettext 'Modules')'|'$(gettext 'Services')'">
-
-    <frame '$(gettext 'Manage startup apps')'>
-      <vbox space-expand="true" space-fill="true">
-        '"`/usr/lib/gtkdialog/xml_info scale startup_app.svg 60 "$(gettext "Manage what apps are set to start when the graphical server (X) starts on your system. These apps include the notification icons in the system tray and some other hidden services that need the graphical server to be running.")"`"'
-        <vbox space-expand="false" space-fill="false">
-          <text height-request="20"><label>""</label></text>
-          <hbox>
-            <text><label>'$(gettext 'Manage startup apps')'</label></text>
-            <button>
-              '"`/usr/lib/gtkdialog/xml_button-icon startup_app.svg big`"'
-              <action>wmstartups</action>
-            </button>
-          </hbox>
-          <text height-request="5"><label>""</label></text>
-        </vbox>
-      </vbox>
-    </frame>
-
-    '"${SFSFRAME_XML}"'
-
+  <notebook labels="'$(gettext 'Startup Apps')'|'$(gettext 'SFS-packages')'|'$(gettext 'Modules')'|'$(gettext 'Services')'|'$(gettext 'Swapfile')${UNDERDOG_TAB}'">
+    '${STARTUP_XML}'
+    '${SFSFRAME_XML}'
     <frame '$(gettext 'Load kernel modules')'>
       <vbox space-expand="true" space-fill="true">
         '"`/usr/lib/gtkdialog/xml_info scale module.svg 60 "$(gettext "If a driver module did not get loaded, or the wrong one got loaded, or you want to 'blacklist' a module, this is the place. A common scenario is a driver got auto-loaded, for say your wireless network card, but you cannot or do not want to use it, and want some other module or want to use Ndiswrapper (to use the Windows driver).")"`"'
@@ -569,23 +365,9 @@ export BootManager='
         </vbox>
       </vbox>
     </frame>
-
-    <frame '$(gettext 'Manage system services')'>
-      <vbox space-expand="true" space-fill="true">
-        '"`/usr/lib/gtkdialog/xml_info scale startup_services.svg 60 "$(gettext "These are processes (applications) that are started at bootup and run continuously in the background. On slow PCs it may help to not run some of these.")"`"'
-        <vbox space-expand="false" space-fill="false">
-          <text height-request="20"><label>""</label></text>
-          <hbox>
-            <text><label>'$(gettext 'Choose which system services to run at startup')'</label></text>
-            <button>
-              '"`/usr/lib/gtkdialog/xml_button-icon startup_services.svg big`"'
-              <action>'"$MY_SELF"' sysdaemons &</action>
-            </button>
-          </hbox>
-          <text height-request="5"><label>""</label></text>
-        </vbox>
-      </vbox>
-    </frame>
+    '${SERVICES_XML}'
+    '${SWAPFILE_XML}'
+    '${UNDERDOG_XML}'
   </notebook>
 
   <hbox height-request="30" space-expand="false" space-fill="false">
@@ -596,10 +378,7 @@ export BootManager='
 
 . /usr/lib/gtkdialog/xml_info gtk #build bg_pixmap for gtk-theme
 RETSTRING="`gtkdialog -p BootManager`"
-
 eval "$RETSTRING"
-
 [ "$EXIT" = "abort" ] && exit
 
-
-###END###
+### END ###

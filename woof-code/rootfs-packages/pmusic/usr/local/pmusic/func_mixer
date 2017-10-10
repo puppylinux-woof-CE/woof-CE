@@ -2,6 +2,8 @@
 #pMusic - sound processing
 #GPL - Copyright Sigmund Berglund
 
+export TEXTDOMAIN=pmusic
+export OUTPUT_CHARSET=UTF-8
 [ ! "$SPEAKER" ] && . $HOME/.pmusic/pmusicrc
 #Detect active soundcard
 if [ "$SOUND_DEVICE" = "auto" ]; then
@@ -27,14 +29,26 @@ case $1 in
 	[ "$FADE_IN" != "0" ] && AF_STRING="${AF_STRING}afade=t=in:d=$FADE_IN," #afade has to be BREFORE tempo
 	[ "$TREBLE" != "0" ] && AF_STRING="${AF_STRING}treble=gain=$TREBLE,"
 	[ "$BASS" != "0" ] && AF_STRING="${AF_STRING}bass=gain=$BASS,"
+	[ "$FF_VOLUME" != "1.0" ] && AF_STRING="${AF_STRING}volume=${FF_VOLUME},"
 	if [ "$TEMPO" != "100" ]; then
 		TEMPO="`echo "scale=2; $TEMPO / 100" | bc`"
 		AF_STRING="${AF_STRING}atempo=$TEMPO,"
 	fi
-	[[ ${AF_STRING} = @(*afade*|*treble*|*bass*|*atempo*) ]] && echo -n "$AF_STRING" > $WORKDIR/ffmpeg_filter #trailing , in -af "..." corrupts ffmpeg
+	[[ ${AF_STRING} = @(*afade*|*treble*|*bass*|*atempo*|*volume*) ]] && echo -n "$AF_STRING" > $WORKDIR/ffmpeg_filter #trailing , in -af "..." corrupts ffmpeg
 	#Note that normalize is stored in rc - it has to be calculated before playing actual track
+	
+	#update stream if playing
+	if LC_ALL=C grep -F 'kbits' $WORKDIR/ffmpeg_output; then
+		IFS=: read C1 M S C <<< "`tail -c 120 $WORKDIR/ffmpeg_output`"
+		S=${S%%.*}
+		read SS < $WORKDIR/SS
+		echo "$(((10#${M} * 60) + 10#${S} + $SS))" > $WORKDIR/SS
+		$APPDIR/func_kill -audio
+		$APPDIR/func_player -playing -skip_update &
+	fi
 	;;
 -gui)
+	$0 -mute noaction
 	$0 -get_levels
 	GUI_PEQUALIZER="`/usr/local/pequalizer/pequalizer -e 2> /dev/null`"
 	[ ! "$GUI_PEQUALIZER" ] && GUI_PEQUALIZER='<vbox space-expand="true" space-fill="true"><frame><pixmap><input file stock="gtk-dialog-error"></input></pixmap><hbox homogeneous="true" width-request="250"><text><label>pEqualizer '$(gettext 'is not installed')'</label></text></hbox></frame></vbox>'
@@ -52,18 +66,27 @@ case $1 in
 		 <text ypad="40" use-markup="true" space-expand="false" space-fill="false"><label>"<i>'$(gettext 'Speaker channel')': <b>'$SPEAKER'</b>
 '$(gettext 'Sound card')': <b>'$(echo "$SOUND_DEVICE" | cut -d[ -f1 | cut -d: -f2)'</b></i>"</label></text>
 		 <text space-expand="true" space-fill="true"><label>""</label></text>
-		 <vbox space-expand="false" space-fill="false">
-		  <button width-request="40" height-request="40" can-focus="false" image-position="2" space-expand="false" space-fill="false">
-		   <input file stock="gtk-preferences"></input>
-		   <action>'$APPDIR'/func_config -preferences -playback</action>
-		  </button>
-		  <text space-expand="true" space-fill="true"><label>""</label></text>
-		 </vbox>
+		 <hbox spacing="0" '$SF'>
+		  <vbox>
+		   <button relief="2" can-focus="false" space-expand="false" space-fill="false">
+		    <input file stock="gtk-preferences"></input>
+		    <action>'$APPDIR'/func_config -preferences -playback</action>
+		   </button>
+		   <text space-expand="true" space-fill="true"><label>""</label></text>
+		  </vbox>
+		  <vbox>
+		   <button relief="2" can-focus="false" space-expand="false" space-fill="false">
+		    <input file stock="gtk-help"></input>
+		    <action>'$APPDIR'/func_mixer -info_SoundProcessing</action>
+		   </button>
+		   <text space-expand="true" space-fill="true"><label>""</label></text>
+		  </vbox>
+		 </hbox>
 	    </hbox>
 	   </eventbox>
 	  </hbox>
 	 </vbox>
-	 <notebook labels="'$(gettext 'Output')'|'$(gettext 'Input')'" space-expand="true" space-fill="true">
+	 <notebook labels="'$(gettext 'Output')' (alsa)|'$(gettext 'Input')' (ffmpeg)" space-expand="true" space-fill="true">
 	  <vbox space-expand="true" space-fill="true">
 	   <hbox space-expand="true" space-fill="true">
 	    <vbox margin="10" space-expand="true" space-fill="true">
@@ -97,7 +120,7 @@ case $1 in
 	</vbox>
 	</window>'
 	echo "$S" > $WORKDIR/xml_pmusic_mixer
-	[ $TOOLTIPS = false ] && sed -i 's%tooltip-text%tooltipXXXtext%g' $WORKDIR/xml_pmusic_mixer #deactivate tooltips
+	[ $TOOLTIPS = false ] && sed -i 's%tooltip-%tooltipXXX%g' $WORKDIR/xml_pmusic_mixer #deactivate tooltips
 	sed -i 's/###.*//g' $WORKDIR/xml_pmusic_mixer #triple ### avoids confict with bash4 and colors as #FF0000
 	. $APPDIR/func -reset_gtk
 	$GTKDIALOG -f $WORKDIR/xml_pmusic_mixer
@@ -111,9 +134,8 @@ case $1 in
 	fi
 	;;
 -set_volume)
-	#in case it is muted, and user tries to adjust volume
-	amixer -c $CARD_NR set "$SPEAKER" unmute > /dev/null 2>&1
-	echo false > $WORKDIR/func_mixer-MUTE
+	#in case it is muted, and user tries to adjust volume, lets unmute
+	$APPDIR/func_mixer -mute unmute
 	#---
 	if [ "`amixer -c $CARD_NR get "$SPEAKER" | grep 'Mono:' | cut -d ':' -f 2`" ]; then #mono
 		amixer -c $CARD_NR set "$SPEAKER" $VOLUME"%" > /dev/null 2>&1
@@ -184,12 +206,49 @@ case $1 in
 	. $APPDIR/func_mixer -set_volume
 	;;
 -mute)
-	if [ "$(<$WORKDIR/func_mixer-MUTE)" = "true" ]; then
-		amixer -c $CARD_NR set "$SPEAKER" unmute > /dev/null 2>&1
-		echo false > $WORKDIR/func_mixer-MUTE
+	case $2 in
+		mute) MUTE=false;;
+		unmute) MUTE=true;;
+		*)
+			AMIXER="`amixer -c $CARD_NR get "$SPEAKER"`"
+			if [ "`grep 'Mono:' <<< "$AMIXER" | cut -d ':' -f 2`" ]; then
+				[ "`grep -FA5 'Mono:' <<< "$AMIXER" | grep -Fm1 '%' | grep -F '[on]'`" ] && MUTE=false || MUTE=true
+			else #stereo
+				[ "`grep -m1 'Left:' <<< "$AMIXER" | grep -F '[on]'`" ] && MUTE=false || MUTE=true
+			fi
+			;;
+	esac
+	
+	if [ $MUTE = false ]; then
+		if [ "$2" = "noaction" ]; then #only a status check
+			cp -f $APPDIR/themes/$THEME/icon_volume_ok.svg $WORKDIR/icon_mute.svg
+		else
+			amixer -c $CARD_NR set "$SPEAKER" mute > /dev/null 2>&1
+			cp -f $APPDIR/themes/$THEME/icon_volume_mute.svg $WORKDIR/icon_mute.svg
+		fi
 	else
-		amixer -c $CARD_NR set "$SPEAKER" mute > /dev/null 2>&1
-		echo true > $WORKDIR/func_mixer-MUTE
+		if [ "$2" = "noaction" ]; then #only a status check
+			cp -f $APPDIR/themes/$THEME/icon_volume_mute.svg $WORKDIR/icon_mute.svg
+		else
+			amixer -c $CARD_NR set "$SPEAKER" unmute > /dev/null 2>&1
+			cp -f $APPDIR/themes/$THEME/icon_volume_ok.svg $WORKDIR/icon_mute.svg
+		fi
 	fi
+	;;
+-info_SoundProcessing)
+	HEADING="$(gettext 'Sound Processing')"
+	IMG='info'
+	FRAME="$(gettext 'info')"
+	TXT1="$(gettext 'The <b>Output sound processing</b> is done after the stream has left the pMusic play-engine. So, it will only affect the Linux sound driver (alsa). This is a very smooth processing, and most often the recommended choice. The downside is that it will affect the sound output of all other apps using alsa.
+	
+The <b>Input processing</b> is tweaking the stream going into pMusic, so this gives more options to manipulate the stream (ie. tempo and fading). The downside is that it has to reload the stream setup, and it will give a tick/pause when changing the values.
+
+Be aware that the input processing stays active also when exporting the tracks. This gives the abilities to convert the stream more radically than just changing the format.
+
+Increasing the input <b>volume</b> should be used by caution. It will often give distortion to the sound. To optimize the input volume level, use the Normalizer. The output volume will not distort.
+
+<b>Normalize</b> will unify volume of all tracks.
+This is handy when your tracks comes from different sources, since the recording level is not the same. Depending on your system, the volume calculation will give a small gap before playing')"
+	. $APPDIR/box_ok &
 	;;
 esac

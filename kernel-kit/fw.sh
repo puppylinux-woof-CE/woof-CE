@@ -1,206 +1,303 @@
-#!/bin/sh
+#!/bin/bash
 # called from build.sh (kernel-kit)
+# download & process linux-firmware git
 
-export LANG=C # faster
+. ./build.conf || exit 1
 
-[ -f ./build.conf ] && . ./build.conf || exit 1
+export LANG=C #faster
+DEBUG=0 #0=disabled, 1=enabled
 
+rm -f ./fw-*.log
+[ $DEBUG -ne 1 -a -d zfirmware_workdir ] && rm -r zfirmware_workdir
 CWD=`pwd`
 
-[ -f ./fw.log ] && rm ./fw.log
+# busybox stat faster?
+busybox|grep -qow 'stat' && STAT='busybox stat' || STAT=stat
 
 
 # vars
-src_fw_dir='../linux-firmware'
-src_fw_src='linux-firmware'
-src_file_FW=${src_fw_dir}/WHENCE
-src_file_DRV=`find dist/sources -type f -name 'DOTconfig*' -maxdepth 1` #'./DOTconfig'
-dest_fw_dir='workdir/lib'
-result_dir='workdir/lib/firmware'
-not_dir='workdir/lib/linux-firmware'
-pkg_dir='dist/packages'
-fw_sfs="dist/packages/fdrv_${kernel_version}_${package_name_suffix}.sfs"
-kernel_package=`find dist -type d -name 'linux_kernel*'`
-dest=${kernel_package}/lib/firmware
-src=$result_dir
+SRC_FW_DIR='../linux-firmware'
+DEST_FW_DIR='zfirmware_workdir/lib'
+
+SRC_FILE_FW=${SRC_FW_DIR}/WHENCE
+dotconfig=`find output -maxdepth 1 -type f -name 'DOTconfig*' | head -1`
+if [ -f "$dotconfig" ] ; then
+	DOTCONFIG_str=$(grep -v -E '^#|is not set$' $dotconfig)
+else
+	echo "WARNING: No DOTconfig file in output/"
+	echo "Put a DOTconfig file there..."
+	#exit 1
+fi
+
+FIRMWARE_SFS="sources/fdrv_${kernel_version}_${package_name_suffix}.sfs"
+FIRMWARE_RESULT_DIR='zfirmware_workdir/lib/firmware'
+FIRMWARE_EXTRA_DIR='zfirmware_workdir/lib/linux-firmware'
+
+kernel_package=`find output -type d -name 'linux_kernel*' | head -1`
+
+if [ ! -d "${kernel_package}" ] ; then
+	kernel_package=`find $CWD -type d -name 'linux_kernel*' | head -1`
+fi
+
+#if [ ! -d "${kernel_package}" ] ; then
+#	echo "WARNING: No kernel package..."
+#	#exit 1
+#else
+	dest_kernel_package=${kernel_package}/lib/firmware
+	[ ! -d ${dest_kernel_package} ] && mkdir -p $dest_kernel_package
+#fi
+
+
+#################################################################
+#                          FUNCTIONS
+#################################################################
 
 func_git() {
-	if [ -d "$src_fw_dir" ];then
-		cd $src_fw_dir
+	if [ -d "$SRC_FW_DIR" ];then
+		cd $SRC_FW_DIR
 		echo "Updating the git firmware repo"
 		git pull
-		if [ $? -ne 0 ];then
-			echo "Failed to update git firmware" # non fatal
-			cd -
-		fi
-		cd -
+		[ $? -ne 0 ] && echo "Failed to update git firmware" # non fatal
+		return 0 # precaution
 	else
 		cd ..
 		echo "Cloning the firmware repo may take a long time"
 		git clone git://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git
 		if [ $? -ne 0 ];then
 			echo "Failed to clone the git firmware repo"
-			cd -
 			return 1
 		fi
-		cd -
-	fi
-	return 0
-}
-
-get_func() {
-	#filter some junk
-	echo "$1"|grep -q -E '[a-z]\.[a-z]|[0-9]\.[a-z]|[A-Z]\.[a-z]|RTL' || return # what we want
-	echo "$1"|grep -q -E '^Version:|Source:|Info:' && return # PITA
-	echo "$1"|grep -q '@' && return # email address
-	echo "$1"|grep -q '[0-9]\.p[0-9]' && return # page rubbish
-	echo "$1"|grep -q 'https:' && return # wtf??
-	echo "$1"|grep -q '\/src' && return # source
-	# copy files
-	cd ..
-	cp -d --parents $src_fw_src/$1 ${CWD}/${dest_fw_dir}/ 2>/dev/null # send to oblivion what wasn't caught above
-	ret=$?
-	cd $CWD
-	if [ $ret -eq 0 ];then
-		echo "$1 	`stat -c %s $src_fw_dir/$1`" >> fw.log
-	else
-		echo "FAILURE: $1" >> fw.log
+		return 0
 	fi
 }
 
 process_driver() {
-	driver=$1
-	DRIVER=`echo ${driver^^}|tr '-' '_'`
+	local driver=$1
+	local DRIVER=${driver^^}
+	DRIVER=${DRIVER//-/_}
 	case $DRIVER in # try to avoid dups
-		RADEON)DRIVER=DRM_RADEON;;
-		KEYSPAN)DRIVER='SERIAL_KEYSPAN=';;
-		LIBERTAS)DRIVER=LIBERTAS_USB;;
-		MWIFIEX)DRIVER=MWIFIEX_USB;;
+		RADEON)   DRIVER='DRM_RADEON='    ;;
+		NOUVEAU)  DRIVER='DRM_NOUVEAU='   ;;
+		AMDGPU)   DRIVER='DRM_AMDGPU='    ;;
+		I915)     DRIVER='DRM_I915='      ;;
+		KEYSPAN)  DRIVER='SERIAL_KEYSPAN=';;
+		LIBERTAS) DRIVER=LIBERTAS_USB     ;;
+		RTL8821AE)DRIVER=8821AE           ;;
+		MWIFIEX)  DRIVER=MWIFIEX_USB      ;;
+		MWLWIFI)  DRIVER='CONFIG_MAC80211';; #see WHENCE, .config
 	esac
 	echo -n "$driver "
-	D=`grep $DRIVER $src_file_DRV|grep -v -E '^#|is not set$'|head -n1`
-	[ -z "$D" ] && return 1
-	return 0
+	D=`echo "$DOTCONFIG_str" | grep $DRIVER | head -n1`
+	if [ -z "$D" ] ; then
+		echo
+		return 1
+	else
+		echo -- $D --
+		return 0
+	fi
 }
 
-get_entry() {
-	MAX=`wc -l $src_file_FW|cut -d ' ' -f1`
-	while read line ; do
-		if echo "$line"|grep -q '^Driver:';then
-			driver=`echo $line|cut -d ' ' -f2`
-			process_driver $driver
-			[ $? -ne 0 ] && continue
-			if [ "$line" ] ;then
-				line_no=`grep -n '^Driver:' $src_file_FW|grep "$driver"|cut -d':' -f1`
-				num_entries=`printf "$line_no\n"|wc -l` # sometimes more tha 1 in WHENCE
-				case $num_entries in
-					1)	line_next=$(($line_no + 1))
-						while [ 1 ];do	
-							file=`sed "${line_next}q;d" $src_file_FW` 2>&1 >/dev/null
-							echo "$file"|grep -q -E '^Licence|License' && run=0 && break
-							file=`echo $file|awk '{print $2}'`
-							get_func $file
-							line_next=$(($line_next + 1))
-							[ $line_next -gt $MAX ] && return # precaution
-						done
-						;;
-					[2-9])for i in $line_no; do
-							line_next=$(($i + 1))
-							while [ 1 ];do
-								file=`sed "${line_next}q;d" $src_file_FW` 2>&1 >/dev/null
-								echo "$file"|grep -q -E '^Licence|License' && run=0 && break
-								file=`echo $file|awk '{print $2}'`
-								get_func $file
-								line_next=$(($line_next + 1))
-								[ $line_next -gt $MAX ] && return # precaution
-							done
-						done
-						;;
+get_func() {
+	local file=${1}
+	local source_path=${SRC_FW_DIR}/${file}
+	local target_dir=${CWD}/${FIRMWARE_EXTRA_DIR}/${file}
+	target_dir=${target_dir%/*} # strip off file
+	if [ ! -d "${target_dir}" ] ; then # manufacture dest subdirs before move
+		mkdir -p ${target_dir}
+	fi
+	cp -d ${source_path} ${target_dir} 2>/dev/null
+	if [ $? -eq 0 ];then
+		echo "$file 	`$STAT -c %s $SRC_FW_DIR/$file`" >> fw-1.log
+	else
+		echo "FAILURE: $file" >> fw-1.log
+	fi
+}
+
+extract_firmware() {
+	(
+	while read -r field value etc ; do
+		case $field in "Driver:")
+			driver=$value
+			# select firmware according based on DOTconfig...
+			process_driver $driver || continue
+			echo -n "$driver " >&2
+			while [ 1 ] ; do
+				read -r field value etc
+				case $field in
+					"File:") file=$value ; get_func $file ;;
+					"License:"|"Licence:") break ;;
 				esac
-			fi
-		fi
-	done < $src_file_FW
+			done
+		esac
+	done < ${SRC_FILE_FW}
+	) > fw-2.log
 }
 
 fw_filter(){
 	list=$1
+	[ -z "$2" ] && B=10000000 || B=$2 #~10MB (salesmen MB ;-)
+	[ $B -eq 0 ] && B=10000000
 	echo "Filtering with $list"
-	echo 'FILTERED FIRMWARE LIST IN ZDRV' > ${list}.log
-	echo '==============================' >> ${list}.log
-	mkdir -p $result_dir
+	(
+	echo ; echo ; echo "Filtering with $list"
+	echo 'FILTERED FIRMWARE LIST IN ZDRV'
+	echo '=============================='
+	mkdir -p ${FIRMWARE_RESULT_DIR}
+	filelist=$(find ${FIRMWARE_EXTRA_DIR} | sed "s%${FIRMWARE_EXTRA_DIR}\/%%") # strip leading crap
+	filelist2=$(find ${SRC_FW_DIR} | sed -e "s%${SRC_FW_DIR}\/%%" -e 's|\.git/||') # strip leading crap
+	#echo "$filelist"
 	while read line; do
 		file=${line##*/}
-		file_path=`find ${not_dir} -name $file|head -n1`
-		[ -z "$file_path" ] && continue
-		nfile_path=`echo $file_path|sed "s%${not_dir}\/%%"` # strip leading crap
-		retrieve_path=${not_dir}/${nfile_path}
-		retrieve_dir=${retrieve_path%/*} # strip off file
-		if echo ${nfile_path} | grep -q '\/';then # in a subdir
-			if test ! -d "${result_dir}/${nfile_path%/*}";then # manufacture dest subdirs before move
-				path=${nfile_path%/*}
-				mkdir -p ${result_dir}/${path}
-			fi
-			mv -f ${retrieve_dir}/${file} ${result_dir}/${path}/
-			[ $? -eq 0 ] && echo "${file} SUCCESS" >> ${list}.log || echo "${file} FAIL" >> ${list}.log
-		else
-			mv -f ${retrieve_dir}/${file} ${result_dir}/
-			[ $? -eq 0 ] && echo "${file} SUCCESS" >> ${list}.log || echo "${file} FAIL" >> ${list}.log
+		file2=${line}
+		action=mv #move
+		echo -n "$file " >&2
+		file_path=`echo "$filelist" | grep "^${file2}$" | head -n1`
+		if [ ! "$file_path" ] ; then
+			file_path=`echo "$filelist" | grep "\/${file}$" | head -n1`
+			[ -z "$file_path" ] && continue
 		fi
+		source_path=${FIRMWARE_EXTRA_DIR}/${file_path}
+		[ -f ${source_path} -o -h ${source_path} ] || continue
+		target_dir=${FIRMWARE_RESULT_DIR}/${file_path}
+		target_dir=${target_dir%/*} # strip off file
+		if [ ! -d "${target_dir}" ] ; then # manufacture dest subdirs before move
+			mkdir -p ${target_dir}
+		fi
+		# make sure links follow targets
+		[ -h "${source_path}" -a -e "${source_path}" ] && SSIZE=`$STAT -L -c %s ${source_path}` || SSIZE=`stat -c %s ${source_path}`
+		[ -z "$SSIZE" ] && continue #precaution
+		[ $SSIZE -gt "$B" ] && continue ##discard bigguns
+		# do links first?
+		ret=0
+		[ -h "${source_path}" ] && ${action} -f ${source_path} ${target_dir}/ #2>>fw-2.log
+		ret=$?
+		[ -e "${source_path}" ] && ${action} -f ${source_path} ${target_dir}/
+		ret=$(($ret + $?))
+		[ $ret -le 1 ] && echo "${file} SUCCESS" || echo "${file} FAIL"
 	done < $list
+	) >> fw-2.log
 }
 
 licence_func () {
 	echo "Extracting licences"
-	mkdir -p ${result_dir}/licences
-	find ${src_fw_dir} -type f -iname 'licen?e*' -exec cp '{}' ${result_dir}/licences \;
+	mkdir -p ${FIRMWARE_RESULT_DIR}/licences
+	find ${SRC_FW_DIR} -type f -iname 'licen?e*' -exec cp '{}' ${FIRMWARE_RESULT_DIR}/licences \;
 }
 
+#################################################################
+#                             MAIN
+#################################################################
+
 # update or clone git firmware
-func_git
-[ $? -ne 0 ] && echo "Aborting." && exit 1
+if [ "$GIT_ALREADY_DOWNLOADED" != "yes" ] ; then
+	func_git || { echo "ERROR" ; exit 1 ; }
+fi
 
-[ -d "$dest_fw_dir" ] && rm -r "$dest_fw_dir"
-mkdir -p "$dest_fw_dir"
-[ -f "$fw_sfs" ] && rm $fw_sfs
+cd ${CWD}
 
-# process entries in WHENCE
-echo "Extracting firmware"
-get_entry
-echo
+[ -d "$DEST_FW_DIR" ] && rm -rf "$DEST_FW_DIR"
+mkdir -p "$DEST_FW_DIR"
+[ -f "${FIRMWARE_SFS}" ] && rm -f ${FIRMWARE_SFS}
 
 # cut down firmware .. or not
-fw_flag=$1
-case $fw_flag in
-	big)echo="Not filtering"
-		mv $not_dir ${result_dir}
+FW_FLAG=$1;
+if [ ! "$FW_FLAG" -a -z "$CUTBYTES" ] ; then
+	echo -n "
+Cut down firmware?
+1. Cut down according to firmware.lst [default]
+2. Cut down according to built modules (needs work)
+3. Don't cut down
+
+Choose option: " ; read cdf
+	case $cdf in
+		2) FW_FLAG="big" ;;
+		3) FW_FLAG="complete" ;;
+		*) FW_FLAG="" ;;
+	esac
+fi
+
+case $FW_FLAG in
+	complete)
+		mkdir -p ${FIRMWARE_RESULT_DIR}
+		echo "Copy all firmware"
+		cp -an ${SRC_FW_DIR}/* ${FIRMWARE_RESULT_DIR}/
+		rm -rf ${FIRMWARE_RESULT_DIR}/.git ${FIRMWARE_RESULT_DIR}/LICEN*
 		licence_func
-		cp -n -r ${src}/* ${dest}/
-		SFS=ZDRV
+		if [ -d "${dest_kernel_package}" ] ; then
+			cp -an ${FIRMWARE_RESULT_DIR}/* ${dest_kernel_package}/
+			rm -r ${FIRMWARE_RESULT_DIR}
+		else
+			mksquashfs zfirmware_workdir ${FIRMWARE_SFS##*/} -comp xz
+			md5sum ${FIRMWARE_SFS##*/} > ${FIRMWARE_SFS##*/}.md5.txt
+		fi
 		;;
-	  *)fw_filter firmware.lst
-	    find $not_dir -type d -empty -delete
-	    licence_func
-	    # copy final fw to kernel
-		cp -n -r ${src}/* ${dest}/
-	    rm -r ${src}
+	big)
+		echo "Extracting firmware"
+		extract_firmware # process entries in WHENCE
+		echo
+		#main_proc
+		echo="Not filtering"
+		mv ${FIRMWARE_EXTRA_DIR} ${FIRMWARE_RESULT_DIR}
+		licence_func
+		if [ -d "${dest_kernel_package}" ] ; then
+			cp -n -r ${FIRMWARE_RESULT_DIR}/* ${dest_kernel_package}/
+		fi
+		;;
+	*)
+		# create new list.. now gets filtered by size and obscure (= big ones deleted)
+		# obscure fw are liquidio, phanfw.bin (netxen_nic) and cxgb{3,4} (chelsio) - mainly in servers
+		grep '^File' $SRC_FILE_FW |grep -oE '\: [a-zA-Z].*|\: L.*|\: [0-9].*'|sed 's/^\: //'|grep -vE 'liquidio|cxgb[34]|phanfw.bin' > firmware.lst
+		# choose
+		if [ ! "$CUTBYTES" ];then
+			echo -n "
+Cut down firmware more?
+1. Cut down with some big, mostly obscure firmware removed (default)
+2. Cut down eliminating fw bigger than 1.5MB - usually safe
+3. Cut down eliminating fw bigger than 1MB - may cut wifi support
+4. Cut down eliminating fw bigger than 500KB - use at own risk
+5. Cut down eliminating fw bigger than 250KB - are you insane?
+
+Choose option: " ; read cdfplus
+			case $cdfplus in
+				2) CUTBYTES=1500000 ;;
+				3) CUTBYTES=1000000 ;;
+				4) CUTBYTES=500000 ;;
+				5) CUTBYTES=250000 ;;
+				*) CUTBYTES=0 ;;
+			esac
+		fi
+		echo "Extracting firmware"
+		extract_firmware # process entries in WHENCE
+		echo
+		fw_filter firmware.lst $CUTBYTES
+		find ${FIRMWARE_EXTRA_DIR} -type d -empty -delete
+		licence_func
+		# copy final fw to kernel
+		if [ -d "${dest_kernel_package}" ] ; then
+			cp -n -r ${FIRMWARE_RESULT_DIR}/* ${dest_kernel_package}/
+		fi
+		rm -r ${FIRMWARE_RESULT_DIR}
 		# now move the extras to / lib/firmware & make sfs
-		mv $not_dir ${src}
-	    mksquashfs workdir $fw_sfs -comp xz
-	    md5sum $fw_sfs > ${fw_sfs}.md5.txt
-		SFS=FDRV
+		mv ${FIRMWARE_EXTRA_DIR} ${FIRMWARE_RESULT_DIR}
+		mksquashfs zfirmware_workdir ${FIRMWARE_SFS} -comp xz
+		md5sum ${FIRMWARE_SFS} > ${FIRMWARE_SFS}.md5.txt
 		;;
 esac
 
-echo '================' >> build.log
-echo "FIRMWARE IN $SFS" >> build.log
-echo '================' >> build.log
-cat fw.log >> build.log
-echo '==============================' >> build.log
-[ -f ${list}.log ] && cat ${list}.log >> build.log && rm ${list}.log
+(
+	echo '================'
+	echo "FIRMWARE IN FDRV"
+	echo '================'
+	cat fw-1.log
+	echo '=============================='
+	[ -f ${list}.log ] && cat ${list}.log && rm ${list}.log
+) &>> build.log
+
 # cleanup
-rm fw.log
-rm -r workdir
-
-
+if [ $DEBUG -ne 1 ] ; then
+	rm -f fw-*.log
+	rm -rf zfirmware_workdir
+fi
 echo "Firmware script complete."
-exit 0
+
+### END ###
