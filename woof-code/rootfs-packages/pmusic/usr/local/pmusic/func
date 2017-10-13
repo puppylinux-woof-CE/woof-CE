@@ -65,8 +65,12 @@ case "$1" in
 	echo 0 > $WORKDIR/maingui_notebook_page
 	echo true > $WORKDIR/UPDATE_GUI
 	#download
-	TMP=$(wget -O - -t 3 -U "$USERAGENT" --referer="http://www.google.com" http://keepvid.com/?url=${ADR} | sed 's/http/\nhttp/g' | grep -F 'itag=140')
-	wget -O "${YOUTUBE_OUTFILE}" -t 3 -U "$USERAGENT" $TMP
+	if [ "$(which youtube-dl)" ]; then
+		youtube-dl -x -o "${YOUTUBE_OUTFILE}" $ADR
+	else #does not work post sept 2017 because of lack of permission
+		TMP=$(wget -O - -t 3 -U "$USERAGENT" --referer="http://www.google.com" http://keepvid.com/?url=${ADR} | sed 's/http/\nhttp/g' | grep -F 'itag=140')
+		wget -O "${YOUTUBE_OUTFILE}" -t 3 -U "$USERAGENT" $TMP
+	fi
 	#set metatags
 	if [[ "$NAME" = *' - '* ]]; then
 		ARTIST=${NAME%% - *}
@@ -579,43 +583,33 @@ $(gettext 'Requested filter:') $TMP"
  	echo true > $WORKDIR/UPDATE_SOURCELIST #update source-list
 	;;
 
--playlist_move)
-	#button right-click --> already run -playlist_menu
-	if [ $BUTTON = 3 ]; then echo -n > $WORKDIR/RIGHT_MENU; exit; fi
-	#button mid-click
-	if [ $BUTTON = 2 ]; then $APPDIR/func -remove_from_list; exit; fi
+-playlist_mouse_press)
+	case $BUTTON in
+	3) #button right-click
+		$APPDIR/menu_playqueue
+		echo -n > $WORKDIR/RIGHT_MENU
+		;;
+	2) #button mid-click
+		$APPDIR/func -remove_from_list
+		;;
+	esac
+	;;
 
-	#exit if no valid item. PRESS_EVENT includes all songs if nothing is choosen
-	[[ "$(uniq $WORKDIR/PLAYLIST_PRESS_EVENT)" = *$'\n'* ]] && exit
-
-	#Button left-click
-	read PRESS_EVENT < $WORKDIR/PLAYLIST_PRESS_EVENT
-	RELEASE_EVENT="`grep -F "$PLAYLIST" $WORKDIR/playlist`"
-	#move song in playlist
-	if [ "$RELEASE_EVENT" != "$PRESS_EVENT" ]; then
-		( flock -e 201
-			grep -Fv "$PRESS_EVENT" $WORKDIR/playlist > $WORKDIR/tmp_playlist
-			if [[ "$RELEASE_EVENT" = *$'\n'* ]]; then #move last. RELEASE_EVENT includes all songs if nothing is choosen
-				mv -f $WORKDIR/tmp_playlist $WORKDIR/tmp_playlist1
-				echo "$PRESS_EVENT" >> $WORKDIR/tmp_playlist1
-			else #normal move
-				grep -Fm1 -B1000 "$RELEASE_EVENT" $WORKDIR/tmp_playlist | grep -vF "$RELEASE_EVENT" > $WORKDIR/tmp_playlist1
-				echo "$PRESS_EVENT" >> $WORKDIR/tmp_playlist1
-				grep -Fm1 -A1000 "$RELEASE_EVENT" $WORKDIR/tmp_playlist >> $WORKDIR/tmp_playlist1
-			fi
-			mv -f $WORKDIR/tmp_playlist1 $WORKDIR/playlist
-		) 201>$WORKDIR/playlist.lockfile 
-	else #play
-		if [ "$PRESS_EVENT" ]; then
+-playlist_mouse_release)
+	IFS='|' read C1 C2 C3 PLAYLIST C < $WORKDIR/PLAYLIST_PRESS_EVENT
+	case $BUTTON in
+	1)
+		if [ "$PLAYLIST" ]; then
 			#avoid rating for playing track
 			[ "`LC_ALL=C grep -F aplay <<< $(LC_ALL=C ps -eo pid,s,command)`" ] && echo true > $WORKDIR/NO_RATING #playing
 			#---
 			echo 0 > $WORKDIR/SS
 			$APPDIR/func_player -stop -skip_update
-			$APPDIR/func_player -playing "${RELEASE_EVENT##*|}" &
+			$APPDIR/func_player -playing "$PLAYLIST" &
 			exit 0
 		fi
-	fi
+		;;
+	esac
 	;;
 
 -remove_from_list)
@@ -760,7 +754,7 @@ Be aware that use of some special chars (like \"|) in filename clears value.')"
 			chmod 777 $WORKDIR/exec3
 			$WORKDIR/exec3
 			echo true > $WORKDIR/UPDATE_SOURCELIST
-			echo true > $WORKDIR/UPDATE_GUI
+			echo true | tee $WORKDIR/UPDATE_GUI $WORKDIR/UPDATE_PLAYLIST
 		fi
 	fi
 	;;
@@ -806,6 +800,196 @@ Be aware that use of some special chars (like \"|) in filename clears value.')"
 		echo true > $WORKDIR/UPDATE_SOURCELIST
 	fi
 	;;
+
+
+
+
+
+-save_test_with_direct_save-file-dialog)
+	read ACTIVE_PLAYLIST < $WORKDIR/last_added_playlist
+	DIR=${ACTIVE_PLAYLIST%/*}
+	[ ! -s $WORKDIR/last_added_playlist ] && echo "$HOME/pMusic_playlist.pmu" > $WORKDIR/last_added_playlist
+	#sort extensions so the active comes first
+	echo -e "pmu - pMusic $(gettext 'native format')\nm3u - $(gettext 'Supported by most players')\npls - $(gettext 'Shoutcast playlist')\ntxt - $(gettext 'Plain track list')" > $WORKDIR/tmp_save
+	case $ACTIVE_PLAYLIST in
+		*.m3u)
+			echo "m3u - $(gettext 'Supported by most players')" > $WORKDIR/save_formats
+			grep -v m3u $WORKDIR/tmp_save >> $WORKDIR/save_formats
+			;;
+		*.pls)
+			echo "pls - $(gettext 'Shoutcast playlist')" > $WORKDIR/save_formats
+			grep -v pls $WORKDIR/tmp_save >> $WORKDIR/save_formats
+			;;
+		*.txt)
+			echo "txt - $(gettext 'Plain track list')" > $WORKDIR/save_formats
+			grep -v txt $WORKDIR/tmp_save >> $WORKDIR/save_formats
+			;;
+		*) #pmu
+			mv -f $WORKDIR/tmp_save $WORKDIR/save_formats
+			;;
+	esac
+	#define name and path
+	dirname "$(<$WORKDIR/last_added_playlist)" > $WORKDIR/savepath
+	[[ ! -s $WORKDIR/savepath || $(<$WORKDIR/savepath) = '.' ]] && echo $HOME > $WORKDIR/savepath
+	basename "$(<$WORKDIR/last_added_playlist)" > $WORKDIR/savefile
+	#---
+	export pmusic_save='
+	<window title="pMusic - '$(gettext 'Save playlist')'" icon-name="pmusic" default_height="580" default_width="700">
+	 <vbox '$ST'>
+	  <timer visible="false" milliseconds="true" interval="500">
+	   <action condition="command_is_true([[ ${SAVE_FORMAT} = @(*m3u*|*txt*) ]] && echo true)">enable:SAVE_PATH</action>
+	   <action condition="command_is_true([[ ${SAVE_FORMAT} = @(*pmu*|*pls*) ]] && echo true)">disable:SAVE_PATH</action>
+	   <action>refresh:STATUSBAR</action>
+	  </timer>
+	  <frame '$(gettext 'Save playlist')'>
+	    <entry visible="false">
+	     <variable>SAVEPATH</variable>
+	     <input file>'$WORKDIR'/savepath</input>
+	    </entry>
+	    <hbox>
+	     <text><label>"'$(gettext 'Name')':  "</label></text>
+	     <entry>
+	      <variable>SAVEFILE</variable>
+	      <input file>'$WORKDIR'/savefile</input>
+	      <action signal="activate">exit:ok</action>
+	     </entry>
+	    </hbox>
+	    <text><label>""</label></text>
+	    <chooser action="0" create-folders="true" '$ST'>
+	     <variable>SAVE_CHOOSER</variable>
+	     <default>'$(dirname "$(cat $WORKDIR/last_added_playlist)")'</default>
+	     <action signal="button-release-event" condition="command_is_true([[ -f \"$SAVE_CHOOSER\" ]] && echo true)">basename "$SAVE_CHOOSER" > '$WORKDIR'/savefile</action> 
+	     <action signal="button-release-event" condition="command_is_true([[ -d \"$SAVE_CHOOSER\" ]] && echo true)">dirname "$SAVE_CHOOSER" > '$WORKDIR'/savepath</action> 
+	     <action signal="button-release-event">refresh:SAVEFILE</action>
+	     <action signal="button-release-event">refresh:SAVEPATH</action> 
+	    </chooser>
+	   <vbox '$SF'>
+	   <text><label>""</label></text>
+	   <checkbox tooltip-text="'$(gettext 'm3u format supports to skip path description. It will instead use the same path as the m3u file itself. This is handy when music files are moving to a new location.')'">
+	    <label>'$(gettext 'Include path')'</label>
+	    <variable>SAVE_PATH</variable>
+	    <input>echo hei</input>
+	    <action>echo $SAVE_PATH > '$WORKDIR'/SAVE_PATH</action>
+	   </checkbox>
+	   <hbox>
+	    <text><label>'$(gettext 'Filetype')'</label></text>
+	    <comboboxtext>
+	     <variable>SAVE_FORMAT</variable>
+	     <input file>'$WORKDIR'/save_formats</input>
+	     <action condition="command_is_true([[ ${SAVE_FORMAT} = *pmu* ]] && echo true)">echo "${SAVEFILE%.*}.pmu" > '$WORKDIR'/savefile</action>
+	     <action condition="command_is_true([[ ${SAVE_FORMAT} = *m3u* ]] && echo true)">echo "${SAVEFILE%.*}.m3u" > '$WORKDIR'/savefile</action>
+	     <action condition="command_is_true([[ ${SAVE_FORMAT} = *pls* ]] && echo true)">echo "${SAVEFILE%.*}.pls" > '$WORKDIR'/savefile</action>
+	     <action condition="command_is_true([[ ${SAVE_FORMAT} = *txt* ]] && echo true)">echo "${SAVEFILE%.*}.txt" > '$WORKDIR'/savefile</action>
+	     <action>refresh:SAVEFILE</action>
+	    </comboboxtext>
+	   </hbox>
+	  </vbox>
+	  </frame>
+	   
+	  <hbox '$SF'>
+	   <statusbar has-resize-grip="false" '$ST'>
+	    <variable>STATUSBAR</variable>
+	    <input>echo "${SAVEPATH}/${SAVEFILE}"</input>
+	   </statusbar>
+	   <button cancel></button>
+	   <button can-default="true" has-default="true">
+	    <label>'$(gettext 'Save')'</label>
+	    <input file stock="gtk-save"></input>
+	    <action type="exit">ok</action>
+	   </button>
+	   <statusbar width-request="22"></statusbar>
+	  </hbox>
+	 </vbox>
+	</window>'
+	I=$IFS; IFS=""
+	for STATEMENTS in $($GTKDIALOG -p pmusic_save); do
+		eval $STATEMENTS
+	done
+	IFS=$I
+	SAVEFILE="${SAVEPATH}/${SAVEFILE}"
+	if [ "$EXIT" = "ok" ]; then
+		case $SAVEFILE in
+			*.pmu|*.m3u|*.pls|*.txt)
+				EXT=${SAVEFILE##*.}
+				SAVEFILE=${SAVEFILE%.*}
+				;;
+			*)
+				EXT=${SAVE_FORMAT%% *}
+				;;
+		esac
+		if [ -s "$SAVEFILE".$EXT ]; then #already exist
+			IMG=dialog-warning
+			FRAME="$(gettext 'Warning')"
+			TXT1="<b>$SAVEFILE.$EXT $(gettext 'already exist')</b>"
+			TXT2="$(gettext 'Do you want to overwrite existing file?')"
+			DEFAULT=yes
+			. $APPDIR/box_yesno
+			if [ $EXIT = no ]; then 
+				echo -n > $WORKDIR/SAVEFILE
+				exit
+			fi
+		fi
+		if [ "$SAVEFILE" ]; then
+			case $EXT in
+				txt)
+					echo -n > "$SAVEFILE".txt
+					while IFS='|' read C1 C2 C3 ADR C; do
+						[[ $SAVE_PATH = false && ${ADR} != @(http*|cdda*) ]] && ADR=${ADR##*/} #remove path of files if choosen in gui
+						echo "$ADR" >> "$SAVEFILE".txt
+					done < $WORKDIR/playlist
+					;;
+				m3u)
+					#add EXT info which will speed up reading of the playlist (skip length detection)
+					echo '#EXTM3U' > "$SAVEFILE".m3u
+					while IFS='|' read C1 LENGTH NAME ADR C; do
+						LENGTH=$(((10#${LENGTH%:*} * 60) + 10#${LENGTH#*:}))
+						[[ $SAVE_PATH = false && ${ADR} != @(http*|cdda*) ]] && ADR=${ADR##*/} #remove path of files if choosen in gui
+						echo -e "#EXTINFO:${LENGTH},$NAME\n$ADR" >> "$SAVEFILE".m3u
+					done < $WORKDIR/playlist
+					;;
+				pls)
+					#add EXT info which will speed up reading of the playlist (skip length detection)
+					COUNT=1
+					echo -n -e "[playlist]\nNumberOfEntries=" > "$SAVEFILE".pls
+					grep -c ^ $WORKDIR/playlist >> "$SAVEFILE".pls
+					while IFS='|' read COL1 LENGTH NAME ADR ADR_ID; do
+						LENGTH=$(((10#${LENGTH%:*} * 60) + 10#${LENGTH#*:}))
+						echo -e "File${COUNT}=${ADR}\nTitle${COUNT}=${NAME}\nLength${COUNT}=${LENGTH}" >> "$SAVEFILE".pls
+						COUNT=$(($COUNT+1))
+					done < $WORKDIR/playlist
+					;;
+				pmu)
+					sed 's/gtk-media-play//' $WORKDIR/playlist > "$SAVEFILE".pmu
+					;;
+			esac
+			#---
+			echo "$SAVEFILE".$EXT > $WORKDIR/last_added_playlist
+			#update index
+			NAME=${SAVEFILE##*/}
+			if [[ "$SAVEFILE" = *"$STORAGE_DIR/pmu"* ]]; then #if saved to pmu storage we suppose it is a edited pmusic-generated album. 
+				ARTIST=${NAME% - *}
+				ALBUM=${NAME#* - }
+			else
+				ARTIST=${NAME}
+				ALBUM=''
+			fi
+			grep -av "^${SAVEFILE}.$EXT|" "$STORAGE_DIR/index_mymusic" > $WORKDIR/tmp_save
+			mv -f $WORKDIR/tmp_save "$STORAGE_DIR/index_mymusic"
+			( flock -e 202
+				echo "${SAVEFILE}.$EXT|$ARTIST||$ALBUM||||||||||${SAVEFILE}.$EXT|gtk-audio_playlist||||||" >> $WORKDIR/mymusic_stack
+			) 202>$WORKDIR/mymusic_stack.lockfile
+			$APPDIR/func_index -merge_stack
+		else
+			TXT1="<b>$(gettext 'Target file is not defined')</b>"
+			. $APPDIR/box_ok
+		fi
+	fi
+	;;
+
+
+
+
+
 
 -save)
 	read ACTIVE_PLAYLIST < $WORKDIR/last_added_playlist
@@ -966,7 +1150,7 @@ Be aware that use of some special chars (like \"|) in filename clears value.')"
 	;;
 
 -new)
-	echo -n > $WORKDIR/playlist
+	> $WORKDIR/playlist
 	echo > $WORKDIR/last_added_playlist
 	$APPDIR/func -statusbar_playlist & #update statusbar
 	;;
@@ -1011,13 +1195,13 @@ Be aware that use of some special chars (like \"|) in filename clears value.')"
 		http://*|https://*)
 			SOURCE="$SEARCH"
 			. $APPDIR/func_add -add
-			echo true > $WORKDIR/UPDATE_GUI
+#			echo true > $WORKDIR/UPDATE_GUI
 			;;
 		/*) #if file --> add to playlist
 			if [ -f "$SEARCH" ]; then
 				SOURCE="$SEARCH"
 				. $APPDIR/func_add -add
-				echo true > $WORKDIR/UPDATE_GUI
+#				echo true > $WORKDIR/UPDATE_GUI
 			else #browse
 				SOURCE="$SEARCH"
 				. $APPDIR/func -browse "$*"
@@ -1205,7 +1389,7 @@ Be aware that use of some special chars (like \"|) in filename clears value.')"
 		SOURCE=${TMP%%|*}
 		if [ ! "$(grep -F "${SOURCE#*:}" $WORKDIR/playlist)" ]; then
 			. $APPDIR/func_add -add
-			echo true > $WORKDIR/UPDATE_GUI
+#			echo true > $WORKDIR/UPDATE_GUI
 		fi
 	fi
 	#update pics for albumart search
