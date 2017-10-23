@@ -1,4 +1,5 @@
-#!/bin/bash
+#!/bin/ash
+#!/system/xbin/ash
 #LGPL 2007 Puppy Linux www.puppyos.com
 #based on probedisk3 written by Dougal.
 # 21 Jun 2007 BK: force /proc update for usb drives.
@@ -45,6 +46,27 @@ Options to show specific info after DEVICE:
 	exit
 }
 
+_filesize() {
+	ASIZE=$1
+	bytes=$ASIZE
+	if [ ${bytes} -ge 1099511627776 ] ; then #terabytes
+		ONESIZE="`dc $ASIZE 1099511627776 \/ p`"
+		ONESIZE="`printf "%.2f" $ONESIZE`T"
+	elif [ ${bytes} -ge 1073741824 ] ; then #gigabytes
+		ONESIZE="`dc $ASIZE 1073741824 \/ p`"
+		ONESIZE="`printf "%.2f" $ONESIZE`G"
+	elif [ ${bytes} -ge 1048576 ] ; then #megabytes
+		ONESIZE="`dc $ASIZE 1048576 \/ p`M"
+	elif [ ${bytes} -ge 1024 ] ; then #kilobyes
+		ONESIZE="`dc $ASIZE 1024 \/ p`K"
+	elif [ ${bytes} -lt 1024 ] ; then #bytes
+		ONESIZE=$ASIZE'B'
+	else
+		ONESIZE=$ASIZE'?'
+	fi
+	echo $ONESIZE
+}
+
 ###############################################################
 
 EXTRA_STR=""
@@ -58,17 +80,25 @@ for i in $@ ; do
 		-hdparm) HDPARM=yes ; shift;;
 		-hr|-hr-size) HR_SIZE=yes ; shift ;;
 		#--
-		-type) SPECIFIC=yes   ; EXTRA_STR+="|TYPE" ; shift ;;
-		-desc) SPECIFIC=yes   ; EXTRA_STR+="|DESC" ; shift ;;
-		-model) SPECIFIC=yes  ; EXTRA_STR+="|DESC" ; shift ;;
-		-size) SPECIFIC=yes   ; EXTRA_STR+="|SIZE" ; shift ;;
-		-uuid) SPECIFIC=yes   ; EXTRA_STR+="|UUID" ;   SHOW_UUID=yes   ; shift ;;
-		-ptable) SPECIFIC=yes ; EXTRA_STR+="|PTABLE" ; SHOW_PTABLE=yes ; shift ;;
+		-type) SPECIFIC=yes   ; EXTRA_STR="${EXTRA_STR}|TYPE" ; shift ;;
+		-desc) SPECIFIC=yes   ; EXTRA_STR="${EXTRA_STR}|DESC" ; shift ;;
+		-model) SPECIFIC=yes  ; EXTRA_STR="${EXTRA_STR}|DESC" ; shift ;;
+		-size) SPECIFIC=yes   ; EXTRA_STR="${EXTRA_STR}|SIZE" ; shift ;;
+		-uuid) SPECIFIC=yes   ; EXTRA_STR="${EXTRA_STR}|UUID" ;   SHOW_UUID=yes   ; shift ;;
+		-ptable) SPECIFIC=yes ; EXTRA_STR="${EXTRA_STR}|PTABLE" ; SHOW_PTABLE=yes ; shift ;;
 		#--
 		-h|-help|--help) usage ;;
 		-*) echo "* ${0##*/} $1: unknown option. type '${0##*/} -help'" ; exit 1 ;;
 	esac
 done
+
+if [ -d /system/xbin ] ; then
+	HR_SIZE=yes
+fi
+
+if [ "$HR_SIZE" = "yes" -a -z "$SPECIFIC" ] ; then
+	PLUS_SIZE=yes
+fi
 
 device=${@##*/}
 
@@ -78,17 +108,19 @@ if [ "$device" ] ; then
 	ALLDRVS=${device} #process cli argument
 	CLI_ARG=1
 else
-	if [ -f $HOME/.usb-drive-log-probedisk ] ; then #force /proc upate mechanism
-		while read ONEUSBDRV ; do
-			dd if=/dev/$ONEUSBDRV of=/dev/null bs=512 count=1 &>/dev/null
-		done < $HOME/.usb-drive-log-probedisk
+	if [ "$HOME" != "" -a "$HOME" != "/" ] ; then
+		if [ -f $HOME/.usb-drive-log-probedisk ] ; then #force /proc upate mechanism
+			while read ONEUSBDRV ; do
+				dd if=/dev/$ONEUSBDRV of=/dev/null bs=512 count=1 &>/dev/null
+			done < $HOME/.usb-drive-log-probedisk
+		fi
 	fi
 	# mounted drives/partitions...
-	MNTDDEVS="`mount | cut -f 1 -d ' ' | cut -f 3 -d '/' | grep -E '^fd|^hd|^sd|^scd|^sr|^mmc' | tr '\n' ' '`"
+	MNTDDEVS="`mount | cut -f 1 -d ' ' | cut -f 3 -d '/' | grep -E '^fd|^hd|^sd|^scd|^sr|^mmc'  | grep -v boot | tr '\n' ' '`"
 	if [ -e /proc/ide ] ; then
 		ALLDRVS="`ls -1 /sys/block | grep -E '^fd|^scd|^sd|^mmc|^sr' | tr '\n' ' '``ls -1 /proc/ide | grep '^hd' | tr '\n' ' '`"
 	else
-		ALLDRVS="`ls -1 /sys/block | grep -E '^fd|^scd|^sd|^mmc|^sr' | tr '\n' ' '`"
+		ALLDRVS="`ls -1 /sys/block | grep -E '^fd|^scd|^sd|^mmc|^sr'  | grep -v boot | tr '\n' ' '`"
 	fi
 fi
 
@@ -115,14 +147,23 @@ for DRV in ${ALLDRVS} ; do
 	[ -f /sys/block/${DRV}/device/model ] && read -r model < /sys/block/${DRV}/device/model
 	[ -f /sys/block/${DRV}/size ] && read -r size < /sys/block/${DRV}/size
 	[ -f /sys/block/${DRV}/removable ] && read -r removable < /sys/block/${DRV}/removable
-	info="$vendor $model"
+	blockdev=/dev/${DRV}
+	#Android
+	[ -f /sys/block/${DRV}/device/name ] && read -r name < /sys/block/${DRV}/device/name
+	[ -f /sys/block/${DRV}/device/date ] && read -r date < /sys/block/${DRV}/device/date
+	[ -e /dev/block/${DRV} ] && blockdev=/dev/block/${DRV}
+
+	info="$vendor"
+	[ -n "$model" ] && info="$info $model"
+	[ -n "$name" ] && info="$info $name"
+	[ -n "$date" ] && info="$info $date"
 
 	type=drive
 	case $(readlink /sys/block/${DRV}) in *usb*) usb=yes ;; esac
 
 	if [ -e /sys/block/${DRV}/device/type ] ; then
 		# http://lxr.free-electrons.com/source/include/scsi/scsi.h?v=3.12
-		case $(< /sys/block/${DRV}/device/type) in
+		case $(cat /sys/block/${DRV}/device/type) in
 			0) #define TYPE_DISK 0x00
 				type='drive'
 				[ "$usb" = "yes" ] && type="usbdrv"
@@ -130,6 +171,8 @@ for DRV in ${ALLDRVS} ; do
 			5) #define TYPE_ROM 0x05
 				type='optical' #see below
 				;;
+			MMC) info="MMC${info}" ;; #android
+			SD) info="SD${info}" ;; #android
 		esac
 	fi
 
@@ -142,7 +185,7 @@ for DRV in ${ALLDRVS} ; do
 			else
 				type=card
 			fi
-			info="MMC/SD: $info"
+			#info="MMC/SD: $info"
 			;;
 	esac
 
@@ -167,10 +210,12 @@ for DRV in ${ALLDRVS} ; do
 	# --
 
 	if [ "$type" = "usbdrv" -a "$CLI_ARG" = "" ] ; then
-		#keep record of usb drives, for forced updating of /proc...
-		echo "${DRV}" >> $HOME/.usb-drive-log-probedisk
-		sorted="$(sort -u $HOME/.usb-drive-log-probedisk)"
-		echo "$sorted" > $HOME/.usb-drive-log-probedisk
+		if [ "$HOME" != "" -a "$HOME" != "/" ] ; then
+			#keep record of usb drives, for forced updating of /proc...
+			echo "${DRV}" >> $HOME/.usb-drive-log-probedisk
+			sorted="$(sort -u $HOME/.usb-drive-log-probedisk)"
+			echo "$sorted" > $HOME/.usb-drive-log-probedisk
+		fi
 	fi
 
 	## -- legacy: properly identify a floppy
@@ -190,14 +235,14 @@ for DRV in ${ALLDRVS} ; do
 	# --
 
 	if [ "$SHOW_UUID" = "yes" -o "$SHOW_PTABLE" = "yes" ] ; then
-		BLKID_STR="$(blkid /dev/${DRV})"
+		BLKID_STR="$(blkid $blockdev)"
 		[ "$SHOW_UUID" = "yes" ]  && UUID_STR="$(echo "$BLKID_STR" | grep -o ' PTUUID=.*' | cut -f 2 -d '"')"
 		[ "$SHOW_PTABLE" = "yes" ]  && PTABLE_STR="$(echo "$BLKID_STR" | grep -o ' PTTYPE=.*' | cut -f 2 -d '"')"
 	fi
 
 	case $type in drive|usbdrive) # -hdparm
 		if [ "$HDPARM" = "yes" -a "$removable" != "1" ] ; then
-			modelx="$(hdparm -i /dev/${DRV} | grep Model | cut -f 1 -d ',' | cut -f 2 -d '=' 2>/dev/null)"
+			modelx="$(hdparm -i $blockdev | grep Model | cut -f 1 -d ',' | cut -f 2 -d '=' 2>/dev/null)"
 			[ "$modelx" != "" ] && info="$vendor $modelx"
 		fi
 	esac
@@ -208,7 +253,7 @@ for DRV in ${ALLDRVS} ; do
 		[ "$SHOW_EXTENDED_USB" = "yes" -a "$type" = "optical" ] && type='usboptical'
 	fi
 
-	[ "$HR_SIZE" = "yes" ] && size=$(filesize -bytes=512 $size)
+	[ "$HR_SIZE" = "yes" ] && size=$(_filesize $(($size * 512)) )
 
 	# print results
 	OUTPUT_STR=""
@@ -219,9 +264,9 @@ for DRV in ${ALLDRVS} ; do
 		SPECIFIC_STUFF="${SPECIFIC_STUFF//|SIZE/|$size}"
 		SPECIFIC_STUFF="${SPECIFIC_STUFF//|UUID/|$UUID_STR}"
 		SPECIFIC_STUFF="${SPECIFIC_STUFF//|PTABLE/|$PTABLE_STR}"
-		OUTPUT_STR="/dev/${DRV}${SPECIFIC_STUFF}"
+		OUTPUT_STR="${blockdev}${SPECIFIC_STUFF}"
 	else
-		OUTPUT_STR="/dev/${DRV}|$type|$info"
+		OUTPUT_STR="${blockdev}|$type|$info"
 		[ "$PLUS_SIZE" = "yes" ] && OUTPUT_STR="${OUTPUT_STR}|$size"
 	fi
 	echo "$OUTPUT_STR"
