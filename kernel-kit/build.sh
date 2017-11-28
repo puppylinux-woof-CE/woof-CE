@@ -582,6 +582,7 @@ done
 
 for patch in ../patches/*.patch ../patches/${kernel_major_version}/*.patch ; do
 	[ ! -f "$patch" ] && continue #../patches/ might not exist or it may be empty
+	vercmp ${kernel_version} ge 4.14 && [ "$(basename "$patch")" = "commoncap-symbol.patch" ] && continue
 	log_msg "Applying $patch"
 	patch -p1 < $patch >> ${BUILD_LOG} 2>&1
 	[ $? -ne 0 ] && exit_error "Error: failed to apply $patch on the kernel sources."

@@ -133,7 +133,7 @@ add_item (){
 			echo 0 > /tmp/petget/install_status_percent
 			echo "$(gettext "Calculating...")" > /tmp/petget/install_status
 		fi
-		NEWPACKAGE="$(grep -F $TREE1 /tmp/petget/filterpkgs.results.post)"
+		NEWPACKAGE="$(grep ^$TREE1 /tmp/petget/filterpkgs.results.post)"
 		echo "$NEWPACKAGE" >> /tmp/pkgs_to_install
 		add_item2 &
 	fi
