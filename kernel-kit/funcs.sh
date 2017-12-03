@@ -249,4 +249,38 @@ function configure_git_kernel() {
 }
 
 
+
+###########################
+### GIT CROSS COMPILERS ###
+###########################
+
+function get_git_cross_compiler() {
+# uses exit_error() func from build.sh
+
+	[ "$1" == '' ] && exit_error "Error: URL of git repo must be passed to get_git_cross_compiler()"
+
+	if [ ! -f /tmp/${tools_git_dir}_done -o ! -d tools/${tools_git_dir}/.git ] ; then
+		cd tools
+		if [ ! -d ${tools_git_dir}/.git ] ; then
+			git clone --depth=1 "$1" ${tools_git_dir}
+			[ $? -ne 0 ] && exit_error "Error: failed to download the cross compiler."
+			touch /tmp/${tools_git_dir}_done
+		else
+			cd ${tools_git_dir}
+			echo "Updating ${tools_git_dir}"
+			git fetch --depth=1 origin
+			if [ $? -ne 0 ] ; then
+				log_msg "WARNING: 'git fetch --depth=1 origin' command failed" && sleep 5
+			else
+				git checkout origin &>/dev/null
+				[ $? -ne 0 ] && exit_error "Error: unable to checkout ${tools_git_dir}"
+
+				touch /tmp/${tools_git_dir}_done
+			fi
+		fi
+		cd $MWD
+	fi
+}
+
+
 ### END ###

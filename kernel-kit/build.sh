@@ -487,6 +487,16 @@ else
 	fi
 fi
 
+#echo "HOST_ARCH = $HOST_ARCH"
+if [ "$HOST_ARCH" = "x86" -a "$USE_GIT_X86_TOOLS" ]; then
+	tools_git_dir="`expr match "$USE_GIT_X86_TOOLS" '.*/\([^/]*/[^/]*\)' | sed 's\/\_\'`"_git
+	get_git_cross_compiler "$USE_GIT_X86_TOOLS" # from funcs.sh
+	export PATH="$PATH:${MWD}/tools/${tools_git_dir}/bin"
+elif [ "$HOST_ARCH" = "x86_64" -a "$USE_GIT_X86_64_TOOLS" ]; then
+	tools_git_dir="`expr match "$USE_GIT_X86_64_TOOLS" '.*/\([^/]*/[^/]*\)' | sed 's\/\_\'`"_git
+	get_git_cross_compiler "$USE_GIT_X86_64_TOOLS" # from funcs.sh
+	export PATH="$PATH:${MWD}/tools/${tools_git_dir}/bin"
+fi
 
 #==============================================================
 #                    compile the kernel
@@ -649,11 +659,18 @@ i386_specific_stuff #pae/nopae i486/i686 - funcs.sh
 
 [ -f .config -a ! -f ../DOTconfig ] && cp .config ../DOTconfig
 
+# SET_MAKE_COMMAND is used for cross compiling ARM kernels
+if [ "$SET_MAKE_COMMAND" ]; then
+	export MAKE="$SET_MAKE_COMMAND"
+else
+	export MAKE='make'
+fi
+
 #####################
 # pause to configure
 function do_kernel_config() {
-	log_msg "make $1"
-	make $1 ##
+	log_msg "$MAKE $1"
+	$MAKE $1 ##
 	if [ $? -eq 0 ] ; then
 		if [ -f .config -a "$AUTO" != "yes" ] ; then
 			log_msg "\nOk, kernel is configured. hit ENTER to continue, CTRL+C to quit"
@@ -731,8 +748,8 @@ linux_kernel_dir=linux_kernel-${kernel_version}-${package_name_suffix}
 kheaders_dir="kernel_headers-${kernel_version}-${package_name_suffix}-$arch"
 rm -rf ../output/${kheaders_dir}
 log_msg "Creating the kernel headers package"
-make headers_check >> ${BUILD_LOG} 2>&1
-make INSTALL_HDR_PATH=${kheaders_dir}/usr headers_install >> ${BUILD_LOG} 2>&1
+$MAKE headers_check >> ${BUILD_LOG} 2>&1
+$MAKE INSTALL_HDR_PATH=${kheaders_dir}/usr headers_install >> ${BUILD_LOG} 2>&1
 find ${kheaders_dir}/usr/include \( -name .install -o -name ..install.cmd \) -delete
 mv ${kheaders_dir} ../output
 
@@ -741,10 +758,11 @@ mv ${kheaders_dir} ../output
 #---------------------------------------------------------------------
 	log_msg "Building aufs-utils - userspace modules"
 	## see if fhsm is enabled in kernel config
+	ORIG_MAKE="$MAKE"
 	if grep -q 'CONFIG_AUFS_FHSM=y' .config ; then
-		export MAKE="make BuildFHSM=yes"
+		export MAKE="$ORIG_MAKE BuildFHSM=yes"
 	else
-		export MAKE="make BuildFHSM=no"
+		export MAKE="$ORIG_MAKE BuildFHSM=no"
 	fi
 	LinuxSrc=${CWD}/output/${kheaders_dir} #needs absolute path
 	#---
@@ -773,11 +791,23 @@ make DESTDIR=$CWD/output/aufs-util-${kernel_version}-${arch} install
 #------------------------------------------------------
 cd linux-${kernel_version}
 
-echo "make ${JOBS} bzImage modules
-make INSTALL_MOD_PATH=${linux_kernel_dir} modules_install" > compile ## debug
+# SET_MAKE_COMMAND is used for cross compiling ARM kernels
+if [ "$SET_MAKE_COMMAND" ]; then
+	export MAKE="$SET_MAKE_COMMAND"
+else
+	export MAKE='make'
+fi
+# SET_MAKE_TARGETS is used for compiling ARM kernels and dtbs
+if [ "$SET_MAKE_TARGETS" ]; then
+	export MAKE_TARGETS="$SET_MAKE_TARGETS"
+else
+	export MAKE_TARGETS="bzImage modules"
+fi
+echo "$MAKE ${JOBS} ${MAKE_TARGETS}
+$MAKE INSTALL_MOD_PATH=${linux_kernel_dir} modules_install" > compile ## debug
 
 log_msg "Compiling the kernel" | tee -a ${BUILD_LOG}
-make ${JOBS} bzImage modules >> ${BUILD_LOG} 2>&1
+$MAKE ${JOBS} ${MAKE_TARGETS} >> ${BUILD_LOG} 2>&1
 KCONFIG="output/DOTconfig-${kernel_version}-${HOST_ARCH}-${today}"
 cp .config ../${KCONFIG}
 
@@ -794,7 +824,7 @@ fi
 #---------------------------------------------------------------------
 
 log_msg "Creating the kernel package"
-make INSTALL_MOD_PATH=${linux_kernel_dir} modules_install >> ${BUILD_LOG} 2>&1
+$MAKE INSTALL_MOD_PATH=${linux_kernel_dir} modules_install >> ${BUILD_LOG} 2>&1
 rm -f ${linux_kernel_dir}/lib/modules/${kernel_version}${custom_suffix}/{build,source}
 mkdir -p ${linux_kernel_dir}/boot
 mkdir -p ${linux_kernel_dir}/etc/modules
@@ -825,7 +855,7 @@ log_msg "Huge kernel ${kernel_version}-${package_name_suffix} is ready in dist"
 
 log_msg "Cleaning the kernel sources"
 make clean >> ${BUILD_LOG} 2>&1
-make prepare >> ${BUILD_LOG} 2>&1
+$MAKE prepare >> ${BUILD_LOG} 2>&1
 
 #----
 cd ..
