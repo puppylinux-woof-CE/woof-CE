@@ -283,4 +283,120 @@ function get_git_cross_compiler() {
 }
 
 
+
+##################################
+### MAINLINE KERNEL PLUS PATCH ###
+##################################
+
+function get_sha256sums() {
+	# get the latest version of sha256sums.asc
+	for kernel_mirror in $kernel_mirrors ; do
+		kernel_mirror=${kernel_mirror}/${ksubdir}
+		wget ${WGET_OPT} -c -P sources/kernels ${kernel_mirror}${testing}/sha256sums.asc
+		if [ $? -ne 0 ] ; then
+			echo "Error downloading sha256sums.asc from $kernel_mirror"
+		else
+			break
+		fi
+	done
+
+	KERNEL_SHA256SUM="`grep -F "linux-${kernel_major_version}.tar.xz" sources/kernels/sha256sums.asc`"
+	[ "$KERNEL_SHA256SUM" != '' ] && echo "$KERNEL_SHA256SUM" > sources/kernels/linux-${kernel_major_version}.tar.xz.sha256.txt
+	PATCH_SHA256SUM="`grep -F "patch-${kernel_tarball_version}.xz" sources/kernels/sha256sums.asc`"
+	[ "$PATCH_SHA256SUM" != '' ] && echo "$PATCH_SHA256SUM" > sources/kernels/patch-${kernel_tarball_version}.xz.sha256.txt
+}
+
+function download_mainline_kernel_plus_patch() {
+# uses log_msg() func from build.sh
+
+	DOWNLOAD_KERNEL=1
+	DOWNLOAD_PATCH=1
+
+	# do not download if we already have an existing exact match version
+	if [ -f sources/kernels/linux-${kernel_tarball_version}.tar.xz ]; then
+		DOWNLOAD_KERNEL=0
+		DOWNLOAD_PATCH=0
+	fi
+
+	# unless it is corrupt...
+	if [ -f sources/kernels/linux-${kernel_tarball_version}.tar.xz.md5.txt ] ; then
+		cd sources/kernels
+		md5sum -c linux-${kernel_tarball_version}.tar.xz.md5.txt
+		if [ $? -ne 0 ] ; then
+			log_msg "md5sum FAILED: will resume kernel download..."
+			DOWNLOAD_KERNEL=1
+			DOWNLOAD_PATCH=1
+		fi
+		cd $MWD
+	fi
+
+
+	# check if we already have a mainline kernel
+	[ -f sources/kernels/linux-${kernel_major_version}.tar.xz ] && DOWNLOAD_KERNEL=0
+	# check if we already have a kernel patch
+	[ -f sources/kernels/patch-${kernel_tarball_version}.xz ] && DOWNLOAD_PATCH=0
+
+	# if sha256sum is installed...
+	if [ "`which sha256sum`" != '' ]; then
+		[ ! -f sources/kernels/linux-${kernel_major_version}.tar.xz.sha256.txt ] && get_sha256sums
+		# and a checksum was successfully created
+		if [ -f sources/kernels/linux-${kernel_major_version}.tar.xz.sha256.txt ]; then
+			cd sources/kernels
+			# check kernel tarball
+			sha256sum -c linux-${kernel_major_version}.tar.xz.sha256.txt
+			if [ $? -ne 0 ] ; then
+				log_msg "sha256sum FAILED: will re-download mainline kernel..."
+				DOWNLOAD_KERNEL=1
+			fi
+			cd $MWD
+		fi
+
+		[ ! -f sources/kernels/patch-${kernel_tarball_version}.xz.sha256.txt ] && get_sha256sums
+		# if a checksum was successfully created
+		if [ -f sources/kernels/patch-${kernel_tarball_version}.xz.sha256.txt ]; then
+			cd sources/kernels
+			# check patch file
+			sha256sum -c patch-${kernel_tarball_version}.xz.sha256.txt
+			if [ $? -ne 0 ] ; then
+				log_msg "sha256sum FAILED: will re-download kernel patch..."
+				DOWNLOAD_PATCH=1
+			fi
+			cd $MWD
+		fi
+	fi
+
+	if [ $DOWNLOAD_KERNEL -eq 1 ] ; then
+		KERROR=1
+		for kernel_mirror in $kernel_mirrors ; do
+			kernel_mirror=${kernel_mirror}/${ksubdir}
+			log_msg "Downloading: ${kernel_mirror}${testing}/linux-${kernel_major_version}.tar.xz"
+			wget ${WGET_OPT} -c -P sources/kernels ${kernel_mirror}${testing}/linux-${kernel_major_version}.tar.xz >> ${BUILD_LOG}
+			if [ $? -ne 0 ] ; then
+				echo "Error"
+			else
+				KERROR=
+				break
+			fi
+		done
+		[ $KERROR ] && exit 1
+	fi
+	if [ $DOWNLOAD_PATCH -eq 1 ] ; then
+		KERROR=1
+		for kernel_mirror in $kernel_mirrors ; do
+			kernel_mirror=${kernel_mirror}/${ksubdir}
+			log_msg "Downloading: ${kernel_mirror}${testing}/patch-${kernel_tarball_version}.xz"
+			wget ${WGET_OPT} -c -P sources/kernels ${kernel_mirror}${testing}/patch-${kernel_tarball_version}.xz >> ${BUILD_LOG}
+			if [ $? -ne 0 ] ; then
+				echo "Error"
+			else
+				KERROR=
+				break
+			fi
+		done
+		[ $KERROR ] && exit 1
+	fi
+
+}
+
+
 ### END ###
