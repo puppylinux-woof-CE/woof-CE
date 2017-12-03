@@ -320,6 +320,9 @@ if [ -f sources/kernels/linux-${kernel_tarball_version}.tar.xz.md5.txt ] ; then
 		DOWNLOAD_KERNEL=1
 	fi
 	cd $MWD
+elif [ "$USE_MAINLINE_KERNEL_PLUS_PATCH" = "yes" ] ; then
+	download_mainline_kernel_plus_patch # from funcs.sh
+	DOWNLOAD_KERNEL=0
 elif [ "$USE_GIT_KERNEL" ] ; then
 	DOWNLOAD_KERNEL=0
 else
@@ -537,6 +540,15 @@ log_msg "Extracting the kernel sources"
 if [ "$USE_GIT_KERNEL" ] ; then
 	rm -rf linux-${kernel_version}
 	cp -a sources/${kernel_git_dir} linux-${kernel_version}
+elif [ "$USE_MAINLINE_KERNEL_PLUS_PATCH" = "yes" ] ; then
+	rm -rf linux-${kernel_version}
+	mkdir linux-${kernel_version}
+	cd linux-${kernel_version}
+	tar --strip-components=1 -axf ../sources/kernels/linux-${kernel_major_version}.tar.xz >> ${BUILD_LOG} 2>&1
+	[ $? -ne 0 ] && exit_error "ERROR extracting kernel sources."
+	unxz -dc ../sources/kernels/patch-${kernel_tarball_version}.xz | patch -s -p1
+	[ $? -ne 0 ] && exit_error "ERROR patching kernel sources."
+	cd ..
 else
 	tar -axf sources/kernels/linux-${kernel_tarball_version}.tar.xz >> ${BUILD_LOG} 2>&1
 fi
