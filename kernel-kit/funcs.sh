@@ -177,4 +177,76 @@ function i386_specific_stuff() {
 
 #$@
 
+
+
+#########################
+### GIT KERNEL SOURCE ###
+#########################
+
+function get_git_kernel() {
+# uses exit_error() func from build.sh
+
+	[ "$USE_GIT_KERNEL" == '' ] && exit_error "Error: USE_GIT_KERNEL must be specified before calling get_git_kernel()"
+
+	if [ ! -f /tmp/${kernel_git_dir}_done -o ! -d sources/${kernel_git_dir}/.git ] ; then
+		cd sources
+		if [ ! -d ${kernel_git_dir}/.git ] ; then
+			git clone --depth=1 ${USE_GIT_KERNEL} ${kernel_git_dir}
+			[ $? -ne 0 ] && exit_error "Error: failed to download the kernel sources."
+			touch /tmp/${kernel_git_dir}_done
+		else
+			cd ${kernel_git_dir}
+			echo "Updating ${kernel_git_dir}"
+			git fetch --depth=1 origin
+			if [ $? -ne 0 ] ; then
+				log_msg "WARNING: 'git fetch --depth=1 origin' command failed" && sleep 5
+			else
+				git checkout origin &>/dev/null
+				[ $? -ne 0 ] && exit_error "Error: unable to checkout ${kernel_git_dir}"
+
+				touch /tmp/${kernel_git_dir}_done
+			fi
+		fi
+		cd $MWD
+	fi
+
+}
+
+function print_git_kernel_version() {
+
+	cd sources/${kernel_git_dir}
+
+	makefile_version="`grep '^VERSION = ' Makefile`"
+	makefile_patchlevel="`grep '^PATCHLEVEL = ' Makefile`"
+	makefile_sublevel="`grep '^SUBLEVEL = ' Makefile`"
+
+	echo "`expr match "$makefile_version" '[^[:digit:]]*\([[:digit:]]*\)'`.`expr match "$makefile_patchlevel" '[^[:digit:]]*\([[:digit:]]*\)'`.`expr match "$makefile_sublevel" '[^[:digit:]]*\([[:digit:]]*\)'`"
+
+	cd $MWD
+
+}
+
+function configure_git_kernel() {
+# uses exit_error() func from build.sh
+
+# use for ARM kernels only please,
+# should work with https://github.com/raspberrypi/linux
+# arch/arm/configs/bcmrpi_defconfig and
+# arch/arm/configs/bcm2709_defconfig
+
+	[ "$USE_GIT_KERNEL_CONFIG" == '' ] && exit_error "Error: USE_GIT_KERNEL_CONFIG must be specified before calling configure_git_kernel()"
+
+	echo "Using USE_GIT_KERNEL_CONFIG"
+	[ -f "sources/${kernel_git_dir}/${USE_GIT_KERNEL_CONFIG}" ] && cp "sources/${kernel_git_dir}/${USE_GIT_KERNEL_CONFIG}" DOTconfig
+	config_set builtin CONFIG_INPUT_EVDEV DOTconfig
+	config_set builtin CONFIG_NLS_CODEPAGE_850 DOTconfig
+	config_set builtin CONFIG_NLS_CODEPAGE_852 DOTconfig
+	config_set builtin CONFIG_SQUASHFS DOTconfig
+	config_set builtin CONFIG_TMPFS_XATTR DOTconfig
+	echo 'CONFIG_AUFS_FS=y' >> DOTconfig
+	echo 'CONFIG_ARM=y' >> DOTconfig
+
+}
+
+
 ### END ###
