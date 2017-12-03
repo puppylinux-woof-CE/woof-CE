@@ -25,6 +25,12 @@ for i in $@ ; do
 		i486)  x86_set_i486=yes    ; shift ;; #funcs.sh
 		i686)  x86_set_i686=yes    ; shift ;; #funcs.sh
 	esac
+	# if a filename is specified on the command line it is assumed to be
+	# an extra build config that will be used in addition to build.conf
+	if [ -f "$i" ]; then
+		. ./${i} || exit 1
+		shift
+	fi
 done
 
 if [ $DO_CLEAN ] ; then
@@ -402,6 +408,9 @@ fi
 
 ## download firmware tarball/fdrv - specified in build.conf (**)
 if [ "$FW_PKG_URL" ] ; then
+	if [ "$FW_PKG_URL" = "none" ] ; then
+		: # do nothing
+	else
 	fw_pkg=${FW_PKG_URL##*/} #basename
 	FDRV=fdrv.sfs-${kernel_version}-${package_name_suffix}
 	if [ ! -f sources/${fw_pkg} ] ; then
@@ -410,6 +419,7 @@ if [ "$FW_PKG_URL" ] ; then
 			wget ${WGET_OPT} -c ${FW_PKG_URL} -P sources
 			[ $? -ne 0 ] && exit_error "failed to download ${fw_pkg}"
 		fi
+	fi
 	fi
 else
 	# menu
@@ -694,7 +704,11 @@ function do_kernel_config() {
 }
 
 if [ "$AUTO" = "yes" ] ; then
-	do_kernel_config oldconfig
+	log_msg "$MAKE olddefconfig"
+	$MAKE olddefconfig
+	if [ "$?" != "0" ] ; then
+		do_kernel_config oldconfig
+	fi
 else
 	if [ -f .config ] ; then
 		echo -en "
