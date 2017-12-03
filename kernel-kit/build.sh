@@ -741,11 +741,19 @@ else
 fi
 
 #.....................................................................
-linux_kernel_dir=linux_kernel-${kernel_version}-${package_name_suffix}
+if [ "$kit_kernel" = "yes" ]; then
+	linux_kernel_dir=linux_kernel-${kernel_version}${custom_suffix}-${package_name_suffix}
+else
+	linux_kernel_dir=linux_kernel-${kernel_version}-${package_name_suffix}
+fi
 #.....................................................................
 
 ## kernel headers
-kheaders_dir="kernel_headers-${kernel_version}-${package_name_suffix}-$arch"
+if [ "$kit_kernel" = "yes" ]; then
+	kheaders_dir="kernel_headers-${kernel_version}${custom_suffix}-${package_name_suffix}-$arch"
+else
+	kheaders_dir="kernel_headers-${kernel_version}-${package_name_suffix}-$arch"
+fi
 rm -rf ../output/${kheaders_dir}
 log_msg "Creating the kernel headers package"
 $MAKE headers_check >> ${BUILD_LOG} 2>&1
@@ -767,23 +775,30 @@ mv ${kheaders_dir} ../output
 	LinuxSrc=${CWD}/output/${kheaders_dir} #needs absolute path
 	#---
 	cd ../aufs-util
+
+	if [ "$kit_kernel" = "yes" ]; then
+		AUFS_UTIL_DIR="aufs-util-${kernel_version}${custom_suffix}-${arch}"
+	else
+		AUFS_UTIL_DIR="aufs-util-${kernel_version}-${arch}"
+	fi
+
 	export CPPFLAGS="-I $LinuxSrc/usr/include"
 	echo "export CPPFLAGS=\"-I $LinuxSrc/usr/include\"
 make clean
 $MAKE
-make DESTDIR=$CWD/output/aufs-util-${kernel_version}-${arch} install
+make DESTDIR=$CWD/output/${AUFS_UTIL_DIR} install
 " > compile ## debug
 	make clean &>/dev/null
 	$MAKE >> ${BUILD_LOG} 2>&1 || exit_error "Failed to compile aufs-util"
-	make DESTDIR=$CWD/output/aufs-util-${kernel_version}-${arch} install >> ${BUILD_LOG} 2>&1 #needs absolute path
+	make DESTDIR=$CWD/output/${AUFS_UTIL_DIR} install >> ${BUILD_LOG} 2>&1 #needs absolute path
 	make clean >> ${BUILD_LOG} 2>&1
 	# temp hack - https://github.com/puppylinux-woof-CE/woof-CE/issues/889
-	mkdir -p $CWD/output/aufs-util-${kernel_version}-${arch}/usr/lib
-	mv -fv $CWD/output/aufs-util-${kernel_version}-${arch}/libau.so* \
-		$CWD/output/aufs-util-${kernel_version}-${arch}/usr/lib 2>/dev/null
+	mkdir -p $CWD/output/${AUFS_UTIL_DIR}/usr/lib
+	mv -fv $CWD/output/${AUFS_UTIL_DIR}/libau.so* \
+		$CWD/output/${AUFS_UTIL_DIR}/usr/lib 2>/dev/null
 	if [ "$arch" = "x86_64" ] ; then
-		mv $CWD/output/aufs-util-${kernel_version}-${arch}/usr/lib \
-			$CWD/output/aufs-util-${kernel_version}-${arch}/usr/lib64
+		mv $CWD/output/${AUFS_UTIL_DIR}/usr/lib \
+			$CWD/output/${AUFS_UTIL_DIR}/usr/lib64
 	fi
 	log_msg "aufs-util-${kernel_version} is in output"
 	#---
@@ -808,7 +823,11 @@ $MAKE INSTALL_MOD_PATH=${linux_kernel_dir} modules_install" > compile ## debug
 
 log_msg "Compiling the kernel" | tee -a ${BUILD_LOG}
 $MAKE ${JOBS} ${MAKE_TARGETS} >> ${BUILD_LOG} 2>&1
-KCONFIG="output/DOTconfig-${kernel_version}-${HOST_ARCH}-${today}"
+if [ "$kit_kernel" = "yes" ]; then
+	KCONFIG="output/DOTconfig-${kernel_version}${custom_suffix}-${HOST_ARCH}-${today}"
+else
+	KCONFIG="output/DOTconfig-${kernel_version}-${HOST_ARCH}-${today}"
+fi
 cp .config ../${KCONFIG}
 
 if [ "$karch" = "x86" ] ; then
@@ -833,25 +852,51 @@ cp .config ${linux_kernel_dir}/boot/config-${kernel_version}${custom_suffix}
 ## /boot/Sytem.map-$(uname -r)  ## https://en.wikipedia.org/wiki/System.map
 cp System.map ${linux_kernel_dir}/boot/System.map-${kernel_version}${custom_suffix}
 ## /etc/moodules/..
-cp .config ${linux_kernel_dir}/etc/modules/DOTconfig-${kernel_version}-${today}
+if [ "$kit_kernel" = "yes" ]; then
+	cp .config ${linux_kernel_dir}/etc/modules/DOTconfig-${kernel_version}${custom_suffix}-${today}
+else
+	cp .config ${linux_kernel_dir}/etc/modules/DOTconfig-${kernel_version}-${today}
+fi
 cp ${linux_kernel_dir}/lib/modules/${kernel_version}${custom_suffix}/modules.builtin \
 	${linux_kernel_dir}/etc/modules/modules.builtin-${kernel_version}${custom_suffix}
 cp ${linux_kernel_dir}/lib/modules/${kernel_version}${custom_suffix}/modules.order \
 	${linux_kernel_dir}/etc/modules/modules.order-${kernel_version}${custom_suffix}
 
 #cp arch/x86/boot/bzImage ${linux_kernel_dir}/boot/vmlinuz
-BZIMAGE=`find . -type f -name bzImage | head -1`
-cp ${BZIMAGE} ${linux_kernel_dir}/boot
-cp ${BZIMAGE} ${linux_kernel_dir}/boot/vmlinuz
+IMAGE=`find . -type f -name bzImage | head -1`
+if [ "$IMAGE" = "" ]; then
+	#or cp arch/arm/boot/zImage ${linux_kernel_dir}/boot/vmlinuz
+	IMAGE=`find . -type f -name zImage | head -1`
+fi
+cp ${IMAGE} ${linux_kernel_dir}/boot
+cp ${IMAGE} ${linux_kernel_dir}/boot/vmlinuz
+
+if [ "$karch" = "arm" ]; then
+	BOOT_DIR="boot-${kernel_version}${custom_suffix}"
+	mkdir -p ../output/${BOOT_DIR}/
+	cp arch/arm/boot/dts/*.dtb ../output/${BOOT_DIR}/
+	mkdir -p ../output/${BOOT_DIR}/overlays/
+	cp arch/arm/boot/dts/overlays/*.dtb* ../output/${BOOT_DIR}/overlays/
+	cp arch/arm/boot/dts/overlays/README ../output/${BOOT_DIR}/overlays/
+else
+	BOOT_DIR=""
+fi
 
 mv ${linux_kernel_dir} ../output ## ../output/${linux_kernel_dir}
 
 ## make fatdog kernel module package
+if [ "$kit_kernel" = "yes" ]; then
+	OUTPUT_VERSION="${kernel_version}${custom_suffix}-${package_name_suffix}"
+else
+	OUTPUT_VERSION="${kernel_version}-${package_name_suffix}"
+fi
 mv ../output/${linux_kernel_dir}/boot/vmlinuz \
-	../output/vmlinuz-${kernel_version}-${package_name_suffix}
+	../output/vmlinuz-${OUTPUT_VERSION}
 [ -f ../output/${linux_kernel_dir}/boot/bzImage ] && \
 	rm -f ../output/${linux_kernel_dir}/boot/bzImage
-log_msg "Huge kernel ${kernel_version}-${package_name_suffix} is ready in dist"
+[ -f ../output/${linux_kernel_dir}/boot/zImage ] && \
+	rm -f ../output/${linux_kernel_dir}/boot/zImage
+log_msg "${linux_kernel_dir} is ready in dist"
 
 log_msg "Cleaning the kernel sources"
 make clean >> ${BUILD_LOG} 2>&1
@@ -862,22 +907,27 @@ cd ..
 #----
 
 log_msg "Installing aufs-utils into kernel package"
-cp -a --remove-destination output/aufs-util-${kernel_version}-${arch}/* \
+cp -a --remove-destination output/${AUFS_UTIL_DIR}/* \
 		output/${linux_kernel_dir}
 
 log_msg "Creating a kernel sources SFS"
-mkdir -p kernel_sources-${kernel_version}-${package_name_suffix}/usr/src
-mv linux-${kernel_version} kernel_sources-${kernel_version}-${package_name_suffix}/usr/src/linux
-mkdir -p kernel_sources-${kernel_version}-${package_name_suffix}/lib/modules/${kernel_version}${custom_suffix}
-ln -s /usr/src/linux kernel_sources-${kernel_version}-${package_name_suffix}/lib/modules/${kernel_version}${custom_suffix}/build
-if [ ! -f kernel_sources-${kernel_version}-${package_name_suffix}/usr/src/linux/include/linux/version.h ] ; then
-	ln -s /usr/src/linux/include/generated/uapi/linux/version.h \
-		kernel_sources-${kernel_version}-${package_name_suffix}/usr/src/linux/include/linux/version.h
+if [ "$kit_kernel" = "yes" ]; then
+	KERNEL_SOURCES_DIR="kernel_sources-${kernel_version}${custom_suffix}-${package_name_suffix}"
+else
+	KERNEL_SOURCES_DIR="kernel_sources-${kernel_version}-${package_name_suffix}"
 fi
-ln -s /usr/src/linux kernel_sources-${kernel_version}-${package_name_suffix}/lib/modules/${kernel_version}${custom_suffix}/source
-mksquashfs kernel_sources-${kernel_version}-${package_name_suffix} output/kernel_sources-${kernel_version}-${package_name_suffix}.sfs $COMP
-md5sum output/kernel_sources-${kernel_version}-${package_name_suffix}.sfs > output/kernel_sources-${kernel_version}-${package_name_suffix}.sfs.md5.txt
-sha256sum output/kernel_sources-${kernel_version}-${package_name_suffix}.sfs > output/kernel_sources-${kernel_version}-${package_name_suffix}.sfs.sha256.txt
+mkdir -p ${KERNEL_SOURCES_DIR}/usr/src
+mv linux-${kernel_version} ${KERNEL_SOURCES_DIR}/usr/src/linux
+mkdir -p ${KERNEL_SOURCES_DIR}/lib/modules/${kernel_version}${custom_suffix}
+ln -s /usr/src/linux ${KERNEL_SOURCES_DIR}/lib/modules/${kernel_version}${custom_suffix}/build
+if [ ! -f ${KERNEL_SOURCES_DIR}/usr/src/linux/include/linux/version.h ] ; then
+	ln -s /usr/src/linux/include/generated/uapi/linux/version.h \
+		${KERNEL_SOURCES_DIR}/usr/src/linux/include/linux/version.h
+fi
+ln -s /usr/src/linux ${KERNEL_SOURCES_DIR}/lib/modules/${kernel_version}${custom_suffix}/source
+mksquashfs ${KERNEL_SOURCES_DIR} output/${KERNEL_SOURCES_DIR}.sfs $COMP
+md5sum output/${KERNEL_SOURCES_DIR}.sfs > output/${KERNEL_SOURCES_DIR}.sfs.md5.txt
+sha256sum output/${KERNEL_SOURCES_DIR}.sfs > output/${KERNEL_SOURCES_DIR}.sfs.sha256.txt
 
 #==============================================================
 
@@ -921,17 +971,34 @@ if [ $LIBRE -eq 0 ] ; then
  fi
 fi
 
-mksquashfs output/${linux_kernel_dir} output/kernel-modules.sfs-${kernel_version}-${package_name_suffix} $COMP
+if [ "$kit_kernel" = "yes" ]; then
+	KERNEL_MODULES_SFS_NAME="kernel-modules-${kernel_version}${custom_suffix}-${package_name_suffix}.sfs"
+else
+	KERNEL_MODULES_SFS_NAME="kernel-modules.sfs-${kernel_version}-${package_name_suffix}"
+fi
+
+mksquashfs output/${linux_kernel_dir} output/${KERNEL_MODULES_SFS_NAME} $COMP
 [ $? = 0 ] || exit 1
-log_msg "Huge compatible kernel packages are ready to package./"
-log_msg "Packaging huge-${kernel_version}-${package_name_suffix} kernel"
 cd output/
-tar -cjvf huge-${kernel_version}-${package_name_suffix}.tar.bz2 \
-	vmlinuz-${kernel_version}-${package_name_suffix} ${FDRV} \
-	kernel-modules.sfs-${kernel_version}-${package_name_suffix} || exit 1
-	echo "huge-${kernel_version}-${package_name_suffix}.tar.bz2 is in output"
-md5sum huge-${kernel_version}-${package_name_suffix}.tar.bz2 > huge-${kernel_version}-${package_name_suffix}.tar.bz2.md5.txt
-sha256sum huge-${kernel_version}-${package_name_suffix}.tar.bz2 > huge-${kernel_version}-${package_name_suffix}.tar.bz2.sha256.txt
+if [ "$kit_kernel" = "yes" ]; then
+log_msg "Kit_Kernel compatible kernel package is ready to package./"
+log_msg "Packaging kit-kernel-${OUTPUT_VERSION} kernel"
+tar -cJvf kit-kernel-${OUTPUT_VERSION}.tar.xz \
+	vmlinuz-${OUTPUT_VERSION} ${BOOT_DIR} \
+	${KERNEL_MODULES_SFS_NAME} || exit 1
+	echo "kit-kernel-${OUTPUT_VERSION}.tar.xz is in output"
+	md5sum kit-kernel-${OUTPUT_VERSION}.tar.xz > kit-kernel-${OUTPUT_VERSION}.tar.xz.md5.txt
+	sha256sum kit-kernel-${OUTPUT_VERSION}.tar.xz > kit-kernel-${OUTPUT_VERSION}.tar.xz.sha256.txt
+else
+log_msg "Huge compatible kernel packages are ready to package./"
+log_msg "Packaging huge-${OUTPUT_VERSION} kernel"
+tar -cjvf huge-${OUTPUT_VERSION}.tar.bz2 \
+	vmlinuz-${OUTPUT_VERSION} ${FDRV} \
+	${KERNEL_MODULES_SFS_NAME} || exit 1
+	echo "huge-${OUTPUT_VERSION}.tar.bz2 is in output"
+	md5sum huge-${OUTPUT_VERSION}.tar.bz2 > huge-${OUTPUT_VERSION}.tar.bz2.md5.txt
+	sha256sum huge-${OUTPUT_VERSION}.tar.bz2 > huge-${OUTPUT_VERSION}.tar.bz2.sha256.txt
+fi
 echo
 cd -
 
@@ -939,15 +1006,26 @@ log_msg "Compressing the log"
 bzip2 -9 build.log
 cp build.log.bz2 output
 
+if [ "$kit_kernel" = "yes" ]; then
 log_msg "------------------
 Output files:
-- output/huge-${kernel_version}-${package_name_suffix}.tar.bz2
+- kit-kernel-${OUTPUT_VERSION}.tar.xz
+  (kernel tarball: vmlinuz, kernel modules sfs - used in the woof process)
+
+- output/${KERNEL_SOURCES_DIR}.sfs
+  (you can use this to compile new kernel modules - load or install first..)
+------------------"
+else
+log_msg "------------------
+Output files:
+- output/huge-${OUTPUT_VERSION}.tar.bz2
   (kernel tarball: vmlinuz, modules.sfs - used in the woof process)
   you can use this to replace vmlinuz and zdrv.sfs from the current wce puppy install..
 
-- output/kernel_sources-${kernel_version}-${package_name_suffix}.sfs
+- output/${KERNEL_SOURCES_DIR}.sfs
   (you can use this to compile new kernel modules - load or install first..)
 ------------------"
+fi
 
 echo "Done!"
 [ -f /usr/share/sounds/2barks.au ] && aplay /usr/share/sounds/2barks.au
