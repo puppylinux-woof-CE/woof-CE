@@ -47,7 +47,7 @@ log_ver #funcs.sh
 which cc &>/dev/null || ln -sv $(which gcc) /usr/bin/cc
 
 if [ "$AUTO" = "yes" ] ; then
-	[ ! "$DOTconfig_file" ] && exit_error "Must specify DOTconfig_file=<file> in build.conf"
+	[ ! "$DOTconfig_file" -a ! "$USE_GIT_KERNEL_CONFIG" ] && exit_error "Must specify DOTconfig_file=<file> in build.conf"
 	[ ! "$FW_PKG_URL" ] && exit_error "Must specify FW_PKG_URL=<url> in build.conf"
 fi
 
@@ -64,21 +64,24 @@ if [ "$DOTconfig_file" -a ! -f "$DOTconfig_file" ] ; then
 	exit_error "File not found: $DOTconfig_file (see build.conf - DOTconfig_file=)"
 fi
 
+case $(uname -m) in
+	i?86)   HOST_ARCH=x86 ;;
+	x86_64) HOST_ARCH=x86_64 ;;
+	arm*)   HOST_ARCH=arm ;;
+	*)      HOST_ARCH=$(uname -m) ;;
+esac
+
 if [ -f "$DOTconfig_file" ] ; then
 	CONFIGS_DIR=${DOTconfig_file%/*} #dirname  $DOTconfig_file
 	Choice=${DOTconfig_file##*/}     #basename $DOTconfig_file
 	[ "$CONFIGS_DIR" = "$Choice" ] && CONFIGS_DIR=.
+elif [ "$USE_GIT_KERNEL_CONFIG" ]; then
+	Choice=USE_GIT_KERNEL_CONFIG
 else
 	[ "$AUTO" = "yes" ] && exit_error "Must specify DOTconfig_file=<file> in build.conf"
 	## .configs
 	[ -f /tmp/kernel_configs ] && rm -f /tmp/kernel_configs
 	## CONFIG_DIR
-	case $(uname -m) in
-		i?86)   HOST_ARCH=x86 ;;
-		x86_64) HOST_ARCH=x86_64 ;;
-		arm*)   HOST_ARCH=arm ;;
-		*)      HOST_ARCH=$(uname -m) ;;
-	esac
 
 	CONFIGS_DIR=configs_${HOST_ARCH}
 	CONFIGS=$(ls ./${CONFIGS_DIR}/DOTconfig* 2>/dev/null | sed 's|.*/||' | sort -n)
@@ -127,6 +130,9 @@ case $Choice in
 		echo -n "Enter kernel version (ex: 3.14.73) : "
 		read kernel_version
 		;;
+	USE_GIT_KERNEL_CONFIG)
+		# do nothing
+		;;
 	*)
 		case "$Choice" in DOTconfig-*)
 			IFS=- read dconf kernel_version kernel_version_info <<< ${CONFIGS_DIR}/$Choice ;;
@@ -150,6 +156,17 @@ case $Choice in
 		[ ! "$package_name_suffix" ] && package_name_suffix=${kinfo}
 		;;
 esac
+
+if [ "$USE_GIT_KERNEL" ] ; then
+	kernel_git_dir="`expr match "$USE_GIT_KERNEL" '.*/\([^/]*/[^/]*\)' | sed 's\/\_\'`"_git
+
+	get_git_kernel # from funcs.sh
+	kernel_version="`print_git_kernel_version`" # from funcs.sh
+
+	if [ "$USE_GIT_KERNEL_CONFIG" ]; then
+		configure_git_kernel # from funcs.sh
+	fi
+fi
 
 log_msg "kernel_version=${kernel_version}"
 log_msg "kernel_version_info=${kernel_version_info}"
@@ -303,6 +320,8 @@ if [ -f sources/kernels/linux-${kernel_tarball_version}.tar.xz.md5.txt ] ; then
 		DOWNLOAD_KERNEL=1
 	fi
 	cd $MWD
+elif [ "$USE_GIT_KERNEL" ] ; then
+	DOWNLOAD_KERNEL=0
 else
 	DOWNLOAD_KERNEL=1
 fi
@@ -505,7 +524,12 @@ cp -a sources/${aufs_git_dir} aufs_sources
 
 ## extract the kernel
 log_msg "Extracting the kernel sources"
-tar -axf sources/kernels/linux-${kernel_tarball_version}.tar.xz >> ${BUILD_LOG} 2>&1
+if [ "$USE_GIT_KERNEL" ] ; then
+	rm -rf linux-${kernel_version}
+	cp -a sources/${kernel_git_dir} linux-${kernel_version}
+else
+	tar -axf sources/kernels/linux-${kernel_tarball_version}.tar.xz >> ${BUILD_LOG} 2>&1
+fi
 if [ $? -ne 0 ] ; then
 	rm -f sources/kernels/linux-${kernel_tarball_version}.tar.xz
 	exit_error "ERROR extracting kernel sources. file was deleted..."
@@ -564,6 +588,14 @@ fi
 ## custom suffix
 if [ -n "${custom_suffix}" ] || [ $LIBRE -eq 1 ] ; then
 	sed -i "s/^EXTRAVERSION =.*/EXTRAVERSION = ${custom_suffix}/" Makefile
+elif [ "$kernel_is_plus_version" = "yes" ]; then
+	CONFIG_LOCALVERSION="`grep -F 'CONFIG_LOCALVERSION=' ../DOTconfig`"
+	if [ "$CONFIG_LOCALVERSION" != "" ]; then
+		local_version=${CONFIG_LOCALVERSION#CONFIG_LOCALVERSION=}
+		local_version="${local_version//\"/}"
+	fi
+	# add the '+' to the suffix
+	custom_suffix="${local_version}+"
 fi
 diff -up Makefile-orig Makefile || diff -up Makefile-orig Makefile > ../output/patches-${kernel_version}-${HOST_ARCH}/version.patch
 rm Makefile-orig
