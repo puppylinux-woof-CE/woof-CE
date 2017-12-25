@@ -15,7 +15,7 @@ X86_64_CC=cross-compiler-x86_64-20170705.tar.xz
 ARM_CC=cross-compiler-arm-20170706.tar.xz #armv6
 ARM64_CC=cross-compiler-aarch64-20170705.tar.xz
 
-INITRD_PROGS_STATIC=initrd_progs-20170706-static.tar.xz
+INITRD_PROGS_STATIC=initrd_progs-20170706-2-static.tar.xz
 
 DEFAULT_x86=$(echo $X86_CC | cut -d '-' -f 3)
 DEFAULT_ARM64=aarch64
