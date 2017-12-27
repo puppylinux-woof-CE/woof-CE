@@ -23,16 +23,81 @@
 #include <regex.h>         // regcomp()
 #include <dirent.h>        // opendir(), readdir()
 
-int main(int carg, char **argv) {
+#define __SIGNALS 1
 
-	char *debug = getenv("PUPEVENT_DEBUG");
-	char *app_name = strrchr(argv[0], '/');
+#if __SIGNALS
+#include <signal.h>
+#endif
+
+int debug = 0;
+char log2file = 0;
+char logfile[] = "/tmp/pup_event_frontend_d.log";
+char *app_name = NULL;
+FILE *outf = NULL;
+
+#define trace(...) { fprintf (outf, __VA_ARGS__); }
+
+void cleanup(void) {
+	if (log2file && outf) {
+		fclose(outf);
+	}
+}
+
+#if __SIGNALS
+void signal_callback_handler(int signum) {
+	if (outf) {
+		fprintf(outf, "Caught signal %d\n",signum);
+		cleanup;
+	}
+	exit(signum);
+}
+#endif
+
+// -----------------------------------------------------------------------
+
+int main(int argc, char **argv) {
+
+#if __SIGNALS // http://www.cplusplus.com/reference/csignal/
+	signal(SIGINT, signal_callback_handler);
+	signal(SIGTERM, signal_callback_handler);
+#endif
+
+	outf = stderr;
+
+	app_name = strrchr(argv[0], '/');
 	if (app_name) {
 		app_name++;
 	} else {
 		app_name = argv[0];
 	}
-	fprintf(stderr, "starting %s\n", app_name);
+
+	int i;
+	for (i = 1; i < argc; i++) {
+		if (strcmp(argv[i], "-debug") == 0) {
+			debug = 1;
+		}
+		else if (strcmp(argv[i], "-log2file") == 0) {
+			log2file = 1;
+		}
+		else if (!strcmp(argv[i], "-h") || !strcmp(argv[i], "-help") || !strcmp(argv[i], "--help")) {
+			printf("\n%s -debug|-log2file:\n\n", app_name);
+			printf("  -debug    : print debug info\n");
+			printf("  -log2file : log to %s\n",logfile);
+			return 0;
+		}
+	}
+	if (getenv("PUPEVENT_DEBUG"))    debug = 1;
+	if (getenv("PUPEVENT_LOG2FILE")) log2file = 1;
+
+	fprintf(stderr, "%s: starting...\n", app_name);
+
+	if (log2file) {
+		outf = fopen(logfile, "w");
+		if (!outf) {
+			return 1;
+		}
+		fprintf(stderr, "%s: logging to %s\n", app_name, logfile);
+	}
 
 	char buf[512] = "";
 	char *bufin = NULL;
@@ -46,7 +111,8 @@ int main(int carg, char **argv) {
 	struct dirent *ent1;
 
 	if (system("/usr/local/pup_event/frontend_startup") != 0) {
-		fprintf(stderr, "%s: frontend_startup failed\n", app_name);
+		trace("%s: frontend_startup failed\n", app_name);
+		cleanup;
 		return 9;
 	}
 
@@ -60,14 +126,16 @@ int main(int carg, char **argv) {
 	pfd.events = POLLIN;
 	pfd.fd = socket(PF_NETLINK, SOCK_DGRAM, NETLINK_KOBJECT_UEVENT);
 	if (pfd.fd == -1) {
-		fprintf(stderr, "%s: could not open netlink socket\n", app_name);
+		trace("%s: could not open netlink socket\n", app_name);
+		cleanup;
 		return 1;
 	}
 
 	// listen to netlink socket...
 	int retval = bind(pfd.fd, (void *)&nls.nl_family, sizeof(nls));
 	if (retval == -1) {
-		fprintf(stderr, "%s: could listen to netlink socket\n", app_name);
+		trace("%s: could listen to netlink socket\n", app_name);
+		cleanup;
 		return 2;
 	}
 
@@ -79,8 +147,9 @@ int main(int carg, char **argv) {
 	while (1) {
 		// 2 second timeout... note, -1 is wait indefinitely.
 		eventstatus = poll(&pfd, 1, 1000);
-		if (debug) fprintf(stdout, "eventstatus: %d\n", eventstatus);
+		if (debug) trace("eventstatus: %d\n", eventstatus);
 		if (eventstatus == -1) {
+			cleanup;
 			return 3;
 		}
 		if (eventstatus == 0) {
@@ -88,12 +157,13 @@ int main(int carg, char **argv) {
 			// graceful exit if shutdown X (see /usr/bin/restartwm,wmreboot,wmpoweroff)...
 			if ( access( "/tmp/wmexitmode.txt", F_OK ) != -1 ) {
 				// file exists
-				fprintf(stderr, "%s: found /tmp/wmexitmode.txt .. exiting\n", app_name);
+				trace("%s: found /tmp/wmexitmode.txt .. exiting\n", app_name);
+				cleanup;
 				return 8;
 			}
 			if (devevents[0]) {
 				snprintf(exe_change, sizeof(exe_change), "/usr/local/pup_event/frontend_change %s", devevents);
-				if (debug) fprintf(stdout, "exe_change: %s\n", exe_change);
+				if (debug) trace("exe_change: %s\n", exe_change);
 				system(exe_change);
 				// also post block-drive events to any ipc client...
 				// look for any files named /tmp/pup_event_ipc/block_* ...
@@ -135,9 +205,10 @@ int main(int carg, char **argv) {
 		// get the uevent...
 		int len = recv(pfd.fd, buf, sizeof(buf), MSG_DONTWAIT);
 		if (len == -1) {
+			cleanup;
 			return 4;
 		}
-		if (debug) fprintf(stdout, "len: %d - buf: %s\n", len, buf);
+		if (debug) trace("len: %d - buf: %s\n", len, buf);
 
 		// process the uevent...
 		// only add@, remove@, change@ uevents...
@@ -155,21 +226,21 @@ int main(int carg, char **argv) {
 
 		// want uevents that have "SUBSYSTEM=block"...
 		// buf has a sequence of **zero-delimited** strings...
-		int i = 0;
+		i = 0;
 		int flag_block=0;
 		char devname[50] = "";
 		bufin = buf;
 		while (i < len) {
-			if (debug) fprintf(stdout, "bufin: %s\n", bufin);
+			if (debug) trace("bufin: %s\n", bufin);
 			if (flag_block) {
 				// ex: DEVNAME=sdc DEVTYPE=disk  ex2: DEVNAME=sdc1 DEVTYPE=partition
 				char *isdevname = strstr(bufin,"DEVNAME");
 				if (isdevname) {
 					char *devname = strchr(bufin, '=') + 1; /* DEVNAME=sdc-> sdc */
-					if (debug) fprintf(stdout, "devname: %s\n", devname);
+					if (debug) trace("devname: %s\n", devname);
 					// ignore loop or ram devices...
 					regex_t regex;
-					if (regcomp(&regex, "^sd|^hd|^mmc|^nvme|^sr", REG_EXTENDED|REG_NOSUB) != 0) {
+					if (regcomp(&regex, "^sd|^mmc|^nvme|^sr", REG_EXTENDED|REG_NOSUB) != 0) {
 						// no match
 						regfree(&regex);
 						break;
@@ -178,7 +249,7 @@ int main(int carg, char **argv) {
 					char tmp[256];
 					strncpy(tmp, devevents, sizeof(tmp));
 					snprintf(devevents, sizeof(devevents), "%s%s%s ", tmp, devevent, devname);
-					if (debug) fprintf(stdout, "[%s] %s\n", app_name, devevents);
+					if (debug) trace("[%s] %s\n", app_name, devevents);
 				}
 			} else {
 				if (strcmp(bufin,"SUBSYSTEM=block") == 0) {
@@ -191,6 +262,7 @@ int main(int carg, char **argv) {
 
 	} /* end of big loop */
 
+	cleanup;
 	return 0;
 }
 
