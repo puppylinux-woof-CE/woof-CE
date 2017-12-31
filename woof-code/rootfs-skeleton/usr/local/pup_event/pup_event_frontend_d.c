@@ -110,8 +110,10 @@ int main(int argc, char **argv) {
 	DIR *dir1;
 	struct dirent *ent1;
 
-	if (system("/usr/local/pup_event/frontend_startup") != 0) {
-		trace("%s: frontend_startup failed\n", app_name);
+	int ret = system("/usr/local/pup_event/frontend_startup");
+	if (ret != 0) {
+		trace("%s: exited with code: %d\n", app_name, WEXITSTATUS(ret));
+		trace("%s: exiting...\n");
 		cleanup;
 		return 9;
 	}
