@@ -167,30 +167,6 @@ int main(int argc, char **argv) {
 				snprintf(exe_change, sizeof(exe_change), "/usr/local/pup_event/frontend_change %s", devevents);
 				if (debug) trace("exe_change: %s\n", exe_change);
 				system(exe_change);
-				// also post block-drive events to any ipc client...
-				// look for any files named /tmp/pup_event_ipc/block_* ...
-				dir1 = opendir("/tmp/pup_event_ipc");
-				if (dir1) {
-					while (1) {
-						ent1 = readdir(dir1);
-						if (!ent1) {
-							break;
-						}
-						char *off1 = strstr( (*ent1).d_name,"block_" );
-						if (off1) {
-							char clientfile[256];
-							char outmsg[256];
-							snprintf( clientfile, sizeof(clientfile), "/tmp/pup_event_ipc/%s", (*ent1).d_name );
-							snprintf( outmsg, sizeof(outmsg), "%s\n", devevents);
-							FILE *clientdescr = fopen(clientfile, "a");
-							if (clientdescr) {
-								//write(clientdescr, outmsg, strlen(outmsg));
-								fprintf(clientdescr, outmsg);
-								fclose(clientdescr);
-							}
-						}
-					}
-				}
 				devevents[0] = 0;
 
 			} else {
