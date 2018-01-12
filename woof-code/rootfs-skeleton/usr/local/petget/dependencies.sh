@@ -86,7 +86,7 @@ echo -n "" > /tmp/petget_missingpkgs_patterns_acc0 #120903
 cp -f /tmp/petget_missingpkgs_patterns /tmp/petget_missingpkgs_patternsx
 echo "$(gettext 'HIERARCHY OF MISSING DEPENDENCIES OF PACKAGE') $TREE1" > /tmp/petget_deps_visualtreelog #w017
 echo "$(gettext "Format of each line: 'a-missing-dependent-pkg: missing dependencies of a-missing-dependent-pkg'")" >> /tmp/petget_deps_visualtreelog #w017
-for ONELEVEL in 1 2 3 4 5 6 7 8 9 10 11
+for ONELEVEL in 1 2 3 4 5 6 7 8 9 10 11 12 13
 do
  if [ ! -f /tmp/install_quietly ]; then
   [ $ONELEVEL -gt 1 ] && pupkill $XXPID #120907
@@ -126,6 +126,8 @@ do
      9)  echo "                            $ONEDEP: $MISSDEPSLIST" >> /tmp/petget_deps_visualtreelog ;;
      10) echo "                                $ONEDEP: $MISSDEPSLIST" >> /tmp/petget_deps_visualtreelog ;;
      11) echo "                                    $ONEDEP: $MISSDEPSLIST" >> /tmp/petget_deps_visualtreelog ;;
+     12) echo "                                        $ONEDEP: $MISSDEPSLIST" >> /tmp/petget_deps_visualtreelog ;;
+     13) echo "                                            $ONEDEP: $MISSDEPSLIST" >> /tmp/petget_deps_visualtreelog ;;
     esac
     break
    fi
