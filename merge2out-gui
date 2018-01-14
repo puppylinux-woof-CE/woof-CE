@@ -1,0 +1,201 @@
+#!/bin/bash
+
+
+# function to make the radiobuttons for the dialog box
+config_radiobuttons () {
+
+	if [ "$1" = "none" ]; then
+		DEFAULT=""
+		shift
+	else
+		DEFAULT="$1"
+		shift
+	fi
+
+	while [ "$1" != '' ]; do
+		if [ "$1" = "$DEFAULT" ]; then
+			echo -n '			<radiobutton active="true">
+									<label>'"$1"'</label>
+									<variable>'"${1}"'</variable>
+								</radiobutton>
+'
+		else
+			echo -n '			<radiobutton>
+									<label>'"$1"'</label>
+									<variable>'"${1}"'</variable>
+								</radiobutton>
+'
+		fi
+		shift
+	done
+}
+export -f config_radiobuttons
+
+
+
+[ -f ./woof.conf ] && . ./woof.conf
+
+CURRENT_DIR=$PWD
+[ -d woof-CE ] && cd woof-CE
+
+ALL_BUILDS=""
+for ONE_ARCH in $(find woof-arch -mindepth 1 -maxdepth 1 -type d | sed -e 's%^woof-arch/%%' | sort | tr '\n' ' ')
+do
+	taPTN="s%^woof-distro/${ONE_ARCH}/%%"
+	for ONE_DISTRO in $(find woof-distro/${ONE_ARCH} -mindepth 1 -maxdepth 1 -type d | sed -e "${taPTN}" | sort | tr '\n' ' ')
+	do
+		for ONE_COMPAT in $(find woof-distro/${ONE_ARCH}/${ONE_DISTRO} -maxdepth 1 -mindepth 1 -type d | rev | cut -f 1 -d '/' | rev | sort | tr '\n' ' ')
+		do
+			ALL_BUILDS="$ALL_BUILDS ${ONE_ARCH}/${ONE_DISTRO}/${ONE_COMPAT}"
+		done
+	done
+done
+
+cd $CURRENT_DIR
+
+MAIN_DIALOG='<window title="merge2out-gui">
+	<vbox>
+		<frame Select build>
+'$(config_radiobuttons ${BUILD:-none} ${ALL_BUILDS})'
+		</frame>
+		<frame EXTRA_MERGE>
+			<hbox>
+				<entry accept="directory">
+					<variable>DIRECTORY</variable>
+					<default>'${EXTRA_MERGE:-optional}'</default>
+				</entry>
+				<button>
+					<input file stock="gtk-open"></input>
+					<variable>FILE_BROWSE</variable>
+					<action type="fileselect">DIRECTORY</action>
+				</button>
+			</hbox>
+		</frame>
+		<hbox>
+			<button cancel></button>
+			<button ok></button>
+		</hbox>
+	</vbox>
+</window>'
+
+export MAIN_DIALOG
+
+#	Uncomment the following line to see the finished dialog.
+#	echo "$MAIN_DIALOG"
+
+GTKDIALOG_RESULT="`gtkdialog --center --program=MAIN_DIALOG`"
+
+#	Uncomment the following line to see any errors for debugging.
+#	echo "$GTKDIALOG_RESULT"
+
+for ONE_VAR in $GTKDIALOG_RESULT
+do
+	case $ONE_VAR in
+		EXIT*)
+			if [ "${ONE_VAR%\"cancel\"}" != "$ONE_VAR" ]; then
+				exit
+			elif [ "${ONE_VAR%\"OK\"}" != "$ONE_VAR" ]; then
+				EXIT_OK="true"
+			fi
+			;;
+		arm*|x86*|x86_64*)
+			if [ "${ONE_VAR%\"true\"}" != "$ONE_VAR" ]; then
+				NEW_BUILD="BUILD=\"${ONE_VAR%=\"true\"}\""
+			fi
+			;;
+		DIRECTORY*)
+			EXTRA_MERGE=${ONE_VAR#DIRECTORY=}
+			EXTRA_MERGE=${EXTRA_MERGE//\"}
+			if [ -d $EXTRA_MERGE ]; then
+				NEW_EXTRA_MERGE="EXTRA_MERGE=\"${EXTRA_MERGE}\""
+			else
+				NEW_EXTRA_MERGE="EXTRA_MERGE=\"\""
+			fi
+			;;
+		esac
+done
+
+
+
+if [ "$EXIT_OK" = "true" ]; then
+
+	if [ -e woof.conf ]; then
+		# update each line in existing file
+		while read LINE ; do
+			if [ "`expr \"$LINE\" : '\(EXTRA_MERGE=\).*'`" != "" ]; then
+				echo "$NEW_EXTRA_MERGE" >> woof.conf.new
+			elif [ "`expr \"$LINE\" : '\(BUILD=\).*'`" != "" ]; then
+				echo "$NEW_BUILD" >> woof.conf.new
+			else
+				echo "$LINE" >> woof.conf.new
+			fi
+		done < woof.conf
+
+		# If any variables were not set in the original config file, add them to the new config file.
+		[ "`grep '^EXTRA_MERGE=' woof.conf.new`" = "" ] && echo "$NEW_EXTRA_MERGE" >> woof.conf.new
+		[ "`grep '^BUILD=' woof.conf.new`" = "" ] && echo "$NEW_BUILD" >> woof.conf.new
+
+		mv woof.conf.new woof.conf
+
+	else
+		# otherwise write new woof.conf
+		echo "# This is the config file for merge2out-gui" > woof.conf
+		echo >> woof.conf
+		echo "$NEW_BUILD" >> woof.conf
+		echo "$NEW_EXTRA_MERGE" >> woof.conf
+	fi
+
+
+	. ./woof.conf
+
+	TARGETARCH=${BUILD%%/*}
+#	echo "TARGETARCH = $TARGETARCH"
+	export TARGETARCH
+
+	COMPATDISTRO=${BUILD%/*}
+	COMPATDISTRO=${COMPATDISTRO#*/}
+#	echo "COMPATDISTRO = $COMPATDISTRO"
+	export COMPATDISTRO
+
+	COMPATVERSION=${BUILD##*/}
+#	echo "COMPATVERSION = $COMPATVERSION"
+	export COMPATVERSION
+
+	[ -d $EXTRA_MERGE ] && export EXTRA_MERGE
+
+	# try to find a terminal emulator
+	# TERMINAL_COMMAND could be set in woof.conf
+	if [ "`which urxvt`" != '' ]; then
+		TERMCMND="${TERMINAL_COMMAND:-urxvt}"
+	elif [ "`which rxvt`" != '' ]; then
+		TERMCMND="${TERMINAL_COMMAND:-rxvt}"
+	elif [ "`which lxterminal`" != '' ]; then
+		TERMCMND="${TERMINAL_COMMAND:-lxterminal}"
+	elif [ "`which xterm`" != '' ]; then
+		TERMCMND="${TERMINAL_COMMAND:-xterm}"
+	elif [ "`which konsole`" != '' ]; then
+		TERMCMND="${TERMINAL_COMMAND:-konsole}"
+	elif [ "`which gnome-terminal`" != '' ]; then
+		TERMCMND="${TERMINAL_COMMAND:-gnome-terminal}"
+	fi
+
+
+	if [ "$TERMCMND" != '' ]; then
+		# I do not want ./merge2out run in the background if this script was
+		# clicked on.
+		if [ -d woof-CE ]; then
+			$TERMCMND -e sh -c "cd woof-CE ; ./merge2out ; echo 'Press <Enter> to continue' ; read VAR"
+		elif [ "${PWD%woof-CE}" != "$PWD" ]; then
+			$TERMCMND -e sh -c "./merge2out ; echo 'Press <Enter> to continue' ; read VAR"
+		else
+			echo "Cannot find woof-CE directory."
+			exit
+		fi
+	else
+		# if running on a system so minimal that it has no terminal emulator
+		# there is no reason for running this script instead of merge2out
+		echo "Cannot find a terminal emulator."
+	fi
+
+fi
+
