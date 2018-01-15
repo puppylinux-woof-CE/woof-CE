@@ -1,115 +1,126 @@
-#!/bin/sh
+#!/bin/bash
 #(c) Copyright 2013 Barry Kauler, bkhome.org
 #2013 Licence GPL3 (/usr/share/doc/legal)
-#called from /usr/local/pup_event/pup_event_d
-#called if no uevents have occurred for 4 seconds.
 #perform background housekeeping.
-#130609 first version.
 
-OLDLANG=$LANG
-export LANG=C
-
-. /etc/rc.d/PUPSTATE
-. /etc/eventmanager #has RAMSAVEINTERVAL, ICONDESK, HOTPLUGNOISY, ICONPARTITIONS, BACKENDON, POWERTIMEOUT
-
-. /usr/local/pup_event/frontend_funcs
-
-[ "$RAMSAVEINTERVAL" = "" ] && RAMSAVEINTERVAL=30
-RAMSAVEINTERVAL=$(( $RAMSAVEINTERVAL * 60 )) #convert minutes to seconds.
-[ "$POWERTIMEOUT" = "" ] && POWERTIMEOUT=0
-POWERTIMEOUT=$(( $POWERTIMEOUT * 60 )) #convert minutes to seconds.
-
-PREVSIZETMPM=0
-PREVSIZEFREEM=0
+#exec &>/tmp/${0##*/}.log ; set -x #debug
 
 SAVECNT=0
-if [ -f /tmp/pup_event_frontend_timeout_savecnt ] ; then
-	read -r SAVECNT < /tmp/pup_event_frontend_timeout_savecnt
-fi
-SAVECNT=$(( $SAVECNT + 4 ))
+MOUSECNT=0
+MINUTECNT=0
+CURPOS1=""
 
-if [ $RAMSAVEINTERVAL -ne 0 -a $SAVECNT -gt $RAMSAVEINTERVAL ];then
-	touch /tmp/snapmergepuppyrequest #request to savepuppy_func.
-	SAVECNT=0
-fi
-echo -n "$SAVECNT" > /tmp/pup_event_frontend_timeout_savecnt
-
-#----------------------------------------------------------------
-#POWERTIMEOUT
-
-if [ $POWERTIMEOUT -ne 0 ];then #power-off computer after inactivity.
-	MOUSECNT=0
-	MINUTECNT=0
-	CURPOS1=""
-	if [ -f /tmp/pup_event_frontend_timeout_mousecnt ] ; then
-		read -r MOUSECNT < /tmp/pup_event_frontend_timeout_mousecnt
-	fi
-	if [ -f /tmp/pup_event_frontend_timeout_minutecnt ] ; then
-		read -r MINUTECNT < /tmp/pup_event_frontend_timeout_minutecnt
-	fi
-	if [ -f /tmp/pup_event_frontend_curpos1 ] ; then
-		read -r CURPOS1 < /tmp/pup_event_frontend_curpos1
-	fi
-	MOUSECNT=$(( $MOUSECNT + 4 ))
-	echo -n "$MOUSECNT" > /tmp/pup_event_frontend_timeout_mousecnt
-	MINUTECNT=$(( $MINUTECNT + 4 ))
-	echo -n "$MINUTECNT" > /tmp/pup_event_frontend_timeout_minutecnt
-	if [ $MINUTECNT -gt 59 ];then #come in here every minute...
-		MINUTECNT=0
-		echo -n "$MINUTECNT" > /tmp/pup_event_frontend_timeout_minutecnt
-		CURPOS2="`getcurpos`"
-		echo "MOUSECNT=$MOUSECNT CURPOS2=$CURPOS2" >> /tmp/pup_event_frontend_d_curpos.log
-		[ "$CURPOS1" = "" ] && CURPOS1="$CURPOS2"
-		if [ "$CURPOS1" != "$CURPOS2" ];then
-			MOUSECNT=0
-			echo -n "$MOUSECNT" > /tmp/pup_event_frontend_timeout_mousecnt
-		fi
-		echo -n "$CURPOS2" > /tmp/pup_event_frontend_curpos1
-		[ $MOUSECNT -gt $POWERTIMEOUT ] && wmpoweroff &
-	fi
-fi
-#----------------------------------------------------------------
-
-#some apps should not be disturbed by this background stuff...
-RUNPS="`busybox ps`"
-#w482 add xorriso... 111228 added removepreview.sh (in /usr/local/petget) but probably test for "petget" is already enough...
-#120512 Karl Godt: do not save when compiling, add: make, cc, new2dir. 120513 add -w option, and gcc, imake, cmake, gxine, gmplayer...
-[ "`echo "$RUNPS" | grep -w -E 'make|cc|gcc|imake|cmake|new2dir|xorriso|xorrecord|xine|gxine|petget|wget|axel|dotpup|mplayer|gmplayer|gcurl|gimv|burniso2cd|growisofs|cdrecord|pcdripper|xfmedia|xmms|ripoff|pdvdrsab|pburn|mhwaveedit|installpkg\.sh|downloadpkgs\.sh|removepreview\.sh'`" != "" ] && exit 1
-
-#monitor free memory, periodic save of tmpfs top layer...
-case $PUPMODE in
-	3|7|13)
-		free_flash_func
-		savepuppy_func
-		;;
-	16|24|17|25) #unipup.
-		free_initrd_func
-		;;
-	*)   
-		free_func
-		;;
-esac
-
-[ "$ICONDESK" = "false" ] && continue #see /etc/eventmanager
- 
 read -r SCRN_X < /tmp/pup_event_frontend_scrn_x #written by frontend_startup.
 read -r SCRN_Y < /tmp/pup_event_frontend_scrn_y #  "
 
-#unfortunately, we have to poll at regular intervals to see if a cd is inserted...
-for ONEOPTICAL in $(ls /sys/block|grep '^sr')
-do
-	xONEOPTICAL="$(echo -n "$ONEOPTICAL" | cut -f 4 -d '/')"
-	[ "$xONEOPTICAL" = "" ] && continue #precaution
-	probe_optical_func $xONEOPTICAL
-done
+#===============================================
 
-if [ -f /tmp/pup_event_drvs_floppy ] ; then
-	#poll to see if a ls120 or zip floppy diskette inserted...
-	while read ONEFLOPPY
+while [ 1 ]
+do
+
+	sleep 5
+
+	PS="`busybox ps`"
+	echo "$PS" | grep -q ' /usr/local/pup_event/frontend_change' && continue
+
+	. /etc/rc.d/PUPSTATE
+	. /etc/eventmanager #has RAMSAVEINTERVAL, HOTPLUGNOISY, BACKENDON, POWERTIMEOUT
+
+	. /usr/local/pup_event/frontend_funcs
+
+	[ "$RAMSAVEINTERVAL" = "" ] && RAMSAVEINTERVAL=30
+	RAMSAVEINTERVAL=$(( $RAMSAVEINTERVAL * 60 )) #convert minutes to seconds.
+	[ "$POWERTIMEOUT" = "" ] && POWERTIMEOUT=0
+	POWERTIMEOUT=$(( $POWERTIMEOUT * 60 )) #convert minutes to seconds.
+
+	PREVSIZETMPM=0
+	PREVSIZEFREEM=0
+
+	SAVECNT=$(( $SAVECNT + 5 ))
+
+	if [ $RAMSAVEINTERVAL -ne 0 -a $SAVECNT -gt $RAMSAVEINTERVAL ];then
+		touch /tmp/snapmergepuppyrequest #request to savepuppy_func.
+		SAVECNT=0
+	fi
+
+	#----------------------------------------------------------------
+	#POWERTIMEOUT
+
+	if [ $POWERTIMEOUT -ne 0 ];then #power-off computer after inactivity.
+		MOUSECNT=$(( $MOUSECNT + 5 ))
+		MINUTECNT=$(( $MINUTECNT + 5 ))
+		if [ $MINUTECNT -gt 59 ];then #come in here every minute...
+			MINUTECNT=0
+			CURPOS2="`getcurpos`"
+			if [ -z "$CURPOS1" ] ; then
+				CURPOS1="$CURPOS2"
+			fi
+			if [ "$CURPOS1" != "$CURPOS2" ];then
+				MOUSECNT=0
+			fi
+			CURPOS1="$CURPOS2"
+			[ $MOUSECNT -gt $POWERTIMEOUT ] && wmpoweroff
+		fi
+	fi
+	#----------------------------------------------------------------
+
+	#some apps should not be disturbed by this background stuff...
+	#w482 add xorriso... 111228 added removepreview.sh (in /usr/local/petget) but probably test for "petget" is already enough...
+	#120512 Karl Godt: do not save when compiling, add: make, cc, new2dir. 120513 add -w option, and gcc, imake, cmake, gxine, gmplayer...
+	if [ "`echo "$PS" | grep -w -E 'make|cc|gcc|imake|cmake|new2dir|xorriso|xorrecord|xine|gxine|petget|wget|axel|dotpup|mplayer|gmplayer|gcurl|gimv|burniso2cd|growisofs|cdrecord|pcdripper|xfmedia|xmms|ripoff|pdvdrsab|pburn|mhwaveedit|installpkg\.sh|downloadpkgs\.sh|removepreview\.sh'`" != "" ] ; then
+		continue
+	fi
+
+	#monitor free memory, periodic save of tmpfs top layer...
+	case $PUPMODE in
+		3|7|13)
+			free_flash_func
+			savepuppy_func
+			;;
+		16|24|17|25) #unipup.
+			free_initrd_func
+			;;
+		*)   
+			free_func
+			;;
+	esac
+
+	[ "$HOTPLUGON" = "false" ] && continue #see /etc/eventmanager
+
+	#unfortunately, we have to poll at regular intervals to see if a cd is inserted...
+	for i in /sys/block/sr*
 	do
-		[ "$ONEFLOPPY" = "" ] && continue #precaution
-		probe_floppy_func $ONEFLOPPY
-	done < /tmp/pup_event_drvs_floppy #created in frontend_startup.
-fi
+		[ -e $i ] || continue
+		DRV_NAME=${i##*/}
+		DRV_CATEGORY="optical"
+		grep -q "^/dev/${DRV_NAME} " /proc/mounts && return #only check cd if unmounted.
+		cddetect_quick -d/dev/${DRV_NAME} >/dev/null 2>&1 #very fast.
+		if [ $? -eq 0 ];then #inserted
+			if [ ! -d /root/.pup_event/drive_${DRV_NAME} ] ; then
+				create_icon_func #requires DRV_NAME, DRV_CATEGORY, DRV_DESCRIPTION.
+				if [ "$HOTPLUGNOISY" = "true" ] ; then
+					/root/.pup_event/drive_${DRV_NAME}/AppRun optical & #handler script.
+				fi
+			fi
+		else # not inserted
+			if [ -d /root/.pup_event/drive_${DRV_NAME} ] ; then
+				rm -rf /root/.pup_event/drive_${DRV_NAME}* #v410 ensure no drive directory if drive empty.
+				remove_pinboard_func #needs DRV_NAME
+			fi
+		fi
+	done
+
+	if [ "$FD0ICON" = "true" ] ; then
+		#poll to see if a ls120 or zip floppy diskette inserted...
+		for i in /sys/block/fd*
+		do
+			[ -e $i ] || continue
+			i=${i##*/}
+			[ ! -e /sys/block/${i}/device/vendor -a ! -e /sys/block/${i}/device/model ] && continue
+			probe_floppy_func $i
+		done
+	fi
+
+done
 
 ### END ###

@@ -164,7 +164,7 @@ sleep 1 # reading time
 
 #drive icons
 if [ "$PTHEME_ROX_DRIVEICONS" ]; then
-	for I in ICONDESK ICONPARTITIONS LABELPARTITIONS ICON_PLACE_EDGE_GAP ICON_PLACE_START_GAP ICON_PLACE_SPACING ICON_PLACE_ORIENTATION; do
+	for I in ICON_PLACE_EDGE_GAP ICON_PLACE_START_GAP ICON_PLACE_SPACING ICON_PLACE_ORIENTATION; do
 		TMP="`grep "^$I" etc/eventmanager`"
 		VALUE="`grep "^$I" "usr/share/ptheme/eventmanager_driveicons/${PTHEME_ROX_DRIVEICONS}" | cut -d= -f2`"
 		[ ! "$VALUE" ] && continue
