@@ -36,7 +36,11 @@ export -f config_radiobuttons
 [ -f ./woof.conf ] && . ./woof.conf
 
 CURRENT_DIR=$PWD
-[ -d woof-CE ] && cd woof-CE
+if [ -d woof-CE ]; then
+	cd woof-CE
+elif [ -d ../woof-CE ]; then
+	cd ../woof-CE
+fi
 
 ALL_BUILDS=""
 for ONE_ARCH in $(find woof-arch -mindepth 1 -maxdepth 1 -type d | sed -e 's%^woof-arch/%%' | sort | tr '\n' ' ')
@@ -52,22 +56,51 @@ do
 done
 
 cd $CURRENT_DIR
+START_DIR=${CURRENT_DIR%/woof-CE}
+
+ALTERNATE_BUILD_STATE="false"
+ALTERNATE_BUILD_ACTIVE=''
+if [ -d "$ALTERNATE_BUILD" -a -f "${ALTERNATE_BUILD}/DISTRO_SPECS" ]; then
+	ALTERNATE_BUILD_STATE="true"
+	if [ "$BUILD" = "" ]; then
+		ALTERNATE_BUILD_ACTIVE=' active="true"'
+	else
+		ALTERNATE_BUILD_ACTIVE=''
+	fi
+fi
 
 MAIN_DIALOG='<window title="merge2out-gui">
 	<vbox>
 		<frame Select build>
 '$(config_radiobuttons ${BUILD:-none} ${ALL_BUILDS})'
+			<radiobutton sensitive="'${ALTERNATE_BUILD_STATE}'"'${ALTERNATE_BUILD_ACTIVE}'>
+				<label>ALTERNATE_BUILD</label>
+				<variable>ALTERNATE_BUILD_SELECTED</variable>
+			</radiobutton>
+			<hbox>
+				<entry accept="directory" fs-folder="'${START_DIR}'">
+					<variable>BUILD_DIRECTORY</variable>
+					<default>'${ALTERNATE_BUILD:-optional}'</default>
+					<action condition="command_is_true([ -d \"$BUILD_DIRECTORY\" -a -f \"${BUILD_DIRECTORY}/DISTRO_SPECS\" ] && echo true)">enable:ALTERNATE_BUILD_SELECTED</action>
+					<action condition="command_is_false([ ! -d \"$BUILD_DIRECTORY\" -o ! -f \"${BUILD_DIRECTORY}/DISTRO_SPECS\" ] && echo false)">disable:ALTERNATE_BUILD_SELECTED</action>
+				</entry>
+				<button>
+					<input file stock="gtk-open"></input>
+					<variable>FILE_BROWSE1</variable>
+					<action type="fileselect">BUILD_DIRECTORY</action>
+				</button>
+			</hbox>
 		</frame>
 		<frame EXTRA_MERGE>
 			<hbox>
-				<entry accept="directory">
-					<variable>DIRECTORY</variable>
+				<entry accept="directory" fs-folder="'${START_DIR}'">
+					<variable>MERGE_DIRECTORY</variable>
 					<default>'${EXTRA_MERGE:-optional}'</default>
 				</entry>
 				<button>
 					<input file stock="gtk-open"></input>
-					<variable>FILE_BROWSE</variable>
-					<action type="fileselect">DIRECTORY</action>
+					<variable>FILE_BROWSE2</variable>
+					<action type="fileselect">MERGE_DIRECTORY</action>
 				</button>
 			</hbox>
 		</frame>
@@ -103,13 +136,29 @@ do
 				NEW_BUILD="BUILD=\"${ONE_VAR%=\"true\"}\""
 			fi
 			;;
-		DIRECTORY*)
-			EXTRA_MERGE=${ONE_VAR#DIRECTORY=}
+		ALTERNATE_BUILD_SELECTED*)
+			if [ "${ONE_VAR%\"true\"}" != "$ONE_VAR" ]; then
+				NEW_BUILD="BUILD=\"\""
+			fi
+			;;
+		MERGE_DIRECTORY*)
+			EXTRA_MERGE=${ONE_VAR#MERGE_DIRECTORY=}
 			EXTRA_MERGE=${EXTRA_MERGE//\"}
-			if [ -d $EXTRA_MERGE ]; then
+			if [ -d "$EXTRA_MERGE" ]; then
+				EXTRA_MERGE=$(realpath ${EXTRA_MERGE})
 				NEW_EXTRA_MERGE="EXTRA_MERGE=\"${EXTRA_MERGE}\""
 			else
 				NEW_EXTRA_MERGE="EXTRA_MERGE=\"\""
+			fi
+			;;
+		BUILD_DIRECTORY*)
+			ALTERNATE_BUILD=${ONE_VAR#BUILD_DIRECTORY=}
+			ALTERNATE_BUILD=${ALTERNATE_BUILD//\"}
+			if [ -d "$ALTERNATE_BUILD" -a -f "${ALTERNATE_BUILD}/DISTRO_SPECS" ]; then
+				ALTERNATE_BUILD=$(realpath ${ALTERNATE_BUILD})
+				NEW_ALTERNATE_BUILD="ALTERNATE_BUILD=\"${ALTERNATE_BUILD}\""
+			else
+				NEW_ALTERNATE_BUILD="ALTERNATE_BUILD=\"\""
 			fi
 			;;
 		esac
@@ -126,6 +175,8 @@ if [ "$EXIT_OK" = "true" ]; then
 				echo "$NEW_EXTRA_MERGE" >> woof.conf.new
 			elif [ "`expr \"$LINE\" : '\(BUILD=\).*'`" != "" ]; then
 				echo "$NEW_BUILD" >> woof.conf.new
+			elif [ "`expr \"$LINE\" : '\(ALTERNATE_BUILD=\).*'`" != "" ]; then
+				echo "$NEW_ALTERNATE_BUILD" >> woof.conf.new
 			else
 				echo "$LINE" >> woof.conf.new
 			fi
@@ -134,6 +185,7 @@ if [ "$EXIT_OK" = "true" ]; then
 		# If any variables were not set in the original config file, add them to the new config file.
 		[ "`grep '^EXTRA_MERGE=' woof.conf.new`" = "" ] && echo "$NEW_EXTRA_MERGE" >> woof.conf.new
 		[ "`grep '^BUILD=' woof.conf.new`" = "" ] && echo "$NEW_BUILD" >> woof.conf.new
+		[ "`grep '^ALTERNATE_BUILD=' woof.conf.new`" = "" ] && echo "$NEW_ALTERNATE_BUILD" >> woof.conf.new
 
 		mv woof.conf.new woof.conf
 
@@ -143,6 +195,7 @@ if [ "$EXIT_OK" = "true" ]; then
 		echo >> woof.conf
 		echo "$NEW_BUILD" >> woof.conf
 		echo "$NEW_EXTRA_MERGE" >> woof.conf
+		echo "$NEW_ALTERNATE_BUILD" >> woof.conf
 	fi
 
 
@@ -180,13 +233,21 @@ if [ "$EXIT_OK" = "true" ]; then
 	fi
 
 
+	if [ -d woof-CE ]; then
+		cd woof-CE
+	elif [ -d ../woof-CE ]; then
+		cd ../woof-CE
+	fi
+
 	if [ "$TERMCMND" != '' ]; then
 		# I do not want ./merge2out run in the background if this script was
 		# clicked on.
-		if [ -d woof-CE ]; then
-			$TERMCMND -e sh -c "cd woof-CE ; ./merge2out ; echo 'Press <Enter> to continue' ; read VAR"
-		elif [ "${PWD%woof-CE}" != "$PWD" ]; then
-			$TERMCMND -e sh -c "./merge2out ; echo 'Press <Enter> to continue' ; read VAR"
+		if [ "${PWD%woof-CE}" != "$PWD" ]; then
+			if [ "$BUILD" = "" ]; then
+				$TERMCMND -e sh -c "./merge2out $ALTERNATE_BUILD ; echo 'Press <Enter> to continue' ; read VAR"
+			else
+				$TERMCMND -e sh -c "./merge2out ; echo 'Press <Enter> to continue' ; read VAR"
+			fi
 		else
 			echo "Cannot find woof-CE directory."
 			exit
