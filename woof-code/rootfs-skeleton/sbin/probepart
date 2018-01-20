@@ -54,11 +54,20 @@ for i in $@ ; do
 done
 
 device="${1##*/}"
+ 
 
 if [ "$device" ] ; then
 	# process cli argument
-	PARTITIONS="`grep " ${device}$" /proc/partitions | tr -s ' ' | cut -f 4-5 -d ' '`"
-	if [ ! "$PARTITIONS" ] ; then
+	ALLDEVS="`grep " ${device}$" /proc/partitions | tr -s ' ' | cut -f 4-5 -d ' '`"
+	## this is faster but requires changes in scripts using wildcards .. and bash 4.4?
+	#ALLDEVS=$(
+	#	while read zz zzz size dev ; do
+	#		case $dev in $device)
+	#			echo $size $dev ;;
+	#		esac
+	#	done < /proc/partitions
+	#)
+	if [ ! "$ALLDEVS" ] ; then
 		echo "${device}: invalid device" 1>&2
 		exit 1
 	fi
@@ -72,32 +81,52 @@ else
 	fi
 	#devices that have partitions... 
 	#130127 screen out sr0-sr9. early kernels do not have these in /proc/partitions, 3.2+ do, which causes desktop icon to not appear when audio-cd inserted.
+	# size|partition
 	PARTITIONS="`cat /proc/partitions | tr -s ' ' | cut -f 4-5 -d ' ' | grep -vE ' loop| ram| zram| sr'`" #each line ex: 16076800 sda5
+	## this is faster but requires changes in scripts using wildcards .. and bash 4.4?
+	#PARTITIONS=$(
+	#	while read zz zzz size dev ; do
+	#		case $dev in loop*|ram*|zram*|sr*)
+	#			continue ;; #not allowed
+	#		esac
+	#		echo $size $dev
+	#	done < /proc/partitions
+	#)
 	if [ "$PROCESS_OPTICAL" = "yes" ] ; then
 		#plus optical devices...
-		OPTICALDRVS="`ls /sys/block | grep -E '^sr'`"
+		# size|drv
+		OPTICALDRVS=$(
+		for dev in /sys/block/sr*
+		do
+			[ -e $dev ] || continue
+			dev=${dev##*/}
+			read -r size < /sys/block/${dev}/size
+			size=$(($size/2)) # kb = /proc/partitions
+			echo ${size} ${dev}
+		done
+		)
 	fi
+	ALLDEVS="$(echo -e "${PARTITIONS}\n${OPTICALDRVS}" | sort -k 2,2 -u)"
 fi
-
-PARTNAMES="`echo "$PARTITIONS" | cut -f 2 -d ' '`" #120602
-ALLDEVS=$(echo -e "${PARTNAMES}\n${OPTICALDRVS}" | sort -u)
 
 #==========================================================================
 
-for ONEDEV in $ALLDEVS
+while read SIZE ONEDEV
 do
 
-	OPTICAL=""
-	FSTYPE="unknown"
-	SIZE=`echo "$PARTITIONS" | grep " ${ONEDEV}$" | cut -f 1 -d ' '`
-	DEVICE="`echo "$PARTITIONS" | grep " ${ONEDEV}$" | cut -f 2 -d ' '`"
-	[ "$DEVICE" != "" ] && ONEDEV=$DEVICE
+	[ -z "$SIZE" -o -z "$ONEDEV" ] && continue
 
-	blockdev=/dev/${ONEDEV}
-	[ -e /dev/block/${ONEDEV} ] && blockdev=/dev/block/${ONEDEV}
+	if [ -e /dev/${ONEDEV} ] ; then
+		blockdev=/dev/${ONEDEV}
+	elif [ -e /dev/block/${ONEDEV} ] ; then
+		blockdev=/dev/block/${ONEDEV} #android
+	else
+		continue
+	fi
 
+	OPTICAL=no
 	case $ONEDEV in
-		scd*|sr*) OPTICAL="yes" ;; # usb,sata,scsi cd/dvd drive.
+		sr*) OPTICAL="yes" ;; # usb,sata,scsi cd/dvd drive.
 		fd*) [ ! -e /sys/block/${ONEDEV}/device/vendor -a ! -e /sys/block/${ONEDEV}/device/model ] && continue ;;
 	esac
 
@@ -108,17 +137,9 @@ do
 		fi
 	fi
 
-	if [ ! $SIZE ] ; then
-		if [ -e /sys/block/${ONEDEV}/size ];then
-			read -r SIZE < /sys/block/${ONEDEV}/size
-			SIZE=$(($SIZE/2)) # kb = /proc/partitions
-		fi
-	fi
-
 	BLKDID_OUT="$(blkid ${blockdev} 2>/dev/null)"
 	FSTYPE="$(echo "$BLKDID_OUT" | grep -o ' TYPE=.*' | cut -f 2 -d '"')"
 	if [ "$FSTYPE" = "" ] ; then
-		[ -z "$SIZE" ] && continue #precaution
 		[ $SIZE -le 4 ] && continue #extended partition (most likely)
 		FSTYPE="unknown"
 	fi
@@ -169,6 +190,8 @@ do
 		esac
 	fi
 
-done
+done <<EOF
+$ALLDEVS
+EOF
 
 ### END ###
