@@ -1,0 +1,584 @@
+#!/bin/bash
+## Xkb Config Manager, originally by Dougal
+
+export TEXTDOMAIN=xkbconfig #xkb
+export TEXTDOMAINDIR=/usr/share/locale
+export OUTPUT_CHARSET=UTF-8
+. gettext.sh
+
+export XORG_CONF=/etc/X11/xorg.conf
+
+if [ -f /etc/X11/xkb/rules/xorg.lst ] ; then
+	export XORG_RULES_LST='/etc/X11/xkb/rules/xorg.lst'
+elif [ -f /usr/share/X11/xkb/rules/xorg.lst	] ; then
+	export XORG_RULES_LST='/usr/share/X11/xkb/rules/xorg.lst'
+else
+	echo "$0: ERROR: can not find xorg.lst" 1>&2
+	exit 1
+fi
+
+export XKB_LAYOUTS_LST=/var/tmp/xkb-layout
+export XKB_MODELS_LST=/var/tmp/xkb-model
+export XKB_OPTIONS_LST=/var/tmp/xkb-option
+export XKB_VARIANT_LST=/var/tmp/xkb-variant
+
+# var added for gettext
+export gtxt1="$(gettext 'ERROR')"
+export gtxt2="$(gettext 'An Error has occured! Try again.')"
+export gtxt3="$(gettext 'XkbConfigmanager!')"
+export gtxt4="$(gettext 'Changes applied successfuly!')"
+
+if [ "$1" = "-q" ] ; then
+	shift
+else
+	export ERRMSG='Xdialog --title "$gtxt1" --msgbox "$gtxt2" 0 0'
+	export SUCCESS='Xdialog --title "$gtxt3" --no-buttons --infobox "$gtxt4" 0 0 2000'
+fi
+
+#====================================================================
+#                         FUNCTIONS / DLGS
+#====================================================================
+
+function help_box() {
+	echo '
+<b>Keyboard Model</b>
+The keyboard model is just that -- you might have a special "brand-name" keyboard, or a "generic" keyboard, labled "pc".
+Note that most people (using a pc, not a laptop) are likely to have a "pc104" or "pc105" -- the number being the number of keys (count them!).
+Puppy uses "pc102" by default, so you might want to change yours.
+
+<b>Layouts</b>
+This is the "country" part. You can have more than one, for typing in more than one language.
+If you select more than one layout, you will want to go to the "Options" section and select one of the options in the "Group Shift/Lock behaviour" dialog -- to enable you to switch between layout.
+You might also want to select a "Use keyboard LED..." option, so that one of the LEDs on your keyboard lights up when you are using an alternate mode.
+
+<b>Layout Variants</b>
+These enable further tuning of your keyboard type. 
+The "Layouts" section only gives you the country -- here you can select which exactly of the layouts used in that country you want.
+
+Note that selecting a variant is NOT mandatory, it is just to further tweak the layout.
+
+<b>########## Options ##########</b>
+
+<b>Group Shift/Lock behavior</b>
+Here you select a key/key-combination to press in order to switch between keyboard layouts.
+
+<b>Third level choosers</b>
+Just like the "Shift" key enables you to use a "second level" with each key, you can also select a key to use a "third level" on your keys, to enable more functions.
+The best example for this is the Eurosign (below), which can be assigned to a key and typed by pressing it along with your "third level chooser".
+
+<b>Control key position</b>
+This enables you to select which key would be used as "Ctrl". Good if you are using a keyboard that is different to which you are used to or (??) with a laptop.
+
+<b>Use keyboard LED to show alternative group</b>
+Your keyboard has three LEDs on it, titled Num Lock, Caps Lock and Scroll Lock.
+If you use more than one keyboard layout, you can set of these LEDs to be turned on/off whenever you switch layout, so you know which layout you are using.
+
+<b>CapsLock key behavior</b>
+Here you can select exactly what your Caps Lock does (and the effect of the Shift key on it).
+
+<b>Alt/Win key behavior</b>
+
+<b>Compose key position</b>
+
+<b>Adding the EuroSign to certain keys</b>
+Select which key the Eurosign will be assigned to.
+Requires a "third level chooser" to be used.' > /tmp/box_help
+	/usr/lib/gtkdialog/box_help
+}
+
+
+function XkbApplyNow() {
+	#get all parameters
+	MODEL=`fgrep '"XkbModel"' $XORG_CONF | grep -v '^#' | cut -d'"' -f4`
+	LAYOUT=`fgrep '"XkbLayout"' $XORG_CONF | grep -v '^#' | cut -d'"' -f4`
+	VARIANT=`fgrep '"XkbVariant"' $XORG_CONF | grep -v '^#' | cut -d'"' -f4`
+	OPTIONS=`fgrep '"XkbOptions"' $XORG_CONF | grep -v '^#' | cut -d'"' -f4`
+	#debug option
+	echo "setxkbmap -rules xorg -model \"$MODEL\" -layout \"$LAYOUT\" -variant \"$VARIANT\" -option \"$OPTIONS\""
+	setxkbmap -rules xorg -model "$MODEL" -layout "$LAYOUT" -variant "$VARIANT" -option "$OPTIONS"
+	if [ $? -eq 0 ];then
+		case "$LAYOUT" in *,*) 
+		  pidof fbxkb >/dev/null || ( which fbxkb >/dev/null && fbxkb & ) ;;
+		esac
+		eval $SUCCESS
+	else
+		eval $ERRMSG
+	fi
+}
+
+
+function XkbLayoutConfig() {
+	# change the XkbLayout variable in xorg.conf
+	ORIGINAL=`fgrep '"XkbLayout"' $XORG_CONF | grep -v '^#'`
+	[ "$ORIGINAL" = "" ] && Xdialog --title "$(gettext 'ERROR')" --msgbox "$(gettext 'Your xorg.conf file does not contain any XkbLayout options!')" 0 0 && exit
+	#find current layouts:
+	CURRENT=`echo "$ORIGINAL" | cut -d'"' -f4`
+	# make list of existing layouts with their names:
+	if [ ! "$CURRENT" = "" ]; then
+		EXIST=`echo "$CURRENT" | tr ',' '\n' | while read ONE;
+	do fgrep " $ONE " $XORG_RULES_LST | grep -v ':' ; done`
+	## could add head and tail for the fgrep, but this works ok.
+	else
+		EXIST="NONE!"
+	fi
+	#count how many layouts we already have:
+	COUNT=`echo "$EXIST" | wc -l | tr -d ' '`
+	# if only one currently, ask to change or add:
+	if [ $COUNT -eq 1 ]; then
+		Xdialog --title "$(gettext 'Configure Xkb Layout')" --ok-label "$(gettext 'Change')" --cancel-label "$(gettext 'Add')" --buttons-style text --yesno "$(gettext 'What would you like to do:
+add another layout or change the current one')" 0 0
+		CHANGE=$?
+		[ $CHANGE -eq 255 ] && echo "$(gettext 'Aborted')" && exit
+		if [ $CHANGE -eq 0 ]; then #change
+			MESSAGE="$(gettext 'Please select the layout you would like to
+replace it with, then press OK')"
+		else #add
+			MESSAGE="$(gettext 'Please select the layout you would like to
+add, then press OK')"
+		fi
+	else
+		MESSAGE="$(gettext 'If you wish to remove one of the above, select
+it in the list below, then press OK.
+To add an additional layout, select it and press OK.')"
+	fi
+	#-
+	TMPFF=/tmp/xkblayoutconfig$$
+	(
+	#give option to select additional layout.
+	echo 'Xdialog --stdout --title "'$(gettext 'Configure Xkb Layout')'" --left --menubox "'$(gettext 'You are currently using the following layout(s)')':
+'$EXIST'
+
+'$MESSAGE'" 0 0 15 \'
+	while read f d ; do
+		echo "$f \"$d\" \\"
+	done < $XKB_LAYOUTS_LST
+	) > $TMPFF
+	CHOICE=$(bash $TMPFF)
+	rm -f $TMPFF
+	[ -z "$CHOICE" ] && echo "cancelled" && exit 
+	#-
+	if echo "$CURRENT" | tr ',' '\n' | fgrep -wq $CHOICE ; then #remove
+		NEW=`echo -n $CURRENT | tr ',' '\n' | fgrep -wv $CHOICE | tr '\n' ',' | sed 's/^,//;s/,$//'`
+		[ "$NEW" = "" ] && NEW="$CURRENT"
+	else #add
+		[ "$COUNT" = "4" ] && Xdialog --title "$(gettext 'ERROR')" --msgbox "$(gettext 'Sorry! No more than 4 layouts are allowed...')" 0 0 && exit
+		NEW="$CURRENT,$CHOICE"
+		[ $COUNT -eq 1 ] && [ $CHANGE -eq 0 ] && NEW="$CHOICE"
+		[ "$EXIST" = "NONE!" ] && NEW="$CHOICE"
+	fi
+
+	# add new layout to line:
+	MODIFIED=`echo "$ORIGINAL" | sed "s%\"$CURRENT\"%\"$NEW\"%"`
+	# add to file
+	sed -i "s%$ORIGINAL%$MODIFIED%" $XORG_CONF
+	if grep -q '"XkbModel"' $XORG_CONF ; then
+		XkbApplyNow
+	else
+		eval $ERRMSG
+	fi
+}
+
+
+function XkbModelConfig() {
+	# change the XkbModel variable in xorg.conf
+	ORIGINAL=`fgrep '"XkbModel"' $XORG_CONF | grep -v '^#'`
+	[ "$ORIGINAL" = "" ] && Xdialog --title "$(gettext 'ERROR')" --msgbox "$(gettext 'Your xorg.conf file does not contain any XkbModel options!')" 0 0 && exit
+	# the current model:
+	CURRENT=`echo "$ORIGINAL" | cut -d'"' -f4`
+	MODEL=`fgrep -w -m1 "$CURRENT" $XKB_MODELS_LST`
+	# Give dialog with list of models:
+	TMPFF=/tmp/xkbmodelconfig$$
+	(
+	echo 'Xdialog --left --stdout --title "'$(gettext 'Select XkbModel')'" --menubox "'$(gettext 'Here is a list of all the keyboard models available.
+The model you are currently using is:')'
+
+'${MODEL}'
+
+'$(gettext 'To replace it, please select one and press OK
+To keep the current model, press cancel...')'" 30 80 0 \'
+	while read f d ; do
+		echo "$f \"$d\" \\"
+	done < $XKB_MODELS_LST
+	) > $TMPFF
+	CHOICE=$(bash $TMPFF)
+	rm -f $TMPFF
+	[ -z "$CHOICE" ] && echo "cancelled" && exit 
+	# create the modified line to replace original:
+	MODIFIED=`echo "$ORIGINAL" | sed "s%\"$CURRENT\"%\"$CHOICE\"%"`
+	# add to file
+	sed -i "s%$ORIGINAL%$MODIFIED%" $XORG_CONF
+	if grep -q '"XkbModel"' $XORG_CONF ; then
+		XkbApplyNow
+	else
+		eval $ERRMSG
+	fi
+}
+
+function XkbOption() {
+	# the full line containing XkbOptions:
+	ORIGINAL=`fgrep '"XkbOptions"' $XORG_CONF | grep -v '^#'`
+	#find current variants and layouts:
+	CURRENT=`echo "$ORIGINAL" | cut -d'"' -f4`
+	# check if already have one, find description and add to message.
+	EXIST=`echo -n "$CURRENT" | tr ',' '\n' | fgrep "$OPTION:"`
+	if [ ! "$EXIST" = "" ]; then
+		INFO=`fgrep -w "$EXIST" $XORG_RULES_LST`
+		MESSAGE="${MESSAGE_USING}:
+	$INFO
+
+$(gettext 'To change it, select a new one below, then press OK.
+To remove it, select it below and press OK.
+To abort press cancel.')"
+	else
+		MESSAGE="$(gettext 'Please select the setting you would like to use, then press OK.
+To abort, press cancel.')"
+	fi
+	# give choice dialog
+	TMPFF=/tmp/xkboptconfig$$
+	(
+	echo 'Xdialog --stdout --title "'"${TITLE}"'" --left --menubox "'"${MESSAGE}"'" 18 80 15 \'
+	while read f d ; do
+		echo "$f \"$d\" \\"
+	done <<< "$(grep "${OPTION}:" $XKB_OPTIONS_LST)"
+	) > $TMPFF
+	CHOICE=$(bash $TMPFF)
+	rm -f $TMPFF
+	[ -z "$CHOICE" ] && echo "cancelled" && exit 
+
+	grep "$OPTION:" $XORG_CONF
+	echo "$CHOICE"
+	if [ ! "$EXIST" = "" ]; then # if there's one already
+		if [ "$CHOICE" = "$EXIST" ]; then # the same -> remove
+			NEW=`echo -n $CURRENT | tr ',' '\n' | fgrep -v $CHOICE | tr '\n' ',' | tr -s ',' | sed 's/^,//;s/,$//'`
+		else # change
+			NEW=`echo "$CURRENT" | sed "s/$EXIST/$CHOICE/"`
+		fi
+	else
+		NEW="$CURRENT,$CHOICE"
+		[ "$CURRENT" = "" ] && NEW="$CHOICE"
+	fi
+	# add new variant to line, or entire line, if it doesn't exist:
+	if [ "$ORIGINAL" = "" ] ;then
+		ORIGINAL=`fgrep '"XkbVariant"' $XORG_CONF | grep -v '^#'`
+		[ "$ORIGINAL" = "" ] && ORIGINAL=`fgrep '"XkbLayout"' $XORG_CONF | grep -v '^#'`
+		MODIFIED="$ORIGINAL\n	Option 		\"XkbOptions\"   \"$NEW\""
+	else
+		MODIFIED=`echo "$ORIGINAL" | sed "s%\"$CURRENT\"%\"$NEW\"%"`
+	fi
+	# add to file
+	sed -i "s%$ORIGINAL%$MODIFIED%" $XORG_CONF
+	if grep -q '"XkbOptions"' $XORG_CONF ; then
+		XkbApplyNow
+	else
+		eval $ERRMSG
+	fi
+}
+export -f XkbOption
+
+function XkbOptionsAltwin() {
+	# change the XkbOption "altwin" variable in xorg.conf
+	export OPTION='altwin'
+	export TITLE=$(gettext 'Configure ALT/WIN Xkb Option')
+	export MESSAGE_USING=$(gettext 'You are currently using the following altwin setting')
+	XkbOption
+}
+
+function XkbOptionsCaps() {
+	# change the XkbOption "caps" variable in xorg.conf
+	export OPTION='caps'
+	export TITLE=$(gettext 'Configure CapsLock Xkb Option')
+	export MESSAGE_USING=$(gettext 'You are currently using the following CapsLock setting')
+	XkbOption
+}
+
+function XkbOptionsCompose() {
+	# Change the XkbOption "compose" variable in xorg.conf
+	export OPTION='compose'
+	export TITLE=$(gettext 'Configure COMPOSE Xkb Option')
+	export MESSAGE_USING=$(gettext 'You are currently using the following COMPOSE setting')
+	XkbOption
+}
+
+function XkbOptionsCtrl() {
+	# change the XkbOption "ctrl" variable in xorg.conf
+	export OPTION='ctrl'
+	export TITLE=$(gettext 'Configure CONTROL KEY Option')
+	export MESSAGE_USING=$(gettext 'You are currently using the following Control Key setting')
+	XkbOption
+}
+
+function XkbOptionsEuro() {
+	# change the XkbOption "eurosign" variable in xorg.conf
+	export OPTION='eurosign'
+	export TITLE=$(gettext 'Configure Eurosign Option')
+	export MESSAGE_USING=$(gettext 'You are currently using the following Eurosign setting')
+	XkbOption
+}
+
+function XkbOptionsGrp() {
+	# change the XkbOption "grp" variable in xorg.conf
+	export OPTION='grp'
+	export TITLE=$(gettext 'Configure Group Xkb Option')
+	export MESSAGE_USING=$(gettext 'You are currently using the following Group setting')
+	XkbOption
+}
+
+function XkbOptionsGrp_led() {
+	# change the XkbOption "grp_led" variable in xorg.conf
+	export OPTION='grp_led'
+	export TITLE=$(gettext 'Configure LED Xkb Option')
+	export MESSAGE_USING=$(gettext 'You are currently using the following LED setting')
+	XkbOption
+}
+
+function XkbOptionsLv3() {
+	# change the XkbOption "lv3" variable in xorg.conf
+	export OPTION='lv3'
+	export TITLE=$(gettext 'Configure Third level Xkb Option')
+	export MESSAGE_USING=$(gettext 'You are currently using the following Third level setting')
+	XkbOption
+}
+
+
+function XkbVariantConfig() {
+	# change the XkbVariant variable in xorg.conf
+	TMPDIALOG=/tmp/XkbVariantDialog
+	TMPLIST=/tmp/XkbVariantList
+	# the full lines containing XkbVariant and XkbLayout:
+	ORIGINAL=`fgrep '"XkbVariant"' $XORG_CONF | grep -v '^#'`
+	LAYOUTSLINE=`fgrep '"XkbLayout"' $XORG_CONF | grep -v '^#'`
+	[ "$ORIGINAL" = "" ] && NEWLINE="yes"
+	#find current variants and layouts:
+	CURRENT=`echo "$ORIGINAL" | cut -d'"' -f4`
+	OLD="$CURRENT" #needed if line exists but nothing in it
+	LAYOUTS=`echo "$LAYOUTSLINE" | cut -d'"' -f4`
+	# create list of variants available for our layouts:
+	if [ ! `echo "$CURRENT" | tr -d ','` = "" ]; then
+		EXIST=$(echo "$CURRENT" | tr ',' '\n' | while read AVAR ;do
+			[ "$AVAR" = "" ] && continue
+			POS=`echo "$CURRENT" | tr ',' '\n' | fgrep -n "$AVAR" | cut -d: -f1`
+			MYLAY=`echo "$LAYOUTS" | cut -d',' -f$POS`
+			fgrep " $AVAR " $XORG_RULES_LST | fgrep -w "$MYLAY:"
+			done)
+		MESSAGE="$(gettext 'You are currently using the following variants'):
+"$EXIST"
+
+$(gettext 'To remove a variant, select it in the list below and press OK.
+To add a new one, select it and press OK.
+
+NOTE: if you select a variant for a layout that already has one,
+ the new one will replace the old.')"
+	else
+		OLD=`echo "$LAYOUTS" | tr -d 'a-zA-Z_/'`
+		MESSAGE="$(gettext 'Please select the variant you would like to add, then press OK.')"
+	fi
+	# create list of available variants:
+	INDEX=1
+	for ALAY in ${LAYOUTS//,/ } ; do
+		fgrep " $ALAY:" $XORG_RULES_LST | \
+		while read TAG INFO ; do
+			echo "\"$INDEX: $TAG\" \""$INFO"\""; INDEX=`expr $INDEX + 1`
+		done > $TMPLIST
+	done
+		
+	# adding var for gettext
+	export gtxt1="$(gettext 'Select XkbModel')"
+	# create dialog with all options (in temp file)
+	echo -n '#!/bin/sh
+Xdialog --left --stdout --title "$gtxt1" --menubox "' >$TMPDIALOG
+	echo -n "$MESSAGE\" 0 0 15 " >>$TMPDIALOG
+	cat $TMPLIST | tr '\n' ' ' >>$TMPDIALOG
+	chmod 755 $TMPDIALOG
+	# run dialog and get choice
+	CHOICE=`eval $TMPDIALOG`
+	[ "$CHOICE" = "" ] && echo "cancelled" && exit
+	echo "$CHOICE"
+	# find the variant chosen and its position
+	NEWVAR=`fgrep "$CHOICE" $TMPLIST | cut -d'"' -f2 | cut -d' ' -f2`
+	ITSLAY=`fgrep "$CHOICE" $TMPLIST | cut -d'"' -f4 | cut -d: -f1`
+	ITSPOS=`echo "$LAYOUTS" | tr ',' '\n' | fgrep -n "$ITSLAY" | cut -d: -f1`
+	#the last sed is since we need to cut off the last , (echo -n doesn't work well)
+	NEW=`echo "$OLD" | tr ',' '\n' | sed "${ITSPOS}s/.*/$NEWVAR/" | tr '\n' ',' | sed 's/,$//'`
+	# if old is same as new: remove
+	[ "$NEW" = "$OLD" ] && NEW=`echo "$OLD" | tr ',' '\n' | sed "${ITSPOS}s/.*//" | tr '\n' ',' | sed 's/,$//'`
+	# add new variant to line, or entire line, if it doesn't exist:
+	if [ "$NEWLINE" = "yes" ] ;then
+		ORIGINAL="$LAYOUTSLINE"
+		MODIFIED="$ORIGINAL\n	Option      \"XkbVariant\" \"$NEW\""
+	else
+		MODIFIED=`echo "$ORIGINAL" | sed "s%\"$CURRENT\"%\"$NEW\"%"`
+	fi
+	# add to file
+	sed -i "s%$ORIGINAL%$MODIFIED%" $XORG_CONF
+	if grep -q '"XkbModel"' $XORG_CONF ; then
+		XkbApplyNow
+	else
+		eval $ERRMSG
+	fi
+}
+
+#=============================
+
+export -f help_box
+export -f XkbApplyNow
+export -f XkbLayoutConfig
+export -f XkbModelConfig
+export -f XkbOptionsAltwin
+export -f XkbOptionsCaps
+export -f XkbOptionsCompose
+export -f XkbOptionsCtrl
+export -f XkbOptionsEuro
+export -f XkbOptionsGrp
+export -f XkbOptionsGrp_led
+export -f XkbOptionsLv3
+export -f XkbVariantConfig
+
+#====================================================================
+#                              MAIN
+#====================================================================
+
+# generate tables
+if [ ! -f $XKB_MODELS_LST ] ; then
+	while read field value
+	do
+		[ -z "$field" ] && continue
+		if [ "$field" = "!" ] ; then
+			file=/var/tmp/xkb-${value}
+			echo -n > $file
+			continue
+		fi
+		echo "$field $value" >> $file
+	done < $XORG_RULES_LST
+	#fix
+	sorted=$(sort $XKB_LAYOUTS_LST -k 2,2)
+	echo "us English (US)" > $XKB_LAYOUTS_LST
+	echo "$sorted" >> $XKB_LAYOUTS_LST
+fi
+
+# cli
+case $1 in
+	apply)      XkbApplyNow       ; exit ;;
+	layout)     XkbLayoutConfig   ; exit ;;
+	model)      XkbModelConfig    ; exit ;;
+	optaltwin)  XkbOptionsAltwin  ; exit ;;
+	optcaps)    XkbOptionsCaps    ; exit ;;
+	optcompose) XkbOptionsCompose ; exit ;;
+	optctrl)    XkbOptionsCtrl    ; exit ;;
+	opteuro)    XkbOptionsEuro    ; exit ;;
+	optgrp)     XkbOptionsGrp     ; exit ;;
+	optgrp_led) XkbOptionsGrp_led ; exit ;;
+	optlv3)     XkbOptionsLv3     ; exit ;;
+	variant)    XkbVariantConfig  ; exit ;;
+	-) exit ;;
+esac
+
+# main window
+export XKB_Config_Main="
+<window title=\"$(gettext 'XKB Configuration Manager')\" icon-name=\"gtk-preferences\" window-position=\"1\">
+<vbox>
+ <text><label>$(gettext 'This tool lets you modify the keyboard settings part of your xorg.conf file.')</label></text>
+ <frame $(gettext 'Main')>
+  <hbox>
+  <vbox space-expand=\"true\" space-fill=\"true\">
+   <text><label>$(gettext 'Layouts')</label></text>
+   <button>
+    $(/usr/lib/gtkdialog/xml_button-icon country_keyboard.svg big)
+    <action>XkbLayoutConfig &</action>
+   </button>
+  </vbox>
+  <vbox>
+   <text><label>$(gettext 'Layout Variants')</label></text>
+   <button>
+    $(/usr/lib/gtkdialog/xml_button-icon country_keyboard.svg big)
+    <action>XkbVariantConfig &</action>
+   </button>
+  </vbox>
+  <vbox>
+   <text><label>$(gettext 'Keyboard Model')</label></text>
+   <button>
+    <input file>/usr/share/pixmaps/keyboard.png</input>
+    <action>XkbModelConfig &</action>
+   </button>
+  </vbox>
+  </hbox>
+ </frame>
+
+ <frame $(gettext 'Options')>
+  <hbox>
+   <text><label>$(gettext 'Group Shift/Lock behavior')</label></text>
+   <button>
+    $(/usr/lib/gtkdialog/xml_button-icon keyboard_shortcut.svg small)
+    <action>XkbOptionsGrp &</action>
+   </button>
+  </hbox>
+  <hbox>
+   <text><label>$(gettext 'Third level choosers')</label></text>
+   <button>
+    $(/usr/lib/gtkdialog/xml_button-icon keyboard_shortcut.svg small)
+    <action>XkbOptionsLv3 &</action>
+   </button>
+  </hbox>
+  <hbox>
+   <text><label>$(gettext 'Control key position')</label></text>
+   <button>
+    $(/usr/lib/gtkdialog/xml_button-icon keyboard_shortcut.svg small)
+    <action>XkbOptionsCtrl &</action>
+   </button>
+  </hbox>
+  <hbox>
+   <text><label>$(gettext 'Use keyboard LED to show alternative group')</label></text>
+   <button>
+    $(/usr/lib/gtkdialog/xml_button-icon keyboard_shortcut.svg small)
+    <action>XkbOptionsGrp_led &</action>
+   </button>
+  </hbox>
+  <hbox>
+   <text><label>$(gettext 'CapsLock key behavior')</label></text>
+   <button>
+    $(/usr/lib/gtkdialog/xml_button-icon keyboard_shortcut.svg small)
+    <action>XkbOptionsCaps &</action>
+   </button>
+  </hbox>
+  <hbox>
+   <text><label>$(gettext 'Alt/Win key behavior')</label></text>
+   <button>
+    $(/usr/lib/gtkdialog/xml_button-icon keyboard_shortcut.svg small)
+    <action>XkbOptionsAltwin &</action>
+   </button>
+  </hbox>
+  <hbox>
+   <text><label>$(gettext 'Compose key position')</label></text>
+   <button>
+    $(/usr/lib/gtkdialog/xml_button-icon keyboard_shortcut.svg small)
+    <action>XkbOptionsCompose &</action>
+   </button>
+  </hbox>
+  <hbox>
+   <text><label>$(gettext 'Adding the EuroSign to certain keys')</label></text>
+   <button>
+    <input file>/usr/share/pixmaps/euro16.png</input>
+    <action>XkbOptionsEuro &</action>
+   </button>
+  </hbox>
+ </frame>
+
+  <hbox>
+    <button space-expand=\"false\" space-fill=\"false\">
+      `/usr/lib/gtkdialog/xml_button-icon help`
+      <label>$(gettext 'Help')</label>
+      <action>help_box &</action>
+    </button>
+    <text space-expand=\"true\" space-fill=\"false\"><label>\" \"</label></text>
+   <button>
+    <label>$(gettext 'Exit')</label>
+    <input file icon=\"gtk-quit\"></input>
+    <action>EXIT:close</action>
+   </button>
+  </hbox>
+ </vbox>
+</window>"
+
+##------------run------------->>
+gtkdialog --program XKB_Config_Main
+
+### END ###
