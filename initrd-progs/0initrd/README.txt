@@ -241,7 +241,6 @@ pfix=<ram, nox, trim, nocopy, fsck, fsckp, rdsh, <number>>
    fsck:     do fsck of ${DISTRO_FILE_PREFIX}save.?fs file.
    fsckp:    do fsck before first mount of supported partitions.
    rdsh:     exit to shell in initial ramdisk.
-   psavebkp: don't ignore pupsaves created by Pupsave Backup
    <number>: blacklist last <number> folders (multisession). e.g. pfix=3
 
 
@@ -288,7 +287,3 @@ for a file with this base name:
 Any file having that base name is identified as a pupsave.
 If the pupsave happens to be fake or corrupted, the script will show an error message
 and will continue with the boot process in PUPMODE 5 (first boot).
-
-By default pupsaves created by Pupsave Backup will be ignored
-unless you specify a boot param:
-  pfix=psavebkp
