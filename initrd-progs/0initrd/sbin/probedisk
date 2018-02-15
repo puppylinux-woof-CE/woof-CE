@@ -3,6 +3,8 @@
 #LGPL 2007 Puppy Linux www.puppyos.com
 #based on probedisk3 written by Dougal.
 # 21 Jun 2007 BK: force /proc update for usb drives.
+#v3.93 10 dec 2007 BK: updated for 2.6.24 kernel, no /dev/hd*.
+#v406 support for old kernel, /proc/ide, /dev/hd*.
 
 ## MMC - SD cards
 #  Some laptops with built in SD card readers report SD cards as /dev/sd* and usb
@@ -86,20 +88,19 @@ if [ "$device" ] ; then
 else
 	if [ -f $HOME/.usb-drive-log-probedisk ] ; then #force /proc upate mechanism
 		while read ONEUSBDRV ; do
-			dd if=/dev/$ONEUSBDRV of=/dev/null bs=512 count=1 &>/dev/null
+			dd if=/dev/$ONEUSBDRV of=/dev/null bs=512 count=1 1>/dev/null 2>&1
 		done < $HOME/.usb-drive-log-probedisk
 	fi
-	# mounted drives/partitions...
-	MNTDDEVS="`mount | cut -f 1 -d ' ' | cut -f 3 -d '/' | grep -E '^fd|^sd|^scd|^sr|^nvme|^mmc' | grep -v boot | tr '\n' ' '`"
-	ALLDRVS="`ls -1 /sys/block | grep -E '^fd|^sd|^scd|^sr|^nvme|^mmc' | grep -v boot | tr '\n' ' '`"
+	ALLDRVS="`ls -1 /sys/block | grep -E '^sd|^hd|^mmc|^nvme|^sr' | grep -v boot`"
 fi
 
 ###############################################################
 
-for DRV in ${ALLDRVS} ; do
+for DRV in ${ALLDRVS}
+do
 
 	if [ "$CLI_ARG" != "" ] ; then
-		if [ ! -e /sys/block/${DRV} ] ; then
+		if [ ! -e /sys/block/${DRV} -a ! -e /proc/ide/${DRV} ] ; then
 			echo "${DRV}: invalid drive" 1>&2
 			continue
 		fi
@@ -113,6 +114,8 @@ for DRV in ${ALLDRVS} ; do
 	size=""
 	removable=""
 	usb=""
+	xtype=""
+
 	[ -f /sys/block/${DRV}/device/vendor ] && read -r vendor < /sys/block/${DRV}/device/vendor
 	[ -f /sys/block/${DRV}/device/model ] && read -r model < /sys/block/${DRV}/device/model
 	[ -f /sys/block/${DRV}/size ] && read -r size < /sys/block/${DRV}/size
@@ -145,7 +148,6 @@ for DRV in ${ALLDRVS} ; do
 
 	case ${DRV} in
 		fd*)  type=floppy  ;;
-		scd*) type=optical ;; #old stuff
 		mmc*)
 			type=card
 			if [ "$SHOW_USBFLASH" = "yes" -a "$CARD_AS_USBFLASH" = "yes" ] ; then
@@ -153,6 +155,22 @@ for DRV in ${ALLDRVS} ; do
 			fi
 			;;
 	esac
+
+	# -- legacy: /proc/ide - special case
+	if [ -e /proc/ide ] ; then
+		media=""
+		[ -f /proc/ide/${DRV}/model ] && read -r info < /proc/ide/${DRV}/model
+		[ -f /proc/ide/${DRV}/media ] && read -r media < /proc/ide/${DRV}/media
+		if [ "$media" = "cdrom" ] ; then
+			type=optical
+		else
+			case ${DRV} in
+				sd*) [ "$removable" = "1" ] && usb=yes type=usbdrv ;; # usb hd drives and usb flash drives appear as sdX
+				hd*) [ "$removable" = "1" ] && type=floppy ;; # a zip drv? https://ubuntuforums.org/showthread.php?t=1607383
+			esac
+		fi
+	fi
+	# --
 
 	if [ "$type" = "usbdrv" -a "$CLI_ARG" = "" ] ; then
 		if [ "$HOME" != "" -a "$HOME" != "/" ] ; then
@@ -215,19 +233,6 @@ for DRV in ${ALLDRVS} ; do
 		[ "$PLUS_SIZE" = "yes" ] && OUTPUT_STR="${OUTPUT_STR}|$size"
 	fi
 	echo "$OUTPUT_STR"
-done
-
-###############################################################
-
-[ "$CLI_ARG" ] && exit #(finished processing cli argument)
-
-# find out if a mounted device has been unplugged...
-# for hotplug drives, remove it and it will disappear from /sys/block, however
-# still shows up in 'mount' if hasn't been unmounted.
-for ONEMNTD in $MNTDDEVS ; do
-	MNTDDRVs=$(fx_get_drvname $ONEMNTD)
-	#prints to system log and to stderr...
-	[ "`echo "$ALLDRVS" | grep "$MNTDDRVs"`" = "" ] && logger -s "PROBEDISK ERROR: MOUNTED UNPLUGGED $ONEMNTD"
 done
 
 ### END ###
