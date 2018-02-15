@@ -6,7 +6,6 @@
 #replaces the old single-purpose scripts: chooselocale timezone-set (now symlinks)
 #propose first startup, run 'quickcountry, which is symlink.
 #111019 first version.
-#1110120 call shinobar's 'keymap-set' script. FLAG_CHANGED improved.
 #111020 'countrywizard', 'xrandrshell' now symlinks to 'quicksetup'.
 #111022 even though LANG=en_US.UTF-8, localedef still creates /usr/lib/locale/en_US.utf8. use UTF8=.utf8
 #111025 thanks to thunor, fix for window dimensions.
@@ -68,8 +67,6 @@ export OUTPUT_CHARSET=UTF-8
 . /etc/rc.d/BOOTCONFIG
 . /etc/clock
 . /etc/rc.d/BOOTCONSTRAINED #120714
-
-. /usr/sbin/keymap-set source #keymap_country()
 
 PARAM1=""
 [ $1 ] && PARAM1="$1"
@@ -876,47 +873,11 @@ if [ "$SET_COUNTRY" ];then
  if [ "$SET_KEYBOARD" ];then
   # Check if the keyboard needs any kernel modules
   [ "$(which initmodules)" -a ! -f /mnt/home${PSUBDIR}/${DISTRO_FILE_PREFIX}initmodules.txt ] && initmodules -q & # [ ... -a "$PUPMODE" = "5" ] could do instead
-  #120627
-  KMAPPATH='/lib/keymaps'
-  [ -d /usr/share/kbd/keymaps/i386 ] && KMAPPATH='/usr/share/kbd/keymaps/i386'
-  [ -d /usr/share/keymaps/i386 ] && KMAPPATH='/usr/share/keymaps/i386' #debian, gentoo. note, debian files have extension .kmap.gz, gentoo have .map.gz
-  KEXT=''
-  [ -f ${KMAPPATH}/qwerty/us.map ] && KEXT='.map'
-  [ -f ${KMAPPATH}/qwerty/us.map.gz ] && KEXT='.map'
-  [ -f ${KMAPPATH}/qwerty/us.kmap ] && KEXT='.kmap'
-  [ -f ${KMAPPATH}/qwerty/us.kmap.gz ] && KEXT='.kmap'
-
-  DEF_KMAP="us"
-  [ -f /etc/keymap ] && DEF_KMAP="`cat /etc/keymap | sed -e 's/\..*//'`"
-  [ ! "$DEF_KMAP" ] && DEF_KMAP="us" #precaution.
-  if [ ! -f /var/local/quickset-keyboard-list ];then
-   echo -n "" > /var/local/quickset-keyboard-list
-   case $KMAPPATH in #120627
-    /lib/keymaps) KMAPFILES="`find /lib/keymaps -mindepth 1 -maxdepth 1 -name '*.gz' | sort`" ;; #ex: us.gz
-    *) KMAPFILES="`find ${KMAPPATH}/[^i]* -name '*.map' -o -name '*.kmap' -o -name '*.map.gz' -o -name '*.kmap.gz' -not -name 'defkeymap*' | sort`" ;;
-   esac
-   for AFILE in $KMAPFILES
-   do
-    AKMAP="`basename $AFILE .gz`" #us, fr, br, etc.
-    AKMAP="`basename $AKMAP .kmap`" #120627
-    AKMAP="`basename $AKMAP .map`" #120627
-    ACNTRY=$(keymap_country $AKMAP)
-    if [ "$DEF_KMAP" = "$AKMAP" ];then
-     echo "$AKMAP \"${ACNTRY}\" on" >> /var/local/quickset-keyboard-list
-    else
-     echo "$AKMAP \"${ACNTRY}\" off" >> /var/local/quickset-keyboard-list
-    fi
-   done
-  fi
-
-  #table already exist, but may need to reselect 'on' item...
-  onPTN="s%^${DEF_KMAP} \"(.*)\" off$%${DEF_KMAP} \"\1\" on%"
-  sed -i -e 's% on$% off%' -r -e "$onPTN" /var/local/quickset-keyboard-list
-
+  xkbconfigmanager layouttable #creates /var/tmp/xkblayout-table
   DEFAULTXML=""
-  DEFAULT=`grep ' on$' /var/local/quickset-keyboard-list | sed -e 's% on$%%' -e 's%"%%g' -e "s% %    ${TABCHAR}%"`
+  DEFAULT=`grep ' on$' /var/tmp/xkblayout-table | sed -e 's% on$%%' -e 's%"%%g' -e "s% %    ${TABCHAR}%"`
   [ "$DEFAULT" ] && DEFAULTXML="<item>${DEFAULT}</item>" #111107 combobox does not support default tag.
-  ITEMS=`sed -e 's% on$%%' -e 's% off$%%' -e 's%"%%g' -e "s% %    ${TABCHAR}%" -e 's%^%<item>%' -e 's%$%</item>%' /var/local/quickset-keyboard-list`
+  ITEMS=`sed -e 's% on$%%' -e 's% off$%%' -e 's%"%%g' -e "s% %    ${TABCHAR}%" -e 's%^%<item>%' -e 's%$%</item>%' /var/tmp/xkblayout-table`
 
   DEFAULT_NUMLOCK="false"
   CHECKNUMLOCKXML=""
@@ -1179,27 +1140,13 @@ FLAG_CHANGED=""
 
 if [ "$SET_KEYBOARD" ];then
  #two variables COMBO_KEYBOARD and CHECK_NUMLOCK
- NEW_KMAP="`echo -n "$COMBO_KEYBOARD" | cut -f 1 -d ' ' | cut -f 1 -d "$TABCHAR"`"
+ XKB_LAYOUT="`echo -n "$COMBO_KEYBOARD" | cut -f 1 -d ' ' | cut -f 1 -d "$TABCHAR"`"
  FONTMAP=""; CODEPAGE=""
- if [ "$DEF_KMAP" != "$NEW_KMAP" ];then
-  FLAG_CHANGED="${FLAG_CHANGED}$(gettext 'Keyboard Layout'):yes|" #111020 no need to restart X.
-  case $NEW_KMAP in #note, same code in /etc/rc.d/rc.country, init, and input-wizard.
-   de*|be*|br*|dk*|es*|fi*|fr*|it*|no*|se*|sv*|pt*)
-    modprobe nls_cp850
-    CODEPAGE="850"
-   ;;
-   cz*|hu*|pl*|ro*|sk*|croat*|slovene*)
-    modprobe nls_cp852
-    modprobe nls_iso8859-2
-    CODEPAGE="852"
-   ;;
-  esac
-  echo -n "${NEW_KMAP}${KEXT}" > /etc/keymap #120627
-  echo -n "$CODEPAGE" > /etc/codepage
-
-  keymap-set --load #111020 script by shinobar.
-  #120224 fontmap will be handled in locale code below.
- fi
+ FLAG_CHANGED="${FLAG_CHANGED}$(gettext 'Keyboard Layout'):yes|" #111020 no need to restart X.
+ sed -i "s%.*Option.*XkbLayout.*%	Option      \"XkbLayout\" \"${XKB_LAYOUT}\"%" /etc/X11/xorg.conf
+ xkbconfigmanager apply
+ #-
+ #120224 fontmap will be handled in locale code below.
  if [ "$DEFAULT_NUMLOCK" != "$CHECK_NUMLOCK" ];then
   FLAG_CHANGED="${FLAG_CHANGED}$(gettext 'Keyboard numlock'):yes|"
   STATUS_NUMLOCK=off
