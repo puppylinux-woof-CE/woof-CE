@@ -21,25 +21,31 @@ case $DEV_NAME in
 	*) exit 1 ;;
 esac
 
-case $ACTION in add|change)
-	[ ! -e /sys/block/${DEV_NAME} ] && exit 1 ;;
-esac
-
-if [ -f /tmp/pup_event_frontend_display ] ; then
-	. /tmp/pup_event_frontend_display
-	export DISPLAY
-else
-	exit 1
-fi
-
-[ -z $DISPLAY ] && exit 1
-[ -z $PATH ] || export PATH
-
 . /etc/eventmanager #has RAMSAVEINTERVAL, HOTPLUGNOISY, BACKENDON, POWERTIMEOUT
 if [ "$HOTPLUGON" != "true" -o "$BACKENDON" != "true" ] ; then
 	exit 1
 fi
+
+#==========================================================
+
+if [ -f /tmp/pup_event_frontend_display ] ; then
+	. /tmp/pup_event_frontend_display
+fi
+if [ -z "$DISPLAY" -o -z "$PATH" ] ; then
+	echo "${0}: ERROR: empty "'$DISPLAY or $PATH'
+	exit 1
+fi
+export DISPLAY PATH
+
 . /etc/rc.d/functions_x #fx_functions
+if fx_drv_is_optical ${DEV_NAME} ; then
+	FC_OPTICAL_DRV=1
+	[ "$ACTION" = "add" -a ! -e /sys/block/${DEV_NAME} ] && exit 1
+else
+	case $ACTION in add|change)
+		[ ! -e /sys/block/${DEV_NAME} ] && exit 1 ;;
+	esac
+fi
 
 if [ "$FCDEBUG" != "1" ] ; then
 	# somehow this prevents the script from being in
@@ -48,18 +54,22 @@ if [ "$FCDEBUG" != "1" ] ; then
 	exec &>/dev/null
 fi
 
-. /usr/local/pup_event/frontend_funcs
+#==========================================================
 
+. /usr/local/pup_event/frontend_funcs
 export FRONTEND_CHANGE=1
 
 if [ "$ACTION" = "change" ] ; then
 	UEVENT_CHANGE=1
-	if fx_drv_is_optical ${DEV_NAME} ; then
+	if [ "$FC_OPTICAL_DRV" = "1" ] ; then
 		# frontend_timeout handles the situation if udev is misbehaving 
 		# and not properly reporting hotplug events for optical drives
-		FC_OPTICAL_DRV=1
 		if [ "$ID_CDROM_MEDIA_STATE" = "complete" ] ; then
 			ACTION='add'
+			# testing a bad optical drive there's a timing issue
+			# and a race condition with frontend_timeout
+			PS="`busybox ps`"
+			echo "$PS" | grep "zzFRONTEND_CHANGE ${DRV_NAME}" && exit
 		elif [ "$ID_CDROM_MEDIA" != "1" ] ; then
 			ACTION='remove'
 		else
@@ -75,19 +85,20 @@ if [ "$ACTION" = "change" ] ; then
 	fi
 fi
 
+#==========================================================
+
 #create or remove desktop drive icons...
 case $ACTION in
 	add)
 
 		[ -e /root/.pup_event/drive_${DEV_NAME} ] && exit #desktop icon (and partitions) already exist.
 
-		sleep 0.5
-		PROBEPART="`probepart -k -extra-info "${DRV_NAME}.*" | grep -E 'audiocd|btrfs|ext2|ext3|ext4|f2fs|hfs|iso9660|jfs|minix|msdos|ntfs|reiser|udf|vfat|exfat|xfs|crypto_LUKS'`" #130610 screen out unwante# cat /sys/block/sda
+		PROBEPART="`probepart -k -extra-info zzFRONTEND_CHANGE "${DRV_NAME}.*" | grep -E 'audiocd|btrfs|ext2|ext3|ext4|f2fs|hfs|iso9660|jfs|minix|msdos|ntfs|reiser|udf|vfat|exfat|xfs|crypto_LUKS'`" #130610 screen out unwante# cat /sys/block/sda
 		PROBEDISK="$(probedisk $DRV_NAME)"
 		IFS="|" read -r DEV DRV_CATEGORY DRV_DESCRIPTION ZZ <<EOF
 $PROBEDISK
 EOF
-		[ -z "$PROBEPART" ] && continue
+		[ -z "$PROBEPART" ] && exit 1
 
 		#'startup' param just prevents func from running 'probepart'...
 		create_icon_func startup #uses DEV_NAME, DRV_CATEGORY, DRV_DESCRIPTION
