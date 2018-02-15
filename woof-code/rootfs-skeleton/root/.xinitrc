@@ -114,13 +114,7 @@ fi
 #relocates right-side icons to actual right-side of screen...
 /usr/sbin/fixPuppyPin /root/Choices/ROX-Filer/PuppyPin #v1.0.7
 
-#w468 on old PCs rox sometimes does not start, see further down...
-#120718 raspi sometimes need extra delay otherwise rox fails to start.
-CPUSPEED=`grep -m 1 -i '^cpu MHz' /proc/cpuinfo | tr -d ' ' | cut -f 2 -d ':' | cut -f 1 -d '.'` #my laptop: 933.000
-[ ! $CPUSPEED ] && CPUSPEED=`grep -m 1 -i '^bogomips' /proc/cpuinfo | tr -d ' ' | cut -f 2 -d ':' | cut -f 1 -d '.'` #120718 raspi: 697.95  my laptop: 4789.47
-[ ! $CPUSPEED ] && CPUSPEED=250
-[ $CPUSPEED -lt 700 ] && sleep 0.5
-[ $CPUSPEED -lt 400 ] && sleep 0.5
+sleep 1 # let the dust settle
 
 case $desktop in
  pcmanfm) pcmanfm --desktop & ;;
