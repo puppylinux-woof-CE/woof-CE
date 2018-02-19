@@ -1,0 +1,154 @@
+#!/bin/bash
+#functions library
+
+if [ -f ../build.conf ] ; then
+	. ../build.conf
+	md5sumstxt=../md5sums.txt
+	z0sources=../0sources
+	z0pets_out=../0pets_out
+	z0logs=../0logs
+	MWD=$(cd .. ; pwd)
+else
+	. ../../build.conf
+	md5sumstxt=../../md5sums.txt
+	z0sources=../../0sources
+	z0pets_out=../../0pets_out
+	z0logs=../../0logs
+	MWD=$(cd ../.. ; pwd)
+fi
+
+if [ -z "$DEF_BUILD" -a -f /etc/DISTRO_SPECS ] ; then
+	. /etc/DISTRO_SPECS
+	case $DISTRO_BINARY_COMPAT in
+		slackware*) DEF_BUILD="slack${DISTRO_COMPAT_VERSION}" ;;
+		debian|ubuntu|devuan|raspbian|trisquel) DEF_BUILD="${DISTRO_COMPAT_VERSION}" ;;
+		*) DEF_BUILD="${DISTRO_FILE_PREFIX}${DISTRO_COMPAT_VERSION}" ;;
+	esac
+fi
+
+check_md5() {
+	SRC=$1
+	MD5_DLD=`md5sum $SRC`
+	MD5_LST=`grep -w "$SRC" $md5sumstxt`
+	if [ "$MD5_DLD" = "${MD5_LST}" ];then
+		echo "checksum passed"
+	else 
+		[ -n "${MD5_LST}" ] && echo "checksum did not match, deleting $SRC" && \
+		 rm $SRC && exit
+		echo "checksum failed, no entry - IF YOU KNOW IT IS GOOD type 'YES' and hit Enter"
+		read check
+		case $check in
+			YES|yes)echo "$MD5_DLD" >> $md5sumstxt
+				echo "$MD5_DLD is appended to md5sums.txt" && exit;;
+			*) echo "failed: exiting" && exit;;
+		esac
+	fi
+}
+
+retrieve() {
+	SRCS=${1%% *}
+	WC=`echo "$1" | wc -w`
+	[ "$WC" -eq 2 ] && CERT=${1##* }
+	[ -f ${z0sources}/"$SRCS" ] &&\
+	cp -a ${z0sources}/${SRCS} . ||\
+	wget --no-check-certificate -t0 -c ${URL}/${SRCS} $CERT
+	[ "$?" -eq 0 ] || exit 1
+	check_md5 $SRCS
+	sleep 1
+	if [ "$DLD_ONLY" -eq 0 ];then
+		mv -f ${SRCS} ${z0sources}
+		exit 0
+	fi
+}
+
+extract() {
+	tar -xvf ${1}
+	[ "$?" -eq 0 ] || exit
+	mv -f ${1} ${z0sources}
+}
+
+alert () {
+	echo "
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+                              ATTENTION!                                     
+
+  $1 needs to be installed now if it is not on your system.
+
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+"
+	sleep 5
+}
+
+get_files() {
+	find "$1" -type f -name '*' > ${2}.files.tmp
+	find "$1" -type l -name '*' >> ${2}.files.tmp
+	find "$1" -type d -empty >> ${2}.files.tmp
+	cat ${2}.files.tmp | sort -u > ${2}.files
+	rm ${2}.files.tmp
+}
+
+build_configure() {
+	PKG=$1
+	VER=$2
+	LIBDIR=$3
+	FLAGS="$4"
+	cd ${PKG}-${VER}
+	CFLAGS="${FLAGS}" \
+	CXXFLAGS="${FLAGS}" \
+	./configure --prefix=/usr \
+				--localstatedir=/var \
+				--sysconfdir=/etc \
+				--libdir=/usr/${LIBDIR} ${EXTRA_CONFIG_OPTS}
+	[ "$?" -eq 0 ] || exit
+	make $MKFLG
+	[ "$?" -eq 0 ] || exit
+	make DESTDIR=$CWD/${PKG}-install install
+	cd -
+}
+
+package_std() {
+	PKG=$1
+	VER=$2
+	ARCH=$3
+	DESKTOP=$4
+	DESC="$5"
+	DEPS=$6
+	CAT=$7
+	[ "$DEPS" = 'not' ] && DEPS=''
+	[ "$DESKTOP" = 'not' ] && DESKTOP=''
+	# strip
+	find ${PKG}-install | xargs file | grep -e "executable" -e "shared object" \
+		| grep ELF | cut -f 1 -d : | xargs strip --strip-unneeded 2> /dev/null
+	# add this recipe
+	install -d -m 0755 ./${PKG}-install/usr/src/dev
+	cat ${PKG}.petbuild > ./${PKG}-install/usr/src/dev/${PKG}-build-recipe
+	# add custom .desktop
+	if [ -f "$DESKTOP" ];then
+		install -d -m 0755 ./${PKG}-install/usr/share/applications
+		cat $DESKTOP > ./${PKG}-install/usr/share/applications/$DESKTOP
+	fi
+	# split
+	get_files ${PKG}-install ${PKG}-${VER}-${ARCH}_${BUILD}
+	(cd ${PKG}-${VER}; $MWD/split.sh ../${PKG}-install $BUILD)
+	# delete any icon cache or library cache
+	find ./${PKG}-${VER}-${ARCH}_${BUILD} -type f -name '*cache' -delete
+	# add pinstalls if exists
+	[ -f ./pinstall.sh ] && install -m 0755 pinstall.sh ./${PKG}-${VER}-${ARCH}_${BUILD}/
+	[ -f ./puninstall.sh ] && install -m 0755 puninstall.sh ./${PKG}-${VER}-${ARCH}_${BUILD}/
+	for p in $(ls|grep "\-${ARCH}"|grep -v "files$") ; do
+		case $p in
+			*_DEV*) DESC="$PKG development"; DEPS=+${PKG} ;;
+			*_DOC*) DESC="$PKG documentation"; DEPS=+${PKG} ;;
+			*_NLS*) DESC="$PKG locales"; DEPS=+${PKG} ;;
+		esac	
+		echo "packaging $p"	
+		dir2pet -x -s -w="$DESC" -d="$DEPS" -c="$CAT" -p=${p} 2>&1 >/dev/null
+		rm -r $p
+		mv ${p}.pet ${z0pets_out}/
+	done
+	rm -r ${PKG}-install
+	rm -r ${PKG}-${VER}
+	mv -f *.files ${z0logs}/
+	echo "done!"
+}
