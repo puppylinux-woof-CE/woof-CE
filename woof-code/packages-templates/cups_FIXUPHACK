@@ -1,0 +1,343 @@
+#!/bin/sh
+
+#Ubuntu
+if [ -d usr/lib/cups/backend-available ];then
+ if [ -d usr/lib/cups/backend ];then
+  cp -a -f usr/lib/cups/backend-available/* usr/lib/cups/backend/
+ fi
+fi
+
+#need cups-config
+if [ -f ../cups_DEV/usr/bin/cups-config ];then
+ cp -f ../cups_DEV/usr/bin/cups-config usr/bin/
+fi
+
+mkdir -p usr/share/doc
+
+if [ -d usr/share/cups/doc-root ] ; then
+	ln -sv ../cups/doc-root usr/share/doc/cups
+fi
+
+if [ -d usr/doc ] ; then
+	#slackware 13.1, wants the html web interace files at usr/share/doc/cups-1.4.3...
+	DOCCUPS="`find usr/doc -maxdepth 1 -type d -name cups* | head -n 1`"
+	if [ "$DOCCUPS" ];then
+	 BASEDOCCUPS="`basename $DOCCUPS`"
+	 rm -rf usr/share/doc/cups
+	 ln -s ../../doc/${BASEDOCCUPS} usr/share/doc/cups
+	 ln -s ../../doc/${BASEDOCCUPS} usr/share/doc/${BASEDOCCUPS}
+	 #reduce it a bit...
+	 for ONECUPSDOC in `find ${DOCCUPS} -maxdepth 1 -type d | tr '\n' ' '`
+	 do
+	  BASEONECUPS="`basename $ONECUPSDOC`"
+	  [ "$BASEONECUPS" = "help" ] && continue
+	  [ "$BASEONECUPS" = "images" ] && continue
+	  rm -rf usr/doc/${BASEDOCCUPS}/$BASEONECUPS
+	 done
+	fi
+fi
+
+#slackware 13.1, have doc>exe...
+[ -d usr/man ] && rm -rf usr/man
+[ -d usr/share/man ] && rm -rf usr/share/man
+[ -d usr/share/cups/examples ] && rm -rf usr/share/cups/examples
+
+#drake puppy 0.1, july 2011, rcrsn51 advises that /etc/cups/snmp.conf "needs to be world-readable in order to detect network printers"
+[ -f etc/cups/snmp.conf ] && chmod 644 etc/cups/snmp.conf
+
+#111101 'help' directory seems not needed by web interface, move to _DOC...
+CUPSHELPDIR="`find usr -type d -name help | sed -e 's%usr%%' | tr '\n' ' '`"
+for ONECHD in $CUPSHELPDIR
+do
+ if [ -f usr${ONECHD}/cgi.html ];then
+  mkdir -p ../cups_DOC/usr${ONECHD}
+  cp -a -f usr${ONECHD}/* ../cups_DOC/usr${ONECHD}/
+  rm -f usr${ONECHD}/*
+ fi
+done
+
+#NOTE: the above is a hack. The variable PKGS_SPECS_TABLE in file DISTRO_PKGS_SPECS-*, has an entry like:
+#yes|cups|cups|exe,dev,doc>exe,nls
+#notice doc>exe, this ensures that 2createpackages won't move 'doc' dir to cups_DOC.
+#but, we do want part of docs to go to cups_DOC, hence the hack.
+#note, different distros have 'help' in different places:
+#T2: /usr/share/doc/cups/help
+#Slackware: /usr/doc/cups/help
+#Debian: /usr/share/cups/doc-root/help
+
+#111103 in addition to the above, also need to handle yes|cups|cups|exe,dev,doc,nls (no doc>exe)...
+CUPSWEBINTERFACE="`find usr -type f -name favicon.ico`" #in same dir as index.html
+if [ ! "$CUPSWEBINTERFACE" ];then
+ if [ -d ../cups_DOC ];then
+  CUPSWEBCSS="`find ../cups_DOC/usr -type f -name favicon.ico | head -n 1 | sed -e 's%\.\./cups_DOC/%%'`"
+  if [ "$CUPSWEBCSS" ];then
+   CUPSWEBDIR="`dirname $CUPSWEBCSS`"
+   mkdir -p $CUPSWEBDIR
+   cp -a -f ../cups_DOC/${CUPSWEBDIR}/* ${CUPSWEBDIR}/
+   rm -rf ${CUPSWEBDIR}/help
+  fi
+ fi
+fi
+
+#gross hack to fix cups icon for 'iCCP: known incorrect sRGB profile' bug
+if [ -e usr/doc/cups/apple-touch-icon.png ];then
+   (
+   cd usr/doc/cups/
+   pngtopnm apple-touch-icon.png | pnmtopng > x.png;mv -f x.png apple-touch-icon.png
+   )
+fi
+
+#===================================
+mkdir -p var/cache/cups/ppd
+mkdir -p var/cache/cups/rss
+mkdir -p var/cups/log
+mkdir -p var/cups/ppd
+mkdir -p var/cups/rss
+mkdir -p var/log/cups
+mkdir -p var/run/cups/certs
+mkdir -p var/spool/cups/tmp
+#===================================
+
+rm -rf usr/share/cups/templates/de/ \
+	usr/share/cups/templates/es/ \
+	usr/share/cups/templates/ja/ \
+	usr/share/cups/templates/pt_BR/ \
+	usr/share/cups/templates/ru/ \
+	usr/share/icons \
+	usr/share/applications
+
+# etc/rc.d/rc.cups
+rm -rf etc/rc.d
+rm -rf etc/init.d
+
+mkdir -p etc/init.d
+mkdir -p etc/cups
+
+cat > etc/cups/cupsd.conf <<EOF
+#
+# "$Id: cupsd.conf.in 7199 2008-01-08 00:16:30Z mike $"
+#
+#   Sample configuration file for the Common UNIX Printing System (CUPS)
+#   scheduler.  See "man cupsd.conf" for a complete description of this
+#   file.
+#
+
+# Log general information in error_log - change "info" to "debug" for
+# troubleshooting...
+LogLevel info
+
+# Administrator user group...
+# playdayz advised these two... 110827 pemasu...
+# SystemGroup root
+SystemGroup lpadmin
+
+# Only listen for connections from the local machine.
+Listen localhost:631
+Listen /var/run/cups/cups.sock
+
+# Show shared printers on the local network.
+Browsing On
+BrowseOrder allow,deny
+BrowseAllow all
+
+# Default authentication type, when authentication is required...
+DefaultAuthType Basic
+
+# Restrict access to the server... 110827 pemasu comment-out...
+#<Location />
+#  Order deny,allow
+#</Location>
+
+# Restrict access to the admin pages... 110827 pemasu comment-out...
+#<Location /admin>
+#  Order deny,allow
+#</Location>
+
+# Restrict access to configuration files... 110827 pemasu comment-out Require user...
+<Location /admin/conf>
+  AuthType None
+  #Require user @SYSTEM
+  Order deny,allow
+</Location>
+
+# Set the default printer/job policies...
+<Policy default>
+  <Limit All>
+    Order deny,allow
+  </Limit>
+</Policy>
+EOF
+
+
+cat > etc/cups/cups-files.conf <<EOF
+#
+# File/directory/user/group configuration file for the CUPS scheduler.
+# See "man cups-files.conf" for a complete description of this file.
+#
+
+# List of events that are considered fatal errors for the scheduler...
+#FatalErrors config
+
+# Do we call fsync() after writing configuration or status files?
+#SyncOnClose No
+
+# Default user and group for filters/backends/helper programs; this cannot be
+# any user or group that resolves to ID 0 for security reasons...
+#User lp
+#Group lp
+
+# Administrator user group, used to match @SYSTEM in cupsd.conf policy rules...
+# This cannot contain the Group value for security reasons... **peebee 241115**
+SystemGroup lpadmin
+
+
+# User that is substituted for unauthenticated (remote) root accesses...
+#RemoteRoot remroot
+
+# Do we allow file: device URIs other than to /dev/null?
+#FileDevice No
+
+# Permissions for configuration and log files...
+#ConfigFilePerm 0640
+#LogFilePerm 0644
+
+# Location of the file logging all access to the scheduler; may be the name
+# "syslog". If not an absolute path, the value of ServerRoot is used as the
+# root directory.  Also see the "AccessLogLevel" directive in cupsd.conf.
+AccessLog /var/log/cups/access_log
+
+# Location of cache files used by the scheduler...
+#CacheDir /var/cache/cups
+
+# Location of data files used by the scheduler...
+#DataDir /usr/share/cups
+
+# Location of the static web content served by the scheduler...
+#DocumentRoot /usr/share/doc/cups
+
+# Location of the file logging all messages produced by the scheduler and any
+# helper programs; may be the name "syslog". If not an absolute path, the value
+# of ServerRoot is used as the root directory.  Also see the "LogLevel"
+# directive in cupsd.conf.
+ErrorLog /var/log/cups/error_log
+
+# Location of fonts used by older print filters...
+#FontPath /usr/share/cups/fonts
+
+# Location of LPD configuration
+#LPDConfigFile 
+
+# Location of the file logging all pages printed by the scheduler and any
+# helper programs; may be the name "syslog". If not an absolute path, the value
+# of ServerRoot is used as the root directory.  Also see the "PageLogFormat"
+# directive in cupsd.conf.
+PageLog /var/log/cups/page_log
+
+# Location of the file listing all of the local printers...
+#Printcap /etc/printcap
+
+# Format of the Printcap file...
+#PrintcapFormat bsd
+#PrintcapFormat plist
+#PrintcapFormat solaris
+
+# Location of all spool files...
+#RequestRoot /var/spool/cups
+
+# Location of helper programs...
+#ServerBin /usr/lib/cups
+
+# SSL/TLS keychain for the scheduler...
+#ServerKeychain ssl
+
+# Location of other configuration files...
+#ServerRoot /etc/cups
+
+# Location of Samba configuration file...
+#SMBConfigFile 
+
+# Location of scheduler state files...
+#StateDir /var/run/cups
+
+# Location of scheduler/helper temporary files. This directory is emptied on
+# scheduler startup and cannot be one of the standard (public) temporary
+# directory locations for security reasons...
+#TempDir /var/spool/cups/tmp
+EOF
+
+
+cat > etc/cups/printers.conf <<EOF
+# Printer configuration file for CUPS v1.1.23
+# Written by cupsd on Sun Jul  1 23:15:55 2007
+<DefaultPrinter CUPS-PDF>
+Info CUPS-PDF
+DeviceURI pdf-writer:/export/share/pdf/
+State Idle
+Accepting Yes
+JobSheets none none
+QuotaPeriod 0
+PageLimit 0
+KLimit 0
+</Printer>
+EOF
+
+#=====================================================================
+
+echo '#!/bin/sh
+
+[ -f /etc/init.d/functions ] && . /etc/init.d/functions
+
+for file in /etc/TIMEZONE /etc/rc.config /etc/sysconfig/clock; do
+	[ -f $file ] && . $file
+done
+
+[ "$ZONE" != "" ] && TZ="$ZONE"
+[ "$TIMEZONE" != "" ] && TZ="$TIMEZONE"
+[ "$TZ" != "" ] && export TZ
+
+pid=`pidof cupsd`
+
+case $1 in
+	start | restart | reload)
+		if test "$pid" != ""; then
+			kill -HUP $pid
+		else
+			prefix=/
+			exec_prefix=/usr
+			${exec_prefix}/sbin/cupsd
+			if test $? != 0; then
+				echo "cups: unable to $1 scheduler."
+				exit 1
+			fi
+		fi
+		echo OK
+		echo "cups: ${1}ed scheduler."
+		;;
+
+	stop)
+		if test "$pid" != ""; then
+			kill $pid
+			echo OK
+			echo "cups: stopped scheduler."
+		fi
+		;;
+
+	status)
+		if test "$pid" != ""; then
+			echo "cups: scheduler is running."
+		else
+			echo "cups: scheduler is not running."
+		fi
+		;;
+
+	*)
+		echo "Usage: cups {reload|restart|start|status|stop}"
+		exit 1
+		;;
+esac
+
+exit 0
+' > etc/init.d/cups
+chmod +x etc/init.d/cups
+
+### END ###
