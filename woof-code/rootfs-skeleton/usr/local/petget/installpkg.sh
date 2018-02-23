@@ -620,13 +620,8 @@ fi
 
 for ONEDOT in `grep 'share/applications/.*\.desktop$' /root/.packages/${DLPKG_NAME}.files | tr '\n' ' '` #121119 exclude other strange .desktop files.
 do
- #120901 get rid of param on end of Exec, ex: Exec=gimp-2.8 %U
- #sed -i -e 's/\(^Exec=[^%]*\).*/\1/' -e 's/ *$//' $ONEDOT #'s/\(^Exec=[^ ]*\).*/\1/'
- #121015 01micko: alternative that may work better...
- for PARMATER in u U f F #refer:  http://standards.freedesktop.org/desktop-entry-spec/latest/ar01s06.html
- do
-  sed -i "s/ %${PARMATER}//" $ONEDOT
- done
+ #https://specifications.freedesktop.org/desktop-entry-spec/latest/ar01s07.html
+ sed -i 's| %u|| ; s| %U|| ; s| %f|| ; s| %F||' $ONEDOT
  
  #w478 find if category is already valid (see also 2createpackages)..
  if [ "$CATDONE" = "no" ];then #121119
