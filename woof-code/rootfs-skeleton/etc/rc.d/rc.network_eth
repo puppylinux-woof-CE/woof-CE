@@ -6,6 +6,9 @@
 #do this, ehich is gross overkill. now rc.sysinit calls this script.
 #161215 first release.
 #170718 test if have the old version of ifplugstatus.
+#170730 add conditional later attempt to detect interfaces.
+#171226 use lspci to detect ethernet hardware, replacing 170730.
+#180104 check for ethernet bridge hardware if controller not detected; increase wait for detection; move sleep to after test; change report of wait time.
 
 export LANG='C'
 
@@ -14,6 +17,19 @@ IFPLUGSTATUS018='ifplugstatus-0.18'
 if ! which ifplugstatus-0.18 >/dev/null ; then
  IFPLUGSTATUS018='ifplugstatus'
 fi
+
+#171226 improved wait for eth...
+ifCNT=0; loopCNT=0
+ethCNT=$(lspci -n | grep ' 0200: ' | wc -l)
+[ $ethCNT -eq 0 ] \
+ && ethCNT=$(lspci -nn | grep ' \[0680\]: .* Ethernet ' | wc -l) #180104
+while [ $ifCNT -lt $ethCNT ];do
+ ifCNT=$(ifconfig -a | grep '^eth[0-9] ' | wc -l)
+ [ $ifCNT -gt 0 -o $loopCNT -ge 30 ] && break #finding one i/f is enough, other may not have a driver. 180104
+ sleep 1 #180104
+ loopCNT=$(($loopCNT+1))
+done
+[ $loopCNT -gt 0 ] && echo "rc.network_eth: waited for ethernet interfaces: seconds = ${loopCNT}" >&2 #180104
 
 #code adapted from /usr/local/simple_network_setup/rc.network...
 INTERFACES="`ifconfig -a | grep -F 'Link encap:Ethernet' | cut -f1 -d' ' | tr '\n' ' '`"
@@ -43,6 +59,15 @@ do
 
  DHCPCDFIX="-I ''"
  dhcpcd $DHCPCDFIX $INTERFACE
+ sleep 0.1 #180110
  
+ if grep '^nameserver' /etc/resolv.conf >/dev/null; then
+  [ -x /usr/sbin/sns ] && echo "$INTERFACE" > /tmp/sns_interface_success
+  exit #success.
+ else
+  ifconfig $INTERFACE down
+  dhcpcd --release $INTERFACE 2>/dev/null
+  ip route flush dev $INTERFACE
+ fi
 done
 
