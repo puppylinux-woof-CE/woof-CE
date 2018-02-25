@@ -298,222 +298,6 @@ change_default () {
 	fi
 }
 
-#===================================
-#			mimedbs
-#===================================
-
-dbdir="/var/local/puppyapps"
-tmpdir='/tmp/mimedefs'
-dotdesktop='.desktop'
-
-freedesktop_mimedb_download() {
-	mkdir -p ${dbdir}/mimedb
-	cd ${dbdir}/mimedb
-	wget -c http://cgit.freedesktop.org/xdg/shared-mime-info/plain/freedesktop.org.xml.in
-	if [ $? -ne 0 ] ; then
-		echo "ERROR downloading freedesktop.org.xml" >&2
-		rm -f freedesktop.org.xml.in
-		return 1
-	else
-		mv -f freedesktop.org.xml.in freedesktop.org.xml
-	fi
-	#fixes to freedesktop.org.xml
-	sed -i -e '/\*.tgz/d' -e '/\*.txz/d' freedesktop.org.xml #slackware: puppy.xml
-}
-
-mimedb_update() {
-	if [ "$NEWROOT" != "" ] ; then
-		mkdir -p ${NEWROOT}/usr/share/mime/packages
-		export XDG_DATA_DIRS="${NEWROOT}/usr/share:${NEWROOT}${HOME}/.local/share:"
-	fi
-	local file="" filez="$(ls ${dbdir}/mimedb/*.xml 2>/dev/null)"
-	[ ! "$filez" ] && { echo "Nothing to update" >&2 ; return 1 ; }
-	for file in $filez ; do
-		cp -fv $file ${NEWROOT}/usr/share/mime/packages
-	done
-	update-mime-database ${NEWROOT}/usr/share/mime
-}
-
-#===================================
-#			-mimedefs
-#===================================
-
-## ${dbdir}/dotdesktop
-process_dotdesktop() {
-	local app=""
-	mkdir -p ${tmpdir}/applications
-	[ ! -f "${dbdir}/dotdesktop" ] && { echo "ERROR: no ${dbdir}/dotdesktop file" >&2 ; return 1 ; }
-	local newentry=1
-	while read line ; do
-		[ ! "$line" ] && newentry=1 && continue
-		if [ $newentry -eq 1 ] ; then
-			app=$line ; newentry=0
-			echo -n > ${tmpdir}/applications/${app}
-			continue
-		fi
-		echo "$line" >> ${tmpdir}/applications/${app}
-	done < ${dbdir}/dotdesktop
-}
-
-## ${dbdir}/exec
-process_exec() {
-	local app="" exec=""
-	mkdir -p ${tmpdir}/exec
-	[ ! -f "${dbdir}/exec" ] && { echo "ERROR: no ${dbdir}/exec file" >&2 ; return 1 ; }
-	while read line ; do
-		[ ! "$line" ] && continue
-						  #upx -d=xterm -hold -e upx -d
-		app="${line%%=*}" #upx -d
-		exec="${line#*=}" #xterm -hold -e upx -d
-		echo "$exec" > "${tmpdir}/exec/${app}"
-	done < ${dbdir}/exec
-}
-
-## ${tmpdir}/exec/$app
-check_exec() {
-	local app="$@" exec=""
-	if [ -f "${tmpdir}/exec/$app" ] ; then
-		read -r exec < ${tmpdir}/exec/${app}
-		echo "$exec"
-	else
-		echo "$app"
-	fi
-}
-
-## app;app2;app3;etc
-format_app() {
-	local appz="$@" IFS=";" app=""
-	local res=$(
-		for app in ${appz} ; do
-			[ ! "$app" ] && continue
-			echo -n "${app}${dotdesktop};"
-		done
-	)
-	echo "${res%\;}"
-}
-
-write_desktop_file() {
-	local path="$@"
-	local file="${path##*/}"
-	local exec="$(check_exec "${file}")"
-	echo -e "[Desktop Entry]
-Encoding=UTF-8
-Type=Application
-NoDisplay=true
-Name=${file}
-Exec=${exec} %F" > ${path}${dotdesktop}
-}
-
-## app;app2;app3;etc
-desktop_file() {
-	local appz="$@" IFS=";" app=""
-	for app in ${appz} ; do
-		[ ! "$app" ] && continue
-		[ -f "applications/${app}" ] && continue #$tmpdir, process_desktop()
-		write_desktop_file "applications/${app}"
-	done
-}
-
-#--
-
-rox_default() {
-	local mimetype="$1" ; shift
-	local roxmimetype="${mimetype//\//_}"
-	local app="$@"
-	app=${app%%;*}
-	app="$(check_exec "${app}")"
-	echo -e "#!/bin/sh\nexec $app \"\$@\"" > MIME-types/${roxmimetype}
-	chmod +x MIME-types/${roxmimetype}
-}
-
-## app;app2;app3;etc
-rox_associations() {
-	local mimetype="$1" ; shift
-	local roxmimetype="${mimetype//\//_}"
-	local appz="$@" IFS=";" app=""
-	for app in ${appz} ; do
-		[ ! "$app" ] && continue
-		mkdir -p "OpenWith/.${roxmimetype}"
-		app="$(check_exec "${app}")"
-		echo -e "#!/bin/sh\nexec $app "'"$@"' > "OpenWith/.${roxmimetype}/$app"
-		chmod +x "OpenWith/.${roxmimetype}/$app"
-	done
-}
-
-#--
-
-mime_defaults() {
-	dbfile=${dbdir}/mime_defaults
-	[ ! -f $dbfile ] && return 1
-	mkdir -p ${tmpdir} ; cd ${tmpdir}
-	mkdir -p MIME-types applications
-	echo "[Default Applications]" > defaults.list
-	echo -n > mailcap
-	while read -r line ; do
-		[ ! "$line" ] && continue
-		read -r mimetype app <<< "${line//=/ }"
-		echo "${mimetype}; $(check_exec ${app%%;*}) \"%s\"" >> mailcap
-		echo "${mimetype}=$(format_app ${app})" >> defaults.list
-		desktop_file ${app}
-		rox_default ${mimetype} ${app}
-	done <<< "$(grep -v -E '^#|\[' $dbfile)"
-}
-
-mime_associations() {
-	dbfile=${dbdir}/mime_associations
-	[ ! -f $dbfile ] && return 1
-	mkdir -p ${tmpdir} ; cd ${tmpdir}
-	mkdir -p OpenWith applications
-	echo "[Added Associations]" > alt.list
-	while read -r line ; do
-		[ ! "$line" ] && continue
-		read -r mimetype app <<< "${line//=/ }"
-		echo "${mimetype}=$(format_app ${app})" >> alt.list
-		desktop_file ${app}
-		rox_associations ${mimetype} ${app}
-	done <<< "$(grep -v -E '^#|\[' $dbfile)"
-}
-
-#----
-
-mimedefs() {
-	process_exec
-	process_dotdesktop
-	mime_defaults
-	mime_associations
-	( cat defaults.list ; echo ; cat alt.list ) > mimeapps.list
-	rm -f defaults.list alt.list
-}
-
-mimedefs_apply() {
-	cd ${tmpdir} || return 1
-
-	(
-	if [ "$NEWROOT" != "" ] ; then
-		mkdir -p "${NEWROOT}${HOME}/Choices"
-		mkdir -p "${NEWROOT}${HOME}/.config/rox.sourceforge.net"
-		mkdir -p ${NEWROOT}/etc
-		mkdir -p ${NEWROOT}/usr/share/applications
-	fi
-
-	local file="" filez="$(ls ${PWD}/applications/* 2>/dev/null)"
-	echo "$filez" | while read file; do
-		name="${file##*/}"
-		name="${name%.desktop}"
-		[ -f "${NEWROOT}/usr/share/applications/${name}${dotdesktop}" ] && echo "not copying: $file" && continue
-		cp -fv "$file" "${NEWROOT}/usr/share/applications/${name}${dotdesktop}"
-	done
-
-	cp -rv --remove-destination MIME-types "${NEWROOT}${HOME}/Choices"
-	cp -rv --remove-destination OpenWith "${NEWROOT}${HOME}/.config/rox.sourceforge.net"
-	cp -fv mailcap ${NEWROOT}/etc/mailcap #$HOME/.mailcap
-	cp -fv mimeapps.list ${NEWROOT}/usr/share/applications/mimeapps.list #$HOME/.local/share/applications/mimeapps.list
-	rm -fv ${NEWROOT}/usr/share/applications/defaults.list
-	rm -fv ${NEWROOT}/usr/share/applications/mimeinfo.cache #this file is always trouble
-	) > /tmp/papps.log
-}
-
-
     ############################
     #                          #
     #         Program          #
@@ -523,10 +307,6 @@ mimedefs_apply() {
 #parameters
 for arg in $@ ; do
 	case $1 in
-		-prefix)
-			NEWROOT=$2
-			shift
-			;;
 		default*)
 			desktop_output
 			RUNAPP=${1#default} #RUNAPP="`sed 's%default%%' <<< "$1"`"
@@ -631,27 +411,8 @@ for arg in $@ ; do
 			fi
 			;;
 
-		-fddb)   freedesktop_mimedb_download ; exit ;;
-		-mimedb) mimedb_update ; exit ;;
-		-mimedefs)
-			mimedefs
-			#exit ##uncomment this to preview the results in /tmp/mimedefs
-			[ "$TEST" ] && exit
-			mimedefs_apply ; rm -rf /tmp/mimedefs
-			exit
-			;;
-		-mimedefsa) mimedefs_apply ; exit ;;
-		-system)
-			#freedesktop_mimedb_download
-			mimedb_update
-			mimedefs
-			mimedefs_apply
-			rm -rf /tmp/mimedefs
-			exit
-			;;
-
 		-h|--help)
-			echo 'Usage: puppyapps [OPTION(S)]
+			echo 'Usage: '$0' [OPTION(S)]
 
  Options
   default*       Starts the app based on the array in defaultapps
@@ -683,11 +444,6 @@ for arg in $@ ; do
                  and choose one of them and will write it to the defaultapp.
                  If no program is found for a specific default app,
                  then puppyapps will manage it.
-  -fddb          download and store latest freedesktop.org.xml
-  -mimedb        update mime database using the puppyapps xml files
-  -mimedefs      create mime associations for different standards
-  -system        -mimedb + -mimedefs
-
   -sort 0..2     For the GUI
                  0) Dont sort
                  1) Sort by internal category name
