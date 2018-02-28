@@ -1,0 +1,278 @@
+#!/bin/ash
+
+search_bootmenu(){
+ for ONETRY in $HAVE_PARTS;do
+  ONE_PART="$(echo -n "$ONETRY" | cut -f 1 -d '|')"
+  ensure_mounted "$ONE_PART" "/mnt/pdrv"
+  if [ "$ONE_MP" ];then
+   if [ -f /mnt/pdrv/boot/bootmenu.txt ]; then
+    BOOTMENU="`cat /mnt/pdrv/boot/bootmenu.txt`"
+    umount $ONE_MP
+    break
+   elif [ -f /mnt/pdrv/bootmenu.txt ]; then
+    BOOTMENU="`cat /mnt/pdrv/bootmenu.txt`"
+    umount $ONE_MP
+    break
+   fi
+   umount $ONE_MP
+  fi
+ done
+}
+
+. ./init_funcs
+. ./init-bootmenu_funcs
+
+/sbin/usablefs # mount: /proc /sys /dev / (proc sysfs devtmpfs rootfs)
+
+export TERM="xterm"
+export TERMINFO="/usr/share/terminfo"
+export LANG=C
+PATH="/bin:/sbin"
+export KERNELVER="$(uname -r)"
+VFAT_OUT_PARAM='shortname=mixed,quiet,utf8' #see also /sbin/set_plang
+. /etc/rc.d/functions_x
+
+wait_for_usb
+
+search_bootmenu
+
+ENABLE_TIMEOUT=true
+
+while true
+do
+ # ALL_ENTRIES format:
+ # LABEL text|KEYWORD text|KEYWORD text|etc...
+ ALL_ENTRIES=""
+ NEW_ENTRY=""
+ ENTRY_COUNT=0
+ MAX_LABEL_WIDTH=0
+
+ BOOTMENU_TEMP=${BOOTMENU}
+ while true
+ do
+
+  LINE=${BOOTMENU_TEMP%%'
+'*}
+  BOOTMENU_TEMP=${BOOTMENU_TEMP#*'
+'}
+  [ "$BOOTMENU_TEMP" = "$LINE" ] && BOOTMENU_TEMP='' # EOF
+  #echo "LINE = $LINE"
+
+  while [ "${LINE:0:1}" = " " -o "${LINE:0:1}" = "	" ]
+  do
+   LINE=${LINE# } # remove any leading spaces
+   LINE=${LINE#	} # remove any leading tabs
+  done
+  #echo "$LINE"
+
+  [ -z "$LINE" -a -n "$BOOTMENU_TEMP" ] && continue
+
+  case "$LINE" in
+
+   DEFAULT*)
+    trim_token "${LINE#DEFAULT}"
+    DEFAULT=${TRIM_TOKEN_RET}
+    continue
+   ;;
+
+   TIMEOUT*)
+    if [ "$ENABLE_TIMEOUT" = "true" ]; then
+     trim_token "${LINE#TIMEOUT}"
+     TIMEOUT=${TRIM_TOKEN_RET}
+     ENABLE_TIMEOUT=false
+    fi
+    continue
+   ;;
+
+   LABEL*)
+    trim_token "${LINE#LABEL}"
+    LABEL_TEXT=${TRIM_TOKEN_RET}
+    [ "${#LABEL_TEXT}" -gt "$MAX_LABEL_WIDTH" ] && MAX_LABEL_WIDTH=${#LABEL_TEXT}
+
+    # save previous entry
+    if [ -n "$NEW_ENTRY" ]; then
+     ALL_ENTRIES="$ALL_ENTRIES
+$NEW_ENTRY"
+    fi
+
+    NEW_ENTRY="LABEL ${LABEL_TEXT}|"
+    let ENTRY_COUNT++
+    [ "$LABEL_TEXT" = "$DEFAULT" ] && CHOSEN_ENTRY_NR=$ENTRY_COUNT
+   ;;
+
+   *)
+    NEW_ENTRY="${NEW_ENTRY}${LINE}|"
+   ;;
+
+  esac
+
+  [ -z "$BOOTMENU_TEMP" ] && break
+ done
+
+ # save last entry
+ ALL_ENTRIES="$ALL_ENTRIES
+$NEW_ENTRY"
+
+ #echo "$ALL_ENTRIES"
+ #echo "ENTRY_COUNT = $ENTRY_COUNT"
+ #echo "MAX_LABEL_WIDTH = $MAX_LABEL_WIDTH"
+
+ if [ "$ENTRY_COUNT" -eq 0 ]; then
+  exec_init
+ fi
+
+ if [ "$ENTRY_COUNT" -eq 1 ]; then
+  CHOSEN_ENTRY=${NEW_ENTRY}
+ else
+  #echo "$ENTRY_COUNT is more than 1"
+  ROWS=`stty -a | grep -o "rows .[^;]"`
+  ROWS=${ROWS#rows }
+  #echo "ROWS = '$ROWS'"
+  COLUMNS=`stty -a | grep -o "columns .[^;]"`
+  COLUMNS=${COLUMNS#columns }
+  #bugfix - busybox stty returns a two digit number
+  [ "$COLUMNS" -lt 40 ] && let COLUMNS=COLUMNS*10
+  #echo "COLUMNS = '$COLUMNS'"
+
+  show_menu
+
+  #echo "CHOSEN_ENTRY = $CHOSEN_ENTRY"
+
+ fi
+
+
+ if [ -n "$CHOSEN_ENTRY" ]; then
+  decode_entry
+  # need to decode_entry before testing SEARCH_DIR and SEARCH_DRIVE
+  if [ -z "$SEARCH_DIR" -a -z "$SEARCH_DRIVE" ]; then
+   exec_init
+  fi
+ else
+  SEARCH_DIR=""
+  SEARCH_DRIVE=""
+ fi
+
+ while [ -n "$SEARCH_DIR" -o -n "$SEARCH_DRIVE" ]
+ do
+  # SEARCH_DRIVE=any and SEARCH_DRIVE=all will be ignored by decode_id.
+  if [ -n "$SEARCH_DRIVE" ]; then
+   decode_id $SEARCH_DRIVE
+   [ -z "$ONE_PART" -a "$SEARCH_DRIVE" != "any" -a "$SEARCH_DRIVE" != "all" ] && ONE_PART="not found"
+  else
+   ONE_PART=""
+  fi
+
+  SDIR=/mnt/pdrv/${SEARCH_DIR#/} # remove any leading '/' before appending
+  ALL_ENTRIES=""
+  ENTRY_COUNT=0
+  MAX_LABEL_WIDTH=0
+  CHOSEN_ENTRY_NR=1
+  MAXDEPTH=3
+  [ -n "$SEARCH_DIR" ] && MAXDEPTH=1
+
+  if [ -n "$DISTRO_SPECS" ]; then
+  #echo "DISTRO_SPECS = $DISTRO_SPECS"
+   ensure_mounted "${DISTRO_SPECS%%:*}" "/mnt/pdrv"
+   if [ "$ONE_MP" ];then
+     cp -f /mnt/pdrv/${DISTRO_SPECS#*:} ./DISTRO_SPECS
+    umount $ONE_MP
+   fi
+  fi
+  [ -f ./DISTRO_SPECS ] && . ./DISTRO_SPECS
+
+  for ONETRY in $HAVE_PARTS;do
+   ONE_HAVE_PART="$(echo -n "$ONETRY" | cut -f 1 -d '|')"
+   [ -n "$ONE_PART" -a "$ONE_HAVE_PART" != "$ONE_PART" ] && continue
+   ensure_mounted "$ONE_HAVE_PART" "/mnt/pdrv"
+   #echo "ONE_HAVE_PART = $ONE_HAVE_PART"
+   if [ "$ONE_MP" ];then
+    FOUND_SAVES=$(find "$SDIR" -maxdepth $MAXDEPTH -iname "${DISTRO_FILE_PREFIX}save*" -type d -o -iname "${DISTRO_FILE_PREFIX}save*.[2-4]fs" -type f)
+    if [ -n "$FOUND_SAVES" ]; then
+
+     while true
+     do
+      ONE_SAVE=${FOUND_SAVES%%'
+'*}
+      FOUND_SAVES=${FOUND_SAVES#*'
+'}
+      [ "$FOUND_SAVES" = "$ONE_SAVE" ] && FOUND_SAVES='' # EOF
+
+      NEW_ENTRY="PSAVE ${ONE_HAVE_PART}:${ONE_SAVE#/mnt/pdrv}"
+      [ "${#NEW_ENTRY}" -gt "$MAX_LABEL_WIDTH" ] && MAX_LABEL_WIDTH=${#NEW_ENTRY}
+      ALL_ENTRIES="$ALL_ENTRIES
+$NEW_ENTRY"
+      let ENTRY_COUNT++
+
+      [ -z "$FOUND_SAVES" ] && break
+     done
+    fi
+    FOUND_SFSS=$(find "$SDIR" -maxdepth $MAXDEPTH -iname 'puppy_*.sfs' -type f)
+    if [ -n "$FOUND_SFSS" ]; then
+
+     while true
+     do
+      ONE_SFS=${FOUND_SFSS%%'
+'*}
+      FOUND_SFSS=${FOUND_SFSS#*'
+'}
+      [ "$FOUND_SFSS" = "$ONE_SFS" ] && FOUND_SFSS='' # EOF
+
+      NEW_ENTRY="PUPSFS ${ONE_HAVE_PART}:${ONE_SFS#/mnt/pdrv}"
+      [ "${#NEW_ENTRY}" -gt "$MAX_LABEL_WIDTH" ] && MAX_LABEL_WIDTH=${#NEW_ENTRY}
+      ALL_ENTRIES="$ALL_ENTRIES
+$NEW_ENTRY"
+      let ENTRY_COUNT++
+
+      [ -z "$FOUND_SFSS" ] && break
+     done
+    fi
+    FOUND_DISTRO_SPECS=$(find "$SDIR" -maxdepth $MAXDEPTH -iname 'DISTRO_SPECS' -type f)
+    if [ -n "$FOUND_DISTRO_SPECS" ]; then
+
+     while true
+     do
+      ONE_DISTRO_SPECS=${FOUND_DISTRO_SPECS%%'
+'*}
+      FOUND_DISTRO_SPECS=${FOUND_DISTRO_SPECS#*'
+'}
+      [ "$FOUND_DISTRO_SPECS" = "$ONE_DISTRO_SPECS" ] && FOUND_DISTRO_SPECS='' # EOF
+
+
+      NEW_ENTRY_TEXT="DISTRO_SPECS ${ONE_HAVE_PART}:${ONE_DISTRO_SPECS#/mnt/pdrv}"
+      NEW_ENTRY="${NEW_ENTRY_TEXT}|SEARCH_DIR ${SEARCH_DIR}|SEARCH_DRIVE ${SEARCH_DRIVE}|"
+      [ "${#NEW_ENTRY_TEXT}" -gt "$MAX_LABEL_WIDTH" ] && MAX_LABEL_WIDTH=${#NEW_ENTRY_TEXT}
+      ALL_ENTRIES="$ALL_ENTRIES
+$NEW_ENTRY"
+      let ENTRY_COUNT++
+
+      [ -z "$FOUND_DISTRO_SPECS" ] && break
+     done
+    fi
+    umount $ONE_MP
+   fi
+  done
+
+  if [ "$ENTRY_COUNT" -gt 0 ]; then
+   show_menu
+  else
+   ALL_ENTRIES="Found nothing. :-("
+   MAX_LABEL_WIDTH=18
+   draw_screen
+   CHOSEN_ENTRY=""
+   sleep 3
+  fi
+
+  if [ -n "$CHOSEN_ENTRY" ]; then
+   # need to decode_entry after checking if there is one
+   decode_entry
+   if [ -z "$DISTRO_SPECS" ]; then
+    exec_init
+   fi
+  else
+   SEARCH_DIR=""
+   SEARCH_DRIVE=""
+  fi
+
+ done
+
+done
