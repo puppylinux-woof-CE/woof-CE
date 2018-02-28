@@ -1,11 +1,16 @@
 #!/bin/sh
 # 10 Feb 2010 by shinobar (Masaki Shinomiya <shino@pos.to>)
 #-
-# this app only sets console keyboard layout/fontmap
-# xkbconfigmanager calls to set console keymap
-#    and it can be an invalid console keymap...
+# (GUI) xkbconfigmanager sets X keyboard layout and /etc/keymap
+# which may be an invalid console keymap (it doesn't matter)
+#
+# (pkeys BOOT PARAM, STARTUP & CLI) keymap-set asks xkbconfigmanager to apply
+# a certain xkb layout based on the keymap provided in the boot param|command line|/etc/keymap
+# ... and it can be rejected or applied in case it's a valid xkb layout
+#     (it can also be an invalid console keymap.. it doesn't matter)
+#
+# (GUI) keymap-set execs chooselayot (xkbconfigmanager)
 #-
-# 11 Aug 2010 keymap_previous to prevent xwin rewrites
 # 12 Aug 2010 azerty(fr) fixed
 #120627 handle different path to keymaps in kbd pkg.
 
@@ -79,25 +84,6 @@ usage: $MYNAME [ somekeymap ]
 	exit 1
 }
 
-xmap() {
-  M=$1
-  case "$M" in
-    az*) M="fr";;	#azerty
-    cf*) M="ca";;	#canadian french
-    cr*) M="hr";;	#croat
-    dv*) M="us";;	#dvorak
-    mk*) M="mkd";;	#macedonia
-    sl*) M="si";;	#slovene
-    sv) M="se";;	#sweden
-    uk) M="gb";;	#united kingdom
-    wa*) M="be";;	#wangbe
-    *)  M=$(echo $M|cut -b 1-2)
-        echo "$SYMBOLS" | grep -q "$M" || M="us"
-      ;;
-  esac
-  echo $M
-}
-
 makelist() {
     DEFMAP="us"
     MAPS=$(echo "$MAPS"| grep -v "^$OLDMAP\$"| grep -v "^$DEFMAP"| sed -e 's/\.map//')
@@ -109,20 +95,9 @@ makelist() {
     done
 }
 
-set_default() {
-	KEXT=''
-	[ -f ${KMAPPATH}/qwerty/us.map ] && KEXT='.map'
-	[ -f ${KMAPPATH}/qwerty/us.map.gz ] && KEXT='.map'
-	[ -f ${KMAPPATH}/qwerty/us.kmap ] && KEXT='.kmap'
-	[ -f ${KMAPPATH}/qwerty/us.kmap.gz ] && KEXT='.kmap'
-	[ ! -f /etc/keymap ] && echo -n "us${KEXT}" > /etc/keymap
-	[ ! -f /etc/keymap_previous ] && echo -n "us${KEXT}" > /etc/keymap_previous
-}
-
 #=============================================================
 
 [ $# -le 2 ] || usage
-LANGORG=$LANG
 LANG=C
 
 . /etc/DISTRO_SPECS
@@ -131,8 +106,8 @@ KMAPPATH='/lib/keymaps'
 [ -d /usr/share/kbd/keymaps/i386 ] && KMAPPATH='/usr/share/kbd/keymaps/i386'
 [ -d /usr/share/keymaps/i386 ] && KMAPPATH='/usr/share/keymaps/i386' #debian, gentoo. note, debian files have extension .kmap.gz, gentoo have .map.gz
 case $KMAPPATH in #120627
- /lib/keymaps) KMAPFILES="`find /lib/keymaps -mindepth 1 -maxdepth 1 -name '*.gz' | sort`" ;; #ex: us.gz
- *) KMAPFILES="`find ${KMAPPATH}/[^i]* -name '*.map' -o -name '*.kmap' -o -name '*.map.gz' -o -name '*.kmap.gz' -not -name 'defkeymap*' | sort`" ;;
+	/lib/keymaps) KMAPFILES="`find /lib/keymaps -mindepth 1 -maxdepth 1 -name '*.gz' | sort`" ;; #ex: us.gz
+	*) KMAPFILES="`find ${KMAPPATH}/[^i]* -name '*.map' -o -name '*.kmap' -o -name '*.map.gz' -o -name '*.kmap.gz' -not -name 'defkeymap*' | sort`" ;;
 esac
 MAPS="$(echo "$KMAPFILES" | sed -e 's%^.*/%%' -e 's%\.gz$%%')"
 
@@ -147,73 +122,101 @@ OLDMAP=""
 NEWMAP=""
 for i in $@
 do
- case "$1" in
-  *-li*) # show available key maps
-    makelist
-    exit ;;
-  *-lo*) # load keymap according /etc/keymap
-    NEWMAP=$(cat /etc/keymap 2>/dev/null)
-    [ -z "$NEWMAP" ] && exit 1
-    ;;
-  --startup) set_default ;;
-  cli|*-cli) XSTATUS="" ;;
-  -*) usage ;;
-  *)
-    NEWMAP="$(echo "$MAPS" | grep "^${1}" | head -1)"
-    if [ "$NEWMAP" ] ; then
-      echo "$NEWMAP" > /etc/keymap
-    else
-      echo "keymap-set: ${1}: keymap not found"
-	  exit #not a recognized keymap
-    fi
-    ;;
- esac
- shift
+	case "$1" in
+		*-li*) # show available key maps
+			makelist
+			exit ;;
+		*-lo*) # load keymap according /etc/keymap
+			NEWMAP=$(cat /etc/keymap 2>/dev/null)
+			[ -z "$NEWMAP" ] && exit 1
+			;;
+		--startup)
+			KEXT=''
+			[ -f ${KMAPPATH}/qwerty/us.map ] && KEXT='.map'
+			[ -f ${KMAPPATH}/qwerty/us.map.gz ] && KEXT='.map'
+			[ -f ${KMAPPATH}/qwerty/us.kmap ] && KEXT='.kmap'
+			[ -f ${KMAPPATH}/qwerty/us.kmap.gz ] && KEXT='.kmap'
+			[ ! -f /etc/keymap ] && echo -n "us${KEXT}" > /etc/keymap
+			[ ! -f /etc/codepage ] && echo -n "" > /etc/codepage
+			;;
+		cli|*-cli) XSTATUS="" ;;
+		-*) usage ;;
+		*)
+			NEWMAP="$(echo "$MAPS" | grep "^${1}" | head -1)"
+			if [ "$NEWMAP" ] ; then
+				echo "$NEWMAP" > /etc/keymap
+			else
+				echo "keymap-set: ${1}: keymap not found"
+				INVALID_KEYMAP=1
+			fi
+			break
+			;;
+	esac
+	shift
 done
 [ $# -le 1 ] || usage
 
 #=============================================================
 
 # verify
-[ "$NEWMAP" != "" ] || NEWMAP=$(basename "$1" .gz)
 if [ "$NEWMAP" = "" ] ; then
-  DIALOG="dialog --aspect 10"
-  MENUOPT="--menu"
-  REP=/tmp/$(basename $0).txt
-  if [ "$XSTATUS" = "yes" ] ; then
-    #MENUOPT="--menubox"
-	exec chooselayout
-  fi
-  CHOICES=$(makelist)
-  CHOICES=$(echo $CHOICES|sed -e "s/(/'(/g" -e "s/)/)'/g")
-  eval "$DIALOG --title \"$(gettext 'Set console keyboard layout')\"  $MENUOPT \"$(gettext 'Choose keyboard layout for your country...')\" 0 0 0 $CHOICES" 2>$REP #111020 typo.
-  NEWMAP=$(tail -n 1 $REP)
-  rm -f $REP
+	NEWMAP=$(basename "$1" .gz)
+fi
+
+if [ "$NEWMAP" = "" ] ; then
+	DIALOG="dialog --aspect 10"
+	MENUOPT="--menu"
+	REP=/tmp/$(basename $0).txt
+	if [ "$XSTATUS" = "yes" ] ; then
+		#MENUOPT="--menubox"
+		exec chooselayout
+	fi
+	CHOICES=$(makelist)
+	CHOICES=$(echo $CHOICES|sed -e "s/(/'(/g" -e "s/)/)'/g")
+	eval "$DIALOG --title \"$(gettext 'Set console keyboard layout')\"  $MENUOPT \"$(gettext 'Choose keyboard layout for your country...')\" 0 0 0 $CHOICES" 2>$REP #111020 typo.
+	NEWMAP=$(tail -n 1 $REP)
+	rm -f $REP
+else
+	XKBLAYOUT=${NEWMAP}
+	case "$XKBLAYOUT" in
+		azerty)    XKBLAYOUT="fr"  ;; #azerty
+		cf)        XKBLAYOUT="ca"  ;; #canadian french
+		croat)     XKBLAYOUT="hr"  ;; #croat
+		dvorak)    XKBLAYOUT="us"  ;; #dvorak
+		slovene)   XKBLAYOUT="si"  ;; #slovene
+		sv-latin1) XKBLAYOUT="se"  ;; #sweden
+		wangbe)    XKBLAYOUT="be"  ;; #belgium
+		uk)        XKBLAYOUT="gb"  ;; #united kingdom
+	esac
+	xkbconfigmanager setlayout ${XKBLAYOUT}
+	if [ $INVALID_KEYMAP ] ; then
+		exit
+	fi
 fi
 
 NEW=$(echo "$MAPS"|grep "^${NEWMAP}$"| head -n 1) #120715 wrong, fix.
 if [ "$NEW" = "" ];then
-  NEWMAP=$(echo $NEWMAP| cut -b 1-2)
-  NEW=$(echo "$MAPS"|grep -w "^$NEWMAP"| head -n 1)
+	NEWMAP=$(echo $NEWMAP| cut -b 1-2)
+	NEW=$(echo "$MAPS"|grep -w "^$NEWMAP"| head -n 1)
 fi
 
 # update
 if [ "$NEW" != "" ];then
-  NEWMAP=$NEW
-  echo -n $NEWMAP > /etc/keymap
-  cp -f /etc/keymap /etc/keymap_previous	# prevent xwin rewrites
-  case $NEWMAP in
-    *.map|*.kmap)
-	   echo loadkeys $NEWMAP
-       loadkeys $NEWMAP || exit 1 #120627
-       echo "'${NEWMAP}' keymap loaded"
-    ;;
-    *)
-       gzip -dcf /lib/keymaps/$NEWMAP.gz | loadkmap || exit 1
-       echo "/lib/keymaps/${NEWMAP}.gz loaded"
-    ;;
-  esac
+	NEWMAP=$NEW
+	echo -n $NEWMAP > /etc/keymap
+	case $NEWMAP in
+		*.map|*.kmap)
+			echo loadkeys $NEWMAP
+			loadkeys $NEWMAP || exit 1 #120627
+			echo "'${NEWMAP}' keymap loaded"
+			;;
+		*)
+			gzip -dcf /lib/keymaps/$NEWMAP.gz | loadkmap || exit 1
+			echo "/lib/keymaps/${NEWMAP}.gz loaded"
+			;;
+	esac
 fi
+
 [ "$NEW" != "" ] && NEWMAP=$NEW || exit 1
 echo -n $NEWMAP > /etc/keymap
 
