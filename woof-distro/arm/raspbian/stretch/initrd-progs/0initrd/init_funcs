@@ -1,0 +1,173 @@
+#!/bin/sh
+
+L_DEBUG_SAVE="To save debug info to a partition, type 'debugsave'"
+L_DONE="done"
+L_DUMPING_BOOTINIT_LOG="Dumping last lines of /tmp/bootinit.log..."
+L_DUMPING_KERNEL_LOG="Dumping last lines of kernel log..."
+L_ERROR_IS_TOO_CRITICAL="Error is too critical, dropping out to console..."
+L_FAILED="failed"
+L_PAUSING_60_SECONDS="Pausing for 60 seconds..."
+L_WAITING_FOR_USB="Waiting for USB storage."
+L_WINDOWS_HIBERNATED="ERROR: Windows NTFS hibernated partition, cannot mount"
+
+check_status() #args: [-critical] $RET_VAL "$ERROR_MSG"
+{
+  ERROR_CRITICAL=""
+  [ "$1" = "-critical" ] && { ERROR_CRITICAL="yes" ; shift; }
+  RET_VAL=$1
+  shift
+  ERROR_MSG="$@"
+  if [ $RET_VAL -eq 0 ] ; then
+    echo -en "\\033[74G" >/dev/console #move to column 72. 110426: 74
+    echo -e "\\033[1;32m${L_DONE}\\033[0;39m" >/dev/console #32=green
+  else
+    echo -en "\\033[72G" >/dev/console #move to column 72.
+    echo -e "\\033[1;31m${L_FAILED}\\033[0;39m" >/dev/console #31=red
+    echo -e "\\033[1;35m${L_DUMPING_BOOTINIT_LOG}\\033[0;39m" >/dev/console #35=purple
+    echo -en "\\033[1;31m" >/dev/console #31=red
+    cat /tmp/bootinit.log | tail -n 4 >/dev/console
+    echo -en "\\033[0;39m" >/dev/console
+    echo -e "\\033[1;35m${L_DUMPING_KERNEL_LOG}\\033[0;39m" >/dev/console #35=purple
+    echo -en "\\033[1;31m" >/dev/console #31=red
+    dmesg | tail -n 4 >/dev/console
+    echo -en "\\033[0;39m" >/dev/console
+    #exit to initial ramdisk shell...
+    [ "$RDSH" != "" ] && exec /bin/sh >/dev/console 2>&1
+    if [ "$ERROR_CRITICAL" = "yes" ] ; then
+      echo -en "\\033[1;35m" >/dev/console #35=purple
+      [ "$ERROR_MSG" != "" ] && echo "*** $ERROR_MSG" >/dev/console
+      echo "*** ${L_ERROR_IS_TOO_CRITICAL}" >/dev/console
+      echo -en "\\033[0;39m" >/dev/console
+      echo -e "\\033[1;32m*** $L_DEBUG_SAVE\\033[0;39m" >/dev/console
+      exec /bin/sh >/dev/console 2>&1
+    else
+      echo "${L_PAUSING_60_SECONDS}" >/dev/console
+      sleep 60
+    fi
+  fi
+}
+
+decode_id() {
+ ONE_PART=""
+ [ "${1}" ] || return
+ if [ "$(echo -n ${1} | grep -E '^[a-z]+[0-9]')" -a "$(grep -m1 "${1}$" /proc/partitions)" ];then
+  ONE_PART="$1"  #is a real partition
+ else
+  [ "$BLKIDOUT" ] || BLKIDOUT="$(blkid)"
+  ONE_PART="$(echo "$BLKIDOUT" | grep -m1 -E " LABEL=.${1}| UUID=.${1}" | cut -f1 -d: | cut -f3 -d/)" #is LABEL or UUID
+ fi
+}
+
+ensure_mounted() {
+# "$1" - partition - ex: sda3
+# "$2" - mountpoint - ex: /mnt/pdrv
+ ONE_MP="$(mount | grep -m1 "/dev/${1} " | cut -f 3 -d ' ')"
+ [ "$ONE_MP" ] && return
+ ONE_FS="$(echo "$HAVE_PARTS" | grep -m1 "${1}|" | cut -f 2 -d '|')"
+ ONE_MP="${2}"
+ [ -d "$ONE_MP" ] || mkdir -p $ONE_MP
+ mntfunc $ONE_FS /dev/${1} $ONE_MP #-t $ONE_FS /dev/$ONE_PART $ONE_MP
+ if [ $? -ne 0 ] ; then
+  sleep 3 # usb optical drive showing as /sys/block/sr0, but won't mount, needs more delay...
+  mntfunc $ONE_FS /dev/${1} $ONE_MP
+  [ $? -ne 0 ] && { echo "${1} on $ONE_MP as $ONE_FS mount failed."; ONE_MP=""; return 1; }
+ fi
+ # fsckme.flg is created by rc.sysinit and deleted by rc.shutdown
+ # this flag will be set for any prior improper shutdown. if have lots of installations
+ # of puppy on the pc, the flag may not even be for this install of puppy, however, this is
+ # the simplest implementation...
+ if [ -f ${ONE_MP}/fsckme.flg ] ; then
+  #sda1,ext3,/PUPPYBOOT/precise/precisesave.4fs
+  FSCKME="`cat ${ONE_MP}/fsckme.flg`"
+  echo -e "${ONE_MP}/fsckme.flg\n  $FSCKME"
+  FSCK_PART="$(echo "$FSCKME" | cut -f 1 -d ",")"
+  FSCK_EXT="$(echo "$FSCKME" | cut -f 2 -d ",")"
+  FSCK_SAVEFILE="$(echo "$FSCKME" | cut -f 3 -d ",")"
+  rm -f ${ONE_MP}/fsckme.flg
+  [ "$FSCK_SAVEFILE" ] && PFSCK="yes"
+  [ "$PFSCKP" = "yes" ] && return # boot param, partition already fsck'ed
+  case ${FSCK_EXT} in ext2|ext3|ext4|vfat|msdos|exfat)
+    umount ${ONE_MP}
+    [ "$FSCKME" ] && fsck_func /dev/${FSCK_PART} ${FSCK_EXT}
+    ensure_mounted "$1" "$2" ;;
+  esac
+ fi
+}
+
+fsck_func() {
+# "$1" - partition device - ex: /dev/sdb2
+# "$2" - fstype - ex: ext2
+ case $2 in
+  ext2|ext3|ext4) fsck_app='e2fsck' ; fsck_OPT='-y' ;;
+  vfat|msdos) fsck_app='fsck.fat' ; fsck_OPT='-y' ;;
+  exfat) fsck_app='exfatfsck' ; fsck_OPT='' ;;
+  *) return ;;
+ esac
+ which "${fsck_app}" || {
+   echo "WARNING: '${fsck_app}' not found"
+   FSCKDPARTS="${FSCKDPARTS}${1}|"
+   return
+ }
+ if [ "$(echo "$FSCKDPARTS" | grep "${1}|")" = "" ];then
+  ${fsck_app} ${fsck_OPT} ${1} > /dev/console 2>&1 || sleep 3 #so the user has time to read the error msg..
+  FSCKDPARTS="${FSCKDPARTS}${1}|"
+ fi
+}
+
+get_part_info() {
+ probedisk -hr > /tmp/ALLDRVS
+ ls -1 /sys/block | grep -E '^scd|^sd|^mmc|^sr|^nvme' > /tmp/ALLDRVS0
+ PCPARTSALL="$(/sbin/probepart_init -k)"
+ HAVE_PARTS="$(echo "$PCPARTSALL" | grep '^/dev/' | cut -f 1-2 -d '|'  | grep -E 'f2fs|udf|iso9660|ext2|ext3|ext4|reiserfs|msdos|vfat|minix|ntfs' | sed -e 's%/dev/%%')"
+ [ "$PDEBUG" ] && echo "$HAVE_PARTS" > /tmp/HAVE_PARTS
+}
+
+mntfunc() {
+ MNT_T="$1"    #ex: vfat
+ MNT_DEV="$2"  #ex: /dev/sda1
+ MNT_DIR="$3"  #ex: /mnt/sda1
+ MNT_O="$4"    #ex: noatime   [optional]
+ MNT_DSK="${MNT_DEV:5:3}"
+ if [ "$PTRIM" = "yes" -a "$MNT_DSK" != "" -a "$(cat /sys/block/$MNT_DSK/queue/rotational)" = "0" ];then
+  if [ "$MNT_T" = "ext4" -o "$MNT_T" = "f2fs" ];then
+   if [ "$MNT_O" = "" ];then
+    MNT_O="discard"
+   else
+    MNT_O="${MNT_O},discard"
+   fi
+  fi
+ fi
+ [ "$PFSCKP" = "yes" ] && fsck_func "$MNT_DEV" "$MNT_T"
+ case $MNT_T in
+  ntfs)
+   ntfs-3g $MNT_DEV $MNT_DIR -o umask=0,no_def_opts,noatime,rw,silent 2>/dev/null #default is rw. 130211 add silent.
+   ntfsRETVAL=$?
+   [ $ntfsRETVAL -eq 0 ] && return 0
+   if [ $ntfsRETVAL -eq 14 ];then
+    echo -e "\\033[1;31m${L_WINDOWS_HIBERNATED}\\033[0;39m" >/dev/console #31=red
+    return 14
+   else
+    ntfs-3g $MNT_DEV $MNT_DIR -o umask=0,no_def_opts,noatime,rw,force,silent 2>/dev/null #130211 add silent.
+   fi
+  ;;
+  vfat)  mount -t $MNT_T -o $VFAT_OUT_PARAM $MNT_DEV $MNT_DIR ;;
+  exfat) mount.exfat-fuse $MNT_DEV $MNT_DIR ;;
+  *)
+   if [ "$MNT_O" = "" ];then
+    mount -t $MNT_T $MNT_DEV $MNT_DIR
+   else
+    mount -t $MNT_T -o $MNT_O $MNT_DEV $MNT_DIR
+   fi
+  ;;
+ esac
+ return $?
+}
+
+wait_for_usb() {
+ [ -e /tmp/flag-usb-ready ] && return
+ echo -n "${L_WAITING_FOR_USB}" > /dev/console
+ /sbin/wait4usb
+ get_part_info
+ BLKIDOUT=""
+ check_status 0
+}
