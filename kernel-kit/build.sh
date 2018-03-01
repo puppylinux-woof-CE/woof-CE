@@ -317,7 +317,9 @@ testing=
 echo ${kernel_version##*-} | grep -q "rc" && testing=/testing
 
 DOWNLOAD_KERNEL=1
-[ -f sources/kernels/linux-${kernel_tarball_version}.tar.xz ] && DOWNLOAD_KERNEL=0
+if [ -f sources/kernels/linux-${kernel_tarball_version}.tar.xz ] ; then
+	DOWNLOAD_KERNEL=0
+fi
 if [ -f sources/kernels/linux-${kernel_tarball_version}.tar.xz.md5.txt ] ; then
 	cd sources/kernels
 	md5sum -c linux-${kernel_tarball_version}.tar.xz.md5.txt
@@ -353,6 +355,18 @@ if [ $DOWNLOAD_KERNEL -eq 1 ] ; then
 	md5sum linux-${kernel_tarball_version}.tar.xz > linux-${kernel_tarball_version}.tar.xz.md5.txt
 	sha256sum linux-${kernel_tarball_version}.tar.xz > linux-${kernel_tarball_version}.tar.xz.sha256.txt
 	cd $MWD
+fi
+
+## check if kernel supports gcc version
+if [ -f linux-${kernel_version}/include/linux/compiler-gcc4.h ] ; then
+	# it's one of the releases that provide gcc support through
+	#    compiler-gcc3.h / compiler-gcc4.h / compiler-gcc5.h / etc
+	# some patched versions or kernels 4.2+ only have this file: compiler-gcc.h
+	gccver=$(gcc -dumpversion)
+	gccver=${gccver%%.*}
+	if [ "$gccver" -a ! -f linux-${kernel_version}/include/linux/compiler-gcc${gccver}.h ] ; then
+		exit_error "Sorry, linux-${kernel_version} does not support gcc $gccver"
+	fi
 fi
 
 ## download Linux-libre scripts
