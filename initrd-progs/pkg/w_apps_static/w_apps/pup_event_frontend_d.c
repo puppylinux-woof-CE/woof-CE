@@ -17,7 +17,7 @@
 #include <sys/socket.h>    // AF_NETLINK, bind()
 #include <linux/netlink.h> // struct sockaddr_nl
 #include <poll.h>          // poll(), struct pollfd
-#include <unistd.h>        // getpid()
+#include <unistd.h>        // getpid() access()
 #include <string.h>        // strstr() etc..
 #include <stdio.h>
 #include <regex.h>         // regcomp()
@@ -47,7 +47,7 @@ void cleanup(void) {
 void signal_callback_handler(int signum) {
 	if (outf) {
 		fprintf(outf, "Caught signal %d\n",signum);
-		cleanup;
+		cleanup();
 	}
 	exit(signum);
 }
@@ -100,27 +100,22 @@ int main(int argc, char **argv) {
 	}
 
 	char buf[512] = "";
-	char *bufin = NULL;
 	int eventstatus = 0;
-	int clientdescr = 0;
 
 	struct sockaddr_nl nls;
 	struct pollfd pfd;
 
-	DIR *dir1;
-	struct dirent *ent1;
-
 	int ret = system("/usr/local/pup_event/frontend_startup");
 	if (ret != 0) {
 		trace("%s: exited with code: %d\n", app_name, WEXITSTATUS(ret));
-		trace("%s: exiting...\n");
-		cleanup;
+		trace("exiting...\n");
+		cleanup();
 		return 9;
 	}
 
 	// initialise the nls structure
+	memset(&nls,0,sizeof(struct sockaddr_nl));
 	nls.nl_family = AF_NETLINK;
-	nls.nl_pad = 0;
 	nls.nl_pid = getpid();
 	nls.nl_groups = -1;
 
@@ -129,21 +124,19 @@ int main(int argc, char **argv) {
 	pfd.fd = socket(PF_NETLINK, SOCK_DGRAM, NETLINK_KOBJECT_UEVENT);
 	if (pfd.fd == -1) {
 		trace("%s: could not open netlink socket\n", app_name);
-		cleanup;
+		cleanup();
 		return 1;
 	}
-
 	// listen to netlink socket...
-	int retval = bind(pfd.fd, (void *)&nls.nl_family, sizeof(nls));
+	int retval = bind(pfd.fd, (void *)&nls, sizeof(struct sockaddr_nl));
 	if (retval == -1) {
-		trace("%s: could listen to netlink socket\n", app_name);
-		cleanup;
+		trace("%s: could not listen to netlink socket\n", app_name);
+		cleanup();
 		return 2;
 	}
 
 	int cnt = 0;
-	char devevents[256] = "";
-	char exe_change[512] = "";
+	char exe_change[256] = "";
 
 	/* big loop */
 	while (1) {
@@ -151,7 +144,7 @@ int main(int argc, char **argv) {
 		eventstatus = poll(&pfd, 1, 1000);
 		if (debug) trace("eventstatus: %d\n", eventstatus);
 		if (eventstatus == -1) {
-			cleanup;
+			cleanup();
 			return 3;
 		}
 		if (eventstatus == 0) {
@@ -160,87 +153,61 @@ int main(int argc, char **argv) {
 			if ( access( "/tmp/wmexitmode.txt", F_OK ) != -1 ) {
 				// file exists
 				trace("%s: found /tmp/wmexitmode.txt .. exiting\n", app_name);
-				cleanup;
+				cleanup();
 				return 8;
 			}
-			if (devevents[0]) {
-				snprintf(exe_change, sizeof(exe_change), "/usr/local/pup_event/frontend_change %s", devevents);
-				if (debug) trace("exe_change: %s\n", exe_change);
-				system(exe_change);
-				devevents[0] = 0;
-
-			} else {
-				// want to call a pup_event script every four seconds...
-				cnt++;
-				if (cnt >= 4) {
-					system("/usr/local/pup_event/frontend_timeout");
-					cnt = 0;
-				}
+			// want to call a pup_event script every four seconds...
+			cnt++;
+			if (cnt >= 6) {
+				if (debug) trace("/usr/local/pup_event/frontend_timeout\n");
+				system("/usr/local/pup_event/frontend_timeout");
+				cnt = 0;
 			}
 			continue;
 		}
+
+		cnt = 0;
 
 		// get the uevent...
 		int len = recv(pfd.fd, buf, sizeof(buf), MSG_DONTWAIT);
 		if (len == -1) {
-			cleanup;
+			cleanup();
 			return 4;
 		}
-		if (debug) trace("len: %d - buf: %s\n", len, buf);
+		// if (debug) trace("len: %d - buf: %s\n", len, buf);
+
+		//add@/devices/pci0000:00/0000:00:1d.7/usb1/1-6/1-6:1.0/host33/target33:0:0/33:0:0:0/block/sdb
+		//add@/devices/pci0000:00/0000:00:1d.7/usb1/1-6/1-6:1.0/host37/target37:0:0/37:0:0:0/block/sdb/sdb1
+		char *block_str_pos = strstr(buf, "/block/");
+		if (!block_str_pos) {
+			continue;
+		}
+		// .../block/sdb        - ok
+		// .../block/sdb/sdb1   - err
+		char *drv = block_str_pos + 7; // sdb/sdb1
+		if (strchr(drv, '/')) {
+			continue;
+		}
+		if (debug) trace("drv: %s\n", drv);
 
 		// process the uevent...
 		// only add@, remove@, change@ uevents...
-		char devevent[50] = "";
-		if (buf[0] == 'a' && buf[1] == 'd' && buf[2]=='d') {
-			strcpy(devevent, "add:");
-		} else if (buf[0] == 'r' && buf[1] == 'e' && buf[2]=='m') {
-			strcpy(devevent, "rem:");
-		} else if (buf[0] == 'c' && buf[1] == 'h' && buf[2]=='a') {
-			strcpy(devevent, "cha:");
-		}
-		if (!devevent[0]) {
+		if (strncmp(buf, "add", 3) == 0) {
+			snprintf(exe_change, sizeof(exe_change), "/usr/local/pup_event/frontend_change add %s", drv);
+		} else if (strncmp(buf, "remove", 6) == 0) {
+			snprintf(exe_change, sizeof(exe_change), "/usr/local/pup_event/frontend_change remove %s", drv);
+		} else if (strncmp(buf, "change", 6) == 0) {
+			snprintf(exe_change, sizeof(exe_change), "/usr/local/pup_event/frontend_change change %s", drv);
+		} else {
 			continue;
 		}
 
-		// want uevents that have "SUBSYSTEM=block"...
-		// buf has a sequence of **zero-delimited** strings...
-		i = 0;
-		int flag_block=0;
-		char devname[50] = "";
-		bufin = buf;
-		while (i < len) {
-			if (debug) trace("bufin: %s\n", bufin);
-			if (flag_block) {
-				// ex: DEVNAME=sdc DEVTYPE=disk  ex2: DEVNAME=sdc1 DEVTYPE=partition
-				char *isdevname = strstr(bufin,"DEVNAME");
-				if (isdevname) {
-					char *devname = strchr(bufin, '=') + 1; /* DEVNAME=sdc-> sdc */
-					if (debug) trace("devname: %s\n", devname);
-					// ignore loop or ram devices...
-					regex_t regex;
-					if (regcomp(&regex, "^sd|^mmc|^nvme|^sr", REG_EXTENDED|REG_NOSUB) != 0) {
-						// no match
-						regfree(&regex);
-						break;
-					}
-					regfree(&regex);
-					char tmp[256];
-					strncpy(tmp, devevents, sizeof(tmp));
-					snprintf(devevents, sizeof(devevents), "%s%s%s ", tmp, devevent, devname);
-					if (debug) trace("[%s] %s\n", app_name, devevents);
-				}
-			} else {
-				if (strcmp(bufin,"SUBSYSTEM=block") == 0) {
-					flag_block = 1;
-				}
-			}
-			i = i + strlen(bufin) + 1;
-			bufin = bufin + strlen(bufin) + 1;
-		}
+		if (debug) trace("exe_change: %s\n", exe_change);
+		system(exe_change);
 
 	} /* end of big loop */
 
-	cleanup;
+	cleanup();
 	return 0;
 }
 
