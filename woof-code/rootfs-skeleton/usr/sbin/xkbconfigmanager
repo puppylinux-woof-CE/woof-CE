@@ -2,19 +2,26 @@
 ## Xkb Config Manager, originally by Dougal
 
 export TEXTDOMAIN=xkbconfig #xkb
-export TEXTDOMAINDIR=/usr/share/locale
 export OUTPUT_CHARSET=UTF-8
 . gettext.sh
 
 export XORG_CONF=/etc/X11/xorg.conf
 
 if [ -f /etc/X11/xkb/rules/xorg.lst ] ; then
-	export XORG_RULES_LST='/etc/X11/xkb/rules/xorg.lst'
+	XORG_RULES_LST='/etc/X11/xkb/rules/xorg.lst'
+	EVDEV_RULES_LST='/etc/X11/xkb/rules/evdev.lst'
 elif [ -f /usr/share/X11/xkb/rules/xorg.lst	] ; then
-	export XORG_RULES_LST='/usr/share/X11/xkb/rules/xorg.lst'
+	XORG_RULES_LST='/usr/share/X11/xkb/rules/xorg.lst'
+	EVDEV_RULES_LST='/usr/share/X11/xkb/rules/xorg.lst'
 else
 	echo "$0: ERROR: can not find xorg.lst" 1>&2
 	exit 1
+fi
+
+if grep -i 'Driver.*evdev' $XORG_CONF ; then
+	export CURRENT_RULES_LST=$EVDEV_RULES_LST
+else
+	export CURRENT_RULES_LST=$XORG_RULES_LST
 fi
 
 export XKB_LAYOUTS_LST=/var/tmp/xkb-layout
@@ -89,10 +96,17 @@ Requires a "third level chooser" to be used.' > /tmp/box_help
 
 function XkbApplyNow() {
 	#get all parameters
-	MODEL=`fgrep '"XkbModel"' $XORG_CONF | grep -v '^#' | cut -d'"' -f4`
-	LAYOUT=`fgrep '"XkbLayout"' $XORG_CONF | grep -v '^#' | cut -d'"' -f4`
-	VARIANT=`fgrep '"XkbVariant"' $XORG_CONF | grep -v '^#' | cut -d'"' -f4`
-	OPTIONS=`fgrep '"XkbOptions"' $XORG_CONF | grep -v '^#' | cut -d'"' -f4`
+	RULES=`fgrep '"XkbRules"' $XORG_CONF | grep -v '#.*Option' | cut -d'"' -f4`
+	MODEL=`fgrep '"XkbModel"' $XORG_CONF | grep -v '#.*Option' | cut -d'"' -f4`
+	LAYOUT=`fgrep '"XkbLayout"' $XORG_CONF | grep -v '#.*Option' | cut -d'"' -f4`
+	VARIANT=`fgrep '"XkbVariant"' $XORG_CONF | grep -v '#.*Option' | cut -d'"' -f4`
+	OPTIONS=`fgrep '"XkbOptions"' $XORG_CONF | grep -v '#.*Option' | cut -d'"' -f4`
+	if [ -z "$RULES" ] ; then
+		case $CURRENT_RULES_LST in
+			*xorg.lst) RULES=xorg ;;
+			*evdev.lst) RULES=evdev ;;
+		esac
+	fi
 	#-
 	case $LAYOUT in #note, same code in init
 		de*|be*|br*|dk*|es*|fi*|fr*|it*|no*|se*|sv*|pt*)
@@ -108,8 +122,8 @@ function XkbApplyNow() {
 	echo -n "$LAYOUT" > /etc/keymap
 	echo -n "$CODEPAGE" > /etc/codepage
 	#-
-	echo "setxkbmap -rules xorg -model \"$MODEL\" -layout \"$LAYOUT\" -variant \"$VARIANT\" -option \"$OPTIONS\""
-	setxkbmap -rules xorg -model "$MODEL" -layout "$LAYOUT" -variant "$VARIANT" -option "$OPTIONS"
+	echo "setxkbmap -rules \"$RULES\" -model \"$MODEL\" -layout \"$LAYOUT\" -variant \"$VARIANT\" -option \"$OPTIONS\""
+	setxkbmap -rules "$RULES" -model "$MODEL" -layout "$LAYOUT" -variant "$VARIANT" -option "$OPTIONS"
 	if [ $? -eq 0 ];then
 		case "$LAYOUT" in *,*) 
 		  pidof fbxkb >/dev/null || ( which fbxkb >/dev/null && fbxkb & ) ;;
@@ -123,14 +137,14 @@ function XkbApplyNow() {
 
 function XkbLayoutConfig() {
 	# change the XkbLayout variable in xorg.conf
-	ORIGINAL=`fgrep '"XkbLayout"' $XORG_CONF | grep -v '^#'`
+	ORIGINAL=`fgrep '"XkbLayout"' $XORG_CONF | grep -v '#.*Option'`
 	[ "$ORIGINAL" = "" ] && Xdialog --title "$(gettext 'ERROR')" --msgbox "$(gettext 'Your xorg.conf file does not contain any XkbLayout options!')" 0 0 && exit
 	#find current layouts:
 	CURRENT=`echo "$ORIGINAL" | cut -d'"' -f4`
 	# make list of existing layouts with their names:
 	if [ ! "$CURRENT" = "" ]; then
 		EXIST=`echo "$CURRENT" | tr ',' '\n' | while read ONE;
-	do fgrep " $ONE " $XORG_RULES_LST | grep -v ':' ; done`
+	do fgrep " $ONE " $CURRENT_RULES_LST | grep -v ':' ; done`
 	## could add head and tail for the fgrep, but this works ok.
 	else
 		EXIST="NONE!"
@@ -207,7 +221,7 @@ function setlayout() {
 
 function XkbLayoutTable() {
 	# change the XkbLayout variable in xorg.conf
-	ORIGINAL=`fgrep '"XkbLayout"' $XORG_CONF | grep -v '^#'`
+	ORIGINAL=`fgrep '"XkbLayout"' $XORG_CONF | grep -v '#.*Option'`
 	#find current layouts:
 	CURRENT=`echo "$ORIGINAL" | cut -d'"' -f4`
 	CURRENT=${CURRENT%%,*} #only the first layout
@@ -228,7 +242,7 @@ function XkbLayoutTable() {
 
 function XkbModelConfig() {
 	# change the XkbModel variable in xorg.conf
-	ORIGINAL=`fgrep '"XkbModel"' $XORG_CONF | grep -v '^#'`
+	ORIGINAL=`fgrep '"XkbModel"' $XORG_CONF | grep -v '#.*Option'`
 	[ "$ORIGINAL" = "" ] && Xdialog --title "$(gettext 'ERROR')" --msgbox "$(gettext 'Your xorg.conf file does not contain any XkbModel options!')" 0 0 && exit
 	# the current model:
 	CURRENT=`echo "$ORIGINAL" | cut -d'"' -f4`
@@ -263,13 +277,13 @@ To keep the current model, press cancel...')'" 30 80 0 \'
 
 function XkbOption() {
 	# the full line containing XkbOptions:
-	ORIGINAL=`fgrep '"XkbOptions"' $XORG_CONF | grep -v '^#'`
+	ORIGINAL=`fgrep '"XkbOptions"' $XORG_CONF | grep -v '#.*Option'`
 	#find current variants and layouts:
 	CURRENT=`echo "$ORIGINAL" | cut -d'"' -f4`
 	# check if already have one, find description and add to message.
 	EXIST=`echo -n "$CURRENT" | tr ',' '\n' | fgrep "$OPTION:"`
 	if [ ! "$EXIST" = "" ]; then
-		INFO=`fgrep -w "$EXIST" $XORG_RULES_LST`
+		INFO=`fgrep -w "$EXIST" $CURRENT_RULES_LST`
 		MESSAGE="${MESSAGE_USING}:
 	$INFO
 
@@ -306,8 +320,8 @@ To abort, press cancel.')"
 	fi
 	# add new variant to line, or entire line, if it doesn't exist:
 	if [ "$ORIGINAL" = "" ] ;then
-		ORIGINAL=`fgrep '"XkbVariant"' $XORG_CONF | grep -v '^#'`
-		[ "$ORIGINAL" = "" ] && ORIGINAL=`fgrep '"XkbLayout"' $XORG_CONF | grep -v '^#'`
+		ORIGINAL=`fgrep '"XkbVariant"' $XORG_CONF | grep -v '#.*Option'`
+		[ "$ORIGINAL" = "" ] && ORIGINAL=`fgrep '"XkbLayout"' $XORG_CONF | grep -v '#.*Option'`
 		MODIFIED="$ORIGINAL\n	Option 		\"XkbOptions\"   \"$NEW\""
 	else
 		MODIFIED=`echo "$ORIGINAL" | sed "s%\"$CURRENT\"%\"$NEW\"%"`
@@ -392,8 +406,8 @@ function XkbVariantConfig() {
 	TMPDIALOG=/tmp/XkbVariantDialog
 	TMPLIST=/tmp/XkbVariantList
 	# the full lines containing XkbVariant and XkbLayout:
-	ORIGINAL=`fgrep '"XkbVariant"' $XORG_CONF | grep -v '^#'`
-	LAYOUTSLINE=`fgrep '"XkbLayout"' $XORG_CONF | grep -v '^#'`
+	ORIGINAL=`fgrep '"XkbVariant"' $XORG_CONF | grep -v '#.*Option'`
+	LAYOUTSLINE=`fgrep '"XkbLayout"' $XORG_CONF | grep -v '#.*Option'`
 	[ "$ORIGINAL" = "" ] && NEWLINE="yes"
 	#find current variants and layouts:
 	CURRENT=`echo "$ORIGINAL" | cut -d'"' -f4`
@@ -405,7 +419,7 @@ function XkbVariantConfig() {
 			[ "$AVAR" = "" ] && continue
 			POS=`echo "$CURRENT" | tr ',' '\n' | fgrep -n "$AVAR" | cut -d: -f1`
 			MYLAY=`echo "$LAYOUTS" | cut -d',' -f$POS`
-			fgrep " $AVAR " $XORG_RULES_LST | fgrep -w "$MYLAY:"
+			fgrep " $AVAR " $CURRENT_RULES_LST | fgrep -w "$MYLAY:"
 			done)
 		MESSAGE="$(gettext 'You are currently using the following variants'):
 "$EXIST"
@@ -422,7 +436,7 @@ NOTE: if you select a variant for a layout that already has one,
 	# create list of available variants:
 	INDEX=1
 	for ALAY in ${LAYOUTS//,/ } ; do
-		fgrep " $ALAY:" $XORG_RULES_LST | \
+		fgrep " $ALAY:" $CURRENT_RULES_LST | \
 		while read TAG INFO ; do
 			echo "\"$INDEX: $TAG\" \""$INFO"\""; INDEX=`expr $INDEX + 1`
 		done > $TMPLIST
@@ -495,7 +509,7 @@ if [ ! -f $XKB_MODELS_LST ] ; then
 			continue
 		fi
 		echo "$field $value" >> $file
-	done < $XORG_RULES_LST
+	done < $CURRENT_RULES_LST
 	#fix
 	sorted=$(sort $XKB_LAYOUTS_LST -k 2,2)
 	echo "us English (US)" > $XKB_LAYOUTS_LST
