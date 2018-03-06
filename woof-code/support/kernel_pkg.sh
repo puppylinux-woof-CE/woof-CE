@@ -68,50 +68,20 @@ esac
 
 mv -f zdrv/etc/modules/firmware.dep zdrv/etc/modules/firmware.dep.${KERNELVER}
 
-#130613 kmod depmod wants these two... they are moved in later, but do it here also...
 mkdir -p zdrv/lib/modules/$KERNELVER
 [ -f zdrv/etc/modules/modules.builtin ] && cp -a -f zdrv/etc/modules/modules.builtin zdrv/lib/modules/$KERNELVER/
 [ -f zdrv/etc/modules/modules.order ] && cp -a -f zdrv/etc/modules/modules.order zdrv/lib/modules/$KERNELVER/
 
 cp -a zdrv/boot/System.map* ./System.map 2>/dev/null
-
-USINGKMOD='no'
-[ "`grep '^kmod' ../woof-installed-packages`" != "" ] && USINGKMOD='yes'
-if [ "$USINGKMOD" = "no" ];then
- if [ ! -f zdrv/lib/modules/$KERNELVER/modules.dep ];then
-  busybox depmod -b zdrv -F System.map $KERNELVER
- fi
-else
- cp -f ../boot/kmod ./
- ln -snf kmod depmod
- if [ ! -f zdrv/lib/modules/$KERNELVER/modules.dep ];then
-  ./depmod -b zdrv -F System.map $KERNELVER
- fi
-fi
+depmod -b zdrv -F System.map $KERNELVER
 
 #echo "deleting big modem modules..."
-for BIGMODS in agr hcf hsf intel5 Intel5 esscom pctel
-do
-  for ONEBIGMOD in `find zdrv/lib/modules/${KERNELVER}/ -type f -name ${BIGMODS}*.ko -o -name ${BIGMODS}*HIDE` #101222
-  do
-   BIGMODNAME="`basename $ONEBIGMOD`"
-   echo -n "deleting $BIGMODNAME "
-   [ -f $ONEBIGMOD ] && rm -f $ONEBIGMOD
-  done
+for i in agr hcf hsf intel5 Intel5 esscom pctel ; do
+  find zdrv/lib/modules/${KERNELVER}/ -type f -name ${i}*.ko -o -name ${i}*HIDE -delete
 done
-rm -rf zdrv/lib/modules/all-firmware/hsfmodem* 2>/dev/null
-rm -rf zdrv/lib/modules/all-firmware/hcfpcimodem* 2>/dev/null
-rm -rf zdrv/lib/modules/all-firmware/intel536ep* 2>/dev/null
-rm -rf zdrv/lib/modules/all-firmware/intel537* 2>/dev/null
+rm -rf zdrv/lib/modules/all-firmware/{hsfmodem*,hcfpcimodem*,intel536ep*,intel537*} 2>/dev/null
 
-if [ "$USINGKMOD" = "no" ];then #130418
- #cp -f ../boot/depmod ./
- busybox depmod -b zdrv -F System.map $KERNELVER
-else
- cp -f ../boot/kmod ./kmod
- ln -snf kmod depmod
- ./depmod -b zdrv -F System.map $KERNELVER
-fi
+depmod -b zdrv -F System.map $KERNELVER
 sync
 
 # move aufs-utils to zdrv
