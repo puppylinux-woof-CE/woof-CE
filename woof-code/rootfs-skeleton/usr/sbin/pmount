@@ -153,7 +153,8 @@ buildpix (){
 
 volumelabel (){
 	DODEV="$1"
-	DEVNAME="`echo -n "$DODEV" | cut -f 3 -d '/'`"
+	DEVNAME=${1##*/} #basename $1
+	local FS=$2
 	export inputbox='
 	<window title="pMount - '$(gettext 'Puppy Drive Mounter')'">
 	<vbox>
@@ -177,14 +178,29 @@ volumelabel (){
 	  </hbox>
 	</vbox>
 	</window>'
-	I=$IFS; IFS=""
-	for STATEMENTS in  $(gtkdialog -p inputbox --center); do
-		eval $STATEMENTS
-	done
-	IFS=$I
-	if [ $EXIT = OK ]; then
-		e2label $DODEV "$VOLUME_LABEL"
-		echo "$VOLUME_LABEL" > /tmp/pmount/pmount_${DEVNAME}_LABEL
+	eval "`gtkdialog -p inputbox --center`"
+	if [ "$EXIT" = "OK" -a "$VOLUME_LABEL" ]; then
+		read OLDLABEL < /tmp/pmount/pmount_${DEVNAME}_LABEL
+		if [ "$VOLUME_LABEL" = "$OLDLABEL" ] ; then
+			return
+		fi
+		LABELOK=1
+		case $FS in
+			ext*)  err=$(e2label $DODEV "$VOLUME_LABEL" 2>&1)    || LABELOK='' ;;
+			vfat)  err=$(fatlabel $DODEV "$VOLUME_LABEL" 2>&1)   || LABELOK='' ;;
+			ntfs)  err=$(ntfslabel $DODEV "$VOLUME_LABEL" 2>&1)  || LABELOK='' ;;
+			exfat) err=$(exfatlabel $DODEV "$VOLUME_LABEL" 2>&1) || LABELOK='' ;;
+		esac
+		if [ "$LABELOK" ] ; then
+			echo "$VOLUME_LABEL" > /tmp/pmount/pmount_${DEVNAME}_LABEL
+			if [ -e /sys/block/$(fx_get_drvname $DEVNAME)/${DEVNAME}/uevent ] ; then
+				echo change > /sys/block/$(fx_get_drvname $DEVNAME)/${DEVNAME}/uevent
+			else
+				echo change > /sys/block/$(fx_get_drvname $DEVNAME)/uevent
+			fi
+		else
+			/usr/lib/gtkdialog/box_ok "pMount" error "Error:" "" "$err"
+		fi
 	fi
 }
 
@@ -199,7 +215,6 @@ mountme (){
 		mount -t $DOFS $DODEV /mnt/$DEVNAME
 		RETVAL1=$?
 		if [ $RETVAL1 -eq 0 ]; then
-			#v3.95 -x option to rescan...
 			if [ "$ROX_FILER" = "yes" ] ; then
 				exec rox -x /mnt/$DEVNAME -d /mnt/$DEVNAME #want this window on top.
 			else
@@ -459,9 +474,11 @@ EOF
 
 	#define volume label and action menu/button
 	echo '' > /tmp/pmount/pmount_${DEVNAME}_LABEL
-	INVISLABEL=true
+	EDITLABEL=false
 	MENU_BOOTMOUNT=false
-	case $ONEFS in ext*) INVISLABEL=false ;; esac
+	case $ONEFS in
+		ext*|vfat|ntfs|exfat) EDITLABEL=true ;;
+	esac
 	if [ ! "$ONEMNTPT" ]; then
 		INVISSHOWLOC=false
 		INVISPIX=false
@@ -488,8 +505,8 @@ EOF
 		ACTION_MENU="$ACTION_MENU
 		<menuitemseparator></menuitemseparator>
 		<menuitem label=\"$(gettext 'Edit label')\" stock=\"gtk-edit\">
-		 <sensitive>${INVISLABEL}</sensitive>
-		 <action>volumelabel ${ONEDEV}</action>
+		 <sensitive>${EDITLABEL}</sensitive>
+		 <action>volumelabel ${ONEDEV} ${ONEFS}</action>
 		 <action>refresh:LABEL_${DEVNAME}</action>
 		</menuitem>
 		<menuitem label=\"$(gettext 'Check filesystem')\" stock=\"gtk-find\">
