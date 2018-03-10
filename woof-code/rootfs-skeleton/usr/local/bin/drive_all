@@ -18,22 +18,16 @@
 
 #exec &> /tmp/drive_all.log ; set -x #debug
 
+export LANG	# need to restart pmount with correct locale
 export TEXTDOMAIN=drive_all
 export OUTPUT_CHARSET=UTF-8
 . gettext.sh
 
-[ ! -f /tmp/desktop_drives_curpos ] && getcurpos > /tmp/desktop_drives_curpos #120110
 [ "`whoami`" != "root" ] && exec sudo -A ${0} ${@} #110505
-CURPOS="`cat /tmp/desktop_drives_curpos`" #120110
-rm -f /tmp/desktop_drives_curpos #120110
-
-export LANG	# need to restart pmount with correct locale
 
 grep -q -m1 -i 'rox' /usr/local/bin/defaultfilemanager && ROX_FILER=yes
 
-#w002 extracted as a func...
 unmount_func() {
- 
  [ "$ROX_FILER" = "yes" ] && rox -D $MNTPT
  sync
  while [ 1 ];do
@@ -51,8 +45,7 @@ unmount_func() {
    umount $MNTPT ; umVAL=$?
   fi
   #rare ocassion, partition got unmounted before umount runs above...
-  umPATTERN="${MNTPT} "
-  [ "`busybox mount | grep "$umPATTERN"`" = "" ] && umVAL=0
+  mount | grep -q "${MNTPT} " || umVAL=0 #not mounted
   if [ $umVAL -ne 0 ];then
    EXTRAMSG0="`fuser -v -m $MNTPT`"  
    if [ "$EXTRAMSG0" = "" ];then
@@ -71,28 +64,20 @@ last resort.")
 $(gettext "Firstly you should try to close the programs
 manually, so do not press 'KILL'.")
 $(gettext "PLEASE PRESS THE 'EXIT' BUTTON!")"
-
     if [ $? -eq 10 ];then
      fuser -k -m $MNTPT
      continue
     fi
    fi
   else
-   [ "$DRV_CATEGORY" = "optical" ]  && eject_cd /dev/$ONEDRVNAME
+   [ "$DRV_CATEGORY" = "optical" ]  && eject /dev/$ONEDRVNAME
   fi
   break
  done
 }
 
-eject_cd ()
-{
-	eject $1
-}
-
-FSTYPE=""
-[ $2 ] && FSTYPE="$2" #see pup_event_frontend_d.
-PARAM1=""
-[ $1 ] && PARAM1="$1"
+PARAM1="$1"
+FSTYPE="$2" #see pup_event_frontend_d.
 
 #extract drive name from end of the script name...
 #note, when click on desktop icon, /root/.pup_event/drive_<ONEDRVNAME> is executed,
@@ -112,17 +97,15 @@ fi
 # and param2 has the fs type...
 case $PARAM1 in
  drive|card|floppy|optical|usbdrv)
-  mPATTERN="^/dev/${ONEDRVNAME} |^/dev/mapper/lukspartition_${ONEDRVNAME} "
-  MNTPT="`mount | grep -m1 -E "$mPATTERN" | tr -s ' ' | cut -f 3 -d ' '`" #140702 shinobar
+  MNTPT="`mount | grep -m1 -E "^/dev/${ONEDRVNAME} |^/dev/mapper/lukspartition_${ONEDRVNAME} " | tr -s ' ' | cut -f 3 -d ' '`"
   if [ "$MNTPT" ];then
+   read CURPOSX CURPOSY <<< `getcurpos`
    #get coords of desktop icon...
    drPTN=">/root/.pup_event/drive_${ONEDRVNAME}<"
    PPENTRY="`grep "$drPTN" /root/Choices/ROX-Filer/PuppyPin`"
    if [ "$PPENTRY" ];then
     xleft="`echo -n "$PPENTRY" | grep -o ' x="[0-9]*"' | cut -f 2 -d '"'`" #'geany
     ytop="`echo -n "$PPENTRY" | grep -o ' y="[0-9]*"' | cut -f 2 -d '"'`" #'geany
-    CURPOSX=`echo -n "$CURPOS" | cut -f 1 -d ' '`
-    CURPOSY=`echo -n "$CURPOS" | cut -f 2 -d ' '`
     #hmmm, have to apply correction to cursor position...
     CURPOSX=$(($CURPOSX + 24))
     CURPOSY=$(($CURPOSY + 32))
@@ -145,18 +128,13 @@ case $PARAM1 in
 esac
 
 if [ "$PARAM1" = "eventmanager" ];then #v403 chosen from drive icon menu.
- #v405 'desktop' param, cutdown tabs for desktop drive icons only...
- exec eventmanager desktop
+	exec eventmanager desktop
 fi
 
 if [ "$PARAM1" = "unmount" ];then #v403 chose unmount from drive icon menu.
- mPATTERN="^/dev/${ONEDRVNAME} |^/dev/mapper/lukspartition_${ONEDRVNAME} "
- MNTPT="`mount | grep -m1 -E "$mPATTERN" | tr -s ' ' | cut -f 3 -d ' '`" #140702 shinobar
- DRV_CATEGORY=""
- PROBEDISK="probedisk"
- DRV_CATEGORY=$($PROBEDISK | grep "^/dev/$ONEDRVNAME|" | cut -d'|' -f 2)
- echo "$DRV_CATEGORY" | grep '^cd' && DRV_CATEGORY="optical"
- [ "$MNTPT" = "" ] && [ "$DRV_CATEGORY" = "optical" ] && eject_cd /dev/$ONEDRVNAME
+ MNTPT="`mount | grep -m1 -E "^/dev/${ONEDRVNAME} |^/dev/mapper/lukspartition_${ONEDRVNAME} " | tr -s ' ' | cut -f 3 -d ' '`"
+ DRV_CATEGORY=$(probedisk $ONEDRVNAME | cut -d'|' -f 2)
+ [ "$MNTPT" = "" -a "$DRV_CATEGORY" = "optical" ] && eject /dev/$ONEDRVNAME
  [ "$MNTPT" = "" ] && exit #precaution.
  if [ "$MNTPT" = "/" -o "`echo "$MNTPT" | grep '/initrd/'`" != "" ];then
   /usr/lib/gtkdialog/box_ok "$(gettext 'Puppy drive manager')" error  "$(eval_gettext "/dev/\${ONEDRVNAME} mounted on \${MNTPT}
@@ -180,9 +158,8 @@ DRV_CATEGORY="${PARAM1}"
 [ "$DRV_CATEGORY" = "" ] && DRV_CATEGORY="drive" #precaution.
 [ "$DRV_CATEGORY" = "all" ] && DRV_CATEGORY="drive" #precaution.
 
-[ -f /etc/eventmanager ] && . /etc/eventmanager #written by /usr/sbin/eventmanager
+. /etc/eventmanager
 . /etc/rc.d/functions_x
-[ ! $RAMSAVEINTERVAL ] && RAMSAVEINTERVAL=30
 
 #if HOTPLUGON=false (see /etc/eventmanager and /sbin/pup_eventd) then there will only
 #be one icon on the desktop, labelled 'drives' and handler script is /usr/local/bin/drive_drives
@@ -195,11 +172,10 @@ if [ "$ONEDRVNAME" = "drives" ];then
 fi
 
 #oh, now have to analyse the media, decide what app to run...
-dPATTERN='^/dev/'"$ONEDRVNAME"' '
 
 optical_func() {
 
-  [ "`busybox mount | grep "$dPATTERN"`" = "" ] || return
+  mount | grep "^/dev/${ONEDRVNAME} " && return #already mounted
   DRIVEINFO="$(dvd+rw-mediainfo /dev/${ONEDRVNAME})"
   EXITCODE=$?
   DRIVETYPE="$(echo "$DRIVEINFO" | grep 'INQUIRY:')"
@@ -298,26 +274,18 @@ fi
 #if dropped down here, it is likely to be a data partition...
 
 #120516 pup_event_frontend_d may call here when a drive plugged in, but only passes one parameter (PARAM1). want FSTYPE also...
+xONEDRVNAME=${ONEDRVNAME}
 if [ "$FSTYPE" != "" ];then
- DOPARTS="${ONEDRVNAME}|${FSTYPE}" #120517
+ xFSTYPE=${FSTYPE}
 else
  #skip this if called directly by frontend_change
- if [ ! $FRONTEND_CHANGE ] ; then
-   Xpattern="${ONEDRVNAME}"
-   if [ -f /sys/block/${ONEDRVNAME} ] ; then
-     Xpattern="${ONEDRVNAME}.*"
-   fi
-   DOPARTS="`probepart -m "${Xpattern}" | cut -f 1,2 -d '|' | cut -f 3 -d '/' | grep -E 'btrfs|ext2|ext3|ext4|f2fs|hfs|iso9660|jfs|minix|msdos|ntfs|reiser|udf|vfat|exfat|xfs|crypto_LUKS' | tr '\n' ' '`" #ex: sda1|ext3 sda2|vfat sda3|ext3  130216 added f2fs    # SFR: enabled jfs & hfs
- fi
+ [ ! $FRONTEND_CHANGE ] && xFSTYPE=$(probepart -m "${ONEDRVNAME}" | cut -f 2 -d '|')
 fi
 
 #if it is a mountable partition then mount and open with rox. If already mntd then open in rox...
 EXITFLAG=no
-for ONEDO in $DOPARTS
-do
- xONEDRVNAME="`echo -n "$ONEDO" | cut -f 1 -d '|'`"
- xFSTYPE="`echo -n "$ONEDO" | cut -f 2 -d '|'`"
- if [ "`df | grep "$dPATTERN"`" = "" ];then
+if [ "$xFSTYPE" ] ; then
+ if [ "`df | grep "^/dev/${ONEDRVNAME} "`" = "" ];then
   #not mounted...
   mkdir -p /mnt/$xONEDRVNAME
   case $xFSTYPE in
@@ -343,31 +311,15 @@ do
      fi
    fi
    EXITFLAG=yes
-  else
-   #091223 why did it fail?
-   dd if=/dev/$xONEDRVNAME of=/dev/null bs=512 count=1 > /dev/null 2>&1
-   if [ $? -ne 0 ];then
-    yONEDRV=$(fx_get_drvname $xONEDRVNAME)
-    #/tmp/pup_event_frontend_block_request is used in /sbin/pup_event_frontend_d to refresh drv...
-    if [ ! $FRONTEND_CHANGE ] ; then
-      #should not execute this if called by frontend_change
-      echo "$yONEDRV" > /tmp/pup_event_frontend_block_request
-    fi
-   fi
   fi
  else
   #mounted...
-  sddPATTERN='/dev/'"$ONEDRVNAME"' '
-  MNTPT="`df -a| grep -m1 "$dPATTERN" | tr -s ' ' | cut -f6 -d ' '`" #140702 shinobar
+  MNTPT="`mount | grep -m1 "^/dev/${ONEDRVNAME} " | cut -f 3 -d ' '`"
   if [ -h /mnt/home ];then
    [ "`readlink /mnt/home`" = "$MNTPT" ] && MNTPT="/mnt/home"
   fi
   #110720 should not open a layer inside aufs, ex: session saved entire partition, desktop drive icon is /initrd/pup_rw...
-  case $MNTPT in
-   /initrd/pup_*)
-    MNTPT="/" #open rox at top of aufs layers.
-   ;;
-  esac
+  case $MNTPT in /initrd/pup_*) MNTPT="/" ;; esac
   if [ ! $FRONTEND_CHANGE ] ; then
     if [ "$ROX_FILER" = "yes" ] ; then
       rox -x $MNTPT -d $MNTPT &
@@ -377,7 +329,7 @@ do
   fi
   EXITFLAG=yes
  fi
-done
+fi
 [ "$EXITFLAG" = "yes" ] && exit
 
 #NOTE: if pmount already running, don't really want to kill then restart,
