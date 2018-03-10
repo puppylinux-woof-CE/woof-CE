@@ -1643,8 +1643,8 @@ $(gettext 'Click window close box to quit...')" 0 0
   #info for creating a grub entry...
   DESTPART_UUID=$(blkid /dev/${DESTPART} | grep -o ' UUID=".*' | cut -d '"' -f2)
   if [ "$DESTPART_UUID" ] ; then
-    GRUBPART="#root (hd0,0) <-- GRUB legacy, ex: (hd1,0)
-uuid ${DESTPART_UUID}"
+    GRUBPART="#root (hd0,0) <-- GRUB legacy, ex: (hd1,0), etc..
+find --set-root uuid () ${DESTPART_UUID}"
   else
     GRUBPART="root (hd0,0)"
   fi
@@ -1812,13 +1812,16 @@ $(gettext 'your PC for all installations of Puppy and other operating systems)')
         sync
         kill $XPID
         ;;
-       42) UPGRADE_INSTALL=1 ;;
+       42)
+        mv -f ${DESTMNTPT}/etc/fstab ${DESTMNTPT}/etc/fstab.bak
+        UPGRADE_INSTALL=1
+        ;;
     esac
    # remove some critical files
    rm -f ${DESTMNTPT}/lib/modules/${KERNELVER}/modules.*
    RC_STUFF="$(ls ${DESTMNTPT}/etc/rc.d/rc.* | grep -v "/rc.local$" | tr '\n' ' ')"
-   rm -f ${RC_STUFF}
-   rm -f ${DESTMNTPT}/etc/rc.d/funct*
+   rm -fv ${RC_STUFF}
+   rm -fv ${DESTMNTPT}/etc/rc.d/funct*
    echo "installing"
    #loop-device mount ${DISTRO_PUPPYSFS} in DESTPART, copy contents of ${DISTRO_PUPPYSFS} to DESTPART...
    for SFS in ${DISTRO_PUPPYSFS} ${DISTRO_ZDRVSFS} ${DISTRO_FDRVSFS} ${DISTRO_ADRVSFS} ${DISTRO_YDRVSFS}
@@ -1832,7 +1835,7 @@ $(gettext 'your PC for all installations of Puppy and other operating systems)')
      losetup ${FREEDEV} "${SRCPATH}/${SFS}" #100913
      mkdir -p ${DESTMNTPT}/srcmntpt
      mount -r -t squashfs ${FREEDEV} ${DESTMNTPT}/srcmntpt
-     cp -a -u --remove-destination ${DESTMNTPT}/srcmntpt/* ${DESTMNTPT}/ || {
+     cp -a --remove-destination ${DESTMNTPT}/srcmntpt/* ${DESTMNTPT}/ || {
        [ "$SFS" = "$DISTRO_PUPPYSFS" ] && fatal
      }
      sync
@@ -1848,24 +1851,41 @@ $(gettext 'your PC for all installations of Puppy and other operating systems)')
     depmod -b ${DESTMNTPT}
    fi
    sync
+
+   ( 
+     cd ${DESTMNTPT}/
+     rm -rf archive initrd tmp
+     mkdir -p tmp sys
+     ln -sf tmp run
+   )
+
+   mkdir -p ${DESTMNTPT}/boot
+   cp -af --remove-destination ${SRCPATH}/vmlinuz $DESTMNTPT/boot/
    
-   FULL_INSTALL_INITRD=no
-   if [ -f /initrd/tmp/not_a_huge_kernel -o -f /var/initrd/tmp/not_a_huge_kernel ] ; then
+   if [ $UPGRADE_INSTALL ] ; then
+	touch ${DESTMNTPT}/var/local/full_install_update_flag #full update
+	mv -f ${DESTMNTPT}/etc/fstab.bak ${DESTMNTPT}/etc/fstab
+	if [ -f $DESTMNTPT/boot/initrd.gz ] ; then
+	  cp -a --remove-destination ${SRCPATH}/initrd.gz $DESTMNTPT/boot/
+	fi
+	/usr/lib/gtkdialog/box_ok "$(gettext 'Puppy Installer')" info "$(gettext "Finished upgrading.")" "$(gettext "Hopefully everything went ok...")"
+	which grub4dosconfig &>/dev/null && grub4dos_func
+	exit
+   else
+    rm -f ${DESTMNTPT}/etc/networkmodules*
+    FULL_INSTALL_INITRD=no
+    if [ -f /initrd/tmp/not_a_huge_kernel -o -f /var/initrd/tmp/not_a_huge_kernel ] ; then
       # non-huge kernel
       FULL_INSTALL_INITRD=yes
-   else
+    else
      # huge kernel
      /usr/lib/gtkdialog/box_yesno --yes-first --yes-icon none --no-icon none "$L_PUPPY_INSTALLER" \
      "Do you want to have a full install with a initial RAM disk (initrd.gz)?" \
      "This adds, let's say, a layer of sanity providing more services and options than the regular full-install boot... (even more stability)."
      [ $? -eq 0 ] && FULL_INSTALL_INITRD=yes
+    fi
    fi
-   rm -f ${DESTMNTPT}/etc/networkmodules*
-   #[ $UPGRADE_INSTALL ] && touch ${DESTMNTPT}/var/local/full_install_update_flag #full update
    sync
-
-   mkdir -p ${DESTMNTPT}/boot
-   cp -p --remove-destination ${SRCPATH}/vmlinuz $DESTMNTPT/boot/
 
    mv -f ${DESTMNTPT}/etc/fstab ${DESTMNTPT}/etc/fstab.bak
 
@@ -1873,7 +1893,7 @@ $(gettext 'your PC for all installations of Puppy and other operating systems)')
      ROOTDEV="root=UUID=${DESTPART_UUID}"
      ROOTDEV_ALT="
 #                                root=/dev/${DESTPART}"
-     cp -p --remove-destination ${SRCPATH}/initrd.gz $DESTMNTPT/boot/
+     cp -a --remove-destination ${SRCPATH}/initrd.gz $DESTMNTPT/boot/
      GRUB_INITRD='initrd /boot/initrd.gz'
      echo "none          /proc        proc     defaults               0 0" > $DESTMNTPT/etc/fstab
    else
@@ -1888,12 +1908,6 @@ $(gettext 'your PC for all installations of Puppy and other operating systems)')
    echo 'PUPMODE=2' > $DESTMNTPT/etc/rc.d/PUPSTATE
    sync
 
-   ( 
-     cd ${DESTMNTPT}/
-     rm -rf archive initrd tmp
-     mkdir -p tmp sys
-     ln -sf tmp run
-   )
    sync
    sleep 1
    umount ${DESTMNTPT}
