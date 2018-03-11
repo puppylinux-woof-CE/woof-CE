@@ -121,6 +121,7 @@ esac
 ## command line ##
 while [ "$1" ] ; do
 	case $1 in
+		-fullinstall) FULL_INSTALL=yes ; shift ;;
 		-sysgcc)   USE_SYS_GCC=yes     ; USE_PREBUILT=no; shift ;;
 		-cross)    CROSS_COMPILE=yes   ; USE_PREBUILT=no; shift ;;
 		-all)      FORCE_BUILD_ALL=yes ; shift ;;
@@ -449,6 +450,7 @@ function generate_initrd() {
 	if [ ! -f "$DISTRO_SPECS" -a ! -f ../0initrd/DISTRO_SPECS ] ; then
 		[ -f /etc/DISTRO_SPECS ] && DISTRO_SPECS='/etc/DISTRO_SPECS'
 		[ -f /initrd/DISTRO_SPECS ] && DISTRO_SPECS='/initrd/DISTRO_SPECS'
+		. /etc/rc.d/PUPSTATE #PUPMODE
 	fi
 	[ -f "$DISTRO_SPECS" ] && cp -f ${V} "${DISTRO_SPECS}" .
 	[ -x ../init ] && cp -f ${V} ../init .
@@ -458,6 +460,18 @@ function generate_initrd() {
 	cp -f ${V} ../pkg/busybox_static/bb-*-symlinks bin # essential
 	(  cd bin ; sh bb-create-symlinks 2>/dev/null )
 	sed -i 's|^PUPDESKFLG=.*|PUPDESKFLG=0|' init
+
+	if [ "$FULL_INSTALL" -o "$PUPMODE" = "2" ] ; then
+		rm -fv bin/cryptsetup
+		rm -fv bin/ntfs-3g
+		rm -fv bin/mount.exfat-fuse
+		rm -fv bin/fsck.fat
+		rm -fv bin/losetup-222
+		rm -fv bin/exfatfsck
+		rm -fv bin/resize2fs
+		mv init_full_install init
+		find -L bin -type l -delete
+	fi
 
 	find . | cpio -o -H newc > ../initrd 2>/dev/null
 	cd ..
