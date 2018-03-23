@@ -24,59 +24,77 @@
 #define LINE_SIZE BUF_SIZE
 
 int main (int argc, char ** argv) {
- int cntargs;
- char *buffer1;
- char *buffer2;
- FILE* fp;
- char *ptokens[15];
- int i;
- int cnt;
- int max=0;
+	int cntargs;
+	char *buffer1;
+	char *buffer2;
+	FILE* fp;
+	char *ptokens[15];
+	int i;
+	int cnt;
+	int max=0;
 	int nextarg;
 	int args[15];
 
-	for (cntargs=2;cntargs<argc;++cntargs) {
-		args[cntargs]=atoi(argv[cntargs]);
-		if (cntargs==2) max=args[cntargs]; else max=args[cntargs]>max ? args[cntargs] : max;
+	char *appname = strrchr(argv[0], '/');
+	if (appname) {
+		appname++;
+	} else {
+		appname = argv[0];
+	}
+	if (argc < 3) {
+		printf("syntax: %s <file> <column1> [column2] etc\n", appname);
+		return 1;
 	}
 
- buffer1 = malloc(LINE_SIZE);
- buffer2 = malloc(BUF_SIZE);
- fp = fopen(argv[1],"r");
- setbuffer(fp, buffer2, BUF_SIZE);
+	for (cntargs = 2; cntargs < argc; ++cntargs) {
+		args[cntargs] = atoi(argv[cntargs]);
+		if (cntargs == 2) {
+			max = args[cntargs];
+		} else {
+			max = args[cntargs] > max ? args[cntargs] : max;
+		}
+	}
 
- while( fgets(buffer1,LINE_SIZE,fp) != NULL ) {
+	fp = fopen(argv[1],"r");
+	if (!fp) {
+		printf("%s: Error opening %s\n", appname, argv[1]);
+		return 1;
+	}
 
-  cnt=1;
+	buffer1 = malloc(LINE_SIZE);
+	buffer2 = malloc(BUF_SIZE);
 
-  ptokens[0]=buffer1;
-  i=0;
-  while (buffer1[i]!='\0' && cnt<=max) {
-	if (buffer1[i]=='|') {
-	 buffer1[i]='\0';
-     ptokens[cnt]=&buffer1[i+1];
-     ++cnt;
-    }
-    ++i;
-  }
+	while( fgets(buffer1,LINE_SIZE,fp) != NULL ) {
+
+		cnt=1;
+
+		ptokens[0] = buffer1;
+		i = 0;
+		while (buffer1[i] != '\0' && cnt<=max) {
+			if (buffer1[i] == '|') {
+				buffer1[i] = '\0';
+				ptokens[cnt]=&buffer1[i+1];
+				++cnt;
+			}
+			++i;
+		}
 
 		/*print the fields in requested order...*/
-		for (cntargs=2;cntargs<argc;++cntargs) {
-
+		for (cntargs=2; cntargs < argc; ++cntargs) {
 			nextarg=args[cntargs];
-
-			if ( nextarg >= cnt ) { putc('|', stdout); continue; } /*in case of lines with less fields*/
+			if ( nextarg >= cnt ) { /*in case of lines with less fields*/
+				putc('|', stdout);
+				continue;
+			}
 			fputs(ptokens[nextarg - 1], stdout);
 			putc('|', stdout);
-	 }
+		}
 		putc('\n', stdout);
- }
+	}
 
-
- fclose(fp);
- free(buffer2);
- free(buffer1);
-
- return 0;
+	fclose(fp);
+	free(buffer2);
+	free(buffer1);
+	return 0;
 }
 
