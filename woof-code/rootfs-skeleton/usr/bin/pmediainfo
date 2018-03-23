@@ -1,0 +1,128 @@
+#!/bin/bash
+#
+# simple cli/gui wrapper/frontend for mediainfo/ffprobe/avprobe
+#
+# cli: mediainfo || ffprobe || avprobe
+# gui: mediainfo-gui || ffprobe (YAD) || avprobe (YAD)
+#
+
+export app=${0##*/}
+export file="$@"
+export tmpfile="/tmp/mediainfo$$"
+
+if [ ! "$file" ] ; then
+	if [ "$DISPLAY" ] ; then
+		file=$(yad --title="Open File" --file --filename="${PWD}" --width="640" --height="480" --center --button=gtk-ok:0 --button=gtk-cancel:0)
+		[ ! "$file" ] && echo "User cancelled operation" && exit 1
+	else
+		echo -e "*  Syntax: \n		$0 <file>"
+		exit 1
+	fi
+fi
+
+if [ ! -f "$file" ] ; then
+	echo "* Invalid file: $file"
+	[ "$DISPLAY" ] && yad --title="$app" --text="Invalid file: \n\n$file" --image="dialog-error" --button="OK":0 --center
+	exit 1
+fi
+
+file="$(realpath "$file")"
+export name=${file##*/} #basename $file
+
+if [ "$DISPLAY" ] ; then
+	if which mediainfo-gui ; then
+		exec mediainfo-gui "$file"
+	fi
+fi
+
+#====================================
+
+trap "rm -f $tmpfile" SIGINT SIGTERM
+
+if which mediainfo &>/dev/null ; then
+	mediainfo "$file" > ${tmpfile}
+elif which ffprobe &>/dev/null ; then
+	probe='ffprobe' #ffmpeg
+elif which avprobe &>/dev/null ; then
+	probe='avprobe' #libav
+else
+	errmsg="\n* ERROR: could not locate mediainfo/ffprobe/avprobe"
+	echo -e "$errmsg"
+	[ "$DISPLAY" ] && yad --title="$app" --text="$errmsg" --image="dialog-error" --button="OK":0 --center
+	exit 1
+fi
+
+case ${probe} in ffprobe|avprobe)
+	$probe -show_format -show_streams -pretty "$file" 2>/dev/null | \
+	sed \
+		-e "/^TAG/d" \
+		-e "/^DISPOSITION/d" \
+		-e "/^color/d" \
+		-e "/^id/d" \
+		-e "/^nb_/d" \
+		-e "/^codec_time_base/d" \
+		-e "/^duration_ts/d" \
+		-e "/^start_pts/d" \
+		-e "/^bits_per_raw/d" \
+		-e "/^chroma/d" \
+		-e "/^timecode/d" \
+		-e "/^start_time/d" \
+		-e "/^codec_name/d" \
+		-e "/^codec_tag/d" \
+		-e "/^refs/d" \
+		-e "/^is_avc/d" \
+		-e "s/^\[F/\n\[F/" \
+		-e "s/^\[S/\n\[S/" \
+		-e "s/\[\/.*//" | \
+	while read line ; do
+		max=22
+		if [[ $line == *\=* ]] ; then
+			field=${line%%=*}
+			desc=${line#*=}
+			fieldl=${#field}
+			[ ! "$desc" ] && continue
+			x=$((max-fieldl))
+			echo -n "$field"
+			for ((z=1;z<=x;z++)) ; do echo -n ' ' ; done
+			echo "= $desc"
+		else
+			echo "$line"
+		fi
+	done > ${tmpfile}
+	;;
+esac
+
+#################################################################
+
+function SaveViewerText(){
+	configx="${HOME}/.config/mediainfodir"
+	lastdirx="$(cat $configx 2>/dev/null)"
+	lastdir=$HOME
+	[ -d "$lastdirx" ] && lastdir="$lastdirx"
+	filetemplate=${lastdir}/${name%.*}.txt
+	filex=$(yad --title="Save As..." --file --save --filename="$filetemplate" \
+	--width=640 --height=480 --center --button="Save:0" --button="Cancel:1")
+	[ $? -ne 0 ] && exit
+	echo -n "${filex%/*}" > $configx
+	cp -f "$tmpfile" "$filex"
+}
+function ViewWith(){ 
+	geany "$tmpfile" & 
+}
+export -f SaveViewerText
+export -f ViewWith
+
+if [ "$DISPLAY" ] ; then
+	yad --title="${app}: $file" --center --width="640" --height="480" \
+	--text-info --filename="$tmpfile" --wrap --fore="#000033" --back="#FFFFFF" --margins=10 \
+	--fontname="Monospace 12" --maximized --tail \
+	--button="Close":0 \
+	--button="Save As... :bash -c 'SaveViewerText %d'" \
+	--button="Open Externally... :bash -c 'ViewWith %d'"
+else
+	cat $tmpfile | more
+fi
+
+rm -f $tmpfile
+
+### END ###
