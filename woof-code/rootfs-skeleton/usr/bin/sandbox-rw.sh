@@ -48,8 +48,10 @@ if [ $(id -u) -ne 0 ]; then
 fi
 
 # 0.2 cannot launch sandbox within sandbox
-grep -q $SANDBOX_ROOT /sys/fs/aufs/$AUFS_ROOT_ID/br0 &&
-echo "Cannot launch sandbox within sandbox." && exit
+if [ "$AUFS_ROOT_ID" != "" ] ; then
+	grep -q $SANDBOX_ROOT /sys/fs/aufs/$AUFS_ROOT_ID/br0 &&
+		echo "Cannot launch sandbox within sandbox." && exit
+fi
 
 # 0.3 help
 case "$1" in
@@ -73,15 +75,18 @@ if grep -q $FAKEROOT /proc/mounts; then
 fi
 
 # 1. get aufs system-id for the root filesystem
-[ -z "$AUFS_ROOT_ID" ] && AUFS_ROOT_ID=$(
-awk '{ if ($2 == "/" && $3 == "aufs") { match($4,/si=[0-9a-f]*/); print "si_" substr($4,RSTART+3,RLENGTH-3) } }' /proc/mounts
-)
+if [ -z "$AUFS_ROOT_ID" ] ; then
+	AUFS_ROOT_ID=$(
+		awk '{ if ($2 == "/" && $3 == "aufs") { match($4,/si=[0-9a-f]*/); print "si_" substr($4,RSTART+3,RLENGTH-3) } }' /proc/mounts
+	)
+fi
 
 # 2. get branches, then map branches to mount types or loop devices 
 items=$(
 { echo ==mount==; cat /proc/mounts; 
   echo ==losetup==; losetup-FULL -a; 
-  echo ==branches==; ls -v /sys/fs/aufs/$AUFS_ROOT_ID/br[0-9]* | xargs sed 's/=.*//'; } | awk '
+  echo ==branches==; ls -v /sys/fs/aufs/$AUFS_ROOT_ID/br[0-9]* | xargs sed 's/=.*//'; } | \
+  awk '
   /==mount==/ { mode=1 }
   /==losetup==/ { mode=2 }
   /==branches==/ { mode=3 }
@@ -110,9 +115,13 @@ items=$(
 '
 )
 # '
+
+# got a savedir.. breaks the dialog.. that should not happen
+items="$(echo "$items" | grep squashfs)" #only need SFS's
+
 # 3. Ask user to choose the SFS
 dialog --separate-output --backtitle "rw image sandbox" --title "sandbox config" \
-	--checklist "Choose which SFS you want to use" 0 60 10 $items 2> $TMPFILE
+	--checklist "Choose which SFS you want to use" 0 0 0 $items 2> $TMPFILE
 chosen="$(cat $TMPFILE)"
 
 clear
@@ -208,6 +217,7 @@ if mount -o loop "$rwbranch" $SANDBOX_IMG; then
 		echo AUFS_ROOT_ID=$SANDBOX_AUFS_ID >> $FAKEROOT/etc/BOOTSTATE
 		
 		# 5. sandbox is ready, now just need to mount other supports - pts, proc, sysfs, usb and tmp
+		mkdir -p $FAKEROOT/dev $FAKEROOT/sys $FAKEROOT/proc $FAKEROOT/tmp
 		mount -o rbind /dev $FAKEROOT/dev
 		mount -t sysfs none $FAKEROOT/sys
 		mount -t proc none $FAKEROOT/proc
