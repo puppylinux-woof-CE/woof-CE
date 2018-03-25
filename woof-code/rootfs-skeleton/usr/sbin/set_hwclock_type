@@ -8,58 +8,88 @@ export OUTPUT_CHARSET=UTF-8
 
 CLI=yes
 MENUBOX='--menubox'
-pidof X &>/dev/null || pidof Xorg &>/dev/null && CLI=""
-case $1 in cli|-cli|--cli) CLI=yes ; shift ;; esac
 
-DIALOG=Xdialog
+for i in $@ ; do
+	case $1 in 
+		cli|-cli|--cli) CLI=yes ;;
+		q|-q|-quiet) QUIET=1    ;;
+		localtime|utc) HWCLOCKTIME=$1 ;;
+		--hctosys|--systohc) HWOPT=$1 ;;
+		*) echo "unknown param: $1" ;;
+	esac
+	shift
+done
+
+if [ -z "$HWOPT" -o -z "$HWCLOCKTIME" ] ; then
+	pidof X &>/dev/null || pidof Xorg &>/dev/null && CLI=""
+fi
+
+if [ ! -e /etc/localtime ] ; then
+	ln -sf /usr/share/zoneinfo/GMT0 /etc/localtime
+fi
+
 if [ "$CLI" = "yes" ] ; then
 	DIALOG=dialog
 	MENUBOX='--menu'
-fi
-
-[ -f /etc/clock ] && . /etc/clock
-
-if [ "$HWCLOCKTIME" = "utc" ]; then
-    utc_flag='on'
-    local_flag='off'
 else
-    utc_flag='off'
-    local_flag='on'
+	DIALOG=Xdialog
 fi
 
-REP=/tmp/res_$(basename $0).txt
-$DIALOG --title "$(gettext 'Set HW-Clock Type')" --radiolist "$(gettext 'What should the hardware clock be interpreted as?')" 0 0 0 localtime "" "$local_flag" utc "" "$utc_flag" 2>$REP
-[ $? -ne 0 ] && { rm -f $REP ; exit ; }
+REP=/tmp/${0##*/}$$.txt
 
-HWCLOCKTIME=$(tail -n 1 $REP)
+#=====================================
 
-if [ "$HWCLOCKTIME" = "utc" -o "$HWCLOCKTIME" = "localtime" ]; then
-
-    if [ "$(grep "^HWCLOCKTIME=" /etc/clock)" = "" ]; then
-        echo "HWCLOCKTIME='$HWCLOCKTIME'" >> /etc/clock
-    else
-        hwPATTERN="s/^HWCLOCKTIME=[^#]*/HWCLOCKTIME='$HWCLOCKTIME'/"
-        sed -i "$hwPATTERN" /etc/clock
-    fi
-
-    HWDATE="`hwclock --show 2>/dev/null`" #ex: "Fri 29 Jun 2012 07:45:28 AM WST  -0.725833 seconds"
-    [ "$HWDATE" = "" ] && exit
-
-    $DIALOG --title "`gettext \"Set HW-Clock Type\"`" --ok-label "`gettext \"Yes\"`" --cancel-label "`gettext \"No\"`" \
-      $MENUBOX "`gettext \"Update the software clock or the hardware clock? \n...if you don't know or uncertain, that's ok, just click the 'No' button\"`" 0 0 0 "to match hardware" "" "to match software" ""  2>$REP
-    [ $? -ne 0 ] && { rm -f $REP ; exit ; }
-    RET=$(tail -n 1 $REP)
-
-    if [ "$RET" = "to match software" ]; then
-      hwclock --hctosys --$HWCLOCKTIME
-    elif [ "$RET" = "to match hardware" ]; then
-      hwclock --systohc --$HWCLOCKTIME
-    fi
-
-    [ "$CLI" != "yes" ] && Xdialog --title "$(gettext 'Set HW-Clock Type')" --infobox "$(gettext 'Done')" 0 0 4000
-
+if [ -z $HWCLOCKTIME ] ; then
+	[ -f /etc/clock ] && . /etc/clock
+	case $HWCLOCKTIME in
+		localtime|utc) ok=1 ;;
+		*) HWCLOCKTIME=localtime ;;
+	esac
 fi
 
+if [ ! "$QUIET" ] ; then
+	if [ "$HWCLOCKTIME" = "utc" ]; then
+		utc_flag='on'
+		local_flag='off'
+	else
+		utc_flag='off'
+		local_flag='on'
+	fi
+	$DIALOG --title "$(gettext 'Set HW-Clock Type')" --radiolist "$(gettext 'What should the hardware clock be interpreted as?')" 0 0 0 localtime "" "$local_flag" utc "" "$utc_flag" 2>$REP
+	[ $? -ne 0 ] && { rm -f $REP ; exit ; }
+	HWCLOCKTIME=$(tail -n 1 $REP)
+fi
+
+echo "HWCLOCKTIME='$HWCLOCKTIME'" > /etc/clock
+
+[ "$QUIET" ] && [ ! "$HWOPT" ] && HWOPT=--hctosys
+
+if [ -z $HWOPT ] ; then
+	$DIALOG --title "`gettext \"Set HW-Clock Type\"`" --ok-label "`gettext \"Yes\"`" --cancel-label "`gettext \"No\"`" \
+		$MENUBOX "`gettext \"Update the software clock or the hardware clock? \n...if you don't know or uncertain, that's ok, just click the 'No' button\"`" 0 0 0 "to match hardware" "" "to match software" ""  2>$REP
+	[ $? -ne 0 ] && { rm -f $REP ; exit ; }
+	RET=$(tail -n 1 $REP)
+	[ "$RET" = "to match software" ] && HWOPT=--hctosys #cmos clock to system.
+	[ "$RET" = "to match hardware" ] && HWOPT=--systohc #system to hardware clock.
+fi
 rm -f $REP
+
+#===================================================
+
+#Ref: http://www.gnu.org/s/libc/manual/html_node/TZ-Variable.html
+TZ=$(readlink /etc/localtime | sed -e 's,/usr/share/zoneinfo/,,' -e 's,Etc/,,') #shinobar
+export TZ
+
+CMD="hwclock ${HWOPT} --${HWCLOCKTIME}"
+echo $CMD
+if [ "${HWOPT}" = "--hctosys" ] ; then
+	#...--hctosys reads cmos clock to system, referencing /usr/share/zoneinfo/localtime
+	$CMD || $CMD --directisa #try --directisa if reading from /dev/rtc fails
+else
+	# set hardware clock from system time/date
+	$CMD
+fi
+
+exit $?
 
 ### END ###
