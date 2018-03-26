@@ -8,6 +8,10 @@
 
 export app=${0##*/}
 
+if [ -f /usr/share/pixmaps/puppy/multimedia.svg ] ; then
+	dlg_icon='--window-icon=/usr/share/pixmaps/puppy/multimedia.svg'
+fi
+
 if [ "$DISPLAY" ] ; then
 	PMI_GUI=1 ; PMI_CLI=""
 else
@@ -23,7 +27,7 @@ export tmpfile="/tmp/mediainfo$$"
 
 if [ ! "$file" ] ; then
 	if [ "$PMI_GUI" ] ; then
-		file=$(yad --title="Open File" --file --filename="${PWD}" --width="640" --height="480" --center --button=gtk-ok:0 --button=gtk-cancel:0)
+		file=$(yad --title="Open File" --file --filename="${PWD}" --width="640" --height="480" --center --button=gtk-ok:0 --button=gtk-cancel:0 $dlg_icon)
 		[ ! "$file" ] && echo "User cancelled operation" && exit 1
 	else
 		echo -e "*  Syntax: \n		$0 <file>"
@@ -33,7 +37,7 @@ fi
 
 if [ ! -f "$file" ] ; then
 	echo "* Invalid file: $file"
-	[ "$PMI_GUI" ] && yad --title="$app" --text="Invalid file: \n\n$file" --image="dialog-error" --button="OK":0 --center
+	[ "$PMI_GUI" ] && yad --title="$app" --text="Invalid file: \n\n$file" --image="dialog-error" --button="OK":0 --center $dlg_icon
 	exit 1
 fi
 
@@ -59,13 +63,17 @@ elif which avprobe &>/dev/null ; then
 else
 	errmsg="\n* ERROR: could not locate mediainfo/ffprobe/avprobe"
 	echo -e "$errmsg"
-	[ "$PMI_GUI" ] && yad --title="$app" --text="$errmsg" --image="dialog-error" --button="OK":0 --center
+	[ "$PMI_GUI" ] && yad --title="$app" --text="$errmsg" --image="dialog-error" --button="OK":0 --center $dlg_icon
 	exit 1
 fi
 
 case ${probe} in ffprobe|avprobe)
-	$probe -show_format -show_streams -pretty "$file" 2>/dev/null | \
-	sed \
+	pre_info=$(
+		$probe -show_format -show_streams -pretty "$file" 2>/dev/null | \
+		sed \
+		-e "/^filename/d" \
+		-e "\%=N/A%d" \
+		-e "/=unknown/d" \
 		-e "/^TAG/d" \
 		-e "/^DISPOSITION/d" \
 		-e "/^color/d" \
@@ -79,27 +87,80 @@ case ${probe} in ffprobe|avprobe)
 		-e "/^timecode/d" \
 		-e "/^start_time/d" \
 		-e "/^codec_name/d" \
+		-e "/^format_name/d" \
 		-e "/^codec_tag/d" \
 		-e "/^refs/d" \
 		-e "/^is_avc/d" \
-		-e "s/^\[F/\n\[F/" \
-		-e "s/^\[S/\n\[S/" \
-		-e "s/\[\/.*//" | \
+		-e "/^nal_length_size/d" \
+		-e "/^time_base/d" \
+		-e "/^level/d" \
+		-e "/^probe_score/d" \
+		-e "/^bits_per_sample=0/d" \
+		-e "\%^r_frame_rate=0/0%d" \
+		-e "\%^avg_frame_rate=0/0%d" \
+		-e "s%^\[/.*%%"
+	)
+
+	if [ -z "$pre_info" ] ; then
+		errmsg="\n* ERROR: could not info from: \n\n$file"
+		echo -e $errmsg
+		yad --title="$app" --text="$errmsg" --image="dialog-error" --button="OK":0 --center $dlg_icon
+		exit 1
+	fi
+
+	touch /tmp/pmediainfo$$_stream.txt /tmp/pmediainfo$$_format.txt
+	outfile=/tmp/pmediainfo$$_stream.txt
+	max=22
 	while read line ; do
-		max=22
+		if [ "$line" = "[FORMAT]" ] ; then
+			outfile=/tmp/pmediainfo$$_format.txt
+		fi
 		if [[ $line == *\=* ]] ; then
 			field=${line%%=*}
 			desc=${line#*=}
-			fieldl=${#field}
+			field_str_len=${#field}
 			[ ! "$desc" ] && continue
-			x=$((max-fieldl))
+			case $field in #fix some values
+				duration) #0:03:37.000000 -> 3min 37sec
+					desc=${desc%.*} #0:03:37.000000 -> 0:03:37
+					IFS=":" read h m s <<< "$desc"
+					desc=""
+					[ "$h" != "0" ] && desc="${h}h "
+					desc="${desc}${m}m"
+					[ "$s" != "00" ] && desc="$desc ${s}s"
+					;;
+				size|*bit_rate) #29.234309 Mibyte -> 29.2 Mibyte
+					read d1 d2 <<< "$desc"
+					d1=$(printf "%.1f" $d1)
+					desc="$d1 $d2"
+					;;
+				*frame_rate) #30000/1001 -> 29.970 fps
+					IFS="/" read n1 n2 <<< "$desc"
+					fps=$(dc $n1 $n2 \/ p)
+					fps=$(printf "%.3f" $fps)
+					[[ $fps == *.000 ]] && fps=${fps%.*}
+					desc="$fps fps"
+					;;
+			esac
+			x=$((max-field_str_len))
+			(
 			echo -n "$field"
 			for ((z=1;z<=x;z++)) ; do echo -n ' ' ; done
 			echo "= $desc"
+			) >> $outfile
 		else
-			echo "$line"
+			echo "$line" >> $outfile
 		fi
-	done > ${tmpfile}
+	done <<< "$pre_info"
+
+	(
+	echo "File: $file"
+	echo
+	echo "$(< /tmp/pmediainfo$$_format.txt)"
+	echo
+	echo "$(< /tmp/pmediainfo$$_stream.txt)"
+	) > ${tmpfile}
+	rm -f /tmp/pmediainfo$$_stream.txt /tmp/pmediainfo$$_format.txt
 	;;
 esac
 
@@ -112,7 +173,7 @@ function SaveViewerText(){
 	[ -d "$lastdirx" ] && lastdir="$lastdirx"
 	filetemplate=${lastdir}/${name%.*}.txt
 	filex=$(yad --title="Save As..." --file --save --filename="$filetemplate" \
-	--width=640 --height=480 --center --button="Save:0" --button="Cancel:1")
+	--width=640 --height=480 --center --button="Save:0" --button="Cancel:1" $dlg_icon)
 	[ $? -ne 0 ] && exit
 	echo -n "${filex%/*}" > $configx
 	cp -f "$tmpfile" "$filex"
@@ -129,7 +190,7 @@ if [ "$PMI_GUI" ] ; then
 	--fontname="Monospace 12" --maximized --tail \
 	--button="Close":0 \
 	--button="Save As... :bash -c 'SaveViewerText %d'" \
-	--button="Open Externally... :bash -c 'ViewWith %d'"
+	--button="Open Externally... :bash -c 'ViewWith %d'" $dlg_icon
 else
 	cat $tmpfile | more
 fi
