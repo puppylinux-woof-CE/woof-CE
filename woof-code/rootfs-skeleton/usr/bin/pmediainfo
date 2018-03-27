@@ -67,6 +67,17 @@ else
 	exit 1
 fi
 
+format_field_str() {
+	str="$1"
+	str=${str//_long/}
+	str=${str//_name/}
+	str=${str//_/ }
+	first_char=${str:0:1}
+	first_char=${first_char^^} #uppercase
+	str=${first_char}${str:1}
+	echo "$str"
+}
+
 case ${probe} in ffprobe|avprobe)
 	pre_info=$(
 		$probe -show_format -show_streams -pretty "$file" 2>/dev/null | \
@@ -95,43 +106,59 @@ case ${probe} in ffprobe|avprobe)
 		-e "/^time_base/d" \
 		-e "/^level/d" \
 		-e "/^probe_score/d" \
+		-e "/^has_b_frames=0/d" \
 		-e "/^bits_per_sample=0/d" \
 		-e "\%^r_frame_rate=0/0%d" \
 		-e "\%^avg_frame_rate=0/0%d" \
-		-e "s%^\[/.*%%"
 	)
 
 	if [ -z "$pre_info" ] ; then
-		errmsg="\n* ERROR: could not info from: \n\n$file"
+		errmsg="\n* ERROR: could not get info from: \n\n$file"
 		echo -e $errmsg
 		yad --title="$app" --text="$errmsg" --image="dialog-error" --button="OK":0 --center $dlg_icon
 		exit 1
 	fi
 
-	touch /tmp/pmediainfo$$_stream.txt /tmp/pmediainfo$$_format.txt
-	outfile=/tmp/pmediainfo$$_stream.txt
 	max=22
+	n=0
 	while read line ; do
-		if [ "$line" = "[FORMAT]" ] ; then
-			outfile=/tmp/pmediainfo$$_format.txt
-		fi
+		case $line in
+			"[FORMAT]")
+				outfile=/tmp/pmediainfo$$_format.txt
+				touch $outfile
+				continue
+				;;
+			"[STREAM]")
+				outfile=/tmp/pmediainfo${$}_stream${n}.txt
+				touch $outfile
+				n=$((n+1))
+				;;
+			"[/FORMAT]"|"[/STREAM]")
+				echo >> $outfile
+				continue
+				;;
+		esac
 		if [[ $line == *\=* ]] ; then
-			field=${line%%=*}
-			desc=${line#*=}
-			field_str_len=${#field}
+			IFS="=" read field desc <<< "$line"
+			echo "$line"
+			field2=$(format_field_str "$field")
+			field2_str_len=${#field2}
 			[ ! "$desc" ] && continue
 			case $field in #fix some values
 				duration) #0:03:37.000000 -> 3min 37sec
 					desc=${desc%.*} #0:03:37.000000 -> 0:03:37
+					[ "$desc" = "0:00:00" ] && continue
 					IFS=":" read h m s <<< "$desc"
 					desc=""
 					[ "$h" != "0" ] && desc="${h}h "
-					desc="${desc}${m}m"
-					[ "$s" != "00" ] && desc="$desc ${s}s"
+					desc="${desc}${m#0}m"
+					[ "$s" != "00" ] && desc="$desc ${s#0}s"
 					;;
-				size|*bit_rate) #29.234309 Mibyte -> 29.2 Mibyte
+				size|*bit_rate|*sample_rate) #29.234309 Mibyte -> 29.2 MiB
 					read d1 d2 <<< "$desc"
 					d1=$(printf "%.1f" $d1)
+					[[ $d1 == *.0 ]] && d1=${d1%.*}
+					d2=${d2//byte/B}
 					desc="$d1 $d2"
 					;;
 				*frame_rate) #30000/1001 -> 29.970 fps
@@ -142,25 +169,43 @@ case ${probe} in ffprobe|avprobe)
 					desc="$fps fps"
 					;;
 			esac
-			x=$((max-field_str_len))
+			x=$((max-field2_str_len))
 			(
-			echo -n "$field"
-			for ((z=1;z<=x;z++)) ; do echo -n ' ' ; done
-			echo "= $desc"
+			echo -n "$field2"
+			for ((z=1;z<=x;z++)) ; do echo -n '.' ; done
+			echo " $desc"
 			) >> $outfile
 		else
 			echo "$line" >> $outfile
 		fi
 	done <<< "$pre_info"
 
+	sed -i -e '/^[dD]uration/d' /tmp/pmediainfo${$}_stream*
+
+	ls /tmp/pmediainfo${$}_stream* | \
+	while read f ; do
+		if grep -q 'type.* video' $f ; then
+			extra_sed=''
+			read w1 w2 <<< $(echo $(grep -i width $f | sed 's/.* //'))
+			[ "$w1" = "$w2" ] && extra_sed=' ; / width/d'
+			read h1 h2 <<< $(echo $(grep -i height $f | sed 's/.* //'))
+			[ "$h1" = "$h2" ] && extra_sed="$extra_sed ; / height/d"
+			sed -i "/type.* video/d ; s/STREAM/VIDEO/ $extra_sed" $f
+		fi
+		if grep -q 'type.* audio' $f ; then
+			sed -i -e '/type.* audio/d' -e 's/STREAM/AUDIO/' $f
+		fi
+	done
+
 	(
 	echo "File: $file"
 	echo
 	echo "$(< /tmp/pmediainfo$$_format.txt)"
 	echo
-	echo "$(< /tmp/pmediainfo$$_stream.txt)"
+	cat /tmp/pmediainfo${$}_stream*
 	) > ${tmpfile}
-	rm -f /tmp/pmediainfo$$_stream.txt /tmp/pmediainfo$$_format.txt
+
+	rm -f /tmp/pmediainfo$$_stream* /tmp/pmediainfo$$_format.txt
 	;;
 esac
 
@@ -186,8 +231,8 @@ export -f ViewWith
 
 if [ "$PMI_GUI" ] ; then
 	yad --title="${app}: $file" --center --width="640" --height="480" \
-	--text-info --filename="$tmpfile" --wrap --fore="#000033" --back="#FFFFFF" --margins=10 \
-	--fontname="Monospace 12" --maximized --tail \
+	--text-info --filename="$tmpfile" --wrap --fore="#000000" --back="#EFFAFF" --margins=10 \
+	--fontname="Monospace 11" --tail \
 	--button="Close":0 \
 	--button="Save As... :bash -c 'SaveViewerText %d'" \
 	--button="Open Externally... :bash -c 'ViewWith %d'" $dlg_icon
