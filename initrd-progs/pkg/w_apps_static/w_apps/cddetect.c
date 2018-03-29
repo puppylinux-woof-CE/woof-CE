@@ -28,6 +28,8 @@ static struct {
 	char device[255];
 } opts = { 0, 0, CDDEVICE };
 
+int cddetect_quick = 0;
+
 void err_exit(const char *message) {
 	if (!opts.quiet) {
 		perror(message);
@@ -60,12 +62,13 @@ int main(int argc, char *const *argv)
 	int optchar;
 	int cdtype = 0;
 
-	while ((optchar = getopt(argc, argv, "hVd:vq")) != EOF)
+	while ((optchar = getopt(argc, argv, "hVd:vqf")) != EOF)
 		switch (optchar) {
 			case 'V': fprintf(stderr, "%s\n", vcid); exit(0); break;
 			case 'd': strncpy(opts.device, optarg, sizeof(opts.device)); break;
 			case 'v': opts.verbose++; break;
 			case 'q': opts.quiet++; break;
+			case 'f': cddetect_quick = 1; break;
 			case 'h':
 			default: usage(argv[0]);
 		}
@@ -100,11 +103,21 @@ int main(int argc, char *const *argv)
 			return -1;
 			break;
 		case CDS_DISC_OK:
+			if (cddetect_quick) {
+				close(fd);
+				if (!opts.quiet) printf("disc inserted\n");
+				return 0;
+			}
 			// do nothing
 			break;
 		default: // unidentified problem
 			close(fd);
-			err_exit("getstatus");
+			if (cddetect_quick) {
+				if (!opts.quiet) printf("unidentified error\n");
+				return -1;
+			} else {
+				err_exit("getstatus");
+			}
 	}
 
 	status = ioctl(fd, CDROMREADTOCHDR, &th);
