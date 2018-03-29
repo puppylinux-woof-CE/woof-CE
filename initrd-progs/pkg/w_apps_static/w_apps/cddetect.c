@@ -31,6 +31,7 @@ static struct {
 } opts = { 0, 0, CDDEVICE };
 
 int cddetect_quick = 0;
+int print_dt = 0;
 
 void err_exit(const char *message, int exit_code) {
 	if (!opts.quiet) {
@@ -53,40 +54,68 @@ void usage(const char *progname)
 	fprintf(stderr, "\t- audio\t\t%3d\n", TYPE_AUDIO);
 	fprintf(stderr, "\t- data\t\t%3d\n", TYPE_DATA);
 	fprintf(stderr, "\t- mixed\t\t%3d\n", TYPE_MIXED);
-	fprintf(stderr, "\t- (no disc)\t%3d\n", (unsigned int)TYPE_NODISC);
+	fprintf(stderr, "\t- (no disc)\t%3d\n", TYPE_NODISC);
 	fprintf(stderr, "\t- (blank or damaged)\t%3d\n", TYPE_BLANK);
 	fprintf(stderr, "\t- unknown\t%3d\n", TYPE_UNKNOWN);
 	exit(0);
 }
 
+void print_drive_type(int fd) {
+	int c;
+	if ( (c=ioctl(fd,CDROM_GET_CAPABILITY,0)) >= 0 ) {
+		if (c & CDC_DVD) {
+			if ((c & CDC_DVD_R) || (c & CDC_DVD_RAM)) {
+				printf("dvdburner\n");
+			} else {
+				printf("dvdrom\n");
+			}
+		} else if (c & CDC_CD_R) {
+			if (c & CDC_CD_RW) {
+				printf("cdburner\n");
+			} else {
+				printf("cdrom\n");
+			}
+		}
+		return;
+	}
+	printf("unknown\n");
+}
 
 int main(int argc, char *const *argv)
 {
-	int fd;
+	int fd, i;
 	int status;
 	struct cdrom_tochdr th;
-	int optchar;
-	int cdtype = 0;
 
-	while ((optchar = getopt(argc, argv, "hVd:vqf")) != EOF)
-		switch (optchar) {
-			case 'V': fprintf(stderr, "%s\n", vcid); exit(0); break;
-			case 'd': strncpy(opts.device, optarg, sizeof(opts.device)); break;
-			case 'v': opts.verbose++; break;
-			case 'q': opts.quiet++; break;
-			case 'f': cddetect_quick = 1; break;
-			case 'h':
-			default: usage(argv[0]);
+	for (i = 1; i < argc; i++) {
+		if (strcmp(argv[i], "-V") == 0 ) {
+			fprintf(stderr, "%s\n", vcid);
+			return 0;
+		} else if (strcmp(argv[i], "-v") == 0) {
+			opts.verbose++;
+			continue;
+		} else if (strcmp(argv[i], "-q") == 0) {
+			opts.quiet++;
+			continue;
+		} else if (strcmp(argv[i], "-drive-type") == 0) {
+			print_dt = 1;
+			continue;
+		} else if (argv[i][0] == '-' && argv[i][1] == 'd') {
+			strncpy(opts.device, argv[i]+2, sizeof(opts.device));
+			continue;
 		}
-	if (optind < argc) {
 		usage(argv[0]);
 	}
-	if (opts.verbose > 0 && opts.quiet > 0) {
-		usage(argv[0]);
-	}
+
 	fd = open(opts.device, O_RDONLY | O_NONBLOCK);
 	if (fd < 0) {
 		err_exit("open", TYPE_NODISC);
+	}
+
+	if (print_dt) {
+		print_drive_type(fd);
+		close(fd);
+		return 0;
 	}
 
 	// read the drive status info
@@ -133,11 +162,8 @@ int main(int argc, char *const *argv)
 	}
 
 	status = ioctl(fd, CDROM_DISC_STATUS, CDSL_CURRENT);
-
 	close(fd);
-
 	if (!opts.quiet) printf("cdtype: ");
-
 	switch (status) {
 		case CDS_AUDIO:
 			if (!opts.quiet) printf("audio\n");
