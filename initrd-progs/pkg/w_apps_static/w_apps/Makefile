@@ -2,7 +2,8 @@ CC = gcc
 #CC = musl-gcc
 STATIC = -static
 
-all: daemon \
+all: cddetect \
+	daemon \
 	debdb2pupdb \
 	elspci \
 	fakelogin \
@@ -20,6 +21,9 @@ daemon:
 
 debdb2pupdb:
 	$(CC) $(STATIC) -O3 -fomit-frame-pointer -ffunction-sections -fdata-sections -fmerge-all-constants -Wl,--sort-common -Wl,-gc-sections -o debdb2pupdb debdb2pupdb.c
+
+cddetect:
+	$(CC) $(STATIC) -O3 -fomit-frame-pointer -ffunction-sections -fdata-sections -fmerge-all-constants -Wl,--sort-common -Wl,-gc-sections -o cddetect cddetect.c
 
 elspci:
 	$(CC) $(STATIC) -O3 -fomit-frame-pointer -ffunction-sections -fdata-sections -fmerge-all-constants -Wl,--sort-common -Wl,-gc-sections -o elspci elspci.c
@@ -52,4 +56,4 @@ zinit:
 	$(CC) $(STATIC) -O3 -fomit-frame-pointer -ffunction-sections -fdata-sections -fmerge-all-constants -Wl,--sort-common -Wl,-gc-sections -o zinit zinit.c
 
 clean:
-	rm -f daemon debdb2pupdb elspci fakelogin find_cat findpkgs-dep-helper findpkgs-search-helper zinit printcols syslog vercmp pup_event_frontend_d
+	rm -f cddetect daemon debdb2pupdb elspci fakelogin find_cat findpkgs-dep-helper findpkgs-search-helper zinit printcols syslog vercmp pup_event_frontend_d
