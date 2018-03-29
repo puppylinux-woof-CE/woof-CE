@@ -86,17 +86,17 @@ int main(int argc, char *const *argv)
 	switch(status) {
 		case CDS_NO_DISC:
 			close(fd);
-			printf("no disc!\n");
+			if (!opts.quiet) printf("no disc!\n");
 			return -1;
 			break;
 		case CDS_TRAY_OPEN:
 			close(fd);
-			printf("tray open!\n");
+			if (!opts.quiet) printf("tray open!\n");
 			return -1;
 			break;
 		case CDS_DRIVE_NOT_READY:
 			close(fd);
-			printf("drive not ready!\n");
+			if (!opts.quiet) printf("drive not ready!\n");
 			return -1;
 			break;
 		case CDS_DISC_OK:
@@ -117,37 +117,42 @@ int main(int argc, char *const *argv)
 
 	close(fd);
 
-	if (!opts.quiet) {
-		printf("cdtype: ");
+	if (!opts.quiet) printf("cdtype: ");
 
-		switch (status) {
-			case CDS_AUDIO:
-				cdtype = TYPE_AUDIO;
-				printf("audio\n");
-				break;
-			case CDS_DATA_1:
-				cdtype = TYPE_DATA;
-				printf("data mode 1\n");
-				break;
-			case CDS_DATA_2:
-				printf("data mode 2\n");
-				break;
-			case CDS_MIXED:
-				cdtype = TYPE_MIXED;
-				printf("mixed mode\n");
-				break;
-			case CDS_XA_2_1:
-				cdtype = TYPE_DATA;
-				printf("xa\n");
-				break;
-			case CDS_XA_2_2:
-				cdtype = TYPE_DATA;
-				printf("cdi\n");
-				break;
-			case CDS_NO_INFO: printf("NO INFO\n"); break;
-			case CDS_NO_DISC: printf ("NO DISC\n"); break;
-			default: printf("unknown\n"); break;
-		}
+	switch (status) {
+		case CDS_AUDIO:
+			cdtype = TYPE_AUDIO;
+			if (!opts.quiet) printf("audio\n");
+			break;
+		case CDS_DATA_1:
+			cdtype = TYPE_DATA;
+			if (!opts.quiet) printf("data mode 1\n");
+			break;
+		case CDS_DATA_2:
+			cdtype = TYPE_DATA;
+			if (!opts.quiet) printf("data mode 2\n");
+			break;
+		case CDS_MIXED:
+			cdtype = TYPE_MIXED;
+			if (!opts.quiet) printf("mixed mode\n");
+			break;
+		case CDS_XA_2_1:
+			cdtype = TYPE_DATA;
+			if (!opts.quiet) printf("xa\n");
+			break;
+		case CDS_XA_2_2:
+			cdtype = TYPE_DATA;
+			if (!opts.quiet) printf("cdi\n");
+			break;
+		case CDS_NO_INFO:
+			if (!opts.quiet) printf("NO INFO\n");
+			break;
+		case CDS_NO_DISC:
+			if (!opts.quiet) printf ("NO DISC\n");
+			break;
+		default:
+			if (!opts.quiet) printf("unknown\n");
+			break;
 	}
 
 	return cdtype;
