@@ -17,10 +17,12 @@ static char vcid[] = "$Id: cddetect.c,v 3.0 2018/03 bodo Exp $";
 
 // exitcodes for CD
 
-#define TYPE_UNKNOWN	-1
+#define TYPE_NODISC	-1
 #define TYPE_AUDIO	1
 #define TYPE_DATA	2
 #define TYPE_MIXED	50
+#define TYPE_BLANK	100
+#define TYPE_UNKNOWN	150
 
 static struct {
 	unsigned int verbose;
@@ -30,11 +32,12 @@ static struct {
 
 int cddetect_quick = 0;
 
-void err_exit(const char *message) {
+void err_exit(const char *message, int exit_code) {
 	if (!opts.quiet) {
 		perror(message);
+		printf("disc blank or damaged\n");
 	}
-	exit(-1);
+	exit(exit_code);
 }
 
 void usage(const char *progname)
@@ -50,6 +53,9 @@ void usage(const char *progname)
 	fprintf(stderr, "\t- audio\t\t%3d\n", TYPE_AUDIO);
 	fprintf(stderr, "\t- data\t\t%3d\n", TYPE_DATA);
 	fprintf(stderr, "\t- mixed\t\t%3d\n", TYPE_MIXED);
+	fprintf(stderr, "\t- (no disc)\t%3d\n", (unsigned int)TYPE_NODISC);
+	fprintf(stderr, "\t- (blank or damaged)\t%3d\n", TYPE_BLANK);
+	fprintf(stderr, "\t- unknown\t%3d\n", TYPE_UNKNOWN);
 	exit(0);
 }
 
@@ -80,7 +86,7 @@ int main(int argc, char *const *argv)
 	}
 	fd = open(opts.device, O_RDONLY | O_NONBLOCK);
 	if (fd < 0) {
-		err_exit("open");
+		err_exit("open", TYPE_NODISC);
 	}
 
 	// read the drive status info
@@ -90,17 +96,17 @@ int main(int argc, char *const *argv)
 		case CDS_NO_DISC:
 			close(fd);
 			if (!opts.quiet) printf("no disc!\n");
-			return -1;
+			return TYPE_NODISC;
 			break;
 		case CDS_TRAY_OPEN:
 			close(fd);
 			if (!opts.quiet) printf("tray open!\n");
-			return -1;
+			return TYPE_NODISC;
 			break;
 		case CDS_DRIVE_NOT_READY:
 			close(fd);
 			if (!opts.quiet) printf("drive not ready!\n");
-			return -1;
+			return TYPE_NODISC;
 			break;
 		case CDS_DISC_OK:
 			if (cddetect_quick) {
@@ -114,16 +120,16 @@ int main(int argc, char *const *argv)
 			close(fd);
 			if (cddetect_quick) {
 				if (!opts.quiet) printf("unidentified error\n");
-				return -1;
+				return TYPE_NODISC;
 			} else {
-				err_exit("getstatus");
+				err_exit("getstatus", TYPE_NODISC);
 			}
 	}
 
 	status = ioctl(fd, CDROMREADTOCHDR, &th);
 	if (status != 0) {
 		close(fd);
-		err_exit("gettochdr");
+		err_exit("gettochdr", TYPE_BLANK);
 	}
 
 	status = ioctl(fd, CDROM_DISC_STATUS, CDSL_CURRENT);
@@ -134,39 +140,32 @@ int main(int argc, char *const *argv)
 
 	switch (status) {
 		case CDS_AUDIO:
-			cdtype = TYPE_AUDIO;
 			if (!opts.quiet) printf("audio\n");
+			return TYPE_AUDIO;
 			break;
 		case CDS_DATA_1:
-			cdtype = TYPE_DATA;
 			if (!opts.quiet) printf("data mode 1\n");
+			return TYPE_DATA;
 			break;
 		case CDS_DATA_2:
-			cdtype = TYPE_DATA;
 			if (!opts.quiet) printf("data mode 2\n");
+			return TYPE_DATA;
 			break;
 		case CDS_MIXED:
-			cdtype = TYPE_MIXED;
 			if (!opts.quiet) printf("mixed mode\n");
+			return TYPE_MIXED;
 			break;
 		case CDS_XA_2_1:
-			cdtype = TYPE_DATA;
 			if (!opts.quiet) printf("xa\n");
+			return TYPE_DATA;
 			break;
 		case CDS_XA_2_2:
-			cdtype = TYPE_DATA;
 			if (!opts.quiet) printf("cdi\n");
-			break;
-		case CDS_NO_INFO:
-			if (!opts.quiet) printf("NO INFO\n");
-			break;
-		case CDS_NO_DISC:
-			if (!opts.quiet) printf ("NO DISC\n");
+			return TYPE_DATA;
 			break;
 		default:
 			if (!opts.quiet) printf("unknown\n");
+			return TYPE_UNKNOWN;
 			break;
 	}
-
-	return cdtype;
 }
