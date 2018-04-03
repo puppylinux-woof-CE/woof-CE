@@ -80,6 +80,7 @@ esac
 #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
 function fatal_error() { echo -e "$@" ; exit 1 ; }
+function exit_error() { echo -e "$@" ; exit 1 ; }
 
 help_msg() {
 	echo "Build static apps in the queue defined in build.conf
@@ -137,6 +138,9 @@ while [ "$1" ] ; do
 			       [ "$KEYMAP" = "" ] && fatal_error "$0 -locale: No keymap specified" ;;
 		-pkg)      BUILD_PKG="$2"      ; shift 2
 			       [ "$BUILD_PKG" = "" ] && fatal_error "$0 -pkg: Specify a pkg to compile" ;;
+		-pet)      export CREATE_PET=1
+			       shift
+			       [ "$1" ] && [[ $1 != -* ]] && BUILD_PKG="$1" && shift ;;
 		-arch)     TARGET_ARCH="$2"    ; shift 2
 			       [ "$TARGET_ARCH" = "" ] && fatal_error "$0 -arch: Specify a target arch" ;;
 		-specs)    DISTRO_SPECS="$2"   ; shift 2
@@ -157,7 +161,7 @@ done
 #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
 function use_prebuilt_binaries() {
-	[ ! "$PREBUILT_BINARIES" ] && { echo "ERROR"; exit 1 ; }
+	[ ! "$PREBUILT_BINARIES" ] && exit_error "No prebuilt binaries"
 	case "$TARGET_ARCH" in
 		i686) [ -n "$i686_PREBUILT_BINARIES" ] && PREBUILT_BINARIES=${i686_PREBUILT_BINARIES} ;;
 		x86_64) [ -n "$x86_64_PREBUILT_BINARIES" ] && PREBUILT_BINARIES=${x86_64_PREBUILT_BINARIES} ;;
@@ -172,10 +176,16 @@ function use_prebuilt_binaries() {
 	if [ ! -f "$zfile" ] ; then
 		mkdir -p 0sources
 		wget -P 0sources --no-check-certificate "$PREBUILT_BINARIES"
-		[ $? -eq 0 ] || { rm -f "$zfile"; echo "ERROR"; exit 1 ; }
+		if [ $? -ne 0 ] ; then
+			rm -f "$zfile"
+			exit_error "ERROR downloading $zfile"
+		fi
 	fi
 	echo "* Extracting ${zfile##*/}..."
-	tar -xaf "$zfile" || { rm -f "$zfile"; echo "ERROR"; exit 1 ; }
+	tar -xaf "$zfile" || {
+		rm -f "$zfile"
+		exit_error "ERROR extracting $zfile"
+	}
 }
 
 #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
@@ -221,8 +231,7 @@ function select_target_arch() {
 			[ "$TARGET_ARCH" = "$a" ] && VALID_TARGET_ARCH=yes && break
 		done
 		if [ "$VALID_TARGET_ARCH" = "no" ] ; then
-			echo "Invalid target arch: $TARGET_ARCH"
-			exit 1
+			exit_error "Invalid target arch: $TARGET_ARCH"
 		fi
 		[ "$TARGET_ARCH" != "default" ] && ARCH=${TARGET_ARCH}
 	fi
@@ -269,8 +278,7 @@ function select_target_arch() {
 		arm64|aarch64) CC_TARBALL=$ARM64_CC  ;;
 	esac
 	if [ -z "$CC_TARBALL" ] ; then
-		echo "Cross compiler for $TARGET_ARCH is not available at the moment..."
-		exit 1
+		exit_error "Cross compiler for $TARGET_ARCH is not available at the moment..."
 	fi
 	#--
 	echo "Arch: $ARCH"
@@ -297,8 +305,7 @@ function setup_cross_compiler() {
 		wget -c -P 0sources ${SITE}/${CC_TARBALL}
 		if [ $? -ne 0 ] ; then
 			rm -rf ${CC_DIR}
-			echo "failed to download ${CC_TARBALL}"
-			exit 1
+			exit_error "failed to download ${CC_TARBALL}"
 		fi
 	else
 		[ "$DLD_ONLY" = "yes" ] && echo "Already downloaded ${CC_TARBALL}"
@@ -310,21 +317,17 @@ function setup_cross_compiler() {
 		if [ $? -ne 0 ] ; then
 			rm -rf ${CC_DIR}
 			rm -fv 0sources/${CC_TARBALL}
-			echo "failed to extract ${CC_TARBALL}"
-			exit 1
+			exit_error "failed to extract ${CC_TARBALL}"
 		fi
 	fi
 	#--
 	if [ ! -d "$CC_DIR" ] ; then
-		echo "$CC_DIR not found"
-		exit 1
+		exit_error "$CC_DIR not found"
 	fi
 	case $OS_ARCH in i*86)
 		_gcc=$(find $CC_DIR/bin -name '*gcc' | head -1)
 		if [ ! -z $_gcc ] && file $_gcc | grep '64-bit' ; then
-			echo
-			echo "ERROR: trying to use a 64-bit (static) cross compiler in a 32-bit system"
-			exit
+			exit_error "\nERROR: trying to use a 64-bit (static) cross compiler in a 32-bit system"
 		fi
 	esac
 	echo -e "\nUsing cross compiler\n"
@@ -370,9 +373,12 @@ function build_pkgs() {
 	#--
 	for init_pkg in ${PACKAGES} ; do
 		case $init_pkg in ""|'#'*) continue ;; esac
-		[ -f .fatal ] && { echo "Exiting.." ; rm -f .fatal ; exit 1 ; }
+		if [ -f .fatal ] ; then
+			rm -f .fatal_error
+			exit_error "Exiting.."
+		fi
 		[ -d pkg/"${init_pkg}_static" ] && init_pkg=${init_pkg}_static
-		if [ "$DLD_ONLY" = "no" ] ; then
+		if [ "$DLD_ONLY" = "no" -a ! "$CREATE_PET" ] ; then
 			check_bin $init_pkg
 			[ $? -eq 0 ] && { echo "$init_pkg exists ... skipping" ; continue ; }
 			echo -e "\n+=============================================================================+"
@@ -385,8 +391,9 @@ function build_pkgs() {
 		sh ${init_pkg}.petbuild 2>&1 | tee ${MWD}/00_${ARCH}/log/${init_pkg}build.log
 		cd ${MWD}
 		[ "$DLD_ONLY" = "yes" ] && continue
-		check_bin $init_pkg
-		[ $? -ne 0 ] && { echo "target binary does not exist..."; exit 1; }
+		if [ ! "$CREATE_PET" ] ; then
+			check_bin $init_pkg || exit_error "target binary does not exist..."
+		fi
 	done
 	rm -f .fatal
 }
@@ -408,6 +415,7 @@ function set_keymap() { #in $MWD
 }
 
 function generate_initrd() {
+	[ "$CREATE_PET" ] && return
 	[ "$DLD_ONLY" = "yes" ] && return
 	[ "$INITRD_CREATE" = "no" ] && return
 	INITRD_FILE="initrd.${INITRD_COMP}"
@@ -436,8 +444,7 @@ function generate_initrd() {
 			file ../00_${ARCH}/bin/${PROG} | grep -E 'dynamically|shared' && exit 1
 			cp -a ${V} --remove-destination ../00_${ARCH}/bin/${PROG} bin
 		else
-			echo "00_${ARCH}/bin/${PROG} not found"
-			exit 1
+			exit_error "00_${ARCH}/bin/${PROG} not found"
 		fi
 	done
 
@@ -480,7 +487,7 @@ function generate_initrd() {
 		gz) gzip -f initrd ;;
 		xz) xz --check=crc32 --lzma2 initrd ;;
 	esac
-	[ $? -eq 0 ] || { echo "ERROR" ; exit 1 ; }
+	[ $? -eq 0 ] || exit_error "ERROR"
 	[ "$INITRD_GZ" = "yes" -a -f initrd.xz ] && mv -f initrd.xz initrd.gz
 
 	echo -e "\n***        INITRD: ${INITRD_FILE} [${ARCH}]"
