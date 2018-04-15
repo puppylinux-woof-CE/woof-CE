@@ -54,7 +54,7 @@ else
 fi
 
 if [ ! -f usr/share/ptheme/globals/"${theme}" ];then
-    theme="Bright Mouse"
+    theme="Original Pup"
     echo "Invalid theme, defaulting to $theme"
 fi
 echo "Setting $theme to default"
