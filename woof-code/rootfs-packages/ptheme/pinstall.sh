@@ -2,6 +2,10 @@
 ############################################################################
 echo
 
+#--- test
+#[ -f ../../_00build.conf ] && . ../../_00build.conf
+#--
+
 for dtop in switch2 GTK-Chtheme icon_switcher Desktop-drive-icons; do
     [ -f "usr/share/applications/${dtop}.desktop" ] || continue
     if grep -q "^NoDisplay" usr/share/applications/${dtop}.desktop; then
@@ -85,11 +89,11 @@ cp -af root/.jwm/jwmrc-tray* root/.jwm/backup/
 cp -af root/.jwm/jwmrc-theme root/.jwm/backup/
 
 case $PTHEME_JWM_SIZE in
-small) rm root/.jwm/menuheights;;
-normal) echo "MENHEIGHT=24" > root/.jwm/menuheights;;
-large) echo "MENHEIGHT=32" > root/.jwm/menuheights;;
-huge) echo "MENHEIGHT=40" > root/.jwm/menuheights;;
-*) echo "MENHEIGHT=24" > root/.jwm/menuheights;; # default
+	small) rm root/.jwm/menuheights;;
+	normal) echo "MENHEIGHT=24" > root/.jwm/menuheights;;
+	large) echo "MENHEIGHT=32" > root/.jwm/menuheights;;
+	huge) echo "MENHEIGHT=40" > root/.jwm/menuheights;;
+	*) echo "MENHEIGHT=24" > root/.jwm/menuheights;; # default
 esac
 echo "jwm size: ${PTHEME_JWM_SIZE}"
 
@@ -130,9 +134,14 @@ _EOF
 echo "gtk: ${PTHEME_GTK}"
 
 # icon theme
-[ -n "$PTHEME_ICONS_GTK" ] && \
-USE_ICON_THEME="`find usr/share/icons -type d -name "$PTHEME_ICONS_GTK" -maxdepth 1`"
-[ -z "$USE_ICON_THEME" ] && USE_ICON_THEME="Puppy Standard" || USE_ICON_THEME="$PTHEME_ICONS_GTK" # default if exists
+if [ -n "$PTHEME_ICONS_GTK" ] ; then
+	USE_ICON_THEME="`find usr/share/icons -maxdepth 1 -type d -name "$PTHEME_ICONS_GTK"`"
+fi
+if [ -z "$USE_ICON_THEME" ] ; then
+	USE_ICON_THEME="Puppy Standard"
+else
+	USE_ICON_THEME="$PTHEME_ICONS_GTK" # default if exists
+fi
 if [ -d "usr/share/icons/$USE_ICON_THEME" ];then
 	# first global
 	echo -e "gtk-icon-theme-name = \"$USE_ICON_THEME\"" >> root/.gtkrc-2.0
@@ -171,26 +180,23 @@ if [ "$PTHEME_ROX_DRIVEICONS" ]; then
 		sed -i "s/${TMP}/${I}=${VALUE}/" etc/eventmanager
 	done
 fi
+
 echo "rox icons arrangement (drives): ${PTHEME_ROX_DRIVEICONS}"
 sleep 1 # reading time
-
-
 
 ##### ICONS
 echo -n "${PTHEME_ICONS}" > etc/desktop_icon_theme
 echo "icons: ${PTHEME_ICONS}"
 sleep 1 # reading time
 
-
-
 ##### CURSOR
 if [ -d root/.icons/ ];then
-	[ ! "`grep 'ORIGINAL THEME' <<< "$PTHEME_MOUSE"`" ] && ln -snf $PTHEME_MOUSE root/.icons/default
+	if [ ! "`grep 'ORIGINAL THEME' <<< "$PTHEME_MOUSE"`" ] ; then
+		ln -snf $PTHEME_MOUSE root/.icons/default
+	fi
 	echo "cursor: ${PTHEME_MOUSE}"
 	sleep 1 # reading time
 fi
-
-
 
 ##### GTKDIALOG
 [ -d root/.config/ptheme/ ] || mkdir -p root/.config/ptheme/
