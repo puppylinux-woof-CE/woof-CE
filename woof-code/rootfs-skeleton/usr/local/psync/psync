@@ -5,9 +5,19 @@
 #exec &>/tmp/${0##*/}.log ; set -x ; env #debug
 
 set_time_from_server() {
-	ntpdate pool.ntp.org &> /tmp/settertime || return 1
+	echo "* Synchronizing with time server..."
+	if ntpdate pool.ntp.org &> /tmp/settertime ; then
+		echo "* Success..."
+	else
+		"* ERROR..."
+		return 1
+	fi
+	date
 	set_hwclock_type -q --systohc #system time to hw
-	touch /var/tmp/psync_done
+	if [ $? -ne 0 ] ; then
+		echo "* Could not set hardware clock..."
+	fi
+	touch ${SYSROOT}/var/tmp/psync_done
 	return 0
 }
 
@@ -19,7 +29,7 @@ case $1 in
 		CONNECTED=no
 		for i in $(seq 0 5 300) ; do
 			if [ "$(LANG=C route -n | awk 'FNR == 3 {print $2}')" != "0.0.0.0" ] && \
-				grep -wq nameserver /etc/resolv.conf ; then
+				grep -wq nameserver ${SYSROOT}/etc/resolv.conf ; then
 				CONNECTED=yes
 				break
 			fi
@@ -41,21 +51,134 @@ esac
 #==============================================================
 #                          APP
 #==============================================================
+
 PSYNC_ENABLED=false
-[ -x /etc/init.d/psync ] && PSYNC_ENABLED=true
+if [ -x ${SYSROOT}/etc/init.d/psync ] ; then
+	PSYNC_ENABLED=true
+fi
+
+psync_status() {
+	if [ "$PSYNC_ENABLED" = "true" ] ; then
+		echo "psync autostart is enabled..."
+		return 0
+	else
+		echo "psync autostart is disabled..."
+		return 1
+	fi
+}
+
 enable_psync() {
-	if [ ! -f /etc/init.d/psync ] ; then
+	if [ ! -f ${SYSROOT}/etc/init.d/psync ] ; then
 		echo '#!/bin/sh
 case $1 in start|restart|stop)
 	/usr/sbin/psync $1 1>/dev/null 2>&1 &
-esac' > /etc/init.d/psync
+esac' > ${SYSROOT}/etc/init.d/psync
 	fi
-	chmod +x /etc/init.d/psync
+	chmod +x ${SYSROOT}/etc/init.d/psync
+	[ ! "$GUI" ] && echo "psync autostart on bootup enabled"
 }
 disable_psync() {
-	chmod -x /etc/init.d/psync
-	#rm -f /etc/init.d/psync
+	chmod -x ${SYSROOT}/etc/init.d/psync
+	#rm -f ${SYSROOT}/etc/init.d/psync
+	[ ! "$GUI" ] && echo "psync autostart on bootup disabled"
 }
+
+set_tz() {
+	if [ ! "$1" ] ; then
+		echo "You must specify a timezone."
+		return 1
+	fi
+	if [ -f ${SYSROOT}/usr/share/zoneinfo/$1 ] ; then
+		ln -snfv /usr/share/zoneinfo/$1 ${SYSROOT}/etc/localtime
+		return $?
+	else
+		echo "File not found: ${SYSROOT}/usr/share/zoneinfo/$1"
+		return 1
+	fi
+}
+
+usage() {
+	app=${0##*/}
+	echo
+	echo "  synchronize system and hardware clock to a public timeserver.."
+	echo
+	echo "usage: $app <option>"
+	echo
+	echo "Options:"
+	echo " -cli           : force cli"
+	echo " -gui           : force gui"
+	echo " -sysroot <dir> : set root dir"
+	echo " -autostart     : enable service"
+	echo " -noautostart   : disable service"
+	echo " -status        : report service status"
+	echo " -sync          : sync with time server"
+	echo " -timezone <tz> : set timezone"
+	echo
+}
+
+[ "$DISPLAY" ] && export GUI=1
+
+for i in $@; do
+	case $1 in
+		-sysroot)     export SYSROOT=$2 ; shift ;;
+		-autostart)   enable_psync  ; exit $? ;;
+		-noautostart) disable_psync ; exit $? ;;
+		-status)      psync_status  ; exit $? ;;
+		-timezone)    set_tz $2     ; exit $? ;;
+		-sync)        set_time_from_server ; exit $? ;;
+		-h|-help|--help) usage; exit ;;
+		-cli|cli) GUI=  ;;
+		-gui|gui) export GUI=1 ;;
+		*) echo "unknown option: $1" ; usage ; exit 1 ;;
+	esac
+	shift
+done
+
+#==============================================================
+#                          CLI
+#==============================================================
+
+dlg() {
+	local ret file=/tmp/psync$$
+	dialog --backtitle "pSync - $(date)" "$@" >/dev/tty 2> $file
+	ret=$?
+	retstr="$(cat $file)" # can be multiple lines
+	rm -f $file
+	return $ret
+}
+
+msgbox() { dlg --msgbox "$*" 0 0 ; }
+infobox() { dlg --infobox "$*" 0 0 ; }
+
+if [ ! "$GUI" ] ; then
+	while [ 1 ] ; do
+		if psync_status >/dev/null ; then
+			st=enabled
+		else
+			st=disabled
+		fi
+		zi=$(readlink /etc/localtime | sed 's%/usr/share/zoneinfo/%%')
+		eval dlg --menu "'pSync - autostart $st - $zi'" 0 0 0 \
+			autostart   "'enable service on bootup'" \
+			noautostart "'disable service'" \
+			timezone    "'set timezone...'" \
+			sync        "'sync with timeserver'" \
+			exit "'$(gettext 'Exit')'" || exit
+		case $retstr in
+			autostart) enable_psync ; sleep 3 ;;
+			noautostart) disable_psync ; sleep 3 ;;
+			timezone) timezone-set cli ;;
+			sync) set_time_from_server ; sleep 5 ;;
+			exit) exit ;;
+		esac
+	done
+	exit
+fi
+
+#==============================================================
+#                          GUI
+#==============================================================
+
 export -f enable_psync
 export -f disable_psync
 export psync_chkbox=' <checkbox>
