@@ -11,7 +11,6 @@
 #Note, petget also get called from /etc/rc.d/rc.update to remove packages. ex:
 # petget -xbubble-0.2.4
 # ...when X not running, removal will not put up any DLG windows, will remove without question.
-#w482 restart jwm immediately to update menu.
 #v424 fix .pet in path with space chars.
 #100616 add support for .txz slackware pkgs.
 #101116 call download_file to download pkg, instead of direct run of wget.
@@ -45,57 +44,30 @@ rm -f /tmp/{remove,install}_{,pets_}quietly 2>/dev/null
 
 [ ! "$DISPLAY" ] && touch /tmp/install_quietly
 
-if [ "`echo -n "$PASSEDPARAM" | grep '^\\-'`" != "" ];then
- #remove a package...
- PKGNAME="$(echo -n "$PASSEDPARAM" | cut -c 2-199)"
+#remove a package...
+case "$PASSEDPARAM" in -*) #EX: -read-edid_3.0.1-2_i386.deb
+ PKGNAME=${PASSEDPARAM#-} #remove leading '-'
  PKGNAME="$(basename $PKGNAME)"
- if [ ! "$DISPLAY" ]; then
-  touch /tmp/remove_pets_quietly
- fi
- [ "$(echo "$PKGNAME" | rev | cut -f 1 -d '.' | rev | grep -E 'deb|pet|tgz|rpm|txz')" != "" ] \
-  && TREE2=$(echo "$PKGNAME" | rev | cut -f 2-20 -d '.' | rev) || \
-   TREE2="$PKGNAME"
- export TREE2
+ [ ! "$DISPLAY" ] && touch /tmp/remove_pets_quietly
+ TREE2=${PKGNAME%.*} #remove extension
+ export TREE2        #this is used by removepreview.sh
  /usr/local/petget/removepreview.sh
  exit
-fi
-
-#want to install a pkg...
-
-COMPAT_EXT=""
-case $DISTRO_BINARY_COMPAT in
- slackware)
-  COMPAT_EXT=".tgz"
- ;;
- debian|devuan|ubuntu|raspbian)
-  COMPAT_EXT=".deb"
- ;;
 esac
+
+#-------- want to install a pkg...
 
 #what type is it...
 PASSEDBASE="`basename "$PASSEDPARAM"`"
 case $PASSEDBASE in
- *.pet)
-  EXT=".pet"
- ;;
- *.deb)
-  EXT=".deb"
- ;;
- *.tgz)
-  EXT=".tgz"
- ;;
- *.txz)
-  EXT=".txz"
- ;;
- *.tar.gz)
-  EXT=".tar.gz"
- ;;
- *.rpm) #110523
-  EXT=".rpm"
- ;;
- *)
-  EXT=""
- ;;
+ *.pet) EXT=".pet" ;;
+ *.deb) EXT=".deb" ;;
+ *.tgz) EXT=".tgz" ;;
+ *.txz) EXT=".txz" ;;
+ *.rpm) EXT=".rpm" ;;
+ *.tar.gz) EXT=".tar.gz" ;;
+ *.tar.xz) EXT=".tar.xz" ;;
+ *) EXT="" ;;
 esac
 
 #download if required...
@@ -143,7 +115,7 @@ originPKGPATH="$PKGPATH" #w482
 PKGPATH=/root
 
 #split PKGMAIN, ex: FULLPKGNAME=xvidtune-1.0.1-i486-1.tgz has PKGNAME=xvidtune-1.0.1
- case $EXT in
+case $EXT in
   .deb)
    #deb ex: xsltproc_1.1.24-1ubuntu2_i386.deb  xserver-common_1.5.2-2ubuntu3_all.deb
    DB_nameonly="`echo -n "$PKGMAIN" | cut -f 1 -d '_'`"
@@ -187,31 +159,22 @@ PKGPATH=/root
    DB_nameonly="`echo -n "$PKGNAME" | sed -e "$xPATTERN" -e 's%\\-$%%'`"
    DB_pkgrelease=""
   ;;
- esac
+esac
 
 cd "$PKGPATH" #well, this is /root
 
 #confirm want to install...
 if [ "$DISPLAY" ]; then
- . /usr/lib/gtkdialog/box_yesno "$(gettext 'Puppy Package Manager')" "$(gettext 'Do you want to install this package:')" "<b>${FULLPKGNAME}</b>"
- if [ "$EXIT" != "yes" ]; then
-  if [ "$DOWNLOADED" = "yes" -o "$originPKGPATH" = "/root" ]; then
-   exit 0
-  else
-   rm -f /root/${FULLPKGNAME}
-   exit 0
-  fi
- fi
+  . /usr/lib/gtkdialog/box_yesno "$(gettext 'Puppy Package Manager')" "$(gettext 'Do you want to install this package:')" "<b>${FULLPKGNAME}</b>"
+  [ "$EXIT" = "yes" ] && RETVAL=0 || RETVAL=1
 else
   dialog --yesno "$(gettext 'Do you want to install this package:') $FULLPKGNAME" 0 0
-  if [ $? -ne 0 ];then
-  if [ "$DOWNLOADED" = "yes" -o "$originPKGPATH" = "/root" ]; then
-   exit 0
-  else
-   rm -f /root/${FULLPKGNAME}
-   exit 0
-  fi
- fi
+  RETVAL=$?
+fi
+if [ $RETVAL -ne 0 ] ; then #DON'T WANT TO INSTALL..
+  [ "$DOWNLOADED" = "yes" -o "$originPKGPATH" = "/root" ] && exit 0
+  rm -f /root/${FULLPKGNAME}
+  exit 0
 fi
 
 #find entry in databases...
@@ -320,12 +283,6 @@ else
 fi
 
 RESTARTMSG="$(gettext 'Please wait, updating help page and menu...')"
-if [ "`pidof jwm`" != "" ];then #120101
- JWMVER=`jwm -v|head -n1|cut -d ' ' -f2|cut -d - -f2`
- if vercmp $JWMVER lt 574;then #120116 547 to 574.
-  RESTARTMSG="$(gettext 'Please wait, updating help page and menu (the screen will flicker!)...')"
- fi
-fi
 [ "$INSTALLEDCAT" = "none" ] && RESTARTMSG="$(gettext 'Please wait, updating help page...')"
 if [ "$DISPLAY"  ]; then
  . /usr/lib/gtkdialog/box_splash -text "${RESTARTMSG}" &
@@ -346,13 +303,7 @@ fi
 #Reconstruct configuration files for JWM, Fvwm95, IceWM...
 if [ "$INSTALLEDCAT" != "none" ];then
  /usr/sbin/fixmenus
- if [ "`pidof jwm`" != "" ];then #120101
-  if vercmp $JWMVER lt 574;then #120116 547 to 574.
-   [ "$DISPLAY" ] && jwm -restart #w482
-  else
-   [ "$DISPLAY" ] && jwm -reload
-  fi
- fi
+ [ "`pidof jwm`" != "" ] && { jwm -reload || jwm -restart ; }
 fi
 
 kill $X3PID 2>/dev/null

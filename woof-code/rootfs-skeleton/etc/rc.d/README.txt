@@ -43,5 +43,3 @@ is the first thing that executes, then rc.sysinit, etc.
 
 Note1: /etc/rc.d/functions is from Slackware. Some service scripts in /etc/init.d/
       may use it.
-Note2: /etc/rc.d/functions4puppy4 are various functions needed by Puppy boot
-       scripts, pup_event_backend* and pup_event_frontend* scripts.

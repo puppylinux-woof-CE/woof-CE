@@ -20,7 +20,6 @@
 #  |cyrus\-sasl|
 #  ...notice the '-' are backslashed.
 #110722 versioning info added to dependencies.
-#110723 remove hardcoded path /root/.packages, so can run script in Woof.
 #110822 versioning operators can be chained, ex: +linux_kernel&ge2.6.32&lt2.6.33
 #111107 01micko: fix for '||' messing things up.
 #120203 BK: internationalized.
@@ -32,7 +31,6 @@
 #120905 search 4 levels for dependencies.
 #120907 max 11 levels, greatly improved speed. progress display at top of screen.
 #121102 Packages-puppy-${DISTRO_FILE_PREFIX}- (or Packages-puppy-${DISTRO_COMPAT_VERSION}-) is now Packages-puppy-${DISTRO_DB_SUBNAME}-. refer /etc/DISTRO_SPECS.
-#130511 vercmp failed this test: if vercmp 2.2.1 ge 2.2~2011week36; then echo 'greater'; fi -- have solved this in woof, support debdb2pupdb.bac
 
 [ "$(cat /var/local/petget/nt_category 2>/dev/null)" != "true" ] && \
  [ -f /tmp/install_quietly ] && set -x
@@ -41,19 +39,10 @@
 export TEXTDOMAIN=petget___dependencies.sh
 export OUTPUT_CHARSET=UTF-8
 
-if [ -f ./PKGS_MANAGEMENT ];then #110723
-. ./PKGS_MANAGEMENT
-. ./DISTRO_PET_REPOS
-. ./DISTRO_SPECS
- RUNNINGWOOF='yes'
- PREPATH='./'
-else
 . /root/.packages/PKGS_MANAGEMENT #has PKG_ALIASES_INSTALLED
 . /root/.packages/DISTRO_PET_REPOS
 . /etc/DISTRO_SPECS
- RUNNINGWOOF='no'
- PREPATH='/root/.packages/'
-fi
+PREPATH='/root/.packages/'
 
 #a problem is that the dependencies may have their own dependencies. Some pkg
 #databases have all dependencies up-front, whereas some only list the higher-level
@@ -67,24 +56,17 @@ fi
 ALLINSTALLEDPKGS="`cat /tmp/petget_installed_patterns_all`"
 TREE1="`cat /tmp/petget_installpreview_pkgname`"
 
-
 #this is the db of the main pkg...
 DB_MAIN="${PREPATH}Packages-`cat /tmp/petget/current-repo-triad`" #ex: Packages-slackware-12.2-official 110723
-if [ "$RUNNINGWOOF" = "no" ];then
- #...should have first preference when looking for dependencies...
- DB_OTHERS="`ls -1 ${PREPATH}Packages-* | grep -v "$DB_MAIN"`"
- #120903 improve pkg db selection...
- case $DB_MAIN in
-  *-puppy-2-*) DB_OTHERS="" ;;
-  *-puppy-3-*) DB_OTHERS="" ;;
-  *-puppy-4-*) DB_OTHERS="" ;;
-  *-puppy-5-*) DB_OTHERS="" ;;
+#...should have first preference when looking for dependencies...
+DB_OTHERS="`ls -1 ${PREPATH}Packages-* | grep -v "$DB_MAIN"`"
+#120903 improve pkg db selection...
+case $DB_MAIN in
+  *"-puppy-2-"*|*"-puppy-3-"*|*"-puppy-4-"*|*"-puppy-5-"*) DB_OTHERS="" ;;
   *) DB_OTHERS="`echo "$DB_OTHERS" | grep -v '\\-puppy\\-[2345]\\-'`" ;; #do not look in puppy-2, puppy-3, puppy-4 or puppy-5.
- esac
- case $DB_MAIN in
-  *-puppy-*)
-   true
-  ;;
+esac
+case $DB_MAIN in
+  *-puppy-*) true ;;
   *)
    #looking in a compat-distro db, then only puppy db allow is Packages-puppy-${DISTRO_DB_SUBNAME}-*  121102
    DB_OTHERS="$(echo "$DB_OTHERS" | grep -v '\-puppy\-')"
@@ -92,11 +74,7 @@ if [ "$RUNNINGWOOF" = "no" ];then
    [ "$PUPDB" ] && DB_OTHERS="$DB_OTHERS
 $PUPDB"
   ;;
- esac
-else
- #running woof, restrict search for deps to only the one pkg db file.
- DB_OTHERS=""
-fi
+esac
 DB_OTHERS="`echo "$DB_OTHERS" | tr '\n' ' '`"
 
 #the question is, how deep to search for deps? i'll go down 2 levels... make it 3...
@@ -108,7 +86,7 @@ echo -n "" > /tmp/petget_missingpkgs_patterns_acc0 #120903
 cp -f /tmp/petget_missingpkgs_patterns /tmp/petget_missingpkgs_patternsx
 echo "$(gettext 'HIERARCHY OF MISSING DEPENDENCIES OF PACKAGE') $TREE1" > /tmp/petget_deps_visualtreelog #w017
 echo "$(gettext "Format of each line: 'a-missing-dependent-pkg: missing dependencies of a-missing-dependent-pkg'")" >> /tmp/petget_deps_visualtreelog #w017
-for ONELEVEL in 1 2 3 4 5 6 7 8 9 10 11
+for ONELEVEL in 1 2 3 4 5 6 7 8 9 10 11 12 13
 do
  if [ ! -f /tmp/install_quietly ]; then
   [ $ONELEVEL -gt 1 ] && pupkill $XXPID #120907
@@ -148,6 +126,8 @@ do
      9)  echo "                            $ONEDEP: $MISSDEPSLIST" >> /tmp/petget_deps_visualtreelog ;;
      10) echo "                                $ONEDEP: $MISSDEPSLIST" >> /tmp/petget_deps_visualtreelog ;;
      11) echo "                                    $ONEDEP: $MISSDEPSLIST" >> /tmp/petget_deps_visualtreelog ;;
+     12) echo "                                        $ONEDEP: $MISSDEPSLIST" >> /tmp/petget_deps_visualtreelog ;;
+     13) echo "                                            $ONEDEP: $MISSDEPSLIST" >> /tmp/petget_deps_visualtreelog ;;
     esac
     break
    fi
@@ -234,32 +214,25 @@ do
  fi
 done
 
-# Give priority to Slackware patches over official
-if [ "$DISTRO_FILE_PREFIX" = "slacko64" -o "$DISTRO_FILE_PREFIX" = "slacko" ]; then
- PATCHES=/tmp/petget_missing_dbentries-Packages-*lackware*-patches
+#--- slacko
+case "$DISTRO_BINARY_COMPAT" in slackware*)
  OFFICIAL=/tmp/petget_missing_dbentries-Packages-*lackware*-official
  SALIX=/tmp/petget_missing_dbentries-Packages-*lackware*-salix
  SLACKY=/tmp/petget_missing_dbentries-Packages-*lackware*-slacky
- if [ "$(echo $DB_MAIN | grep patches)" != "" -o "$(echo $DB_MAIN | grep official)" != "" ]; then
-  cat ${PATCHES} | while read LINE
-  do
-   COMMON=$(echo $LINE |cut -f 2 -d '|')
-   sed -i "/|$COMMON|/d" ${OFFICIAL} 2>/dev/null
-   sed -i "/|$COMMON|/d" ${SALIX} 2>/dev/null
-   sed -i "/|$COMMON|/d" ${SLACKY} 2>/dev/null
-  done
- fi
- # Get Salix deps preferencially
- if [ "$(echo $DB_MAIN | grep salix)" != "" ]; then
-  cat ${SALIX} | while read LINE
-  do
-   COMMON=$(echo $LINE |cut -f 2 -d '|')
-   sed -i "/|$COMMON|/d" ${OFFICIAL} 2>/dev/null
-   sed -i "/|$COMMON|/d" ${PATCHES} 2>/dev/null
-   sed -i "/|$COMMON|/d" ${SLACKY} 2>/dev/null
-  done
- fi
-fi
+ case "$DB_MAIN" in *"official"*) # Give priority to Slackware official
+   cat ${OFFICIAL} | while IFS="|" read FIRST COMMON THIRD
+   do
+     sed -i "/|$COMMON|/d" ${SALIX} ${SLACKY} 2>/dev/null
+   done
+ esac
+ case "$DB_MAIN" in *"salix"*) # Get Salix deps preferencially
+   cat ${SALIX} | while IFS="|" read FIRST COMMON THIRD
+   do
+     sed -i "/|$COMMON|/d" ${OFFICIAL} ${SLACKY} 2>/dev/null
+   done
+ esac
+ ;;
+esac
 
 [ ! -f /tmp/install_quietly ] && kill $X1PID || exit 0
 

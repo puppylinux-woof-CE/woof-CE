@@ -1,11 +1,14 @@
 #!/bin/sh
+#
+# http://security.stackexchange.com/questions/5158/for-luks-the-most-preferable-and-safest-cipher
+#
 
 . ../../func
 
-URL=https://www.kernel.org/pub/linux/utils/cryptsetup/v1.7
+VER=1.7.5
+URL=https://www.kernel.org/pub/linux/utils/cryptsetup/v${VER%.*}
 SRC=cryptsetup
 PKG=cryptsetup_static
-VER=1.7.2
 COMP=tar.xz
 DESC="disk encryption support"
 DEPS=
@@ -14,12 +17,17 @@ CWD=`pwd`
 
 libuuid_ver=1.0.3  #2014-08-12
 popt_ver=1.16      #May 07 2010
-lvm2_ver=2.02.114  #Nov 28 2014
-#lvm2_ver=2.02.161 #Jul 15 2016
+#lvm2_ver=2.02.116 #Jan 30 2015
+#lvm2_ver=2.02.162 #Jul 28 2016
+lvm2_ver=2.02.168  #Nov 30 2016
 gpg_error_ver=1.24 #Jul 14 2016
 gcrypt_ver=1.7.2   #Jul 14 2016
 
 #-----------------------
+
+which cc >/dev/null || ln -sv $(which gcc) /usr/bin/cc
+export ac_cv_func_malloc_0_nonnull=yes
+export ac_cv_func_realloc_0_nonnull=yes
 
 build_libuuid() {
 	extract libuuid-${libuuid_ver}.tar.gz
@@ -28,34 +36,50 @@ build_libuuid() {
 	_configure
 	_make
 	_make install
+	rv=$?
 	cd ..
+	return $rv
 }
 
 build_popt() {
 	extract popt-${popt_ver}.tar.gz
+	# popt has a very old config.sub
+	cp -f ../config.sub popt-${popt_ver}
 	cd popt-${popt_ver}
-	sed -i -e "s%armv\[2345%armv[2345678%" \
-		-e 's%armv\[345%armv[345678%' config.sub
 	opts="--prefix=$deps_dir"
 	_configure
 	_make
 	_make install
+	rv=$?
 	cd ..
+	return $rv
 }
 
 build_lvm2() {
 	extract LVM2.${lvm2_ver}.tgz
 	cd LVM2.${lvm2_ver}
 	opts="--prefix=${deps_dir}
---enable-static_link --disable-selinux
+--disable-shared
+--enable-static
+--enable-static_link
+--disable-selinux
 --disable-udev-systemd-background-jobs
---with-user= --with-group= --disable-nls"
+--with-user= --with-group=
+--disable-nls
+--disable-readline
+--disable-blkid_wiping"
 	# http://changetheworldwithyourpassion.blogspot.com/2009/09/fix-undefined-rplmalloc-on-autoconf.html
 	export ac_cv_func_malloc_0_nonnull=yes
 	_configure
+	sed -i 's/SUBDIRS = .*/SUBDIRS = conf daemons include lib libdaemon libdm man/' Makefile
 	_make LDFLAGS='-all-static' install_device-mapper #device-mapper
+	cp libdm/ioctl/libdevmapper.a ${deps_dir}/lib/libdevmapper.a
+	rv=$?
+	cp libdm/libdevmapper.pc ${deps_dir}/lib/pkgconfig
+	cp libdm/libdevmapper.h ${deps_dir}/include
 	cd ..
 	rm -f deps/lib/libdevmapper.so*
+	return $rv
 }
 
 #-----------------------
@@ -66,53 +90,81 @@ build_libgpg_error() {
 	case $ARCH in
 		i?86) SF='lock-obj-pub.i686-pc-linux-gnu.h' ;;
 		x86_64) SF='lock-obj-pub.x86_64-pc-linux-musl.h' ;;
-		armv5l) SF='lock-obj-pub.armv5-unknown-linux-musleabi.h' ;;
-		armv6l) SF='lock-obj-pub.armv6-unknown-linux-musleabihf.h' ;;
+		#arm) SF='lock-obj-pub.armv5-unknown-linux-musleabi.h' ;;
+		arm) SF='lock-obj-pub.armv6-unknown-linux-musleabihf.h' ;;
+		aarch64) SF='lock-obj-pub.aarch64-unknown-linux-gnu.h' ;;
 	esac
 	if [ -f src/syscfg/$SF ] ; then
-		ln -sv $SF src/syscfg/lock-obj-pub.linux.h
+		ln -sfv $SF src/syscfg/lock-obj-pub.linux.h
 	fi
 	opts="--prefix=$deps_dir --disable-nls --enable-static --disable-shared --disable-doc"
 	_configure
 	_make
 	_make install
+	rv=$?
 	cd ..
+	return $rv
 }
 
 build_libgcrypt() {
 	extract libgcrypt-${gcrypt_ver}.tar.gz
 	cd libgcrypt-${gcrypt_ver}
-	opts="--prefix=${deps_dir} --enable-static --disable-shared --disable-doc --disable-asm"
+	opts="
+--prefix=${deps_dir}
+--enable-static
+--disable-shared
+--disable-doc
+--disable-asm
+--disable-padlock-support
+--disable-aesni-support
+--disable-pclmul-support
+--disable-sse41-support
+--disable-drng-support
+--disable-avx-support
+--disable-avx2-support
+--enable-ciphers=arcfour,blowfish,cast5,des,aes,twofish,serpent,rfc2268,seed,camellia,idea
+"
 	_configure
 	_make
 	_make install
+	rv=$?
 	cd ..
+	return $rv
 }
 
 #-----------------------
 
 build() {
 	deps_dir=${PWD}/deps
-	mkdir -p ${deps_dir}
-	build_libuuid
-	build_popt
-	build_lvm2
-	build_libgpg_error
+	mkdir -p ${deps_dir}/lib/pkgconfig
 	#--
 	export PATH="${deps_dir}/bin:$PATH"
 	export C_INCLUDE_PATH="${deps_dir}/include"
 	export LD_LIBRARY_PATH="${deps_dir}/lib:$LD_LIBRARY_PATH"
 	#--
-	build_libgcrypt
+	build_libgpg_error || exit 1
+	build_libgcrypt || exit 1
+	build_libuuid || exit 1
+	build_popt || exit 1
+	build_lvm2 || exit 1
 	#--
 	cd ${SRC}-${VER}
-	opts="--prefix=/usr --disable-nls --enable-static-cryptsetup
---disable-udev --enable-static --disable-shared"
+	make clean
+	opts="--disable-nls
+--disable-shared
+--enable-static
+--enable-static-cryptsetup
+--disable-udev
+--disable-selinux
+--disable-veritysetup
+--disable-python"
 	export ac_cv_lib_uuid_uuid_clear=yes
 	export ac_cv_lib_uuid_uuid_generate=yes
 	export ac_cv_lib_popt_poptConfigFileToString=yes
 	export ac_cv_lib_popt_poptGetContext=yes
 	export ac_cv_lib_devmapper_dm_task_set_uuid=yes
+	export DEVMAPPER_LIBS="-L${deps_dir}/lib/ -ldevmapper -lrt"
+	export DEVMAPPER_CFLAGS="-I${deps_dir}/include"
 	_configure
 	sed -i 's|-ludev||' src/Makefile
 	_make

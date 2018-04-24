@@ -22,6 +22,10 @@ function set_arch() {
 		*64) LIBDIR=lib64 ;;
 		*) LIBDIR=lib ;;
 	esac
+	if [ "$TARGET_TRIPLET" != "" ] ; then
+		XCOMPILER=${TARGET_TRIPLET} #this is exported by build.sh
+	fi
+	echo "$XCOMPILER"
 }
 set_arch
 
@@ -43,11 +47,21 @@ function retrieve() {
 		local URL=${SOURCE%/*}
 		local FILE=${SOURCE##*/}
 	esac
-	if [ -f ${MWD}/0sources/${FILE} ] ; then
+	#--
+	ZZDL=1
+	if [ "$2" != "" ] ; then
+		[ -f ${MWD}/0sources/${2} ] && ZZDL=0
+		zzoutfile="${MWD}/0sources/${2}"
+	else
+		[ -f ${MWD}/0sources/${FILE} ] && ZZDL=0
+		zzoutfile="${MWD}/0sources/${FILE}"
+	fi
+	#--
+	if [ $ZZDL -eq 0 ] ; then
 		[ "$DLD_ONLY" = "yes" ] && echo "Already downloaded ${FILE}"
 	else
 		echo "Downloading ${URL}/${FILE}"
-		wget -P ${MWD}/0sources -c --no-check-certificate "${URL}/${FILE}"
+		wget -O ${zzoutfile} -c --no-check-certificate "${URL}/${FILE}"
 		if [ $? -ne 0 ] ; then
 			rm -f ${FILE}
 			exit_error 1
@@ -86,7 +100,11 @@ function _cflags() {
 }
 
 function make_sh() {
-	#script can not overwrite itself
+	# _make() creates make.sh in the current dir (calls make_sh())
+	# You can manually run make.sh and it will source this script (func)
+	# and will call _make() again...
+	# ... but make.sh must not overwrite itself 
+	# that's why it exports MAKE_SCRIPT=yes
 	if [ "$MAKE_SCRIPT" != "yes" ] ; then
 		echo "#!/bin/sh" > make.sh
 		echo "export MAKE_SCRIPT=yes" >> make.sh
@@ -102,7 +120,6 @@ function _configure() {
 	unset host
 	if [ -f configure ] ; then
 		#this is to avoid possible problems with the triplet
-		#true for aboriginal linux cross compiler
 		sed -i  -e 's|^build_os=.*|build_os=linux|' \
 				-e 's|^host_os=.*|host_os=linux|' \
 				-e 's|^target_os=.*|target_os=linux|' \
@@ -111,10 +128,30 @@ function _configure() {
 	fi
 	if [ -d "$XPATH" ] ; then
 		echo "PATH: $PATH"
-		host="--host=${ARCH}"
+		host="--host=${XCOMPILER}"
 	fi
 	hl_echo "./configure ${opts} ${host}"
 	./configure ${opts} ${host} #opts is set in the calling script
+	[ $? -ne 0 ] && exit_error 1
+}
+
+#this is inside the source dir
+function _config_sh() {
+	unset host
+	if [ -f config.sh ] ; then
+		#this is to avoid possible problems with the triplet
+		sed -i  -e 's|^build_os=.*|build_os=linux|' \
+				-e 's|^host_os=.*|host_os=linux|' \
+				-e 's|^target_os=.*|target_os=linux|' \
+				-e 's|linux_os=no|linux_os=yes|' \
+				config.sh
+	fi
+	if [ -d "$XPATH" ] ; then
+		echo "PATH: $PATH"
+		host="--host=${XCOMPILER}"
+	fi
+	hl_echo "./config.sh ${opts} ${host}"
+	./config.sh ${opts} ${host} #opts is set in the calling script
 	[ $? -ne 0 ] && exit_error 1
 }
 
@@ -132,7 +169,7 @@ function _make() {
 	if [ "$1" = "" ] ; then #no args
 		if [ -d "$XPATH" ] ; then #musl
 			echo "PATH: $PATH"
-			mkstr="${MKFLG} CC=${ARCH}-gcc LD=${ARCH}-ld AR=${ARCH}-ar RANLIB=${ARCH}-ranlib NM=${ARCH}-nm LDFLAGS=-static"
+			mkstr="${MKFLG} CC=${XCOMPILER}-gcc LD=${XCOMPILER}-ld AR=${XCOMPILER}-ar RANLIB=${XCOMPILER}-ranlib NM=${XCOMPILER}-nm LDFLAGS=-static"
 			hl_echo "make $mkstr"
 			make_sh "make $mkstr"
 			make $mkstr
@@ -154,7 +191,7 @@ function _make() {
 function _install() {
 	local file="$1" dest="$2"
 	if [ -d "$XPATH" ] ; then
-		${ARCH}-strip --strip-all "$file"
+		${XCOMPILER}-strip --strip-all "$file"
 	else
 		strip --strip-all "$file"
 	fi

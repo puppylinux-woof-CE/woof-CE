@@ -7,5 +7,4 @@ if [ -f "${DISTRO_FILE_PREFIX}-wall2.svg" ];then
 	mv -f $BUN obuntoo.svg
 	cp -af "${DISTRO_FILE_PREFIX}-wall2.svg" $BUN
 fi
-)
-	
+)	

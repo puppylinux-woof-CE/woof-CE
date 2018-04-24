@@ -7,14 +7,23 @@ export OUTPUT_CHARSET=UTF-8
 
 case $1 in
 -add_favorites_with_timestamp)
-	IFS='|' read NAME ADR < $HOME/.pmusic/nowplaying
+	#check if track is valid for timestamp
 	TIME="`cut -d'(' -f3 $WORKDIR/statusbar | cut -d'/' -f1 | tr -d ' '`"
 	if [[ "$TIME" != *:* ]]; then
-		TXT1="<b>$(gettext 'No timestamp found')</b>"
-		TXT2="$(gettext 'This works only for a playing track.')"
+		TXT1="<b>$(gettext "Can't save timestamp")</b>"
+		TXT2="$(gettext 'Saving the given time requires a playing track.')"
 		. $APPDIR/box_ok
 		exit
 	fi
+	IFS='|' read C1 LENGTH C < $WORKDIR/PLAYLIST_ALL
+	if [[ "$LENGTH" = "00:00" ]]; then
+		TXT1="<b>$(gettext "Can't save timestamp")</b>"
+		TXT2="$(gettext 'A live stream can not hold a timestamp.')"
+		. $APPDIR/box_ok
+		exit
+	fi
+	#---
+	IFS='|' read NAME ADR < $HOME/.pmusic/nowplaying
 	#splash
 	gettext 'Add to Favorites' > $WORKDIR/splashtext
 	$APPDIR/box_splash &
@@ -28,12 +37,14 @@ case $1 in
 		echo "[${TIME}] $ADR|[${TIME}] $NAME||||||||||$LENGTH||$ADR|gtk-audio" >> "$STORAGE_DIR/favorites"
 	fi
 	#update sourcelist if active
-	if [ "`grep -F 'pmusic_favorite_lists' $WORKDIR/sourcelist`" ]; then
-		TMP="`grep -FB 10000 'pmusic_favorite_marks' $WORKDIR/sourcelist | grep -vF 'pmusic_favorite_marks'`"
+	if [ "`grep -F 'pmusic_favorites' $WORKDIR/sourcelist`" ]; then
 		TMP1="`grep -FA 10000 'pmusic_rating' $WORKDIR/sourcelist`"
-		echo "$TMP" > $WORKDIR/sourcelist
 		$APPDIR/func_favorites -show_favorites_marks
 		echo -e "\n$TMP1" >> $WORKDIR/sourcelist
+		echo true > $WORKDIR/UPDATE_SOURCELIST
+	fi
+	if [ "`grep -F 'pmusicbrowse_podcast_genre' $WORKDIR/sourcelist`" ]; then #podcast overview
+		$APPDIR/func_podcast -show_podcast
 		echo true > $WORKDIR/UPDATE_SOURCELIST
 	fi
 	#---
@@ -76,7 +87,7 @@ case $1 in
 			echo "$2|${ADR##*/}||||||||||||$ADR|gtk-audio_playlist" >> "$STORAGE_DIR/favorites"
 		elif [ "$DB" ]; then
 			echo "$DB" >> "$STORAGE_DIR/favorites"
-		elif [[ $(<"$STORAGE_DIR/index_radio") = *"${2}|"* ]]; then
+		elif [[ $(<"$STORAGE_DIR/index_radio") = *"${2}"* ]]; then
 			echo "${2}|${NAME}||||||||||||$2|gtk-audio-url" >> "$STORAGE_DIR/favorites"
 		elif [[ "$LENGTH" ]]; then
 			echo "${2}|${NAME}||||||||||$LENGTH||$2|gtk-audio" >> "$STORAGE_DIR/favorites"
@@ -85,19 +96,9 @@ case $1 in
 		fi
 	fi
 	#update sourcelist if active
-	if [[ $(<$WORKDIR/sourcelist) = *pmusic_favorite_lists* ]]; then
-		if [ "$NEW_LIST" = "true" ]; then
-			tac $WORKDIR/sourcelist | head -n-1 | tac > $WORKDIR/tmp_favorites1
-			echo "pmusic_favorite_lists|__ $(gettext 'F A V O R I T E   L I S T S') __" > $WORKDIR/sourcelist
-			echo "pmusicbrowse_expand:$STORAGE_DIR/favorite_lists/$3|$3||||||||||||$STORAGE_DIR/favorite_lists/$3|gtk-audio_playlist_favorites" >> $WORKDIR/sourcelist
-			cat $WORKDIR/tmp_favorites1 >> $WORKDIR/sourcelist
-		fi
-		if [ ! "$3" ]; then #a mark
-			TMP="`grep -FB 10000 'pmusic_favorite_marks' $WORKDIR/sourcelist | grep -vF 'pmusic_favorite_marks'`"
-			TMP2="`grep -FA 10000 'pmusic_rating' $WORKDIR/sourcelist`"
-			echo "$TMP" > $WORKDIR/sourcelist
-			$APPDIR/func_favorites -show_favorites_marks
-			echo -e "\n$TMP2" >> $WORKDIR/sourcelist
+	if [[ $(<$WORKDIR/sourcelist) = *pmusic_favorites* ]]; then
+		if [ "$NEW_LIST" = "true" ] || [ ! "$3" ]; then
+			$APPDIR/func_favorites -show_favorites
 		else #inside favorite list
 			if [[ $(<$WORKDIR/sourcelist) = *"pmusicbrowse_collapse:$STORAGE_DIR/favorite_lists/$3"* ]]; then #list is expanded - update is required
 				$APPDIR/func -playlist_collapse "$STORAGE_DIR/favorite_lists/$3"
@@ -109,10 +110,6 @@ case $1 in
 	;;
 
 -show_favorites)
-	echo "pmusic_favorite_lists|__ $(gettext 'F A V O R I T E   L I S T S') __" > $WORKDIR/sourcelist
-	#favorite lists
-	find "$STORAGE_DIR/favorite_lists/" -maxdepth 1 -mindepth 1 -type d -printf "pmusicbrowse_parent:pmusicbrowse_favorites:%p|%f||||||||||||%p|gtk-favorites_group\n" >> $WORKDIR/sourcelist
-	find "$STORAGE_DIR/favorite_lists/" -maxdepth 1 -type f -printf "pmusicbrowse_expand:%p|%fxxx||||||||||||%p|gtk-audio_playlist_favorites\n" | sed s%.pmdxxx%%g >> $WORKDIR/sourcelist
 	#bookmarks
 	$APPDIR/func_favorites -show_favorites_marks
 	#most played
@@ -133,8 +130,12 @@ case $1 in
 	;;
 
 -show_favorites_marks)
-	echo -e "\npmusic_favorite_marks|__ $(gettext 'F A V O R I T E S') __" >> $WORKDIR/sourcelist
 	AUDIO_FORMATS2="${AUDIO_FORMATS//$/\\|}" #example: |/path/file.mp3|
+	echo -e "pmusic_favorites|__ $(gettext 'F A V O R I T E S') __" > $WORKDIR/sourcelist
+	#favorite lists
+	find "$STORAGE_DIR/favorite_lists/" -maxdepth 1 -mindepth 1 -type d -printf "pmusicbrowse_parent:pmusicbrowse_favorites:%p|%f||||||||||||%p|gtk-favorites_group\n" >> $WORKDIR/sourcelist
+	find "$STORAGE_DIR/favorite_lists/" -maxdepth 1 -type f -printf "pmusicbrowse_expand:%p|%fxxx||||||||||||%p|gtk-audio_playlist_favorites\n" | sed s%.pmdxxx%%g >> $WORKDIR/sourcelist
+	#---
 	grep -viE "^$|$AUDIO_FORMATS2|^http:|^cdda:" "$STORAGE_DIR/favorites" | sort -rst'|' -k15,15 >> $WORKDIR/sourcelist
 	grep -iE "$AUDIO_FORMATS2|^http:|^cdda:" "$STORAGE_DIR/favorites" > $WORKDIR/tmp_favorites
 	$APPDIR/func_rating -buildlist 1 $WORKDIR/tmp_favorites | sort -rnst'|' -k14,14 >> $WORKDIR/sourcelist

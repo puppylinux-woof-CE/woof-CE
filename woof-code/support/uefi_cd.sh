@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 # efi.img/grub2 is thanks to jamesbond
 # basic CD structure is the same as Fatdog64
 # called from 3builddistro-Z
@@ -15,16 +15,6 @@ mk_iso() {
 	isohybrid -u $OUTPUT
 }
 
-# finds first free loop device
-fn_loop() {
-	cnt=0
-	losetup -a|grep -o 'loop[0-9]*'|grep -o '[0-9]*'|\
-	while read -r free;do
-		echo $free|grep -q $cnt || return $cnt
-		cnt=$(($cnt + 1))
-	done
-}
-
 # make a grub2 efi image
 mk_efi_img() {
 	TGT=$1; GRUB=$2; NEW=$3
@@ -33,11 +23,11 @@ mk_efi_img() {
 	dd if=/dev/zero of=${TGT}/efi.img bs=512 count=8192 || return 1
 	echo "formatting ${TGT}/efi.img - vfat"
 	mkdosfs ${TGT}/efi.img
-	fn_loop; n=$?
+	FREE_DEV=`losetup -f`
 	echo "mounting ${TGT}/efi.img on /tmp/efi_img"
-	losetup /dev/loop${n} ${TGT}/efi.img || return 2
-	mount -t vfat /dev/loop${n} /tmp/efi_img || \
-		(losetup -d /dev/loop${n};return 3)
+	losetup $FREE_DEV ${TGT}/efi.img || return 2
+	mount -t vfat $FREE_DEV /tmp/efi_img || \
+		(losetup -d $FREE_DEV;return 3)
 	echo "copying files"
 	mkdir -p /tmp/efi_img/EFI/boot/ || return 4
 	tar -xJvf $GRUB -C /tmp/efi_img/EFI/boot/ || return 5
@@ -45,19 +35,19 @@ mk_efi_img() {
 		|| return 6
 	echo "unmounting /tmp/efi_img"
 	umount /tmp/efi_img || return 7
-	losetup -a | grep -o -q "loop${n}" && losetup -d /dev/loop${n}
+	losetup -a | grep -o -q "${FREE_DEV##*/}" && losetup -d $FREE_DEV
 	rm -r /tmp/efi_img
 	return 0
 }
 
 # RESOURCES=`find ../ -type d -name UEFI -maxdepth 2`
-RESOURCES=`find ../sandbox3/rootfs-complete/usr/share/ -type d -name 'grub2-efi' -maxdepth 2`
-ISOLINUX=`find ../sandbox3/rootfs-complete/usr -type f -name 'isolinux.bin' -maxdepth 3`
-VESAMENU=`find ../sandbox3/rootfs-complete/usr -type f -name 'vesamenu.c32' -maxdepth 3`
-FIXUSB=`find ../sandbox3/rootfs-complete/usr -type f -name 'fix-usb.sh' -maxdepth 2`
+RESOURCES=`find ../sandbox3/rootfs-complete/usr/share/ -maxdepth 2 -type d -name 'grub2-efi'`
+ISOLINUX=`find ../sandbox3/rootfs-complete/usr -maxdepth 3 -type f -name 'isolinux.bin'`
+VESAMENU=`find ../sandbox3/rootfs-complete/usr -maxdepth 3 -type f -name 'vesamenu.c32'`
+FIXUSB=`find ../sandbox3/rootfs-complete/usr -maxdepth 2 -type f -name 'fix-usb.sh'`
 GRUBNAME=grubx64.efi
 NEWNAME=bootx64.efi
-GRUB2=`find ../sandbox3/rootfs-complete/usr/share -type f -name "${GRUBNAME}*" -maxdepth 2`
+GRUB2=`find ../sandbox3/rootfs-complete/usr/share -maxdepth 2 -type f -name "${GRUBNAME}*"`
 BUILD=../sandbox3/build
 HELP=${BUILD}/help
 MSG1=../boot/boot-dialog/help.msg
@@ -67,13 +57,13 @@ PPMLABEL=`which ppmlabel`
 TEXT="-text $DISTRO_VERSION"
 GEOM="-x 680 -y 380"
 UFLG=-uefi
-WOOF_OUTPUT="woof-output-${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${SCSIFLAG}${UFLG}"
+WOOF_OUTPUT="woof-output-${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${SCSIFLAG}${UFLG}${XTRA_FLG}"
 [ -d ../$WOOF_OUTPUT ] || mkdir -p ../$WOOF_OUTPUT
-OUT=../${WOOF_OUTPUT}/${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${SCSIFLAG}${UFLG}.iso
+OUT=../${WOOF_OUTPUT}/${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${SCSIFLAG}${UFLG}${XTRA_FLG}.iso
 
-[ -z "$ISOLINUX" ] && echo "Can't find isolinux" && exit
-[ -z "$VESAMENU" ] && echo "Can't find vesamenu" && exit
-[ -z "$GRUB2" ] && echo "Can't find Grub2" && exit
+[ -z "$ISOLINUX" ] && echo "Can't find isolinux" && exit 32
+[ -z "$VESAMENU" ] && echo "Can't find vesamenu" && exit 33
+[ -z "$GRUB2" ] && echo "Can't find Grub2" && exit 34
 
 # custom backdrop
 pic=puppy
@@ -114,19 +104,19 @@ insmod png
 background_image /${pic}.png
 set timeout=10
 menuentry "Start $DISTRO_FILE_PREFIX" {
-    linux /vmlinuz
+    linux /vmlinuz pmedia=cd
     initrd /initrd.gz
 }
 menuentry "Start $DISTRO_FILE_PREFIX - RAM only" {
-    linux /vmlinuz pfix=ram
+    linux /vmlinuz pfix=ram pmedia=cd
     initrd /initrd.gz
 }
 menuentry "Start $DISTRO_FILE_PREFIX - No X" {
-    linux /vmlinuz pfix=nox
+    linux /vmlinuz pfix=nox pmedia=cd
     initrd /initrd.gz
 }
 menuentry "Start $DISTRO_FILE_PREFIX - check filesystem" {
-    linux /vmlinuz pfix=fsck
+    linux /vmlinuz pfix=fsck pmedia=cd
     initrd /initrd.gz
 }
 menuentry "Start $DISTRO_FILE_PREFIX - No KMS" {
@@ -173,27 +163,37 @@ menu helpmsgrow 30
 label ${DISTRO_FILE_PREFIX}
 linux vmlinuz
 initrd initrd.gz
-#append rootfstype=ramfs
+append pmedia=cd
 menu label ${DISTRO_FILE_PREFIX}
 text help
 Start ${DISTRO_FILE_PREFIX} normally.
 endtext
 
 
+label ${DISTRO_FILE_PREFIX}-fsck
+linux vmlinuz
+initrd initrd.gz
+append pfix=fsck pmedia=cd
+menu label ${DISTRO_FILE_PREFIX} filesystem check
+text help
+Start ${DISTRO_FILE_PREFIX} normally with save filesystem check.
+endtext
+
+
 label ${DISTRO_FILE_PREFIX}-ram
 linux vmlinuz
 initrd initrd.gz
-append pfix=ram
+append pfix=ram pmedia=cd
 menu label $DISTRO_FILE_PREFIX with no savefile
 text help
-Start Slacko64 with no savefile RAM only.
+Start ${DISTRO_FILE_PREFIX} with no savefile RAM only.
 endtext
 
 
 label ${DISTRO_FILE_PREFIX}-nox
 linux vmlinuz
 initrd initrd.gz
-append pfix=nox
+append pfix=nox pmedia=cd
 menu label ${DISTRO_FILE_PREFIX} without graphical desktop
 text help
 Start ${DISTRO_FILE_PREFIX} in command-line mode (Linux console). 
@@ -206,7 +206,7 @@ menu separator
 label ${DISTRO_FILE_PREFIX}-nokms
 linux vmlinuz
 initrd initrd.gz
-append pfix=ram,nox
+append pfix=ram,nox pmedia=cd
 menu label For machines with severe video problems
 text help
 Start ${DISTRO_FILE_PREFIX} without savefile, without KMS, and run xorgwizard 
@@ -219,5 +219,7 @@ sync
 mk_iso $BUILD $OUT
 sync
 (cd ../$WOOF_OUTPUT
-md5sum ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${SCSIFLAG}${UFLG}.iso \
-> ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${SCSIFLAG}${UFLG}.iso.md5.txt)
+md5sum ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${SCSIFLAG}${UFLG}${XTRA_FLG}.iso \
+> ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${SCSIFLAG}${UFLG}${XTRA_FLG}.iso.md5.txt
+sha256sum ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${SCSIFLAG}${UFLG}${XTRA_FLG}.iso \
+> ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${SCSIFLAG}${UFLG}${XTRA_FLG}.iso.sha256.txt)

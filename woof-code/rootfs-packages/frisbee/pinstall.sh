@@ -97,15 +97,15 @@ if [ "$(pwd)" = "/" ];then
  rm -f usr/local/frisbee/connect
  rm -f usr/local/frisbee/disconnect
  rm -f usr/local/bin/frisbee_cli
- if ! grep -qE 'frisbee --|frisbee_cli --' usr/sbin/connectwizard;then
+ if ! grep -qE 'frisbee --|frisbee_cli --' usr/local/apps/Connect/AppRun;then
   ln -snf frisbee usr/local/bin/frisbee_mode_disable
   ln -snf ../bin/frisbee usr/local/frisbee/connect
   ln -snf ../bin/frisbee usr/local/frisbee/disconnect
   [ "$(ls root/.packages/frisbee-1.*.files 2>/dev/null)" ] \
    && sed -i -e 's%/usr/local/bin/frisbee$%&\n/usr/local/bin/frisbee_mode_disable%' \
-   -e 's%/usr/local/frisbee/frisbee-gprs-connect$%/usr/local/frisbee/connect\n/usr/local/frisbee/disconnect\n&' \
+   -e 's%/usr/local/frisbee/frisbee-gprs-connect$%/usr/local/frisbee/connect\n/usr/local/frisbee/disconnect\n&%' \
    root/.packages/frisbee-1.*.files
- elif grep -q 'frisbee_cli --' usr/sbin/connectwizard;then
+ elif grep -q 'frisbee_cli --' usr/local/apps/Connect/AppRun;then
   ln -snf frisbee usr/local/bin/frisbee_cli
   [ "$(ls root/.packages/frisbee-1.*.files 2>/dev/null)" ] \
    && sed -i -e 's%/usr/local/bin/frisbee$%&\n/usr/local/bin/frisbee_cli%' \

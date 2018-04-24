@@ -65,7 +65,7 @@ if [ $PUPMODE -eq 3 -o $PUPMODE -eq 7 -o $PUPMODE -eq 13 ]; then
 	[ -f /var/local/petget/sc_category ] && \
      CATEGORY_IM=$(cat /var/local/petget/install_mode) || CATEGORY_IM="false"
 	IMODE="<checkbox>
-        <label>$(gettext 'Install to tmpfs instead  of the savefile, till session is saved')</label>
+        <label>$(gettext 'Install to savefile instead of directly (only useful if low RAM - NOT recommended)')</label>
         <variable>CATEGORY_IM</variable>
         <default>${CATEGORY_IM}</default>
      </checkbox>"
@@ -214,6 +214,11 @@ S='<window title="'$(gettext 'Puppy Package Manager - Configure')'" icon-name="g
         <variable>CATEGORY_ND</variable>'
         [ "$(</var/local/petget/nd_category)" = "true" ] && S=$S'<default>true</default>'
       S=$S'</checkbox>
+      <checkbox>
+        <label>'$(gettext "Skip scanning extracted files for missing depenencies (faster)")'</label>
+        <variable>CATEGORY_SD</variable>'
+        [ "$(</var/local/petget/sd_category)" = "true" ] && S=$S'<default>true</default>'
+      S=$S'</checkbox>
       <checkbox tooltip-text="'$(gettext "Verbose method = the user indicates the package databases to update.
 +Silent method = all package databases are automatically updated.")'">
         <label>'$(gettext "Use verbose method during update of the package databases")'</label>
@@ -277,6 +282,7 @@ echo -n "$RETPARAMS" | grep 'CATEGORY_SC' | cut -d= -f2 | tr -d '"' > /var/local
 echo -n "$RETPARAMS" | grep 'CATEGORY_NT' | cut -d= -f2 | tr -d '"' > /var/local/petget/nt_category
 echo -n "$RETPARAMS" | grep 'CATEGORY_RD' | cut -d= -f2 | tr -d '"' > /var/local/petget/rd_category
 echo -n "$RETPARAMS" | grep 'CATEGORY_ND' | cut -d= -f2 | tr -d '"' > /var/local/petget/nd_category
+echo -n "$RETPARAMS" | grep 'CATEGORY_SD' | cut -d= -f2 | tr -d '"' > /var/local/petget/sd_category
 echo -n "$RETPARAMS" | grep 'CATEGORY_SI' | cut -d= -f2 | tr -d '"' > /var/local/petget/si_category
 
 # handle install mode

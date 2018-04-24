@@ -311,14 +311,7 @@ if [ "$UPDATE_MENUS" = "yes" ]; then
   if [ "`grep '\.desktop$' /root/.packages/${DB_pkgname}.files`" != "" ];then
    #Reconstruct configuration files for JWM, Fvwm95, IceWM...
    nohup /usr/sbin/fixmenus
-   if [ "`pidof jwm`" != "" ];then #120101
-    JWMVER=`jwm -v|head -n1|cut -d ' ' -f2|cut -d - -f2`
-    if vercmp $JWMVER lt 574;then #120116 547 to 574.
-     jwm -restart #screen will flicker.
-    else
-     jwm -reload
-    fi
-   fi
+   [ "`pidof jwm`" != "" ] && { jwm -reload || jwm -restart ; }
   fi
  fi
 fi

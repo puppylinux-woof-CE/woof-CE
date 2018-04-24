@@ -52,14 +52,12 @@ if [ "$CURDIR" = "/root/.packages" ];then #110821
 	. ./DISTRO_COMPAT_REPOS #v431 has PKG_DOCS_DISTRO_COMPAT
 	DPS_MODIFY_DATE="`md5sum ./DISTRO_PKGS_SPECS | cut -f 1 -d ' '`"
 else
+	. ./_00build.conf
+	. ./_00func
 	. ./DISTRO_SPECS #has DISTRO_BINARY_COMPAT, DISTRO_COMPAT_VERSION
 	[ ! "$DISTRO_DB_SUBNAME" ] && DISTRO_DB_SUBNAME="$DISTRO_COMPAT_VERSION" #121102 fallback if DISTRO_DB_SUBNAME not defined in file DISTRO_SPECS.
 	DS_DATE="`md5sum ./DISTRO_SPECS | cut -f 1 -d ' '`"
-	if [ -f ./DISTRO_COMPAT_REPOS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} ];then
-		. ./DISTRO_COMPAT_REPOS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}
-	else
-		. ./DISTRO_COMPAT_REPOS-${DISTRO_BINARY_COMPAT} #130306
-	fi
+	source_compat_repos  # ./DISTRO_COMPAT_REPOS-
 	if [ -f ./DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} ];then
 		. ./DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} #has FALLBACKS_COMPAT_VERSIONS
 		DPS_MODIFY_DATE="`md5sum ./DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} | cut -f 1 -d ' '`"
@@ -78,7 +76,7 @@ fi
 KERNELVER3="`echo -n "$DISTRO_KERNEL_PET" | cut -f 2 -d '-' | cut -f 1,2,3 -d '.' | cut -f 1 -d '_'`" #ex: 2.6.32
 
 #modify compat-distro fallback list...
-if [ "$FALLBACKS_COMPAT_VERSIONS" != "" ];then
+if [ "`echo -n "$FALLBACKS_COMPAT_VERSIONS" | grep "$DISTRO_COMPAT_VERSION"`" != "" ];then
 	FALLBACKS_COMPAT_VERSIONS="`echo -n "$FALLBACKS_COMPAT_VERSIONS" | grep -o "${DISTRO_COMPAT_VERSION}.*"`"
 	#ex: 'koala jaunty intrepid' gets reduced to 'jaunty intrepid' if DISTRO_COMPAT_VERSION=jaunty
 fi
@@ -184,7 +182,12 @@ echo -n "" > /tmp/findpkgs_tmp/FINAL_PKGS
 #   compile-environment of the compat-distro...
 # * ||| means architecture-independent pkg, needs high preference, 
 #   immediately after exact-compiled match...
-petcompiledPTNS="|${DISTRO_BINARY_COMPAT}|${DISTRO_COMPAT_VERSION}| |||" #ex: '|ubuntu|intrepid|' '|||'
+petcompiledPTNS="|${DISTRO_BINARY_COMPAT}|${DISTRO_COMPAT_VERSION}|" #ex: '|ubuntu|intrepid|'
+case ${DISTRO_TARGETARCH} in
+	x86)	petcompiledPTNS="${petcompiledPTNS} |common32|" ;;
+	x86_64)	petcompiledPTNS="${petcompiledPTNS} |common64|" ;;
+esac
+petcompiledPTNS="${petcompiledPTNS} |||"
 for ONECOMPATVERSION in $FALLBACKS_COMPAT_VERSIONS #sliding scale, ex: koala jaunty intrepid
 do
 	[ "$ONECOMPATVERSION" = "$DISTRO_COMPAT_VERSION" ] && continue
@@ -233,6 +236,7 @@ fi
 ######################
 echo
 echo "First pass at finding packages to be used in the Puppy build..."
+echo > FINDPKGS-NOT-FOUND.log
 
 search_func() {
 
@@ -335,6 +339,12 @@ search_func() {
 				#in wary, i have many pkgs that are _DEV only, need to find these, a hack fix to find most...
 				if [ ! "$FNDSPECS" ] ; then
 					FNDSPECS="`grep "$devnamePTN" $STATUSDIR/$PKGLIST-cols | grep "$acompiledPTN"`"
+					if [ "$FNDSPECS" ] ; then # if devnamePTN was found,
+						# but namePTN exists with a different acompiledPTN
+						if [ "`grep "$namePTN" $STATUSDIR/$PKGLIST-cols`" ] ; then
+							FNDSPECS='' # do not include devnamePTN
+						fi
+					fi
 					[ "$excludePTNS" ] && [ "$FNDSPECS" ] && \
 						FNDSPECS="`echo "$FNDSPECS" | grep -v -f /tmp/findpkgs_tmp/excludePTNS`"
 				fi
@@ -350,7 +360,8 @@ search_func() {
 		done
 
 		if [ ! "$FNDSPECS" ] ; then
-			echo "WARNING: $APARTNAME pkg was not found!"
+			echo
+			echo "WARNING: $APARTNAME pkg was not found!" | tee -a FINDPKGS-NOT-FOUND.log
 			continue
 		fi
 
@@ -439,7 +450,11 @@ search_func() {
  done
 } #end search_func
 
-search_func 1 #first search.
+if [ "$USE_FINDPKGS_SEARCH_HELPER" = "yes" ] ; then
+  support/findpkgs-search-helper 1 --packagelists-pet-order="$PACKAGELISTS_PET_ORDER" --pkglists-compat="$PKGLISTS_COMPAT" --pkgs-specs-table="$PKGS_SPECS_TABLE" --petcompiledPTNS="$petcompiledPTNS" --debug="$DEBUG" --verbose
+else
+  search_func 1 #first search.
+fi
 sync
 
 #---------------------------------
@@ -455,14 +470,15 @@ echo -n "" > /tmp/findpkgs_tmp/fnd_ok_apps
 #handle aliases...
 aliasesPTNS="`echo "$PKG_NAME_ALIASES" | tr ' ' '\n' | grep -v '^$' | sed -e 's%^%|%' -e 's%$%|%' -e 's%,%|,|%g' -e 's%\\*%.*%g'`"
 
-case $DISTRO_BINARY_COMPAT in raspbian|debian|devuan|ubuntu|trisquel)
-	echo -e "\n\nPress ENTER key to check pkg dependencies"
-	echo -n "or any other printable char to skip: "
-	read skipcheck
-esac
-
-if [ ! "$skipcheck" ] ; then
+if [ "$CHECK_PKG_DEPENDENCIES" = "yes" ] ; then
   echo -e "\nProcessing dependencies..."
+  if [ "$USE_FINDPKGS_DEP_HELPER" = "yes" ] ; then
+    if [ "$USE_PKG_NAME_ALIASES" = "yes" ] ; then
+      support/findpkgs-dep-helper --pkg-name-aliases="$PKG_NAME_ALIASES" /tmp/findpkgs_tmp/compat_log1 /tmp/findpkgs_tmp/pet_log1 --verbose
+    else
+      support/findpkgs-dep-helper /tmp/findpkgs_tmp/compat_log1 /tmp/findpkgs_tmp/pet_log1 --verbose
+    fi
+  else
   for ONESPEC in `cat /tmp/findpkgs_tmp/compat_log1 /tmp/findpkgs_tmp/pet_log1 | grep '&' | tr '\n' ' '`
   do
 	#ex: ONESPEC=abiword|2.3.4|abiword-2.3.4-w5.pet|puppy|wary5|Packages-puppy-wary5-official|aiksaurus&gt5.6.7
@@ -474,16 +490,17 @@ if [ ! "$skipcheck" ] ; then
 	depnamePTN="|${DEPNAME}|"
 	echo -n "$DEPNAME "
   
+	# This is currently broken... I think it relied on a bug in busybox grep
 	#ex: PKG_NAME_ALIASES has an entry cxxlibs,glibc*,libc-* the above creates |cxxlibs|,|glibc.*|,|libc\-.*|
-	echo "$aliasesPTNS" > /tmp/findpkgs_tmp/aliasesPTNS
-	singlePTNS="`echo "$aliasesPTNS" | tr ',' '\n'`"
-	echo "$singlePTNS" > /tmp/findpkgs_tmp/singlePTNS
-	FNDALIAS="`echo -n "$depnamePTN" | grep -f /tmp/findpkgs_tmp/singlePTNS | sed -e 's%\\.\\*%*%g' -e 's%\\\\-%-%g'`"  #translate .* \- back to * -
-	if [ "$FNDALIAS" ];then
-		aliasPTNS="`echo -n "$FNDALIAS" | grep -f /tmp/findpkgs_tmp/aliasesPTNS | tr ',' ' '`" #ex: |cxxlibs| |glibc.*| |libc\-.*|
-	else
+#	echo "$aliasesPTNS" > /tmp/findpkgs_tmp/aliasesPTNS
+#	singlePTNS="`echo "$aliasesPTNS" | tr ',' '\n'`"
+#	echo "$singlePTNS" > /tmp/findpkgs_tmp/singlePTNS
+#	FNDALIAS="`echo -n "$depnamePTN" | grep -f /tmp/findpkgs_tmp/singlePTNS | sed -e 's%\\.\\*%*%g' -e 's%\\\\-%-%g'`"  #translate .* \- back to * -
+#	if [ "$FNDALIAS" ];then
+#		aliasPTNS="`echo -n "$FNDALIAS" | grep -f /tmp/findpkgs_tmp/aliasesPTNS | tr ',' ' '`" #ex: |cxxlibs| |glibc.*| |libc\-.*|
+#	else
 		aliasPTNS="^${DEPNAME}|"
-	fi
+#	fi
 
 	for namePTN in $aliasPTNS
 	do
@@ -531,6 +548,7 @@ if [ ! "$skipcheck" ] ; then
 	done
 
   done
+  fi
 fi
 
 echo -n "" > /tmp/findpkgs_tmp/PREFERRED_PKGS
@@ -551,8 +569,13 @@ sync
 echo
 echo
 echo "Second pass at finding packages to be used in the Puppy build..."
+echo -e "\n-\nSECOND PASS\n-\n" >> FINDPKGS-NOT-FOUND.log
 
-search_func 2 #result will be in /tmp/findpkgs_tmp/FINAL_PKGS
+if [ "$USE_FINDPKGS_SEARCH_HELPER" = "yes" ] ; then
+  support/findpkgs-search-helper 2 --packagelists-pet-order="$PACKAGELISTS_PET_ORDER" --pkglists-compat="$PKGLISTS_COMPAT" --pkgs-specs-table="$PKGS_SPECS_TABLE" --petcompiledPTNS="$petcompiledPTNS" --debug="$DEBUG" --verbose
+else
+  search_func 2 #result will be in /tmp/findpkgs_tmp/FINAL_PKGS
+fi
 #...each line is full db entry for package, prefixed with :generic-name:, pet/compat and repo-db-file
 # ex: :a52dec:|compat|Packages-puppy-wary5-official|a52dec-0.7.4-w5|a52dec|0.7.4-w5||BuildingBlock|68K||a52dec-0.7.4-w5.pet||A free ATSC A52 stream decoder|puppy|wary5||
 # 'compat' means pkg obtained from compatible-distro, in case of Wary they are also PETs.

@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 #(c) Copyright Barry Kauler 2006,2007 www.puppylinux.com
 #2007 Lesser GPL licence v2 (/usr/share/doc/legal/lgpl-2.1.txt)
 # Contributors: Dougal, rerwin, pizzasgood, TazOC, Karl Godt
@@ -7,6 +7,11 @@
 #   https://www.x.org/wiki/Releases/
 #-- Xorg X Server version should be 1.11+ --
 #-- X11R7.6 (Released: 2010-12-20) should be the minimum version supported
+
+[ "`whoami`" != "root" ] && exec sudo -A ${0} ${@}
+
+export TEXTDOMAIN=xorgwizard
+export OUTPUT_CHARSET=UTF-8
 
 script=${0##*/}
 
@@ -22,19 +27,21 @@ ARCH=`uname -m`
 
 #============================================================
 
-function set_xorg_vesa() {
-	[ -f /tmp/xorgvesa.state ] && read -r state < /tmp/xorgvesa.state
-	[ $1 ] && state="$1"
-	case $state in
-		on|1|yes|true) RSTR='	Driver      "vesa" #card0driver' ;;
-		off|0|no|false) RSTR='#	Driver      "vesa" #card0driver' ;;
-		*) return 1 ;;
+function set_xorg_video_driver() {
+	local vd
+	[ -f /tmp/xorg.video.driver ] && read -r vd < /tmp/xorg.video.driver
+	[ $1 ] && vd="$1"
+	case $vd in
+		auto) RSTR='#	Driver      "vesa" #card0driver' ;;
+		"") return 1 ;;
+		*) RSTR='	Driver      "'${vd}'" #card0driver' ;;
 	esac
+	echo $RSTR > /tmp/zz
 	if [ -f /etc/X11/xorg.conf ] ; then
 		sed -i "s|.*#card0driver.*|${RSTR}|" /etc/X11/xorg.conf
-		rm -f /tmp/xorgvesa.state
+		rm -f /tmp/xorg.video.driver
 	else
-		echo -n "$state" > /tmp/xorgvesa.state
+		echo -n "$vd" > /tmp/xorg.video.driver
 	fi
 }
 
@@ -64,7 +71,7 @@ function set_xorg_screen_res() {
 	[ $1 ] && RES="$1"
 	case $RES in
 		*"x"*) ok=1 ;;
-		*) return ;;
+		*) return 1 ;;
 	esac
 	if [ -f /etc/X11/xorg.conf ] ; then
 		RSTR="		Modes       \"${RES}\" #screen0modes"
@@ -73,6 +80,7 @@ function set_xorg_screen_res() {
 	else
 		echo -n "$RES" > /tmp/xorg.res
 	fi
+	rm -f /etc/xrandrindex
 }
 
 function xorg_screen_res_dlg_stuff() {
@@ -105,34 +113,34 @@ If Xorg does not apply the requested screen resolution then your hardware does n
 
 if [ "$AUTOMATIC" = "1" ] ; then
 
-case ${ARCH} in arm*|aarch*)
- #running on an arm board...
- cp -f /etc/X11/xorg.conf-auto-armsystem /etc/X11/xorg.conf
- echo "#PuppyHardwareProfile=armsystem" >> /etc/X11/xorg.conf
- #create a copy of xorg.conf with the profile in the filename...
- cp -af /etc/X11/xorg.conf /etc/X11/xorg.conf.armsystem
- echo 
- echo "Xorg Wizard Automatic has just run."
- echo "If you are reading this, then you are at the console without X running."
- echo "The usual thing now is to type 'xwin' to start X..."
- exit ###EXIT###
-esac
+# There are 2 possibilities:
+# - xorg.conf.udev (highest priority - /var/local/xorg_udev)
+# - xorg.conf-auto-pc (everything else)
 
-cp -f /etc/X11/xorg.conf-auto-pc /etc/X11/xorg.conf
-set_xorg_vesa
+if [ -f /var/local/xorg_udev ] ; then
+	cp -fv /etc/X11/xorg.conf.udev /etc/X11/xorg.conf
+	THE_END=1
+else
+	cp -fv /etc/X11/xorg.conf-auto-pc /etc/X11/xorg.conf
+fi
+
+set_xorg_video_driver
 set_xorg_screen_res
 set_xorg_color_depth
 
-RETVALS="`keymap-set --xopt`"
-eval "$RETVALS" #ex: XKBMODEL="pc102", XKBLAYOUT="us", XKBVARIANT=""
-[ "$XKBLAYOUT" = "" ] && XKBLAYOUT='us'
-[ "$XKBMODEL" = "" ] && XKBMODEL='pc102'
-REGEX4="s%.*#xkeymap0%	Option      \"XkbLayout\" \"${XKBLAYOUT}\" #xkeymap0%"
-REGEX5="s%.*#xkbmodel0%	Option      \"XkbModel\" \"${XKBMODEL}\" #xkbmodel0%"
-sed -i -e "$REGEX4" -e "$REGEX5" /etc/X11/xorg.conf
-if [ "$XKBVARIANT" ];then
- REGEX6="s%.*#xkbvariant0%	Option      \"XkbVariant\" \"${XKBVARIANT}\" #xkbvariant0%"
- sed -i -e "$REGEX6" /etc/X11/xorg.conf
+# xkbconfigmanager writes this when /etc/X11/xorg.conf is missing..
+if [ -f /tmp/xorg.xkb.layout ] ; then
+	read -r XKBLAYOUT < /tmp/xorg.xkb.layout
+	xkbconfigmanager -q setlayout ${XKBLAYOUT}
+	rm -f /tmp/xorg.xkb.layout
+fi
+
+if [ $THE_END ] ; then
+	echo 
+	echo "Xorg Wizard Automatic has just run."
+	echo "If you are reading this, then you are at the console without X running."
+	echo "The usual thing now is to type 'xwin' to start X..."
+	exit ### exit ###
 fi
 
 TOUCHPAD=''
@@ -181,40 +189,79 @@ fi
 
 if [ "$CLI" = "1" ] ; then
 
-export TEXTDOMAIN=xorgwizard-cli
-export OUTPUT_CHARSET=UTF-8
-
-VESA_MSG="$(gettext 'Use Xorg Vesa driver...')"
 if [ -f /etc/X11/xorg.conf ] ; then
-	USING_XORG_VESA="$(cat /etc/X11/xorg.conf | grep '#card0driver' | grep -v '#.*Driver')"
-elif [ -f /tmp/xorgvesa.state ] ; then
-	read -r xstate < /tmp/xorgvesa.state
-	case $xstate in on|1|yes|true) USING_XORG_VESA=yes ;; esac
+	USING_XORG_GENERIC="$(cat /etc/X11/xorg.conf | grep '#card0driver' | grep -v '#.*Driver')"
+elif [ -f /tmp/xorg.video.driver ] ; then
+	read -r xvid_drv < /tmp/xorg.video.driver
 fi
-[ "$USING_XORG_VESA" ] && VESA_MSG="$(gettext "Don't hard code Xorg Vesa in xorg.conf")"
 
-function cli_xorg_color_depth() {
-	dialog --title "$(gettext 'Xorg Wizard')" \
-		--ok-label "$(gettext 'Select')" --cancel-label "$(gettext 'Skip')" --defaultno \
-		--menu "$(gettext 'Color bit depth.
+function cli_dlg_input() {
+	# $1:title ; $2:msg
+	dialog --title "$1" --clear --inputbox "$2" 0 0 >/dev/tty 2>/tmp/in$$
+	if [ $? -eq 0 ] ; then
+		echo -n "$(cat /tmp/in$$)"
+		rm -f /tmp/in$$
+	fi
+}
 
-You might want to skip this step. Choose "16 bit" if you are having problems and your video hardware is very old... or if you already know that your hardware works better with a 16 color bit depth')." 0 0 0 \
-		"1)" "24 bit" \
-		"2)" "16 bit (ancient video hardware)"  \
-		"3)" "remove setting from xorg.conf (if in use)" >/dev/tty 2>/tmp/xorg.cli.res
+function cli_xorg_video_driver() {
+	local VD SPECIFY
+	dialog --title "$(gettext 'Xorg video driver')" \
+		--ok-label "$(gettext 'Select')" --cancel-label "$(gettext 'Cancel')" \
+		--menu "$(gettext 'Automatic is recommended. Choose a generic driver or specify the driver of your preference if you know what you are doing.')." 0 0 0 \
+		"1)" "Automatic" \
+		"2)" "vesa (Generic VESA video driver)"  \
+		"3)" "modesetting (Driver for KMS devices)" \
+		"4)" "fbdev (Framebuffer device based X server)" \
+		"*" "Specify..." >/dev/tty 2>/tmp/xorg.cli.res
 	if [ $? -eq 0 ] ; then
 		read -r ZCHOICE < /tmp/xorg.cli.res
 		case $ZCHOICE in
-			"1)") DEPTH="24" ;;
-			"2)") DEPTH="16" ;;
-			"3)") DEPTH="remove" ;;
+			"1)") set_xorg_video_driver auto ; VD=Automatic ;;
+			"2)") set_xorg_video_driver vesa ; VD=vesa ;;
+			"3)") set_xorg_video_driver modesetting ; VD=modesetting ;;
+			"4)") set_xorg_video_driver fbdev ; VD=fbdev ;;
+			"*") SPECIFY=1 ;;
+		esac
+		if [ $SPECIFY ] ; then
+			VD=$(cli_dlg_input "$(gettext 'Video Driver')" "$(gettext 'Enter the xorg video driver you want to use:')")
+			[ "$VD" ] && set_xorg_video_driver $VD
+		fi
+		if [ "$VD" ] ; then
+			dialog --msgbox "$(printf "$(gettext "Xorg Video driver set to %s")" "$VD")" 7 35
+		fi
+	fi
+	rm -f /tmp/xorg.cli.res
+}
+
+function cli_xorg_color_depth() {
+	local DEPTH
+	dialog --title "$(gettext 'Color bit depth.')" \
+		--ok-label "$(gettext 'Select')" --cancel-label "$(gettext 'Cancel')" \
+		--menu "$(gettext 'You might want to skip this step. Choose "16 bit" if you are having problems and your video hardware is very old... or if you already know that your hardware works better with a 16 color bit depth')." 0 0 0 \
+		"1)" "unset (let xorg decide)" \
+		"2)" "24 bit" \
+		"3)" "16 bit"  \
+		 >/dev/tty 2>/tmp/xorg.cli.res
+	if [ $? -eq 0 ] ; then
+		read -r ZCHOICE < /tmp/xorg.cli.res
+		case $ZCHOICE in
+			"1)") DEPTH="remove" ;;
+			"2)") DEPTH="24" ;;
+			"3)") DEPTH="16" ;;
 		esac
 		set_xorg_color_depth $DEPTH
+		if [ "$DEPTH" = "remove" ] ; then
+			dialog --msgbox "$(gettext 'Color bit depth UNSET')" 7 35
+		else
+			dialog --msgbox "$(printf "$(gettext "Color bit depth set to %s")" "$DEPTH")" 7 35
+		fi
 	fi
 	rm -f /tmp/xorg.cli.res
 }
 
 function cli_xorg_screen_res() {
+	local CHOSEN_RES SPECIFY
 	xorg_screen_res_dlg_stuff #sets $DEFAULT_RES $RESOLUTIONS, etc..
 	if [ "$DEFAULT_RES" ]  ; then
 		CLI_RESOLUTIONS="$DEFAULT_RES
@@ -225,7 +272,7 @@ $(echo "$RESOLUTIONS" | grep -v "^${DEFAULT_RES}$")"
 	ITEMCOUNT=$(echo "$CLI_RESOLUTIONS" | wc -l)
 	x=1
 	(
-	echo 'dialog --title "'${SCREEN_RES_TITLE}'" --ok-label "'$(gettext 'Select')'" --cancel-label "'$(gettext 'Skip')'" '${DEFAULT_NO}' \
+	echo 'dialog --title "'${SCREEN_RES_TITLE}'" --ok-label "'$(gettext 'Select')'" --cancel-label "'$(gettext 'Cancel')'" '${DEFAULT_NO}' \
 --menu "'${SCREEN_RES_MSG1}'
 
 '${SCREEN_RES_MSG2}'" 0 0 0 \'
@@ -233,6 +280,7 @@ $(echo "$RESOLUTIONS" | grep -v "^${DEFAULT_RES}$")"
 			echo -n "\"${x})\" \"$line\" "
 			x=$((x+1))
 	done
+	echo -n ' "*" "Specify..."'
 	echo '>/dev/tty 2>/tmp/xorg.cli.res'
 	echo 'exit $?'
 	) > /tmp/xorg.cli
@@ -242,14 +290,23 @@ $(echo "$RESOLUTIONS" | grep -v "^${DEFAULT_RES}$")"
 		if [ $ITEMCOUNT -gt 1 ] ; then
 			choice=$(< /tmp/xorg.cli.res)
 			choice=${choice%\)}
-			if [ "$choice" ] ; then
+			if [ "$choice" = "*" ] ; then
+				"* Specify..."
+				CHOSEN_RES=$(cli_dlg_input "$(gettext 'Screen resolution')" "$(gettext 'Enter the desired screen resolution:')")
+			else
 				CHOSEN_RES=$(echo "$CLI_RESOLUTIONS" | sed -n "${choice}p" )
 			fi
 		fi
 	fi
 	case $CHOSEN_RES in
-		""|"${DEFAULT_RES}") ok=1 ;;
-		*) set_xorg_screen_res ${CHOSEN_RES} ;;
+		"") ok=1 ;;
+		*)
+			if set_xorg_screen_res ${CHOSEN_RES} ; then
+				dialog --msgbox "$(printf "$(gettext "Screen resolution set to %s")" "$CHOSEN_RES")" 7 35
+			else
+				dialog --msgbox "$(printf "$(gettext "%s rejected... probably not a valid screen resolution")" "$CHOSEN_RES")" 7 35
+			fi
+			;;
 	esac
 	rm -f /tmp/xorg.cli /tmp/xorg.cli.res
 }
@@ -260,7 +317,7 @@ if [ $PUPMODE -eq 5 -a ! -f /var/tmp/xorgwiz.1st ] ; then
 	echo -n > /var/tmp/xorgwiz.1st
 else
 	TITLE_0=$(gettext 'Xorg Wizard')
-	MSG_NO_CONFIG=$(gettext 'Do not configure anything')
+	MSG_NO_CONFIG=$(gettext 'Done')
 fi
 
 if [ -x /opt/xorg_alt/usr/bin/Xorg ] ; then
@@ -273,31 +330,26 @@ fi
 
 XORGVER="`Xorg -version 2>&1 | grep '^X\.Org X Server' | sed 's|.* ||'`"
 MSG_1="$(gettext 'Using') Xorg server ${XORGVER}"
-MSG_2="$(gettext 'If you are having problems with Xorg then you might want to force the use of the Xorg Vesa driver.') ${MSG_3}"
-MSG_4="$(gettext 'Reset xorg.conf (xorgwizard-automatic)')"
+MSG_2="$(gettext 'If you are having problems with Xorg then you might want to set the options below..') ${MSG_3}"
+MSG_4="$(gettext 'New xorg.conf (reset)')"
 MSG_SET_SR=$(gettext 'Set screen resolution...')
-
-SPECVESA="`find /usr/lib /usr/X11R7/lib /usr/lib64 -mount -type f -name vesa_drv.so 2>/dev/null | grep -v 'backup' | grep -m1 'vesa_drv.so'`"
-#SPECMODESETTING="`find /usr/lib /usr/X11R7/lib /usr/lib64 -mount -type f -name modesetting_drv.so 2>/dev/null | grep -v 'backup' | grep -m1 'modesetting_drv.so'`"
+MSG_SET_CBD=$(gettext 'Set color bith depth...')
+MSG_SET_VDRIVER="$(gettext 'Set video driver...')"
 
 (
-echo -n 'dialog --title "'${TITLE_0}'" \
-	--cancel-label "'$(gettext 'Cancel')'" --ok-label "'$(gettext 'OK')'" \
+echo -n 'dialog --title "'${TITLE_0}'" --ok-label "'$(gettext 'OK')'" --no-cancel \
 	--menu "'${MSG_1}'
 
 '${MSG_2}'" 0 0 0 \
-	"0)" "'${MSG_NO_CONFIG}'" \
-	"1)" "'${MSG_SET_SR}'"'
-	if [ "$SPECVESA" ] ; then
-		echo -n ' \
-    "2)" "'${VESA_MSG}'"'
-	fi
+	"-" "'${MSG_NO_CONFIG}'" \
+	"1)" "'${MSG_SET_VDRIVER}'" \
+	"2)" "'${MSG_SET_SR}'" \
+	"3)" "'${MSG_SET_CBD}'" \
+	"4)" "'${MSG_4}'"'
 	if [ -x /opt/xorg_alt/usr/bin/Xorg ] ; then
 		echo -n ' \
-	"3)" "'${MSG_ALTXORG}'"'
+	"5)" "'${MSG_ALTXORG}'"'
 	fi
-		echo -n ' \
-	"4)" "'${MSG_4}'"'
 	echo ' >/dev/tty 2>/tmp/xorg.cli.res'
 	echo 'exit $?'
 ) > /tmp/xorg.cli
@@ -308,22 +360,23 @@ rm -f /tmp/xorg.cli /tmp/xorg.cli.res
 [ $retval -eq 0 ] || exit
 
 case $XCHOICE in
-	"0)") exit ;;
-	"1)") cli_xorg_screen_res ; exit ;;
-	"2)")
-		if [ "$USING_XORG_VESA" ] ; then
-			set_xorg_vesa off
-			dialog --title "$(gettext 'Xorg Wizard')" --msgbox "$(gettext 'The Vesa Driver is no longer hardcoded in xorg.conf...')" 7 40
-			exit
-		else
-			set_xorg_vesa on
-			dialog --title "$(gettext 'Xorg Wizard')" --msgbox "$(gettext 'The Vesa Driver has been hardcoded in xorg.conf...')" 7 40
+	"-") exit ;;
+	"1)") cli_xorg_video_driver ;;
+	"2)") cli_xorg_screen_res   ;;
+	"3)") cli_xorg_color_depth  ;;
+	"4)")
+		dialog --title "$(gettext 'reset xorg.conf')" \
+			--no-label "$(gettext 'Cancel')" --yes-label "$(gettext 'Confirm')" \
+			--yesno "$(gettext 'All custom settings (if any) will be lost.
+
+xorgwizard-automatic will run so the new xorg.conf is usable')" 0 0
+		if [ $? -eq 0 ] ; then
+			rm -f /tmp/xorg.res /tmp/xorg.depth /tmp/xorg.video.driver
+			xorgwizard-automatic &>/dev/null
+			dialog --msgbox "$(gettext "xorg.conf has been reset. The command to start X is 'xwin'...")" 7 35
 		fi
-		cli_xorg_screen_res
-		cli_xorg_color_depth
-		exit
 		;;
-	"3)")
+	"5)")
 		# * This requires a custom Xorg server package ready to be used
 		#   and it must be placed in /var/xorg_alt
 		# * It must be already tested and with all the needed drivers and dependencies..
@@ -338,22 +391,14 @@ $(gettext 'By using this option the current Xorg server will be replaced permane
 			rm -rf /usr/share/X11/xorg.conf.d
 			rm -f /lib/udev/rules.d/*xorg*
 			cp -rf --remove-destination /opt/xorg_alt/* /
-			DEFAULT_NO='--defaultno'
-			cli_xorg_screen_res
 			rm -rf /opt/xorg_alt
+			dialog --msgbox "$(printf "$(gettext "Now using xorg version: %s")" "$XORGVER2")" 7 35
 		fi
-		exit
 		;;
-	"4)")
-		xorgwizard-automatic &>/dev/null
-		echo "$(gettext "Type 'xwin' to start X...")"
-		exit
-		;;
-	*) exit
+	*) exit #any other choice
 esac
 
-#reenter this script...
-#exec xorgwizard-cli
+exec $0 #reenter this script...
 
 fi
 
@@ -364,8 +409,6 @@ fi
 #============================================================
 #                        xorgwizard
 #============================================================
-
-[ "`whoami`" != "root" ] && exec sudo -A ${0} ${@} #110505
 
 help(){
  case "$1" in
@@ -379,15 +422,20 @@ $(gettext 'If you know what you do, you can also type a screen resolution, then 
 		HEADING="`gettext 'Screen Resolution'`"
 		msg="$(gettext 'This is specially for old hardware/old xorg versions..')"
 		;;
+	dpi)
+		HEADING="`gettext 'Font DPI (Dots Per Inch)'`"
+		msg="$(gettext 'You can specify it manually in the Xorg configuration (recommended solution), but it may not work with buggy drivers.
+
+This settings is stored in ~/.Xresources and is used by FontConfig')
+
+Recommended value: 96"
+		;;
 	esac
 	/usr/lib/gtkdialog/box_ok "$HEADING" info "$msg" &
 }
 export -f help
 
 #---
-
-export TEXTDOMAIN=xorgwizard
-export OUTPUT_CHARSET=UTF-8
 
 . /etc/DISTRO_SPECS #120723
 . /etc/rc.d/BOOTCONSTRAINED #120723
@@ -400,10 +448,17 @@ $(echo "$RESOLUTIONS" | grep -v "^${DEFAULT_RES}$" | sed -e 's|^|<item>|' -e 's|
 
 	#DEFAULT_CD=$(grep 'screen0depth' /etc/X11/xorg.conf | grep -o 'Depth.*' | tr -s ' ' | cut -d ' ' -f2)
 	COLOR_DEPTHS="<item></item><item>24</item><item>16</item><item>remove</item>"
-
+	#--
+	#CURRENT_DPI=$(xdpyinfo  | grep dots | tr -s ' ' | cut -f3 -d ' ' | cut -f 1 -d 'x')
+	CURRENT_DPI=$(grep 'Xft.dpi' /root/.Xresources  | sed 's/.* //')
+	[ -z $CURRENT_DPI ] && CURRENT_DPI=96
+	DPI_LIST="54!60!66!72!78!84!90!96!102!108!114"
+	DPI_COMBO="<item>$CURRENT_DPI</item>
+$(echo "$DPI_LIST" | tr '!' '\n' | grep -v "^${CURRENT_DPI}$" | sed -e 's|^|<item>|' -e 's|$|</item>|')"
+	#--
 	export RES_WINDOW='<window title="'${SCREEN_RES_TITLE}'" icon-name="gtk-preferences" window-position="1">
 <vbox>
-'$(/usr/lib/gtkdialog/xml_info fixed graphics.svg 32 "$(gettext "Set screen resolution")")'
+'$(/usr/lib/gtkdialog/xml_info fixed graphics.svg 48 "$(gettext "Set screen resolution")")'
   <frame Screen Resolution>
   <text space-fill="true"><label>'${SCREEN_RES_MSG2}'</label></text>
   <vbox space-expand="false" space-fill="false">
@@ -437,6 +492,21 @@ $(echo "$RESOLUTIONS" | grep -v "^${DEFAULT_RES}$" | sed -e 's|^|<item>|' -e 's|
    </vbox>
   </frame>
 
+  <frame '$(gettext 'Font DPI')'>
+   <vbox space-expand="false" space-fill="false">
+    <hbox>
+      <combobox>
+        '${DPI_COMBO}'
+        <variable>CHOSEN_DPI</variable>
+       </combobox>
+       <button>
+          '"`/usr/lib/gtkdialog/xml_button-icon info mini`"'
+          <action>help dpi</action>
+       </button>
+     </hbox>
+   </vbox>
+  </frame>
+
 	<hbox>
 		<button>
 			'$(/usr/lib/gtkdialog/xml_button-icon ok)'
@@ -456,12 +526,20 @@ $(echo "$RESOLUTIONS" | grep -v "^${DEFAULT_RES}$" | sed -e 's|^|<item>|' -e 's|
 	eval "$(gtkdialog --center --program RES_WINDOW)"
 
 	[ "$EXIT" != "OK" ] && exit
-	if [ "$CHOSEN_RES" != "" -a "$CHOSEN_RES" != "$DEFAULT_RES" ] ; then
+	if [ "$CHOSEN_RES" != "" ] ; then
+	    if [ "$CHOSEN_RES" != "$DEFAULT_RES" -o -f /etc/xrandrindex ]; then
+		rm -f /etc/xrandrindex
 		set_xorg_screen_res ${CHOSEN_RES}
 		restart=1
+	    fi
 	fi
 	if [ "$CHOSEN_CD" != "" -a "$CHOSEN_CD" != "$DEFAULT_CD" ] ; then
 		set_xorg_color_depth ${CHOSEN_CD}
+		restart=1
+	fi
+	if [ "$CHOSEN_DPI" != "" -a "$CHOSEN_DPI" != "$CURRENT_DPI" ] ; then
+		sed -i '/Xft.dpi/d' $HOME/.Xresources
+		echo "Xft.dpi: $CHOSEN_DPI" >> $HOME/.Xresources
 		restart=1
 	fi
 	[ $restart ] || exit
@@ -474,7 +552,19 @@ if [ "$1" = "setscreenres" -o "$script" = "setscreenres" ] ; then
 fi
 #----------------
 
-[ "`readlink /usr/bin/X`" = "" ] && ln -snf Xorg /usr/bin/X
+
+GLXGEARSBUTTON='<button space-expand="false" space-fill="false">
+  '"`/usr/lib/gtkdialog/xml_button-icon /usr/share/pixmaps/puppy/graph.svg`"'
+  <label>'$(gettext "glxgears...")'</label>
+  <action>xterm -hold -e glxgears &</action>
+ </button>'
+
+REPORTVIDEOBUTTON='<button space-expand="false" space-fill="false">
+  '"`/usr/lib/gtkdialog/xml_button-icon /usr/share/pixmaps/puppy/clipboard.svg`"'
+  <label>'$(gettext "report-video...")'</label>
+  <action>xterm -hold -e report-video &</action>
+ </button>'
+
 
 if which nvidia-settings &>/dev/null && NRATE=$(nvidia-settings -q RefreshRate | grep '[0-9]') ; then
 	NVIDIABUTTON='<button space-expand="false" space-fill="false" tooltip-text="'$(gettext 'Launch the NVIDIA X Server Settings.')'">
@@ -482,6 +572,7 @@ if which nvidia-settings &>/dev/null && NRATE=$(nvidia-settings -q RefreshRate |
   <label>'$(gettext "nvidia-settings")'</label>
   <action>nvidia-settings &</action>
  </button>'
+ USING_NVIDIA=1
 fi
 
 #UPGRADEBUTTON='<button space-expand="false" space-fill="false" tooltip-text="'$(gettext 'Launch the Video Upgrade Wizard')'">
@@ -490,77 +581,43 @@ fi
 #  <action>video_upgrade_wizard &</action>
 # </button>'
 
-MAIN1='
+function gui_opt() { #exit icon msg
+	echo '
+        <hbox space-expand="true" space-fill="true">
+          <text xalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"'"$3"'"</label></text>
+          <vbox space-expand="false" space-fill="false">
+            <button>
+              '"`/usr/lib/gtkdialog/xml_button-icon $2 big`"'
+              <action>'"$1"'</action>
+            </button>
+          </vbox>
+        </hbox>'
+}
+
+export MAIN1='
 <window title="'$(gettext 'Xorg Video Wizard')'" image-name="/usr/share/pixmaps/puppy/graphics_xorg.svg">
 <vbox space-expand="true" space-fill="true">
   <notebook labels="'$(gettext 'Screen')'|'$(gettext 'Advanced')'" space-expand="true" space-fill="true">
     <vbox space-expand="true" space-fill="true">
       <frame '$(gettext 'Screen tuning')'>
       '"`/usr/lib/gtkdialog/xml_info fixed graphics.svg 60 "$(gettext '<b>Screen tuning</b> depends on the loaded video/graphics driver, so if correct resolution is not there, check the advanced tab...')"`"'
-
-        <hbox space-expand="true" space-fill="true">
-          <text xalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"'$(gettext '<b>Change screen resolution (xorg.conf)</b>
-Guarantees a proper X startup..')'"</label></text>
-          <vbox space-expand="false" space-fill="false">
-            <button>
-              '"`/usr/lib/gtkdialog/xml_button-icon screen_resolution.svg big`"'
-              <action>EXIT:19</action>
-            </button>
-          </vbox>
-        </hbox>
+        '$(gui_opt EXIT:19 graphics_xorg.svg "$(gettext '<b>Screen resolution / Color depth (xorg.conf)</b>
+Guarantees a proper X startup..')")'
         <hseparator></hseparator>
-
-        <hbox space-expand="true" space-fill="true">
-          <text xalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"'$(gettext '<b>Change screen resolution (xrandr)</b>
-How many vertical and horizontal pixels fits your screen..')'"</label></text>
-          <vbox space-expand="false" space-fill="false">
-            <button>
-              '"`/usr/lib/gtkdialog/xml_button-icon screen_resolution.svg big`"'
-              <action>EXIT:18</action>
-            </button>
-          </vbox>
-        </hbox>
+        '$(gui_opt EXIT:18 screen_resolution.svg "$(gettext '<b>Screen resolution (xrandr)</b>
+How many vertical and horizontal pixels fits your screen..')")'
         <hseparator></hseparator>
-
-        <hbox space-expand="true" space-fill="true">
-          <text xalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"'$(gettext '<b>Monitor gamma calibration</b>
-Adjust monitor colors including screen brightness..')'"</label></text>
-            <vbox space-expand="false" space-fill="false">
-              <button>
-                '"`/usr/lib/gtkdialog/xml_button-icon screen_calibration.svg big`"'
-                <action>EXIT:17</action>
-              </button>
-           </vbox>
-         </hbox>
-
+        '$(gui_opt EXIT:17 screen_calibration.svg "$(gettext '<b>Monitor gamma calibration</b>
+Adjust monitor colors including screen brightness..')")'
        </frame>
     </vbox>
     <vbox space-expand="true" space-fill="true">
-   
       <frame '$(gettext 'Manage xorg.conf')'>
         '"`/usr/lib/gtkdialog/xml_info fixed graphics.svg 60 "$(gettext 'The behaviour of Xorg is controlled by a configuration file, /etc/X11/xorg.conf. This was generated automatically at the first boot, but you may now edit it manually.')"`"'
-        <hbox space-expand="true" space-fill="true">
-          <text xalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"'$(gettext 'You can <b>manually edit</b> /etc/X11/xorg.conf, but note that you will need to exit from X afterward then restart X (see Shutdown menu). Click button to edit:')'"</label></text>
-          <vbox space-expand="false" space-fill="false">
-            <button>
-              '"`/usr/lib/gtkdialog/xml_button-icon edit.svg big`"'
-              <action>EXIT:15</action>
-            </button>
-          </vbox>
-        </hbox>
+        '$(gui_opt EXIT:15 edit.svg "$(gettext 'You can <b>manually edit</b> /etc/X11/xorg.conf, but note that you will need to exit from X afterward then restart X (see Shutdown menu). Click button to edit:')")'
         <hseparator></hseparator>
-
-         <hbox space-expand="true" space-fill="true">
-           <text xalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"'$(gettext '<b>X/Y correction</b>
-If the screen is displaced or the width/height are wrong. This will modify the existing xorg.conf file. <b>Use with caution!</b>')'"</label></text>
-           <vbox space-expand="false" space-fill="false">
-             <button>
-               '"`/usr/lib/gtkdialog/xml_button-icon screen_xy.svg big`"'
-               <action>EXIT:13</action>
-             </button>
-           </vbox>
-         </hbox>
-
+        '$(gui_opt EXIT:13 screen_xy.svg "$(gettext '<b>X/Y correction</b>
+If the screen is displaced or the width/height are wrong. This will modify the existing xorg.conf file. <b>Use with caution!</b>')")'
       </frame>
   
     </vbox>
@@ -568,6 +625,8 @@ If the screen is displaced or the width/height are wrong. This will modify the e
   <hbox space-expand="false" space-fill="true">
     '${NVIDIABUTTON}'
     '${UPGRADEBUTTON}'
+    '${REPORTVIDEOBUTTON}'
+    '${GLXGEARSBUTTON}'
     <text space-expand="true" space-fill="false"><label>" "</label></text>
     <button space-expand="false" space-fill="false">
       <label>'$(gettext "Quit")'</label>
@@ -579,13 +638,10 @@ If the screen is displaced or the width/height are wrong. This will modify the e
 </window>'
 
 
-#do this code block if X is running...
-if [ "`busybox ps | grep "\\.xinitrc"`" != "" ];then
- . /usr/lib/gtkdialog/xml_info gtk #build bg_pixmap for gtk-theme
- RETSTR="`echo "$MAIN1" | gtkdialog --center --stdin`"
- RETVAL="`echo "$RETSTR" | grep '^EXIT=' | cut -f 2 -d '"'`" #'geany
+. /usr/lib/gtkdialog/xml_info gtk #build bg_pixmap for gtk-theme
+eval "$(gtkdialog --center --program=MAIN1)"
 
- case $RETVAL in
+case $EXIT in
   13) #xvidtune
    /usr/lib/gtkdialog/box_ok "$(gettext 'Xvidtune IMPORTANT HELP')" info "$(gettext "If you click the <b>Show</b> button, the adjusted settings will be what you want permanently. After hitting the <b>Quit</b> button, you will be given one last chance not to make the change permanent.")" "$(gettext 'Thus:')" "$(gettext "<b>Show</b> to record the settings (for later inclusion into xorg.conf)")" "$(gettext "<b>Quit</b> to exit Xvidtune.")" " " "$(gettext 'Please note that Xvidtune does not work with all video hardware, meaning that changing the settings will cause no change on the screen.')" &
    XMSGPID=$!
@@ -613,11 +669,14 @@ $(gettext 'Note, you will have to restart X for it to take effect. If it messes'
    ;;
   15) exec defaulttexteditor /etc/X11/xorg.conf ;; #edit xorg.conf
   17) exec xgamma-gui  ;;#xgamma-gui
-  18) exec xrandrshell ;;#resolution changer
+  18) #resolution changer
+    [ "$USING_NVIDIA" ] && exec nvidia-settings
+    exec xrandrshell
+    ;;
   19) #resolution changer
+    [ "$USING_NVIDIA" ] && exec nvidia-settings
 	setscreenres_gui
 	;;
- esac
-fi
+esac
 
 ### END ###

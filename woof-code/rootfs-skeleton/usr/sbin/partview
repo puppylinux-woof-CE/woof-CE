@@ -2,7 +2,6 @@
 #Barry Kauler 2012
 #GPL v3 (/usr/share/doc/legal)
 #120202 internationalized. add udf f.s.
-#120723 reduce mmcblk0p1 to mm0p1.
 #131130 zigbert: gui (gtkdialog) improvements.
 #150203 ASRI: add refresh button
 
@@ -14,10 +13,13 @@ yPID=$!
 
 #added stuff 01micko 2010-12-02
 . /etc/DISTRO_SPECS
+. /etc/rc.d/functions_x #fx_* functions
+
 KERNEL=`uname -r`
 PUPVER=${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}
 
-PARTSLIST="`probepart -k 2> /dev/null | grep '^/dev/' | grep -E 'udf|iso9660|ext2|ext3|ext4|f2fs|reiserfs|msdos|vfat|ntfs|minix' | cut -f 1-3 -d '|' | tr '\n' ' '`"
+PARTSLIST="`probepart -k -extra-info | grep -E 'udf|iso9660|f2fs|ext2|ext3|ext4|reiserfs|btrfs|minix|msdos|vfat|exfat|ntfs'`"
+
 COUNT=0
 S='<window title="Partview" icon-name="gtk-harddisk">
  <vbox space-expand="true" space-fill="true">
@@ -25,75 +27,46 @@ S='<window title="Partview" icon-name="gtk-harddisk">
  <vbox space-expand="true" space-fill="true">
    <vbox scrollable="true" border-width="10">'
 
-for APART in $PARTSLIST
+while IFS="|" read -r ADEVNAME AFS ASIZE ALABEL AMNT_STATUS
 do
- MNTSTATUS='(currently mounted)'
- ATAG="`echo -n "$APART" | cut -f 1 -d '|' | cut -f 3 -d '/'`"
- ASIZE=`echo -n "$APART" | cut -f 3 -d '|'`
- if [ -e /proc/ide ];then #v431 old kernel without libata drivers.
-  ATIPE=`echo -n "$APART" | cut -f 2 -d '|'`
-  case $ATIPE in
-   iso*)
-    ASIZE=4300000
-    [ "`dvd+rw-mediainfo /dev/${ATAG} 2>&1 | grep 'non-DVD'`" != "" ] && ASIZE=700000
-   ;;
-  esac
- else
-  case $ATAG in
-   sr*)
-    ASIZE=4300000
-    [ "`dvd+rw-mediainfo /dev/${ATAG} 2>&1 | grep 'non-DVD'`" != "" ] && ASIZE=700000
-   ;;
-  esac
- fi
- AFS="`echo -n "$APART" | cut -f 2 -d '|'`"
- AFPATTERN="^/dev/$ATAG "
- AUSED=`df -k | grep "$AFPATTERN" | head -n 1 | tr -s " " | cut -f 3 -d " "`
- if [ ! "$AUSED" ];then
-  MNTSTATUS='(not mounted)'
-  mkdir -p /mnt/$ATAG
-  mount -t $AFS /dev/$ATAG /mnt/$ATAG > /dev/null 2>&1
-  if [ $? -eq 0 ];then
-   AUSED=`df -k | grep "$AFPATTERN" | head -n 1 | tr -s " " | cut -f 3 -d " "`
-   umount /dev/$ATAG
-  else
-   continue
-  fi
- fi
+	MNTSTATUS='(currently mounted)'
+	ADEVNAME="${ADEVNAME#/dev/}" #remove leading '/dev/'
+	if fx_drv_is_optical $ADEVNAME ; then
+		ASIZE=4300000
+		dvd+rw-mediainfo /dev/${ADEVNAME} 2>&1 | grep -E 'non-DVD|not a DVD' && ASIZE=700000
+	fi
+	case $ADEVNAME in dm-*)
+		ADEVNAME="$(df |grep \/luks| cut -f1 -d ' '| cut -f 3-5 -d /)" ;;
+	esac
+	AFPATTERN="^/dev/$ADEVNAME "
+	AUSED=`df -k | grep "$AFPATTERN" | head -n 1 | tr -s " " | cut -f 3 -d " "`
+	[ "$AUSED" ] && [ "$(echo -n "$AFPATTERN" | grep \/luks)" != "" ]  && ADEVNAME="${ADEVNAME#mapper/}"
+	if [ ! "$AUSED" ];then
+		MNTSTATUS='(not mounted)'
+		mkdir -p /mnt/$ADEVNAME
+		mount -t $AFS /dev/$ADEVNAME /mnt/$ADEVNAME > /dev/null 2>&1 || continue
+		AUSED=`df -k | grep "$AFPATTERN" | head -n 1 | tr -s " " | cut -f 3 -d " "`
+		umount /dev/$ADEVNAME
+	fi
+
+	ATAG="$ADEVNAME [${AFS}]"
+	if [ "$ALABEL" ] ; then
+		ATAG="$ADEVNAME [${AFS}] (${ALABEL})"
+	fi
  
- AFREE=`expr $ASIZE - $AUSED`
- #process size...
- if [ $AFREE -gt 1048576 ];then #1024*1024
-  ONEFREE="`dc $AFREE 1048576 \/ p`"
-  ONEFREE="`printf "%.1f" $ONEFREE`G"
- else
-  if [ $AFREE -gt 99 ];then
-   ONEFREE="`expr $AFREE \/ 1024`M"
-  else
-   ONEFREE="`dc $AFREE 1024 \/ p`"
-   ONEFREE="`printf "%.1f" $ONEFREE`M"
-  fi
- fi
- if [ $ASIZE -gt 1048576 ];then #1024*1024
-  ONESIZE="`dc $ASIZE 1048576 \/ p`"
-  ONESIZE="`printf "%.1f" $ONESIZE`G"
- else
-  if [ $ASIZE -gt 99 ];then
-   ONESIZE="`expr $ASIZE \/ 1024`M"
-  else
-   ONESIZE="`dc $ASIZE 1024 \/ p`"
-   ONESIZE="`printf "%.1f" $ONESIZE`M"
-  fi
- fi
- 
- . /usr/lib/gtkdialog/svg_bar 250 "$(($AUSED*250/$ASIZE))" "${ONESIZE} / ${ONEFREE} $(gettext 'free')"  > /tmp/partview_${COUNT}.svg
- zATAG="`echo -n "$ATAG" | sed -e 's%mmcblk%mm%'`" #120723 reduce mmcblk0p1 to mm0p1
- S=$S'<hbox>
-  <text><label>'${zATAG}'</label></text>
+	AFREE=$(($ASIZE - $AUSED))
+	#process size...
+	ONEFREE=$( fx_format_bytes $((1024 * $AFREE)) )
+	ONESIZE=$( fx_format_bytes $((1024 * $ASIZE)) )
+	. /usr/lib/gtkdialog/svg_bar 250 "$(($AUSED*250/$ASIZE))" "${ONESIZE} / ${ONEFREE} $(gettext 'free')"  > /tmp/partview_${COUNT}.svg
+	S=$S'<hbox>
+  <text><label>'"${ATAG}"'</label></text>
   <pixmap><input file>/tmp/partview_'${COUNT}'.svg</input></pixmap>
  </hbox>'
  COUNT=$(($COUNT+1))
-done
+done <<EOF
+$PARTSLIST
+EOF
 
 export PartView=$S'</vbox></vbox>
   <hbox space-expand="false" space-fill="false">
@@ -112,8 +85,8 @@ export PartView=$S'</vbox></vbox>
   </hbox>
 </vbox>
 </window>'
-kill $yPID
 . /usr/lib/gtkdialog/xml_info gtk #build bg_pixmap for gtk-theme
-gtkdialog -p PartView --geometry=400x360
+kill $yPID
+gtkdialog -p PartView --geometry=500x400
 
 ###END###

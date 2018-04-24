@@ -107,24 +107,28 @@ dependcheckfunc() {
   [ "$FNDOO" = "" ] && LD_LIBRARY_PATH="${FNDOO}/program:${LD_LIBRARY_PATH}"
  fi
 
+if [ "$RETPARAMS" -o "$(cat /var/local/petget/sd_category 2>/dev/null)" != "true" ]; then
  FNDFILES="`cat /root/.packages/$APKGNAME.files`"
  oldIFS=$IFS
  IFS='
 '
  for ONEFILE in $FNDFILES
  do
-  ISANEXEC="`file --brief "${ONEFILE}" | grep -s --extended-regexp "LSB executable|shared object"`"
-  if [ ! "$ISANEXEC" = "" ];then
-   LDDRESULT="`ldd "${ONEFILE}"`"
-   MISSINGLIBS="`echo "$LDDRESULT" | grep "not found" | cut -f 2 | cut -f 1 -d " " | tr "\n" " "`"
+  ISANEXEC="`file --brief "${ONEFILE}"`"
+  case "$ISANEXEC" in *"LSB executable"*|*"shared object"*)
+   MISSINGLIBS="`ldd "${ONEFILE}" | grep "not found" | cut -f 2 | cut -f 1 -d " " | tr "\n" " "`"
    if [ ! "$MISSINGLIBS" = "" ];then
     echo "$(gettext 'File') $ONEFILE $(gettext 'has these missing library files:')" >> /tmp/missinglibs_details.txt #100718
     echo " $MISSINGLIBS" >> /tmp/missinglibs_details.txt #100718
     echo " $MISSINGLIBS" >> /tmp/missinglibs.txt #100718
-   fi
-  fi
+   fi ;;
+  esac
  done
  IFS=$oldIFS
+else
+	echo "Skipped" > /tmp/missinglibs.txt
+fi
+
  if [ -s /tmp/missinglibs.txt ];then #100718 reduce size of list, to fit in window...
   MISSINGLIBSLIST="`cat /tmp/missinglibs.txt | tr '\n' ' ' | tr -s ' ' | tr ' ' '\n' | sort -u | tr '\n' ' '`"
   echo "$MISSINGLIBSLIST" > /tmp/missinglibs.txt

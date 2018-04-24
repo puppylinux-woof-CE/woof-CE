@@ -1,0 +1,183 @@
+#!/bin/bash
+#2014
+
+[ ! "$DISPLAY" ] && exit #needs X
+
+export debug=0
+
+# SUPPORTED FORMATS/FILE EXTENSIONS
+export formats="ZIP RAR PET DEB SFS TAR TGZ TXZ TAR.*"
+export formats7z="7Z CBR CBZ GZ XZ BZ2 WIM ARJ CAB CHM CPIO CramFS DMG FAT HFS ISO LZH LZMA MBR MSI NSIS NTFS RPM UDF VHD WIM XAR Z"
+# 7z does not handle properly the following extensions:
+# DEB PET RPM TGZ TXZ TAR.*
+
+case "$1" in
+	-q|-quiet) quiet="true" ; shift ;;
+esac
+
+if [ "$1" ]; then
+	inputfile="$@"
+else
+	inputfile=$(yad --title="Open File" --file --filename="$pwd" --width="640" --height="480" --center --on-top --sticky --borders="4")
+	[ "$inputfile" = "" ] && echo "User cancelled operation" && exit 2
+fi
+[ ! -e "$inputfile" ] && yad --title="Error" --text="File does not exist:\n\n$inputfile" --image="dialog-error" --button="OK":0 --center --on-top --fixed --sticky --borders="4" && exit 1
+[ ! -f "$inputfile" ] && yad --title="Error" --text="Invalid input file\n\n$inputfile" --image="dialog-error" --button="OK":0 --center --on-top --fixed --sticky --borders="4" && exit 1
+
+#########################################/root/file.tar.gz
+filenopath="${inputfile##*/}"			#file.tar.gz
+fileext="${filenopath##*.}"				#gz
+filenoext="${filenopath/%.$fileext/}"	#file.tar
+fileext2="${filenoext##*.}"				#tar
+fileext="${fileext,,}"					#gz		#convert to lowercase
+fileext2="${fileext2,,}"				#tar	#convert to lowercase
+
+## Improved rootname...	
+case $filenopath in
+	*.tar.??|*.tar.???) __rootname=${filenopath%.tar*} ;;
+	*) __rootname=${filenopath%.*} ;;
+esac
+
+inputfile=$(realpath "$inputfile")
+inputdir=$(dirname "$inputfile")
+export outputdir="$inputdir"
+
+function FormatsDlg() {
+	local msg1="These are the current supported formats/file extensions:\n\n${formats,,}\n\n7zip: ${formats7z,,}"
+	yad --title="Supported formats" --text="$msg1" --image="dialog-info" --button="OK":0 --center --on-top --fixed --sticky --borders="4"
+}
+export -f FormatsDlg
+
+SubDirCHECK='FALSE'
+case $fileext in
+	sfs|SFS) SubDirCHECK='TRUE' ;;
+	iso|ISO) SubDirCHECK='TRUE' ;;
+	wim|WIM) SubDirCHECK='TRUE' ;;
+	rpm|RPM) SubDirCHECK='TRUE' ;;
+	tgz|txz) SubDirCHECK='TRUE' ;;
+esac
+
+case $__rootname in -*) #FIX for yad dlg
+	__rootname="$(echo $__rootname | sed 's|-|\\-|')" ;;
+esac
+case $outputdir in -*) #FIX for yad dlg
+	outputdir="$(echo $outputdir | sed 's|-|\\-|')" ;;
+esac
+
+if [ "$quiet" != "true" ]; then ##graphical mode##
+	dialog_result=$(yad --title="Extract files" \
+	--center --fixed --borders="4" --columns="1" \
+	--separator="|" --form  \
+	--field="$inputfile:LBL" "" \
+	--field="OutDir::DIR" "$outputdir" \
+	--field="SubDir:" "${__rootname}" \
+	--field="Create SubDir:CHK" "$SubDirCHECK" \
+	--button="Extract:0" \
+	--button="formats...:sh -c 'FormatsDlg'" \
+	--button="Close:10")
+	[ $? -ne 0 ] || [ "$dialog_result" = "" ] && echo "User cancelled operation" && exit 2
+                   #1      #2      #3       #4
+	IFS="|" read infile outputdir subdir createsubdir <<< "$dialog_result"
+
+	if [ "$createsubdir" = "TRUE" -a "$subdir" != "" ]; then
+		outputdir="${outputdir}/${subdir}"
+		mkdir -p "$outputdir"
+	fi
+fi
+
+#echo "$dialog_result"
+#echo -e "infile=$infile\noutputdir=$outputdir\nsubdir=$subdir\ncreatesubdir=$createsubdir"
+
+#main function, a call to this always finishes the script
+function ExtractScript() {
+	local EXECCOMMAND=$@ #must not be "$@"
+	local ESCRIPT="/tmp/xtract_script_${RANDOM}"
+	echo $EXECCOMMAND
+	echo "#!/bin/sh
+echo \"File: $inputfile\"
+echo
+echo $EXECCOMMAND
+echo
+$EXECCOMMAND
+exitcode=\$?
+if [ \$exitcode -ne 0 ]; then
+	echo 
+	echo \"Exit code: \$exitcode\"
+	echo -n 'THERE WAS AN ERROR. PRESS ENTER KEY TO CLOSE THIS WINDOW: '
+	read var #read -t 30 var (timeout)
+fi
+debug=$debug
+if [ \$debug -eq 1 ]; then
+	echo -en \"\\ndebug mode, hit enter to continue.. \"; read aaa #DEBUG
+	geany \"\$0\"
+else
+	rm \"\$0\"
+fi
+" > $ESCRIPT ; chmod +x $ESCRIPT
+	if [ "$DISPLAY" ] ; then
+		exec defaultterminal -e $ESCRIPT
+	else
+		sh $ESCRIPT
+	fi
+	exit
+}
+
+#=======================================================
+#                    MAIN
+#=======================================================
+
+echo "$outputdir" 
+cd "$outputdir" #many tools will extract to the current directory
+
+if [ "$fileext2" = "tar" ]; then
+	ExtractScript "tar -avxf \"$inputfile\""
+	exit
+fi
+
+case $fileext in
+	tar|tgz|txz) ExtractScript "tar -avxf \"$inputfile\""  ; exit ;;
+	pet) #application/x-gzip
+		finfo=$(file -b "$inputfile")
+		case $finfo in
+		  gz*|GZ*) opt=-z ;;
+		  xz*|XZ*) opt=-J ;;
+		esac
+		defaultterminal -e tar -v ${opt} -xf "$inputfile" 2>/dev/null #ignore error messages
+		exit ;;
+	deb)
+		targetdir="$filenoext" 
+		mkdir -p "$targetdir"
+		ExtractScript "dpkg-deb -v -X \"$inputfile\" \"$targetdir\""
+		exit ;;
+	sfs) ExtractScript "unsquashfs -f -d \"$outputdir\" \"$inputfile\""
+		exit 0 ;;
+	rpm) ExtractScript "exploderpm \"$inputfile\""
+		exit 0 ;;
+	#ace) #application/octet-stream    #works when called from shell with a filename ;;
+	zip|cbz) ExtractScript "unzip -o \"$inputfile\" -d \"$outputdir\"" #unzip -o "$inputfile" -d "$outputdir"
+		exit ;;
+	rar|cbr) #application/x-rar <--- application/x-cbr		
+		#unrar <command> -<switch 1> -<switch N> <archive> <files...> <@listfiles...> <path_to_extract\>
+		ExtractScript "unrar x \"$inputfile\" \"*\"" #unrar x "$inputfile" "*"
+		exit
+		;;
+	#ALL OTHER FORMATS ARE HANDLED BY 7z
+	*)
+		export z7zoutdir="-o${outputdir}" #FOR 7z switches
+
+		isformat=0
+		zformats="${formats7z,,}" ##convert to lowercase
+		for token in $zformats; do
+			[ "$token" = "$fileext" ] && isformat=1 && break
+		done
+		if [ $isformat -eq 1 ]; then 
+			ExtractScript "7z x \"$z7zoutdir\" \"$inputfile\""
+			exit
+		fi
+
+		echo "WARNING: Filetype is not recognized, but attempting to extract anyway"
+		ExtractScript "7z x \"$z7zoutdir\" \"$inputfile\""
+		;;
+esac
+
+### END ###

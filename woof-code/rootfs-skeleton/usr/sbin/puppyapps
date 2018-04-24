@@ -9,7 +9,10 @@ DEFAULTAPPS=""
 default_apps='archiver audioeditor audiomixer audioplayer barehtmlviewer browser calendar cdplayer cdrecorder chat chmviewer connect contact draw email filemanager htmleditor htmlviewer imageeditor imageviewer mediaplayer musicplayer paint pdfviewer processmanager screenshot run search spreadsheet terminal texteditor textviewer wordprocessor'
 IGNORE_ALREADY_SET=""
 APPS_DEFAULT_EXEC="$(gettext 'Autodetect')"
-[ ! -d /tmp/puppyapps ] && mkdir -p /tmp/puppyapps
+if [ ! -d /tmp/puppyapps ] ; then
+	SHOW_SPLASH=1
+	mkdir -p /tmp/puppyapps
+fi
 GUI_SORT=2
 GUI_MAXROWS=10
 GUI_COUNT=0 #count available default* - for columns in gui
@@ -136,7 +139,7 @@ apps_array() {
 		$(remove_desktop 'libfm' | search_desktop2 'mail')"
 		;;
 	filemanager)
-		APPLIST="`echo -e "spacefm\npcmanfm\nthunar\nrox\n"`
+		APPLIST="`echo -e "spacefm\npcmanfm\nroxfiler\n"`
 		$(search_desktop 'file.*manager')"
 		;;
 	htmleditor)
@@ -229,7 +232,7 @@ apps_array() {
 update_defaults () {
 	LANG=C
 	# change the default*** files, using the 'change_default' util
-	for I in $DEFAULTAPPS ; do
+	for I in $appz ; do
 	  case ${I#default} in
 		archiver)      change_default 'archiver' "$ARCHIVER" ;;
 		audioeditor)   change_default 'audioeditor' "$AUDIOEDITOR" ;;
@@ -272,6 +275,11 @@ update_defaults () {
 change_default () {
 	TYPE="$1"
 	FILE="$2"
+	if [ "$TYPE" = "filemanager" ] ; then
+		case $FILE in rox|*"/rox")
+			FILE=roxfiler
+		esac
+	fi
 	#check if the default* file exists
 	if [ "$FILE" = '###' ] || [ ! "$FILE" ]; then
 		echo
@@ -282,228 +290,13 @@ change_default () {
 		echo "'default$TYPE' cannot set to itself."
 	elif [ -f "/usr/local/bin/default$TYPE" ];then
 		#replace the old program with the new one
-		if [ -f "$FILE" ]; then #path included
+		if [ "$FILE" ]; then
 			echo -e "#!/bin/sh\nexec $FILE \"\$@\"" > "/usr/local/bin/default$TYPE" #add new comand
-			echo "Default $TYPE changed to $FILE"
-		elif [ "$FILE" ]; then
-			if [ "`which $FILE`" ]; then
-				echo -e "#!/bin/sh\nexec $FILE \"\$@\"" > "/usr/local/bin/default$TYPE" #add new comand
-				echo "Default $TYPE changed to $FILE"
-			else
-				echo -e "#!/bin/sh\nexec puppyapps default$TYPE \"@\"" > "/usr/local/bin/default$TYPE"
-				echo "$FILE is not installed on the system. Default $TYPE will be autodetected by Puppy"
-			fi
-		else
-			echo -e "#!/bin/sh\nexec puppyapps default$TYPE \"@\"" > "/usr/local/bin/default$TYPE"
-			echo "EXEC not set. Default $TYPE will be autodetected by Puppy"
 		fi
 	else #the default* file given was not found
 		echo "The file '/usr/local/bin/default$TYPE' not found."
 	fi
 }
-
-#===================================
-#			mimedbs
-#===================================
-
-dbdir='/var/lib/puppyapps'
-tmpdir='/tmp/mimedefs'
-dotdesktop='.desktop'
-
-freedesktop_mimedb_download() {
-	mkdir -p ${dbdir}/mimedb
-	cd ${dbdir}/mimedb
-	wget -c http://cgit.freedesktop.org/xdg/shared-mime-info/plain/freedesktop.org.xml.in
-	if [ $? -ne 0 ] ; then
-		echo "ERROR downloading freedesktop.org.xml" >&2
-		rm -f freedesktop.org.xml.in
-		return 1
-	else
-		mv -f freedesktop.org.xml.in freedesktop.org.xml
-	fi
-	#fixes to freedesktop.org.xml
-	sed -i -e '/\*.tgz/d' -e '/\*.txz/d' freedesktop.org.xml #slackware: puppy.xml
-}
-
-mimedb_update() {
-	local file="" filez="$(ls ${dbdir}/mimedb/*.xml 2>/dev/null)"
-	[ ! "$filez" ] && { echo "Nothing to update" >&2 ; return 1 ; }
-	for file in $filez ; do
-		cp -fv $file /usr/share/mime/packages
-	done
-	update-mime-database /usr/share/mime
-}
-
-#===================================
-#			-mimedefs
-#===================================
-
-## ${dbdir}/dotdesktop
-process_dotdesktop() {
-	local app=""
-	mkdir -p ${tmpdir}/applications
-	[ ! -f "${dbdir}/dotdesktop" ] && { echo "ERROR: no ${dbdir}/dotdesktop file" >&2 ; return 1 ; }
-	local newentry=1
-	while read line ; do
-		[ ! "$line" ] && newentry=1 && continue
-		if [ $newentry -eq 1 ] ; then
-			app=$line ; newentry=0
-			echo -n > ${tmpdir}/applications/${app}
-			continue
-		fi
-		echo "$line" >> ${tmpdir}/applications/${app}
-	done < ${dbdir}/dotdesktop
-}
-
-## ${dbdir}/exec
-process_exec() {
-	local app="" exec=""
-	mkdir -p ${tmpdir}/exec
-	[ ! -f "${dbdir}/exec" ] && { echo "ERROR: no ${dbdir}/exec file" >&2 ; return 1 ; }
-	while read line ; do
-		[ ! "$line" ] && continue
-						  #upx -d=xterm -hold -e upx -d
-		app="${line%%=*}" #upx -d
-		exec="${line#*=}" #xterm -hold -e upx -d
-		echo "$exec" > "${tmpdir}/exec/${app}"
-	done < ${dbdir}/exec
-}
-
-## ${tmpdir}/exec/$app
-check_exec() {
-	local app="$@" exec=""
-	if [ -f "${tmpdir}/exec/$app" ] ; then
-		read -r exec < ${tmpdir}/exec/${app}
-		echo "$exec"
-	else
-		echo "$app"
-	fi
-}
-
-## app;app2;app3;etc
-format_app() {
-	local appz="$@" IFS=";" app=""
-	local res=$(
-		for app in ${appz} ; do
-			[ ! "$app" ] && continue
-			echo -n "${app}${dotdesktop};"
-		done
-	)
-	echo "${res%\;}"
-}
-
-write_desktop_file() {
-	local path="$@"
-	local file="${path##*/}"
-	local exec="$(check_exec "${file}")"
-	echo -e "[Desktop Entry]
-Encoding=UTF-8
-Type=Application
-NoDisplay=true
-Name=${file}
-Exec=${exec} %F" > ${path}${dotdesktop}
-}
-
-## app;app2;app3;etc
-desktop_file() {
-	local appz="$@" IFS=";" app=""
-	for app in ${appz} ; do
-		[ ! "$app" ] && continue
-		[ -f "applications/${app}" ] && continue #$tmpdir, process_desktop()
-		write_desktop_file "applications/${app}"
-	done
-}
-
-#--
-
-rox_default() {
-	local mimetype="$1" ; shift
-	local roxmimetype="${mimetype//\//_}"
-	local app="$@"
-	app=${app%%;*}
-	app="$(check_exec "${app}")"
-	echo -e "#!/bin/sh\nexec $app \"\$@\"" > MIME-types/${roxmimetype}
-	chmod +x MIME-types/${roxmimetype}
-}
-
-## app;app2;app3;etc
-rox_associations() {
-	local mimetype="$1" ; shift
-	local roxmimetype="${mimetype//\//_}"
-	local appz="$@" IFS=";" app=""
-	for app in ${appz} ; do
-		[ ! "$app" ] && continue
-		mkdir -p "OpenWith/.${roxmimetype}"
-		app="$(check_exec "${app}")"
-		echo -e "#!/bin/sh\nexec $app "'"$@"' > "OpenWith/.${roxmimetype}/$app"
-		chmod +x "OpenWith/.${roxmimetype}/$app"
-	done
-}
-
-#--
-
-mime_defaults() {
-	dbfile=${dbdir}/mime_defaults
-	[ ! -f $dbfile ] && return 1
-	mkdir -p ${tmpdir} ; cd ${tmpdir}
-	mkdir -p MIME-types applications
-	echo "[Default Applications]" > defaults.list
-	echo -n > mailcap
-	while read -r line ; do
-		[ ! "$line" ] && continue
-		read -r mimetype app <<< "${line//=/ }"
-		echo "${mimetype}; $(check_exec ${app%%;*}) \"%s\"" >> mailcap
-		echo "${mimetype}=$(format_app ${app})" >> defaults.list
-		desktop_file ${app}
-		rox_default ${mimetype} ${app}
-	done <<< "$(grep -v -E '^#|\[' $dbfile)"
-}
-
-mime_associations() {
-	dbfile=${dbdir}/mime_associations
-	[ ! -f $dbfile ] && return 1
-	mkdir -p ${tmpdir} ; cd ${tmpdir}
-	mkdir -p OpenWith applications
-	echo "[Added Associations]" > alt.list
-	while read -r line ; do
-		[ ! "$line" ] && continue
-		read -r mimetype app <<< "${line//=/ }"
-		echo "${mimetype}=$(format_app ${app})" >> alt.list
-		desktop_file ${app}
-		rox_associations ${mimetype} ${app}
-	done <<< "$(grep -v -E '^#|\[' $dbfile)"
-}
-
-#----
-
-mimedefs() {
-	process_exec
-	process_dotdesktop
-	mime_defaults
-	mime_associations
-	( cat defaults.list ; echo ; cat alt.list ) > mimeapps.list
-	rm -f defaults.list alt.list
-}
-
-mimedefs_apply() {
-	cd ${tmpdir} || return 1
-
-	local file="" filez="$(ls ${PWD}/applications/* 2>/dev/null)"
-	echo "$filez" | while read file; do
-		name="${file##*/}"
-		name="${name%.desktop}"
-		[ -f "/usr/share/applications/${name}${dotdesktop}" ] && echo "not copying: $file" && continue
-		cp -fv "$file" "/usr/share/applications/${name}${dotdesktop}"
-	done
-
-	cp -rv --remove-destination MIME-types "${HOME}/Choices"
-	cp -rv --remove-destination OpenWith "${HOME}/.config/rox.sourceforge.net"
-	cp -fv mailcap /etc/mailcap #$HOME/.mailcap
-	cp -fv mimeapps.list /usr/share/applications/mimeapps.list #$HOME/.local/share/applications/mimeapps.list
-	rm -fv /usr/share/applications/defaults.list
-	rm -fv /usr/share/applications/mimeinfo.cache #this file is always trouble
-}
-
 
     ############################
     #                          #
@@ -512,7 +305,7 @@ mimedefs_apply() {
     ############################
 
 #parameters
-for arg in "$@" ; do
+for arg in $@ ; do
 	case $1 in
 		default*)
 			desktop_output
@@ -527,7 +320,7 @@ for arg in "$@" ; do
 			fi
 			exit 0
 			;;
-		-c)
+		-c|set)
 			change_default "$2" "$3"
 			exit
 			;;
@@ -577,9 +370,6 @@ for arg in "$@" ; do
 					echo "default${app} > $file"
 				esac
 			done
-			[ "$1" ] && exit #ex: audioplayer mediaplayer, taking over a few apps only
-			dc="$(which defaults-chooser 2>/dev/null)"
-			if [ "$dc" ] ; then rm -f $dc ; ln -sv $0 $dc ; fi
 			exit
 			;;
 		-setdefs)
@@ -621,31 +411,13 @@ for arg in "$@" ; do
 			fi
 			;;
 
-		-fddb)   freedesktop_mimedb_download ; exit ;;
-		-mimedb) mimedb_update ; exit ;;
-		-mimedefs)
-			mimedefs
-			#exit ##uncomment this to preview the results in /tmp/mimedefs
-			[ "$TEST" ] && exit
-			mimedefs_apply ; rm -rf /tmp/mimedefs
-			exit
-			;;
-		-mimedefsa) mimedefs_apply ; exit ;;
-		-system)
-			dc="$(which defaults-chooser 2>/dev/null)"
-			if [ "$dc" ] ; then rm -f $dc ; ln -sv $0 $dc ; fi
-			#freedesktop_mimedb_download
-			mimedb_update
-			mimedefs ; mimedefs_apply ; rm -rf /tmp/mimedefs
-			exit
-			;;
-
 		-h|--help)
-			echo 'Usage: puppyapps [OPTION(S)]
+			echo 'Usage: '$0' [OPTION(S)]
 
  Options
   default*       Starts the app based on the array in defaultapps
   
+  set TYPE EXEC
   -c TYPE EXEC   Change defaultapp without gui
                  EXEC is the new default target application
                  TYPE is one of the following
@@ -662,7 +434,7 @@ for arg in "$@" ; do
                  For supported TYPEs, see below
   -m default*    Manage only spesified defaultapp(s)
                  seperate apps with a space
-  -r PATH        Using alternative root. for Woof-CE
+  -prefix PATH   Using alternative root. for Woof-CE
   -takeover      Make puppyapps itself manage all the defaultapps
                  Puppyapps will decide what to run first, and will look
                  in the system for alternatives making the system
@@ -672,11 +444,6 @@ for arg in "$@" ; do
                  and choose one of them and will write it to the defaultapp.
                  If no program is found for a specific default app,
                  then puppyapps will manage it.
-  -fddb          download and store latest freedesktop.org.xml
-  -mimedb        update mime database using the puppyapps xml files
-  -mimedefs      create mime associations for different standards
-  -system        -mimedb + -mimedefs
-
   -sort 0..2     For the GUI
                  0) Dont sort
                  1) Sort by internal category name
@@ -688,7 +455,7 @@ for arg in "$@" ; do
   
 supported TYPEs:
 ----------------'
-default_apps | tr ' ' '\n'
+echo ${default_apps} | tr ' ' '\n'
 
 			exit
 			;;
@@ -757,13 +524,7 @@ if [ ! "$DEFAULTAPPS" ]; then
 		DEFAULTAPPS='defaultcalendar defaultcontact defaultscreenshot defaultfilemanager defaultarchiver defaultsearch defaultterminal defaultprocessmanager defaultrun defaultbrowser defaultemail defaultconnect defaultchat'
 		;;
 	All)
-		XWININFO=$(xwininfo -root)
-		GEOMETRY=${XWININFO#*-geometry }
-		GEOMETRY=${GEOMETRY%%\+*}
-		WIDTH=${GEOMETRY%x*}
-		HEIGHT=${GEOMETRY#*x}
-		HEIGHT=$((HEIGHT-50))
-		MAXIMIZED="-G ${WIDTH}x${HEIGHT}+0+0"
+		GUI_MAXROWS=15
 		DC_ICON=/usr/share/pixmaps/puppy/puppy_config.svg
 		;;
 	*) exit ;;
@@ -780,7 +541,7 @@ fi
 desktop_output
 
 #splash
-if [ ! "$DEFAULTAPPS" ]; then
+if [ ! "$DEFAULTAPPS" -o "$SHOW_SPLASH" != "" ]; then
 	/usr/lib/gtkdialog/box_splash -close never -fontsize large -text " $(gettext 'Default Applications Chooser...')" &
 	XPID=$!
 fi
@@ -829,7 +590,7 @@ make_box() {
 	#---
 	echo '
 	<vbox space-expand="false" space-fill="false">
-	  <hbox margin="5" space-expand="true" space-fill="true">
+	  <hbox space-expand="true" space-fill="true">
 	    '$(/usr/lib/gtkdialog/xml_pixmap $ICON icon)'
 	    <vbox space-expand="true" space-fill="true">
 	      <text xalign="0" space-expand="true" space-fill="true"><label>"'$LABEL'"</label></text>
@@ -892,9 +653,15 @@ case $GUI_SORT in
 	*) echo "ERROR: invalid value for \$GUI_SORT" >&2 ; exit 1;;
 esac
 
+DHEIGHT=0
+TOTALITEMS=0
 while read adata ; do
+	TOTALITEMS=$(($TOTALITEMS + 1))
+	DHEIGHT=$(($DHEIGHT + 35))
 	make_box $adata
 done <<< "$APPDATA2" > /tmp/puppyapps/gui_boxes #(*)
+[ $(($TOTALITEMS%2)) -eq 1 ] && DHEIGHT=$(($DHEIGHT+35))
+[ $DHEIGHT -gt 480 ] && DHEIGHT=480
 
 #build help GUI
 gettext "<b>Helpful Tips</b>
@@ -903,7 +670,7 @@ You can add custom commands, parameters and options by typing the desired comman
 Example: 'rxvt -e mp' will load the terminal based editor, called MP." > /tmp/box_help
 
 export GUI='
-<window title="'$(gettext 'Default Applications Chooser')'" default-height="480" image-name="'${DC_ICON}'">
+<window title="'$(gettext 'Default Applications Chooser')'" default-height="'${DHEIGHT}'" image-name="'${DC_ICON}'">
 <vbox space-expand="true" space-fill="true">
   <vbox space-expand="true" space-fill="true">
     <hbox shadow-type="0" scrollable="true" space-expand="true" space-fill="true">
@@ -947,7 +714,7 @@ export GUI='
 # load the app
 . /usr/lib/gtkdialog/xml_info gtk #build bg_pixmap for gtk-theme
 [ "$XPID" ] && kill "$XPID" && XPID=""	#splash stop
-gtkdialog $MAXIMIZED -p GUI
+gtkdialog -p GUI
 unset GUI
 
 exit 0

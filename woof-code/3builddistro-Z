@@ -1,96 +1,48 @@
-#!/bin/sh
+#!/bin/bash
 # new for fatdog style kernel
 
-#v431 accepts passed params, from woof_gui_tabs:
-#$1=$CHOICE_KERNELPKG $2=$CHOICE_SCSI $3=$CHOICE_BIGMODEM $4=$CHK_FB_STATE $5=$CHK_EXOTIC_STATE $6=$CHK_RADICAL_STATE
-#100912 add $7=CHK_SIMPLE_FILENAMES
-
 export LANG=C #faster.
+export BUILDSYS=yes
+export MWD=$(pwd)
 
-# for downlaoding kernel
-REPO_URL=${REPO_URL:-http://distro.ibiblio.org/puppylinux/huge_kernels/} #can change var
+CDRECORD='cdrecord'
+MKISOFS='mkisofs'
+if [ "`which xorriso`" != "" ];then # use xorriso if it is installed
+ CDRECORD='xorrecord'
+ MKISOFS='xorrisofs'
+fi
+export CDRECORD MKISOFS
 
-export CDRECORD='cdrecord'
-export MKISOFS='mkisofs'
-
-RARCH=`uname -m` #running arch
+. ./_00func
+. ./_00build.conf
+export PTHEME #build.conf - woof-code/rootfs-packages/ptheme
+export XTRA_FLG # build.conf - extra naming for iso
+KERNEL_REPO_URL=${KERNEL_REPO_URL:-http://distro.ibiblio.org/puppylinux/huge_kernels} #can change var
 
 . ./DISTRO_SPECS      #this has DISTRO_VERSION.
-#140619
-if [ "$DISTRO_KERNEL_PET" != "Huge_Kernel" ];then
- echo "You can not use this script. Use 3builddistro instead or click the button"
- echo "named 'BUILD DISTRO (normal build)' in the Woof GUI"
- echo "Press enter to exit."
- read normal_build
- exit 0
-fi
-if [ ! "$DISTRO_DB_SUBNAME" ];then #121102
- DISTRO_DB_SUBNAME="$DISTRO_COMPAT_VERSION" #fallback if DISTRO_DB_SUBNAME not defined in file DISTRO_SPECS.
- echo '#subname for online PETs dir. Ex: "slacko14", dir "pet_packages-slacko14", db file "Packages-puppy-slacko14-official":
-#note: prior to existence of this variable, online subname was set to $DISTRO_COMPAT_VERSION or via some hack code.
-' >> ./DISTRO_SPECS
- echo "DISTRO_DB_SUBNAME='${DISTRO_DB_SUBNAME}'" >> ./DISTRO_SPECS
-fi
-if [ -f ./DISTRO_COMPAT_REPOS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} ];then
-. ./DISTRO_COMPAT_REPOS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}
-else
-. ./DISTRO_COMPAT_REPOS-${DISTRO_BINARY_COMPAT} #130306
-fi
-if [ -f ./DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} ];then #w478
-. ./DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} #has FALLBACKS_COMPAT_VERSIONS
-else
-. ./DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT} #has FALLBACKS_COMPAT_VERSIONS
-fi
 
-. ./PKGS_MANAGEMENT #101013 want variable PKG_PREFER_OLDER.
+source_compat_repos  # ./DISTRO_COMPAT_REPOS-
+source_pkgs_specs    # ./DISTRO_PKGS_SPECS-
+. ./PKGS_MANAGEMENT  #101013 want variable PKG_PREFER_OLDER.
 . ./DISTRO_PET_REPOS #120506 want variable PACKAGELISTS_PET_ORDER
+source_woofmergevars # ./WOOFMERGEVARS
 
-if [ -f WOOFMERGEVARS ];then #111123
-. ./WOOFMERGEVARS #has variables WOOF_HOSTARCH, WOOF_TARGETARCH, WOOF_COMPATDISTRO, WOOF_COMPATVERSION
-else
- echo 'File WOOFMERGEVARS does not exist. This is created by script
-merge2out. Your setup is wrong, quiting.'
- exit
-fi
+create_local_repos_dirs
+set_layer_type  # aufs or overlay
+set_archdir_var # ex: ARCHDIR=x86_64-linux-gnu
 
 #64 bit
-[ "$WOOF_TARGETARCH" = "x86_64" ] && lsuffix=64 || lsuffix= #140121 for 64bit ${lsuffix}
-
-#110422 increase size of idstring to 32 bytes...
-IDDATE="`date +%y%m%d%H%M%S`" #12 bytes, ex: 100911153319
-IDPREFIX="`echo -n "$DISTRO_FILE_PREFIX" | cut -b 1`"
-IDSTRING="${IDPREFIX}${IDDATE}ZZZZ${DISTRO_VERSION}"
-#...ZZZZ reserved space for future use.
-LEN1=`echo -n "$IDSTRING" | wc -c`
-LEN2=`expr 32 - $LEN1`
-EXTX=''
-while [ $LEN2 -gt 0 ];do
- LEN2=`expr $LEN2 - 1`
- EXTX="${EXTX}X"
-done
-IDSTRING="${IDSTRING}${EXTX}" #32 bytes ex: w110423092024ZZZZ5.1.2XXXXXXXXXX
+[ "${DISTRO_BINARY_COMPAT}" = 'slackware64' ] && lsuffix=64 || lsuffix= #140121 for 64bit ${lsuffix} #170519 slacko specific
 
 #the files that have compatible-distro pkg docs (these were downloaded by 0setup)...
 PKGLISTS_COMPAT="`echo "$PKG_DOCS_DISTRO_COMPAT" | tr ' ' '\n' | cut -f 3 -d '|' | tr '\n' ' ' | sed -e 's% $%%'`" #see file DISTRO_PKGS_SPECS-ubuntu
 #...format ex: 'Packages-ubuntu-intrepid-main Packages-ubuntu-intrepid-universe'
 
-WKGDIR="`pwd`"
+export WKGDIR="`pwd`"
 
-#120506 params passed from woof_gui_tabs. moved up...
-KERNELPKG=""
-[ $1 ] && KERNELPKG="$1"
-CHOICE_SCSI=""
-[ $2 ] && CHOICE_SCSI="$2" #Erase_SCSI, Keep_SCSI, Boot_SCSI
-CHOICE_BIGMODEM=""
-[ $3 ] && CHOICE_BIGMODEM="$3" #Erase_big_modems Keep_big_modems Zdrv_big_modems
-CHK_FB_STATE=""
-[ $4 ] && CHK_FB_STATE="$4"
-CHK_EXOTIC_STATE=""
-[ $5 ] && CHK_EXOTIC_STATE="$5"
-CHK_RADICAL_STATE=""
-[ $6 ] && CHK_RADICAL_STATE="$6"
-
-#120506
+if [ "$BUILD_ZIP" = "yes" ]; then
+	SDFLAG="zip"
+elif [ "$DISTRO_TARGETARCH" = "arm" ]; then
 echo
 echo "Do you want to create a live-CD .iso file, which is the normal choice for a
 PC-compatible target, or is your target an SD-card for an ARM-based board?
@@ -105,6 +57,7 @@ echo -n "any other printable character for SD-card: "
 read SDFLAG
 #120714 ask what type of arm board...
 if [ "$SDFLAG" != "" ];then
+ export SDFLAG
  echo "...ok, chose sd-card image."
  echo
  echo "Type number of board that you are building for: 
@@ -121,12 +74,8 @@ if [ "$SDFLAG" != "" ];then
 fi
 if [ "$SDFLAG" != "" ];then
  #override module choices, as kernel is built customized to particular hardware...
- CHOICE_BIGMODEM="Keep_big_modems"
- CHOICE_SCSI="Keep_SCSI"
- CHK_FB_STATE="false"
- CHK_EXOTIC_STATE="false"
- CHK_RADICAL_STATE="false"
- CHK_YES_ZDRV="false"
+ echo -n #-------
+fi
 fi
 
 #w003 remove comments from PKGS_SPECS_TABLE
@@ -136,188 +85,181 @@ mkdir -p sandbox3
 
 export DISTRO_NAME
 export DISTRO_VERSION
-if [ "`echo -n "$DISTRO_VERSION" | grep '\.'`" = "" ];then #110422
- DIGIT1="`echo "$DISTRO_VERSION" | cut -b 1`"
- DIGIT2="`echo "$DISTRO_VERSION" | cut -b 2`"
- DIGIT3="`echo "$DISTRO_VERSION" | cut -b 3`"
- RIGHTVER="${DIGIT1}.${DIGIT2}.${DIGIT3}"
- [ "$DIGIT3" = "0" ] && RIGHTVER="${DIGIT1}.${DIGIT2}"
-else
- RIGHTVER="$DISTRO_VERSION"
-fi
-
-#110826 #131124 xz
-KERNELVER="`tar --list -f packages-pet/${KERNELPKG} 2>/dev/null | grep -o '/lib/modules/[23]\..*' | head -n 1 | cut -f 4 -d '/'`" #120502 hide error msg.
-dotnum="`echo -n "$KERNELVER" | sed -e 's%[^\.]%%g' | wc -c`"
-if [ "$dotnum" = "2" ];then
- #SUB_SUB_KERNELVER=`echo -n "$KERNELPKG" | cut -f 3 -d '-'`
- SUB_SUB_KERNELVER=0 #cos we don't really know what it is.
-else
- SUB_SUB_KERNELVER=`echo -n "$KERNELVER" | cut -f 1 -d '-' | cut -f 4 -d '.'`
-fi
-SUB_KERNELVER=`echo -n "$KERNELVER" | cut -f 1 -d '-' | cut -f 3 -d '.'`
-MAJ_KERNELVER=`echo -n "$KERNELVER" | cut -f 1 -d '-' | cut -f 1 -d '.'` #111014 2 or 3.
+export DISTRO_COMPAT_VERSION
 
 echo
 
 #-- always assume mksquashfs4+ --
-echo "-- Compression method to be used --"
-echo -n "Press ENTER only for xz, any other char for gzip: " ; read XZCHOICE
-if [ "$XZCHOICE" ];then
-  echo "...gzip chosen"
-  SFSCOMP='-comp gzip'
-else
-  echo "...xz chosen"
-  SFSCOMP='-comp xz -Xbcj x86 -b 512K'
-fi
-MKSQUASHFS=mksquashfs #use running system's 140619
+export MKSQUASHFS=mksquashfs #use running system's 140619
 
-echo
-
-#100912 choose simple or traditional filenames...
-#traditional names...
-PREFIX1CHAR="`echo -n "$DISTRO_FILE_PREFIX" | cut -c 1`"
-KERNEL3CHARS="`echo -n "$KERNELVER" | tr -d '.' | tr -d '\-' | tr -d '[a-z]' | rev | cut -c 1,2,3 | rev`"
-#110422 new traditional names...
-tradPUPPYSFS="puppy_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION}.sfs"
-tradZDRVSFS="zdrv_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION}.sfs"
-tradFDRVSFS="fdrv_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION}.sfs"
-tradADRVSFS="adrv_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION}.sfs"
-tradYDRVSFS="ydrv_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION}.sfs"
-tradDEVXSFS="devx_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION}.sfs"
-
-# $7 passed in from woof_gui
-if [ "$CHK_SIMPLE_FILENAMES" = "true" ];then
- echo '...simple chosen'
- PUPPYSFS='puppy.sfs'
- ZDRVSFS='zdrv.sfs'
- FDRVSFS='fdrv.sfs'
- ADRVSFS='adrv.sfs'
- YDRVSFS='ydrv.sfs'
- DEVXSFS='devx.sfs'
-else
- echo '...traditional chosen'
- PUPPYSFS="$tradPUPPYSFS"
- ZDRVSFS="$tradZDRVSFS"
- FDRVSFS="$tradFDRVSFS"
- ADRVSFS="$tradADRVSFS"
- YDRVSFS="$tradYDRVSFS" 
- DEVXSFS="$tradDEVXSFS"
-fi
+# new traditional names...
+export PUPPYSFS="puppy_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION}.sfs"
+export ZDRVSFS="zdrv_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION}.sfs"
+export FDRVSFS="fdrv_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION}.sfs"
+export ADRVSFS="adrv_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION}.sfs"
+export YDRVSFS="ydrv_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION}.sfs"
+export DEVXSFS="devx_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION}.sfs"
 
 #now build rootfs-complete, the main filesystem...
 echo
 echo "Now building sandbox3/rootfs-complete, with the complete filesystem..."
 echo '#!/bin/sh' > sandbox3/pinstall.sh
 rm -rf sandbox3/rootfs-complete
+rm -rf sandbox3/devx
 sync
 mkdir sandbox3/rootfs-complete
 mkdir sandbox3/rootfs-complete/etc
+mkdir sandbox3/devx
 cp DISTRO_SPECS sandbox3/rootfs-complete/etc/
 
 #copy the skeleton...
 cp -a rootfs-skeleton/* sandbox3/rootfs-complete/
 cat sandbox3/rootfs-complete/pinstall.sh >> sandbox3/pinstall.sh
+
 # extra packages
-for d in $(ls rootfs-packages)
-do  
-       state=true
-       LIST="sfs_load|pfilesearch|pfind|firewall_ng"
-       echo "$d" | egrep -q "$LIST" && def=true || def=false 
-       case "$d" in
-		change_kernels)
-			def=true
-			;;
-		jwm_config|ptheme|ptheme_buntoo)
-			if grep 'jwmconfig' DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} |\
-			grep -q '^yes' ;then
-				state=false #cant choose them if jwmconfig is in specs.
-			else
-				def=true
-			fi
-			;;
-		wallpaper)
-			if grep -q 'yes|wallpaper' DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION};then
-				state=false # don't overwrite user chosen specs
-				def=false
-			else 
-				def=true
-			fi
-			;;
-		pmusic)
-			if grep -q 'yes|ffmpeg' DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION};then
-				def=true
-			else 
-				state=false
-				def=false
-			fi # depends ffmpeg
-			;;		
-		pmirror)
-			if grep -q 'yes|mirdir' DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION};then
-				def=true
-			else 
-				state=false
-				def=false
-			fi #depends mirdir
-			;;		
-		[f|F]risbee)
-			if grep -q 'yes|wpa_supplicant' DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION};then
-				if grep -E "[f|F]risbee" DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} |\
+CHOICE=/tmp/rootfs_choice$$
+if [ ! -f support/rootfs-packages.conf ];then
+echo
+echo "If you know what packages you want included from rootfs-packages
+you can bypass the checkbox GUI by renaming 
+
+'support/rootfs-packages.conf-backup'
+
+to
+
+'support/rootfs-packages.conf'
+
+and edit it to include your customised package list.
+
+You can CTRL-C out of this script and try it right now if you wish
+or hit Enter/Return to continue."
+
+read carry_on
+
+	for d in $(ls rootfs-packages)
+	do  
+	       state=true
+	       LIST="sfs_load|pfilesearch|pfind|firewall_ng|simple_network_setup"
+	       echo "$d" | egrep -q "$LIST" && def=true || def=false 
+	       case "$d" in
+	        sfs_load|pgprs|change_kernels|network_wizard|frisbee) def=true ;;
+			jwm_config|ptheme|ptheme_buntoo)
+				if grep 'jwmconfig' DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} |\
 				grep -q '^yes' ;then
-					state=false # don't overwrite user chosen specs
-					def=false
+					state=false #cant choose them if jwmconfig is in specs.
 				else
 					def=true
 				fi
-			else 
-				state=false
-				def=false
-			fi #depends wpa_supplicant
-			;;		
-		mscw)
-			def=true
-			;;
-		sfs_load)
-			def=true
-			;;
-		*)
-			if grep "$d" DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} |\
-			grep -q '^yes' ;then
-				state=false # don't overwrite user chosen specs
-				def=false
-			fi
-			;;
-			#### TO DO, pburn. Different distros have different generic names.	
-	   esac
-       CBOXES="$CBOXES""<hbox space-expand=\"true\" space-fill=\"true\">
-		<checkbox>
-			<label>$d</label>
-			<default>$def</default>
-			<variable>$d</variable>
-			<sensitive>$state</sensitive>
-		</checkbox>
-	</hbox>"
-done
-CHOICE=/tmp/rootfs_choice$$	
-export GUIC="<window title=\"Choose extra packages\">
-	<vbox>
-		<hbox>
-			<text>
-				<label>Here you can choose what extra packages to install. It is recommended that you leave the checked boxes checked as these are usually dependencies of installed programs in puppy. If the checkbox for a program is disabled then it means that a coressponding program is in DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}</label>
-			</text>
-		</hbox>
-		<hbox space-expand=\"true\" space-fill=\"true\">	
-			<text use-markup=\"true\">
-				<label>\"<b>These are maintained as part of woof.</b>\"</label>
-			</text>
-		</hbox>
-		<vbox scrollable=\"true\" height=\"160\" width=\"380\">
-			$CBOXES
+				;;
+			wallpaper)
+				if grep -q 'yes|wallpaper' DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION};then
+					state=false # don't overwrite user chosen specs
+					def=false
+				else 
+					def=true
+				fi
+				;;
+			pmusic)
+				if grep -q 'yes|ffmpeg' DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION};then
+					def=true
+				else 
+					state=false
+					def=false
+				fi # depends ffmpeg
+				;;		
+			cups_backend) # contains the backends smbw and pdf-writer
+				if grep -q 'yes|cups|' DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION};then
+					if [ "${DISTRO_BINARY_COMPAT}" = 'slackware64' ];then
+						def=false
+						state=false
+					else
+						def=true
+					fi
+				else 
+					state=false
+					def=false
+				fi # depends cups and anything BUT slackware64 binary compat
+				;;		
+			cups_backend64) # contains the backends smbw and pdf-writer
+				if grep -q 'yes|cups|' DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION};then
+					if [ "${DISTRO_BINARY_COMPAT}" = 'slackware64' ];then
+						def=true
+					else
+						state=false
+						def=false
+					fi
+				else 
+					state=false
+					def=false
+				fi # depends cups AND slackware64 binary compat
+				;;		
+			pmirror)
+				if grep -q 'yes|mirdir' DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION};then
+					def=true
+				else 
+					state=false
+					def=false
+				fi #depends mirdir
+				;;		
+			[f|F]risbee)
+				if grep -q 'yes|wpa_supplicant' DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION};then
+					if grep -E "[f|F]risbee" DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} |\
+					grep -q '^yes' ;then
+						state=false # don't overwrite user chosen specs
+						def=false
+					else
+						def=true
+					fi
+				else 
+					state=false
+					def=false
+				fi #depends wpa_supplicant
+				;;
+			grub2_efi64)
+				[ "$UFEI_ISO" = "yes" ] && def=true
+				;;
+			*)
+				if grep "|${d}" DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} |\
+				grep -q '^yes' ;then
+					state=false # don't overwrite user chosen specs
+					def=false
+				fi
+				;;
+				#### TO DO, pburn. Different distros have different generic names.	
+		   esac
+	       CBOXES="$CBOXES""<hbox space-expand=\"true\" space-fill=\"true\">
+			<checkbox>
+				<label>$d</label>
+				<default>$def</default>
+				<variable>$d</variable>
+				<sensitive>$state</sensitive>
+			</checkbox>
+		</hbox>"
+	done
+		
+	export GUIC="<window title=\"Choose extra packages\">
+		<vbox>
+			<hbox>
+				<text>
+					<label>Here you can choose what extra packages to install. It is recommended that you leave the checked boxes checked as these are usually dependencies of installed programs in puppy. If the checkbox for a program is disabled then it means that a coressponding program is in DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}</label>
+				</text>
+			</hbox>
+			<hbox space-expand=\"true\" space-fill=\"true\">	
+				<text use-markup=\"true\">
+					<label>\"<b>These are maintained as part of woof.</b>\"</label>
+				</text>
+			</hbox>
+			<vbox scrollable=\"true\" height=\"160\" width=\"380\">
+				$CBOXES
+			</vbox>
+			<hbox><button ok></button></hbox>
 		</vbox>
-		<hbox><button ok></button></hbox>
-	</vbox>
-</window>"
-gtkdialog -p GUIC -c > $CHOICE
+	</window>"
+	gtkdialog -p GUIC -c > $CHOICE
+else
+	cp -a support/rootfs-packages.conf $CHOICE
+	EXIT=OK
+fi
 . $CHOICE
 [ -f /tmp/rootfs-packages.specs ] && rm /tmp/rootfs-packages.specs # in case we baled out on last build
 [ -f /tmp/rootfs_pkgs_pinstall.sh ] && rm /tmp/rootfs_pkgs_pinstall.sh # this needs doing anyway
@@ -325,35 +267,65 @@ if [ "$EXIT" = "OK" ];then
 	while read line
 	do 
 		if echo $line|grep -q "true" ;then
+			if echo "${line%%=*}" | grep -v 'grub' | grep -q '64$' ;then # failsafe for debian based 64 versions and auto config generated from merge2out
+				if [ "${DISTRO_BINARY_COMPAT}" != 'slackware64' ];then
+					echo "NOT copying ${line%%=*} - incompatible"
+					continue
+				fi
+			fi
 			echo "copying ${line%%=*}"
 			cp -a rootfs-packages/${line%%=*}/* sandbox3/rootfs-complete/
 			if [ -f rootfs-packages/${line%%=*}/pinstall.sh ];then
-				grep -qw 'exit' rootfs-packages/${line%%=*}/pinstall.sh ||\
-					cat rootfs-packages/${line%%=*}/pinstall.sh >> /tmp/rootfs_pkgs_pinstall.sh
+				if grep -qw 'exit' rootfs-packages/${line%%=*}/pinstall.sh;then continue
+				else
+					if grep -q 'poor man' rootfs-packages/${line%%=*}/pinstall.sh;then # ptheme must go last
+						cat rootfs-packages/${line%%=*}/pinstall.sh > /tmp/rootfs_pkgs_pinstall_ptheme.sh
+					else
+						cat rootfs-packages/${line%%=*}/pinstall.sh >> /tmp/rootfs_pkgs_pinstall.sh
+					fi
+				fi
 			fi
 			cat sandbox3/rootfs-complete/pet.specs >> /tmp/rootfs-packages.specs
 		else
 			continue
 		fi
 	done < $CHOICE
+	cat /tmp/rootfs_pkgs_pinstall_ptheme.sh >> /tmp/rootfs_pkgs_pinstall.sh
 fi
 rm $CHOICE
 #creates devx-only-installed-packages.
-./findwoofinstalledpkgs # moved to here so we can add /tmp/rootfs-packages.specs
+./support/findwoofinstalledpkgs # moved to here so we can add /tmp/rootfs-packages.specs
 
+### new {a,f,y}drv stuff - this creates a full 'woof-installed-packages' in {a,y}drv and subtracts the
+# {a,y}drv installed packages from the the full 'woof-installed-packages' that goes to the main sfs.
+if [ "$(echo $ADRV_INC)" != "" -o "$(echo $FDRV_INC)" != "" -o "$(echo $YDRV_INC)" != "" ];then 
+	sync
+	fields="${ADRV_INC}:${FDRV_INC}:${YDRV_INC}:)"
+	IFS=':' read -a field <<< $fields
+	fcnt=0
+	for dtype in a f y; do
+		[ -d sandbox3/${dtype}drv ] && rm -rf sandbox3/${dtype}drv
+		[ "$dtype" = 'a' -a -z "$ADRV_INC" ] && continue
+		[ "$dtype" = 'f' ] && continue #don't bother with fdrv
+		[ "$dtype" = 'y' -a -z "$YDRV_INC" ] && break
+		mkdir -p sandbox3/${dtype}drv/root/.packages/
+		[ -f /tmp/${dtype}-woof-packages ] && rm /tmp/${dtype}-woof-packages
+		while read -r line
+		do 
+			IFS='|' read -r a b c <<<$line
+			if echo "${fields[${fcnt}]}" | grep -q "$b" ;then
+				continue
+			else
+				echo "$line" >> /tmp/${dtype}-woof-packages
+			fi
+		done < woof-installed-packages
+		cat woof-installed-packages > sandbox3/${dtype}drv/root/.packages/woof-installed-packages
+		cat /tmp/${dtype}-woof-packages > woof-installed-packages
+		fcnt=$(($fcnt + 1))
+	done
+fi
+###
 rm -f sandbox3/rootfs-complete/pinstall.sh
-rm -f /tmp/3builddistro_removed_alt 2>/dev/null #101013
-
-#debian and derivatives: wheezy and later
-#ubuntu and derivatives: precise and later
-ARCHDIR=''
-case $WOOF_COMPATDISTRO in raspbian|debian|devuan|ubuntu|trisquel)
-	case $WOOF_TARGETARCH in #see file WOOFMERGEVARS
-		x86) ARCHDIR='i386-linux-gnu' ;;
-		x86_64) ARCHDIR='x86_64-linux-gnu' ;;
-		arm) ARCHDIR='arm-linux-gnueabihf' ;;
-	esac
-esac
 
 if [ "$ARCHDIR" ];then #ex: i386-linux-gnu
  ln -snf ./ sandbox3/rootfs-complete/lib${lsuffix}/${ARCHDIR}
@@ -361,62 +333,170 @@ if [ "$ARCHDIR" ];then #ex: i386-linux-gnu
  ln -snf ./ sandbox3/rootfs-complete/usr/bin/${ARCHDIR} #120909
 fi
 
+ZHACKSDIR=z_${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}_${DISTRO_TARGETARCH}
+if [ -d packages-templates/${ZHACKSDIR} ] ; then
+	cp -a --remove-destination packages-templates/${ZHACKSDIR} packages-${DISTRO_FILE_PREFIX}/
+	ZHACKS=${ZHACKSDIR}
+fi
+
+#=====================================================================
+function files2delete() {
+	[ -d "$1" ] || return
+	(
+		cd "$1"
+		echo
+		echo "Parsing  support/files2delete"
+		while read file ; do
+			[ -f ./${file} ] && rm -fv ./${file}
+		done < ${MWD}/support/files2delete
+		echo
+	)
+}
+
+function copy_pkgs_to_build() {
+	. ./DISTRO_SPECS
+	SFS_DIR=$2
+	case $SFS_DIR in
+		*drv)xPRE=${SFS_DIR:0:1};; #extract first char: a, y, z, f ...
+		*)xPRE='';;
+	esac
+	while read ONEPKG
+	do
+	case $SFS_DIR in
+		adrv|ydrv)
+			if ls rootfs-packages | grep -q "${ONEPKG}" ;then
+				case "${ONEPKG}" in
+					jwm*|ptheme|pfilesearch|pfind|wallpaper)
+					echo "$ADRV_INC YDRV_INC FDRV_INC" | grep -q "${ONEPKG}" && continue;; #don't copy these in {a,y,f}drv
+				esac
+				echo -n " ${ONEPKG}"
+				cp -a --remove-destination rootfs-packages/${ONEPKG}/* sandbox3/${SFS_DIR}/ 2> /tmp/3builddistro-cp-errlog
+				continue
+			fi
+			;;
+	esac
+	if [ ! -d packages-${DISTRO_FILE_PREFIX}/${ONEPKG} ];then
+		if [ ! -d packages-${DISTRO_FILE_PREFIX}/${ONEPKG}_DEV ];then #pkg may go entirely into devx.
+			if [ ! -d packages-${DISTRO_FILE_PREFIX}/${ONEPKG}_DOC ];then #pkg may go entirely into docs.
+				echo "WARNING, PKG DOES NOT EXIST: packages-${DISTRO_FILE_PREFIX}/${ONEPKG}"
+				continue
+			fi
+		fi
+    fi
+    case "$ONEPKG" in
+		busybox|busybox_static|busybox-static) continue ;; #busy box may conflict with core apps
+		sfs_load|xkbconfigmanager) continue;; #force woofce apps
+    esac
+    echo -n " ${ONEPKG}"
+    cp -a --remove-destination packages-${DISTRO_FILE_PREFIX}/${ONEPKG}/* sandbox3/${SFS_DIR}/ 2> /tmp/3builddistro-cp-errlog
+    sync
+    if [ -s /tmp/3builddistro-cp-errlog ];then #130430 next line fixes those quote chars...
+		cat /tmp/3builddistro-cp-errlog | grep 'cannot overwrite non-directory' | tr '[`‘’]' "'" | cut -f 2 -d "'" |
+		while read ONEDIRSYMLINK
+		do
+			xONEDIRSYMLINK="`echo -n "$ONEDIRSYMLINK" | sed -e "s%sandbox3/${SFS_DIR}%%"`"
+			cp -a --remove-destination packages-${DISTRO_FILE_PREFIX}/${ONEPKG}${xONEDIRSYMLINK}/* sandbox3/${SFS_DIR}${xONEDIRSYMLINK}/
+		done
+    fi
+	if [ -f sandbox3/${SFS_DIR}/pinstall.sh ];then
+		#note, do not filter #! /bin/sh (with a space)...
+		grep  -E -v '^\#\!\/bin\/sh' sandbox3/${SFS_DIR}/pinstall.sh >> sandbox3/${xPRE}pinstall.sh
+		rm -f sandbox3/${SFS_DIR}/pinstall.sh
+    fi
+    #get rid of .specs file...
+    rm -f sandbox3/${SFS_DIR}/*.specs
+    done <<< "$(echo "$1" | tr ' ' '\n')"
+}
+#=====================================================================
+
 echo "Copying to sandbox3/rootfs-complete..."
-PKGLIST="`echo "$PKGS_SPECS_TABLE" | grep '^yes' | cut -f 2 -d '|' | tr '\n' ' '`"
-for ONEPKG in $PKGLIST
-do
- if [ ! -d packages-${DISTRO_FILE_PREFIX}/${ONEPKG} ];then
-  if [ ! -d packages-${DISTRO_FILE_PREFIX}/${ONEPKG}_DEV ];then #pkg may go entirely into devx.
-   if [ ! -d packages-${DISTRO_FILE_PREFIX}/${ONEPKG}_DOC ];then #pkg may go entirely into docs.
-    echo "WARNING, PKG DOES NOT EXIST: packages-${DISTRO_FILE_PREFIX}/${ONEPKG}"
-    continue
-   fi
-  fi
- fi
-
- case "$ONEPKG" in
-   mscw|sfs_load) continue ;; #use only woofce mscw and sfs_load
-   busybox) continue ;; #see below (avoid conflict between busybox applets and full utilities)
- esac
-
- echo -n " ${ONEPKG}"
- cp -a --remove-destination packages-${DISTRO_FILE_PREFIX}/${ONEPKG}/* sandbox3/rootfs-complete/ 2> /tmp/3builddistro-cp-errlog
- sync #110727 running drake pup 0.3 with k2.6.39-3 new laptop, mysterious loss of dirs/files. try sync.
- if [ -s /tmp/3builddistro-cp-errlog ];then #130430 next line fixes those quote chars...
-  cat /tmp/3builddistro-cp-errlog | grep 'cannot overwrite non-directory' | tr '[`‘’]' "'" | cut -f 2 -d "'" |
-   while read ONEDIRSYMLINK
-   do
-    xONEDIRSYMLINK="`echo -n "$ONEDIRSYMLINK" | sed -e 's%sandbox3/rootfs-complete%%'`"
-    #adding that extra trailing / does the trick...
-    cp -a --remove-destination packages-${DISTRO_FILE_PREFIX}/${ONEPKG}${xONEDIRSYMLINK}/* sandbox3/rootfs-complete${xONEDIRSYMLINK}/
-   done
- fi
- #...now seems ok. note, there are two places in woof v003 where this problem occurs: /usr/lib/seamonkey
- # and /usr/share/cups/model.
- 
- if [ -f sandbox3/rootfs-complete/pinstall.sh ];then
-  #note, do not filter #! /bin/sh (with a space)...
-  grep  -E -v '^\#\!\/bin\/sh' sandbox3/rootfs-complete/pinstall.sh >> sandbox3/pinstall.sh
-  rm -f sandbox3/rootfs-complete/pinstall.sh
- fi
- #get rid of a .specs file...
- rm -f sandbox3/rootfs-complete/*.specs
- #window and menu icons can also be in the top-level directory of the package...
- mv sandbox3/rootfs-complete/*24.xpm sandbox3/rootfs-complete/usr/local/lib/X11/pixmaps/ 2>/dev/null
- mv sandbox3/rootfs-complete/*32.xpm sandbox3/rootfs-complete/usr/local/lib/X11/pixmaps/ 2>/dev/null
- mv sandbox3/rootfs-complete/*32.png sandbox3/rootfs-complete/usr/local/lib/X11/pixmaps/ 2>/dev/null
- mv sandbox3/rootfs-complete/*48.xpm sandbox3/rootfs-complete/usr/local/lib/X11/pixmaps/ 2>/dev/null
- mv sandbox3/rootfs-complete/*48.png sandbox3/rootfs-complete/usr/local/lib/X11/pixmaps/ 2>/dev/null
- mv sandbox3/rootfs-complete/*.xpm sandbox3/rootfs-complete/usr/local/lib/X11/mini-icons/ 2>/dev/null
- mv sandbox3/rootfs-complete/*.png sandbox3/rootfs-complete/usr/local/lib/X11/mini-icons/ 2>/dev/null
-done
+EXTRAS_LIST="${ADRV_INC// /|} ${YDRV_INC// /|} ${AFDRV_INC// /|}"
+if echo "$EXTRAS_LIST" | grep -qvE "[a-z]";then
+	DUMMY="" 
+else
+	DUMMY=XXXX #unless they make a Qld beer proggy 'XXXX' will never match; besides need a trailing field
+	EXTRAS_LIST="${EXTRAS_LIST// /|}${DUMMY}"
+	EXTRAS_LIST="${EXTRAS_LIST//^|}" #strip leading "|"
+	EXTRAS_LIST="${EXTRAS_LIST//||/|}" #replace double "||" with "|"
+fi
+if [ -n "${DUMMY}" ];then
+	PKGLIST="`echo "$PKGS_SPECS_TABLE" | grep '^yes' | grep -vE "${EXTRAS_LIST}" | cut -f 2 -d '|' | tr '\n' ' '`" 
+else
+	PKGLIST="`echo "$PKGS_SPECS_TABLE" | grep '^yes' | cut -f 2 -d '|' | tr '\n' ' '`"
+fi
+PKGLIST="${PKGLIST}${ZHACKS}"
+copy_pkgs_to_build "${PKGLIST}" rootfs-complete
 echo
+
+### new {a,f,y}drv build - this sorts the packages and builds the {a,f,y}drv filesystem
+ADRV_INCLUDE='';FDRV_INCLUDE_='';YDRV_INCLUDE=''
+[ "$(echo $ADRV_INC)" != "" ] && ADRV_INCLUDE=adrv
+[ "$(echo $FDRV_INC)" != "" ] && FDRV_INCLUDE=fdrv
+[ "$(echo $YDRV_INC)" != "" ] && YDRV_INCLUDE=ydrv
+if [ -n "$ADRV_INCLUDE" -o -n "$FDRV_INCLUDE" -o -n "$YDRV_INCLUDE" ];then
+	rm -f sandbox3/?pinstall.sh
+	for _DRV in  $ADRV_INCLUDE $FDRV_INCLUDE $YDRV_INCLUDE;do
+		echo
+		echo "Now building sandbox3/${_DRV} with apps redirected to ${_DRV}_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION}.sfs"
+		case ${_DRV} in
+		adrv)echo '#!/bin/sh' > sandbox3/apinstall.sh
+			mkdir -p sandbox3/adrv/usr/local/bin
+			copy_pkgs_to_build "${ADRV_INC}" adrv
+			chmod 755 sandbox3/apinstall.sh
+			echo;;
+		fdrv)echo '#!/bin/sh' > sandbox3/fpinstall.sh
+			mkdir -p sandbox3/fdrv/
+			copy_pkgs_to_build "${FDRV_INC}" fdrv
+			chmod 755 sandbox3/fpinstall.sh
+			echo
+			CONF_DIR=no;;
+		ydrv)echo '#!/bin/sh' > sandbox3/ypinstall.sh
+			mkdir -p sandbox3/ydrv/usr/local/bin
+			copy_pkgs_to_build "${YDRV_INC}" ydrv
+			chmod 755 sandbox3/ypinstall.sh
+			echo;;
+		esac
+		# if exists in {a,y}drv a .desktop file we symlink it to root/.config/rox.sourceforge.net/OpenWith/
+		if [ ! "$CONF_DIR" = 'no' ];then
+			mkdir -p sandbox3/${_DRV}/root/.config/rox.sourceforge.net/OpenWith/
+			(
+			cd sandbox3/${_DRV}/root/.config/rox.sourceforge.net/OpenWith/
+			for d in ../../../../usr/share/applications/*.desktop;do
+				app=${d##*/}
+				lo=$app # weird bug with libreoffice*.desktop 'permission denied'
+				app=${app%\.*}
+				if echo $app | grep -q 'libreoffice';then
+					echo $app | grep -qE "qstart|startcenter|xsltfilter" && continue
+					ln -sf $d $lo # maintains '.desktop' extension
+				else
+					ln -sf $d $app
+				fi
+			done
+			)
+		fi
+	done
+else
+	rm -rf sandbox3/?drv #precaution
+fi
+### end {a,f,y}drv
+
+#some old packages have xpm and png images in /
+mv -f sandbox3/rootfs-complete/{*.xpm,*.png} sandbox3/rootfs-complete/usr/share/pixmaps 2>/dev/null
+
+for i in busybox busybox_static busybox-static
+do
+	[ -f packages-${DISTRO_FILE_PREFIX}/${i}/bin/busybox ] && busybox=$i && break
+done
+if [ ! -f packages-${DISTRO_FILE_PREFIX}/${busybox}/bin/busybox ] ; then
+	echo "packages-${DISTRO_FILE_PREFIX}/${busybox}/bin/busybox is missing"
+	echo "fatal error.."
+fi
 
 #110923 fix busybox applets...
 DEVXUTILS=' config ar ar86 as as86 audiofile-config autoconf autoheader autom4te automake autopoint autoreconf autoscan autoupdate bacon bacongui bcc bison c2ph catchsegv cc ccmake chem cmake combinediff config_data corelist cpack cpan cpan2dist cpanp cpanp-run-perl cpp ctest cups-config curl-config cvs cvsbug db_archive db_checkpoint db_deadlock db_dump db_hotbackup db_load db_printlog db_recover db_stat db_upgrade db_verify dehtmldiff diet dnsd dprofpp dvdnav-config dvdread-config editdiff elftrunc enc2xs envsubst eqn eqn2graph espdiff filterdiff find2perl fixcvsdiff flex flipdiff freetype-config gccbug gcov gdb gdbserver gdbtui gdiffmk gencat getconf getent gettext gettext.sh gettextize gfortran git git-cvsserver git-receive-pack git-shell git-upload-archive git-upload-pack gitk glade-3 gmake gnome-menu-spec-test gperf gphoto2-config gphoto2-port-config gprof grap2graph grepdiff grn grodvi groff groffer grog grolbp grolj4 grops grotty h2ph h2xs hpftodit iconv idle ifnames indxbib info infokey install-info instmodsh interdiff intltool-extract intltool-merge intltool-prepare intltool-update intltoolize ld ld86 ldd lddlibc4 lex lib-i386 libart2-config libnetcfg libpng-config libpng12-config libtool libtoolize libusb-config lkbib locale localedef lookbib lsdiff m4 make makeinfo man man1 man2dvi man2html mmroff msgattrib msgcat msgcmp msgcomm msgconv msgen msgexec msgfilter msgfmt msggrep msginit msgmerge msgunfmt msguniq mtrace nasm ndisasm neon-config neqn netpbm-config ngettext nm nm86 nroff objcopy objdump objdump86 onsgmls osgmlnorm ospam ospcat ospent osx patch pcap-config pcprofiledump pcre-config pdfroff pdftexi2dvi perl perlbug perldoc perlivp perlthanks pfbtops pic pic2graph piconv pkg-config pl2pm pod2html pod2latex pod2man pod2text pod2usage podchecker podselect post-grohtml pre-grohtml preconv prove psed pstruct ptar ptardiff pydoc ranlib rcs2log readelf recode-sr-latin recountdiff rediff refer rman roff2dvi roff2html roff2pdf roff2ps roff2text roff2x rpcgen s2p sane-config scrollkeeper-config scrollkeeper-extract scrollkeeper-gen-seriesid scrollkeeper-get-cl scrollkeeper-get-content-list scrollkeeper-get-extended-content-list scrollkeeper-get-index-from-docpath scrollkeeper-get-toc-from-docpath scrollkeeper-get-toc-from-id scrollkeeper-install scrollkeeper-preinstall scrollkeeper-rebuilddb scrollkeeper-uninstall scrollkeeper-update shasum size size86 soelim splain splitdiff sprof strace strace-graph strings strip svn svnadmin svndumpfilter svnlook svnserve svnsync svnversion sysprof sysprof-cli tbl texi2dvi texi2pdf texindex tfmtodit troff tzselect unwrapdiff update-mime-database vsyasm whatis xgettext xml2-config xslt-config xsubpp xtrace yacc yasm ytasm zsoelim iconvconfig makewhatis nscd rpcinfo visudo zic ' #11104 111204 remove zdump.
-cp -a -f packages-${DISTRO_FILE_PREFIX}/busybox/bin/busybox ./sandbox3/rootfs-complete/bin/
-osPTN="s%packages-${DISTRO_FILE_PREFIX}/busybox%%"
-for ONEAPPLET in `find packages-${DISTRO_FILE_PREFIX}/busybox -type l | tr '\n' ' '`
+cp -a -f packages-${DISTRO_FILE_PREFIX}/${busybox}/bin/busybox ./sandbox3/rootfs-complete/bin/
+osPTN="s%packages-${DISTRO_FILE_PREFIX}/${busybox}%%"
+for ONEAPPLET in `find packages-${DISTRO_FILE_PREFIX}/${busybox} -type l | tr '\n' ' '`
 do
  ONESPEC="`echo -n "$ONEAPPLET" | sed -e "$osPTN"`"
  ONEPATH="`dirname $ONESPEC`"
@@ -428,7 +508,9 @@ do
    FULLPATH="$(dirname "$FNDFULL")"
    FULLLINK="$(readlink "$FNDFULL")"
    xFULLLINK="${FULLPATH}/${FULLLINK}"
-   [ "`echo -n "$FULLLINK" | cut -c 1`" = "/" ] && xFULLLINK="sandbox3/rootfs-complete${FULLLINK}"
+   if [ "`echo -n "$FULLLINK" | cut -c 1`" = "/" ] ; then
+     xFULLLINK="sandbox3/rootfs-complete${FULLLINK}"
+   fi
    if [ ! -e "${xFULLLINK}" ];then
     rm -f "$FNDFULL" #130130
     FNDFULL=""
@@ -450,10 +532,11 @@ do
   cp -a -f $ONEAPPLET ./sandbox3/rootfs-complete${ONEPATH}/
  fi
 done
-[ -f packages-${DISTRO_FILE_PREFIX}/busybox/pinstall.sh ] && cat packages-${DISTRO_FILE_PREFIX}/busybox/pinstall.sh >> sandbox3/pinstall.sh
+[ -f packages-${DISTRO_FILE_PREFIX}/${busybox}/pinstall.sh ] && cat packages-${DISTRO_FILE_PREFIX}/${busybox}/pinstall.sh >> sandbox3/pinstall.sh
 [ -f /tmp/rootfs_pkgs_pinstall.sh ] && cat /tmp/rootfs_pkgs_pinstall.sh >> sandbox3/pinstall.sh
 
-echo 'echo "END OF pinstall.sh SCRIPT."' >> sandbox3/pinstall.sh
+rm -f /tmp/3builddistro_end_of_pinstall
+echo 'touch /tmp/3builddistro_end_of_pinstall' >> sandbox3/pinstall.sh
 chmod 755 sandbox3/pinstall.sh
 
 #pemasu start 131207
@@ -461,64 +544,36 @@ echo "Removing extra documentation"
 for i in sandbox3/rootfs-complete/usr/share/doc/*; do
    if [ -d $i ]; then
       keep=0
-      for j in legal pmusic pburn pbackup mtpaint help wvdial ffconvert cups nls puplogos notecase didiwiki; do #140128 added back legal, 01micko
-         case `basename $i` in
-            $j)
-               keep=1
-               break 1
-               ;;
-         esac
+      for j in legal pmusic pburn pbackup mtpaint help wvdial ffconvert cups nls puplogos notecase didiwiki xarchive; do #140128 added back legal, 01micko
+         case `basename $i` in $j) keep=1 ; break 1 ;; esac
       done
       [ $keep -eq 0 ] && rm -rf $i
    fi
 done
+for i in share/doc share/info share/man usr/share/info usr/share/man \
+	usr/share/gtk-doc usr/share/gnome/help usr/info usr/man usr/share/cups/doc-root/help
+do
+	if [ -d sandbox3/rootfs-complete/${i} ] ; then
+		rm -rf sandbox3/rootfs-complete/${i}
+		mkdir -p sandbox3/rootfs-complete/${i}
+	fi
+done
+
 echo "Removing extra locales"
 for i in sandbox3/rootfs-complete/usr/share/locale/*; do
    if [ -d $i ]; then
       keep=0
-      for j in en en_US locale.alias fi; do
-         case `basename $i` in
-            $j)
-               keep=1
-               break 1
-               ;;
-         esac
+      for j in en en_US locale.alias; do
+         case `basename $i` in $j) keep=1 ; break 1 ;; esac
       done
       [ $keep -eq 0 ] && rm -rf $i
    fi
 done
-rm -rf sandbox3/rootfs-complete/usr/share/man/* 2>/dev/null
-rm -rf sandbox3/rootfs-complete/usr/share/info/* 2>/dev/null
-rm -rf sandbox3/rootfs-complete/usr/share/cups/doc-root/help/* 2>/dev/null
 #pemasu end
 
-# new wallpaper maker
-# test if exec exists
-which mkwallpaper 2>&1 > /dev/null # must be on the system
-retwall=$?
-if [ $retwall -eq 0 ];then
-	echo "Do you want to build some custom wallpapers?"
-	echo "Press 'w' to accept or ENTER to keep going without custom wallpapers."
-	read customwalls
-	if [ "$customwalls" = "w" ];then
-		mkwallpaper | grep -wq '\-k' && opt='-kyes' || opt=''
-		cd sandbox3/rootfs-complete
-		. etc/DISTRO_SPECS
-		for e in 1 2 3 4 5 6 7 8; do
-			case $e in
-				1)color='0.2 0.2 0.2'		;; #dark grey
-				2)color='0.70 0.30 0.40'	;; #raspberry
-				3)color='0.00 0.75 0.75'	;; #teale
-				4)color='0.2 0.7 0.1'		;; #green
-				5)color='0.55 0.25	0.60'	;; #purply violet
-				6)color='0.1 0.1 0.8'		;; #darkish blue
-				7)color='0.73 0.55 0.52'	;; #salmon
-				8)color='0.6 0.7 0.8'		;; #light blue
-			esac
-			mkwallpaper -n ${DISTRO_FILE_PREFIX}-wall${e} -l "$DISTRO_FILE_PREFIX" -x1024 -y768 -z "$color" ${opt} -w woof
-		done
-		cd -
-	fi
+# new wallpaper maker - test if exec exists
+if which mkwallpaper &>/dev/null ; then # must be on the system
+	support/mk_walls.sh
 fi
 echo 
 #run post-install script...
@@ -527,13 +582,19 @@ echo "Executing sandbox3/pinstall.sh post-install script..."
 cd $WKGDIR/sandbox3/rootfs-complete
 SAVEWKGDIR="$WKGDIR"
 $WKGDIR/sandbox3/pinstall.sh
+### new {a,f,y}drv stuff - execute the '{a,f,y}pinstall.sh'
+(
+cd $WKGDIR/sandbox3/
+for post_inst in adrv fdrv ydrv;do
+	prefix=${post_inst:0:1}
+	[ -f ${prefix}pinstall.sh ] && {(cd ${post_inst};$WKGDIR/sandbox3/${prefix}pinstall.sh)}
+done
+)
+###
 echo "Now setting /etc/os-release file"
 mk_os_release() {
-	if [ "$1" ];then
-	 dir=etc
-	else
-	 dir=/etc
-	fi
+	dir=/etc
+	[ "$1" ] && dir=etc
 	 . $dir/DISTRO_SPECS
 	
 	cat > ${dir}/os-release << _EOF
@@ -550,9 +611,15 @@ BUG_REPORT_URL="https://github.com/puppylinux-woof-CE/woof-CE"
 _EOF
 }
 mk_os_release ok
-echo "If you did not get 'End of pinstall.sh' message above, then"
-echo -n "it aborted before completion. Press ENTER or CTRL-C: "
-read isitbad
+
+if [ -f /tmp/3builddistro_end_of_pinstall ] ; then
+	echo "pinstall.sh finished OK"
+	sleep 2
+else
+	echo -n "pinstall.sh aborted before completion. Press ENTER or CTRL-C: "
+	read isitbad
+fi
+
 WKGDIR="$SAVEWKGDIR"
 cd $WKGDIR
 
@@ -615,25 +682,8 @@ dependcheck() {
 }
 
 echo
-if [ "$WOOF_HOSTARCH" = "$WOOF_TARGETARCH" ];then #111123
- echo "This script can now optionally do a thorough dependency check. "
- echo "Note, this may take a long time."
- echo -e "Press \"c\" key then ENTER to do thorough check,"
- echo -n "else just press ENTER key to bypass check: "
- read mmnn
-else
- echo "Normally, the script now offers to perform a thorough dependency check."
- echo "However, as the host and target architectures are different, this cannot"
- echo "be done (host=${WOOF_HOSTARCH}, target=${WOOF_TARGETARCH})."
- echo "If you want to do this check, do a build with host and target the same,"
- echo "with same package selection."
- echo -n "Press ENTER key to continue: "
- read mmnn
- mmnn=""
-fi
-
-echo
-if [ "$mmnn" = "c" ];then
+#build.conf
+if [ "$WOOF_HOSTARCH" = "$WOOF_TARGETARCH" -a "$CHECK_BINARY_DEPS" = "yes" ];then
  echo "Wait awhile..."
  dependcheck
  if [ -s /tmp/missinglibs.txt ];then #true if file not zero size.
@@ -674,147 +724,64 @@ sync
 rm -f ./pinstall.sh
 cd ..
 
-mv -f rootfs-complete/etc/modules/firmware.dep rootfs-complete/etc/modules/firmware.dep.${KERNELVER}
 sync
 #now do the kernel...
 echo
 rm -rf build 2>/dev/null
 mkdir build
 
-echo "Installing HUGE kernel"
-sleep 1
-# see if there is one in kernel-kit
-if [ -d '../kernel-kit/dist' ];then
-	KIT_KERNEL=`find ../kernel-kit/dist/packages -maxdepth 1 -type f -name 'huge*.tar.bz2' | head -n1`
-	[ -z "$KIT_KERNEL" ] || cp $KIT_KERNEL ../huge_kernel/
-	# while we are here, we'll copy in fdrive if it exists
-	FDRIVE=`find ../kernel-kit/dist/packages -maxdepth 1 -type f -name 'fdrv*.sfs'`
-	if [ "$FDRIVE" ];then
-		FSIZE=`stat -c %s $FDRIVE`
-		FSIZE=$(($FSIZE / 1000000))
-		echo "An 'F' drive if has been found. This contains supplementary firmware"
-		echo "that can be included in the final build. It will add ${FSIZE}MB to the"
-		echo "final image. It does no harm not to include, just some exotic drivers"
-		echo "may not work."
-		echo "Press 'F' then 'Enter' to include it or just 'Enter' to skip."
-		read include_fdrive
-		if [ "$include_fdrive" = 'f' ];then
-			echo "copying $FDRVSFS to build"
-			cp $FDRIVE build/$FDRVSFS
-		else
-			echo "Skipping f drive."
-		fi
-	fi
+case "$KERNEL_TARBALL_URL" in *.pet|*.deb|*.tgz|*.txz) KPKG=yes  ;; esac
+
+if [ "$KPKG" = "yes" ] ; then
+	# kernel pet/deb/txz/tgz
+	. ../support/kernel_pkg.sh
+elif [ "$DISTRO_KERNEL_PET" = 'Raspbian_Kernel' ];then
+	# do nothing.
+	echo -n #-------
+elif [ "$DISTRO_KERNEL_PET" = 'Kit_Kernel' ];then
+	../support/kit_kernel.sh || exit 1
+else
+	# Huge_Kernel
+	../support/huge_kernel.sh || exit 1
 fi
-	
-# install huge kernel to build 140617
-IS_KERNEL=`ls ../huge_kernel|wc -l`
 
-download_kernel() {
-	TMP=/tmp/kernels$$
-	TMP2=/tmp/kernels2$$
-	wget ${REPO_URL} -O $TMP
-	# grok out what kernels are available
-	c=1
-	cat $TMP|tr '>' ' '|tr '<' ' '|tr ' ' '\n'|grep -v 'md5'|grep -v 'kernels'|grep 'huge'|grep -v 'href'|\
-	while read q;do
-	 echo "$c $q" >> $TMP2
-	 c=$(($c + 1))
-	done
-	while [ 1 ];do
-	 echo "Please choose the number of the kernel you wish to download"
-	 cat $TMP2
-	 read choice_k
-	 choice=`grep ^$choice_k $TMP2`
-	 [ ! "$choice" ] && echo "invalid choice" && continue
-	 echo "You chose ${choice##* }. Hit ENTER to continue"
-	 read
-	 break
-	done
-	wget -t0 -c $REPO_URL/${choice##* } -P ../huge_kernel
-	wget $REPO_URL/${choice##* }.md5.txt -P ../huge_kernel
-	CHK=`md5sum ../huge_kernel/${choice##* }|cut -d ' ' -f1`
-	MD5=`cat ../huge_kernel/${choice##* }.md5.txt|cut -d ' ' -f1`
-	[ "$CHK" != "$MD5" ] && "checksum failed" && exit 1
-	echo "Checksum passed"
-	rm ../huge_kernel/${choice##* }.md5.txt
-	rm $TMP
-	rm $TMP2
-}
+#========================
 
-[ "$IS_KERNEL" = 0 ] && download_kernel #no kernel, get 1
+if [ "$KPKG" = "yes" ] ; then
+	rootfs=zdrv #produced by support/kernel_pet.sh
+else
+	rootfs=rootfs-complete
+fi
 
-choose_kernel() {
-	TMP=/tmp/kernels3$$
-	x=1
-	for j in `ls -1 ../huge_kernel|grep -v 'md5'`;do
-	 echo "$x $j" >> $TMP
-	 x=$(($x + 1))
-	done
-	while [ 1 ];do
-	 echo "Please choose the number of the kernel you wish to use"
-	 cat $TMP
-	 read choice_k3
-	 choice3=`grep ^$choice_k3 $TMP`
-	 [ ! "$choice3" ] && echo "invalid choice3" && continue
-	 echo "You chose ${choice3##* }. Hit ENTER to continue"
-	 read
-	 break
-	done
-	KERNEL_VERSION=`echo ${choice3##* } |cut -d '-' -f2-|rev|cut -d '.' -f3-|rev`
-	rm $TMP
-}
-unset IS_KERNEL
-IS_KERNEL=`ls ../huge_kernel|wc -l`
-
-[ "$IS_KERNEL" -gt 1 ] && choose_kernel #too many, choose 1
-
-[ "$IS_KERNEL" == 1 ] && KERNEL_VERSION=`ls ../huge_kernel|grep -v 'md5'|cut -d '-' -f2-|rev|cut -d '.' -f3-|rev`
-
-echo "Kernel is $KERNEL_VERSION version"
-
-cp -a ../huge_kernel/huge-${KERNEL_VERSION}.tar.* build/
-cd build
-tar -xvf huge-${KERNEL_VERSION}.tar.*
-[ "$?" = 0 ] || exit 1
-rm -f huge-${KERNEL_VERSION}.tar.* #remove pkg
-mv -f kernel-modules.sfs-$KERNEL_VERSION $ZDRVSFS
-mv -f vmlinuz-$KERNEL_VERSION vmlinuz
-cd ..
-#end 140617
-
-#120613 kernel image can have different names. rename to vmlinuz, however change back later if build sd card...
 REALKERNAME='vmlinuz'
-[ -f rootfs-complete/boot/vmlinuz ] && cp rootfs-complete/boot/vmlinuz build/
-if [ -f rootfs-complete/boot/uImage ];then #mele a1000
- cp rootfs-complete/boot/uImage build/vmlinuz #120506 arm builds, using different name for kernel.
+[ -f ${rootfs}/boot/vmlinuz* ] && mv ${rootfs}/boot/vmlinuz* build/vmlinuz
+if [ -f ${rootfs}/boot/uImage ];then #mele a1000
+ cp ${rootfs}/boot/uImage build/vmlinuz #120506 arm builds, using different name for kernel.
  REALKERNAME='uImage'
 fi
-if [ -f rootfs-complete/boot/kernel.img ];then #raspberry pi
- cp rootfs-complete/boot/kernel.img build/vmlinuz
+if [ -f ${rootfs}/boot/kernel.img ];then #raspberry pi
+ cp ${rootfs}/boot/kernel.img build/vmlinuz
  REALKERNAME='kernel.img'
 fi
-[ -f rootfs-complete/boot/System.map ] && cp rootfs-complete/boot/System.map ./
+if [ -f ${rootfs}/boot/kernel7.img ];then #raspberry pi2
+ cp ${rootfs}/boot/kernel7.img build/vmlinuz7
+ REALKERNAME='kernel.img'
+fi
+if [ -f ${rootfs}/boot/vmlinuz-*-rpi ];then #raspberry pi, Raspbian kernel
+ mv ${rootfs}/boot/vmlinuz-*-rpi build/vmlinuz
+ REALKERNAME='kernel.img'
+fi
+if [ -f ${rootfs}/boot/vmlinuz-*-rpi2 ];then #raspberry pi2, Raspbian kernel
+ mv ${rootfs}/boot/vmlinuz-*-rpi2 build/vmlinuz7
+ REALKERNAME='kernel.img'
+fi
+[ -f ${rootfs}/boot/System.map ] && cp ${rootfs}/boot/System.map ./
 sync
-rm -rf rootfs-complete/boot 2 > /dev/null
-#100911 16-byte id-string appended. init can determine boot partition.
-cd build
-for pfile in vmlinuz *.sfs ; do
-	echo -n "$IDSTRING" >> $pfile
-	echo "Appending IDSTRING : $IDSTRING to $pfile"
-done
-echo
-cd -
-
-#130314 want to run arch post-install script from ppm also...
-mkdir -p rootfs-complete/usr/local/petget
-cp ${WKGDIR}/support/arch/runDotInstalls rootfs-complete/usr/local/petget/ArchRunDotInstalls
-chmod 755 rootfs-complete/usr/local/petget/ArchRunDotInstalls
 
 #download/verify static initrd-progs
 (
 	cd ../initrd-progs
-	./build.sh -prebuilt -download -arch ${WOOF_TARGETARCH:-default} 1>/dev/null
+	./build.sh -prebuilt -download -arch ${WOOF_TARGETARCH} 1>/dev/null
 )
 
 #build the initrd-tree...
@@ -823,6 +790,7 @@ echo "Now building initial ramdisk in initrd-tree/..."
 rm -rf initrd-progs initrd-tree
 cp -a ../initrd-progs ./initrd-progs
 ln -s ./initrd-progs/0initrd initrd-tree
+ln -sf ../../initrd-progs/0sources ./initrd-progs/0sources
 cp ../DISTRO_SPECS ./initrd-tree/
 
 #101027 Iguleder reported DISTRO_SPECS did not have a carriage-return on last line...
@@ -830,10 +798,11 @@ xDISTROSPECS="`cat initrd-tree/DISTRO_SPECS`"
 echo "$xDISTROSPECS" > initrd-tree/DISTRO_SPECS
 echo "$xDISTROSPECS" > rootfs-complete/etc/DISTRO_SPECS
 
+if [ "$DISTRO_KERNEL_PET" = 'Kit_Kernel' ];then
+NEWVARIABLES="DISTRO_ZDRVSFS=\"kernel-modules-\$(uname -r)-${DISTRO_FILE_PREFIX}.sfs\""
+else
 #100911
-NEWVARIABLES="#32-byte alpha-numeric ID-string appended to vmlinuz, ${PUPPYSFS}, ${ZDRVSFS} and devx.sfs:
-DISTRO_IDSTRING='${IDSTRING}'
-#Puppy default filenames...
+NEWVARIABLES="#Puppy default filenames...
 #Note, the 'SFS' files below are what the 'init' script in initrd.gz searches for,
 #for the partition, path and actual files loaded, see PUPSFS and ZDRV in /etc/rc.d/PUPSTATE
 DISTRO_PUPPYSFS='${PUPPYSFS}'
@@ -842,6 +811,7 @@ DISTRO_FDRVSFS='${FDRVSFS}'
 DISTRO_ADRVSFS='${ADRVSFS}'
 DISTRO_YDRVSFS='${YDRVSFS}'"
 #DISTRO_DEVXSFS='${DEVXSFS}'"
+fi
 echo "$NEWVARIABLES" >> initrd-tree/DISTRO_SPECS
 echo "$NEWVARIABLES" >> rootfs-complete/etc/DISTRO_SPECS
 sync
@@ -851,67 +821,40 @@ DISTRO_PUPPYDATE="`date | tr -s " " | cut -f 2,6 -d " "`"
 echo "DISTRO_PUPPYDATE='${DISTRO_PUPPYDATE}'" >> rootfs-complete/etc/DISTRO_SPECS
 echo "DISTRO_PUPPYDATE='${DISTRO_PUPPYDATE}'" >> initrd-tree/DISTRO_SPECS
 
-#120215 language translations for init script...
-INITRDTRANSFILES="`find ../rootfs-skeleton/usr/share/sss/initrd_strings -mindepth 1 -maxdepth 1 -type f -name 'initrd_strings.*'`"
-if [ "$INITRDTRANSFILES" ];then
- for ATRANS in $INITRDTRANSFILES
- do
-  ENDBIT="`echo -n "$ATRANS" | rev | cut -f 1 -d '.' | rev`" #ex: de (from initrd_strings.de)
-  mkdir -p initrd-tree/locale/${ENDBIT}
-  #only supporting translating the init script for now...
-  sPTN="/^\[init\]/,/^$/p" #this is a multi-line block find expression.
-  CODEBLOCK="`sed -n "$sPTN" ${ATRANS} | sed -e '/^#/d' -e '/%%/d' -e '/^$/d' -e '/^\[/d'`" #extracts just the relevant block of lines.
-  [ ! "$CODEBLOCK" ] && continue #precaution.
-  echo "$CODEBLOCK" > initrd-tree/locale/${ENDBIT}/init #translation file, read by /init script in initrd.
- done
-fi
-
-#120216 set default LANG and KMAP... 120401 improve...
 # /lib/keymaps and /lib/consolefonts are in bothr rootfs and initd
-echo
-echo
-echo "Puppy is built with a default locale LANG=en_US and keyboard layout KMAP=us,
-which may be changed after bootup.
-However, if you are building a language-specific Puppy, you may change the
-defaults now. But, please do make sure that your Puppy has a 'langpack' PET
-for your language installed -- if one does not exist, then you will have to
-create one -- see MoManager in the Utility menu, also read the Menu -> Help
--> HOWTO Internationalization."
-echo
-echo "These are the available LANG values (in /usr/share/i18n/locales):
-aa_DJ aa_ER aa_ER@saaho aa_ET af_ZA am_ET an_ES ar_AE ar_BH ar_DZ ar_EG ar_IN ar_IQ ar_JO ar_KW ar_LB ar_LY ar_MA ar_OM ar_QA ar_SA ar_SD ar_SY ar_TN ar_YE as_IN ast_ES az_AZ be_BY be_BY@latin ber_DZ ber_MA bg_BG bn_BD bn_IN br_FR br_FR@euro bs_BA byn_ER ca_AD ca_ES ca_ES@euro ca_FR ca_IT crh_UA csb_PL cs_CZ cy_GB da_DK de_AT de_AT@euro de_BE de_BE@euro de_CH de_DE de_DE@euro de_LU de_LU@euro dz_BT el_CY el_GR el_GR@euro en_AU en_BW en_CA en_DK en_GB en_HK en_IE en_IE@euro en_IN en_NG en_NZ en_PH en_SG en_US en_ZA en_ZW es_AR es_BO es_CL es_CO es_CR es_DO es_EC es_ES es_ES@euro es_GT es_HN es_MX es_NI es_PA es_PE es_PR es_PY es_SV es_US es_UY es_VE et_EE eu_ES eu_ES@euro fa_IR fi_FI fi_FI@euro fil_PH fo_FO fr_BE fr_BE@euro fr_CA fr_CH fr_FR fr_FR@euro fr_LU fr_LU@euro fur_IT fy_DE fy_NL ga_IE ga_IE@euro gd_GB gez_ER gez_ER@abegede gez_ET gez_ET@abegede gl_ES gl_ES@euro gu_IN gv_GB ha_NG he_IL hi_IN hr_HR hsb_DE hu_HU hy_AM id_ID ig_NG ik_CA is_IS it_CH it_IT it_IT@euro iu_CA iw_IL ja_JP ka_GE kk_KZ kl_GL km_KH kn_IN ko_KR ks_IN ku_TR kw_GB ky_KG lg_UG li_BE li_NL lo_LA lt_LT lv_LV mai_IN mg_MG mi_NZ mk_MK ml_IN mn_MN mr_IN ms_MY mt_MT nb_NO nds_DE nds_NL ne_NP nl_BE nl_BE@euro nl_NL nl_NL@euro nn_NO nr_ZA nso_ZA oc_FR om_ET om_KE or_IN pa_IN pap_AN pa_PK pl_PL pt_BR pt_PT pt_PT@euro ro_RO ru_RU ru_UA rw_RW sa_IN sc_IT se_NO shs_CA sid_ET si_LK sk_SK sl_SI so_DJ so_ET so_KE so_SO sq_AL sr_ME sr_RS sr_RS@latin ss_ZA st_ZA sv_FI sv_FI@euro sv_SE ta_IN te_IN tg_TJ th_TH ti_ER ti_ET tig_ER tk_TM tl_PH tn_ZA tr_CY tr_TR ts_ZA tt_RU tt_RU@iqtelif ug_CN uk_UA ur_PK uz_UZ uz_UZ@cyrillic ve_ZA vi_VN wa_BE wa_BE@euro wal_ET wo_SN xh_ZA yi_US yo_NG zh_CN zh_HK zh_SG zh_TW zu_ZA"
-echo "ENTER only for default, else type one of the above. Usually, you would want UTF-8 enabled, so append that. ex: de_DE.UTF-8."
-echo "(the default is en_US.UTF-8)"
-echo -n "ENTER only for default, or type it now: "
-read DEFAULTLANG
-if [ "$DEFAULTLANG" ];then
+if [ "$DEFAULTLANG" ] ; then #build.conf
  echo "...ok, set to ${DEFAULTLANG}"
- DEFAULTLANG1="${DEFAULTLANG%_*}"
- if [ "$DEFAULTLANG1" != "en" ];then
-  echo -n "$DEFAULTLANG" > initrd-tree/PUPPYLANG
-  ASK_KEYMAP="-ask_keymap" #initrd-progs
- fi
+ INITRD_LANG="-lang ${DEFAULTLANG}"
 else
  DEFAULTLANG="en_US.UTF-8" #121123
- echo "...ok, set to ${DEFAULTLANG}"
 fi
+echo "LANG: ${DEFAULTLANG}"
+[ "$KEYMAP" ] && INITRD_KM="-keymap $KEYMAP" #initrd-progs
+
 #i think also, set LANG in /etc/profile...
 sed -i -e "s%^LANG=.*%LANG=${DEFAULTLANG}%" rootfs-complete/etc/profile
 echo
 
-# james has default as devtmpfs so we need udev >= 176
+if [ "$KPKG" = "yes" ] ; then
+	../support/kernel_pkg_zdrv2initrd.sh
+fi
 
 #### initrd-progs #### build/initrd.gz...
 rm -f build/initrd.[gx]z
 (
 	cd initrd-progs
 	rm -f initrd.[gx]z
-	./build.sh -prebuilt -auto -arch ${WOOF_TARGETARCH:-default} ${ASK_KEYMAP}
+	./build.sh -prebuilt -auto -arch ${WOOF_TARGETARCH:-default} ${INITRD_LANG} ${INITRD_KM}
 	mv -f initrd.[gx]z ../build/
 )
 if [ ! -f build/initrd.gz -a ! -f build/initrd.xz ] ; then
 	echo "No initrd... exiting"
 	exit 1
+fi
+
+# Include LICK installer
+if [ "$LICK_IN_ISO" = "yes" ]; then
+	../support/lick_in_iso.sh
 fi
 
 #offer to cutdown the modules, to build a smaller live-cd...
@@ -932,48 +875,8 @@ if [ "$WOOF_HOSTARCH" = "$WOOF_TARGETARCH" ];then #111123
   exit
  fi
 else
- echo "Normally, the script now does a sanity-test by chrooting into"
- echo "sandbox3/rootfs-complete, however as you are doing a cross-build, this"
- echo "cannot be done."
+ echo "*** Doing a cross-build. Not chrooting to do a sanity-test ***"
 fi
-
-#before building puppy.sfs from rootfs-complete, check for any invalid symlinks
-#and move them to the devx...
-echo
-echo "Finding invalid symlinks..."
-rm -rf devx
-mkdir devx
-#v431 aaargh, latest pburn (3.1.1) has a symlink with spaces in name...
-find rootfs-complete/ -type l |
-while read ONESYMLINK
-do
- case "$ONESYMLINK" in *"/dev/"*|*"/proc/"*) continue ;; esac
- xONESYMLINK="`echo -n "$ONESYMLINK" | sed -e 's/^rootfs\-complete//'`"
- #w018 some symlinks become valid after puppy 1st boot...
- 
- if [ "$WOOF_HOSTARCH" = "$WOOF_TARGETARCH" ];then #111123
-  LINKTO="`chroot rootfs-complete readlink "$xONESYMLINK"`"
-  [ "`echo -n "$LINKTO" | grep 'lib/X11/pixmaps'`" != "" ] && continue #these images created 1st boot.
-  if [ "`chroot rootfs-complete readlink -e "$xONESYMLINK"`" = "" ];then
-   UPONE="`dirname "$xONESYMLINK"`"
-   mkdir -p devx${UPONE}
-   cp -a -f "$ONESYMLINK" devx${UPONE}/
-   rm -f "$ONESYMLINK"
-  fi
- else
-  #do it without chroot...
-  LINKTO="`readlink rootfs-complete"${xONESYMLINK}"`" #120502 fix for spaces in path.
-  [ -e rootfs-complete${LINKTO} ] && continue #absolute path
-  UPONE="`dirname "$xONESYMLINK"`"
-  [ -e "rootfs-complete${UPONE}/${LINKTO}" ] && continue #relative path
-  mkdir -p devx${UPONE}
-  cp -a -f "$ONESYMLINK" devx${UPONE}/
-  rm -f "$ONESYMLINK"
- fi
- 
-done
-
-sync
 
 #get info about the ubuntu pkgs...
 echo "Updating pkg data in rootfs-complete/root/.packages ..."
@@ -991,24 +894,17 @@ do
  cp -f ../$ONELIST rootfs-complete/root/.packages/
 done
 
-#note, Ppup4, findwoofinstalledpkgs.sh (below) needs above file, then deletes it.
 #also copy the pet package databases...
 cp -f ../Packages-puppy-[0-9]-official rootfs-complete/root/.packages/ 2>/dev/null
 cp -f ../Packages-puppy-common-official rootfs-complete/root/.packages/ 2>/dev/null #110608
-#cp -f ../Packages-puppy-wary5-official rootfs-complete/root/.packages/
-
 cp -f ../Packages-puppy-noarch-official rootfs-complete/root/.packages/ #120305
 
-#121102
 if [ -f ../Packages-puppy-${DISTRO_DB_SUBNAME}-official ];then #110723 ex: Packages-puppy-drake-official
  cp -f ../Packages-puppy-${DISTRO_DB_SUBNAME}-official rootfs-complete/root/.packages/
  cp -f ../Packages-puppy-${DISTRO_DB_SUBNAME}-official ./
- #120506...
  ../support/rationalize_categories Packages-puppy-${DISTRO_DB_SUBNAME}-official
  cp -f /tmp/rationalized_categories rootfs-complete/root/.packages/Packages-puppy-${DISTRO_DB_SUBNAME}-official
 fi
-
-#101014 rationalise categories... 110726 must *always* copy Packages-puppy-wary5-official (it is going to be the fallback)...
 if [ -f Packages-puppy-wary5-official ];then
  ../support/rationalize_categories Packages-puppy-wary5-official
  cp -f /tmp/rationalized_categories rootfs-complete/root/.packages/Packages-puppy-wary5-official
@@ -1028,14 +924,10 @@ enabledrepos=" "
 #100730 DISTRO_COMPAT_VERSION for puppy builds no longer limited to a number 1-5 (ex: wary5)
 fNUM1=`echo -n "$DISTRO_COMPAT_VERSION" | wc -c`
 
- repocnt=1
- case $DISTRO_FILE_PREFIX in  #110906 fix. $DISTRO_COMPAT_VERSION in #100911
-  slacko) #110824 120305 120312 121105
-   enabledrepos="Packages-puppy-${DISTRO_DB_SUBNAME}-official Packages-puppy-noarch-official "
-  ;;
-  dpup) #110824 110906 120305 120312
-   enabledrepos="Packages-puppy-dpup-official Packages-puppy-noarch-official "
-  ;;
+repocnt=1
+case $DISTRO_FILE_PREFIX in  #110906 fix. $DISTRO_COMPAT_VERSION in #100911
+  slacko*) enabledrepos="Packages-puppy-${DISTRO_DB_SUBNAME}-official Packages-puppy-noarch-official " ;;
+  dpup) enabledrepos="Packages-puppy-dpup-official Packages-puppy-noarch-official " ;;
   *)
    #add the puppy repos... (i want 5, 4, 3)...
    for ONEREPO in `ls -1 rootfs-complete/root/.packages/Packages-puppy* | sort -r`
@@ -1045,14 +937,15 @@ fNUM1=`echo -n "$DISTRO_COMPAT_VERSION" | wc -c`
     [ "$BASEREPO" = "Packages-puppy-wary5-official" ] && continue #100911 handled above.
     [ "$BASEREPO" = "Packages-puppy-lucid-official" ] && continue #100911 handled above.
     [ "$BASEREPO" = "Packages-puppy-slacko-official" ] && continue #110824 handled above.
-   # #w019 have decided don't want this showing up in PPM...
+    #w019 have decided don't want this showing up in PPM...
     enabledrepos="${enabledrepos}${BASEREPO} "
     repocnt=`expr $repocnt + 1`
    done
   ;;
- esac
- #add compat-distro repos...
- if [ "$COMPATDISTRO_DB_FILES" != "" ];then
+esac
+
+#add compat-distro repos...
+if [ "$COMPATDISTRO_DB_FILES" != "" ];then
   for ONEREPO in `ls -1 rootfs-complete/root/.packages/Packages-[^p]*`
   do
    [ $repocnt -gt 5 ] && break #only allow 5 active repos in PPM.
@@ -1060,7 +953,7 @@ fNUM1=`echo -n "$DISTRO_COMPAT_VERSION" | wc -c`
    enabledrepos="${enabledrepos}${BASEREPO} "
    repocnt=`expr $repocnt + 1`
   done
- fi
+fi
 
 #120831 above code ok, but really just want these...
 case $DISTRO_BINARY_COMPAT in
@@ -1076,39 +969,18 @@ esac
 
 echo "PKG_REPOS_ENABLED='${enabledrepos}'" >> rootfs-complete/root/.packages/PKGS_MANAGEMENT
 
-if [ -f ../DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} ];then #w478
- cp -f ../DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} rootfs-complete/root/.packages/DISTRO_PKGS_SPECS
-else
- cp -f ../DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT} rootfs-complete/root/.packages/DISTRO_PKGS_SPECS
-fi
-#101013 remove wrong alternate choice (old/new kernel optional pkgs)...
-if [ -f /tmp/3builddistro_removed_alt ];then
- for ONEREMOVE in `cat /tmp/3builddistro_removed_alt | tr '\n' ' '`
- do
-  orPATTERN='yes|'"$ONEREMOVE"'|'
-  grep -v "$orPATTERN" rootfs-complete/root/.packages/DISTRO_PKGS_SPECS > /tmp/DISTRO_PKGS_SPECS-tempor
-  cp -f /tmp/DISTRO_PKGS_SPECS-tempor rootfs-complete/root/.packages/DISTRO_PKGS_SPECS
- done
-fi
+cp -f ../${DPSFILE} rootfs-complete/root/.packages/DISTRO_PKGS_SPECS   # _00func
+cp -f ../${DCRFILE} rootfs-complete/root/.packages/DISTRO_COMPAT_REPOS # _00func
+cp -f ../DISTRO_PET_REPOS rootfs-complete/root/.packages/
+cp -f ../PKGS_HOMEPAGES rootfs-complete/root/.packages/
+cat <<EOF>/tmp/conf_spacer
 
-if [ -f ../DISTRO_COMPAT_REPOS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} ];then
- cp -f ../DISTRO_COMPAT_REPOS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} rootfs-complete/root/.packages/DISTRO_COMPAT_REPOS
-else #130306
- cp -f ../DISTRO_COMPAT_REPOS-${DISTRO_BINARY_COMPAT} rootfs-complete/root/.packages/DISTRO_COMPAT_REPOS
-fi
+#  >>>> rootfs-packages.conf >>>>
+EOF
+cat ../_00build.conf /tmp/conf_spacer ../rootfs-packages.conf > rootfs-complete/root/.packages/woof-build.conf
+rm -f /tmp/conf_spacer
 #this needed to update pkg db's in a running puppy...
 cp -f ../0setup rootfs-complete/usr/local/petget/
-#w015 0setup calls this for faster operation...
-cp -f ../support/find_cat rootfs-complete/usr/local/petget/
-#w091017 0setup also needs these, fast conversion created by Wosh...
-[ -f ../support/ppkg ] && cp -f ../support/ppkg rootfs-complete/usr/local/petget/
-[ -f ../support/ppkg.ctg ] && cp -f ../support/ppkg.ctg rootfs-complete/usr/local/petget/
-#121111 new fast deb to pup db converter, called by 0setup...
-[ -f ../support/debdb2pupdb ] && cp -f ../support/debdb2pupdb rootfs-complete/usr/local/petget/
-#urls etc on the pet db's...
-cp -f ../DISTRO_PET_REPOS rootfs-complete/root/.packages/
-#w018 homepages of heaps of pkgs (see 0pre script)...
-cp -f ../PKGS_HOMEPAGES rootfs-complete/root/.packages/
 
 #130316 see 0setup and debdb2pupdb...
 case ${DISTRO_BINARY_COMPAT} in
@@ -1129,9 +1001,8 @@ be created."
 esac
 [ -f ../invaliddepslist ] && cp -f ../invaliddepslist rootfs-complete/usr/local/petget/
 
-#build a db of builtin packages, woof-installed-packages ... 110823 no need to chroot...
-#chroot rootfs-complete /usr/local/petget/findwoofinstalledpkgs.sh
-cp ../woof-installed-packages rootfs-complete/root/.packages/ #110823 already created earlier this script.
+#findwoofinstalledpkgs creates 'woof-installed-packages'
+cp ../woof-installed-packages rootfs-complete/root/.packages/ #already created earlier
 touch ../devx-only-installed-packages #121028
 cp ../devx-only-installed-packages rootfs-complete/root/.packages/ #121028
 
@@ -1142,21 +1013,27 @@ sort --key=1 --field-separator="|" rootfs-complete/root/.packages/woof-installed
 mv -f /tmp/petget_woof-installed-packages rootfs-complete/root/.packages/woof-installed-packages
 
 #120628 certain utilities are not appropriate when booting on an arm board...
-if [ "$SDFLAG" != "" ];then
- rm -f rootfs-complete/usr/sbin/grubconfig
- rm -f rootfs-complete/usr/sbin/remasterpup2
- rm -f rootfs-complete/usr/sbin/resizepfile.sh
- rm -f rootfs-complete/usr/sbin/wakepup2
- rm -f rootfs-complete/usr/share/applications/Grub-bootloader-config.desktop
- rm -f rootfs-complete/usr/share/applications/BootFlash-usb-installer.desktop
- rm -f rootfs-complete/usr/share/applications/Puppy-universal-installer.desktop
- rm -f rootfs-complete/usr/share/applications/Remaster-Puppy-live-CD.desktop
- rm -f rootfs-complete/usr/share/applications/Resize-personal-storage-file.desktop
- rm -f rootfs-complete/usr/share/applications/WakePup2.desktop
+if [ "$SDFLAG" = "zip" ];then
+ for i in usr/sbin/grubconfig usr/sbin/remasterpup2 \
+ usr/share/applications/Grub-bootloader-config.desktop \
+ usr/share/applications/BootFlash-usb-installer.desktop \
+ usr/share/applications/Puppy-universal-installer.desktop \
+ usr/share/applications/Remaster-Puppy-live-CD.desktop \
+ usr/share/applications/WakePup2.desktop
+ do rm -f rootfs-complete/${i} ; done
+elif [ "$SDFLAG" != "" ];then
+ for i in usr/sbin/grubconfig usr/sbin/remasterpup2 usr/sbin/resizepfile.sh \
+ usr/share/applications/Grub-bootloader-config.desktop \
+ usr/share/applications/BootFlash-usb-installer.desktop \
+ usr/share/applications/Puppy-universal-installer.desktop \
+ usr/share/applications/Remaster-Puppy-live-CD.desktop \
+ usr/share/applications/Resize-personal-storage-file.desktop \
+ usr/share/applications/WakePup2.desktop
+ do rm -f rootfs-complete/${i} ; done
 fi
 
 #130326 script to adjust fonts to suit 96 dpi (puppy used to have 78 dpi)...
-rootfs-complete/usr/sbin/hackfontsize
+[ ! -d rootfs-complete/usr/share/ptheme ] && rootfs-complete/usr/sbin/hackfontsize #don't execute if we have ptheme
 
 #130618 restore the "layer:" lines in /etc/xdg/templates/_root_.jwmrc...
 #note, this file is now in Woof, I took it out of the JWM pet.
@@ -1179,8 +1056,7 @@ if [ "$WOOF_HOSTARCH" = "$WOOF_TARGETARCH" ];then #111123
  echo
  echo "Constructing configuration files for JWM, Fvwm95, IceWM, openbox..."
  chroot rootfs-complete /usr/sbin/fixmenus
- #generate help index...
- chroot rootfs-complete /usr/sbin/indexgen.sh
+ chroot rootfs-complete /usr/sbin/indexgen.sh #generate help index...
  #...note, rootfs-skeleton/pinstall.sh pre-processes the help files.
 fi
 
@@ -1195,24 +1071,30 @@ echo "/usr/lib${lsuffix}" >> rootfs-complete/etc/ld.so.conf
 [ -d rootfs-complete/opt/samba/lib${lsuffix} ] && echo "/opt/samba/lib${lsuffix}" >> rootfs-complete/etc/ld.so.conf
 echo "/root/my-applications/lib" >> rootfs-complete/etc/ld.so.conf
 
-if [ "$WOOF_HOSTARCH" = "$WOOF_TARGETARCH" ];then #111123
- LDCONFIG="`find ../packages-${DISTRO_FILE_PREFIX}/ -type f -name ldconfig | grep '/sbin/' | head -n 1`"
- cp -a $LDCONFIG rootfs-complete/
- chroot rootfs-complete ./ldconfig
- rm -f rootfs-complete/ldconfig
- sync
+echo "Updating system config.."
+rm -rf rootfs-complete/var/cache/fontconfig
+mkdir -p rootfs-complete/var/cache/fontconfig
+if [ "$WOOF_HOSTARCH" = "$WOOF_TARGETARCH" ];then
+	chroot rootfs-complete /sbin/ldconfig
+	chroot rootfs-complete /usr/bin/fc-cache -s -v
+	chroot rootfs-complete /usr/bin/update-mime-database /usr/share/mime/
+	chroot rootfs-complete /usr/bin/gtk-update-icon-cache -i -f /usr/share/icons/hicolor/
+	chroot rootfs-complete /usr/bin/gtk-query-immodules-2.0 > rootfs-complete/etc/gtk-2.0/gtk.immodules
+	if [ -d rootfs-complete/usr/share/glib-2.0/schemas ];then
+		chroot rootfs-complete /usr/bin/glib-compile-schemas /usr/share/glib-2.0/schemas
+	fi
+	if [ -d rootfs-complete/usr/lib${lsuffix}/gio/modules ];then
+		chroot rootfs-complete /usr/bin/gio-querymodules /usr/lib${lsuffix}/gio/modules
+	fi
 else
- #***NOTICE*** have to run ldconfig at first boot.
- LDCONFIG="`find ../packages-${DISTRO_FILE_PREFIX}/ -type f -name ldconfig | grep '/sbin/' | head -n 1`"
- cp -a $LDCONFIG rootfs-complete/sbin/
+	touch rootfs-complete/etc/gtk-2.0/gtk.immodules
+	( cd rootfs-complete ; XDG_DATA_HOME=./usr/share update-mime-database ./usr/share/mime/ )
+	( cd rootfs-complete ; fc-cache -s -v -y $(pwd) usr/share/fonts )
 fi
 
-#i don't know what 'lintian' is for...
-rm -rf rootfs-complete/usr/share/lintian 2>/dev/null
-#maybe stray /install dir from slackware pkgs...
-rm -rf rootfs-complete/install 2>/dev/null
-#slackware pkg may create this...
-rm -rf rootfs-complete/etc/cron.daily 2>/dev/null
+rm -rf rootfs-complete/usr/share/lintian 2>/dev/null #i don't know what 'lintian' is for...
+rm -rf rootfs-complete/install 2>/dev/null #maybe stray /install dir from slackware pkgs...
+rm -rf rootfs-complete/etc/cron.daily 2>/dev/null #slackware pkg may create this...
 
 #w460 theme selection...
 # if "default.ext" exists in wallpapers then we set it up in poor man's ptheme...
@@ -1294,39 +1176,12 @@ else
 	 fi
 	sync
 fi
- #have copied code from icon_switcher_cli to here, modified...
- NEWTHEME="$DESKICONS" #see above
- for ONESVG in `find rootfs-complete/usr/local/lib/X11/themes/${NEWTHEME}/ -maxdepth 1 -name \*.svg | tr '\n' ' '` #140103 removed '-type f'
- do
-  ONEBASENAME="`basename $ONESVG .svg`"
-  rm -f rootfs-complete/usr/local/lib/X11/pixmaps/${ONEBASENAME}48.png
-  rsvg-convert -w 48 -h 48 -o rootfs-complete/usr/local/lib/X11/pixmaps/${ONEBASENAME}48.png $ONESVG
-  rm -f rootfs-complete/usr/local/lib/X11/pixmaps/${ONEBASENAME}24.png 2>/dev/null #140102 sent to null, shouldn't exist here
- done
- for ONEPNG in `find rootfs-complete/usr/local/lib/X11/themes/${NEWTHEME}/ -maxdepth 1 -type f -name \*.png | tr '\n' ' '`
- do
-  ONEBASENAME="`basename $ONEPNG .png`"
-  cp -f $ONEPNG rootfs-complete/usr/local/lib/X11/pixmaps/
-  touch -m rootfs-complete/usr/local/lib/X11/pixmaps/${ONEBASENAME}.png #v3.98
-  xONEBASENAME="`basename $ONEBASENAME 48`"
- done
 
- if [ "$DISPLAY" ];then #110726 pngoverlay does not work when X not running. --quick fix, perform this operation in woof in 3builddistro.
-  #110721 new standardised icons to show when mounted...
-  if [ -e rootfs-complete/usr/sbin/pngoverlay -a -e rootfs-complete/usr/local/lib/X11/pixmaps/closebox_outline48.png ];then #overlay app created by vovchik (see source /usr/sbin/pngoverlay.bac)
-   rm -f rootfs-complete/usr/local/lib/X11/pixmaps/*_mntd*.png
-   #111123 get pngoverlay from host, in case of cross-build...
-   cp -f /usr/sbin/pngoverlay rootfs-complete/usr/local/lib/X11/pixmaps/ #dumb, but needs to be in same folder.
-   cd rootfs-complete/usr/local/lib/X11/pixmaps
-   for ONEDRV in card drive floppy optical usbdrv
-   do
-    ./pngoverlay ${ONEDRV}48.png closebox_outline48.png ${ONEDRV}_mntd48.png #background foreground output.
-    ./pngoverlay ${ONEDRV}48.png locked_outline48.png ${ONEDRV}_mntd_boot48.png
-   done
-   rm -f rootfs-complete/usr/local/lib/X11/pixmaps/pngoverlay
-   cd ../../../../../../
-  fi
- fi
+NEWTHEME="$DESKICONS" #see above
+(
+	cd rootfs-complete
+	./usr/sbin/icon_switcher -sysroot . -a ${NEWTHEME}
+)
 
 #110912 modify jwm to use menu icon 'start-button.png' if present...
 #note, similar code also in /usr/sbin/icon_switcher (desktop icon switcher script).
@@ -1344,52 +1199,44 @@ if [ -f rootfs-complete/root/.jwmrc-tray ];then
  fi
 fi
 
+# fix some rox defaults... see also menus2 (shortcuts)
+sed -i \
+	-e 's%.*"menu_xterm".*%<Option name="menu_xterm">defaultterminal</Option>%' \
+	-e 's%.*"dnd_uri_handler".*%<Option name="dnd_uri_handler">defaultterminal -e wget $1</Option>%' \
+	rootfs-complete/root/.config/rox.sourceforge.net/ROX-Filer/Options 2>/dev/null
+sed -i 's%"console".*%"console">/usr/local/bin/defaultterminal</icon>%' rootfs-complete/root/Choices/ROX-Filer/PuppyPin 2>/dev/null
+
 #v424 rox desktop text is default white with black shadow, not suited all backgrounds...
-echo
-echo "The ROX-Filer desktop text defaults to white with black shadow, but this is"
-echo "not best for some light backgound images. ENTER only to keep, but if you"
-echo -n "want black text press any printable key then ENTER: "
-read wantblacktext
-if [ "$wantblacktext" != "" ];then
- echo "...ok, black text"
- grep -v 'pinboard_fg_colour' rootfs-complete/root/.config/rox.sourceforge.net/ROX-Filer/Options > /tmp/3builddistro_rox_options
- grep -v 'pinboard_shadow_labels' /tmp/3builddistro_rox_options > rootfs-complete/root/.config/rox.sourceforge.net/ROX-Filer/Options
- grep -v '^</Options>' rootfs-complete/root/.config/rox.sourceforge.net/ROX-Filer/Options > /tmp/3builddistro_rox_options
- mv -f /tmp/3builddistro_rox_options rootfs-complete/root/.config/rox.sourceforge.net/ROX-Filer/Options
- echo '  <Option name="pinboard_fg_colour">#000000000000</Option>' >> rootfs-complete/root/.config/rox.sourceforge.net/ROX-Filer/Options
- echo '  <Option name="pinboard_shadow_labels">0</Option>' >> rootfs-complete/root/.config/rox.sourceforge.net/ROX-Filer/Options
- echo '</Options>' >> rootfs-complete/root/.config/rox.sourceforge.net/ROX-Filer/Options
-fi
-#111010 set desktop font...
-echo
-echo "Also, ROX-Filer defaults to 'DejaVu Sans 10' font for the desktop. To accept"
-echo "that just press ENTER. If you would prefer bold text 'DejaVu Sans Bold 10',"
-echo "hit 'b' key then ENTER, or type in a full font specification (ex: Mono 12)"
-echo -n ": "
-read wantfont
-if [ "$wantfont" != "" ];then
- grep -v 'label_font' rootfs-complete/root/.config/rox.sourceforge.net/ROX-Filer/Options > /tmp/3builddistro_rox_options
- grep -v '^</Options>' /tmp/3builddistro_rox_options > rootfs-complete/root/.config/rox.sourceforge.net/ROX-Filer/Options
- if [ "$wantfont" = "b" ];then
-  echo '...ok, bold'
-  echo '  <Option name="label_font">DejaVu Sans Bold 10</Option>' >> rootfs-complete/root/.config/rox.sourceforge.net/ROX-Filer/Options
- else
-  echo "...ok, $wantfont"
-  echo "  <Option name=\"label_font\">${wantfont}</Option>" >> rootfs-complete/root/.config/rox.sourceforge.net/ROX-Filer/Options
- fi
- echo '</Options>' >> rootfs-complete/root/.config/rox.sourceforge.net/ROX-Filer/Options
+if [ "$ROX_TEXT_BLACK" = "yes" ];then #build.conf
+ echo "ROX: black text"
+ sed -i -e 's%.*"pinboard_fg_colour".*%<Option name="pinboard_fg_colour">#000000000000</Option>%' \
+	-e 's%.*"pinboard_shadow_labels".*%<Option name="pinboard_shadow_labels">0</Option>%' \
+	rootfs-complete/root/.config/rox.sourceforge.net/ROX-Filer/Options
 fi
 
-RK=`uname -r`
-[ ${RK%%.*} -lt 3 ] && echo "Running kernel too old, exiting" && exit 1
+if [ "$ROXFILER_FONT" != "" ];then #build.conf
+ echo "ROX filer font: $ROXFILER_FONT"
+ sed -i -e "s%.*\"label_font\".*%<Option name=\"label_font\">${ROXFILER_FONT}</Option>%" rootfs-complete/root/.config/rox.sourceforge.net/ROX-Filer/Options
+fi
 
-#w464 maybe get rid of old mksquashfs... v424 fix #140619 assume 3 kernel
-[ ! -e rootfs-complete/usr/sbin/mksquashfs4 ] && mv -f rootfs-complete/usr/sbin/mksquashfs rootfs-complete/usr/sbin/mksquashfs4 2>/dev/null
-[ -e rootfs-complete/usr/sbin/mksquashfs ] && [ ! -h rootfs-complete/usr/sbin/mksquashfs ] && mv -f rootfs-complete/usr/sbin/mksquashfs rootfs-complete/usr/sbin/mksquashfs3 2>/dev/null #120502
-[ -e rootfs-complete/usr/sbin/mksquashfs4 ] && ln -s mksquashfs4 rootfs-complete/usr/sbin/mksquashfs 2>/dev/null
-[ ! -e rootfs-complete/usr/sbin/unsquashfs4 ] && mv -f rootfs-complete/usr/sbin/unsquashfs rootfs-complete/usr/sbin/unsquashfs4 2>/dev/null
-[ -e rootfs-complete/usr/sbin/unsquashfs ] && [ ! -h rootfs-complete/usr/sbin/unsquashfs ] && mv -f rootfs-complete/usr/sbin/unsquashfs rootfs-complete/usr/sbin/unsquashfs3 2>/dev/null #120502
-[ -e rootfs-complete/usr/sbin/unsquashfs4 ] && ln -s unsquashfs4 rootfs-complete/usr/sbin/unsquashfs 2>/dev/null
+# workaround for hardcoded rox everywhere - allow more default file managers..
+if [ -f rootfs-complete/usr/local/bin/rox ] ; then
+	mv -f rootfs-complete/usr/local/bin/rox rootfs-complete/usr/local/bin/roxfiler
+fi
+ln -sv defaultfilemanager rootfs-complete/usr/local/bin/rox
+sed -i 's|Exec=rox|Exec=roxfiler|' rootfs-complete/usr/share/applications/ROX-Filer-file-manager.desktop
+
+if [ "$JWM_XLOAD" = "no" ] ; then #build.conf
+	for i in rootfs-complete/root/.jwmrc-tray rootfs-complete/root/.jwm/jwmrc-tray2
+	do
+		[ -f $i ] || continue
+		grep -q '"xload"' $i  && sed -i '/xload/d' $i
+	done
+fi
+
+#squashfs: assume 3 kernel
+[ ! -e rootfs-complete/usr/sbin/mksquashfs ] && [ -e rootfs-complete/usr/sbin/mksquashfs4 ] && ln -sf mksquashfs4 rootfs-complete/usr/sbin/mksquashfs
+[ ! -e rootfs-complete/usr/sbin/unsquashfs ] && [ -e rootfs-complete/usr/sbin/unsquashfs4 ] && ln -sf unsquashfs4 rootfs-complete/usr/sbin/unsquashfs
 
 #w470 create a table for dialog/Xdialog: /usr/share/i18n/dialog_table
 #'chooselocale' is called from /etc/rc.d/rc.country at first boot and
@@ -1400,61 +1247,33 @@ fi
 
 [ -f rootfs-complete/pet.specs ] && rm -f rootfs-complete/pet.specs #w478
 
-#w478 save some space if medit and gtksourceview both installed...
-if [ -d rootfs-complete/usr/share/gtksourceview-2.0 ];then
- if [ -d rootfs-complete/usr/share/moo/language-specs ];then
-  echo
-  echo "An optimisation can be done to share some files between medit and"
-  echo -n "gtksourceview. Press ENTER only to do this: "
-  read optsourceview
-  if [ "$optsourceview" = "" ];then
-   cp -f rootfs-complete/usr/share/gtksourceview-2.0/language-specs/convert.py rootfs-complete/usr/share/moo/language-specs/ 2>/dev/null
-   cp -f rootfs-complete/usr/share/gtksourceview-2.0/language-specs/language2.rng rootfs-complete/usr/share/moo/language-specs/ 2>/dev/null
-   cp -f rootfs-complete/usr/share/gtksourceview-2.0/language-specs/language.rng rootfs-complete/usr/share/moo/language-specs/ 2>/dev/null
-   cp -f rootfs-complete/usr/share/gtksourceview-2.0/language-specs/language.dtd rootfs-complete/usr/share/moo/language-specs/ 2>/dev/null
-   cp -f rootfs-complete/usr/share/gtksourceview-2.0/language-specs/styles.rng rootfs-complete/usr/share/moo/language-specs/ 2>/dev/null
-   rm -r -f rootfs-complete/usr/share/gtksourceview-2.0/language-specs
-   rm -r -f rootfs-complete/usr/share/gtksourceview-2.0/styles
-   ln -s /usr/share/moo/language-specs rootfs-complete/usr/share/gtksourceview-2.0/language-specs
-   ln -s /usr/share/moo/language-specs rootfs-complete/usr/share/gtksourceview-2.0/styles
-   echo "...usr/share/gtksourceview-2.0 now has links to usr/share/moo."
-  fi
- fi
-fi
-
 #091123 t2 build get rid of some stray stuff...
 [ -d rootfs-complete/usr/share/devhelp ] && rm -rf rootfs-complete/usr/share/devhelp
 [ -d rootfs-complete/usr/share/man ] && rm -rf rootfs-complete/usr/share/man
 [ -d rootfs-complete/usr/share/omf ] && rm -rf rootfs-complete/usr/share/omf
 
 #111006 generic logo mechanism for all pups...
-if [ -f rootfs-complete/usr/share/doc/puplogos/${DISTRO_FILE_PREFIX}48.png ];then
- mv -f rootfs-complete/usr/share/doc/puplogos/${DISTRO_FILE_PREFIX}48.png rootfs-complete/usr/share/doc/${DISTRO_FILE_PREFIX}48.png
- ln -snf ${DISTRO_FILE_PREFIX}48.png rootfs-complete/usr/share/doc/puppylogo48.png
-fi
-if [ -f rootfs-complete/usr/share/doc/puplogos/${DISTRO_FILE_PREFIX}96.png ];then
- mv -f rootfs-complete/usr/share/doc/puplogos/${DISTRO_FILE_PREFIX}96.png rootfs-complete/usr/share/doc/${DISTRO_FILE_PREFIX}96.png
- ln -snf ${DISTRO_FILE_PREFIX}96.png rootfs-complete/usr/share/doc/puppylogo96.png
-fi
+for logosize in 48 96 ; do
+	if [ -f rootfs-complete/usr/share/doc/puplogos/${DISTRO_FILE_PREFIX}${logosize}.png ];then
+	 mv -f rootfs-complete/usr/share/doc/puplogos/${DISTRO_FILE_PREFIX}${logosize}.png rootfs-complete/usr/share/doc/${DISTRO_FILE_PREFIX}${logosize}.png
+	 ln -snf ${DISTRO_FILE_PREFIX}${logosize}.png rootfs-complete/usr/share/doc/puppylogo${logosize}.png
+	fi
+done
 rm -rf rootfs-complete/usr/share/doc/puplogos
 
 #100208 hack so net-setup.sh can find ifplugstatus (pup 4.3.2 needs this)...
 if [ ! -e rootfs-complete/sbin/ifplugstatus ];then
- if [ -e rootfs-complete/sbin/ifplugstatus-0.18 ];then
-  ln -s ifplugstatus-0.18 rootfs-complete/sbin/ifplugstatus
- else
-  if [ -e rootfs-complete/sbin/ifplugstatus-0.28 ];then
-   ln -s ifplugstatus-0.28 rootfs-complete/sbin/ifplugstatus
-  fi
- fi
+ [ -e rootfs-complete/sbin/ifplugstatus-0.18 ] && ips='ifplugstatus-0.18'
+ [ -e rootfs-complete/sbin/ifplugstatus-0.28 ] && ips='ifplugstatus-0.28'
+ [ "$ips" != "" ] && ln -s ${ips} rootfs-complete/sbin/ifplugstatus
 fi
 
 #100524 fix cups for samba, got this code from /usr/sbin/cups_shell...
 #fixes from rcrsn51 for samba printing...
 [ -f rootfs-complete/etc/cups/snmp.conf ] && [ "`stat --format=%U%G rootfs-complete/etc/cups/snmp.conf | grep 'UNKNOWN'`" != "" ] && chown root:nobody rootfs-complete/etc/cups/snmp.conf
-if [ ! -e rootfs-complete/usr/lib/cups/backend/smb ];then
- [ -f rootfs-complete/opt/samba/bin/smbspool ] && ln -s /opt/samba/bin/smbspool rootfs-complete/usr/lib/cups/backend/smb
- [ -f rootfs-complete/usr/bin/smbspool ] && ln -s /usr/bin/smbspool rootfs-complete/usr/lib/cups/backend/smb
+if [ ! -e rootfs-complete/usr/lib${lsuffix}/cups/backend/smb ];then
+ [ -f rootfs-complete/opt/samba/bin/smbspool ] && ln -s /opt/samba/bin/smbspool rootfs-complete/usr/lib${lsuffix}/cups/backend/smb
+ [ -f rootfs-complete/usr/bin/smbspool ] && ln -s /usr/bin/smbspool rootfs-complete/usr/lib${lsuffix}/cups/backend/smb
 fi
 [ -f rootfs-complete/etc/opt/samba/smb.conf ] && chmod 755 rootfs-complete/etc/opt/samba/smb.conf #need world-readable.
 [ -f rootfs-complete/etc/samba/smb.conf ] && chmod 755 rootfs-complete/etc/samba/smb.conf #need world-readable.
@@ -1462,88 +1281,20 @@ fi
 chmod 1777 rootfs-complete/tmp #ref: http://murga-linux.com/puppy/viewtopic.php?p=677630#677630
 chmod 777 rootfs-complete/var
 
-#110911 fix if any alternate drivers still at old location...
-mkdir -p rootfs-complete/usr/lib${lsuffix}/x/drivers-alternate
-if [ -d rootfs-complete/usr/lib${lsuffix}/xorg/modules/drivers-alternate ];then
- cp -a -f rootfs-complete/usr/lib${lsuffix}/xorg/modules/drivers-alternate/* rootfs-complete/usr/lib${lsuffix}/x/drivers-alternate/
- rm -rf rootfs-complete/usr/lib${lsuffix}/xorg/modules/drivers-alternate
+# disable ext4 64bit feature in /etc/mke2fs.conf
+#  ...the 'wee' bootloader does not support it
+# this should be removed only when a fixed 'wee' version is available for all builds..
+if [ -f rootfs-complete/etc/mke2fs.conf ] ; then
+	sed -i 's/64bit,//g' rootfs-complete/etc/mke2fs.conf
 fi
-
-#100319 move more xorg drivers to 'drivers-alternate' so won't be chosen by xorg...
-if [ -d rootfs-complete/usr/lib${lsuffix}/xorg/modules/drivers ];then #well, always exists.
- XORGBADDRIVERS=''
- if [ -f rootfs-complete/usr/lib${lsuffix}/xorg/modules/drivers/nvidia_drv.so -o -f rootfs-complete/usr/lib${lsuffix}/xorg/modules/drivers/nouveau_drv.so ];then #100527 100629
-  [ -f rootfs-complete/usr/lib${lsuffix}/xorg/modules/drivers/nv_drv.so ] && XORGBADDRIVERS='nv' #120922 note, some builds don't have nv, or it may already be in drivers-alternate dir.
- fi
- [ -f rootfs-complete/usr/lib${lsuffix}/xorg/modules/drivers/modesetting_drv.so ] && XORGBADDRIVERS="${XORGBADDRIVERS} modesetting" #130330
- echo
- echo "Certain Xorg drivers have a bad reputation. Here you can choose to move them"
- echo "to /usr/lib${lsuffix}/x/drivers-alternate so Xorg will not use them, instead"
- echo "will use the generic 'vesa' driver (or other more appropriate driver)."
- echo "However the Xorg Wizard has a mechanism to move any drivers in "
- echo "'drivers-alternate' back to 'drivers' directory."
- echo "Here is the list of drivers currently in 'drivers-alternate':"
- XORGBADDRIVERS="$XORGBADDRIVERS `ls -1 rootfs-complete/usr/lib${lsuffix}/x/drivers-alternate | grep '_drv' | cut -f 1 -d '_' | tr '\n' ' '`"
- echo " $XORGBADDRIVERS"
- echo "Press ENTER only to accept this, or"
- echo "type a space-delimited list of drivers"
- echo -n " that you want to be in 'drivers-alternate': "
- read NEWXORGBADDRVRS
- [ "$NEWXORGBADDRVRS" = "" ] && NEWXORGBADDRVRS="$XORGBADDRIVERS"
- for ONEBADX in $NEWXORGBADDRVRS
- do
-  #some builds have i810_drv.so symlink to intel_drv.so...
-  if [ -h rootfs-complete/usr/lib${lsuffix}/xorg/modules/drivers/${ONEBADX}_drv.so ];then
-   continue
-  fi
-  [ -f rootfs-complete/usr/lib${lsuffix}/xorg/modules/drivers/${ONEBADX}_drv.so ] && mv -f rootfs-complete/usr/lib${lsuffix}/xorg/modules/drivers/${ONEBADX}_drv.so rootfs-complete/usr/lib${lsuffix}/x/drivers-alternate/
- done
- for ONECHK in `ls -1 rootfs-complete/usr/lib${lsuffix}/x/drivers-alternate | grep '_drv' | cut -f 1 -d '_' | tr '\n' ' '` #110911
- do
-  oPTN=" ${ONECHK} "
-  if [ "`echo -n " ${NEWXORGBADDRVRS} " | grep "$oPTN"`" = "" ];then
-   if [ ! -d $ONECHK ];then
-    mv -f rootfs-complete/usr/lib${lsuffix}/x/drivers-alternate/${ONECHK}_drv.so rootfs-complete/usr/lib${lsuffix}/xorg/modules/drivers/
-   else
-    echo "SORRY: cannot move '${ONECHK}_drv.so' from drivers-alternate back to"
-    echo "main drivers, it must stay as an alternate driver only."
-   fi
-  fi
- done
-fi
-
-#101012 if 'depmod-FULL' exists, rename it to 'depmod'... 101024
-if [ "$USINGKMOD" = "no" ];then #130418
- if [ ! -h rootfs-complete/sbin/depmod-FULL ];then #if hyperlink then assume to depmod.
-  if [ -f rootfs-complete/sbin/depmod-FULL ];then
-   mv -f rootfs-complete/sbin/depmod rootfs-complete/sbin/depmod-BB-NOTUSED
-   mv -f rootfs-complete/sbin/depmod-FULL rootfs-complete/sbin/depmod
-  fi
-  ln -s depmod rootfs-complete/sbin/depmod-FULL
- fi
-else
- [ -e rootfs-complete/bin/kmod ] && ln -snf ../bin/kmod rootfs-complete/sbin/depmod #130430 path fix.
-fi
-
-#101015 make sure our modified 'alsaconf' is used (just in case got overwritten)...
-cp -a -f ../rootfs-skeleton/usr/sbin/alsaconf rootfs-complete/usr/sbin/
 
 #w481 extra stripping...
 if [ "$WOOF_HOSTARCH" = "$WOOF_TARGETARCH" ];then #120502 strip will not work for cross-build.
- echo
- echo "Would you like to strip all binary executables and shared library files?"
- echo "These are usually already stripped, although some packages may have the shared"
- echo "library files stripped with the '--strip-debug' option only, and extra stripping"
- echo "should be okay. It won't do any harm answering yes here."
  if [ "`which strip`" = "" ];then
-  echo
   echo "OH, NO GOOD, you don't have the 'strip' executable. The 'devx' sfs has it."
-  echo "PLEASE DECLINE THIS OFFER..."
-  echo
+  EXTRA_STRIPPING=no
  fi
- echo -n "ENTER only to strip, any other printable char to decline: "
- read NOSTRIP
- if [ "$NOSTRIP" = "" ];then
+ if [ "$EXTRA_STRIPPING" = "yes" ];then
   find rootfs-complete/bin rootfs-complete/sbin rootfs-complete/usr/bin rootfs-complete/sbin -type f |
   while read ONEFILE ; do
     echo -n "${ONEFILE##*/} " #basename "$ONEFILE"
@@ -1555,7 +1306,8 @@ if [ "$WOOF_HOSTARCH" = "$WOOF_TARGETARCH" ];then #120502 strip will not work fo
     esac
   done
   echo
-  find rootfs-complete/usr/lib rootfs-complete/usr/X11R7/lib -type f -name \*.so* |
+  [ -e rootfs-complete/usr/X11R7/lib ] && RFSC_X11R7=rootfs-complete/usr/X11R7/lib
+  find rootfs-complete/lib${lsuffix} rootfs-complete/usr/lib${lsuffix} $RFSC_X11R7 -type f -name \*.so* |
   while read ONEFILE ; do
     echo -n "${ONEFILE##*/} " #basename "$ONEFILE"
     FILE_INFO=$(file "$ONEFILE")
@@ -1569,126 +1321,30 @@ if [ "$WOOF_HOSTARCH" = "$WOOF_TARGETARCH" ];then #120502 strip will not work fo
  fi
 fi
 
-#100527 build a .pet with lists of all builtin files...
-echo
-echo "Now building sandbox3/0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}.pet,"
-echo "which is a PET package with lists of all packages and files builtin to the SFS..."
-rm -rf 0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION} 2>/dev/null
-mkdir 0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}
-mkdir /tmp/0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}
-GENDIRS=$(find ../packages-${DISTRO_FILE_PREFIX} -maxdepth 1 -type d | sort)
-for ONEGENDIR in ${GENDIRS}
-do
- ONEGENNAME=${ONEGENDIR##*/} #basename $ONEGENDIR
- [ "`echo "$PKGS_SPECS_TABLE" | grep "|${ONEGENNAME}|" | grep '^yes'`" = "" ] && continue
- echo -n "$ONEGENNAME "
- find $ONEGENDIR | \
-   sed -e "s%^\\.\\./packages-${DISTRO_FILE_PREFIX}/${ONEGENNAME}/%/%" \
-       -e "\%^\\.\\./packages-${DISTRO_FILE_PREFIX}/${ONEGENNAME}%d" | \
-   sort > /tmp/0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}/${ONEGENNAME}.files
- sync
- #store the information more efficiently...
- mkdir -p 0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}/root/.packages/builtin_files
- (
- PREVPATH=''; PREVPATH0=''
- while read ONELINE ; do
-  #-- directory
-  if [ -d "rootfs-complete${ONELINE}" ];then
-   #120925 ignore debian/ubuntu multiarch circular symlink (these are create by 2createpackages)...
-   if [ -h "rootfs-complete${ONELINE}" ];then
-    if [ "$(readlink "rootfs-complete${ONELINE}")" = "./" ];then
-     PREVPATH0="$(dirname "$ONELINE")" #121010 fix, missing some files.
-     [ "$PREVPATH0" != "$PREVPATH" ] && echo "$PREVPATH0"
-     continue
-    fi
-   fi
-   PREVPATH="$ONELINE"
-   echo "$ONELINE"
-  #-- file
-  else
-   NEWPATH=${ONELINE%/*} #dirname "$ONELINE"
-   [ "${NEWPATH}" = "" ] && continue #ignore top-level files.
-   NEWFILE="${ONELINE##*/}" #basename "$ONELINE"
-   if [ -e "rootfs-complete${ONELINE}" ];then #sanity check.
-    if [ "$PREVPATH" == "$NEWPATH" -o "$PREVPATH0" == "$NEWPATH" ];then #sanity check. 121010
-     echo " ${NEWFILE}"
-    fi
-   fi
-  fi
- done < /tmp/0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}/${ONEGENNAME}.files
- ) > 0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}/root/.packages/builtin_files/${ONEGENNAME}
-done
-
-# do the same for rootfs-packages
-if [ -f /tmp/rootfs-packages.specs ];then
-	while read line ; do
-		PKGL=`echo $line | cut -d '|'  -f 2`
-		echo -n "${PKGL} "
-		ogPATTERN="s%^\\.\\./rootfs-packages/${PKGL}/%/%"
-		find ../rootfs-packages/$PKGL | sed -e "$ogPATTERN" | sort > /tmp/0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}/${PKGL}.files
-		sync
-		mkdir -p 0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}/root/.packages/builtin_files
-		PREVPATH=''; PREVPATH0=''
-		cat /tmp/0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}/${PKGL}.files |
-		while read ONELINE
-			 do
-				[ "`echo "$ONELINE" | cut -c 1`" == "." ] && continue #catch ex: ../packages-qrky/abiword
-				if [ -d "rootfs-complete${ONELINE}" ];then
-					PREVPATH="$ONELINE"
-					echo "$ONELINE" >> 0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}/root/.packages/builtin_files/${PKGL}
-				else
-					NEWPATH="`dirname "$ONELINE"`"
-					[ "$NEWPATH" == "/" ] && continue #ignore top-level files.
-					NEWFILE=${ONELINE##*/} #basename "$ONELINE"
-					if [ -e "rootfs-complete${ONELINE}" ];then #sanity check.
-						if [ "$PREVPATH" == "$NEWPATH" -o "$PREVPATH0" == "$NEWPATH" ];then #sanity check. 121010
-							echo " ${NEWFILE}" >> 0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}/root/.packages/builtin_files/${PKGL}
-						fi
-					fi
-				fi
-		done
-	done < /tmp/rootfs-packages.specs
-	rm -f /tmp/rootfs-packages.specs
-fi
-echo
-echo "0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}|0builtin_files_${DISTRO_FILE_PREFIX}|${DISTRO_VERSION}||BuildingBlock|||0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}.pet||Lists of files built-in to the SFS file||||
-" > 0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}/pet.specs
-rm -f 0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}.pet 2>/dev/null
-
-dir2tgz 0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}
-tgz2pet 0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}.tar.gz
-rm -rf /tmp/0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}
-echo
-echo "installing pkg lists into rootfs-complete/root/.packages/builtin_files..."
-cp -a -f 0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}/root/.packages/builtin_files rootfs-complete/root/.packages/builtin_files
-echo '...done'
+#=================================================
+# build a .pet with lists of all builtin files...
+. ../support/builtin_files.sh # /tmp/rootfs-packages.specs
+#=================================================
 
 #140615
-echo "Removing redundant aufs-utils..."
-for r in auibusy auplink mount.aufs umount.aufs aufs libau.so* aufs aufs.5 aubrsync aubusy auchk
-do find rootfs-complete/ -type f -name $r -delete
-    echo "deleting $r"
-done
-#140616 remove firmware - in kernel-modules.sfs = $ZDRVSFS
-echo "Removing redundant firmware as it is in the z drive"
-rm -rf rootfs-complete/lib/firmware 2>/dev/null
-#150624 remove redundant stuff from 'all-firmware'
-for fw in agrsm hso iwlwifi libertas* madwifi* mwl8k mwave* nozomi RTL8192E rt2x00 rtl_nic rtlwifi brcm;do
-	echo "removing $fw"
-	rm -rf rootfs-complete/lib/modules/all-firmware/${fw} 2>/dev/null
-done
-sleep 1
-#100613 create font cache for fontconfig (in /var/cache/fontconfig)...
-echo
-echo "Creating Fontconfig cache files..."
-rm -rf rootfs-complete/var/cache/fontconfig
-mkdir -p rootfs-complete/var/cache/fontconfig
-#111123 ***NOTICE*** cross-build, this will have to be executed at first boot...
-if [ "$WOOF_HOSTARCH" = "$WOOF_TARGETARCH" ];then #111123
- chroot rootfs-complete /usr/bin/fc-cache -s -v
+if [ "$KPKG" != "yes" ] ; then
+	echo "Removing redundant aufs-utils..."
+	for r in auibusy auplink mount.aufs umount.aufs aufs libau.so* aufs aufs.5 aubrsync aubusy auchk
+	do
+		find rootfs-complete/ -type f -name $r -delete
+		echo "deleting $r"
+	done
 fi
 
+#140616 remove firmware - in kernel-modules.sfs = $ZDRVSFS
+if [ "$SDFLAG" = "" -a "$KPKG" != "yes" ] ; then
+	echo "Removing redundant firmware as it is in the z drive"
+	rm -rf rootfs-complete/lib/firmware 2>/dev/null
+fi
+sleep 1
+
 if [ ! -e rootfs-complete/usr/bin/pango-querymodules ];then #110517 debian squeeze hack
+ [ -x ../packages-${DISTRO_FILE_PREFIX}/pango_DEV/usr/bin/pango-querymodules ] && \
  cp -f ../packages-${DISTRO_FILE_PREFIX}/pango_DEV/usr/bin/pango-querymodules rootfs-complete/usr/bin/
 fi
 
@@ -1698,88 +1354,23 @@ if [ "$WOOF_HOSTARCH" = "$WOOF_TARGETARCH" ];then #111123
  PANGOMODULES="`find rootfs-complete/etc/pango -type f -name pango.modules | sed -e 's%rootfs-complete%%'`"
  [ "$PANGOMODULES" = "" ] && PANGOMODULES='/etc/pango/pango.modules'
  if [ ! -s rootfs-complete${PANGOMODULES} ];then
-  echo "/usr/bin/pango-querymodules > ${PANGOMODULES}"  > rootfs-complete/zz
-  chroot rootfs-complete /bin/ash zz
-  rm -f rootfs-complete/zz
- fi
-fi
-
-#110622 /etc/rc.d/rc.update executes:  gdk-pixbuf-query-loaders > /etc/gtk-2.0/gdk-pixbuf.loaders
-#however, mageia1 requires above file to be at /usr/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache
-#create a symlink...
-VERDIR=''
-if [ -d rootfs-complete/usr/lib${lsuffix}/gdk-pixbuf-2.0 ];then
- [ ! -f rootfs-complete/etc/gtk-2.0/gdk-pixbuf.loaders ] && touch rootfs-complete/etc/gtk-2.0/gdk-pixbuf.loaders
- PIXBUFLOADERSDIR="`find rootfs-complete/usr/lib${lsuffix}/gdk-pixbuf-2.0 -maxdepth 2 -mindepth 2 -type d -name loaders | head -n 1`"
- if [ "$PIXBUFLOADERSDIR" ];then
-  PIXBUFCACHEDIR="`dirname $PIXBUFLOADERSDIR`"
-  VERDIR="`basename $PIXBUFCACHEDIR`" #2.10.0
-  ln -snf ../../../../etc/gtk-2.0/gdk-pixbuf.loaders ${PIXBUFCACHEDIR}/loaders.cache #110903 change -s to -snf
-  #there may be some loaders in wrong place...
-  [ -d rootfs-complete/usr/lib${lsuffix}/gtk-2.0/loaders ] && mv -f rootfs-complete/usr/lib${lsuffix}/gtk-2.0/loaders/*.so ${PIXBUFLOADERSDIR}/ 2>/dev/null
-  if [ -d rootfs-complete/usr/lib${lsuffix}/gtk-2.0/${VERDIR}/loaders ];then
-   mv -f rootfs-complete/usr/lib${lsuffix}/gtk-2.0/${VERDIR}/loaders/*.so ${PIXBUFLOADERSDIR}/ 2>/dev/null
-   rmdir rootfs-complete/usr/lib${lsuffix}/gtk-2.0/${VERDIR}/loaders #111114
-   ln -s ../../gdk-pixbuf-2.0/${VERDIR}/loaders rootfs-complete/usr/lib${lsuffix}/gtk-2.0/${VERDIR}/loaders #111114
-  else #111117
-   ln -s ../../gdk-pixbuf-2.0/${VERDIR}/loaders rootfs-complete/usr/lib${lsuffix}/gtk-2.0/${VERDIR}/loaders
+  if [ -x rootfs-complete/usr/bin/pango-querymodules ];then
+   echo "/usr/bin/pango-querymodules > ${PANGOMODULES}"  > rootfs-complete/zz
+   chroot rootfs-complete /bin/ash zz
+   rm -f rootfs-complete/zz
   fi
  fi
 fi
 
-#120605 shinobar ref: http://murga-linux.com/puppy/viewtopic.php?t=76961&start=195
-if [ "$WOOF_HOSTARCH" = "$WOOF_TARGETARCH" ];then
- chroot rootfs-complete /usr/bin/gtk-query-immodules-2.0 > rootfs-complete/etc/gtk-2.0/gtk.immodules
-else
- touch rootfs-complete/etc/gtk-2.0/gtk.immodules
-fi
-[ "$VERDIR" ] && ln -snf ../../../../etc/gtk-2.0/gtk.immodules rootfs-complete/usr/lib${lsuffix}/gtk-2.0/${VERDIR}/gtk.immodules
-
 #100627 recent versions of xorg server, turn modesetting on... 110822 improve...
 mkdir -p rootfs-complete/etc/modprobe.d
-#110621 need to chroot...
-if [ "$WOOF_HOSTARCH" = "$WOOF_TARGETARCH" ];then #111123
- XORGINFO="`chroot rootfs-complete /usr/bin/Xorg -version 2>&1`"
- XORGVER="`echo "$XORGINFO" | grep '^X\.Org' | rev | cut -f 1 -d ' ' | rev`"
-else
- #cross-build, assume recent xorg...
- XORGVER='1.7.7'
-fi
-[ "$XORGVER" = "" ] && XORGVER="`echo "$XORGINFO" | grep '^X Window System Version' | rev | cut -f 1 -d ' ' | rev`" #xorg 7.3
-[ "$XORGVER" = "" ] && XORGVER="1.3.0" #precaution. version used in original Xorg 7.3.
-if vercmp "$XORGVER" gt "1.7.6";then
-
- DRILIST='i915 radeon nouveau'
- [ "$SDFLAG" ] && DRILIST='' #assume not using kms at all when boot from sd card (arm arch).
- if [ "$DRILIST" != "" ];then
-  echo
-  echo "Certain Xorg drivers require KMS (Kernel ModeSetting)"
-  echo "A value of '1' means on, '0' means off."
-  echo "Press ENTER key only to accept the default, any other char to flip:"
-  for XDRIVER in $DRILIST #i915 radeon nouveau
-  do
-   KMSFLG='1'
-   echo -n "${XDRIVER} [${KMSFLG}]: "
-   read KMSREPLY
-   if [ "$KMSREPLY" ];then #110906 fix syntax error.
-    #not the default...
-    case $KMSFLG in
-     0) echo "options ${XDRIVER} modeset=1"  > rootfs-complete/etc/modprobe.d/${XDRIVER}.conf ;;
-     1) echo "options ${XDRIVER} modeset=0"  > rootfs-complete/etc/modprobe.d/${XDRIVER}.conf ;;
-    esac
-   else
-    echo "options ${XDRIVER} modeset=${KMSFLG}"  > rootfs-complete/etc/modprobe.d/${XDRIVER}.conf
-   fi
-  done
- fi
+if [ ! "$SDFLAG" ] ;then #build.conf
+   echo "options i915 modeset=${KMS_i915}"  > rootfs-complete/etc/modprobe.d/i915.conf
+   echo "options radeon modeset=${KMS_radeon}"  > rootfs-complete/etc/modprobe.d/radeon.conf
+   echo "options nouveau modeset=${KMS_nouveau}"  > rootfs-complete/etc/modprobe.d/nouveau.conf
 fi
 
-#140619 ui_ziggy choice
-echo
-echo "Do you want the PPM2 or the Classic gui for PPM?"
-echo "hit \"c\" [enter] for Classic, Enter only for PPM2."
-read UICHOICE
-if [ "$UICHOICE" = "c" ];then
+if [ "$UICHOICE" != "PPM2" ];then #build.conf
    mkdir -p rootfs-complete/var/local/petget
    echo "Classic" > rootfs-complete/var/local/petget/ui_choice
 else 
@@ -1844,8 +1435,10 @@ if [ -d rootfs-complete/usr/local/apps/ROX-Filer/ROX/MIME ];then
  fi
 fi
 
-#110429 fix just in case...
-busybox chown -h -R spot:spot rootfs-complete/root/spot
+if grep -q '^spot:' /etc/passwd ; then
+	#110429 fix just in case...
+	busybox chown -h -R spot:spot rootfs-complete/root/spot
+fi
 
 #110429 this is difficult. may need a fix, think want glibc scsi headers in usr/include/scsi...
 mkdir -p devx/usr/include
@@ -1868,21 +1461,17 @@ cp -a -f --remove-destination ../rootfs-skeleton/usr/local/apps/ROX-Filer/ROX/MI
 #make sure zenity is a symlink to yad
 [ -f rootfs-complete/usr/bin/yad ] && ln -s yad rootfs-complete/usr/bin/zenity 2>/dev/null
 
-#110901 temp hack, if only have gtkdialog4 pkg...
-if [ ! -e rootfs-complete/usr/sbin/gtkdialog3 ];then
- if [ ! -e rootfs-complete/usr/bin/gtkdialog3 ];then
-  [ -e rootfs-complete/usr/sbin/gtkdialog4 ] && ln -s gtkdialog4 rootfs-complete/usr/sbin/gtkdialog3
-  [ -e rootfs-complete/usr/bin/gtkdialog4 ] && ln -s gtkdialog4 rootfs-complete/usr/bin/gtkdialog3
- fi
-fi
-#110910 make sure gtkdialog links to latest...
-if [ ! -e rootfs-complete/usr/sbin/gtkdialog ];then
- [ -e rootfs-complete/usr/sbin/gtkdialog3 ] && ln -s gtkdialog3 rootfs-complete/usr/sbin/gtkdialog
- [ -e rootfs-complete/usr/sbin/gtkdialog4 ] && ln -snf gtkdialog4 rootfs-complete/usr/sbin/gtkdialog
+#fixes for gtkdialog
+if [ -e rootfs-complete/usr/sbin/gtkdialog ];then
+  [ ! -e rootfs-complete/usr/sbin/gtkdialog3 ] && ln -sv gtkdialog rootfs-complete/usr/sbin/gtkdialog3
+  [ ! -e rootfs-complete/usr/sbin/gtkdialog4 ] && ln -sv gtkdialog rootfs-complete/usr/sbin/gtkdialog4
+else # rootfs-complete/usr/sbin/gtkdialog does not exist
+  [ -e rootfs-complete/usr/sbin/gtkdialog3 ] && ln -sv gtkdialog3 rootfs-complete/usr/sbin/gtkdialog
+  [ -e rootfs-complete/usr/sbin/gtkdialog4 ] && ln -svf gtkdialog4 rootfs-complete/usr/sbin/gtkdialog
 fi
 
 #110822 some customisations provided by 01micko for Slacko...
-if [ "$DISTRO_FILE_PREFIX" = "slacko" ];then #130321
+if [ "${DISTRO_FILE_PREFIX:0:6}" = "slacko" ];then #130321 #161008 fix for 64
  if [ -f ../support/slacko/woof_base_hack  ];then
   echo "Running Slacko customization script ../support/slacko/woof_base_hack..."
   ../support/slacko/woof_base_hack
@@ -1891,25 +1480,6 @@ fi
 
 #111123 put this into target, want to know if cross-build at 1st boot (see rc.update)...
 [ -f ../WOOFMERGEVARS ] && cp -f ../WOOFMERGEVARS rootfs-complete/etc/rc.d/
-
-#120522 precise puppy, seamonkey was crashing. needed /usr/share/glib-2.0/schemas/apps.gecko-mediaplayer.preferences,
-# but also needs this compile operation...
-# ***NOTICE*** cross-build, this will have to be executed at first boot...
-if [ "$WOOF_HOSTARCH" = "$WOOF_TARGETARCH" ];then
- if [ -d rootfs-complete/usr/share/glib-2.0/schemas ];then
-  [ -e rootfs-complete/usr/bin/glib-compile-schemas ] && chroot rootfs-complete /usr/bin/glib-compile-schemas /usr/share/glib-2.0/schemas
- fi
- #120523 seems need this too...
- if [ -d rootfs-complete/usr/lib${lsuffix}/gio/modules ];then
-  [ -e rootfs-complete/usr/bin/gio-querymodules ] && chroot rootfs-complete /usr/bin/gio-querymodules /usr/lib${lsuffix}/gio/modules
- fi
-fi
-
-#120618 raspi debian squeeze, links as main browser, helpsurfer html viewer, gtkmoz missing...
-#120620 problem, helpsurfer cannot display /usr/share/doc/index.html, so do not point gtkmoz at basichtmlviewer...
-if [ ! -e rootfs-complete/usr/local/bin/gtkmoz ];then
- ln -s defaultbrowser rootfs-complete/usr/local/bin/gtkmoz
-fi
 
 #120704 some constraints in a small system...
 if [ "$SDFLAG" != "" ];then
@@ -1938,49 +1508,21 @@ shmfs         /dev/shm     tmpfs    defaults,noatime      0 0' > rootfs-complete
  echo "BOOT_DISABLEALSACONF='yes'" >> rootfs-complete/etc/rc.d/BOOTCONSTRAINED #120724 'alsaconf' does not work on arm boards.
 fi
 
-#120723 code moved down, add BOOT_DISABLEXORGWIZARD test...
-#110413 variable DISTRO_XORG_AUTO in /etc/DISTRO_SPECS, see also /usr/bin/xwin
-autoflag='no'
-if [ "$BOOT_DISABLEXORGWIZARD" != "yes" ];then
- if [ "$DISTRO_XORG_AUTO" ];then
-  autoflag="$DISTRO_XORG_AUTO"
- else
-  if vercmp "$XORGVER" ge "1.7.0";then #110621
-   echo
-   echo "Do you want Xorg to start automatically at first boot (or at 'pfix=ram'"
-   echo "kernel boot param) or run Xorg Wizard? The latter has been the case for"
-   echo "earlier puppies. Automatic startup of X usually works, though in some"
-   echo "cases may choose the wrong monitor resolution or driver -- which can be"
-   echo "fixed by running Xorg Wizard afterward."
-   echo -n "Press ENTER only for automatic Xorg: "
-   read xorgauto
-   [ "$xorgauto" = "" ] && autoflag='yes'
-  fi
- fi
-fi
+[ "$DISTRO_XORG_AUTO" ] && autoflag="$DISTRO_XORG_AUTO" #DISTRO_SPECS
+[ "$XORG_AUTO" ] && autoflag="$XORG_AUTO"               #_00build.conf
+[ "$xorgauto" = "" ] && autoflag='yes'                  #precaution
+[ "$BOOT_DISABLEXORGWIZARD" = "yes" ] && autoflag='no'  #arm
+
 if [ "`grep '^DISTRO_XORG_AUTO' rootfs-complete/etc/DISTRO_SPECS`" = "" ];then #110621
  echo "DISTRO_XORG_AUTO='${autoflag}'" >> rootfs-complete/etc/DISTRO_SPECS
 else
- REGEXauto="s%^DISTRO_XORG_AUTO.*%DISTRO_XORG_AUTO='${autoflag}'%"
- sed -i -e "$REGEXauto" rootfs-complete/etc/DISTRO_SPECS
+ sed -i -e "s%^DISTRO_XORG_AUTO.*%DISTRO_XORG_AUTO='${autoflag}'%" rootfs-complete/etc/DISTRO_SPECS
 fi
 
 #121123 want this info in ppm...
 echo '#multiarch distros, such as Ubuntu, will have this. ex: /usr/lib/i386-linux-gnu, so DISTRO_ARCHDIR=i386-linux-gnu' >> rootfs-complete/etc/DISTRO_SPECS
 echo "DISTRO_ARCHDIR='${ARCHDIR}'" >> rootfs-complete/etc/DISTRO_SPECS
 echo "DISTRO_ARCHDIR='${ARCHDIR}'" >> initrd-tree/DISTRO_SPECS
-
-#120709 debian squeeze has /usr/share/misc/pci.ids, usb.ids, which confuses some apps, create symlinks...
-if [ ! -e rootfs-complete/usr/share/pci.ids ];then
- if [ -e rootfs-complete/usr/share/misc/pci.ids ];then
-  ln -s misc/pci.ids rootfs-complete/usr/share/pci.ids
- fi
-fi
-if [ ! -e rootfs-complete/usr/share/usb.ids ];then
- if [ -e rootfs-complete/usr/share/misc/usb.ids ];then
-  ln -s misc/usb.ids rootfs-complete/usr/share/usb.ids
- fi
-fi
 
 #120830 my hunspell-en-us pet has pinstall.sh that creates symlinks of en_US.aff and en_US.dic
 #from seamonkey and firefox. however, need to do this thoroughly...
@@ -2004,20 +1546,6 @@ if [ "$(echo "$PKGS_SPECS_TABLE" | grep '^yes|python|' | grep 'exe>dev')" = "" ]
  [ -e rootfs-complete/usr/bin/python2.7 ] && ln -s python2.7 rootfs-complete/usr/bin/python 2>/dev/null
 fi
 
-#121203 bacon hug gui apps need some .so libs, for example libgtk-x11-2.0.so,
-#(refer /usr/sbin/welcome1stboot.bac), however these are only in the devx.
-#so need to create them...
-#note, i think this problem only in wary/racy, as gtk template creates these symlinks.
-if [ ! -e rootfs-complete/usr/lib${lsuffix}/libgtk-x11-2.0.so ];then
- FNDGTKLIB="$(find rootfs-complete/usr/lib${lsuffix}/ -mindepth 1 -maxdepth 1 -name 'libgtk-x11-2.0.so.[0-9]' | head -n 1 | rev | cut -f 1 -d '/' | rev)"
- [ "$FNDGTKLIB" ] && ln -s $FNDGTKLIB rootfs-complete/usr/lib${lsuffix}/libgtk-x11-2.0.so #2> /dev/null
-fi
-#i'll do the same for libgdk-x11-2.0.so ...
-if [ ! -e rootfs-complete/usr/lib${lsuffix}/libgdk-x11-2.0.so ];then
- FNDGDKLIB="$(find rootfs-complete/usr/lib${lsuffix}/ -mindepth 1 -maxdepth 1 -name 'libgdk-x11-2.0.so.[0-9]' | head -n 1 | rev | cut -f 1 -d '/' | rev)"
- [ "$FNDGTKLIB" ] && ln -s $FNDGTKLIB rootfs-complete/usr/lib${lsuffix}/libgdk-x11-2.0.so #2> /dev/null
-fi
-
 #121212 puinstall.sh was not getting removed...
 [ -f rootfs-complete/puninstall.sh ] && rm -f rootfs-complete/puninstall.sh
 
@@ -2027,20 +1555,7 @@ fi
 if [ "$DEFAULT_THEME_XORG_TEXT_DPI" != "" ];then #141206
  dpisizeflag="$DEFAULT_THEME_XORG_TEXT_DPI"
 else
- DPILINE="$(grep '^Xft\.dpi:' rootfs-complete/root/.Xresources)"
- DPIVALUE=$(echo -n "$DPILINE" | tr '\t' ' ' | tr -s ' ' | cut -f 2 -d ' ')
- echo
- echo "rootfs-complete/root/.Xresources has this line:"
- echo "$DPILINE"
- echo "which sets the displayed size of fonts on the screen (but not bitmap fonts)."
- DPINEXT1=`expr $DPIVALUE + 6`
- DPINEXT2=`expr $DPINEXT1 + 6`
- echo "To accept this size, just press ENTER key."
- echo "However, if you would like fonts to display bigger on the screen, type in
-a value now. The value should be in steps of 6, for example ${DPINEXT1} or ${DPINEXT2}.
-The default size is ${DPIVALUE}, you might try the next-up, ${DPINEXT1}."
- echo -n "Press ENTER key for '${DPIVALUE}' dpi, or type a value: "
- read dpisizeflag
+ dpisizeflag="$XORG_TEXT_DPI" #build.conf
 fi
 if [ "$dpisizeflag" ];then #130512 scsijon: fix size...
  fsPTN='s%^Xft\.dpi:.*%Xft.dpi: '"${dpisizeflag}%"
@@ -2048,93 +1563,55 @@ if [ "$dpisizeflag" ];then #130512 scsijon: fix size...
  echo "...ok, dpi now ${dpisizeflag}"
 fi
 
-#130226 wary: /usr/bin/X was missing...
-if [ ! -e rootfs-complete/usr/bin/X ];then
- if [ -e rootfs-complete/usr/bin/Xorg -o -h rootfs-complete/usr/bin/Xorg ];then
-  ln -s Xorg rootfs-complete/usr/bin/X
- fi
+ln -sf Xorg rootfs-complete/usr/bin/X 2>/dev/null #/usr/bin/X
+
+if grep -q '^spot:' /etc/passwd ; then
+	# optional, run internet apps as user 'spot'...
+	# add QtWeb... 130723 add opera... 130821 add firefox... 132211 firefox didn't work, separate, see above
+	for AINTERNETAPP in QtWeb opera firefox seamonkey
+	do
+	 [ ! -e rootfs-complete/usr/bin/${AINTERNETAPP} -a ! -e rootfs-complete/usr/lib${lsuffix}/${AINTERNETAPP}* ] && continue
+	 echo -n "ENTER only to not run ${AINTERNETAPP} as spot: "
+	 if [ "$RUN_INTERNET_APPS_AS_SPOT" = "yes" ];then #build.conf
+	  ../support/setup-spot "${AINTERNETAPP}=true"
+	  echo "...ok, ${AINTERNETAPP} will run as spot."
+	 else
+	  echo "${AINTERNETAPP}=false" >> rootfs-complete/root/.spot-status #so that an unticked checkbox will display in loginmanager.
+	  echo "...ok, ${AINTERNETAPP} will not run as spot."
+	 fi
+	done
+	#setup-spot is also called by the Login & Security Manager in running Puppy...
 fi
 
-#130601 optional, run internet apps as user 'spot'...
-echo
-echo "Puppy is normally run as the 'administrator' (root) user, though there is
-also 'fido' which is not currently very mature.
-The structure of Puppy is such that we consider root to be safe (with a full
-disclaimer of any responsibility if anything does go wrong), but there is a
-compromise, to run as root but to run Internet apps as user 'spot'."
-if [ -e rootfs-complete/usr/lib${lsuffix}/seamonkey ];then
- echo
- echo "Type any character then ENTER if you want SeaMonkey to run as spot,
-or just ENTER not to. Note, in a running 'Puppy Menu->System->Login & Security
-Manager' can be used to enable or disable running as spot."
- echo
- echo -n "ENTER only to not run SeaMonkey as spot: "
- read SPOTAPPS
- if [ "$SPOTAPPS" ];then
-  ../support/setup-spot 'seamonkey=true' #130604
-  echo '...ok, SeaMonkey will run as spot.'
- else
-  echo 'seamonkey=false' > rootfs-complete/root/.spot-status #130604 so that an unticked checkbox will display in loginmanager.
-  echo '...ok, SeaMonkey will not run as spot.'
- fi
-fi
-if [ -e rootfs-complete/usr/lib${lsuffix}/firefox* ];then
- echo
- echo "Type any character then ENTER if you want firefox to run as spot,
-or just ENTER not to. Note, in a running Puppy 'Menu->System->Login & Security
-Manager' can be used to enable or disable running as spot."
- echo
- echo -n "ENTER only to not run firefox as spot: "
- read SPOTAPPS
- if [ "$SPOTAPPS" ];then
-  ../support/setup-spot "firefox=true"
-  echo "...ok, firefox will run as spot."
- else
-  echo "firefox=false" >> rootfs-complete/root/.spot-status #so that an unticked checkbox will display in loginmanager.
-  echo "...ok, firefox will not run as spot."
- fi
-fi
-#130720 add QtWeb... 130723 add opera... 130821 add firefox... 132211 firefox didn't work, separate, see above
-for AINTERNETAPP in QtWeb opera
-do
- [ -e rootfs-complete/usr/bin/${AINTERNETAPP} ] || continue
- echo
- echo "Type any character then ENTER if you want ${AINTERNETAPP} to run as spot,
-or just ENTER not to. Note, in a running Puppy 'Menu->System->Login & Security
-Manager' can be used to enable or disable running as spot."
- echo
- echo -n "ENTER only to not run ${AINTERNETAPP} as spot: "
- read SPOTAPPS
- if [ "$SPOTAPPS" ];then
-  ../support/setup-spot "${AINTERNETAPP}=true"
-  echo "...ok, ${AINTERNETAPP} will run as spot."
- else
-  echo "${AINTERNETAPP}=false" >> rootfs-complete/root/.spot-status #so that an unticked checkbox will display in loginmanager.
-  echo "...ok, ${AINTERNETAPP} will not run as spot."
- fi
-done
-#setup-spot is also called by the Login & Security Manager in running Puppy...
 cp -f ../support/setup-spot rootfs-complete/usr/sbin/
 
-#130725 want Menu -> Help to use secondary browser... 130726 fix...
-#code to detect dual browsers, taken out of /usr/sbin/delayedrun...
-ALTBROWSER=''
-#the pinstall.sh script in qtweb and opera pets create separate desktop icon if there is another major browser...
-[ "`grep 'QtWeb' rootfs-complete/root/Choices/ROX-Filer/PuppyPin`" != "" ] && ALTBROWSER='QtWeb'
-[ "`grep 'opera' rootfs-complete/root/Choices/ROX-Filer/PuppyPin`" != "" ] && ALTBROWSER='opera'
-if [ "$ALTBROWSER" != "" ];then
- MAINBROWSER="`grep '^exec' rootfs-complete/usr/local/bin/defaultbrowser | tr '\t' ' ' | tr -s ' ' | cut -f 2 -d ' '`"
- if [ "$MAINBROWSER" != "$ALTBROWSER" ];then
-  echo '#!/bin/sh' > rootfs-complete/usr/local/bin/defaulthtmlviewer
-  echo "exec ${ALTBROWSER} \"\$@\"" >> rootfs-complete/usr/local/bin/defaulthtmlviewer
-  chmod 755 rootfs-complete/usr/local/bin/defaulthtmlviewer
- fi
-fi
+(
+	cd rootfs-complete
+	echo "$EXTRA_COMMANDS" | while read i ; do eval $i ; done
+)
 
 rm -rf rootfs-complete/tmp/* #121123 some above chroot operations may have left something behind in here.
 
+## $DEFAULTAPPS - build.conf
+echo "Setting default apps specified in build.conf ..."
+echo "$DEFAULTAPPS" | sed -e '/^$/d' | while read entry ; do
+	IFS="=" read -r field value <<< "$entry"
+	[ "$field" = "" -o "$value" = "" ] && continue
+	if [ "$value" = "rox" ] ; then
+		value=roxfiler
+	fi
+	DRV_TGT=rootfs-complete NICE_TGT=main
+	echo "$ADRV_INC" | grep -q "${value%% *}" && DRV_TGT=adrv NICE_TGT=adrive # determine if app is on main sfs or adrv (not allowed in ydrv,fdrv)
+	echo "$field -> $value ($NICE_TGT sfs)"
+	[ -e "$DRV_TGT/usr/local/bin/" ] || mkdir -p ${DRV_TGT}/usr/local/bin/ # may not exist on adrv
+	echo "#!/bin/sh
+exec $value \"\$@\"" > ${DRV_TGT}/usr/local/bin/$field
+	chmod 755 ${DRV_TGT}/usr/local/bin/$field
+done
+
 BUILD_SFS='yes'
-if [ "$SDFLAG" != "" ]; then
+
+if [ "$SDFLAG" != "" -a "$SDFLAG" != "zip" ]; then
  echo
  echo "Since you are building a SD card image, it is not necessary"
  echo "to build the main sfs file.  Press ENTER only to skip,"
@@ -2144,56 +1621,305 @@ if [ "$SDFLAG" != "" ]; then
   BUILD_SFS='no'
  fi
 fi
-if [ "$BUILD_SFS" = 'yes' ]; then
-###########
-#build the rootfs-complete sfs...
 echo
-echo "Now building the main f.s., ${PUPPYSFS}..."
-sync
-rm -f build/${PUPPYSFS} 2>/dev/null
-${MKSQUASHFS} rootfs-complete build/${PUPPYSFS} ${SFSCOMP} #100911 110713
-sync
-echo -n "$IDSTRING" >> build/${PUPPYSFS} #100911 16-byte id-string appended to file.
-sync
-###########
-fi # if BUILD_SFS
-
-#if separate 'zdrv' exists, copy that into live-cd also...
-# delete this as we need zdrv and it's there already
-
 echo
-# new 160404 UEFI iso - see support/uefi_cd.sh
-UFEI_ISO='no'
-if [ "$SDFLAG" = "" ];then
-	echo "Would you like to build an iso image that supports UEFI booting?"
-	if [ "$WOOF_TARGETARCH" != "x86_64" ];then
-		echo "On 32 bit systems this will still boot legacy BIOS however it"
-		echo "will not boot 32 bit UEFI machines. These are rare anyway."
-	else
-		echo "It also supports legacy BIOS booting."
-	fi
-	echo
-	echo "Hit 'y' for yes."
-	read uiso
-	case $uiso in
-		y|Y)UFEI_ISO='yes'
-		UFLG=-uefi
-		WOOF_OUTPUT="woof-output-${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${SCSIFLAG}${UFLG}"
-		;;
+if [ "$BUILD_SFS" = 'yes' ];then
+  if [ -z "$NONFREE_FW" -a "$KFDRIVE" = no ];then
+      echo "You now have the opportunity to grab some non-free firmware
+to include in ${FDRVSFS}. There is a file in
+ 'support/fw.conf' 
+to configure what firmwares are included. Just set whatever 
+you like to 'true' or 'false'.
+
+Do you want to grab extra non-free firmware?
+(type 'y' and press 'enter' if you wish or 'enter' to skip..)"
+    read nonfree
+    case $nonfree in 
+		 y|Y)cd $WKGDIR
+		    echo; echo
+			support/get_fw 
+			echo; echo
+			cd - ;;
 	esac
+  else
+	if [ "$NONFREE_FW" = 'yes' -a "$KFDRIVE" = no ];then
+	  cd $WKGDIR
+	  echo
+	  echo "grabbing extra non-free firmware..."
+	  echo; echo
+	  support/get_fw
+	  echo; echo
+	  cd -
+    fi
+  fi
 fi
 
-# very big 'if'
-if [ "$UFEI_ISO" = 'yes' ];then
-	../support/uefi_cd.sh
-else
+#-------------------------
+#before building puppy.sfs from rootfs-complete, check for any invalid symlinks
+#and move them to the devx...
+echo
+echo "Finding invalid symlinks..."
+if [ "$WOOF_HOSTARCH" = "$WOOF_TARGETARCH" ] ; then
+	dirs=$(ls -d rootfs-complete/* | sed -e 's|^rootfs-complete||' | grep -vE '/dev/|/proc/|/sys/') #|/initrd/|/tmp/|/var/|/run/|/mnt/
+	#chroot rootfs-complete find -L $dirs -type l > /tmp/invalidsymlinks
+	chroot rootfs-complete find $dirs -type l ! -exec test -e {} \; -print > /tmp/invalidsymlinks
+	#/usr/local/lib/X11/pixmaps: these images created 1st boot... (was in the old code)
+	cat /tmp/invalidsymlinks | sed '\|lib/X11/pixmaps|d' | \
+	while read ONESYMLINK ; do
+		UPONE=${ONESYMLINK%/*} #dirname ONESYMLINK
+		mkdir -p devx${UPONE}
+		cp -a -f "rootfs-complete${ONESYMLINK}" devx${UPONE}/
+		rm -f "rootfs-complete$ONESYMLINK"
+	done
+else #do it without chroot...
+	find rootfs-complete/ -type l | sed -e '\%/dev/%d' -e '\%/proc/%d' -e '\%/usr/share/icons/%d' | \
+	while read ONESYMLINK ; do
+		xONESYMLINK="${ONESYMLINK#rootfs-complete}" #sed -e 's/^rootfs\-complete//'`"
+		LINKTO="`readlink rootfs-complete"${xONESYMLINK}"`" #120502 fix for spaces in path.
+		[ -e "rootfs-complete${LINKTO}" ] && continue #absolute path
+		UPONE=${xONESYMLINK%/*}        #UPONE="`dirname "$xONESYMLINK"`"
+		[ "$UPONE" = "" ] && UPONE='/' #empty -> '/'
+		[ -e "rootfs-complete${UPONE}/${LINKTO}" ] && continue #relative path
+		mkdir -p "devx${UPONE}"
+		cp -a -f "$ONESYMLINK" devx${UPONE}/
+		rm -f "$ONESYMLINK"
+	done
+fi
 
-	WOOF_OUTPUT="woof-output-${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${SCSIFLAG}" #woodenshoe-wi idea. #140619
+sync
+
+if [ "$BUILD_SFS" = 'yes' ]; then
+	files2delete rootfs-complete
+	###########
+	#build the rootfs-complete sfs...
+	echo
+	echo "Now building the main f.s., ${PUPPYSFS}..."
+	sync
+	rm -f build/${PUPPYSFS} 2>/dev/null
+	${MKSQUASHFS} rootfs-complete build/${PUPPYSFS} ${SFSCOMP} #100911 110713
+	sync
+	###########
+	if [ -d adrv -o -d fdrv -o -d ydrv ];then
+		###########
+		#build the {a,f,y}drive sfs...
+		for SYS_SFS in adrv fdrv ydrv
+		do
+			[ ! -d "$SYS_SFS" ] && echo "no $SYS_SFS" && continue
+			case $SYS_SFS in
+				adrv) TYPE_SYS_SFS="${ADRVSFS}";;
+				fdrv) TYPE_SYS_SFS="${FDRVSFS}";;
+				ydrv) TYPE_SYS_SFS="${YDRVSFS}";;
+			esac
+			echo
+			echo "Now building the $SYS_SFS f.s., $TYPE_SYS_SFS ..."
+			sync
+			rm -f build/${TYPE_SYS_SFS} 2>/dev/null
+			${MKSQUASHFS} $SYS_SFS build/${TYPE_SYS_SFS} ${SFSCOMP} #170330
+			sync
+		done
+		###########	
+	fi
+fi # if BUILD_SFS
+
+#==================================================================================
+# DEVX.SFS
+
+#now do the devx...
+case $BUILD_DEVX in #_00build.conf
+	yes|no) echo -n ;;
+	*)
+		echo
+		echo -n "Hit ENTER to build the 'devx' SFS file, any other key to skip: "
+		read dodevx
+		[ "$dodevx" = "" ] && BUILD_DEVX=yes
+		;;
+esac
+
+if [ "$BUILD_DEVX" = "yes" ] ; then
+	cd $WKGDIR
+	echo
+	echo "Building ${DEVXSFS}..."
+	echo " building sandbox3/devx ..."
+	echo "$PKGS_SPECS_TABLE" | grep '^yes' | cut -f 2 -d '|' | sed -e 's%$%_DEV%' > /tmp/ALLGENNAMESD
+	##rm -f ./${WOOF_OUTPUT}/${DEVXSFS} 2>/dev/null #100911
+	rm -f ./sandbox3/${DEVXSFS} 2>/dev/null #100911
+	for ONEDEV in `ls -1 packages-${DISTRO_FILE_PREFIX} | grep '_DEV$' | tr '\n' ' '`
+	do
+	 if grep -q -m1 "^$ONEDEV" /tmp/ALLGENNAMESD ;then
+	  cp -a --remove-destination packages-${DISTRO_FILE_PREFIX}/${ONEDEV}/* sandbox3/devx/
+	  sync
+	 fi
+	done
+	rm -f /tmp/ALLGENNAMESD
+	sync
+
+	#earlier above i moved all invalid symlinks into the devx module, yeah but i
+	#think should delete them if they really point nowhere...
+	echo " Deleting really invalid symlinks in devx..."
+	mkdir layer_top
+	if [ "$LAYER_TYPE" = 'overlay' ]; then
+		mkdir overlay_workdir
+		mount -t overlay overlay -olowerdir=sandbox3/rootfs-complete,upperdir=sandbox3/devx,workdir=overlay_workdir layer_top
+	else
+		mount -t aufs -o udba=reval,diropq=w,dirs=sandbox3/devx=rw:sandbox3/rootfs-complete=ro layerfs layer_top
+	fi
+
+	if [ "$WOOF_HOSTARCH" = "$WOOF_TARGETARCH" ] ; then
+		dirs=$(ls -d layer_top/* | sed 's|layer_top||' | grep -vE '/dev/|/proc/|/sys/') #|/initrd/|/tmp/|/var/|/run/|/mnt/
+		chroot layer_top find -L $dirs -type l -delete
+	else
+		#do it without chroot...
+		find layer_top/ -type l | sed -e '\%/dev/%d' -e '\%/proc/%d' -e '\%/usr/share/icons/%d' | \
+		while read ONESYMLINK ; do
+		  xONESYMLINK="${ONESYMLINK#layer_top}" #sed -e 's/^layer_top//'`
+		  LINKTO="`readlink "layer_top${xONESYMLINK}"`"
+		  [ -e "layer_top${LINKTO}" ] && continue #absolute path
+		  UPONE=${xONESYMLINK%/*}        #UPONE="`dirname "$xONESYMLINK"`"
+		  [ "$UPONE" = "" ] && UPONE='/' #empty -> '/'
+		  [ -e "layer_top${UPONE}/${LINKTO}" ] && continue #relative path
+		  echo " $ONESYMLINK"
+		  rm -f "$ONESYMLINK"
+		done
+	fi
+	sync  ;  umount layer_top  ;  rmdir layer_top
+
+	###HACK###
+	if [ "$(echo "$PKGS_SPECS_TABLE" | grep '^yes|python|' | grep 'exe>dev')" != "" ];then #121022
+	 [ -e sandbox3/devx/usr/bin/python2.5 ] && ln -s python2.5 sandbox3/devx/usr/bin/python 2>/dev/null
+	 [ -e sandbox3/devx/usr/bin/python2.6 ] && ln -s python2.6 sandbox3/devx/usr/bin/python 2>/dev/null
+	 [ -e sandbox3/devx/usr/bin/python2.7 ] && ln -s python2.7 sandbox3/devx/usr/bin/python 2>/dev/null
+	fi
+	 rm -f sandbox3/devx/usr/lib${lsuffix}/mozilla/plugins/* #100407 maybe .a, .la files in here.
+	###END HACK###
+
+	#v424 no, i have needed docs in usr/share/doc...
+	#w003 there's docs here, move them out...
+	rm -rf packages-${DISTRO_FILE_PREFIX}/devx_DOC 2>/dev/null
+	mkdir -p packages-${DISTRO_FILE_PREFIX}/devx_DOC/usr/share
+	#mv sandbox3/devx/usr/share/doc packages-${DISTRO_FILE_PREFIX}/devx_DOC/usr/share/ 2>/dev/null
+	mv sandbox3/devx/usr/share/doc-base packages-${DISTRO_FILE_PREFIX}/devx_DOC/usr/share/ 2>/dev/null
+	mv sandbox3/devx/usr/share/man packages-${DISTRO_FILE_PREFIX}/devx_DOC/usr/share/ 2>/dev/null
+
+	#100831 hack, this symlink needed...
+	if [ -d sandbox3/devx/usr/X11R7/include/xorg ];then
+	 [ ! -e sandbox3/devx/usr/include/xorg ] && ln -s ../X11/include/xorg sandbox3/devx/usr/include/xorg
+	fi
+
+	#100622 remove overhead of this script running every bootup...
+	mkdir -p sandbox3/devx/etc/profile.d
+	rm -f sandbox3/devx/etc/profile.d/pkgconfig* 2>/dev/null
+	[ -e sandbox3/devx/usr/X11R7/lib ] && DEVX_X11R7=sandbox3/devx/usr/X11R7/lib
+	PKG_CONFIG_PATH="`find sandbox3/devx/usr/lib $DEVX_X11R7 sandbox3/devx/opt sandbox3/devx/usr/local/lib -type d -name pkgconfig | sed -e 's%sandbox3/devx%%' | tr '\n' ':'`"
+	echo "export PKG_CONFIG_PATH='${PKG_CONFIG_PATH}'" > sandbox3/devx/etc/profile.d/pkgconfig
+
+	#maybe stray /install dir from slackware pkgs...
+	rm -rf sandbox3/devx/install 2>/dev/null
+	[ -f sandbox3/devx/pet.specs ] && rm -f sandbox3/devx/pet.specs #w478
+	#another slackware hack 131124
+	[ -x sandbox3/devx/usr/bin/strings-GNU ] && mv sandbox3/devx/usr/bin/strings-GNU sandbox3/devx/usr/bin/strings
+	sync
+
+	#110429 see above, think want glibc scsi headers in usr/include/scsi...
+	if [ -d sandbox3/devx/usr/include/scsi-GLIBC ];then
+	 #probably have kernel scsi headers in usr/include/scsi, fix...
+	 cp -a -f sandbox3/devx/usr/include/scsi-GLIBC/* sandbox3/devx/usr/include/scsi/
+	fi
+
+	# 151019 - delete duplicate symlinks
+	echo "deleting duplicate symlinks"
+	find sandbox3/devx -type l | while read ONESYMLINK
+	do # if the symlink exists in sandbox3/rootfs-complete we delete it
+	 ESYMLINK=${ONESYMLINK//devx/rootfs-complete}
+	 [ -h "$ESYMLINK" ] && echo -n "$ONESYMLINK " && rm -f "$ONESYMLINK"
+	done
+	sync
+	# do same for duplicates in /etc
+	echo -e "\ndeleting duplicate entries in /etc"
+	find sandbox3/devx/etc -type f | while read ONEDUPE
+	do
+	 EDUPE=${ONEDUPE//devx/rootfs-complete}
+	 [ -f "$EDUPE" ] && echo -n "$ONEDUPE " && rm -f "$ONEDUPE"
+	done
+	sync
+
+	echo -e "\ncleaning out whiteouts"
+	clean_out_whiteouts $sandbox3/devx # _00func
+
+	files2delete sandbox3/devx
+
+	echo "Now creating ${DEVXSFS} ..."
+	${MKSQUASHFS} sandbox3/devx ./sandbox3/${DEVXSFS} ${SFSCOMP} #100911 110713
+	sync
+	chmod 644 ./sandbox3/${DEVXSFS}
+	echo "...done"
+
+	cd sandbox3
+fi
+
+#==================================================================================
+# ISO file
+
+# very big 'if'
+if [ "$SDFLAG" = "" ];then #120506
+	if [ ! -e rootfs-complete/usr/share/grub2-efi ] ; then
+		UFEI_ISO=no
+	fi
+	if [ "$UFEI_ISO" = 'yes' ];then
+		UFLG=-uefi
+	elif [ "$G4DOS_ISO" = 'yes' ];then
+		XTRA_FLG="-g4dos${XTRA_FLG}"
+	fi
+
+	if [ "$BUILD_DEVX" = "yes" -a -f ${DEVXSFS} ] ; then
+		if [ "$DEVX_IN_ISO" = "yes" ] ; then #_00build.conf
+			XTRA_FLG="${XTRA_FLG}-devx"
+			mv -f ${DEVXSFS} ./build/
+		else
+			WOOF_OUTPUT="woof-output-${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${UFLG}${XTRA_FLG}"
+			[ -d ../$WOOF_OUTPUT ] || mkdir -p ../$WOOF_OUTPUT
+			mv -f ${DEVXSFS} ../${WOOF_OUTPUT}/
+			(
+			cd ../${WOOF_OUTPUT}
+			md5sum ${DEVXSFS} > ${DEVXSFS}.md5.txt
+			sha256sum ${DEVXSFS} > ${DEVXSFS}.sha256.txt
+			)
+		fi
+	fi
+
+	WOOF_OUTPUT="woof-output-${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${UFLG}${XTRA_FLG}"
 	[ -d ../$WOOF_OUTPUT ] || mkdir -p ../$WOOF_OUTPUT
-	
+
+ if [ "$UFEI_ISO" = 'yes' ];then
+	# new 160404 UEFI iso - see support/uefi_cd.sh
+	../support/uefi_cd.sh
+	uret=$?
+	if [ $uret -ne 0 ];then
+	  echo "uefi_cd.sh exited with $uret exit value. 
+Aborting
+Check the script support/uefi_cd.sh to see what this means."
+	  exit 1
+	fi
+ elif [ "$G4DOS_ISO" = 'yes' ];then
+	echo "Now building ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${XTRA_FLG}.iso"
+	rm -f ../${WOOF_OUTPUT}/${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${XTRA_FLG}.iso 2>/dev/null
+	cp -a ../boot/grub4dos/* build/
+	sed -i "s/#distrodesc#/${DISTRO_NAME} ${DISTRO_VERSION}/" build/menu.lst
+	VOLUMEID=$(echo "${DISTRO_FILE_PREFIX}${DISTRO_VERSION}" | tr -d '.')
+	find ../sandbox3/rootfs-complete/usr -maxdepth 3 -type f \( -name 'isolinux.bin' -o -name 'chain.c32' \) -exec cp -f '{}' build/ \;
+	bootloader=grldr
+	if [ -f build/isolinux.bin -a -f build/chain.c32 ] ; then
+	  bootloader=isolinux.bin
+	fi
+	$MKISOFS -D -R -V ${VOLUMEID} -o ../${WOOF_OUTPUT}/${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${XTRA_FLG}.iso -b ${bootloader} -c boot.cat -no-emul-boot -boot-load-size 4 -boot-info-table ./build/
+	sync
+	which isohybrid && isohybrid ../${WOOF_OUTPUT}/${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${XTRA_FLG}.iso
+	( cd ../${WOOF_OUTPUT}
+	   md5sum ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${XTRA_FLG}.iso > ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${XTRA_FLG}.iso.md5.txt
+	   sha256sum ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${XTRA_FLG}.iso > ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${XTRA_FLG}.iso.sha256.txt )
+ else
 	#build live-cd .iso file...
-	echo "Now building ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${SCSIFLAG}.iso"
-	rm -f ../${WOOF_OUTPUT}/${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${SCSIFLAG}.iso 2>/dev/null
+	echo "Now building ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${XTRA_FLG}.iso"
+	rm -f ../${WOOF_OUTPUT}/${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${XTRA_FLG}.iso 2>/dev/null
 	if [ -f rootfs-complete/usr/lib${lsuffix}/syslinux/isolinux.bin ];then
 	 cp -a rootfs-complete/usr/lib${lsuffix}/syslinux/isolinux.bin build/
 	else
@@ -2223,7 +1949,7 @@ else
 	cp -f ../boot/boot-dialog/boot.msg build/boot.msg
 	cat ../boot/boot-dialog/isolinux.cfg | sed -e "$blPATTERN" > build/isolinux.cfg
 	export RGBDEF=/usr/share/X11/rgb.txt
-	../boot/boot-dialog/textongif.sh ../boot/boot-dialog/${BOOTLOGO}.gif "$RIGHTVER" > logo.gif
+	../boot/boot-dialog/textongif.sh ../boot/boot-dialog/${BOOTLOGO}.gif "$DISTRO_VERSION" > logo.gif
 	../boot/boot-dialog/gif2lss logo.gif > build/logo.16
 	
 	#120217 translate early-boot splash screens... (expect building with langpack)
@@ -2257,48 +1983,76 @@ else
 	cut2PATTERN="s%CUT2INSERT%${CUT2INSERT}%"
 	cut3PATTERN="s%CUT3INSERT%${CUT3INSERT}%"
 	sed -e "$verPATTERN" -e "$prefixPATTERN" -e "$cut2PATTERN" -e "$cut3PATTERN" ../boot/README.HTM > build/README.HTM
-	
 	sync
+	$MKISOFS -D -R -o ../${WOOF_OUTPUT}/${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${XTRA_FLG}.iso -b isolinux.bin -c boot.cat -no-emul-boot -boot-load-size 4 -boot-info-table ./build/
+	sync
+	# 131227 iguleder: made the generated ISO image hybrid, so it can be written to flash drives using dd
+	which isohybrid && isohybrid ../${WOOF_OUTPUT}/${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${XTRA_FLG}.iso
+	( cd ../${WOOF_OUTPUT}
+	  md5sum ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${XTRA_FLG}.iso > ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${XTRA_FLG}.iso.md5.txt
+	  sha256sum ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${XTRA_FLG}.iso > ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${XTRA_FLG}.iso.sha256.txt )
+ fi
+fi
+#end very big if
 
-	if [ "$SDFLAG" = "" ];then #120506
-	 $MKISOFS -D -R -o ../${WOOF_OUTPUT}/${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${SCSIFLAG}.iso -b isolinux.bin -c boot.cat -no-emul-boot -boot-load-size 4 -boot-info-table ./build/
-	 sync
-	 # 131227 iguleder: made the generated ISO image hybrid, so it can be written to flash drives using dd
-	 isohybrid="$(which isohybrid)"
-	 [ -n "$isohybrid" ] && $isohybrid ../${WOOF_OUTPUT}/${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${SCSIFLAG}.iso
-	 CUR_DIR="$PWD"
-	 cd ../${WOOF_OUTPUT}
-	 md5sum ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${SCSIFLAG}.iso > ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${SCSIFLAG}.iso.md5.txt
-	 cd "$CUR_DIR"
-	fi
-fi #end very big if
+#==================================================================================
+
 if [ "$SDFLAG" = "" ];then
- echo
- echo "Would you like to burn it to a CD? "
- echo -n "ENTER only for yes, or any printable char then ENTER not to: "
- read writeitnow
- if [ "$writeitnow" = "" ];then
-  CDR=""
-  [ -f /etc/cdburnerdevice ] && CDR="/dev/`cat /etc/cdburnerdevice`"
-  [ "$CDR" = "" ] && CDR='/dev/sr0'
-  CDDESCR="`probedisk2 | grep '|optical|' | grep "$CDR" | cut -f 3 -d '|'`"
-  echo -n 'Type "y" for multisession, else just ENTER: '
-  read BURNMULTI
-  if [ "$BURNMULTI" = "y" ];then
-   BURNMULTI="-multi -tao -pad"
-  else
-   BURNMULTI="-dao"
-  fi
-  echo "Please insert blank CD into $CDR
+ OPTICALDRIVES="`probedisk | grep '|optical|'`"
+ if [ "$(echo $OPTICALDRIVES)" != "" ] ; then
+	echo
+	echo "Would you like to burn it to a CD? "
+	echo -n "ENTER only for yes, or any printable char then ENTER not to: "
+	read writeitnow
+	if [ "$writeitnow" = "" ];then
+	 CDR=""
+	 [ -f /etc/cdburnerdevice ] && CDR="/dev/`cat /etc/cdburnerdevice`"
+	 [ "$CDR" = "" ] && CDR='/dev/sr0'
+	 CDDESCR="`echo "$OPTICALDRIVES" | grep "$CDR" | cut -f 3 -d '|'`"
+	 echo -n 'Type "y" for multisession, else just ENTER: '
+	 read BURNMULTI
+	 if [ "$BURNMULTI" = "y" ];then
+	  BURNMULTI="-multi -tao -pad"
+	 else
+	  BURNMULTI="-dao"
+	 fi
+	 echo "Please insert blank CD into $CDR
 (which is described as: ${CDDESCR})
 -- also be sure that it is unmounted."
-  echo -n "Then hit ENTER key: "
-  read yayburn
-  $CDRECORD $BURNMULTI -data -eject -v speed=4 padsize=300k dev=$CDR ../${WOOF_OUTPUT}/${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${SCSIFLAG}${UFLG}.iso
-  sync
-  eject $CDR
-  echo "...done"
+	 echo -n "Then hit ENTER key: "
+	 read yayburn
+	 $CDRECORD $BURNMULTI -data -eject -v speed=4 padsize=300k dev=$CDR ../${WOOF_OUTPUT}/${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${UFLG}${XTRA_FLG}.iso
+	 sync
+	 eject $CDR
+	 echo "...done"
+	fi
  fi
+elif [ "$SDFLAG" = "zip" ];then
+	../support/arm_zip_file.sh
+	if [ -f build/${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}.zip ];then
+		if [ "$ADD_GIT_HASH_TO_FILENAME" = "yes" ]; then
+			GIT_HASH="${BUILD_FROM_WOOF#*;}"
+			GIT_HASH="${GIT_HASH%%;*}"
+			ZIPNAME="${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}-${GIT_HASH}.zip"
+			mv -f build/${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}.zip ../${WOOF_OUTPUT}/${ZIPNAME}
+		else
+			ZIPNAME="${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}.zip"
+			mv -f build/${ZIPNAME} ../${WOOF_OUTPUT}/
+		fi
+		(
+		cd ../${WOOF_OUTPUT}
+		md5sum ${ZIPNAME} > ${ZIPNAME}.md5.txt
+		sha256sum ${ZIPNAME} > ${ZIPNAME}.sha256.txt
+		)
+		if [ -f ${DEVXSFS} ]; then
+			mv -f ${DEVXSFS} ../${WOOF_OUTPUT}/
+			(
+			cd ../${WOOF_OUTPUT}
+			md5sum ${DEVXSFS} > ${DEVXSFS}.md5.txt
+			sha256sum ${DEVXSFS} > ${DEVXSFS}.sha256.txt
+			)
+		fi
+	fi
 else #120506 sd image
  
  echo
@@ -2318,30 +2072,6 @@ else #120506 sd image
   read sdnumber
   SDIMAGE="`cat /tmp/3builddistro-probeimage | head -n $sdnumber | tail -n 1 | cut -f 2 -d ' '`"
   echo -n "You chose '${SDIMAGE}' Press ENTER if correct: "
-  read sdcorrect
-  [ "$sdcorrect" = "" ] && break
- done
- echo
- echo "Please insert the SD card. Make sure that it is the same size or bigger than
-indicated on the filename of the skeleton image file that you chose."
- echo -n "Press ENTER after it is inserted: "
- read waitinsert
- sleep 2
- while [ 1 ];do
-  CNT=1
-  echo -n "" > /tmp/3builddistro-probedisk
-  probedisk | 
-  while read ONEPROBE
-  do
-   echo "${CNT} ${ONEPROBE}" >> /tmp/3builddistro-probedisk
-   CNT=`expr $CNT + 1`
-  done
-  echo
-  echo "Type number which is your SD card:"
-  cat /tmp/3builddistro-probedisk
-  read sdnumber
-  SDDEVICE="`cat /tmp/3builddistro-probedisk | head -n $sdnumber | tail -n 1 | cut -f 2 -d ' ' | cut -f 1 -d '|'`"
-  echo -n "You chose ${SDDEVICE} Press ENTER if correct: "
   read sdcorrect
   [ "$sdcorrect" = "" ] && break
  done
@@ -2404,7 +2134,11 @@ indicated on the filename of the skeleton image file that you chose."
  #120613 restore correct kernel image name...
  case $REALKERNAME in
   uImage)     cp -f build/vmlinuz /mnt/sdimagep1/uImage ;;
-  kernel.img) cp -f build/vmlinuz /mnt/sdimagep1/kernel.img ;;
+  kernel.img)
+   mv -f rootfs-complete/boot/* /mnt/sdimagep1/ #move firmware to first partition, /boot should be empty in second partition.
+   [ -f build/vmlinuz ] && cp -f build/vmlinuz /mnt/sdimagep1/kernel.img #kernel for original pi.
+   [ -f build/vmlinuz7 ] && cp -f build/vmlinuz7 /mnt/sdimagep1/kernel7.img #kernel for pi2.
+   ;;
   *)          cp -f build/vmlinuz /mnt/sdimagep1/ ;;
  esac
  echo -n "$REALKERNAME" > /mnt/sdimagep1/REALKERNAME #just in case need to know, in a running puppy.
@@ -2424,7 +2158,8 @@ indicated on the filename of the skeleton image file that you chose."
  #120704 add to /etc/fstab...
 # echo "/dev/${SDDEVICE}2     /     ${SDFS2}     defaults,noatime   0 1" >> /mnt/sdimagep2/etc/fstab #120707 change relatime to noatime.
  #not sure if the root partition is referred to as /dev/root or /dev/mmcblk0p2 on the raspi
- echo "/dev/mmcblk0p2     /     ${SDFS2}     defaults,noatime   0 1" >> /mnt/sdimagep2/etc/fstab
+ echo "/dev/mmcblk0p2     /       ${SDFS2}     defaults,noatime      0 1" >> /mnt/sdimagep2/etc/fstab
+ echo "/dev/mmcblk0p1     /boot   vfat     defaults,noatime      0 2" >> /mnt/sdimagep2/etc/fstab
  sync
  echo "...done"
  busybox umount /mnt/sdimagep2 2>/dev/null
@@ -2563,133 +2298,7 @@ ${SDFS2} partition to fill the remaining space -- this is for your own use."
 
 fi
 
-cd $WKGDIR
+echo -e "\nScript finished."
+[ "$WOOF_GUI" ] && { echo -n "Press ENTER key to exit: " ; read zzz ; }
 
-#now do the devx...
-echo
-echo -n "Hit ENTER to build the 'devx' SFS file, any other key to exit: "
-read dodevx
-[ "$dodevx" != "" ] && exit
-echo
-echo "Building ${DEVXSFS}..."
-
-echo " building sandbox3/devx ..."
-rm -f /tmp/3builddistro_removed_alt_dev #101013
-ALLGENNAMESD="`echo "$PKGS_SPECS_TABLE" | grep '^yes' | cut -f 2 -d '|' | sed -e 's%$%_DEV%'`"
-rm -f ./${WOOF_OUTPUT}/${DEVXSFS} 2>/dev/null #100911
-for ONEDEV in `ls -1 packages-${DISTRO_FILE_PREFIX} | grep '_DEV$' | tr '\n' ' '`
-do
-
- #110727 no longer using this...
- ##101013 preferred pkg for an older kernel (see PKGS_MANAGEMENT file)...
- ONEPKG="`echo -n "$ONEDEV" | sed -e 's%_DEV%%'`"
- 
- devPATTERN='^'"$ONEDEV"
- if [ "`echo "$ALLGENNAMESD" | grep "$devPATTERN"`" != "" ];then
-  cp -a --remove-destination packages-${DISTRO_FILE_PREFIX}/${ONEDEV}/* sandbox3/devx/
-  sync #110727 running drake pup 0.3 with k2.6.39-3 new laptop, mysterious loss of dirs/files. try sync.
- fi
-done
-sync
-
-#earlier above i moved all invalid symlinks into the devx module, yeah but i
-#think should delete them if they really point nowhere...
-echo " Deleting really invalid symlinks in devx..."
-mkdir layer_top
-mount -t aufs -o udba=reval,diropq=w,dirs=sandbox3/devx=rw:sandbox3/rootfs-complete=ro layerfs layer_top
-for ONESYMLINK in `find layer_top/ -type l`
-do
- case "$ONESYMLINK" in *"/dev/"*|*"/proc/"*) continue ;; esac
- xONESYMLINK="`echo -n "$ONESYMLINK" | sed -e 's/^layer_top//'`"
- #111123 cross-build, cannot do chroot...
- if [ "$WOOF_HOSTARCH" = "$WOOF_TARGETARCH" ];then #111123
-  if [ "`chroot layer_top readlink -e $xONESYMLINK`" = "" ];then
-   echo " $ONESYMLINK"
-   rm -f $ONESYMLINK
-  fi
- else
-  #do it without chroot...
-  LINKTO="`readlink layer_top${xONESYMLINK}`"
-  [ -e layer_top${LINKTO} ] && continue #absolute path
-  UPONE="`dirname "$xONESYMLINK"`"
-  [ -e layer_top${UPONE}/${LINKTO} ] && continue #relative path
-  echo " $ONESYMLINK"
-  rm -f $ONESYMLINK
- fi
-done
-sync
-umount layer_top
-rmdir layer_top
-
-###HACK###
-if [ "$(echo "$PKGS_SPECS_TABLE" | grep '^yes|python|' | grep 'exe>dev')" != "" ];then #121022
- [ -e sandbox3/devx/usr/bin/python2.5 ] && ln -s python2.5 sandbox3/devx/usr/bin/python 2>/dev/null
- [ -e sandbox3/devx/usr/bin/python2.6 ] && ln -s python2.6 sandbox3/devx/usr/bin/python 2>/dev/null
- [ -e sandbox3/devx/usr/bin/python2.7 ] && ln -s python2.7 sandbox3/devx/usr/bin/python 2>/dev/null
-fi
- rm -f sandbox3/devx/usr/lib${lsuffix}/mozilla/plugins/* #100407 maybe .a, .la files in here.
-###END HACK###
-
-#v424 no, i have needed docs in usr/share/doc...
-#w003 there's docs here, move them out...
-rm -rf packages-${DISTRO_FILE_PREFIX}/devx_DOC 2>/dev/null
-mkdir -p packages-${DISTRO_FILE_PREFIX}/devx_DOC/usr/share
-#mv sandbox3/devx/usr/share/doc packages-${DISTRO_FILE_PREFIX}/devx_DOC/usr/share/ 2>/dev/null
-mv sandbox3/devx/usr/share/doc-base packages-${DISTRO_FILE_PREFIX}/devx_DOC/usr/share/ 2>/dev/null
-mv sandbox3/devx/usr/share/man packages-${DISTRO_FILE_PREFIX}/devx_DOC/usr/share/ 2>/dev/null
-
-#100831 hack, this symlink needed...
-if [ -d sandbox3/devx/usr/X11R7/include/xorg ];then
- [ ! -e sandbox3/devx/usr/include/xorg ] && ln -s ../X11/include/xorg sandbox3/devx/usr/include/xorg
-fi
-
-#100622 remove overhead of this script running every bootup...
-mkdir -p sandbox3/devx/etc/profile.d
-rm -f sandbox3/devx/etc/profile.d/pkgconfig* 2>/dev/null
-PKG_CONFIG_PATH="`find sandbox3/devx/usr/lib sandbox3/devx/usr/X11R7/lib sandbox3/devx/opt sandbox3/devx/usr/local/lib -type d -name pkgconfig | sed -e 's%sandbox3/devx%%' | tr '\n' ':'`"
-echo "export PKG_CONFIG_PATH='${PKG_CONFIG_PATH}'" > sandbox3/devx/etc/profile.d/pkgconfig
-
-#maybe stray /install dir from slackware pkgs...
-rm -rf sandbox3/devx/install 2>/dev/null
-[ -f sandbox3/devx/pet.specs ] && rm -f sandbox3/devx/pet.specs #w478
-#another slackware hack 131124
-[ -x sandbox3/devx/usr/bin/strings-GNU ] && mv sandbox3/devx/usr/bin/strings-GNU sandbox3/devx/usr/bin/strings
-sync
-
-#110429 see above, think want glibc scsi headers in usr/include/scsi...
-if [ -d sandbox3/devx/usr/include/scsi-GLIBC ];then
- #probably have kernel scsi headers in usr/include/scsi, fix...
- cp -a -f sandbox3/devx/usr/include/scsi-GLIBC/* sandbox3/devx/usr/include/scsi/
-fi
-
-# 151019 - delete duplicate symlinks
-echo "deleting duplicate symlinks"
-find sandbox3/devx -type l |
-while read ONESYMLINK
-do
-  # if the symlink exists in sandbox3/rootfs-complete we delete it
- ESYMLINK=$(echo "$ONESYMLINK" | sed 's%devx%rootfs-complete%')
- [ -h "$ESYMLINK" ] && echo -n "deleted $ONESYMLINK " && rm -f "$ONESYMLINK"
-done
-
-sync
-echo "cleaning out whiteouts"
-find sandbox3/devx -name '.wh*' -delete
-
-echo "Now creating ${DEVXSFS} ..."
-${MKSQUASHFS} sandbox3/devx ./${WOOF_OUTPUT}/${DEVXSFS} ${SFSCOMP} #100911 110713
-sync
-chmod 644 ./${WOOF_OUTPUT}/${DEVXSFS}
-CUR_DIR="$PWD"
-cd ./${WOOF_OUTPUT}
-echo -n "$IDSTRING" >> ${DEVXSFS} #100911 16-byte id-string appended to file.
-md5sum ${DEVXSFS} > ${DEVXSFS}.md5.txt #100911
-cd "$CUR_DIR"
-sync
-echo "...done"
-
-echo
-echo "Script finished."
-echo -n "Press ENTER key to exit: "
-read yeahgetout
 ###END###

@@ -1,12 +1,7 @@
 #!/bin/bash
 # assume squashfs 4.0
 
-rox=rox
-losetup='losetup-FULL'
-
-. /etc/rc.d/PUPSTATE
 . /etc/DISTRO_SPECS
-SFSLIST="${ADRV##*/} ${YDRV##*/} ${FDRV##*/} ${ZDRV##*/} ${DISTRO_PUPPYSFS} ${DISTRO_ADRVSFS} ${DISTRO_YDRVSFS} ${DISTRO_ZDRVSFS} ${DISTRO_FDRVSFS}"
 
 export TEXTDOMAIN=filemnt
 export OUTPUT_CHARSET=UTF-8
@@ -14,14 +9,10 @@ export OUTPUT_CHARSET=UTF-8
 
 imgFile="$1"
 [ ! -f "$imgFile" ] && echo "No regular file: $imgFile" && exit 1
+imgFileBASE=${imgFile##*/} ## imgFileBASE="`basename "$imgFile"`" #BK
+[ "$(dirname "$imgFile")" = "." ] && imgFile=$(pwd)/${imgFileBASE}
 
-case $imgFile in
-   /*) true                          ;; #full path
-  ./*) imgFile=${PWD}/${imgFile##*/} ;; ## imgFile="`pwd`/`echo $imgFile |sed 's/^\.//'`"
-    *) imgFile=${PWD}/${imgFile}     ;;
-esac
-
-#120525 may need to replace with /mnt/home...
+# may need to replace with /mnt/home...
 HOMELINK="`readlink /mnt/home`"
 case $HOMELINK in *initrd*)
   imgFile="`echo -n "$imgFile" | sed -e "s%${HOMELINK}%/mnt/home%"`"
@@ -29,62 +20,42 @@ case $HOMELINK in *initrd*)
 esac
 
 #ex: /mnt/home/kernel_src-3.0.7-patched.sfs becomes /mnt/+mnt+home+kernel_src-3.0.7-patched.sfs
-MntPt='/mnt/'"`echo "$imgFile" |sed "s#^\.##g" |sed "s#/#+#g" | tr ' ' '_'`" # SFR, added 'tr'
+MOUNTPOINT='/mnt/'"`echo "$imgFile" |sed "s#^\.##g" |sed "s#/#+#g" | tr ' ' '_'`" # SFR, added 'tr'
+# BK is it already mounted?
+MNTEDLOOP="$(cat /proc/mounts | grep -F " $MOUNTPOINT " | cut -f 1 -d ' ')"
+[ ! -z $MNTEDLOOP ] && MNTEDLOOP=$(echo "$MNTEDLOOP" | sed 's|/dev/loop/|/dev/loop|') 
 
-#130223 BK is it already mounted?
-MNTEDLOOP="$(cat /proc/mounts | grep -F "$MntPt" | cut -f 1 -d ' ')"
-
-imgFileBASE=${imgFile##*/} ## imgFileBASE="`basename "$imgFile"`" #BK
-imgFileDEV_INODE="`stat -L -c "%d_%i" "$imgFile"`" || exit #120220
-
-if [ "$MNTEDLOOP" = "" ];then #not mounted on $MntPt
-
-  #BK check if already mounted elsewhere...
-  if [ "`echo "$SFSLIST" | grep "$imgFileBASE"`" != "" ] ; then
-   for ONELOOP in `mount | grep '^/dev/loop' | cut -f 1 -d ' ' | tr '\n' ' '`
-   do
-    MNTDIMG_MNT_PT="`mount | grep "^$ONELOOP" | cut -f 3 -d ' '`"   #120220...
-    MNTDIMG="`${losetup} $ONELOOP | cut -f 2 -d '(' | cut -f 1 -d ')'`"
-    MNTDIMG_DEV_INODE="`stat -L -c "%d_%i" "$MNTDIMG"`"             #120220
-    #not perfect, but paths may be symlinks...
-    if [ "$MNTDIMG_DEV_INODE" = "$imgFileDEV_INODE" ];then          #120220...
-      /usr/lib/gtkdialog/box_ok "$(gettext 'Puppy mount')" error "$(eval_gettext "Sorry \$imgFile is already mounted and in-use by Puppy on \$MNTDIMG_MNT_PT from \$MNTDIMG")"    #120220 121105 add gettext.
-      exit 1
-    fi
-   done
-  fi
+if [ "$MNTEDLOOP" = "" ];then #not mounted on $MOUNTPOINT
 
   Ext=${imgFile##*.} #get file extension   ## Ext=`echo "$imgFile" |sed 's/^.*\.//'`
   Ext=${Ext,,}       #convert to lowercase ## Ext=`echo $Ext | tr [:upper:] [:lower:]`
-  Type=${Ext}        #file extension is the mount type/filesystem
- 
-  case ${Ext} in           #exceptions
-    2fs) Type='ext2'     ;;
-    3fs) Type='ext3'     ;;
-    4fs) Type='ext4'     ;;
+  case ${Ext} in
+    2fs) Type='ext2'     ; check_luks=yes ;;
+    3fs) Type='ext3'     ; check_luks=yes ;;
+    4fs) Type='ext4'     ; check_luks=yes ;;
     sfs) Type='squashfs' ;;
     iso) Type='iso'      ;;
-    *)
-      info=$(file -b "$imgFile")
-      echo -en "\n${info}\n"
-      case $info in
-         *DOS*)  Type='msdos' ;;
-         *FAT*)  Type='vfat'  ;;
-         *NTFS*) Type='ntfs'  ;;
-         *9660*) Type='iso'   ;;
-         *UDF*)  Type='iso'   ;;
-         *ext2*) Type='ext2'  ;;
-         *ext3*) Type='ext3'  ;;
-         *ext4*) Type='ext4'  ;;
-         *Squashfs*) Type='squashfs' ;;
-         *) echo "Unrecognized format" ; exit 1;;
-      esac
-      ;;
+    wim) Type='wim'      ;;
+    *) Type=$(blkid "$imgFile" | grep -o ' TYPE=.*' | cut -f 2 -d '"') ;;
   esac
+  if [ "$Type" = "" ] ; then
+    echo "Unrecognized format"
+    exit 1
+  fi
+  if [ "$Type" = "wim" ] ; then
+    if ! which wimmountrw ; then
+      echo "You must install wimlib - https://wimlib.net/"
+      exit 1
+    fi
+  fi
+  echo -e "\nType=${Type}\n"
+
+  if [ "$check_luks" = "yes" ] ; then
+    Type2=$(blkid "$imgFile" | grep -o ' TYPE=.*' | cut -f 2 -d '"')
+    [ "$Type2" = "crypto_LUKS" ] && Type="$Type2"
+  fi
 
   if [ "$Type" = "squashfs" ];then
-    #120525 take into account shinobar's load-on-the-fly pet...
-    if which sfs_load >/dev/null ; then
       . /etc/rc.d/BOOTCONFIG # 140609 add contextual Install/Uninstall button
       echo $EXTRASFSLIST > /tmp/sfsloaded
       if [ "`grep $imgFileBASE /tmp/sfsloaded`" != "" ];then
@@ -100,89 +71,115 @@ if [ "$MNTEDLOOP" = "" ];then #not mounted on $MntPt
       RETVAL=$?
       [ $RETVAL -eq 1 ] && exec sfs_load "$1"
       [ $RETVAL -ne 0 ] && exit #120527
-    fi
   fi
 
   echo -e "\n ### Mount: $imgFile\n"
-  mkdir -p "$MntPt"
+  mkdir -p "$MOUNTPOINT"
 
   #111110 handle encrypted save-files...
   CRYPTO=""; Err=0
-  DEVLOOP="`${losetup} -f`" #next free loop device.
-  case $Type in
-   ext2|ext3|ext4)
+  DEVLOOP="`losetup -f`" #next free loop device.
+  case $Type in ext2|ext3|ext4)
     case $imgFileBASE in
      *_cryptx*) #light encryption.
-      CRYPTO='light'
+      CRYPTO='-e 1'
       modprobe cryptoloop
-      rxvt -geometry 25x3 -title "$(gettext 'Enter password')" -bg orange -e ${losetup} -E 1 $DEVLOOP $imgFile
-      Err=$?
      ;;
      *_crypt*) #heavy encryption.
-      CRYPTO='heavy'
+      CRYPTO='-e aes'
       modprobe cryptoloop
       modprobe aes_generic 2>/dev/null #v407 aes name change.
       modprobe aes 2>/dev/null #for older kernel <2.6.25
       modprobe crypto_blkcipher 2>/dev/null #v407 blkcipher name change.
       modprobe blkcipher 2>/dev/null #old kernel.
       modprobe cbc
-      MYPASS="`pupdialog --title "$(gettext 'Password required')" --stdout --inputbox "$(gettext 'Password required to open') ${imgFileBASE}:" 0 0`"
-      Err=$?
-      if [ $Err -eq 0 ];then
-       echo "$MYPASS" | ${losetup} -p 0 -e aes $DEVLOOP $imgFile
-       Err=$?
-      fi
      ;;
     esac
-   ;;
   esac
 
   if [ "$CRYPTO" ];then
-    [ $Err -eq 0 ] && mount -t $Type $DEVLOOP "$MntPt"
-    Err=$?
+    Err=1
+    MYPASS="$(/usr/lib/gtkdialog/box_passwd "$(gettext 'Password required')" "$(gettext 'Password required to open') ${imgFileBASE}")"
+    if [ $? -eq 0 ] ; then
+      echo "$MYPASS" | losetup-222 -p 0 ${CRYPTO} $DEVLOOP "$imgFile"
+      if [ $? -eq 0 ] ; then
+        mount -t $Type $DEVLOOP "$MOUNTPOINT" && Err=0
+      fi
+    fi
+
   else #normal, no encryption... 130204 mavrothal: fix spaces in imgFile...
     case $Type in 
-      iso)
-        mount -t udf -o loop "$imgFile" "$MntPt"
-        Err=$?
-        if [ $Err -ne 0 ] ; then
-          mount -t iso9660 -o loop "$imgFile" "$MntPt"
-          Err=$?
-        fi
-        ;;
-      *)
-        mount -t $Type -o loop "$imgFile" "$MntPt"
-        Err=$?
-        ;;
+      iso|udf|iso9660) #iso img might have more than 1 fs. prefer udf..
+         mount -t udf -o loop "$imgFile" "$MOUNTPOINT" || mount -t iso9660 -o loop "$imgFile" "$MOUNTPOINT"
+         ;;
+      exfat)
+         mount -t exfat -o loop "$imgFile" "$MOUNTPOINT" || {
+            # musl static mount.exfat fails
+            # have to set loop device manually...
+            losetup $DEVLOOP "$imgFile"
+            mount.exfat-fuse $DEVLOOP "$MOUNTPOINT"
+         }
+         ;;
+      crypto_LUKS) mount.crypto_LUKS file "$imgFile" "$MOUNTPOINT" ;; # /sbin/mount.crypto_LUKS
+      ntfs)
+         losetup $DEVLOOP "$imgFile"
+         mount -t ntfs $DEVLOOP "$MOUNTPOINT"
+         ;;
+      wim)
+         wimmountrw "$imgFile" "$MOUNTPOINT" || \
+           wimmount "$imgFile" "$MOUNTPOINT"
+         ;;
+      *) 
+         mount -t $Type -o loop,rw "$imgFile" "$MOUNTPOINT"
+         ;;
     esac
+    Err=$?
   fi
 
   if [ $Err -eq 0 ] ;then
     /usr/lib/gtkdialog/box_splash -timeout 6 -bg green -text "`eval_gettext \"Click \\\$imgFileBASE icon again to unmount it\"`" &
-    ${rox} "$MntPt" &
+    grep -q -m1 -i 'rox' /usr/local/bin/defaultfilemanager || NEWWINDOW=-n
+    defaultfilemanager $NEWWINDOW "$MOUNTPOINT" &
   else
-    [ "$CRYPTO" ] && ${losetup} -d $DEVLOOP
-    rm -rf "$MntPt" #121203
+    [ "$CRYPTO" ] && losetup-222 -d $DEVLOOP
+    rm -rf "$MOUNTPOINT" #121203
   fi
 
+
+#### mounted ####
 else
 
+  mntinfo=$(mount | grep " $MOUNTPOINT ")
   ## file's mounted, unmount it
-  ${rox} -D "$MntPt" #BK
+  defaultfilemanager -D "$MOUNTPOINT" # -D = rox ...
   echo -e "\n ### UnMount: $imgFile\n"
-  umount "$MntPt"
+
+  case "$mntinfo" in "/dev/mapper/luksfile"*)
+      . /sbin/umount.crypto_LUKS 
+      luks_umount "$mntinfo"
+      ;;
+    *)
+      # better free loop device before calling umount...
+      losetup -d ${MNTEDLOOP}
+      case "$imgFile" in
+         *.[w-W][i-I][m-M]) wimunmount --commit "$MOUNTPOINT" ;;
+         *) umount "$MOUNTPOINT" ;;
+      esac
+      ;;
+  esac
+
   Err=$?
   sync
   sleep 1
   if [ $Err -eq 0 ] ; then
-    rm -rf "$MntPt"
+    rm -rf "$MOUNTPOINT"
     /usr/lib/gtkdialog/box_splash -timeout 3 -bg green -text "$(gettext 'Unmounted') $imgFileBASE" #BK
   fi
 fi
 
 ## ERROR: mount/unmount
 if [ $Err -ne 0 ] ;then
-  /usr/lib/gtkdialog/box_splash -timeout 3 -bg green -text "$(gettext 'Failed mounting or unmounting') $imgFileBASE" #BK
+  /usr/lib/gtkdialog/box_splash -timeout 3 -bg red -text "$(gettext 'Failed mounting or unmounting') $imgFileBASE" #BK
 fi
 
 ###END###

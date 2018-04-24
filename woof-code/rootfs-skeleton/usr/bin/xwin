@@ -3,6 +3,16 @@
 #2007 Lesser GPL licence v2 (http://www.fsf.org/licensing/licenses/lgpl.html)
 # called by /root/.profile
 # moved sync code for console/xorg kbd layout from xwin to /usr/sbin/input-wizard.
+#
+# $DISTRO_XORG_AUTO         : see /etc/DISTRO_SPECS.
+# /var/local/xwin_no_xorg_auto_flag:
+#   the presence of this file triggers xorg wizard (cli)
+#   if /etc/X11/xorg.conf does not exist
+#
+# /var/local/xwin_disable_xerrs_log_flag
+#   create this file to silence xerrs.log
+#   some buggy / incompatible apps flood xerrs.log mercilessly
+
 
 [ -z $DISPLAY ] || exit
 
@@ -14,7 +24,15 @@ if ! which Xorg &>/dev/null ; then
 	exit 1
 fi
 
-[ -h /usr/bin/X ] || ln -snf Xorg /usr/bin/X
+if [ -f /var/local/xwin_disable_xerrs_log_flag ] ; then
+	LOGFILE_X='/dev/null'
+else
+	LOGFILE_X='/tmp/xerrs.log'
+fi
+
+if [ -h /usr/bin/X ] ; then
+	ln -snf Xorg /usr/bin/X
+fi
 
 if [ "$1" = "-default" ] ; then
 	xorgwizard-automatic
@@ -29,8 +47,6 @@ cd ~/
 . /etc/DISTRO_SPECS # PUPMODE=current operating configuration,
 . /etc/rc.d/BOOTCONSTRAINED
 
-KERNELVER="`uname -r`" #w479
-
 # automatic network reconnect. refer /usr/sbin/hostname-set
 if [ -f /tmp/simple_network_setup/network_default_reconnect_required_flag ];then
  rm -f /tmp/simple_network_setup/network_default_reconnect_required_flag
@@ -39,73 +55,72 @@ if [ -f /tmp/simple_network_setup/network_default_reconnect_required_flag ];then
 fi
 
 # enables to start a specific w.m. from commandline...
+# this can also be an app that stars a desktop environment..
 [ $1 ] && echo -n "$1" > /etc/windowmanager # /root/.xinitrc uses this file.
-
-# rerwin: mouse improvements. update xorg.conf if mouse has changed...
-MOUSEDEV="`cat /etc/mousedevice`" #autodetected in rc.sysinit
-OLDMOUSEDEV="`cat /etc/oldmousedevice 2>/dev/null`" #set in rc.sysinit
-if [ ! "$OLDMOUSEDEV" = "$MOUSEDEV" ];then
- if [ ! "$OLDMOUSEDEV" = "nothing" ];then #"nothing" on first boot.
-  if [ -f /etc/X11/xorg.conf ];then
-   case `cat /etc/mousedevice | cut -c 1-4` in
-    "inpu") #"input/mice", usb
-     cat /etc/X11/xorg.conf | sed -e 's/\W\+Option\W\+"Protocol"\W\+"\(\(\w\+\/\w\+\)\|\(\w\+\)\)\W\+#mouse0protocol/	Option	    "Protocol" "IMPS\/2" #mouse0protocol/g' > /tmp/xorg.conf.tmp2
-     ;;
-    "ttyS") #ttyS0,1,2,3, serial
-     cat /etc/X11/xorg.conf | sed -e 's/\W\+Option\W\+"Protocol"\W\+"\(\(\w\+\/\w\+\)\|\(\w\+\)\)\W\+#mouse0protocol/	Option	    "Protocol" "Microsoft" #mouse0protocol/g' > /tmp/xorg.conf.tmp2
-     ;;
-    *)
-     cat /etc/X11/xorg.conf | sed -e 's/\W\+Option\W\+"Protocol"\W\+"\(\(\w\+\/\w\+\)\|\(\w\+\)\)\W\+#mouse0protocol/	Option	    "Protocol" "auto" #mouse0protocol/g' > /tmp/xorg.conf.tmp2
-     ;;
-   esac
-   sync
-   cp -f /tmp/xorg.conf.tmp2 /etc/X11/xorg.conf
-   rm -f /tmp/xorg.conf.tmp2
-  fi
- fi
- OLDMOUSEDEV="$MOUSEDEV" # old is now current mouse
- echo -n "$OLDMOUSEDEV" > /etc/oldmousedevice
+# 2nd param: app to be used as the desktop (rox,pcmanfm,etc) ... specially for jwm..
+if [ $2 ] ; then
+	echo -n "$2" > /etc/desktop_app
+	if which $2 &>/dev/null ; then
+		case $2 in
+			rox|roxfiler) fm=roxfiler ;;
+			pcmanfm) fm=pcmanfm ;;
+		esac
+		if [ "$fm" ] ; then
+			echo "#!/bin/sh
+	exec $fm \"\$@\"" > /usr/local/bin/defaultfilemanager
+		fi
+		chmod 755 /usr/local/bin/defaultfilemanager
+	fi
 fi
 
-# BK: k2.6.25.16 has serial mouse driver now a module 'sermouse'.
-[ "`grep 'ttyS' /etc/mousedevice`" != "" ] && modprobe sermouse > /dev/null 2>&1
-[ "`grep 'input/mice' /etc/mousedevice`" != "" ] && modprobe usbhid > /dev/null 2>&1
+# in some very strange situations this file might be empty
+[ ! -s /etc/X11/xorg.conf ] && rm -f /etc/X11/xorg.conf
 
-# ask about scrollwheel... DO NOT ASK, ASSUME YES...
-if [ ! -f /etc/mousebuttons ];then
-  echo -n "5" > /etc/mousebuttons
-  echo -e "The file /etc/mousebuttons has been created, with content \"5\"."
-  if [ -f /etc/X11/xorg.conf ];then
-   cat /etc/X11/xorg.conf | tr -s '#' | sed -e 's/#Option\W\+"ZAxisMapping"\W\+"4 5"/Option      "ZAxisMapping" "4 5"/g' > /tmp/xorg.conf.tmp
-   sync
-   cp -f /tmp/xorg.conf.tmp /etc/X11/xorg.conf
-  fi
+if [ ! -f /var/local/xorg_udev ] ; then
+	# rerwin: mouse improvements. update xorg.conf if mouse has changed...
+	MOUSEDEV="`cat /etc/mousedevice`" #autodetected in rc.sysinit
+	OLDMOUSEDEV="`cat /etc/oldmousedevice 2>/dev/null`" #set in rc.sysinit
+	if [ ! "$OLDMOUSEDEV" = "$MOUSEDEV" ];then
+	  if [ -f /etc/X11/xorg.conf ];then
+	   case `echo "$MOUSEDEV" | cut -c 1-4` in
+	     "inpu") PROTOCOL='IMPS/2' ;;    #"input/mice", usb ;;
+	     "ttyS") PROTOCOL='Microsoft' ;; #ttyS0,1,2,3, serial
+	     *) PROTOCOL='auto' ;;
+	   esac
+	   sed -i "s%.*#mouse0protocol%	Option      \"Protocol\" \"${PROTOCOL}\" #mouse0protocol%" /etc/X11/xorg.conf
+	 fi
+	 echo -n "$MOUSEDEV" > /etc/oldmousedevice #record oldmousedevice
+	fi
+	# BK: k2.6.25.16 has serial mouse driver now a module 'sermouse'.
+	[ "`grep 'ttyS' /etc/mousedevice`" != "" ] && modprobe sermouse &>/dev/null
+	[ "`grep 'input/mice' /etc/mousedevice`" != "" ] && modprobe usbhid &>/dev/null
 fi
 
 # Puppy Xorg Video Wizard...
-if [ -f /etc/X11/xorg.conf ];then
+# boot param pfix=xorgwizard
+if [ -f /tmp/xwin_xorgwizard_cli ] ; then 
+  rm -f /tmp/xwin_xorgwizard_cli
+  xorgwizard-cli
+  xorgwizard-automatic
+# normal operation
+elif [ -f /etc/X11/xorg.conf ];then
   USING_DRIVER=$(grep '#card0driver' /etc/X11/xorg.conf | grep -v '#.*Driver')
+  SPECVESA="`find /usr/lib /usr/X11R7/lib /usr/lib64 -noleaf -mount -type f -name vesa_drv.so 2>/dev/null | grep -v 'backup' | grep -m1 'vesa_drv.so'`" #1201031 bug fix.
   if [ "$USING_DRIVER" ] ; then #find location of video chip drivers...
-    SPECVESA="`find /usr/lib /usr/X11R7/lib /usr/lib64 -noleaf -mount -type f -name vesa_drv.so 2>/dev/null | grep -v 'backup' | grep -m1 'vesa_drv.so'`" #1201031 bug fix.
-  fi
-  if [ "$SPECVESA" ];then
-   #find out if xorg video drvr exists, else use xorg vesa...
-   DRVRSPATH="`dirname $SPECVESA`"
    #get current driver...
-   DRVRCURR="`grep '#card0driver' /etc/X11/xorg.conf | cut -f 2 -d '"'`"
-   if [ "$DRVRCURR" ];then
-    #one driver is mtx_drv.o hmmm, okay do it this way (pakt)...
-    ls -1 $DRVRSPATH/* | grep $DRVRCURR >/dev/null
-    if [ $? -ne 0 ];then
-     APATTERN='s|.*#card0driver|	Driver      "vesa" #card0driver|'
-     sed -i "$APATTERN" /etc/X11/xorg.conf
-    fi
+   DRVRSPATH="`dirname $SPECVESA`"
+   #one driver is mtx_drv.o hmmm, okay do it this way (pakt)...
+   CURRENT_DRIVER="`grep '#card0driver' /etc/X11/xorg.conf | cut -f 2 -d '"'`"
+   if [ "$CURRENT_DRIVER" ];then
+    ls -1 $DRVRSPATH/* | grep $CURRENT_DRIVER >/dev/null
+    #driver file not found, comment out
+    [ $? -ne 0 ] && sed -i 's|.*#card0driver|#	Driver      "vesa" #card0driver|' /etc/X11/xorg.conf
    fi
   fi
 else
   #* /etc/X11/xorg.conf does not exist *
   rm -f /root/.XLOADED 2> /dev/null #not necessary, precaution.
-  if [ "$DISTRO_XORG_AUTO" != "yes" ] ; then #see /etc/DISTRO_SPECS.
+  if [ "$DISTRO_XORG_AUTO" != "yes" -o -f /var/local/xwin_no_xorg_auto_flag ] ; then
     xorgwizard-cli # 1st dialog offers to use Xorg vesa...
   fi
   xorgwizard-automatic
@@ -138,42 +153,16 @@ $(gettext 'If undecided, wait 30 seconds for normal startup of X...')" 0 0
  fi
 fi
 
-#bad hack, i somehow get /dev/mouse pointing to psaux when chose a serial mouse, don't know why...
-[ "`grep 'ttyS' /etc/mousedevice`" != "" ] && ln -snf $MOUSEDEV /dev/mouse
+# this might cause side effects.. only use with xorg udev stuff
+# see http://murga-linux.com/puppy/viewtopic.php?t=108017&start=345
+if [ -f /var/local/xorg_udev ] ; then
+	# When udev is used one has to tell udev to reload input-related configuration
+	udevadm trigger --subsystem-match=input --action=change
+	udevadm settle
+fi
 
-# attempt fix keyboard layout not getting updated...
-[ ! -f /etc/keymap ] && echo -n "us" > /etc/keymap #maybe lupu needs this.
-[ ! -f /etc/keymap_previous ] && echo -n "us" > /etc/keymap_previous
-KEYMAPNOW="`cat /etc/keymap`"
-KEYMAPPREV="`cat /etc/keymap_previous`"
-if [ "$KEYMAPNOW" != "$KEYMAPPREV" ];then
-  cp -f /etc/keymap /etc/keymap_previous
-  # make sure xorg keyboard layout matches console setting (same code in xorgwizard)...
-  xCONSKEYMAP="`cat /etc/keymap | cut -c 1-2`"
-  [ "$xCONSKEYMAP" = "" ] && xCONSKEYMAP="us"
-  case $xCONSKEYMAP in
-   az) XKEYMAP="fr" ;;     #azerty
-   wa) XKEYMAP="fr" ;;     #wangbe
-   dv) XKEYMAP="dvorak" ;; #dvorak
-   cr) XKEYMAP="cz" ;;     #croat
-   sl) XKEYMAP="si" ;;     #slovene
-   sv) XKEYMAP="se" ;;     #sweden
-   uk) XKEYMAP="gb" ;;     #united kingdom
-   *)  XKEYMAP="$xCONSKEYMAP" ;;
-  esac
-  if [ -d /etc/X11/xkb/symbols/pc ];then # fallback...
-   if [ ! -f /etc/X11/xkb/symbols/pc/${XKEYMAP} ];then
-    if [ ! -f /etc/X11/xkb/symbols/${XKEYMAP} ];then
-     echo "$(gettext 'ERROR: Console keyboard') `cat /etc/keymap` $(gettext 'no matching Xorg layout. PLEASE REPORT TO BK')"
-     XKEYMAP='us'
-    fi
-   fi
-  fi
-  currXKEYMAP="`grep '#xkeymap0' /etc/X11/xorg.conf | tr '\t' ' ' | tr -s ' ' | cut -f 4 -d '"'`" #'geany fix
-  if [ "$currXKEYMAP" != "$XKEYMAP" ];then
-   skPATTERN="s%.*#xkeymap0%	Option      \"XkbLayout\" \"${XKEYMAP}\" #xkeymap0%"
-   sed -i -e "${skPATTERN}" /etc/X11/xorg.conf
-  fi
+if which pcmanfm &>/dev/null ; then
+	rm -f $HOME/.cache/menu-cached* $HOME/.cache/pcmanfm* $HOME/.cache/menus/*
 fi
 
 #-- finally, start X... --
@@ -182,9 +171,15 @@ fi
 echo -n "true" > /root/.XLOADED
 echo "$(gettext 'Starting X, specs in /etc/X11/xorg.conf, startup apps /root/.xinitrc...')"
 #-----------------------------------------------------------------------
-/usr/bin/xinit /root/.xinitrc -- -br -nolisten tcp > /tmp/xerrs.log 2>&1
+if [ "$LOGFILE_X" = "/dev/null" ] ; then
+	echo 'logging of X errors is disabled' > /tmp/xerrs.log
+	echo 'remove /var/local/xwin_disable_xerrs_log_flag to enable it, then restart X' >> /tmp/xerrs.log
+fi
+/usr/bin/xinit /root/.xinitrc -- -br -nolisten tcp > $LOGFILE_X 2>&1
 #-----------------------------------------------------------------------
 echo -n "false" > /root/.XLOADED #see note above.
+rm -f /tmp/pup_event_frontend_display
+
 sleep 0.5
 # ...if PC hung, run xorgwizard at next bootup (see further up).
 

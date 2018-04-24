@@ -41,7 +41,8 @@ fi
 #search for installed pkgs with descriptions...
 
 #search .desktop files...
-PKGINFO1="`ls -1 /usr/share/applications | sed -e 's%^%/usr/share/applications/%' | xargs cat - | grep '^Name=' | cut -f 2 -d '='`"
+#  -e '\% %d' = ignore .desktop files with spaces, otherwise everything fails..
+PKGINFO1="`ls -1 /usr/share/applications | sed -e 's%^%/usr/share/applications/%' -e '\% %d' | xargs cat - | grep '^Name=' | cut -f 2 -d '='`"
 #...normal format of each entry is 'name description', ex: 'Geany text editor'.
 
 EXCLLISTsd=" 0rootfs_skeleton autologin bootflash burniso2cd cd/dvd check configure desktop format network pupdvdtool wallpaper pbackup pburn pcdripper pdict pdisk pdvdrsab pmetatagger pschedule pstopwatch prename pprocess pmirror pfind pcdripper pmount puppy pupctorrent pupscan pupx pwireless set text "

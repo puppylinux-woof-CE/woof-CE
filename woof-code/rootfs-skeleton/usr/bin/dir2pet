@@ -76,12 +76,17 @@ Advanced:
 
 The following options are only useful with the "-s" option.
 For best results, use as many as possible:
-' #160803
-    echo "Compression: (use only one, default if none chosen is \"$comp\")" #160803
-    echo '  -x	use xz (high) compression
+
+Compression: (use only one, default if none chosen is \"$comp\")
+  -x	use xz (high) compression
   -g	use gz (low) compression
 
 Non-compulsory:
+  -n                    no distro information
+  -i="<repo> [version]" override default distro info
+                        -i="noarch"
+                        -i="debian stretch"
+                        -i=""
   -w="<description>" quoted description of the application
   -d=<+deps>	     comma-delimited dependencies, with prepended
 		     "+" sign
@@ -119,6 +124,8 @@ while [ $# -gt 0 ]; do #160803
         -p=*) directory=`echo $1|cut -d '=' -f2`;;
         -C|--change-compression-default) set_comp;; #160919
         [a-zA-Z]*)dir=$1;; #160803
+        -n) nodistro=1 ;;
+        -i=*) distro_info=`echo $1|cut -d '=' -f2`;;
         -h|--help|"") usage; exit;;
         *) echo "Invalid argument: $1"; usage; exit;;
     esac
@@ -130,6 +137,7 @@ ISDIR=$dir
 
 if [ ! -d "$dir" ];then
  usage
+ [ "$dir" ] && echo 'Error: Directory "'${dir}'" not found in '`pwd`
  exit
 fi
 
@@ -153,25 +161,26 @@ if [ -f $DIRPKG/$BASEPKG/pet.specs ];then #160803
  #new: pkgname|nameonly|version|pkgrelease|category|size|path|fullfilename|dependencies|description|
  #optionally on the end: compileddistro|compiledrelease|repo| (fields 11,12,13)
  PETSPECS="`cat $DIRPKG/$BASEPKG/pet.specs | head -n 1`" #160803
- DB_pkgname="`echo -n "$PETSPECS" | cut -f 1 -d '|'`"
- DB_nameonly="`echo -n "$PETSPECS" | cut -f 2 -d '|'`"
+ IFS="|" read -r F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 <<< "$PETSPECS"
+ DB_pkgname="$F1"
+ DB_nameonly="$F2"
  NAMEONLY="$DB_nameonly"
- DB_version="`echo -n "$PETSPECS" | cut -f 3 -d '|'`"
- DB_pkgrelease="`echo -n "$PETSPECS" | cut -f 4 -d '|'`"
- DB_category="`echo -n "$PETSPECS" | cut -f 5 -d '|'`"
+ DB_version="$F3"
+ DB_pkgrelease="$F4"
+ DB_category="$F5"
  PUPCATEGORY="$DB_category"
- DB_size="`echo -n "$PETSPECS" | cut -f 6 -d '|'`"
- DB_path="`echo -n "$PETSPECS" | cut -f 7 -d '|'`"
+ DB_size="$F6"
+ DB_path="$F7"
  PUPPATH="$DB_path" #100201
- DB_fullfilename="`echo -n "$PETSPECS" | cut -f 8 -d '|'`"
- DB_dependencies="`echo -n "$PETSPECS" | cut -f 9 -d '|'`"
+ DB_fullfilename="$F8"
+ DB_dependencies="$F9"
  PUPOFFICIALDEPS="$DB_dependencies"
- DB_description="`echo -n "$PETSPECS" | cut -f 10 -d '|'`"
+ DB_description="$F10"
  PUPMENUDESCR="$DB_description"
- DB_compileddistro="`echo -n "$PETSPECS" | cut -f 11 -d '|'`"
- DB_compiledrelease="`echo -n "$PETSPECS" | cut -f 12 -d '|'`"
+ DB_compileddistro="$F11"
+ DB_compiledrelease="$F12"
  ARCHDEPENDENT="${DB_compileddistro}|${DB_compiledrelease}"
- DB_repo="`echo -n "$PETSPECS" | cut -f 13 -d '|'`"
+ DB_repo="$F13"
  DEFREPO="$DB_repo"
 fi
 
@@ -426,7 +435,8 @@ the main package
      [ -f $ONEEXEC ] && [ "`file $ONEEXEC | grep ' ELF '`" != "" ] && ARCHINDEPENDENT='no'
     done
     [ "`find $DIRPKG/$BASEPKG -maxdepth 6 -type f -name '*.a' -o -type f -name 'lib*.so*' -o -type f -name '*.la'`" != "" ] && ARCHINDEPENDENT='no' #100303
-    #[ "`echo "${BASEPKG}" | grep '_DEV'`" != "" ] && ARCHINDEPENDENT='no' #100303
+    # if it's a _DEV pkg.. it can't be ARCHINDEPENDENT
+    case "${BASEPKG}" in *"_DEV"*) ARCHINDEPENDENT='no' ;; esac
     [ "$ARCHINDEPENDENT" = "yes" ] && ARCHDEPENDENT='no'
 
     echo "Press ENTER key to bring up a GUI window that will help you to create"
@@ -464,13 +474,28 @@ else
     [ -z "${PUPMENUDESCR}" ] && PUPMENUDESCR="No description provided"
     xPATTERN="s%${NAMEONLY}%%"
     VERSION="`echo -n "$BASEPKG" | sed -e "$xPATTERN" -e 's%^\\-%%'`"
-    ARCHINDEPENDENT='yes'
-    for ONEEXEC in `find $DIRPKG/$BASEPKG -maxdepth 6 -type f -perm -o+x`
-    do
-     [ -f $ONEEXEC ] && [ "`file $ONEEXEC | grep ' ELF '`" != "" ] && ARCHINDEPENDENT='no'
-    done
-    [ "`find $DIRPKG/$BASEPKG -maxdepth 6 -type f -name '*.a' -o -type f -name 'lib*.so*' -o -type f -name '*.la'`" != "" ] && ARCHINDEPENDENT='no'
-    [ "$ARCHINDEPENDENT" = "no" ] && COMPAT=$DISTRO_BINARY_COMPAT V=$DISTRO_COMPAT_VERSION
+	if [ "$nodistro" ] ; then
+		COMPAT=""
+		V=""
+	elif [ "$distro_info" ] ; then
+		read COMPAT V <<EOF
+$distro_info
+EOF
+	else
+		ARCHINDEPENDENT='yes'
+		for ONEEXEC in `find $DIRPKG/$BASEPKG -maxdepth 6 -type f -perm -o+x`
+		do
+			[ -f $ONEEXEC ] && [ "`file $ONEEXEC | grep ' ELF '`" != "" ] && ARCHINDEPENDENT='no'
+		done
+		# if it's a _DEV pkg.. it can't be ARCHINDEPENDENT
+		case "${BASEPKG}" in *"_DEV"*) ARCHINDEPENDENT='no' ;; esac
+		[ "`find $DIRPKG/$BASEPKG -maxdepth 6 -type f -name '*.a' -o -type f -name 'lib*.so*' -o -type f -name '*.la'`" != "" ] && ARCHINDEPENDENT='no'
+		if [ "$ARCHINDEPENDENT" = "no" ] ; then
+			COMPAT=$DISTRO_BINARY_COMPAT
+			V=$DISTRO_COMPAT_VERSION
+		fi
+	fi
+	#echo $COMPAT ; echo $V ; exit #debug
     echo "$BASEPKG|${NAMEONLY}|$VERSION||$TOPCAT|$SIZEK||${BASEPKG}.pet|$deps|$PUPMENUDESCR|$COMPAT|$V||" > /tmp/petspec_db_entry
 fi
 

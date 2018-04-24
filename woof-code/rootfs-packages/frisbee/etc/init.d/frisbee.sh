@@ -16,6 +16,8 @@
 #140826 Moved common wpa_supplelment code into internal procedure.
 #150410 1.3.4 for stop, leave dhcpcd running for other uses (e.g., samba) -- 'stop' no longer used by frisbee_mode_disable.
 #160212 rcrsn51: Remove unnecessary 'stop' case because it impacts shutdown by disconnecting networks before samba terminates -- dhcpcd and wpa_supplicant are terminated as part of shutdown.
+#170612 verify wifi country of regulation matches user specified country.
+#180203 repeat iwconfig for slow-loading wifi modules (kernels 4+).
 
 grep -q '^frisbee_mode=1' /etc/frisbee/frisbee.conf || exit
 
@@ -63,9 +65,17 @@ case "$1" in
 			[ -f /etc/dhcpcd_state_notify ] && rm -f /etc/dhcpcd_state_notify
 		fi
 
-		sleep 5
+		[ -x /usr/sbin/connectwizard_crd ] && connectwizard_crd >&2 #170612
 
-		WIFACES="$(get_ifs_wireless)" #140824...
+		WAITCNT=0; WAITMAX=30 #180203...
+		while true; do
+			WIFACES="$(get_ifs_wireless)" || [ $WAITCNT -ge $WAITMAX ] && break
+			sleep 1
+			WAITCNT=$(expr $WAITCNT + 1)
+		done
+		[ $WAITCNT -gt 0 ] && echo "frisbee.sh: waited for ethernet interfaces: seconds = ${WAITCNT}" >&2 #180203 end
+
+#		WIFACES="$(get_ifs_wireless)" #140824...
 		if [ "$WIFACES" ];then
 			[ -d /tmp/.network_tray ] \
 			 && touch /tmp/.network_tray/use_wireless_control_menu_labels \

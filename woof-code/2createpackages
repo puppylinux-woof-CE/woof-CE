@@ -1,113 +1,79 @@
 #!/bin/bash
 #(c) Copyright Barry Kauler 2009.
-#grab binary ubuntu/debian/slackware packages and build puppy packages.
-#each binary package is expanded in sandbox2/ then copied as split pkgs
-#to packages-$DISTRO_FILE_PREFIX/, into the "generic name". Note that one generic
-#name can have one or more binary pkgs.
-#Note, DISTRO_FILE_PREFIX is specified in DISTRO_SPECS file.
-#100617 add support for slackware .txz pkgs.
-#100723 create /var/cache/woof/2createpackages_4_compat2pets-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}
-#100801 some common code extracted to support/inline_pet_get.
-#100820 replace /var/cache/woof path with /var/local/woof
-#110723 test dotted-version compare utility in path.
+# grab binary ubuntu/debian/slackware packages and build puppy packages.
+# each binary package is expanded in sandbox2/ then copied as split pkgs
+# to packages-$DISTRO_FILE_PREFIX/, into the "generic name". Note that one generic
+# name can have one or more binary pkgs.
+# Note, DISTRO_FILE_PREFIX is specified in DISTRO_SPECS file.
 #110820 support/findpkgs is new script to find all pkgs to be used in Puppy build. Major changes!
-#110823 fix finding compat PETs in wary.
 #110830 fix if 3rd field specifies multiple pet pkgs.
-#111204 do not use /var/local/woof, instead 'status' directory (better for running from different save-files).
 #111204 do not execute post-install script if FIXUPHACK has DISABLE_POST_INSTALL_SCRIPT=yes. (this existed before, but was broken)
 #111207 improve searching for menu icon.
 #111210 01micko: FIXUPHACK wasn't copied to packages/$(DISTRO_FILE_PREFIX}/${GENERICNAME}/
-#120316 problems with ubuntu multiarch. also see 120315 in 3builddistro.
-#120502 do not strip if a cross-build.
 #120515 build from "gentoo" binary tarballs (refer support/gentoo).
-#120517 export DISTRO_BINARY_COMPAT so can reference in FIXUPHACK scripts.
 #120628 fix Categories= assignment in .desktop files. see also usr/local/petget/installpkg.sh.
-#120719 support raspbian.
-#120720 raspbian wheezy has files in /lib/arm-linux-gnueabihf and /usr/lib/arm-linux-gnueabihf
-#120721 support ubuntu and debian arm multiarch.
 #120812 db category now allows optional subcategory (for which an icons exists in /usr/local/lib/X11/mini-icons).
 #120818 Categories management improved. pkg db now has category[;subcategory] (see 0setup), xdg enhanced (see /etc/xdg and /usr/share/desktop-directories), and generic icons for all subcategories (see /usr/local/lib/X11/mini-icons).
-#120909 support multiarch for /usr/bin.
 #121102 file DISTRO_SPECS has new variable DISTRO_DB_SUBNAME. ex: for 14.0-based slacko, DISTRO_DB_SUBNAME=slacko14
 #121119 above may fail, as DB_category field may not match that in .desktop file, so leave out that $tPATTERN match in $PUPHIERARCHY.
 #121120 if only one .desktop file, first check if a match in /usr/local/petget/categories.dat (see also installpkg.sh).
-#121122 trying a generic fix for this weird problem (based on solution by zul): http://www.murga-linux.com/puppy/viewtopic.php?t=81773
-#121123 ...revert 121122. my thinking was incredibly fuzzy. the problem is with a full-installation, the /usr/lib/i386-linux-gnu is getting changed from symlink to a directory.
-#130112 multiarch symlinks now optional. see also 3builddistro, /usr/local/petget/installpkg.sh.
 #130219 categories.dat format changed slightly. see also /usr/local/petget/installpkg.sh.
-#130313 arch linux is relocating many files to /usr, providing symlinks, very annoying.
-#130421 export DISTRO_FILE_PREFIX, i want this in FIXUPHACK.
-#130510 support multiarch for debian wheezy.
 
 export LANG=C #faster.
 
-. /etc/xdg/menus/hierarchy #w478 has PUPHIERARCHY variable.
+case $1 in
+	-h*)
+		echo " syntax:
+	$0 <pkg> - process specific pkg or 'generic name'
+	$0 <commands>
 
-. ./DISTRO_SPECS #has DISTRO_BINARY_COMPAT, DISTRO_COMPAT_VERSION
-[ ! "$DISTRO_DB_SUBNAME" ] && DISTRO_DB_SUBNAME="$DISTRO_COMPAT_VERSION" #121102 fallback if DISTRO_DB_SUBNAME not defined in file DISTRO_SPECS.
-export DISTRO_BINARY_COMPAT #120517 i want this in FIXUPHACK scripts.
-export DISTRO_COMPAT_VERSION
-export DISTRO_FILE_PREFIX   #130421 ditto.
-export DISTRO_TARGETARCH
-if [ -f ./DISTRO_COMPAT_REPOS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} ];then
-. ./DISTRO_COMPAT_REPOS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}
-else
-. ./DISTRO_COMPAT_REPOS-${DISTRO_BINARY_COMPAT} #130306
-fi
-if [ -f ./DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} ];then #w478
-. ./DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} #has FALLBACKS_COMPAT_VERSIONS
- DPSFILE="DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}"
-else
-. ./DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT} #has FALLBACKS_COMPAT_VERSIONS
- DPSFILE="DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}"
-fi
-. ./DISTRO_PET_REPOS #has PET_REPOS, PACKAGELISTS_PET_ORDER
+ commands:
 
-if [ -f WOOFMERGEVARS ];then #120316
-. ./WOOFMERGEVARS #has variables WOOF_HOSTARCH, WOOF_TARGETARCH, WOOF_COMPATDISTRO, WOOF_COMPATVERSION
-else
- echo 'File WOOFMERGEVARS does not exist. This is created by script
-merge2out. Your setup is wrong, quiting.'
- exit
-fi
-
-#debian and derivatives: wheezy and later
-#ubuntu and derivatives: precise and later
-ARCHDIR=''
-case $WOOF_COMPATDISTRO in raspbian|debian|devuan|ubuntu|trisquel)
-	case $WOOF_TARGETARCH in #see file WOOFMERGEVARS
-		x86) ARCHDIR='i386-linux-gnu' ;;
-		x86_64) ARCHDIR='x86_64-linux-gnu' ;;
-		arm) ARCHDIR='arm-linux-gnueabihf' ;;
-	esac
+	-all: force processing all packages
+	-changed: [currently broken.. apparently]
+	-downloaded: process all packages listed in status/download_list as made by 1download
+"
+	exit
+	;;
+	-all) COMMANDLINE_CHOICE=ALL_PACKAGES ;;
+	-changed) COMMANDLINE_CHOICE=CHANGED_ONLY ;;
+	-downloaded)
+		#create all packages listed in status/download_list as made by 1download
+		if [ ! -f ./status/download_list ] ; then
+			echo "/status/download_list cannot be found - exiting"
+			exit -1
+		fi
+		for pkg in `sort -u ./status/download_list | cut -d : -f 2`
+		do
+			[ "$pkg" != "" ] && $0 $pkg
+		done
+		exit 0
+		;;
 esac
 
-#w469 modify compat-distro fallback list...
-if [ "$FALLBACKS_COMPAT_VERSIONS" != "" ];then
- FALLBACKS_COMPAT_VERSIONS="`echo -n "$FALLBACKS_COMPAT_VERSIONS" | grep -o "${DISTRO_COMPAT_VERSION}.*"`"
- #ex: 'koala jaunty intrepid' gets reduced to 'jaunty intrepid' if DISTRO_COMPAT_VERSION=jaunty
-fi
+. /etc/xdg/menus/hierarchy #w478 has PUPHIERARCHY variable.
 
-BINARIES='deb' #get them from packages-deb.
-[ "$DISTRO_BINARY_COMPAT" = "slackware" ] && BINARIES="tgz_txz" #100617 download to packages-tgz_txz-${DISTRO_COMPAT_VERSION}.
-[ "$DISTRO_BINARY_COMPAT" = "slackware64" ] && BINARIES="tgz_txz" #140716 download to packages-tgz_txz-${DISTRO_COMPAT_VERSION}.
-[ "$DISTRO_BINARY_COMPAT" = "debian" ] && BINARIES="deb" #download to packages-deb-${DISTRO_COMPAT_VERSION}.
-[ "$DISTRO_BINARY_COMPAT" = "devuan" ] && BINARIES="deb" #download to packages-deb-${DISTRO_COMPAT_VERSION}.
-[ "$DISTRO_BINARY_COMPAT" = "gentoo" ] && BINARIES="gentoo" #120515 download to packages-gentoo-gap6
-[ "$DISTRO_BINARY_COMPAT" = "raspbian" ] && BINARIES="deb_raspbian" #download to packages-deb_raspbian-${DISTRO_COMPAT_VERSION}.
-BINARIES="${BINARIES}-${DISTRO_COMPAT_VERSION}" #w478
+. ./_00build.conf
+. ./_00func
+. ./DISTRO_SPECS #has DISTRO_BINARY_COMPAT, DISTRO_COMPAT_VERSION
+[ ! "$DISTRO_DB_SUBNAME" ] && DISTRO_DB_SUBNAME="$DISTRO_COMPAT_VERSION" #121102 fallback if DISTRO_DB_SUBNAME not defined in file DISTRO_SPECS.
+source_compat_repos  # ./DISTRO_COMPAT_REPOS-
+source_pkgs_specs    #sets DPSFILE / has FALLBACKS_COMPAT_VERSIONS
+. ./DISTRO_PET_REPOS #has PET_REPOS, PACKAGELISTS_PET_ORDER
+source_woofmergevars # ./WOOFMERGEVARS
+set_archdir_var      #ex: ARCHDIR=x86_64-linux-gnu
+set_binaries_var     #ex: BINARIES=tgz_txz-14.2 BINARIES=deb-xenial
+create_local_repos_dirs
+set_layer_type  # aufs or overlay
 
-#the files that have compatible-distro pkg docs (these were downloaded by 0setup)...
-echo "Preprocessing $DISTRO_BINARY_COMPAT $DISTRO_COMPAT_VERSION pkgs database..."
-PKGLISTS_COMPAT="`echo "$PKG_DOCS_DISTRO_COMPAT" | tr ' ' '\n' | cut -f 3 -d '|' | tr '\n' ' '`" #see file DISTRO_PKGS_SPECS-ubuntu
-#...format ex: 'Packages-ubuntu-intrepid-main packages-ubuntu-intrepid-universe'
-
-###TODO###
-MY_LANG='en,en_US,en_AU' #if this specified, then any locale info will be placed in _EXE pkgs.
+#./DISTRO_SPECS
+export DISTRO_BINARY_COMPAT #120517 i want this in FIXUPHACK scripts.
+export DISTRO_COMPAT_VERSION DISTRO_FILE_PREFIX DISTRO_TARGETARCH
+#./WOOFMERGEVARS
+export WOOF_HOSTARCH WOOF_TARGETARCH WOOF_COMPATDISTRO WOOF_COMPATVERSION
+export BINARIES #ex: deb-xenial
 
 CURRDIR="`pwd`"
-[ ! -d packages-templates ] && exit 1
-[ ! -d packages-${BINARIES} ] && exit 1
 
 #some information about template-packages:
 #any directory in the template, the files in the target pkg will be cut down to the same selection.
@@ -122,12 +88,7 @@ CURRDIR="`pwd`"
 #  in template. It executes in target, with current-dir set to where FIXUPHACK is located. (ex: perl_tiny).
 #  Ran into problem slackware post-install scripts messing things up. See near bottom of this script
 #  how damage is limited. Also DISABLE_POST_INSTALL_SCRIPT=yes in FIXUPHACK to disable entirely.
-#If a dir in template has files in it then target is cut down (unless PLUSEXTRAFILES present),
-# however there are some exceptions (such as .so regular files). To not allow any exceptions,
-# place NOEXCEPTIONFILES in the template dir (ex: glibc usr/lib/gconv).
-# I needed to finetune this some more -- example packages-templates/gettext/usr/lib, have
-# NOEXCEPTIONFILES, but do want all of libasfprint.so.* whatever the version numbers are,
-# so can now create zero-size file 'libasfprint.so.STARCHAR' to achieve this.
+#If a dir in template has files in it then target is cut down (unless PLUSEXTRAFILES present).
 
 #PKGS_SPECS_TABLE table fomat:
 #will pkg be in woof.
@@ -141,26 +102,12 @@ CURRDIR="`pwd`"
 #remove comments from PKGS_SPECS_TABLE... make sure '|' on end... get rid of old |+udev,+whatever on end...
 PKGS_SPECS_TABLE="`echo "$PKGS_SPECS_TABLE" | grep -v '^#' | grep -v '^$' | tr '\t' ' ' | tr -s ' ' | tr '+' '&' | sed -e 's%|&.*%%' | tr '&' '+' | sed -e 's% #.*%%' -e 's% $%%' -e 's%$%|%' -e 's%||$%|%'`"
 
-#find all packages that will be used in the Puppy build...
-#new script to find all pkgs for build...
-./support/findpkgs
-#...returns file status/findpkgs_FINAL_PKGS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}
-# each line is full db entry for pkg, prefixed with :generic-name:, pet/compat and repo-filename.
-# ex: :a52dec:|compat|Packages-puppy-wary5-official|a52dec-0.7.4-w5|a52dec|0.7.4-w5||BuildingBlock|68K||a52dec-0.7.4-w5.pet||A free ATSC A52 stream decoder|puppy|wary5||
-if [ $? -ne 0 ];then
- echo
- echo "ERROR: Script support/findpkgs aborted with an error, exiting."
- exit 1
-fi
-if [ ! -f status/findpkgs_FINAL_PKGS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} ];then
- echo
- echo "ERROR: Something went wrong with support/findpkgs, exiting."
- exit 1
-fi
-#------
+run_findpkgs #find all packages that will be used in the Puppy build...
 
-COMMANDLINE_CHOICE=""
-[ $1 ] && COMMANDLINE_CHOICE="$1"
+if [ -z "$COMMANDLINE_CHOICE" ] ; then
+	COMMANDLINE_CHOICE=""
+	[ $1 ] && COMMANDLINE_CHOICE="$1"
+fi
 
 mkdir -p /tmp/2createpackages_tmp
 
@@ -204,7 +151,6 @@ while [ 1 ];do
    echo "ERROR: Generic-name must be from 2nd field of variable PKGS_SPECS_TABLE"
    echo "in file ${DPSFILE}."
    echo "There must also be a 'yes' in the first field."
-   continue
   fi
   rm -rf packages-${DISTRO_FILE_PREFIX}/$USERINPUT 2>/dev/null
   rm -rf packages-${DISTRO_FILE_PREFIX}/${USERINPUT}_DEV 2>/dev/null
@@ -237,17 +183,16 @@ do
  BINARYPARTNAMES="${BINARYPARTNAMES//,/ }" #convert "," to " "
 
  MISSPOSTPROC='no' #091211
+ echo
  echo "Processing ${GENERICNAME}"
  REMOVEDGENFLAG=0 #091211
 
  [ -f /tmp/2createpackages-hack-install.sh ] && \
    rm -f /tmp/2createpackages-hack-install.sh #slackware doinst.sh gets put here.
+
+ [ -d layer_top ] && umount layer_top # this locks sandbox2b
+ [ -d layer_rw ] && umount layer_rw   # this locks sandbox2b
  rm -rf sandbox2b
- if [ -d sandbox2b ] ; then
-   [ -d layer_top ] && umount layer_top
-   [ -d layer_rw ] && umount layer_rw
-   rm -rf sandbox2b
- fi
  mkdir sandbox2b
 
  #processing pkgs that will be combined into ${GENERICNAME}...
@@ -279,10 +224,8 @@ Ignoring this line." >> ERROR-2CREATEPACKAGES
   DBFILE="$F3"           #ex: Packages-puppy-5-official
   DB_pkgname="$F4"       #ex: abiword-2.3.4-w5
   DB_fullfilename="$F11" #ex: abiword-2.3.4-w5.pet
-  case "$DB_fullfilename" in
-   *.pet) petFLG=pet ;;
-   *) petFLG="" ;;
-  esac
+  petFLG=""
+  case "$DB_fullfilename" in *.pet) petFLG=pet ;; esac
 
   #PKGS_SPECS_TABLE may specify redirections...
   EXE="" ; DEV="" ; DOC="" ; NLS=""
@@ -302,9 +245,19 @@ Ignoring this line." >> ERROR-2CREATEPACKAGES
   [ "$DOC" = "_EXE" ] && DOC=""
   [ "$NLS" = "_EXE" ] && NLS=""
 
+  # stop here if dev, doc or nls is not wanted
+  case "$DB_fullfilename" in *"-dev_"*|*"_DEV"*)
+    if [ "$DEV" = "_NULL" ] ; then
+      mkdir -p "packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}${EXE%_NULL}_DEV"
+      continue
+    fi
+  esac
+  case "$DB_fullfilename" in *"-doc_"*|*"_DOC"*) [ "$DOC" = "_NULL" ] && continue ;; esac
+  case "$DB_fullfilename" in *"_NLS"*) continue ;; esac
+
   if [ "$petFLG" = "pet" ];then #do not test PETorCOMPAT only.
    PETPKG=${DB_fullfilename%.pet} #remove trailing ".pet"
-   PETSUB="pet" #110823
+   PETSUB="pet" #fix finding compat PETs in wary.
    [ "$PETorCOMPAT" = "compat" ] && PETSUB="$BINARIES" #110823
 
    if [ "$COMMANDLINE_CHOICE" = "CHANGED_ONLY" ];then
@@ -348,6 +301,16 @@ Ignoring this line." >> ERROR-2CREATEPACKAGES
     rm -f ${PETPKG}.tar.[gx]z
     rm -rf $PETPKG
     cd ..
+    if [ -d packages-templates/${PETPKG}.pet ] ; then
+      echo " postprocessing with packages-templates/${PETPKG}.pet"
+      cp -a --remove-destination packages-templates/${PETPKG}.pet/* packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}${xxPETTYPE}/
+      if [ -f packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}${xxPETTYPE}/FIXUPHACK ] ; then
+        ( cd packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}${xxPETTYPE}/ ; sh ./FIXUPHACK ; rm -f FIXUPHACK )
+      fi
+    fi
+    if [ -d packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}${xxPETTYPE}/usr/share/applications/ ] ; then
+      sed -i 's| %u|| ; s| %U|| ; s| %f|| ; s| %F||' packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}${xxPETTYPE}/usr/share/applications/*.desktop
+	fi
    else
     echo "
 ERROR: packages-${PETSUB}/${PETPKG}.pet does not exist.
@@ -360,8 +323,8 @@ Do it, then rerun this script and choose to build ${GENERICNAME}." >> ERROR-2CRE
   fi 
   
   #anything other than .pet pkgs...
-
   ONEBINARYPKG="./packages-${BINARIES}/${DB_fullfilename}"
+  [ ! -f $ONEBINARYPKG ] && ONEBINARYPKG="./packages-pet/${DB_fullfilename}"
   if [ ! -f $ONEBINARYPKG ];then
    echo "
 ERROR: ${ONEBINARYPKG} does not exist.
@@ -393,13 +356,13 @@ then run this script again and choose to build ${GENERICNAME}." >> ERROR-2CREATE
   PKGNAME="${ONEBINARYPKG##*/}" #basename "$ONEBINARYPKG"
   rm -rf sandbox2
   mkdir sandbox2
-  case $DISTRO_BINARY_COMPAT in
-   ubuntu|trisquel|debian|devuan|raspbian)
+  case $DB_fullfilename in
+   *.deb) #ubuntu|trisquel|debian|devuan|raspbian etc
     PKGNAME="${PKGNAME%.deb}" #ex: bash_3.2-4ububtu1_i386
     dpkg-deb -x $ONEBINARYPKG sandbox2/
     [ $? -ne 0 ] && { echo "ERROR: failed to unpack $PKGNAME"; continue; }
    ;;
-   slackware*) #140716 64 bit
+   *.tgz|*.txz) #slackware*
     PKGNAME="${PKGNAME%.*}" #no extension
     tar --directory=sandbox2/ -ixaf ${ONEBINARYPKG}
     [ $? -ne 0 ] && { echo "ERROR: failed to unpack $PKGNAME"; continue; }
@@ -413,21 +376,25 @@ then run this script again and choose to build ${GENERICNAME}." >> ERROR-2CREATE
      rm -rf sandbox2/install
     fi
    ;;
-   gentoo) #120515
+   *.tar.*) #gentoo and others 120515
     PKGNAME="${PKGNAME%.tar.bz2}" #ex: bash-3.2
     tar --directory=sandbox2/ -xaf ${ONEBINARYPKG}
     [ $? -ne 0 ] && { echo "ERROR: failed to unpack $PKGNAME"; continue; }
    ;;
   esac
 
-  #before processing the whole package, check if there is a _PRE file in pkg template
-  #which contains code to fix/trim dowm stuff to speed up processing...
+  # before processing the whole package, check if there is a _PRE file
+  # which contains code to fix/trim dowm stuff to speed up processing...
   if [ -f packages-templates/${GENERICNAME}/_PRE ] ; then
+    echo " executing packages-templates/${GENERICNAME}/_PRE"
     ( cd sandbox2 ; sh ../packages-templates/${GENERICNAME}/_PRE )
+  elif [ -f packages-templates/${GENERICNAME}_PRE ] ; then
+    echo " executing packages-templates/${GENERICNAME}_PRE"
+    ( cd sandbox2 ; sh ../packages-templates/${GENERICNAME}_PRE )
   fi
   
-  #120316 hack for multiarch, move libs to standard locations...
-  if [ "$ARCHDIR" ];then #130112 change test from ARCHDIR.
+  # hack for multiarch, move libs to standard locations...
+  if [ "$ARCHDIR" ];then
     for BASEDIR in bin lib usr/bin usr/lib usr/include
     do
       if [ -d sandbox2/${BASEDIR}/${ARCHDIR} ] ; then
@@ -462,8 +429,12 @@ then run this script again and choose to build ${GENERICNAME}." >> ERROR-2CREATE
   tPATTERN="^${topCATEGORY} "
   cPATTERN="s%^Categories=.*%Categories=${xCATEGORY}%"
   iPATTERN="s%^Icon=.*%Icon=${DEFICON}%"
+
   FND_DESKTOP="`find sandbox2/usr/share/applications sandbox2/usr/local/share/applications sandbox2/usr/X11R7/applications -type f -name \*.desktop 2>/dev/null | tr '\n' ' '`"
-  
+  if [ "$FND_DESKTOP" ] ; then
+    sed -i 's| %u||g ; s| %U||g ; s| %f||g ; s| %F||g' $FND_DESKTOP
+  fi
+
   #121120 if only one .desktop file, first check if a match in /usr/local/petget/categories.dat (see also /usr/local/petget/installpkg.sh)...
   CATDONE='no'
   if [ -f /usr/local/petget/categories.dat ];then #precaution, but it will be there -- yes, have added code above makes sure it is.
@@ -574,10 +545,18 @@ then run this script again and choose to build ${GENERICNAME}." >> ERROR-2CREATE
   cp -a --remove-destination sandbox2/* sandbox2b/ #accumulate all ubuntu|debian|slackware pkgs.
   #-----------------------------------------------
 
+  DEV_DIRS='usr/include'
+  DOC_DIRS='usr/share/doc usr/share/info usr/share/man usr/share/gtk-doc usr/doc usr/info usr/man usr/share/gnome/help'
+  NLS_DIRS='usr/share/locale'
+
   #if pkg has '-dev_' in name, copy all of it to $DEV... w018 add '_DEV'
   case "$PKGNAME" in *"-dev_"*|*"_DEV"*)
-   mkdir -p packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}${DEV}
-   cp -a --remove-destination sandbox2/* packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}${DEV}/
+   ZDIR=packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}${DEV}
+   mkdir -p $ZDIR
+   cp -a --remove-destination sandbox2/* $ZDIR/
+   #debian pkgs can have doc dirs and even nls dirs..
+   for i in $DOC_DIRS ; do [ -d ${ZDIR}/${i} ] && [ "$DOC" = "_NULL" ] && rm -rf ${ZDIR}/${i} ; done
+   for i in $NLS_DIRS ; do [ -d ${ZDIR}/${i} ] && [ "$NLS" = "_NULL" ] && rm -rf ${ZDIR}/${i} ; done
    continue
   esac
   #if pkg has '-doc_' in name, copy all of it to $DOC... w018 add '_DOC'
@@ -594,8 +573,7 @@ then run this script again and choose to build ${GENERICNAME}." >> ERROR-2CREATE
   esac
 
   #--- move/remove whole directories to speed up processing
-  for i in usr/include
-  do
+  for i in $DEV_DIRS ; do
     if [ -d sandbox2/${i} ] ; then
       if [ "$DEV" != "_NULL" ] ; then
         [ ! -d packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}${DEV}/${i}/ ] && \
@@ -606,8 +584,7 @@ then run this script again and choose to build ${GENERICNAME}." >> ERROR-2CREATE
     fi
   done
   #-
-  for i in usr/share/doc usr/share/info usr/share/man usr/share/gtk-doc usr/doc usr/info usr/man
-  do
+  for i in $DOC_DIRS ; do
     if [ -d sandbox2/${i} ] ; then
       if [ "$DOC" != "_NULL" ] ; then
         [ ! -d packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}${DOC}/${i}/ ] && \
@@ -626,12 +603,15 @@ then run this script again and choose to build ${GENERICNAME}." >> ERROR-2CREATE
   while read ONEFILE
   do
    ONEBASE="${ONEFILE##*/}" #basename "$ONEFILE"
-   ONEPATH="`dirname "$ONEFILE"`"
+   ONEPATH="${ONEFILE%/*}" #dirname "$ONEFILE"
+   [ "$ONEPATH" = "$ONEFILE" ] && ONEPATH=.
    #problem, coming here with paths that have symlinks...
    UPONE="${ONEPATH}"
-   while [ "$UPONE" != "." -a "$UPONE" != "/" ];do
+   while [ "$UPONE" != "." -a "$UPONE" != "" ];do
     [ -h "$UPONE" ] && continue 2
-    UPONE="`dirname "$UPONE"`"
+    UPONE2="${UPONE%/*}" #dirname "$UPONE"
+    [ "$UPONE2" = "$UPONE" -o "$UPONE2" = "" ] && break
+    UPONE=$UPONE2
    done
    [ "$ONEPATH" = "." ] && ONEPATH=""
    ###NLS###
@@ -688,18 +668,21 @@ then run this script again and choose to build ${GENERICNAME}." >> ERROR-2CREATE
     continue
    esac
    ###EXE###
+   [ "$EXE" = "_NULL" ] && continue #just dump it.
    #anything left over goes into the main 'executable' package...
    #strip the file... but not if a cross-build (see file WOOFMERGEVARS)
-   if [ "$WOOF_HOSTARCH" = "$WOOF_TARGETARCH" ];then
-    if [ "$STRIP_BIN" != "" ];then #needs devx.
-     if [ ! -h "$ONEFILE" ];then #make sure it isn't a symlink
-      FILE_INFO=$(file "$ONEFILE")
-      case $FILE_INFO in *"ELF"*)
+   if [ "$STRIP_BINARIES" = "yes" ];then #build.conf
+    if [ "$WOOF_HOSTARCH" = "$WOOF_TARGETARCH" ];then
+     if [ "$STRIP_BIN" != "" ];then #needs devx.
+      if [ ! -h "$ONEFILE" ];then #make sure it isn't a symlink
+       FILE_INFO=$(file "$ONEFILE")
+       case $FILE_INFO in *"ELF"*)
         case $FILE_INFO in
           *"shared object"*) strip --strip-debug "$ONEFILE" ;;
           *"executable"*) strip --strip-unneeded "$ONEFILE" ;;
         esac
-      esac
+       esac
+      fi
      fi
     fi
    fi
@@ -709,7 +692,12 @@ then run this script again and choose to build ${GENERICNAME}." >> ERROR-2CREATE
   done
   ###EXE###
   #fix for empty directories and links to dirs...
-  find -L ./ -noleaf -type d | sed -e 's|^\.\/||' |
+  if [ "$EXE" = "_NULL" ] ; then
+    mkdir -p "../packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}${EXE%_NULL}"
+    cd ..
+    continue
+  fi
+  find -L ./ -noleaf -type d | sed -e 's|^\.\/||' -e '/^$/d' |
   while read ANEWDIR
   do
    UPONE="`dirname "$ANEWDIR"`"
@@ -737,8 +725,16 @@ then run this script again and choose to build ${GENERICNAME}." >> ERROR-2CREATE
  ###EXE###
  
  #111204 do not execute post-install script if FIXUPHACK has DISABLE_POST_INSTALL_SCRIPT=yes...
- if [ -f packages-templates/${GENERICNAME}/FIXUPHACK ];then #111210 01micko
-   DPISFLAG="`grep '^DISABLE_POST_INSTALL_SCRIPT' packages-templates/${GENERICNAME}/FIXUPHACK | grep 'yes'`" #111210
+ if [ -f packages-templates/${GENERICNAME}/FIXUPHACK ] ; then
+   FIXUPHACK_FILE="packages-templates/${GENERICNAME}/FIXUPHACK"
+ elif [ -f packages-templates/${GENERICNAME}_FIXUPHACK ] ; then
+   FIXUPHACK_FILE="packages-templates/${GENERICNAME}_FIXUPHACK"
+ else
+   FIXUPHACK_FILE=""
+ fi
+ 
+ if [ -f "$FIXUPHACK_FILE" ];then #111210 01micko
+   DPISFLAG="`grep '^DISABLE_POST_INSTALL_SCRIPT' "$FIXUPHACK_FILE" | grep 'yes'`" #111210
    [ "$DPISFLAG" ] && [ -f /tmp/2createpackages-hack-install.sh ] && rm -f /tmp/2createpackages-hack-install.sh
  fi
  #slackware pkgs may have a post-install script. 
@@ -756,18 +752,17 @@ then run this script again and choose to build ${GENERICNAME}." >> ERROR-2CREATE
 
  if [ -f sandbox2b/hack-install.sh ];then
   echo " executing (Slackware) post-install script"
-  #chmod +x sandbox2b/hack-install.sh
-  #glibc pkg hack-install.sh tries to run /sbin/ldconfig which is bad, ditto chroot...
-  [ -f /sbin/ldconfig ] && mv -f /sbin/ldconfig /sbin/ldconfig-2cp-hidden #this is in devx.
-  [ -f /usr/sbin/chroot ] && mv -f /usr/sbin/chroot /usr/sbin/chroot-2cp-hidden
-  [ -f sandbox2b/sbin/ldconfig ] && mv -f sandbox2b/sbin/ldconfig /tmp/ldconfig-hidden2
   mkdir -p sandbox2b/bin #hack, glibc post-install script needs this.
   [ -d layer_rw ]  && rm -rf layer_rw  #precaution
   [ -d layer_top ] && rm -rf layer_top #precaution
   mkdir -p layer_rw layer_top
   mount -t tmpfs tmpfs layer_rw
-  # -- aufs -- #
-  mount -t aufs -o udba=reval,diropq=w,dirs=layer_rw=rw:sandbox2b=ro layerfs layer_top
+  if [ "$LAYER_TYPE" = 'overlay' ]; then
+    mkdir overlay_workdir
+    mount -t overlay overlay -olowerdir=sandbox2b,upperdir=layer_rw,workdir=overlay_workdir layer_top
+  else
+    mount -t aufs -o udba=reval,diropq=w,dirs=layer_rw=rw:sandbox2b=ro layerfs layer_top
+  fi
   cd layer_top
   /bin/sh ./hack-install.sh
   cd ..
@@ -775,7 +770,8 @@ then run this script again and choose to build ${GENERICNAME}." >> ERROR-2CREATE
   # Same for _DEV
   [ ! -d packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}_DEV ] && mkdir -p packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}_DEV
   # delete the buggers first
-  find layer_rw -name '.wh.*' -exec rm -r '{}' 2>/dev/null \; #| grep -v '\.wh\.\.wh' | sed -e 's%\.wh\.%%' | sed -e 's%layer_rw%%' |
+  clean_out_whiteouts layer_rw
+  #--
   cp -a --remove-destination layer_rw/* packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}/ 2>/dev/null
   # Same for _DEV - note that dangling symlinks get cleaned out later - hopefully!
   cp -a --remove-destination layer_rw/* packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}_DEV/ 2>/dev/null
@@ -783,8 +779,6 @@ then run this script again and choose to build ${GENERICNAME}." >> ERROR-2CREATE
   umount layer_top
   umount layer_rw
   rm -rf layer_top layer_rw
-  [ -f /sbin/ldconfig-2cp-hidden ] && mv -f /sbin/ldconfig-2cp-hidden /sbin/ldconfig #restore.
-  [ -f /usr/sbin/chroot-2cp-hidden ] && mv -f /usr/sbin/chroot-2cp-hidden /usr/sbin/chroot #restore.
  fi
 
  #now do some post-processing using "template" found in 'packages-templates'...
@@ -812,8 +806,7 @@ then run this script again and choose to build ${GENERICNAME}." >> ERROR-2CREATE
      do
       #if file has any versioning info, do not delete...
       DELBASE="${ONEDEL##*/}" #basename $ONEDEL
-	  #if dir has NOEXCEPTIONFILES then do not allow these exceptions...
-      [ ! -f $TEMPLATEPATH/NOEXCEPTIONFILES ] && [ "`echo "$DELBASE" | grep -E '\.[0-9]*\.|\.[0-9]*$|\-[0-9]*\.|[0-9]\.so$|\.so\.[0-9]'`" != "" ] && continue
+      [ "`echo "$DELBASE" | grep -E '\.[0-9]*\.|\.[0-9]*$|\-[0-9]*\.|[0-9]\.so$|\.so\.[0-9]'`" != "" ] && continue
       ##sometimes regular file but template has symlink of same name (ex: /usr/bin/gnumeric). do not delete...
       rm -f $ONEDEL
      done
@@ -837,39 +830,13 @@ then run this script again and choose to build ${GENERICNAME}." >> ERROR-2CREATE
      fi
     fi
 
-    #130313 arch linux is relocating many files to /usr, providing symlinks, very annoying...
-    #note, ALTTMPPATH is *not* the template, it is the actual package, copied to tmp.
-    if [ ! -h $FINALFILE ];then
-     if [ ! -s $FINALFILE ];then #want zero bytes, this is in template.
-      if [ -h $ALTTMPPATH/$TMPLNAMEONLY ];then
-       if [ "`echo -n "$FINALFILE" | grep '/usr/'`" = "" ];then #only catch files moved to /usr.
-        LINKTNO="$(readlink $ALTTMPPATH/$TMPLNAMEONLY)"
-        if [ "$(echo -n "$LINKTNO" | grep '\.\./usr/')" != "" ];then #only catch files moved to /usr.
-         if [ -f $ALTTMPPATH/$LINKTNO ];then #hope it is relative link. -- i put the .. above to check that.
-          rm -f $ALTTMPPATH/$TMPLNAMEONLY
-          mv -f $ALTTMPPATH/$LINKTNO $ALTTMPPATH/ #put it back in correct place.
-          NEWLINKTNO="$(echo -n "$LINKTNO" | sed -e 's%/usr/%/../%')"
-          ln -s $NEWLINKTNO $ALTTMPPATH/$LINKTNO #concession, provide a symlink from "wrong" place.
-         fi
-        fi
-       fi
-      fi
-     fi
-    fi
-
     if [ -s $FINALFILE ];then
      #all non-0-size files must be copied from template to final pkg...
      cp -af $FINALFILE $ALTTARGETPATH/
     else
      #zero-size file. copy from the backup made in /tmp/${GENERICNAME} to final pkg...
      TARGETNAMEONLY="${FINALFILE##*/}" #basename $FINALFILE
-     if [ "`echo -n "$TARGETNAMEONLY" | grep "STARCHAR"`" != "" ];then
-      #if template file has text STARCHAR in it, replace with wildcard ...
-      globTARGETNAMEONLY="`echo -n "$TARGETNAMEONLY" | sed -e 's%STARCHAR%*%'`"
-      cp -a --remove-destination ${ALTTMPPATH}/${globTARGETNAMEONLY} ${ALTTARGETPATH}/ 2>/dev/null
-     else
-      cp -a --remove-destination ${ALTTMPPATH}/${TMPLNAMEONLY} ${ALTTARGETPATH}/${TARGETNAMEONLY} 2>/dev/null
-     fi
+     cp -a --remove-destination ${ALTTMPPATH}/${TMPLNAMEONLY} ${ALTTARGETPATH}/${TARGETNAMEONLY} 2>/dev/null
     fi
    done
    
@@ -928,29 +895,32 @@ then run this script again and choose to build ${GENERICNAME}." >> ERROR-2CREATE
      fi
     done
    fi
-  done 
-  
-  #a last resort fixup, if 'FIXUPHACK' exists, execute it... 111204 DISABLE_POST_INSTALL_SCRIPT code moved up.
-  #if [ -f packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}/FIXUPHACK ];then
-  if [ -f packages-templates/${GENERICNAME}/FIXUPHACK ];then #111210
-   cp -af packages-templates/${GENERICNAME}/FIXUPHACK packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}/ #111210
-   if [ "$EXE" = "_DEV" ];then #w091019
+  done
+  [ -f packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}/_PRE ] && rm -f packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}/_PRE
+  [ -f packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}_DEV/_PRE ] && rm -f packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}_DEV/_PRE
+  rm -f packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}/hack-install.sh_*
+ fi
+
+ #a last resort fixup, if 'FIXUPHACK' exists, execute it... 111204 DISABLE_POST_INSTALL_SCRIPT code moved up.
+ if [ -f "$FIXUPHACK_FILE" ];then #111210
+   if [ ! -d packages-${DISTRO_FILE_PREFIX}/${GENERICNAME} ] ; then
+    mkdir -p packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}
+   fi
+   cp -af "$FIXUPHACK_FILE" packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}/FIXUPHACK
+   if [ "$EXE" = "_DEV" ];then
     #only have _DEV dir so this is where must run FIXUPHACK...
     mv -f packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}/FIXUPHACK packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}_DEV/
     cd packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}_DEV/
    else
     cd packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}/
    fi
+   echo " executing ${FIXUPHACK_FILE}"
    sh ./FIXUPHACK
    cd ../..
    #see examples templates coreutils and openssh_client (needed for slackware pkgs)...
    #...note, slackware post-install script is executed near bottom of this script.
    [ -f packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}/FIXUPHACK ] && rm -f packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}/FIXUPHACK
    [ -f packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}_DEV/FIXUPHACK ] && rm -f packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}_DEV/FIXUPHACK #w091019
-  fi
-  [ -f packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}/_PRE ] && rm -f packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}/_PRE
-  [ -f packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}_DEV/_PRE ] && rm -f packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}_DEV/_PRE
-  rm -f packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}/hack-install.sh_*
  fi
 
  ###DEV,EXE###
@@ -1007,6 +977,7 @@ echo "Script finished."
 if [ -s ERROR-2CREATEPACKAGES ];then
  echo "WARNING: Errors were logged to file ERROR-2CREATEPACKAGES"
 fi
-echo -n "Press ENTER key to exit: "
-read yeahgetout
+
+[ "$WOOF_GUI" ] && { echo -n "Press ENTER key to exit: " ; read zzz ; }
+
 ###END###

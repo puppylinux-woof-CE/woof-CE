@@ -1,8 +1,12 @@
 #!/bin/sh
 #(c) Copyright Barry Kauler LGPL v2 2006,2007 www.puppylinux.com
-# creation of save-file code is in /usr/sbin/shutdownconfig.
+# - creation of save-file code is in /usr/sbin/shutdownconfig.
+# - for a full hd install, PUPMODE=2 (no /initrd)
+# - called by:
+#   /sbin/poweroff
+#   /sbin/reboot
 
-PATH=/bin:/sbin:/usr/bin:/usr/sbin
+PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin
 
 export TEXTDOMAIN=rc.shutdown
 export OUTPUT_CHARSET=UTF-8
@@ -26,19 +30,17 @@ PSUBDIR="`dirname "$PUPSFSFILE"`"
 [ $PUPMODE -eq 5 ] && [ "$DEV1FS" = "udf" ] && PSUBDIR=""     #ditto, for udf f.s.
 [ "$DEV1FS" = "msdos" ] && DEV1FS="vfat" #110919
 
-#for a full hd install, only setting PUPMODE (=2). no /initrd, no initrd.gz.
-
-#w482 use xorriso if it is installed (see also functions4puppy)...
+#-- functions4puppy -- see /etc/rc.d/functions4puppy
+# has waittrayclosed_func multisavefunc needs CDRECORD MKISOFS
 CDRECORD='cdrecord'
 MKISOFS='mkisofs'
-if [ "`which xorriso`" != "" ];then
+if [ "`which xorriso`" != "" ];then # use xorriso if it is installed
  CDRECORD='xorrecord'
  MKISOFS='xorrisofs' #growisofs reads this variable.
 fi
 export CDRECORD MKISOFS
-
-# has waittrayclosed_func multisavefunc needs CDRECORD MKISOFS
 . /etc/rc.d/functions4puppy
+#--
 
 killzombies() { #zombie process prevents partition unmount.
  #karl godt: see http://www.murga-linux.com/puppy/viewtopic.php?t=73122
@@ -108,7 +110,7 @@ if [ "$ACTIVE_INTERFACE" ];then
  fi
 fi
 
-#v2.16 some packages have a service script that requires stopping...
+# some packages have a service script that requires stopping...
 for service_script in /etc/init.d/* ; do
 	[ -x $service_script ] && $service_script stop
 done
@@ -143,11 +145,12 @@ done
 killall udevd > /dev/null 2>&1
 
 #first time booted puppy, there may not have been any persistent storage...
-if [ $PUPMODE -eq 5 ];then #ifpupmode5
- #110919 code moved out to /usr/sbin/shutdownconfig.
- #note, shutdownconfig normally called via /usr/bin/wmreboot or wmpoweroff when want shutdown from X.
+if [ $PUPMODE -eq 5 ];then
+ # shutdownconfig creates /tmp/shutdownconfig_results
+ # which contains variables to be used further in the script
  unset PUPSAVE SAVEFS SAVEPART SAVEFILE NAMEONLY SAVEPATH MYPASSWORD SFEXT xPDEV xDEVFS
  if [ ! -f /tmp/shutdownconfig_results ];then
+   #note, shutdownconfig normally called via /usr/bin/wmreboot or wmpoweroff when want shutdown from X.
    shutdownconfig > /dev/console
  fi
  if [ -s /tmp/shutdownconfig_results ];then
@@ -155,50 +158,6 @@ if [ $PUPMODE -eq 5 ];then #ifpupmode5
    rm -f /tmp/shutdownconfig_results #precaution.
  fi
 fi #end ifpupmode5
-
-#w481 if low-ram, save-file is on a fast media, and no swap file/partition, then create one...
-#note, rc.sysinit in puppy 3.01 had code to create a pupswap.swp, not in 4.x series.
-swapfile_func() {
- localSMNTPT="$1"
- localSAVEPART="$2"
- if [ ! -f ${localSMNTPT}/pupswap.swp ];then
-  if [ "$ATADRIVES" ];then #see /etc/rc.d/PUPSTATE
-   #NOTE: 'free' applet output format different in later versions of busybox.
-   TOTALRAM=`free | grep -o 'Mem: .*' | tr -s ' ' | cut -f 2 -d ' '` #110405
-   if [ $TOTALRAM -lt 262145 ];then #was 128000, bump up <=256MB.
-    TOTALSWAP=`free | grep -o 'Swap: .*' | tr -s ' ' | cut -f 2 -d ' '` #110405
-    if [ $TOTALSWAP -eq 0 ];then
-     spPATTERN="`echo -n "$localSAVEPART" | sed -e 's/[0-9]*$//'` " #100912 ex: 'sda '
-     if [ "`echo "$ATADRIVES" | grep "$spPATTERN"`" != "" ];then #100912
-      smPATTERN=' '"$localSMNTPT"'$'
-      FREESAVEM=`df -m | grep "$smPATTERN" | tr -s ' ' | cut -f 4 -d ' '`
-      SWPSIZE=""
-      [ $FREESAVEM -gt 100 ] && SWPSIZE="50"
-      [ $FREESAVEM -gt 200 ] && SWPSIZE="100"
-      [ $FREESAVEM -gt 500 ] && SWPSIZE="200"
-      if [ "$SWPSIZE" ];then
-       echo  >/dev/console
-       echo "$(printf "$(gettext "A swapfile named 'pupswap.swp' is being created in partition %s")" "${localSAVEPART}")" >/dev/console
-       echo "$(printf "$(gettext "of size %sMB. This will be loaded at next boot, to ease the low-RAM")" "${SWPSIZE}")" >/dev/console
-       echo "$(gettext "situation of your PC. Creating now...")" >/dev/console
-       dd if=/dev/zero of=${localSMNTPT}/pupswap.swp bs=1048576 count=$SWPSIZE
-       if [ $? -eq 0 ];then
-        sync
-        mkswap ${localSMNTPT}/pupswap.swp
-       fi
-       if [ $? -ne 0 ];then
-        rm -f ${localSMNTPT}/pupswap.swp 2>/dev/null
-        echo "$(gettext "...error, unable to create swapfile.")" >/dev/console
-        #echo "...error, unable to create swapfile." >/dev/console
-       fi
-       sync
-      fi
-     fi
-    fi
-   fi
-  fi
- fi
-} #end swapfile_func
 
 if [ "$PUPSAVE" != "" ];then
  #f.s. and partition where ${DISTRO_FILE_PREFIX}save.2fs is located...
@@ -234,16 +193,16 @@ sync
 
 # 140417, SFR
 asktosave_func () {
-if [ "$ASKTOSAVE" = "false" ]; then
-  RETVAL=0
-else
-  dialog --timeout 60 --yes-label "$(gettext 'SAVE')" --no-label "$(gettext 'NO SAVE')" --yesno "$(gettext 'Press ENTER key to save session... 
+ if [ "$ASKTOSAVE" = "false" ]; then
+   RETVAL=0
+ else
+   dialog --timeout 60 --yes-label "$(gettext 'SAVE')" --no-label "$(gettext 'NO SAVE')" --yesno "$(gettext 'Press ENTER key to save session... 
 Or, press TAB then ENTER to not save session... 
 Or, wait 60 seconds to shutdown without saving session...')" 0 0 >/dev/console 
-  RETVAL=$?
-fi
-[ $RETVAL -ne 0 ] && echo "$(gettext "Session not saved")" >/dev/console
-return $RETVAL
+   RETVAL=$?
+ fi
+ [ $RETVAL -ne 0 ] && echo "$(gettext "Session not saved")" >/dev/console
+ return $RETVAL
 }
 
 #save session...
@@ -276,8 +235,6 @@ case $PUPMODE in
   #there is a saved session...
   cp -af /etc/DISTRO_SPECS ${DEV1MNT}/etc/
   sync
-  #w481 if low-ram, save-file is on a fast media, and no swap file/partition, then create one...
-  swapfile_func $DEV1MNT $xPDEV
   umount $DEV1MNT 2> /dev/null
   ;;
  128) #1st shutdown, save to ${DISTRO_FILE_PREFIX}save.2fs.
@@ -295,17 +252,18 @@ case $PUPMODE in
   elif [ "$CRYPTO" = "" ];then
    mount -t $FILEFS -o noatime,rw,loop $SMNTPT$SAVEFILE /tmp/save1stpup
   else
-   #note: loop2 is kept available for scripts to use. but, do this to find free one...
-   DEVLOOP="`losetup-FULL -f`"
-   #'-p 0' means read password from stdin...
-   #v2.17 crap, '-p 0' works for aes, not for xor encryption....
-   if [ "$CRYPTO" = '-E 1' ];then #light xor encr.
-    echo "$(gettext "Note, a bug in one of the Linux utility programs requires you to reenter")" >/dev/console
-    echo "$(gettext "the password in the case of light encryption...")" >/dev/console
+   DEVLOOP="`losetup -f`"
+   if [ "$CRYPTO" = "luks" ] ; then
+     losetup $DEVLOOP ${SMNTPT}$SAVEFILE
+     echo -n "$MYPASSWORD" | cryptsetup luksOpen $DEVLOOP savefile -
+     [ ! $? -eq 0 ] && exit 1
+     mount -t $FILEFS -o noatime,rw /dev/mapper/savefile /tmp/save1stpup
+   else
+     #'-p 0' means read password from stdin...
+     echo "$MYPASSWORD" | losetup-222 -p 0 $CRYPTO $DEVLOOP ${SMNTPT}$SAVEFILE >/dev/console
+     [ ! $? -eq 0 ] && exit 1
+     mount -t $FILEFS -o noatime,rw $DEVLOOP /tmp/save1stpup
    fi
-   echo "$MYPASSWORD" | losetup-FULL -p 0 $CRYPTO $DEVLOOP ${SMNTPT}$SAVEFILE >/dev/console
-   [ ! $? -eq 0 ] && exit 1
-   mount -t $FILEFS -o noatime,rw $DEVLOOP /tmp/save1stpup
   fi
 
   #floppy disk has little space. snapmergepuppy handles this for subsequent saves, but for now,
@@ -336,10 +294,10 @@ case $PUPMODE in
   #copy initmodules config file from /tmp if it exists
   [ -f /tmp/${DISTRO_FILE_PREFIX}initmodules.txt ] && cp -f /tmp/${DISTRO_FILE_PREFIX}initmodules.txt ${SMNTPT}${SAVEPATH}/${DISTRO_FILE_PREFIX}initmodules.txt
   sync
-  [ -L /tmp/save1stpup ] || umount /tmp/save1stpup
-
-  #w481 if low-ram, save-file is on a fast media, and no swap file/partition, then create one...
-  swapfile_func $SMNTPT $SAVEPART
+  if [ ! -L /tmp/save1stpup ] ; then
+    umount /tmp/save1stpup
+    [ "$CRYPTO" = "luks" ] && cryptsetup luksClose savefile
+  fi
 
   umount $SMNTPT 2> /dev/null
 
@@ -363,25 +321,12 @@ case $PUPMODE in
   fi
 
  ;;
- 77) #save to folder on multisession CD/DVD (including 1st shutdown). (13+64=77)
-  multisavefunc
-  ;;
- 2)
-  echo "$(printf "$(gettext '%s mounted directly, session already saved.')" "$PDEV1")" >/dev/console
-  ;;
- 6)
-  echo "$(printf "$(gettext '%s mounted directly top layer, session already saved.')" "$PDEV1")" >/dev/console
-  ;;
- 12)
-  echo "$(printf "$(gettext '%s mounted directly top layer, session already saved.')" "${SAVEFILE##*/}")" >/dev/console
-  ;;
- 3) #PDEV1.
-  asktosave_func
-  if [ $? -eq 0 ]; then 
-    echo "$(printf "$(gettext 'Saving session to %s...')" "$PDEV1")" >/dev/console
-    /usr/sbin/snapmergepuppy /initrd/pup_ro1 /initrd/pup_rw
-  fi
-  ;;
+
+ 77) multisavefunc ;; #save to folder on multisession CD/DVD (including 1st shutdown). (13+64=77)
+ 2)  echo -n ;; #echo "$(printf "$(gettext '%s mounted directly, session already saved.')" "$PDEV1")" >/dev/console
+ 6)  echo "$(printf "$(gettext '%s mounted directly top layer, session already saved.')" "$PDEV1")" >/dev/console ;;
+ 12) echo "$(printf "$(gettext '%s mounted directly top layer, session already saved.')" "${SAVEFILE##*/}")" >/dev/console ;;
+
  7) #PDEV1 and PUPSFS.
   asktosave_func
   if [ $? -eq 0 ]; then 
@@ -406,11 +351,19 @@ esac
 
 # ==============================================================
 
+sync
+umount.crypto_LUKS all
+sync
+
+swapoff -a #works only if swaps are in mtab or ftab
+STRAYPARTD="`cat /proc/swaps | grep "/" | cut -f 1 -d " " | tr "\n" " "`"
+for S in $STRAYPARTD ; do swapoff $S ; done
+
 # Karl Godt: 2013-12-14 reworked the whole unmount block
 MOUNTED=`tac /proc/mounts | grep -vE '/dev |/dev/root | rootfs | / | usbfs | aufs | tmpfs ' | cut -f2 -d' '`
 STRAY_MOUNTPOINTS=`echo "$MOUNTED" | grep -vE '/proc|/sys|/initrd|/dev |/dev/pts'`
-
 [ "$STRAY_MOUNTPOINTS" ] && echo "$L_UNMOUNTING_STRAY" >/dev/console
+sync
 
 for MOUNT_POINT in $STRAY_MOUNTPOINTS ; do
  MOUNT_POINT=`busybox echo -e "$MOUNT_POINT"` # formats escaped chars like \040 to literal like ' ' (space)
@@ -424,10 +377,6 @@ for MOUNT_POINT in $STRAY_MOUNTPOINTS ; do
  sync
  umount -r "$MOUNT_POINT" # karl godt.
 done
-
-swapoff -a #works only if swaps are in mtab or ftab
-STRAYPARTD="`cat /proc/swaps | grep "/dev/" | cut -f 1 -d " " | tr "\n" " "`"
-for S in $STRAYPARTD ; do swapoff $S ; done
 sync
 
 #note, there is a problem with unmounting, especially ntfs as it cannot be remounted
@@ -484,6 +433,10 @@ fi
 MNTFUSE="`busybox mount | grep 'fuse' | head -n 1 | cut -f 3 -d ' '`"
 [ "$MNTFUSE" != "" ] && fusermount -z -u $MNTFUSE #-u is required with -z...
 
+sync
+
 busybox umount -ar > /dev/null 2>&1
+
+sync
 
 ### END ###

@@ -53,6 +53,7 @@ report_results () {
  rm -f /tmp/pgks_failed_to_install 2>/dev/null
  for LINE in $(cat /tmp/pkgs_to_install_done  | cut -f 1 -d '|' | sort | uniq)
  do
+  [ "$(echo $LINE)" = "" ] && continue
   if [ -f /tmp/download_pets_quietly -o -f /tmp/download_only_pet_quietly \
    -o -f /tmp/manual_pkg_download ];then
    if [ -f /root/.packages/download_path ];then
@@ -215,9 +216,11 @@ check_total_size () {
    . /etc/rc.d/PUPSTATE
    case $PUPMODE in
 	 2) AVAILABLE=$(df -m | grep / | head -n 1 | awk '{print $4}');;
-	 5|6) AVAILABLE=$(df -m | grep pup_rw | awk '{print $4}');;
-	 7|13) AVAILABLE=$(df -m | grep pup_ro1 | awk '{print $4}');;
-	 12) AVAILABLE=$(df -m | grep pup_rw | awk '{print $4}')
+	 5) AVAILABLE=$(df -m | grep pup_rw | awk '{print $4}')
+	 	[ "$AVAILABLE" = "" ] && AVAILABLE=$(df -m | grep \/tmpfs | awk '{print $4}');;
+	 7|13) AVAILABLE=$(df -m | grep pup_ro1 | awk '{print $4}')
+	 	[ "$AVAILABLE" = "" ] && AVAILABLE=$(df -m | grep \/tmpfs | awk '{print $4}');;
+	 6|12) AVAILABLE=$(df -m | grep pup_rw | awk '{print $4}')
 		[ "$AVAILABLE" = "" ] && AVAILABLE=$(df -m | grep dev_save | awk '{print $4}');;
    esac
    if [ ! "$AVAILABLE" ]; then

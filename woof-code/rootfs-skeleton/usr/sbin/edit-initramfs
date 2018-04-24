@@ -21,6 +21,7 @@ function compr_func() {
 	case "$comp" in
 		gz*|GZ*) UNCOMPREXE=gunzip ; EXT=gz ; COMPREXE=gzip ;;
 		xz*|XZ*) UNCOMPREXE=unxz   ; EXT=xz ; COMPREXE='xz --check=crc32 --lzma2' ;;
+		*cpio*|*CPIO*) CPIO=1 ;; #fd64
 		*) echo "Unsupported compression/format for initrd."
 			exit 1 ;;
 	esac
@@ -29,16 +30,10 @@ function compr_func() {
 #find out partition filesystem a file is located in
 function FILE_FS_IS_OK() {
 	[ $FILE_FS_IS_OK ] && return $FILE_FS_IS_OK
-	#this works only if partitions are mounted in /mnt, ex: /mnt/sda1
-	local PATHX="$@" #ex: /mnt/sda1/puppyXX/initrd.gz/xz
-	read -r mnt device etc <<< "${PATHX//\// }"
-	#echo $mnt >&2
-	[ "$mnt" != "mnt" ] && device=rootfs
-	case $PATHX in /mnt/home*|/initrd/mnt/dev_save*) device=/initrd/mnt/dev_save ;; esac
-	partinfo=$(grep "$device" /proc/mounts | head -1)
-	read -r dev mnt fs etc <<< "$partinfo"
-	case $fs in
-		ext2|ext3|ext4|rootfs) FILE_FS_IS_OK=0 ;;
+	local MOUNTPOINT="$(stat -c '%m' "$@")"
+	local FS="$(mount | grep " $MOUNTPOINT " | cut -f 5 -d ' ')"
+	case $FS in
+		ext*|rootfs) FILE_FS_IS_OK=0 ;;
 		*) FILE_FS_IS_OK=1 ;;
 	esac
 	return $FILE_FS_IS_OK
@@ -55,32 +50,45 @@ function initrd_proc() { #<extract|compress> [-home] <initrd.gz/xz>
 	[ "$1" = "-home" ] && { TOHOME=1; shift; }
 
 	INFILE="$@"
-	[ -f "$INFILE" ] || { echo "ERROR: file does not exist: $INFILE"; exit 1; }
-	[[ $INFILE != /* ]] && INFILE=$PWD/$INFILE
+	case $INFILE in
+		*'initrd-expanded')
+			INITRD_DIR=1
+			[ -e "$INFILE" ] || { echo "ERROR: file does not exist: $INFILE"; exit 1; }
+			INFILE=$(dirname $INFILE)/initrd.gz
+			UNCOMPREXE=gunzip EXT=gz COMPREXE=gzip
+			;;
+		*)
+			[ -f "$INFILE" ] || { echo "ERROR: file does not exist: $INFILE"; exit 1; }
+			[[ $INFILE != /* ]] && INFILE=$PWD/$INFILE
+			;;
+	esac
 	DIR="`dirname "$INFILE"`"
 	FILE_NAME=${INFILE##*/}
 
 	CURDIRX=$DIR
-	if ! FILE_FS_IS_OK "$DIR" || [ $TOHOME ] ; then
-		TOHOME=1
-		DIR=${HOME}
-	fi
+	FILE_FS_IS_OK "$DIR" || TOHOME=1
+	[ $TOHOME ] && DIR=${HOME}
 
 	cd "$DIR"
-	[ $TOHOME ] && cp -fv "$INFILE" ${HOME}
-	[ -f initrd.gz -o -f initrd.xz ] || { echo "initrd.gz/xz not found in $DIR" ; exit 1 ; }
 
 	## now proceed
-	compr_func ${FILE_NAME} || { echo "ERROR getting compression type for ${FILE_NAME}" >&2 ; return 1 ; }
+	if [ ! "$INITRD_DIR" -o "$CPIO" != "" ] ; then
+		[ $TOHOME ] && cp -fv "$INFILE" ${HOME}
+		[ -f initrd -o -f initrd.gz -o -f initrd.xz ] || { echo "initrd.gz/xz not found in $DIR" ; exit 1 ; }
+		compr_func ${FILE_NAME} || { echo "ERROR getting compression type for ${FILE_NAME}" >&2 ; return 1 ; }
+	fi
+
 	if [ "$OPTION" = "extract" ] ; then
 		echo "Expanding at $DIR"
-		[ "initrd.${EXT}" != "${FILE_NAME}" ] && cp -f "${FILE_NAME}" initrd.${EXT}
-		#-f and -k are options in gunzip, and unxz
-		zout="$(${UNCOMPREXE} -f -k initrd.${EXT} 2>&1)"
-		if [ $? -ne 0 ] ; then
-			echo -e "${comp}\n${zout}" >&2
-			rm -f initrd.${EXT}
-			return 5 #error extracting
+		if [ "$CPIO" = "" ] ; then
+			[ "initrd.${EXT}" != "${FILE_NAME}" ] && cp -f "${FILE_NAME}" initrd.${EXT}
+			#-f and -k are options in gunzip, and unxz
+			zout=$($UNCOMPREXE -f -k initrd.${EXT} 2>&1)
+			if [ $? -ne 0 ] ; then
+				echo -e "${comp}\n${zout}" >&2
+				rm -f initrd.${EXT}
+				return 5 #error extracting
+			fi
 		fi
 		mkdir -p initrd-expanded
 		cd initrd-expanded
@@ -98,7 +106,7 @@ function initrd_proc() { #<extract|compress> [-home] <initrd.gz/xz>
 		cd ..
 		${COMPREXE} -f initrd
 		[ "initrd.${EXT}" != "${FILE_NAME}" ] && mv -f initrd.${EXT} "${FILE_NAME}"
-		[ "$TOHOME" ] && mv -fv ${FILE_NAME} "$CURDIRX"
+		[ "$TOHOME" -a "$HOME" != "$CURDIRX" ] && mv -fv ${FILE_NAME} "$CURDIRX"
 		return 0
 	fi
 }
@@ -124,7 +132,7 @@ DIRX="`dirname "$zfile"`"
 BASEFILE="`basename "$zfile"`"
 
 case "${BASEFILE}" in
-	*"initrd.gz"|*"initrd.xz") ok=1 ;;
+	*initrd|*"initrd.gz"|*"initrd.xz") ok=1 ;;
 	*) exit 1 ;;
 esac
 

@@ -15,6 +15,6 @@ else
 fi
 rm -f /etc/dhcpcd_state_notify
 
-#Change connectwizard pgprs default to connectwizard.
+#Change connectwizard frisbee default to connectwizard.
 grep 'frisbee' /usr/local/bin/defaultconnect \
  && echo -e "#!/bin/sh\nexec connectwizard" > /usr/local/bin/defaultconnect

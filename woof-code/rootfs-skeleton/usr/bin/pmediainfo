@@ -1,0 +1,245 @@
+#!/bin/bash
+#
+# simple cli/gui wrapper/frontend for mediainfo/ffprobe/avprobe
+#
+# cli: mediainfo || ffprobe || avprobe
+# gui: mediainfo-gui || ffprobe (YAD) || avprobe (YAD)
+#
+
+export app=${0##*/}
+
+if [ -f /usr/share/pixmaps/puppy/multimedia.svg ] ; then
+	dlg_icon='--window-icon=/usr/share/pixmaps/puppy/multimedia.svg'
+fi
+
+if [ "$DISPLAY" ] ; then
+	PMI_GUI=1 ; PMI_CLI=""
+else
+	PMI_GUI=""; PMI_CLI=1
+fi
+case $1 in
+	gui|-gui) PMI_GUI=1 ; PMI_CLI="" ; shift ;;   ## force gui
+	cli|-cli) PMI_GUI=""; PMI_CLI=1  ; shift ;;   ## force cli
+esac
+
+export file="$@"
+export tmpfile="/tmp/mediainfo$$"
+
+if [ ! "$file" ] ; then
+	if [ "$PMI_GUI" ] ; then
+		file=$(yad --title="Open File" --file --filename="${PWD}" --width="640" --height="480" --center --button=gtk-ok:0 --button=gtk-cancel:0 $dlg_icon)
+		[ ! "$file" ] && echo "User cancelled operation" && exit 1
+	else
+		echo -e "*  Syntax: \n		$0 <file>"
+		exit 1
+	fi
+fi
+
+if [ ! -f "$file" ] ; then
+	echo "* Invalid file: $file"
+	[ "$PMI_GUI" ] && yad --title="$app" --text="Invalid file: \n\n$file" --image="dialog-error" --button="OK":0 --center $dlg_icon
+	exit 1
+fi
+
+file="$(realpath "$file")"
+export name=${file##*/} #basename $file
+
+if [ "$PMI_GUI" ] ; then
+	if which mediainfo-gui ; then
+		exec mediainfo-gui "$file"
+	fi
+fi
+
+#====================================
+
+trap "rm -f $tmpfile" SIGINT SIGTERM
+
+if which mediainfo &>/dev/null ; then
+	mediainfo "$file" > ${tmpfile}
+elif which ffprobe &>/dev/null ; then
+	probe='ffprobe' #ffmpeg
+elif which avprobe &>/dev/null ; then
+	probe='avprobe' #libav
+else
+	errmsg="\n* ERROR: could not locate mediainfo/ffprobe/avprobe"
+	echo -e "$errmsg"
+	[ "$PMI_GUI" ] && yad --title="$app" --text="$errmsg" --image="dialog-error" --button="OK":0 --center $dlg_icon
+	exit 1
+fi
+
+format_field_str() {
+	str="$1"
+	str=${str//_long/}
+	str=${str//_name/}
+	str=${str//_/ }
+	first_char=${str:0:1}
+	first_char=${first_char^^} #uppercase
+	str=${first_char}${str:1}
+	echo "$str"
+}
+
+case ${probe} in ffprobe|avprobe)
+	pre_info=$(
+		$probe -show_format -show_streams -pretty "$file" 2>/dev/null | \
+		sed \
+		-e "/^filename/d" \
+		-e "\%=N/A%d" \
+		-e "/=unknown/d" \
+		-e "/^TAG/d" \
+		-e "/^DISPOSITION/d" \
+		-e "/^color/d" \
+		-e "/^id/d" \
+		-e "/^nb_/d" \
+		-e "/^codec_time_base/d" \
+		-e "/^duration_ts/d" \
+		-e "/^start_pts/d" \
+		-e "/^bits_per_raw/d" \
+		-e "/^chroma/d" \
+		-e "/^timecode/d" \
+		-e "/^start_time/d" \
+		-e "/^codec_name/d" \
+		-e "/^format_name/d" \
+		-e "/^codec_tag/d" \
+		-e "/^refs/d" \
+		-e "/^is_avc/d" \
+		-e "/^nal_length_size/d" \
+		-e "/^time_base/d" \
+		-e "/^level/d" \
+		-e "/^probe_score/d" \
+		-e "/^has_b_frames=0/d" \
+		-e "/^bits_per_sample=0/d" \
+		-e "\%^r_frame_rate=0/0%d" \
+		-e "\%^avg_frame_rate=0/0%d" \
+	)
+
+	if [ -z "$pre_info" ] ; then
+		errmsg="\n* ERROR: could not get info from: \n\n$file"
+		echo -e $errmsg
+		yad --title="$app" --text="$errmsg" --image="dialog-error" --button="OK":0 --center $dlg_icon
+		exit 1
+	fi
+
+	max=22
+	n=0
+	while read line ; do
+		case $line in
+			"[FORMAT]")
+				outfile=/tmp/pmediainfo$$_format.txt
+				touch $outfile
+				continue
+				;;
+			"[STREAM]")
+				outfile=/tmp/pmediainfo${$}_stream${n}.txt
+				touch $outfile
+				n=$((n+1))
+				;;
+			"[/FORMAT]"|"[/STREAM]")
+				echo >> $outfile
+				continue
+				;;
+		esac
+		if [[ $line == *\=* ]] ; then
+			IFS="=" read field desc <<< "$line"
+			echo "$line"
+			field2=$(format_field_str "$field")
+			field2_str_len=${#field2}
+			[ ! "$desc" ] && continue
+			case $field in #fix some values
+				duration) #0:03:37.000000 -> 3min 37sec
+					desc=${desc%.*} #0:03:37.000000 -> 0:03:37
+					[ "$desc" = "0:00:00" ] && continue
+					IFS=":" read h m s <<< "$desc"
+					desc=""
+					[ "$h" != "0" ] && desc="${h}h "
+					desc="${desc}${m#0}m"
+					[ "$s" != "00" ] && desc="$desc ${s#0}s"
+					;;
+				size|*bit_rate|*sample_rate) #29.234309 Mibyte -> 29.2 MiB
+					read d1 d2 <<< "$desc"
+					d1=$(printf "%.1f" $d1)
+					[[ $d1 == *.0 ]] && d1=${d1%.*}
+					d2=${d2//byte/B}
+					desc="$d1 $d2"
+					;;
+				*frame_rate) #30000/1001 -> 29.970 fps
+					IFS="/" read n1 n2 <<< "$desc"
+					fps=$(dc $n1 $n2 \/ p)
+					fps=$(printf "%.3f" $fps)
+					[[ $fps == *.000 ]] && fps=${fps%.*}
+					desc="$fps fps"
+					;;
+			esac
+			x=$((max-field2_str_len))
+			(
+			echo -n "$field2"
+			for ((z=1;z<=x;z++)) ; do echo -n '.' ; done
+			echo " $desc"
+			) >> $outfile
+		else
+			echo "$line" >> $outfile
+		fi
+	done <<< "$pre_info"
+
+	sed -i -e '/^[dD]uration/d' /tmp/pmediainfo${$}_stream*
+
+	ls /tmp/pmediainfo${$}_stream* | \
+	while read f ; do
+		if grep -q 'type.* video' $f ; then
+			extra_sed=''
+			read w1 w2 <<< $(echo $(grep -i width $f | sed 's/.* //'))
+			[ "$w1" = "$w2" ] && extra_sed=' ; / width/d'
+			read h1 h2 <<< $(echo $(grep -i height $f | sed 's/.* //'))
+			[ "$h1" = "$h2" ] && extra_sed="$extra_sed ; / height/d"
+			sed -i "/type.* video/d ; s/STREAM/VIDEO/ $extra_sed" $f
+		fi
+		if grep -q 'type.* audio' $f ; then
+			sed -i -e '/type.* audio/d' -e 's/STREAM/AUDIO/' $f
+		fi
+	done
+
+	(
+	echo "File: $file"
+	echo
+	echo "$(< /tmp/pmediainfo$$_format.txt)"
+	echo
+	cat /tmp/pmediainfo${$}_stream*
+	) > ${tmpfile}
+
+	rm -f /tmp/pmediainfo$$_stream* /tmp/pmediainfo$$_format.txt
+	;;
+esac
+
+#################################################################
+
+function SaveViewerText(){
+	configx="${HOME}/.config/mediainfodir"
+	lastdirx="$(cat $configx 2>/dev/null)"
+	lastdir=$HOME
+	[ -d "$lastdirx" ] && lastdir="$lastdirx"
+	filetemplate=${lastdir}/${name%.*}.txt
+	filex=$(yad --title="Save As..." --file --save --filename="$filetemplate" \
+	--width=640 --height=480 --center --button="Save:0" --button="Cancel:1" $dlg_icon)
+	[ $? -ne 0 ] && exit
+	echo -n "${filex%/*}" > $configx
+	cp -f "$tmpfile" "$filex"
+}
+function ViewWith(){ 
+	geany "$tmpfile" & 
+}
+export -f SaveViewerText
+export -f ViewWith
+
+if [ "$PMI_GUI" ] ; then
+	yad --title="${app}: $file" --center --width="640" --height="480" \
+	--text-info --filename="$tmpfile" --wrap --fore="#000000" --back="#EFFAFF" --margins=10 \
+	--fontname="Monospace 11" --tail \
+	--button="Close":0 \
+	--button="Save As... :bash -c 'SaveViewerText %d'" \
+	--button="Open Externally... :bash -c 'ViewWith %d'" $dlg_icon
+else
+	cat $tmpfile | more
+fi
+
+rm -f $tmpfile
+
+### END ###

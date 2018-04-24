@@ -1,27 +1,5 @@
 #!/bin/sh
-
-mntfunc() {
- MNT_T="$1"    #ex: vfat
- MNT_DEV="$2"  #ex: /dev/sda1
- MNT_DIR="$3"  #ex: /mnt/sda1
- case $MNT_T in
-  ntfs)
-   ntfs-3g $MNT_DEV $MNT_DIR -o umask=0,no_def_opts,noatime,rw,silent 2>/dev/null
-   ntfsRETVAL=$?
-   [ $ntfsRETVAL -eq 0 ] && return 0
-   if [ $ntfsRETVAL -eq 14 ];then
-    echo -n "ERROR: Windows NTFS hibernated partition, cannot mount"
-    return 14
-   else
-    ntfs-3g $MNT_DEV $MNT_DIR -o umask=0,no_def_opts,noatime,rw,force,silent 2>/dev/null
-   fi
-  ;;
-  *) mount -t $MNT_T $MNT_DEV $MNT_DIR ;;
- esac
- return $?
-}
-
-#-------
+# save debug information to a partition...
 
 if [ ! -f /tmp/sys.log ] ; then
   syslogd -O /tmp/sys.log
@@ -29,7 +7,8 @@ if [ ! -f /tmp/sys.log ] ; then
 fi
 dmesg > /tmp/dmesg.txt
 (
-  for i in mount "cat /proc/partitions" df lsof ps
+  for i in "cat /proc/cmdline" probedisk probepart_init \
+    mount "cat /proc/partitions" df lsof ps
   do
     echo '------------------------'
     echo "      $i"
@@ -39,35 +18,32 @@ dmesg > /tmp/dmesg.txt
   done
 ) > /tmp/misc.log
 
-PARTITIONS=$(cat /proc/partitions | grep -o sd[a-z][0-9]* | tr '\n' ' ')
+#-----------------------------------------------------------
+
+PARTITIONS=$(cat /proc/partitions | grep -E -o 'sd[a-z][1-9]|hd[a-z][1-9]|mmcblk[0-9]p[0-9]|nvme[0-9]n[0-9]p[0-9]' | tr '\n' ' ')
+
+if [ "$(echo $PARTITIONS)" = "" ] ; then
+	echo "Sorry, no partitions were detected"
+	echo "Check the logs in /tmp"
+	ls /tmp
+	exit 1
+fi
 
 echo "We're going to save debug info for further analysis.."
 echo
-echo "These are the available partitions:"
+echo "Select one of the following partitions:"
 echo " $PARTITIONS"
 echo
 echo -n "Type partition name: "
 read xpart
-if [ ! -b /dev/$xpart ] ; then
-  echo "$xpart: not a valid partition"
-  exit 1
-fi
-echo
+mount_point=$(mountpartition $xpart)
+[ $? -ne 0 ] && exit
 
-if [ "$(mount | grep "^/dev/$xpart")" = "" ] ; then
-  echo "* Mounting $xpart"
-  mkdir -p /mnt/$xpart
-  mntfunc $(guess_fstype /dev/$xpart) /dev/$xpart /mnt/$xpart
-  if [ $? -ne 0 ] ; then
-    echo "Coult not mount $xpart... sorry"
-    exit 1
-  fi
-fi
-mkdir -p /mnt/$xpart/zz_initrd_tmp
-echo "* Copying /tmp/* to /mnt/$xpart/zz_initrd_tmp"
-cp -r /tmp/* /mnt/$xpart/zz_initrd_tmp/
+mkdir -p ${mount_point}/zz_initrd_tmp
+echo "* Copying /tmp/* to ${mount_point}/zz_initrd_tmp"
+cp -r /tmp/* ${mount_point}/zz_initrd_tmp/
 echo "* Unmounting $xpart"
-umount /mnt/$xpart
+umount ${mount_point}
 echo
 echo "Done.. reboot and find $xpart/zz_initrd_tmp"
 
