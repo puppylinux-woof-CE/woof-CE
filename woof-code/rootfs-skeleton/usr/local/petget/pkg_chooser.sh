@@ -89,8 +89,6 @@ export -f clean_flags
 
 clean_flags
 
-/usr/local/petget/service_pack.sh & #121125 offer download Service Pack.
-
 mkdir -p /tmp/petget #120504
 mkdir -p /var/local/petget
 echo -n > /tmp/pkgs_to_install
