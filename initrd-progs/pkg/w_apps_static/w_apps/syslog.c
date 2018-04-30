@@ -22,6 +22,8 @@
  * THE SOFTWARE.
  */
 
+#define _POSIX_C_SOURCE 200809L
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <signal.h>
@@ -40,6 +42,10 @@
 
 #ifdef HAVE_WAIVE
 #	include <waive.h>
+#endif
+
+#ifndef F_SETSIG
+#define F_SETSIG	10	/* for sockets. */
 #endif
 
 #define MAX_MSG_LEN (1024)

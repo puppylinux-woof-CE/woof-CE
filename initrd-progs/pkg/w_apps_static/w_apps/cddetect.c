@@ -94,7 +94,9 @@ int get_drive_type(int fd) {
 	return DRIVE_TYPE_UNKNOWN;
 }
 
-int main(int argc, char *const *argv)
+//===========================================================================
+
+int main(int argc, char **argv)
 {
 	int fd, i, drive_type, disc_type;
 	int status;
@@ -204,7 +206,7 @@ int main(int argc, char *const *argv)
 			*/
 			disc_type = DISC_TYPE_DVD;
 		} else {
-			perror("DVD_READ_STRUCT");
+			//perror("DVD_READ_STRUCT");
 		}
 	}
 

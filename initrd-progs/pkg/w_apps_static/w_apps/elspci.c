@@ -44,7 +44,7 @@ PCI_Collate *add_find_pci(char * loc){
 }
 
 int split(char *src, int max, char *out, char **ptrs, char *splitchars){
-	int n = 0, used = 0, i;
+	int n = 0, i;
 	for(;;){
 		ptrs[n] = out;
 		i=0;
@@ -123,7 +123,6 @@ void scan_devices(void){
 
 void pci_scan_node(char *path,char *bus, char *node){
 	unsigned char buffer[256];
-	char bf[SZ];
 	FILE * fd;
 	PCI_Collate *data;
 	fd = fopen( path, "r" );

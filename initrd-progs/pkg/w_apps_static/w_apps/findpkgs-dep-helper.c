@@ -140,7 +140,7 @@ int vercmp_func(char *arg1, char *arg2, char *arg3)
 }
 
 
-
+static
 int read_one_file(char *filename)
 {
 	int i;
@@ -340,6 +340,7 @@ int get_next_versioned_dependency()
  * comp_alias does not implement regular expressions.
  * A "*" character in 'name' is not expected.
  */
+static
 int comp_alias(char *alias, char *name)
 {
 	size_t compare_length = 0;
