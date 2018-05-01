@@ -295,12 +295,21 @@ case $DLPKG_BASE in
 	[ -d /tmp/pget$$ ] && rm -rf /tmp/pget$$
 	mkdir -p /tmp/pget$$/${DLPKG_BASE}/
 	dpkg-deb -x $DLPKG_BASE /tmp/pget$$/${DLPKG_BASE}/
-	for f in $(find /tmp/pget$$/$DLPKG_BASE \( -type f -o -type l \))
-	do
-		xpath=$(echo $f | cut  -f 5-30 -d "/" | sed "s%$DISTRO_ARCHDIR/%%")
-		mkdir -p ${DIRECTSAVEPATH}/$(dirname $xpath)
-		cp -a --remove-destination $f ${DIRECTSAVEPATH}/$(dirname $xpath)/
+	(
+	cd /tmp/pget$$/${DLPKG_BASE}/
+	for BASEDIR in bin lib usr/bin usr/lib usr/include ; do
+		if [ -d ./${BASEDIR}/${DISTRO_ARCHDIR} ] ; then
+			cp -a -f --remove-destination ./${BASEDIR}/${DISTRO_ARCHDIR}/* ${DIRECTSAVEPATH}/${BASEDIR}/
+			sync
+			rm -rf ./${BASEDIR}/${DISTRO_ARCHDIR}
+			if [ ! -e ${DIRECTSAVEPATH}/${BASEDIR}/${DISTRO_ARCHDIR} ] ; then
+				ln -s ./ ${DIRECTSAVEPATH}/${BASEDIR}/${DISTRO_ARCHDIR}
+			fi
+		fi
 	done
+	)
+	cp -a -f --remove-destination /tmp/pget$$/${DLPKG_BASE}/* ${DIRECTSAVEPATH}/
+	sync
 	rm -rf /tmp/pget$$
   else
 	dpkg-deb -x $DLPKG_BASE ${DIRECTSAVEPATH}/
