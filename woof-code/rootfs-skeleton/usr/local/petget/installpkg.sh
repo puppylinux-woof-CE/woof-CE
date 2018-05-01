@@ -292,18 +292,18 @@ case $DLPKG_BASE in
   install_path_check
   # Workaround to avoid overwriting the $DISTRO_ARCHDIR symlink.  
   if [ "$DISTRO_ARCHDIR" != "" -a "$(echo "$PFILES" | grep "$DISTRO_ARCHDIR")" != "" ]; then
-	   mkdir -p /tmp/$DLPKG_BASE
-	   rm -rf /tmp/$DLPKG_BASE/*
-	   dpkg-deb -x $DLPKG_BASE /tmp/$DLPKG_BASE/
-	   for f in $(find /tmp/$DLPKG_BASE \( -type f -o -type l \))
-    do
-       xpath=$(echo $f |  cut  -f 4-30 -d "/" | sed "s/$DISTRO_ARCHDIR\///")
-       mkdir -p ${DIRECTSAVEPATH}/$(dirname $xpath)
-       cp -a $f ${DIRECTSAVEPATH}/$(dirname $xpath)/
-    done
-	   rm -rf /tmp/$DLPKG_BASE
+	[ -d /tmp/pget$$/${DLPKG_BASE} ] && rm -rf /tmp/pget$$/${DLPKG_BASE}/*
+	mkdir -p /tmp/pget$$/${DLPKG_BASE}/
+	dpkg-deb -x $DLPKG_BASE /tmp/pget$$/${DLPKG_BASE}/
+	for f in $(find /tmp/pget$$/$DLPKG_BASE \( -type f -o -type l \))
+	do
+		xpath=$(echo $f | cut  -f 5-30 -d "/" | sed "s%$DISTRO_ARCHDIR/%%")
+		mkdir -p ${DIRECTSAVEPATH}/$(dirname $xpath)
+		cp -a $f ${DIRECTSAVEPATH}/$(dirname $xpath)/
+	done
+	rm -rf /tmp/pget$$
   else
-	   dpkg-deb -x $DLPKG_BASE ${DIRECTSAVEPATH}/
+	dpkg-deb -x $DLPKG_BASE ${DIRECTSAVEPATH}/
   fi
   [ $? -ne 0 ] && clean_and_die
   [ -d /DEBIAN ] && rm -rf /DEBIAN #130112 precaution.
