@@ -292,14 +292,14 @@ case $DLPKG_BASE in
   install_path_check
   # Workaround to avoid overwriting the $DISTRO_ARCHDIR symlink.  
   if [ "$DISTRO_ARCHDIR" != "" -a "$(echo "$PFILES" | grep "$DISTRO_ARCHDIR")" != "" ]; then
-	[ -d /tmp/pget$$/${DLPKG_BASE} ] && rm -rf /tmp/pget$$/${DLPKG_BASE}/*
+	[ -d /tmp/pget$$ ] && rm -rf /tmp/pget$$
 	mkdir -p /tmp/pget$$/${DLPKG_BASE}/
 	dpkg-deb -x $DLPKG_BASE /tmp/pget$$/${DLPKG_BASE}/
 	for f in $(find /tmp/pget$$/$DLPKG_BASE \( -type f -o -type l \))
 	do
 		xpath=$(echo $f | cut  -f 5-30 -d "/" | sed "s%$DISTRO_ARCHDIR/%%")
 		mkdir -p ${DIRECTSAVEPATH}/$(dirname $xpath)
-		cp -a $f ${DIRECTSAVEPATH}/$(dirname $xpath)/
+		cp -a --remove-destination $f ${DIRECTSAVEPATH}/$(dirname $xpath)/
 	done
 	rm -rf /tmp/pget$$
   else
@@ -332,6 +332,21 @@ case $DLPKG_BASE in
   [ $? -ne 0 ] && clean_and_die
  ;;
 esac
+
+multiarch_hack() {
+	#hack for multiarch, in case a symlink was replaced by a directory...
+	if [ "$DISTRO_ARCHDIR" ];then
+		for BASEDIR in bin lib usr/bin usr/lib usr/include
+		do
+			if [ -d /${BASEDIR}/${DISTRO_ARCHDIR} -a ! -L /${BASEDIR}/${DISTRO_ARCHDIR} ] ; then
+				cp -a -f --remove-destination /${BASEDIR}/${DISTRO_ARCHDIR}/* /${BASEDIR}/
+				sync
+				rm -rf /${BASEDIR}/${DISTRO_ARCHDIR}
+				ln -s ./ /${BASEDIR}/${DISTRO_ARCHDIR}
+			fi
+		done
+	fi
+}
 
 if [ "$PUPMODE" = "2" ]; then #from BK's quirky6.1
 	mkdir /audit/${DLPKG_NAME}DEPOSED
@@ -382,6 +397,7 @@ if [ "$PUPMODE" = "2" ]; then #from BK's quirky6.1
 	  CNT=`expr $CNT + 1`
 	  [ $CNT -gt 10 ] && break #something wrong, get out.
 	done
+	multiarch_hack
 	#end 131220
 
 	rm -rf ${DIRECTSAVEPATH} #131229 131230
@@ -438,36 +454,7 @@ else #-- anything other than PUPMODE 2 (full install) --
 	  fi
 	 fi
 	done
-
-	#121217 it seems that this problem is occurring in other modes (13 reported)...
-	#121123 having a problem with multiarch symlinks in full-installation...
-	#it seems that the symlink is getting replaced by a directory.
-	if [ "$DISTRO_ARCHDIR" ];then #in /etc/rc.d/DISTRO_SPECS. 130112 change test from DISTRO_ARCHDIR. 130114 revert DISTRO_ARCHDIR_SYMLINKS==yes.
-	  if [ -d /usr/lib/${DISTRO_ARCHDIR} ];then
-	   if [ ! -h /usr/lib/${DISTRO_ARCHDIR} ];then
-	    cp -a -f --remove-destination /usr/lib/${DISTRO_ARCHDIR}/* /usr/lib/
-	    sync
-	    rm -r -f /usr/lib/${DISTRO_ARCHDIR}
-	    ln -s ./ /usr/lib/${DISTRO_ARCHDIR}
-	   fi
-	  fi
-	  if [ -d /lib/${DISTRO_ARCHDIR} ];then
-	   if [ ! -h /lib/${DISTRO_ARCHDIR} ];then
-	    cp -a -f --remove-destination /lib/${DISTRO_ARCHDIR}/* /lib/
-	    sync
-	    rm -r -f /lib/${DISTRO_ARCHDIR}
-	    ln -s ./ /lib/${DISTRO_ARCHDIR}
-	   fi
-	  fi
-	  if [ -d /usr/bin/${DISTRO_ARCHDIR} ];then
-	   if [ ! -h /usr/bin/${DISTRO_ARCHDIR} ];then
-	    cp -a -f --remove-destination /usr/bin/${DISTRO_ARCHDIR}/* /usr/bin/
-	    sync
-	    rm -r -f /usr/bin/${DISTRO_ARCHDIR}
-	    ln -s ./ /usr/bin/${DISTRO_ARCHDIR}
-	   fi
-	  fi
-	fi
+	multiarch_hack
 
 	#flush unionfs cache, so files in pup_save layer will appear "on top"...
 	if [ "$DIRECTSAVEPATH" != "" ];then
