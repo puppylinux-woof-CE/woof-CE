@@ -299,6 +299,7 @@ case $DLPKG_BASE in
 	cd /tmp/pget$$/${DLPKG_BASE}/
 	for BASEDIR in bin lib usr/bin usr/lib usr/include ; do
 		if [ -d ./${BASEDIR}/${DISTRO_ARCHDIR} ] ; then
+			[ ! -d ${DIRECTSAVEPATH}/${BASEDIR} ] && mkdir -p ${DIRECTSAVEPATH}/${BASEDIR}
 			cp -a -f --remove-destination ./${BASEDIR}/${DISTRO_ARCHDIR}/* ${DIRECTSAVEPATH}/${BASEDIR}/
 			sync
 			rm -rf ./${BASEDIR}/${DISTRO_ARCHDIR}
