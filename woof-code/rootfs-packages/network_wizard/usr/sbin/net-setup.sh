@@ -1812,7 +1812,7 @@ if which connectwizard_exec &>/dev/null \
 fi #170514 end
 
 # Do we have pcmcia hardware?...
-if lspci -n | grep -E -q ' 6070: | 6050: ' ; then
+if lspci -n | grep -E -q ' 0607: | 0605: ' ; then
   MPCMCIA="yes"
 fi
 
