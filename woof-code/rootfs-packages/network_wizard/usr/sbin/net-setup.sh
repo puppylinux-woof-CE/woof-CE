@@ -1679,22 +1679,9 @@ findInterfaceInfo()
   case "$TYPE" in
    pci|pcmcia) # pci device, get info from scanpci
      ## Try and replace below with actually getting the device and vendor values
-     #DEVICE=$(cat /sys/class/net/$INT/device/device)
-	 read DEVICE <  /sys/class/net/$INT/device/device
-     #VENDOR=$(cat /sys/class/net/$INT/device/vendor)
-	 read VENDOR < /sys/class/net/$INT/device/vendor
-     INFO=$(scanpci | grep -Fi -A1 "vendor $VENDOR device $DEVICE" | tail -n1 | cut -d' ' -f1-3,5- | tr -d '[]' | sed 's%Corporation%%g ; s%Co\.%%g ; s%Ltd\.%%g ; s%Inc\.%%g ; s% ,%,%g' | tr -s ' ')
-     #DEVICE=${DEVICE#*:}
-     #local BUS=${DEVICE%:*}
-     #local CARD=${DEVICE#*:} ; CARD=${CARD%.*}
-     #local FUNC=${DEVICE#*.}
-     #INFO=$(scanpci | grep -Fi -A1 "bus 0x00$BUS cardnum 0x$CARD function 0x$FUNC" | tail -n1 | cut -d' ' -f1-3,5- | tr -d '[]' | sed 's%Corporation%%g ; s%Co\.%%g ; s%Ltd\.%%g ; s% ,%,%g' | tr -s ' ')
-     # if nothing found (pcmcia??), try lspci
-     if [ ! "$INFO" ];then
-       DEVICE=$(readlink /sys/class/net/$INT/device)
-       DEVICE=${DEVICE#*:}
-       INFO=$(lspci | grep -m1 "^${DEVICE} " | cut -d: -f3- | sed 's%Corporation%%g ; s%Co\.%%g ; s%Ltd\.%%g ; s% ,%,%g ; s%(rev [0-9a-z].)%%g' | tr -s ' ')
-     fi
+     DEVICE=$(readlink /sys/class/net/$INT/device)
+     DEVICE=${DEVICE#*:}
+     INFO=$(lspci | grep -m1 "^${DEVICE} " | cut -d: -f3- | sed 's%Corporation%%g ; s%Co\.%%g ; s%Ltd\.%%g ; s% ,%,%g ; s%(rev [0-9a-z].)%%g' | tr -s ' ')
      ;;
    usb) # need to try and find info from both /proc/bus/usb/devices and lsusb
      ## 1) find device and vendor:
@@ -1825,7 +1812,7 @@ if which connectwizard_exec &>/dev/null \
 fi #170514 end
 
 # Do we have pcmcia hardware?...
-if elspci -l | grep -E -q '60700|60500' ; then
+if lspci -n | grep -E -q ' 6070: | 6050: ' ; then
   MPCMCIA="yes"
 fi
 
