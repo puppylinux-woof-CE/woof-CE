@@ -5,8 +5,6 @@
 
 VERSION=2
 
-#wait for indexgen.sh to finish
-while [ "$(busybox ps | grep indexgen | grep -v grep)" != "" ];do sleep 0.5;done
 
 export TEXTDOMAIN=petget___pkg_chooser.sh
 export OUTPUT_CHARSET=UTF-8
@@ -769,7 +767,5 @@ export GTK2_RC_FILES=/root/.gtkrc-2.0:/tmp/puppy_package_manager/gtkrc_ppm
 
 gtkdialog -p PPM_GUI
 
-# Run indexgen after we exit the GUI
-/usr/sbin/indexgen.sh
 #and clean up
 clean_flags

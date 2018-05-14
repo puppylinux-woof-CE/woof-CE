@@ -70,7 +70,6 @@ case $DB_DISTRO in
  ;;
  puppy|gentoo)
    #HOMELINK="`grep 'Homepage:' /tmp/gethomepage_2 | grep -o 'href=".*' | cut -f 2 -d '"'`"
-  #w019 fast (see also /usr/sbin/indexgen.sh)...
   HOMESITE="http://en.wikipedia.org/wiki/${DB_nameonly}"
   #121217 pkg name might differ - and _ chars...
   nPTN1="^$(echo "${DB_nameonly}" | tr '-' '_') "
