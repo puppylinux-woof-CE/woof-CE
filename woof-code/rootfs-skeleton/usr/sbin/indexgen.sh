@@ -103,5 +103,8 @@ cat /usr/share/doc/index.html.bottom
 
 mv -f /tmp/newinfoindex.xml /usr/share/doc/index.html
 
+if [ "$1" = "open" ] ; then
+	exec defaulthtmlviewer file:///usr/share/doc/index.html
+fi
 
 ###END###
