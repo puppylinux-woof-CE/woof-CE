@@ -49,56 +49,8 @@ EXCLLISTsd=" 0rootfs_skeleton autologin bootflash burniso2cd cd/dvd check config
 
 cp -f /usr/share/doc/index.html.top /tmp/newinfoindex.xml
 
-#dropdown menu for apps in menu...
-echo '<p>Applications available in the desktop menu:</p>' >>/tmp/newinfoindex.xml
-echo '<center>
-<form name="form">
-<select name="site" size="1" onchange="javascript:formHandler()">
-' >>/tmp/newinfoindex.xml
-
-EXCLLISTsd="${EXCLLISTsd,,}"
-
-####################################################################
-# the ouput of the code below is redirected to /tmp/newinfoindex.xml
-(
-echo "$PKGINFO1" |
-while read ONEINFO
-do
-  NAMEONLY="${ONEINFO%% *}"
-  NAMEONLY="${NAMEONLY,,}"
-  EXPATTERN=" $NAMEONLY "
-  nEXPATTERN="^$NAMEONLY "
-  [[ "${EXCLLISTsd}" == *${EXPATTERN}* ]] && continue
-  HOMESITE="http://en.wikipedia.org/wiki/${NAMEONLY}"
-  PKGHOME="`grep -i -m1 "$nEXPATTERN" /root/.packages/PKGS_HOMEPAGES`"
-  REALHOME=${PKGHOME#* } ## this assumes: name url
-  [ "$REALHOME" != "" ] && HOMESITE="$REALHOME"
-  echo "<option value=\"${HOMESITE}\">${ONEINFO}"
-done
-
-echo '</select>
-</form>
-</center>
-'
-
-#w464 dropdown list of all builtin pkgs...
-echo '<p>Complete list of packages (in Puppy or not):</p>
-<center>
-<form name="form2">
-<select name="site2" size="1" onchange="javascript:formHandler2()">
-'
-
-awk '{ print "<option value=\"" $2 "\">" $1 }' /root/.packages/PKGS_HOMEPAGES
-
-echo '</select>
-</form>
-</center>
-'
-
 #now complete the index.html file...
-cat /usr/share/doc/index.html.bottom
-
-) >> /tmp/newinfoindex.xml
+cat /usr/share/doc/index.html.bottom >> /tmp/newinfoindex.xml
 ####################################################################
 
 mv -f /tmp/newinfoindex.xml /usr/share/doc/index.html
