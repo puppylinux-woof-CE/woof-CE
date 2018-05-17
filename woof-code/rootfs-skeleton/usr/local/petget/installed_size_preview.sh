@@ -32,7 +32,7 @@ DB_dependencies="`echo -n "$DB_ENTRY" | cut -f 9 -d '|'`"
 DB_size="`echo -n "$DB_ENTRY" | cut -f 6 -d '|'`"
 
 SIZEFREEM=`cat /tmp/pup_event_sizefreem | head -n 1` 
-SIZEFREEK=`expr $SIZEFREEM \* 1024`
+SIZEFREEK=$(($SIZEFREEM * 1024))
 
 if [ "$DB_dependencies" != "" -a ! -f /tmp/download_only_pet_quietly ]; then
  echo "${TREE1}" > /tmp/petget_installpreview_pkgname
@@ -45,8 +45,8 @@ if [ "$MISSINGDEPS_PATTERNS" = "" -a "$(grep $DB_ENTRY /tmp/overall_dependencies
  SIZEVAL=`echo -n "$DB_size" | rev | cut -c 2-9 | rev`
  case "$SIZEMK" in
   K) echo cool /dev/null ;;
-  M) SIZEVAL=$( expr $SIZEVAL \* 1024 ) ;;
-  *) SIZEVAL=$( expr $SIZEVAL \/ 1024 ) ;;
+  M) SIZEVAL=$(($SIZEVAL * 1024 )) ;;
+  *) SIZEVAL=$(($SIZEVAL / 1024 )) ;;
  esac
   if [ "$2" = "RMV" ]; then
    echo -$SIZEVAL >> /tmp/overall_pkg_size_RMV
@@ -110,13 +110,13 @@ FNDMISSINGDBENTRYFILE="`ls -1 /tmp/petget_missing_dbentries-* 2>/dev/null`"
     else
      [ "$DEP_SIZE" != "" ] && [ "$(grep $DEP_NAME /tmp/overall_dependencies | wc -l)" -le 1 ] \
       && [ "$(grep $DEP_NAME /tmp/pkgs_to_install)" = "" ] && ADDSIZEK=`echo "$DEP_SIZE" | rev | cut -c 2-10 | rev`
-     INSTALLEDSIZEK=`expr $INSTALLEDSIZEK - $ADDSIZEK`
+     INSTALLEDSIZEK=$(($INSTALLEDSIZEK - $ADDSIZEK))
      echo "$INSTALLEDSIZEK" > /tmp/petget_installedsizek_rep
     fi
    else
     [ "$DEP_SIZE" != "" ] && [ "$(grep $DEP_NAME /tmp/pkgs_to_install)" = "" ]  \
      && ADDSIZEK=`echo "$DEP_SIZE" | rev | cut -c 2-10 | rev`
-    INSTALLEDSIZEK=`expr $INSTALLEDSIZEK + $ADDSIZEK`
+    INSTALLEDSIZEK=$(($INSTALLEDSIZEK + $ADDSIZEK))
     echo "$INSTALLEDSIZEK" > /tmp/petget_installedsizek_rep
    fi
   done

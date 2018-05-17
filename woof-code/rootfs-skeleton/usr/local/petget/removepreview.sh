@@ -237,7 +237,7 @@ if [ -f /audit/${DB_pkgname}DEPOSED.sfs ];then
   busybox cat /tmp/petget/install-cp-errlog2 >> /tmp/petget/install-cp-errlog3
   busybox cat /tmp/petget/install-cp-errlog3 > /tmp/petget/install-cp-errlog
   busybox sync
-  CNT=`busybox expr $CNT + 1`
+  CNT=$(( $CNT + 1 ))
   [ $CNT -gt 10 ] && break #something wrong, get out.
  done
  busybox umount /audit/${DB_pkgname}DEPOSED
@@ -278,7 +278,7 @@ if [ -s /tmp/petget/CLASHPKGS ];then
   busybox cat /tmp/petget/install-cp-errlog2 >> /tmp/petget/install-cp-errlog3
   busybox cat /tmp/petget/install-cp-errlog3 > /tmp/petget/install-cp-errlog
   busybox sync
-  CNT=`busybox expr $CNT + 1`
+  CNT=$(( $CNT + 1 ))
   [ $CNT -gt 10 ] && break #something wrong, get out.
  done
  busybox rm -rf /tmp/petget/savedfiles

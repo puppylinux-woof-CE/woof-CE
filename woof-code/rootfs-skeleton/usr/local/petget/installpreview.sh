@@ -81,15 +81,15 @@ DB_description="`echo -n "$DB_ENTRY" | cut -f 10 -d '|'`"
 [ "$DB_description" = "" ] && DB_description="$(gettext 'no description available')"
 
 SIZEFREEM=`cat /tmp/pup_event_sizefreem | head -n 1` #100821 bug in Lucid 5.1, file had two identical lines.
-SIZEFREEK=`expr $SIZEFREEM \* 1024`
+SIZEFREEK=$(( $SIZEFREEM * 1024))
 
 if [ $DB_size ];then
  SIZEMK="`echo -n "$DB_size" | rev | cut -c 1`"
  SIZEVAL=`echo -n "$DB_size" | rev | cut -c 2-9 | rev`
  SIZEINFO="<text><label>$(gettext 'After installation, this package will occupy') ${SIZEVAL}${SIZEMK}B. $(gettext 'The amount of free space that you have for installation is') ${SIZEFREEM}MB (${SIZEFREEK}KB).</label></text>"
- SIZEVALz=`expr $SIZEVAL \/ 3`
- SIZEVALz=`expr $SIZEVAL + $SIZEVALz`
- SIZEVALx2=`expr $SIZEVALz + 10000`
+ SIZEVALz=$(( $SIZEVAL / 3))
+ SIZEVALz=$(( $SIZEVAL + $SIZEVALz ))
+ SIZEVALx2=$(( $SIZEVALz + 10000 ))
  if [ $SIZEVALx2 -ge $SIZEFREEK ];then
   MSGWARN1="${SIZEINFO}<text use-markup=\"true\"><label>\"<b>$(gettext "A general rule-of-thumb is that the free space should be at least the original-package-size plus installed-package-size plus 10MB to allow for sufficient working space during and after installation. It does not look to good, so you had better click the 'Cancel' button")</b> -- $(gettext "note, if you are running Puppy in a mode that has a 'pupsave' file, then the Utility menu has an entry 'Resize personal storage file' that should solve the problem.")\"</label></text>"
  else
@@ -258,7 +258,7 @@ $(gettext "Please cancel installation, close the Puppy Package Manager, then cli
   FRAME_CNT=`cat /tmp/petget_frame_cnt`
   if [ "$ONEREPO_PREV" != "" ];then #next repo, so start a new tab.
    DEP_CNT=0
-   FRAME_CNT=`expr $FRAME_CNT + 1`
+   FRAME_CNT=$(( $FRAME_CNT + 1))
    echo "$FRAME_CNT" > /tmp/petget_frame_cnt
    #w017 bugfix, prevent double frame closure...
    [ "`cat /tmp/petget_moreframes | tail -n 1 | grep '</frame>$'`" = "" ] && echo "</frame>" >> /tmp/petget_moreframes
@@ -269,7 +269,7 @@ $(gettext "Please cancel installation, close the Puppy Package Manager, then cli
    DEP_NAME="`echo "$ONELIST" | cut -f 1 -d '|'`"
    DEP_SIZE="`echo "$ONELIST" | cut -f 6 -d '|'`"
    DEP_DESCR="`echo "$ONELIST" | cut -f 10 -d '|'`"
-   DEP_CNT=`expr $DEP_CNT + 1`
+   DEP_CNT=$(( $DEP_CNT + 1))
    case $DEP_CNT in
     1)
      echo -n "<frame REPOSITORY: ${ONEREPO}>" >> /tmp/petget_moreframes
@@ -278,7 +278,7 @@ $(gettext "Please cancel installation, close the Puppy Package Manager, then cli
     ;;
     8)
      FRAME_CNT=`cat /tmp/petget_frame_cnt`
-     FRAME_CNT=`expr $FRAME_CNT + 1`
+     FRAME_CNT=$(( $FRAME_CNT + 1 ))
      if [ $FRAME_CNT -gt 10 ];then #120907
       echo -n "<text use-markup=\"true\"><label>\"<b>$(gettext 'SORRY! Too many dependencies, list truncated. Suggest click Cancel button and install some deps first.')</b>\"</label></text>" >> /tmp/petget_moreframes #120907
      else
@@ -295,7 +295,7 @@ $(gettext "Please cancel installation, close the Puppy Package Manager, then cli
    [ $FRAME_CNT -gt 10 ] && break #too wide! 120907
    ADDSIZEK=0
    [ "$DEP_SIZE" != "" ] && ADDSIZEK=`echo "$DEP_SIZE" | rev | cut -c 2-10 | rev`
-   INSTALLEDSIZEK=`expr $INSTALLEDSIZEK + $ADDSIZEK`
+   INSTALLEDSIZEK=$(( $INSTALLEDSIZEK + $ADDSIZEK ))
    echo "$INSTALLEDSIZEK" > /tmp/petget_installedsizek
   done
   INSTALLEDSIZEK=`cat /tmp/petget_installedsizek`
@@ -307,11 +307,11 @@ $(gettext "Please cancel installation, close the Puppy Package Manager, then cli
  #make sure last frame has closed...
  [ "`echo "$MOREFRAMES" | tail -n 1 | grep '</frame>$'`" = "" ] && MOREFRAMES="${MOREFRAMES}</frame>"
  
- INSTALLEDSIZEM=`expr $INSTALLEDSIZEK \/ 1024`
+ INSTALLEDSIZEM=$(( $INSTALLEDSIZEK / 1024))
  MSGWARN2="$(gettext "If that looks like enough free space, go ahead and click the 'Install' button...")"
- testSIZEK=`expr $INSTALLEDSIZEK \/ 3`
- testSIZEK=`expr $INSTALLEDSIZEK + $testSIZEK`
- testSIZEK=`expr $testSIZEK + 8000`
+ testSIZEK=$(( $INSTALLEDSIZEK / 3 ))
+ testSIZEK=$(( $INSTALLEDSIZEK + $testSIZEK ))
+ testSIZEK=$(( $testSIZEK + 8000 ))
  [ $testSIZEK -gt $SIZEFREEK ] && MSGWARN2="$(gettext "Not too good! recommend that you make more space before installing -- see 'Resize personal storage file' in the 'Utility' menu.")"
 if [ ! -f /tmp/install_quietly ]; then
  export DEPS_DIALOG="<window title=\"$(gettext 'Puppy Package Manager: dependencies')\" icon-name=\"gtk-about\">

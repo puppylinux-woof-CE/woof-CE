@@ -314,8 +314,6 @@ do
  repoPATTERN="`echo -n "$REPOBASE" | sed -e 's%Packages\\-%%' | sed -e 's%\\-%\\\\-%g'`"
  if [ "`echo "$RETPARAMS" | grep "$repoPATTERN" | grep 'false'`" = "" ];then
   enabledrepos="${enabledrepos}${REPOBASE} "
-#  repocnt=`expr $repocnt + 1`
-#  [ $repocnt -gt 5 ] && break #only allow 5 active repos in PPM.
  fi
 done
 grep -v '^PKG_REPOS_ENABLED' /root/.packages/PKGS_MANAGEMENT > /tmp/pkgs_management_tmp2

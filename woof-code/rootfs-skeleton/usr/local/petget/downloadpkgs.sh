@@ -246,7 +246,7 @@ do
  
  for ONEFILE in `cat $ONELIST | cut -f 7,8,13 -d '|'` #100527 path|fullfilename|repo-id
  do
-  PKGCNT=`expr $PKGCNT + 1` #101118
+  PKGCNT=$(($PKGCNT + 1)) #101118
   #100903 reorder...
   ONEREPOID="`echo -n "$ONEFILE" | cut -f 3 -d '|'`" #100527 ex: official (...|puppy|wary5|official|)
   ONEPATH="`echo -n "$ONEFILE" | cut -f 1 -d '|'`" #100527
@@ -290,7 +290,7 @@ do
     LASTPKG=$(tail -n 1 /tmp/pgks_failed_to_install_forced)
     if [ $(echo ${DLPKG} | grep ${LASTPKG}) = "" ]; then
      /usr/lib/gtkdialog/box_ok "$(gettext 'Puppy Package Manager')" error "<b>$(gettext 'Faulty download of') ${DLPKG}</b>"
-     FAILCNT=`expr $FAILCNT + 1` #101118
+     FAILCNT=$(($FAILCNT + 1)) #101118
     fi
    fi
    #already removed, but take precautions...
@@ -299,7 +299,7 @@ do
    rm -f /tmp/pkg_preexists 2>/dev/null
   else
    /usr/lib/gtkdialog/box_ok "$(gettext 'Puppy Package Manager')" error "<b>$(gettext 'Failed to download') ${DLPKG}</b>"
-   FAILCNT=`expr $FAILCNT + 1` #101118
+   FAILCNT=$(($FAILCNT + 1)) #101118
   fi
  done
 

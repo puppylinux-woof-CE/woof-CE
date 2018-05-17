@@ -149,15 +149,15 @@ fi
 DIRECTSAVEPATH=""
 read -r TFS TMAX TUSED TMPK TPERCENT TMNTPT <<<$(df -k | grep -w '^tmpfs') #free space in /tmp
 SIZEB=`stat --format=%s "${DLPKG_PATH}"/${DLPKG_BASE}`
-SIZEK=`expr $SIZEB \/ 1024`
-EXPK=`expr $SIZEK \* 5` #estimated worst-case expanded size.
+SIZEK=$(( $SIZEB / 1024 ))
+EXPK=$(( $SIZEK * 5)) #estimated worst-case expanded size.
 if [ "$PUPMODE" = "2" ]; then # from BK's quirky6.1
 	#131220  131229 detect if not enough room in /tmp...
 	DIRECTSAVEPATH="/tmp/petget/directsavepath"
 	NEEDK=$EXPK
 	if [ $EXPK -ge $TMPK ];then
 	  DIRECTSAVEPATH="/audit/directsavepath"
-	  NEEDK=`expr $NEEDK \* 2`
+	  NEEDK=$(( $NEEDK * 2 ))
 	fi
 	if [ "$DIRECTSAVEPATH" ];then
 	 rm -rf $DIRECTSAVEPATH
@@ -404,7 +404,7 @@ if [ "$PUPMODE" = "2" ]; then #from BK's quirky6.1
 	  cat /tmp/petget/install-cp-errlog2 >> /tmp/petget/install-cp-errlog3
 	  cat /tmp/petget/install-cp-errlog3 > /tmp/petget/install-cp-errlog
 	  sync
-	  CNT=`expr $CNT + 1`
+	  CNT=$(($CNT + 1))
 	  [ $CNT -gt 10 ] && break #something wrong, get out.
 	done
 	multiarch_hack

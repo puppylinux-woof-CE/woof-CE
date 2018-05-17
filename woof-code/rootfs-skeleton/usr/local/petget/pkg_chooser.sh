@@ -363,7 +363,7 @@ do
  xREPOCUT="$(echo -n "$REPOCUT" | sed -e 's%\-official$%%')" #120905 window too wide.
  REPOS_RADIO="${REPOS_RADIO}<radiobutton space-expand=\"false\" space-fill=\"false\"><label>${xREPOCUT}</label><action>/tmp/filterversion.sh ${REPOCUT}</action><action>/usr/local/petget/filterpkgs.sh</action><action>refresh:TREE1</action></radiobutton>"
  echo "$REPOCUT" >> /tmp/petget_active_repo_list #120903 needed in findnames.sh
- repocnt=`expr $repocnt + 1`
+ repocnt=$(( $repocnt + 1 ))
  #[ $repocnt -ge 5 ] && break	# SFR: no limit
 done
 

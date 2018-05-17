@@ -191,20 +191,23 @@ check_total_size () {
  rm -f /tmp/petget_tabs 2>/dev/null
  rm -f /tmp/pkgs_to_install_bar 2>/dev/null
  #required size
- NEEDEDK_PLUS=$( expr $(awk '{ sum += $1 } END { print sum }' /tmp/overall_pkg_size)) 
- [ -f /tmp/overall_pkg_size_RMV ] && \
-  NEEDEDK_MINUS=$( expr $(awk '{ sum += $1 } END { print sum }' /tmp/overall_pkg_size_RMV)) \
-  || NEEDEDK_MINUS=0
+ NEEDEDK_PLUS=$(awk '{ sum += $1 } END { print sum }' /tmp/overall_pkg_size)
+ if [ -f /tmp/overall_pkg_size_RMV ] ; then
+  NEEDEDK_MINUS=$(awk '{ sum += $1 } END { print sum }' /tmp/overall_pkg_size_RMV)
+ else
+  NEEDEDK_MINUS=0
+ fi
  [ ! "$NEEDEDK_MINUS" ] && NEEDEDK_MINUS=0
- NEEDEDK=$( expr $( expr $NEEDEDK_PLUS + $NEEDEDK_MINUS ) / 768 ) # 1.5x
+ [ ! "$NEEDEDK_PLUS" ] && NEEDEDK_PLUS=0
+ NEEDEDK=$(( ($NEEDEDK_PLUS + $NEEDEDK_MINUS) / 768 )) # 1.5x
  ACTION_MSG=$(gettext 'This is not enough space to download and install the packages (including dependencies) you have selected.')
  if [ -f /tmp/download_pets_quietly -o -f /tmp/download_only_pet_quietly ]; then
-  NEEDEDK=$( expr $NEEDEDK / 3 ) # 0.5x
+  NEEDEDK=$(( $NEEDEDK / 3 )) # 0.5x
   [ "$DL_PATH" ] && DOWN_PATH="$DL_PATH" || DOWN_PATH="/root"
   ACTION_MSG="$(gettext 'This is not enough space to download the packages (including dependencies) you have selected in ')${DOWN_PATH}."
  fi
  if [ "$(cat /var/local/petget/nd_category 2>/dev/null)" = "true" ]; then
-  NEEDEDKDOWN=$( expr $NEEDEDK / 3 )
+  NEEDEDKDOWN=$(($NEEDEDK / 3 ))
  else
   NEEDEDKDOWN="$NEEDEDK" # so will not trigger warning
  fi
@@ -265,7 +268,7 @@ check_total_size () {
   cat /tmp/pkgs_to_install | cut -f1 -d '|' > /tmp/pkgs_to_install_bar
   if [ -f /tmp/install_pets_quietly -o -f /tmp/install_classic ]; then
    if [ "$(cat /var/local/petget/nd_category 2>/dev/null)" != "true" ]; then
-    BARNEEDEDK=$( expr 2 \* ${NEEDEDK} \/ 3 )
+    BARNEEDEDK=$(( 2 * ${NEEDEDK} / 3 ))
     BARMSG="$(gettext 'to install')"
    else
     BARNEEDEDK=${NEEDEDK}
@@ -346,7 +349,7 @@ status_bar_func () {
  while $1 ; do
   TOTALPKGS=$(cat /tmp/pkgs_to_install_bar /tmp/overall_dependencies 2>/dev/null |sort | uniq | wc -l)
   DONEPGKS=$(cat /tmp/overall_package_status_log 2>/dev/null | wc -l)
-  PERCENT=$( expr $DONEPGKS \* 100 \/ $TOTALPKGS )
+  PERCENT=$(( $DONEPGKS * 100 / $TOTALPKGS ))
   [ $PERCENT = 100 ] && PERCENT=99
   echo $PERCENT > /tmp/petget/install_status_percent
   sleep 0.3
