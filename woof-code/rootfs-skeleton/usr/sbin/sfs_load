@@ -48,6 +48,11 @@
 #20151004 v2.3.3 by ASRI: improve kernel detection KERNVER (Iguleder), add support of pupmode 6 (mavrothal v2.3.2)
 #20151028 v2.3.7: Warning SFS in /tmp at pupmod 5 and unloading fdrv sfs (mavrothal), desktops under /usr/local (shinobar) 
 
+. /etc/rc.d/PUPSTATE
+if [ "$PUNIONFS" = "overlay" ] ; then
+	exit
+fi
+
 for i in $@ ; do
 	if [ "$i" = "stop" ] ; then #simple thing to do, do it as fast as possible
 		[ "`whoami`" != "root" ] && exec sudo -A ${0} ${@}
@@ -553,20 +558,6 @@ make_combo() {
 	echo "$CHOICE"
 }
 
-check_sfs_version() {
-	EXTRASFSVER=$(LANG=C disktype "$EXTRASFS"| grep version | cut -f 4 -d " " | cut -c 1)
-	[ $EXTRASFSVER ] || EXTRASFSVER=0
-	if ! [ $EXTRASFSVER -eq $SFSVER ]; then
-		MSG=$(eval_gettext "Required squashfs version \${SFSVER}, but '\$FILENAME' seems squashfs version \${EXTRASFSVER}.")
-		[ "$GUI"  = "" ] && info "$MSG" && return 1
-		if [ "$SFSCONVERT" ]; then
-			MSG="$MSG\n$(gettext "You can convert the version with the 'SFScovert'.")"
-		fi
-		fatal "$MSG"
-	fi
-	return 0
-}
-
 LOADEDLIST=""
 QUEUED=$(gettext "queue"| tr ' ' '%')
 
@@ -682,7 +673,6 @@ loadable_sfs_list() {
 	if [ "${DISTRO_FDRVSFS}" = "" ]; then
 		[ "$FDRBASE" != "" ] && DISTRO_FDRVSFS=$FDRBASE || DISTRO_FDRVSFS="fdrv"
 	fi
-	SFSSTR="squashfs, version $SFSVER"
 	ALLSFSLIST=""
 	#if [ "$PUPHOME" != "" -a  "$PUPHOME" != "/" ]; then
 	if [ "$PUPHOME" != "" ]; then
@@ -720,11 +710,6 @@ $ALLSFSLIST"
 		[ "${ADRBASE}" ] && [ "`echo "$BASEONESFS" | grep "^${ADRBASE}"`" != "" ] && continue #v1.9.2: saluki
 		[ "${YDRBASE}" ] && [ "`echo "$BASEONESFS" | grep "^${YDRBASE}"`" != "" ] && continue #v2.0.11
 		[ "${FDRBASE}" ] && [ "`echo "$BASEONESFS" | grep "^${FDRBASE}"`" != "" ] && continue #v1.9.2: saluki
-		#v423 eliminate wrong squashfs version...
-		if [ "`disktype ${ONESFS} | grep "$SFSSTR"`" = "" ];then
-			echo "$BASEONESFS" >> "$WRONGVERSION"
-			continue
-		fi
 		BASEFIXEDSFSLIST="$BASEFIXEDSFSLIST
 $BASEONESFS"
 	done
@@ -1754,8 +1739,6 @@ YDRBASE=${YDRV##*/}
 FDRBASE=${FDRV##*/}
 
 KERNVER="`uname -r | cut -f 1 -d \-`" #20151004
-SUPPORTSIG="green"
-SFSVER=4 #supported
 
 [ "$HOME" = "/" ] && HOME=/root
 [ "$HOME" ] || HOME=/root
@@ -1824,7 +1807,7 @@ if [ "$SFSMODE" = "cd" ]; then
 	DESTDIR=$PUPHOME
 fi
 debug "PUPHOME=$PUPHOME;"
-debug "SUPPORTSIG=$SUPPORTSIG, SFSMODE=$SFSMODE, DESTPART=$DESTPART, DESTDIR=$DESTDIR;"
+debug "SFSMODE=$SFSMODE, DESTPART=$DESTPART, DESTDIR=$DESTDIR;"
 
 if [ "$SFSMODE" != "" ]; then
 	LOSETUP_A="$(losetup -a)"
@@ -1881,12 +1864,6 @@ if [ "$STARTSCRIPT" ]; then
 			fi
 			if [ ! -s "$EXTRASFS" ] ; then
 				log "'$F' not found."
-				remove_item EXTRASFSLIST "$F"
-				save_bootconfig
-				continue
-			fi
-			if ! check_sfs_version; then
-				log "'$F' SFS version not match."
 				remove_item EXTRASFSLIST "$F"
 				save_bootconfig
 				continue
@@ -2165,7 +2142,6 @@ EXTRASFSORG="$EXTRASFS"
 FILESIZE=0
 if [ "$FILEISAT" != "url" ]; then
 	[ -s "$EXTRASFS" ] || fatal $(printf "$(gettext "'%s' not found.")" "$EXTRASFS")
-	check_sfs_version
 	FILESIZE=$(du -k -L "$EXTRASFS"| cut -f1)
 fi
 [ $FILESIZE ] || FILESIZE=0  # precaution
@@ -2187,7 +2163,6 @@ fi
 
 MSG=$(printf "$(gettext "Do you want to load '%s'?")" "$FILENAME($SIZE)")
 NEEDTOMOVE=""
-[ "$SUPPORTSIG" = "yellow" -a "$FILEISAT" = 'unionfs' ] && NEEDTOMOVE="y"
 if [ "$SFSMODE" = "tmp" -a "$FILEISAT" != "home" -a  "$FILEISAT" != "ata" ]; then
 	WARNMSG=$WARNSHORT
 	MSG="$MSG\n$WARNSHORT"
@@ -2204,17 +2179,10 @@ if [ "$SFSMODE" = "tmp" -a "$FILEISAT" != "home" -a  "$FILEISAT" != "ata" ]; the
 			DESTISAT=$FILEISAT
 			;;
 		RAM) DESTDIR="/tmp"
-			if [ "$SUPPORTSIG" = 'yellow' ] && df "$DESTDIR" | grep -qw '^unionfs'; then
-				# need another tmpfs
-				DESTDIR="/mnt/tmp"
-				ERRMSG=""
-				another_tmpfs || fatal "$ERRMSG"
-			fi
 			DESTISAT="tmp"
 			;;
 		CD)
 			DESTDIR=/	#DESTDIR="/initrd/pup_rw"
-			[ "$SUPPORTSIG" = 'yellow' ] && DESTDIR="/root"
 			DESTISAT="tmpfs"
 			SFSMODE="cd"
 			;;
@@ -2248,7 +2216,6 @@ if [ "$FILEISAT" = "url" ]; then
 	[ "$DIRNAME" = "$PUPHOME" ] && FILEISAT="home"
 fi
 [ -s "$EXTRASFS" ] || fatal $(printf "$(gettext "'%s' not found.")" "$EXTRASFS")
-check_sfs_version
 
 processing
 FILESIZE=$(du -k -L "$EXTRASFS"| cut -f1)
@@ -2285,7 +2252,6 @@ if [ "$SFSMODE" != "" ]; then
 			break
 		fi
 		NEEDTOMOVE=""; CANMOVE=""; NEEDNOTCOPY=""
-		[ "$SUPPORTSIG" = "yellow" -a "$FILEISAT" = 'unionfs' ] && NEEDTOMOVE="y"
 		[ "$FILEISAT" = 'ata' -o "$FILEISAT" = 'unionfs' ] && [ "$DESTISAT" = 'ata' ] && CANMOVE="y"
 		[ "$FILEISAT" = 'cd' -a "$SFSMODE" = 'cd' ] && COPYTORAM="y"
 		# enough space?
