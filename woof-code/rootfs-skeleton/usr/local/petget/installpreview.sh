@@ -4,7 +4,6 @@
 #called from pkg_chooser.sh
 #package to be previewed prior to installation is TREE1 -- inherited from parent.
 #/tmp/petget/current-repo-triad has the repository that installing from.
-#100821 bug in Lucid 5.1, /tmp/pup_event_sizefreem had two identical lines.
 #101221 yaf-splash fix.
 #120101 01micko: jwm >=547 has -reload, no screen flicker.
 #120116 rev. 514 introduced icon rendering method which broke -reload at 547. fixed at rev. 574.
@@ -19,6 +18,8 @@
 #120905 better advice if too many deps. 120907 revert.
 #120907 max frames increase 5 to 10. Note, precise puppy gave 72 deps for vlc, which would require 10 frames.
 #130511 popup warning if a dep in devx but devx not loaded.
+
+. /etc/rc.d/functions_x
 
 [ "$(cat /var/local/petget/nt_category 2>/dev/null)" != "true" ] && \
  [ -f /tmp/install_quietly ] && set -x
@@ -80,7 +81,7 @@ DB_description="`echo -n "$DB_ENTRY" | cut -f 10 -d '|'`"
 
 [ "$DB_description" = "" ] && DB_description="$(gettext 'no description available')"
 
-SIZEFREEM=`cat /tmp/pup_event_sizefreem | head -n 1` #100821 bug in Lucid 5.1, file had two identical lines.
+SIZEFREEM=$(fx_personal_storage_free_mb)
 SIZEFREEK=$(( $SIZEFREEM * 1024))
 
 if [ $DB_size ];then

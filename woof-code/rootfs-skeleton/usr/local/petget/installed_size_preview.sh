@@ -1,6 +1,8 @@
 #!/bin/sh
 # addapted from installpreview.sh
 
+. /etc/rc.d/functions_x
+
 [ -f /root/.packages/skip_space_check ] && exit 0
 
 REPO=$(echo $1 | cut -f 4 -d '|') 
@@ -31,7 +33,7 @@ DB_ENTRY="`grep "$tPATTERN" /root/.packages/$DB_FILE | head -n 1`"
 DB_dependencies="`echo -n "$DB_ENTRY" | cut -f 9 -d '|'`"
 DB_size="`echo -n "$DB_ENTRY" | cut -f 6 -d '|'`"
 
-SIZEFREEM=`cat /tmp/pup_event_sizefreem | head -n 1` 
+SIZEFREEM=$(fx_personal_storage_free_mb)
 SIZEFREEK=$(($SIZEFREEM * 1024))
 
 if [ "$DB_dependencies" != "" -a ! -f /tmp/download_only_pet_quietly ]; then

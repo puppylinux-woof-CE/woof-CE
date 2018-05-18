@@ -212,11 +212,8 @@ check_total_size () {
   NEEDEDKDOWN="$NEEDEDK" # so will not trigger warning
  fi
  #---
- if [ ! -f /tmp/pup_event_sizefreem ]; then
-   . /etc/rc.d/functions_x
-   echo -n $(fx_personal_storage_free_mb) > /tmp/pup_event_sizefreem #VIRTUALFREEM
- fi
- read AVAILABLE < /tmp/pup_event_sizefreem
+ . /etc/rc.d/functions_x
+ AVAILABLE=$(fx_personal_storage_free_mb)
  if [ ! "$AVAILABLE" ]; then
 	echo "Free space estimation error. Exiting" > /tmp/petget/install_status
 	. /usr/lib/gtkdialog/box_ok "$(gettext 'Free space error')" error "$(gettext 'This is a rare error that fails to report the available free space. It should be OK after a restart')"

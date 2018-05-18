@@ -3,8 +3,9 @@
 #2009 Lesser GPL licence v2 (/usr/share/doc/legal/lgpl-2.1.txt).
 #The Puppy Package Manager main GUI window.
 
-VERSION=2
+. /etc/rc.d/functions_x
 
+VERSION=2
 
 export TEXTDOMAIN=petget___pkg_chooser.sh
 export OUTPUT_CHARSET=UTF-8
@@ -24,7 +25,7 @@ HELPFILE="/usr/local/petget/help.htm"
 
 # Set the skip-space flag
 if [ "$(cat /var/local/petget/sc_category 2>/dev/null)" = "true" ] && \
-	[ "$(cat /tmp/pup_event_sizefreem | head -n 1 )" -gt 4000 ]; then
+	[ "$(fx_personal_storage_free_mb)" -gt 4000 ]; then
 	touch /root/.packages/skip_space_check
 else
 	rm -f /root/.packages/skip_space_check

@@ -16,6 +16,8 @@ export TEXTDOMAIN=petget___configure.sh
 export OUTPUT_CHARSET=UTF-8
 . gettext.sh
 
+. /etc/rc.d/functions_x
+
 #export LANG=C
 . /etc/DISTRO_SPECS #has DISTRO_BINARY_COMPAT, DISTRO_COMPAT_VERSION
 . /etc/rc.d/PUPSTATE
@@ -49,7 +51,7 @@ do
  CHECKBOXES_REPOS="${CHECKBOXES_REPOS}<checkbox><default>${DEFAULT}</default><label>${DBNAME}</label><variable>CHECK_${DBNAME}</variable></checkbox>"
 done
 
-if [ "$(cat /tmp/pup_event_sizefreem | head -n 1 )" -gt 4000 ]; then
+if [ "$(fx_personal_storage_free_mb)" -gt 4000 ]; then
     [ -f /var/local/petget/sc_category ] && \
      CATEGORY_SC=$(cat /var/local/petget/sc_category) || CATEGORY_SC="false"
 	SIZEBOX="<checkbox>
