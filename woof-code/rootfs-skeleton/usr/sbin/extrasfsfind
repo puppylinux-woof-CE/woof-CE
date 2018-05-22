@@ -2,6 +2,7 @@
 # extrasfsfind 1 Mar 2012 by shinobar
 # listing up loadable sfs files and load the ones user selected.
 
+. /etc/DISTRO_SPECS
 . /etc/rc.d/PUPSTATE
 if [ "$PUNIONFS" = "overlay" ] ; then
 	exit
@@ -31,20 +32,11 @@ unmountme() {
 	[ "$UNMOUNTME" ] && umount "$UNMOUNTME" && UNMOUNTME=""
 }
 
-skiploaded() {
-	FOUND=$(echo "$FOUND"| grep '.')	#v1.9.4 renove blank line
-	[ "$FOUND" ] || return
-	for F in $SFSBASE $ZDRBASE $FDRBASE $ADRBASE $YDRBASE $LASTUNIONRECORD \
-		$DISTRO_PUPPYSFS $DISTRO_ZDRVSFS $DISTRO_FDRVSFS $DISTRO_ADRVSFS $DISTRO_YDRVSFS
-	do
-		FOUND=$(echo "$FOUND"| grep -v $F)
-	done
-	FOUND=$(echo "$FOUND"| grep '.')	#v1.9.4 renove blank line
-	[ "$FOUND" ]
-}
-
 skipinstalled() {
 	FOUND=$(echo "$FOUND"| grep '.')	# renove blank line
+	if [ ! -f $HOME/.packages/user-installed-packages ] ; then
+		return
+	fi
 	[ "$FOUND" ] || return
 	[ "$HOME" ] || HOME=/root
 	NEWLIST=""
@@ -58,13 +50,17 @@ $F"
 }
 
 list_on_subdir() {
-	local DIR=$1
-	debug $DIR
+	local DIR=$1 DIR2=$2
+	debug $DIR $DIR2
 	FOUND=""
-	FOUND=$(find -L "$DIR" -mindepth 1 -maxdepth 2 -name *.sfs -type f)
-	skiploaded
+	FOUND="$(find -L "$DIR" -mindepth 1 -maxdepth 2 -name '*.sfs' -type f)"
+	if [ "$DIR2" ] ; then
+		FOUND="$FOUND
+$(find -L "$DIR2" -mindepth 1 -maxdepth 1 -name '*.sfs' -type f)"
+	fi
+	FOUND="$(echo "$FOUND"| grep -vE "$SFS_TO_SKIP")" #skip loaded
 	FOUND="$FOUND
-$(find -L "$DIR" -mindepth 1 -maxdepth 2 -name *.pet -type f)"
+$(find -L "$DIR" -mindepth 1 -maxdepth 2 -name '*.pet' -type f)"
 	skipinstalled
 	[ "$FOUND" ] && return
 	unmountme
@@ -74,7 +70,6 @@ $(find -L "$DIR" -mindepth 1 -maxdepth 2 -name *.pet -type f)"
 #=========================================================================
 
 EXTRASTATUS=/tmp/extrastate
-. /etc/rc.d/PUPSTATE
 . /etc/rc.d/BOOTCONFIG
 
 SFSBASE=${PUPSFS##*/} #basename $PUPSFS
@@ -83,38 +78,40 @@ FDRBASE=${FDRV##*/}
 ADRBASE=${ADRV##*/}
 YDRBASE=${YDRV##*/}
 
+#LOSETUPS=$(losetup -a | tr -d '()' | sed -e 's|.*/||')
+SFS_TO_SKIP="$SFSBASE $ZDRBASE $FDRBASE $ADRBASE $YDRBASE $LASTUNIONRECORD $DISTRO_PUPPYSFS $DISTRO_ZDRVSFS $DISTRO_FDRVSFS $DISTRO_ADRVSFS $DISTRO_YDRVSFS $(echo $LOSETUPS)"
+SFS_TO_SKIP=$(echo $SFS_TO_SKIP | tr ' ' '\n' | sort -u)
+SFS_TO_SKIP=$(echo $SFS_TO_SKIP | tr ' ' '|')
+
 # home path
 SRCPATH=""
 
 if [ $PUPMODE -eq 2 ] ; then #full install
 	SRCPATH='/'
 else
-	if [ -f /initrd${PUP_HOME}${PSUBDIR}/${SFSBASE} ] ; then
-		SRCPATH=/initrd${PUP_HOME}${PSUBDIR}
-	fi
-	if [ -z "$SRCPATH" -a "$PDEV1" ] ; then
-		PDEV1_MP=$(LANG=C mount | grep "^/dev/${PDEV1} " | awk '{print $3}')
-		if [ -z "$PDEV1_MP" ] ; then
-			FS=$(blkid /dev/${PDEV1} | grep -o ' TYPE=.*' | cut -f 2 -d '"')
-			mkdir -p /mnt/$PDEV1
-			mount -t $FS /dev/$PDEV1 /mnt/$PDEV1
-			if [ $? -eq 0 -a -f /mnt/${PDEV1}${PSUBDIR}/${DISTRO_PUPPYSFS} ] ; then
-				SRCPATH=/mnt/${PDEV1}${PSUBDIR}
-				UNMOUNTME=/mnt/${PDEV1}${PSUBDIR}
-			else
-				umount /mnt/$PDEV1 2>/dev/null
-			fi
-		else #already mounted
-			if [ -f ${PDEV1_MP}${PSUBDIR}/${DISTRO_PUPPYSFS} ] ; then
-				SRCPATH=${PDEV1_MP}${PSUBDIR}
-			fi
+	PDEV1_MP=$(LANG=C mount | grep "^/dev/${PDEV1} " | cut -f 3 -d ' ')
+	if [ -z "$PDEV1_MP" ] ; then
+		mkdir -p /mnt/$PDEV1
+		mount -t $DEV1FS /dev/$PDEV1 /mnt/$PDEV1
+		if [ $? -eq 0 -a -f /mnt/${PDEV1}${PSUBDIR}/${SFSBASE} ] ; then
+			SRCPATH=/mnt/${PDEV1}
+			UNMOUNTME=/mnt/${PDEV1}
+		else
+			umount /mnt/$PDEV1 2>/dev/null
+		fi
+	else #already mounted
+		if [ -f ${PDEV1_MP}${PSUBDIR}/${SFSBASE} ] ; then
+			SRCPATH=${PDEV1_MP}
 		fi
 	fi
 fi
 
 if [ "$SRCPATH" ] ; then
-	debug "list_on_subdir:"
-	list_on_subdir $SRCPATH
+	if [ "$PSUBDIR" ] ; then
+		list_on_subdir ${SRCPATH}${PSUBDIR} ${SRCPATH}
+	else
+		list_on_subdir ${SRCPATH}
+	fi
 fi
 debug "FOUND: $FOUND"
 
