@@ -11,6 +11,7 @@
 . /etc/rc.d/PUPSTATE
 
 #v4.01 BK daemon to handle kernel uevents...
+echo '' > /var/local/pup_event_icon_change_flag
 /sbin/clean_desk_icons #v4.02 tidy up drive icons first.
 #/sbin/pup_event_frontend_d &
 #130525 ...start this further down.
