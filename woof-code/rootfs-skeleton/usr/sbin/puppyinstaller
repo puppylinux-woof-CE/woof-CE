@@ -307,53 +307,86 @@ unmountcdfunc() {
 }
 
 locate_puppy_src_files() {
-	SRCPATH="" CDDRIVE="" ISO_MP=""
-	CDDRV=$(probedisk | grep optical | head -1)
+	#===============================
+	SRCPATH=""
+	CDDRIVE=""
+	ISO_MP=""
+	MOUNT_ISO=""
+	#-----
 	if [ $PUPMODE -eq 2 ] ; then #full install
-		SRCPATH=/mnt/iso_file
+		MOUNT_ISO=1
+	else
+		PDEV1_IS_CD=$(probedisk /dev/${PDEV1} 2>/dev/null | grep '|optical|')
+		PDEV1_MP=$(LANG=C mount | grep "^/dev/${PDEV1} " | awk '{print $3}')
+		PDEV1_FS=$(busybox blkid /dev/${PDEV1} | grep -o ' TYPE=.*' | cut -f 2 -d '"')
+		if [ "$PDEV1_MP" ] && [ ! "$PDEV1_FS" ] ; then # no fs?
+			# hmm mounted but media not present?... removable drive (probably)
+			umount $PDEV1_MP
+			PDEV1_MP=""
+		fi
+		#--
+		if [ ! "$PDEV1_FS" ] ; then
+			# no partition fs
+			PDEV1_FS="$DEV1FS" #DEV1FS is in /etc/rc.d/PUPSTATE
+		fi
+		if [ ! "$PDEV1_MP" ] ; then
+			# not mounted
+			mkdir -p /mnt/$PDEV1
+			mount -t $PDEV1_FS /dev/$PDEV1 /mnt/$PDEV1
+			if [ $? -eq 0 -a -f /mnt/${PDEV1}${PSUBDIR}/${DISTRO_PUPPYSFS} ] ; then
+				SRCPATH=/mnt/${PDEV1}${PSUBDIR}
+			else
+				umount /mnt/$PDEV1 2>/dev/null
+			fi
+		else
+			# already mounted
+			if [ -f ${PDEV1_MP}${PSUBDIR}/${DISTRO_PUPPYSFS} ] ; then
+				SRCPATH=${PDEV1_MP}${PSUBDIR}
+			fi
+		fi
+		#--
+		if [ -z "$SRCPATH" -a -n "$PDEV1_IS_CD" ] ; then # not found yet..
+			# may need to insert CD..
+			CDDRIVE=${PDEV1}
+			CDDRVINFO=$(echo "$PDEV1_IS_CD" | cut -f 3 -d '|')
+			Xdialog --wmclass "gtkdialog2" --left --title "$L_PUPPY_INSTALLER" \
+			--msgbox "$(eval_gettext "Please insert the Puppy live-CD (if not already) \
+  into the drive.\nNote, in case your PC has two CD/DVD drives, \
+  Puppy is expecting\nthe live-CD to be inserted into $CDDRIVE, which is \
+  described as:\n $CDDRVINFO \n\nAfter inserting live-CD, \
+  click OK button...")" 0 0
+			mkdir /mnt/${CDDRIVE} 2> /dev/null
+			mount -t iso9660 /dev/${CDDRIVE} /mnt/${CDDRIVE} || umount /dev/${CDDRIVE}
+			if [ -f /mnt/${CDDRIVE}${PSUBDIR}/${DISTRO_PUPPYSFS} ] ; then
+				SRCPATH=/mnt/${CDDRIVE}${PSUBDIR}
+			fi
+		fi
+	fi
+	#-----
+	if [ ! "$SRCPATH" ] ; then
+		MOUNT_ISO=1 #last resort..
+	fi
+	#-----
+	if [ "$MOUNT_ISO" ] ; then
+		ISO_MP=/mnt/iso_file
 		cd $HOME
 		ISO_FILE=$(/usr/lib/gtkdialog/file_chooser "ISO File" "$(gettext "Please select a Puppy live-CD .iso file for $DISTRO_NAME $DISTRO_VERSION ")")
 		[ $? -ne 0 ] && exit 1
-		umount ${SRCPATH} 2>/dev/null
-		mkdir -p ${SRCPATH}
-		mount -t iso9660 -o loop ${ISO_FILE} ${SRCPATH}
-		ISO_MP=${SRCPATH}
-	else
-		if [ -f /initrd${PUP_HOME}${PSUBDIR}/${DISTRO_PUPPYSFS} ] ; then
-			SRCPATH=/initrd${PUP_HOME}${PSUBDIR}
+		umount ${ISO_MP} 2>/dev/null
+		mkdir -p ${ISO_MP}
+		mount -t iso9660 -o loop ${ISO_FILE} ${ISO_MP}
+		#--
+		if [ -f ${ISO_MP}${PSUBDIR}/${DISTRO_PUPPYSFS} ] ; then
+			SRCPATH=${ISO_MP}${PSUBDIR}
+		elif [ -f ${ISO_MP}/${DISTRO_PUPPYSFS} ] ; then
+			SRCPATH=${ISO_MP}
+		else
+			umount ${ISO_MP} 2>/dev/null
+			ISO_MP=""
 		fi
-		if [ -z "$SRCPATH" -a "$PDEV1" ] ; then
-			PDEV1_MP=$(LANG=C mount | grep "^/dev/${PDEV1} " | awk '{print $3}')
-			if [ -z "$PDEV1_MP" ] ; then
-				FS=$(blkid /dev/${PDEV1} | grep -o ' TYPE=.*' | cut -f 2 -d '"')
-				mkdir -p /mnt/$PDEV1
-				mount -t $FS /dev/$PDEV1 /mnt/$PDEV1
-				if [ $? -eq 0 -a -f /mnt/${PDEV1}${PSUBDIR}/${DISTRO_PUPPYSFS} ] ; then
-					SRCPATH=/mnt/${PDEV1}${PSUBDIR}
-				else
-					umount /mnt/$PDEV1 2>/dev/null
-				fi
-			else
-				if [ -f ${PDEV1_MP}${PSUBDIR}/${DISTRO_PUPPYSFS} ] ; then
-					SRCPATH=${PDEV1_MP}${PSUBDIR}
-				fi
-			fi
-		fi
-		if [ -z "$SRCPATH" -a "$CDDRV" ] ; then
-			CDDRIVE=$(echo "$CDDRV" | cut -f 1 -d '|')
-			CDDRIVE=$(basename $CDDRIVE)
-			CDDRVINFO=$(echo "$CDDRV" | cut -f 3 -d '|')
-			Xdialog --wmclass "gtkdialog2" --left --title "$L_PUPPY_INSTALLER" \
-			--msgbox "$(eval_gettext "Please insert the Puppy live-CD (if not already) \
-	  into the drive.\nNote, in case your PC has two CD/DVD drives, \
-	  Puppy is expecting\nthe live-CD to be inserted into $CDDRIVE, which is \
-	  described as:\n $CDDRVINFO \n\nAfter inserting live-CD, \
-	  click OK button...")" 0 0
-			mkdir /mnt/$CDDRIVE 2> /dev/null
-			mount -t iso9660 /dev/$CDDRIVE /mnt/$CDDRIVE
-			SRCPATH="/mnt/$CDDRIVE"
-		fi
+		#--
 	fi
+	#===============================
 	#sanity check...
 	if [ ! -f ${SRCPATH}/${DISTRO_PUPPYSFS} ];then #v3.01 v424 100913
 		unmountcdfunc
