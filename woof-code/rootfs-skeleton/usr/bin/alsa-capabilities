@@ -1,0 +1,1012 @@
+#!/bin/bash
+
+## This script for linux with bash 4.x displays a list with the audio
+## capabilities of each alsa audio output interface and stores them in
+## arrays for use in other scripts.  This functionality is exposed by
+## the `return_alsa_interface' function which is avaliable after
+## sourcing the file. When ran from a shell, it will call that
+## function.
+##
+##  Copyright (C) 2014 Ronald van Engelen <ronalde+github@lacocina.nl>
+##  This program is free software: you can redistribute it and/or modify
+##  it under the terms of the GNU General Public License as published by
+##  the Free Software Foundation, either version 3 of the License, or
+##  (at your option) any later version.
+##
+##  This program is distributed in the hope that it will be useful,
+##  but WITHOUT ANY WARRANTY; without even the implied warranty of
+##  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+##  GNU General Public License for more details.
+##
+##  You should have received a copy of the GNU General Public License
+##  along with this program.  If not, see <http://www.gnu.org/licenses/>.
+##
+## Source:    https://github.com/ronalde/mpd-configure
+## See also:  http://lacocina.nl/detect-alsa-output-capabilities
+
+## an alsa sound card is referred to as a `dev' (device) in this
+## script, while an alsa audio output device is referred to as an
+## `if' (interface), and within those:
+## - `ao' > analog outputs
+## - `do' > all (non-usb audio class) digital outputs
+## - `uo' > usb audio class digital outputs
+
+LANG=C
+
+## ugly temporary hack; see github issue #8
+## exit on all errors
+#set -e
+
+## exit in case of usage of uninitialized variables
+#set -u
+
+## set DEBUG to a non empty value to display internal program flow to
+## stderr
+DEBUG="${DEBUG:-}"
+TESTFILE="${TESTFILE:-}"
+
+
+### generic functions
+
+function echo_stderr() {
+    printf "$@\n" 1>&2; 
+}
+
+function die() {
+    echo_stderr "\nError: $@"
+    exit 1
+}
+
+function inform() {
+    echo_stderr "$@\n"
+}
+
+function debug() {
+    echo_stderr "DEBUG *** $@"
+}
+
+function command_not_found() {
+    ## give installation instructions for package $2 when command $1
+    ## is not available, optional with non default instructions $3
+    ## and exit with error
+
+    command="$1"
+    package="$2"
+    instructions="${3:-}"
+    msg="command \`${command}' not found. "
+    if [[ -z "${instructions}" ]]; then
+	msg+="Users of Debian and Ubuntu can install it with:\n"
+	msg+=" sudo apt-get install ${package}"
+    else
+	msg+="${instructions}"
+    fi
+    die "${msg}"
+
+}
+
+
+### alsa related functions
+
+function fetch_alsa_outputinterfaces() {
+    ## parses each output interface returned by `aplay -l' after
+    ## filtering (when the appropriate commandline options are given),
+    ## stores its capabilities in the appropriate global indexed
+    ## arrays and displays them.
+
+    [[ ! -z "${DEBUG}" ]] && debug "entering \`${FUNCNAME}' with arguments \`$*'"
+    res=""
+    aplay_output=""
+    aplay_msg_nosoundcards_re="no[[:space:]]soundcards"
+    
+    ## to see how the script behaves with a certain output of aplay -l
+    ## on a particular host, store it's output in a file and supply
+    ## the file path as the value of TESTFILE, eg: `bash-capabilities
+    ## /path/to/output-of-aplay-l'. Of course all hardware and device
+    ## test will fail, hopefully with some grace.
+    if [[ -z "${TESTFILE}" ]]; then
+	## run aplay to check for alsa errors
+	res="$(${CMD_APLAY} -l 2>&1)"
+	## check for alsa errors
+	if [[ $? -ne 0 ]]; then
+	    die "cannot continue, because alsa reported the following error:\n\`${res}'\n"
+	fi
+	## check for no soundcards
+	if [[ "${res}" =~ ${aplay_msg_nosoundcards_re} ]]; then
+	    die "cannot continue, because alsa found no soundcards in your system."
+	fi
+	## run it again without std_err
+	aplay_output="$(${CMD_APLAY} -l)"
+    else
+	if [[ -f "${TESTFILE}" ]]; then
+	    ## get the output from a file for testing purposes
+	    inform "NOTICE: not using real aplay output but contents of TESTFILE \`${TESTFILE}'"
+	    aplay_output="$(< "${TESTFILE}")"
+	else
+	    die "TESTFILE needs an existing file"
+	fi
+    fi
+	
+    declare -a aplay_lines=()
+    ## reset the counter for interfaces without filtering
+    NR_AIFS_BEFOREFILTERING=0
+
+    ## iterate each line of aplay output
+    while read -r line ; do 
+	## filter for `^card' and then for `OPT_FILTER' to get matching
+	## lines from aplay and store them in an array
+	if [[ "${line}" =~ "card "[0-99]":" ]]; then
+
+	    [[ ! -z "${DEBUG}" ]] && debug  "Inspecting interface: ${line}"
+
+	    ## raise the counter for interfaces without filtering
+	    let NR_AIFS_BEFOREFILTERING+=1
+
+	    ## check if line matches `OPT_FILTER'
+	    if [[ -z "${OPT_FILTER}"  || \
+		"$(echo -e "${line}" | grep -E "${OPT_FILTER}")" ]]; then
+		[[ ! -z "${DEBUG}" ]] && debug  "               match: ${line}"
+		## store the line in an array
+		aplay_lines+=("${line}")
+	    fi
+	fi
+    done <<< "${aplay_output}"
+
+    errors=()
+    ## loop through each item in the array
+    for line in "${aplay_lines[@]}"; do 
+	## set if type to default (ie analog)
+	alsa_if_type="ao"
+
+	## construct bash rematch (brm) regexp for sound device
+	## portion (ie before `,')
+	brm_dev="card[[:space:]]([0-99]):[[:space:]](.*)[[:space:]]\[(.*)\]"
+	## same for interface portion
+	brm_if="[[:space:]]device[[:space:]]([0-99]):[[:space:]](.*)[[:space:]]\[(.*)\](.*)"
+	## put together
+	brm_template="${brm_dev},${brm_if}"
+
+	unset errors
+	errors=()
+	## start matching and collect errors in array
+	if [[ "${line}" =~ ${brm_template} ]]; then
+	    [[ ! -z "${BASH_REMATCH[1]}" ]] && \
+		alsa_dev_nr="${BASH_REMATCH[1]}" || \
+		    errors+=("could not fetch device number")
+	    [[ ! -z "${BASH_REMATCH[2]}" ]] && \
+		alsa_dev_name="${BASH_REMATCH[2]}" || \
+		    errors+=("could not fetch device name")
+	    [[ ! -z "${BASH_REMATCH[3]}" ]] && \
+		alsa_dev_label="${BASH_REMATCH[3]}" || \
+		    errors+=("could not fetch device label")
+	    [[ ! -z "${BASH_REMATCH[4]}" ]] && \
+		alsa_if_nr="${BASH_REMATCH[4]}" || \
+		    errors+=("could not fetch interface number")
+	    [[ ! -z "${BASH_REMATCH[5]}" ]] && \
+		alsa_if_name="${BASH_REMATCH[5]}" || \
+		    errors+=("could not fetch interface name")
+	    [[ ! -z "${BASH_REMATCH[6]}" ]] && \
+		alsa_if_label="${BASH_REMATCH[6]}" || \
+		    errors+=("could not fetch interface label")
+	    ## consider empty numbers and names of devices and interfaces fatal
+	    if [[ -z ${alsa_dev_nr} ]] || [[ -z ${alsa_dev_name} ]] || [[ -z ${alsa_if_nr} ]] || [[ -z ${alsa_if_name} ]]; then
+		die "$(prinf "%s\n" "${errors[@]}")"
+		break
+	    fi
+
+	    if [[ ! -z "${DEBUG}" ]] && [[ "${#errors[@]}" -ne 0 ]]; then
+		debug "$(printf "errors: %s\n" "${errors[@]}")"
+	    fi
+
+		alsa_if_hwaddress="hw:${alsa_dev_nr},${alsa_if_nr}"
+	    ## construct the path to the character device for the
+	    ## interface (ie `/dev/snd/xxx')
+	    alsa_if_chardev="/dev/snd/pcmC${alsa_dev_nr}D${alsa_if_nr}p"
+	    ## construct the path to the hwparams file
+	    alsa_if_hwparamsfile="/proc/asound/card${alsa_dev_nr}/pcm${alsa_if_nr}p/sub0/hw_params"
+	    ## check if the chardev exists
+	    res="$(check_alsa_chardev "${alsa_if_chardev}")"
+	    if [[ $? -ne 0 ]] ;then
+		[[ ! -z "${DEBUG}" ]] && \
+		    debug "check_alsa_chardev returned error: \`${res}'"
+		#die "cannot get hwparamsfile"
+		alsa_if_chardev="${alsa_if_chardev} (error: not accessible)"
+		alsa_if_formats="(can't determine: character device error)"
+		alsa_if_monitorfile="${alsa_if_hwparamsfile} (error: not accessible)"
+	    else
+		[[ ! -z "${DEBUG}" ]] && \
+		    debug "${FUNCNAME}: check_alsa_chardev returned no error: \`${res}'"
+		## chardev exists, check if it is in use
+		res="$(get_locking_process "${alsa_if_chardev}")"
+		if [[ $? -ne 0 ]]; then
+		    ## can't determine
+		    [[ ! -z "${DEBUG}" ]] && \
+			debug "${FUNCNAME}: get_locking_process returned error: \`${res}'"
+		    
+		    alsa_if_chardev="${alsa_if_chardev} (error: no access; run the script as root or using sudo"
+		    alsa_if_formats="(error: can't determine)"
+		else
+		    [[ ! -z "${DEBUG}" ]] && \
+			debug "${FUNCNAME}: get_locking_process returned no error: \`${res}'"
+		    if [[ ! -z "${res}" ]]; then
+			alsa_if_chardev="${alsa_if_chardev} ${res}"
+		    fi
+		    ## can determine; 
+    		    ## get the formats the interface natively handles or
+		    ## return the process id and name blocking the interface
+		    alsa_if_formats="$(return_alsa_formats "${alsa_if_hwaddress}")"
+		    if [[ $? -ne 0 ]]; then
+			## no random device available or other error accessing it
+			alsa_if_formats="(error accessing /dev/[u]random)"
+		    else
+			if [[ "${alsa_if_formats}" = "${MSG_DEVICE_BUSY}" ]]; then
+			    alsa_if_formats="(error: can't determine because device is in use)"
+			fi
+		    fi
+		fi
+	    fi
+
+	    ## check if the hwparams file exists
+	    res=$(check_alsa_hwparamsfile "${alsa_if_hwparamsfile}")
+	    if [[ $? -ne 0 ]] ;then
+		    alsa_if_hwparamsfile="${alsa_if_hwparamsfile} (error: not accessible)"
+	    fi
+
+	    ## before determining whether this is a usb device, assume
+	    ## the monitor file is the hwparams file
+	    alsa_if_monitorfile="${alsa_if_hwparamsfile}"
+
+	    ## check if the interface name matches one of the strings
+	    ## in the digital filter array
+	    for filter in "${DO_INTERFACE_FILTER[@]}"; do
+		## `,,' downcases the string, while `*var*' does a wildcard match
+		if [[ "${alsa_if_name,,}" == *"${filter}"* ]]; then
+		    [[ ! -z "${DEBUG}" ]] && debug "match = ${alsa_if_name,,}: ${filter}"
+		    ## set ao type to d(igital)o(out)
+		    alsa_if_type="do"
+		    ## exit this for loop
+		    break
+		fi
+	    done
+
+	    ## try to get the stream file for the interface (ie
+	    ## `/proc/asound/cardX/streamY'); such determines whether
+	    ## its a uac device, and if so, which class it is
+	    alsa_if_streamfile="/proc/asound/card${alsa_dev_nr}/stream${alsa_if_nr}"
+	    res="$(check_alsa_streamfile "${alsa_if_streamfile}")"
+	    if [[ $? -ne 0 ]] ;then
+		alsa_if_streamfile="${alsa_if_hwparamsfile} (error: not accessible )"
+		## no uac interface
+		alsa_if_uac_class="${MSG_PROP_NOTAVAILABLE}"
+	    else
+		## set interface to usb out
+		alsa_if_type="uo"
+		## uac devices will use the stream file instead of
+		## hwaparams file to monitor
+		alsa_if_monitorfile="${alsa_if_streamfile}"
+
+		## get the type of uac endpoint
+		res="$(return_alsa_uac_ep "${alsa_if_streamfile}")"
+		if [[ $? -eq 1 ]]; then
+		    ##
+		    alsa_if_uac_class="${MSG_PROP_NOTAVAILABLE}"
+		else
+		    alsa_if_uac_ep="${res}"
+		    ## lookup the uac class in the array for this type of endpoint (EP)
+		    ## (for readability)
+		    alsa_if_uac_class="${UO_EP_LABELS[${alsa_if_uac_ep}]}"
+		    ## get the uac class number (ie `1' or `2')
+		    alsa_if_uac_class_nr="${alsa_if_uac_class% - *}"
+		    ## get the uac label (ie everything after `x: ')
+		    alsa_if_uac_class_label="${alsa_if_uac_class:4}"
+		fi
+	    fi
+	fi
+
+	## for each type of interface, store a `hardware address' and
+	## `monitoring file' pair in the proper array and construct
+	## the display title
+	case "${alsa_if_type}" in
+	    "ao")
+		## only if neither `OPT_LIMIT_DO' and `OPT_LIMIT_UO' are set
+		[[ ! -z ${OPT_LIMIT_DO} || ! -z ${OPT_LIMIT_UO} ]] && continue || match="true"
+		;;
+	    "do")
+		## only if neither `OPT_LIMIT_AO' and `OPT_LIMIT_UO' are set
+		[[ ! -z ${OPT_LIMIT_AO} || ! -z ${OPT_LIMIT_UO} ]] && continue || match="true"
+		;;
+	    "uo")
+		## only if `OPT_LIMIT_AO' is not set
+		[[ ! -z ${OPT_LIMIT_AO} ]] && continue || match="true"
+	esac
+
+	if [[ ! -z "${match}" ]]; then
+
+	    alsa_if_title_label="${ALSA_IF_LABELS[${alsa_if_type}]}"
+
+	    ## construct the display title
+	    alsa_if_display_title=$(printf " %s) %s \`%s'" \
+		"${#ALSA_AIF_HWADDRESSES[@]}" "${alsa_if_title_label}" "${alsa_if_hwaddress}")
+
+	    ## store the details of the current interface in global arrays
+	    ALSA_AIF_HWADDRESSES+=("${alsa_if_hwaddress}")
+	    ALSA_AIF_MONITORFILES+=("${alsa_if_monitorfile}")
+	    ALSA_AIF_DISPLAYTITLES+=("${alsa_if_display_title}")
+	    ALSA_AIF_DEVLABELS+=("${alsa_dev_label}")
+	    ALSA_AIF_LABELS+=("${alsa_if_label}")
+	    ALSA_AIF_UACCLASSES+=("${alsa_if_uac_class}")
+	    ALSA_AIF_FORMATS+=("${alsa_if_formats}")
+	    ALSA_AIF_CHARDEVS+=("${alsa_if_chardev}")
+
+	fi
+
+	## construct a list with the properties of the current
+	## interface if `OPT_QUIET' is not set
+	if [[ -z "${OPT_QUIET}" ]]; then
+	    alsa_details_output=$(cat <<EOF
+${alsa_if_display_title}
+    - card/device name       =  ${alsa_dev_label}
+    - interface name         =  ${alsa_if_label}
+    - usb audio class        =  ${alsa_if_uac_class}
+    - character device       =  ${alsa_if_chardev}
+    - digital formats        =  ${alsa_if_formats}
+    - monitor file           =  ${alsa_if_monitorfile}
+EOF
+) 
+	    ## echo it to std_err
+	    inform "${alsa_details_output}"
+
+	fi
+
+    done
+
+}
+
+function get_locking_process() {
+    ## get the pid and name of the process accessing chardev $1, which
+    ## may be a file or a socket. Returns a descriptive string, nothing or an error.
+    [[ ! -z "${DEBUG}" ]] && debug "entering \`${FUNCNAME}' with arguments \`$*'"
+
+    chardev_path="$1"
+    ## try fuser which returns the pid in std_out.
+    res="$(${CMD_FUSER} -v ${chardev_path} 2>&1)"
+    if [[ $? -ne 0 ]]; then
+	if [[ ! -z "${res}" ]]; then
+	    ## real error; return it to calling function
+	    return 1
+	fi
+    else   
+	[[ ! -z ${DEBUG} ]] && \
+	    debug "${FUNCNAME}: \`${chardev_path}' is accessible"
+	## is in use, run again without v to get the pid
+	## fetch the process name
+	pnamepid=$(ps o cmd=,pid=$(${CMD_FUSER} ${chardev_path} 2>/dev/null))
+	res="$?"
+	[[ ! -z ${DEBUG} ]] && \
+	    debug "${FUNCNAME}: \`${chardev_path}' is in use; ps returned: \`${pnamepid}"
+
+	if [[ ${res} -ne 0 ]]; then
+	    [[ ! -z ${DEBUG} ]] && \
+		debug "${FUNCNAME}: ps returned an error: \`${res}'"
+	else
+	    if [[ -z ${pnamepid} ]]; then
+		## process not found
+		[[ ! -z ${DEBUG} ]] && \
+		    debug "${FUNCNAME}: ps returned no error and no processes"
+	    else
+		[[ ! -z ${DEBUG} ]] && \
+		    debug "${FUNCNAME}: ps returned \`${pnamepid}'"
+		pname="${pnamepid// *}" # return anything before the space
+		pid="${pnamepid//* }"
+		## return the formatted string
+		printf "(in use by \`%s' with pid \`%s')" "$(basename ${pname})" "${pid}"
+	    fi
+	fi
+
+    fi
+}
+
+function return_alsa_formats() {
+    ## fetches and returns a comma seperated string of playback formats
+    ## by feeding it dummy input while keeping the test silent 
+    ## by redirecting output to /dev/null.
+    ## 
+    ## needs address of alsa output device in `hw:x,y' format 
+    ## as single argument ($1)
+
+    [[ ! -z "${DEBUG}" ]] && debug "entering \`${FUNCNAME}' with arguments \`$*'"
+
+    alsa_hw_device="$1"
+    format=""
+    randomdev=/dev/urandom
+    ALSA_BEFORE_FORMATS="Available formats:"
+    ## can't assume existence of /dev/urandom
+    if [[ ! -c ${randomdev} ]] && [[ ! -c /dev/random ]]; then
+	## no random device available; exit with error
+	[[ ! -z ${DEBUG} ]] && \
+	    debug "${FUNCNAME}: no random device available"
+	return 1
+    else
+	if [[ ! -c ${randomdev} ]]; then
+	    randomdev=/dev/random
+	fi
+
+	[[ ! -z ${DEBUG} ]] && \
+	    debug "${FUNCNAME}: using random device \`${randomdev}'"
+
+	aplay_out="$(cat ${randomdev} | \
+LANG=C ${CMD_APLAY} -D ${alsa_hw_device} 2>&1 >/dev/null | grep '^- ')"
+	
+	while read -r line; do 
+	    format="${format}, ${line/- /}"
+	done <<< "${aplay_out}"
+	formats="${format#, }"
+	[[ ! -z "${formats}" ]] && \
+	    printf "${formats}" || \
+		printf "${MSG_DEVICE_BUSY}"
+	
+    fi
+    
+}
+
+function check_alsa_chardev() {
+    ## check to see whether character device $1 exists/is accessible
+    [[ ! -z "${DEBUG}" ]] && debug "entering \`${FUNCNAME}' with arguments \`$*'"
+    
+    chardev_path="$1"
+    if [[ -c "${chardev_path}" ]]; then
+	printf "${chardev_path}"
+    else
+	return 1
+    fi
+}
+
+function check_alsa_hwparamsfile() {
+    ## check to see whether hwparams file $1 exists/is accessible
+    [[ ! -z "${DEBUG}" ]] && debug "entering \`${FUNCNAME}' with arguments \`$*'"
+    
+    hwparams_path="$1"
+    if [[ -f "${hwparams_path}" ]]; then
+	printf "${hwparams_path}"
+    else
+	exit 1
+    fi
+
+}
+
+
+function check_alsa_streamfile() {
+    ## check to see whether stream file $1 exists/is accessible
+    [[ ! -z "${DEBUG}" ]] && debug "entering \`${FUNCNAME}' with arguments \`$*'"
+    
+    streamfile_path="$1"
+    if [[ -f "${streamfile_path}" ]]; then
+	printf "${streamfile_path}"
+    else
+	exit 1
+    fi
+
+}
+
+
+function return_alsa_uac_ep() {
+    ## returns/echoes the usb audio class endpoint as a fixed string
+    ## (ie `ADAPTIVE' or `ASYNC'.
+    ## needs path to stream file as single argument ($1)
+
+    [[ ! -z "${DEBUG}" ]] && debug "entering \`${FUNCNAME}' with arguments \`$*'"
+
+    alsa_streamfile_path="$1"
+
+    if [[ ! -f "${alsa_streamfile_path}" ]]; then
+	## alsa_streamfile_path is not accessible
+	return 1
+    else
+	## store the contents of the stream file in an array
+	mapfile < "${alsa_streamfile_path}" alsa_streamfile_contents
+	## expand the array 
+	alsa_streamfile_expanded=$(printf "%s" "${alsa_streamfile_contents[@]}")
+	
+	## part of begin of the protion of the line we're looking for (re)
+	ep_base="Endpoint: [3,5] OUT ("
+	## the end of that portion
+	ep_end=")"
+	
+	## the portion we need ending with ep_end
+	ep_matched_portion="${alsa_streamfile_expanded#*${ep_base}}"
+	## the portion without ep_end
+	ep_mode="${ep_matched_portion/)*/}"
+
+	## return the filtered endpoint type
+	printf "%s" "${ep_mode}"
+    fi
+}
+
+
+### command line parsing
+
+function analyze_opt_limit() {
+    ## check if the argument for the `-l' (limit) option is proper
+
+    [[ ! -z "${DEBUG}" ]] && debug "entering \`${FUNCNAME}' with arguments \`$*'"
+
+    opt_limit="$1"
+    case ${opt_limit} in
+        a|analog) 
+	    OPT_LIMIT_AO="True"
+	    [[ ! -z "${DEBUG}" ]] && debug "OPT_LIMIT_AO set to \`${OPT_LIMIT_AO}'"
+	    return 0
+	    ;;
+        u|usb|uac) 
+	    OPT_LIMIT_UO="True"
+	    [[ ! -z "${DEBUG}" ]] && debug "OPT_LIMIT_UO set to \`${OPT_LIMIT_UO}'"
+	    return 0
+	    ;;
+        d|digital)
+	    OPT_LIMIT_DO="True"
+	    [[ ! -z "${DEBUG}" ]] && debug "OPT_LIMIT_DO set to \`${OPT_LIMIT_DO}'"
+	    return 0
+	    ;;
+	*)
+	    args=$(printf "\"%s\", " "${OPT_LIMIT_ARGS[@]}")
+	    die "the \`-l' (limit) option requires one of the following arguments:\
+\n${args%*, }"
+    esac
+}
+
+
+function display_usageinfo() {
+    ## display syntax and exit
+
+    msg=$(cat <<EOF
+Usage:
+$0 [ -l a|d|u ]  [ -c <filter> ] [ -q ]
+
+Displays a list of alsa audio output interfaces with their details and
+ends with the hardware address (\`hw:x,y') for the first available
+interface. When the \`-q (quiet)' option is set, the list is
+surpressed, ie only the hardware address is displayed.
+
+The list may be filtered by using the limit option \`-l' with an
+argument, either \`a' (or \`analog'), \`d' (or \`digital') or \`u' (or
+\`usb' or \`uac') to only show interfaces fitting that limit. In
+addition, a custom filter may be specified as an argument for the \`c'
+option.
+
+Returns 0 if an interface is available or 1 in case of no matches.
+
+  -l a | analog     Limit the interfaces to analog ones.
+  -l u | usb | uac  Limit the available output devices to those that
+                    support USB Audio Class.
+  -l d | digital    Limit the available interfaces to digital ones using
+                    a static (and arbitrary) filter.
+  -c <regexp>       Limit the available interfaces further to match
+                    \`<regexp>'.
+  -q, --quiet       Surpress listing each interface with its details,
+                    ie only store the details of each card in the
+                    appropriate arrays.
+  -h, --help        Show this help message
+EOF
+)
+    inform "${msg}"
+    exit 1
+}
+
+function analyze_command_line() {
+    ## parse command line arguments using bash getopts
+
+    [[ ! -z "${DEBUG}" ]] && debug "entering \`${FUNCNAME}' with arguments \`$*'"
+
+    ## put characters in the array in a string
+    shortopts=":${SHORT_OPTS[@]/ /}"
+
+    while getopts "${shortopts}" option; do
+        case "$option" in
+            l) 
+		[[ ! -z "${DEBUG}" ]] && \
+		    debug "option \`l' (${OPTIND}): \`${option}' set to \`${OPTARG}'"
+		OPT_LIMIT="True"
+		analyze_opt_limit "${OPTARG}"
+		;;
+            q)
+		[[ ! -z "${DEBUG}" ]] && \
+		    debug "option \`q' (${OPTIND}): \`${option}' set to \`${OPTARG}'"
+		OPT_QUIET=true
+		;;
+            c) 
+		[[ ! -z "${DEBUG}" ]] && \
+		    debug "option \`c' (${OPTIND}): \`${option}' set to \`${OPTARG}'"
+		OPT_FILTER="${OPTARG}"
+		;;
+           h|\?) 
+		done_opts=true
+		display_usageinfo
+		;;
+            *) 
+		[[ ! -z "${DEBUG}" ]] && \
+		    debug "option \`other' (${OPTIND}): \`${option}' set to \`${OPTARG}'"
+		done_opts=true
+		display_usageinfo
+        esac
+    done
+}
+
+function return_alsa_interface() {
+    ## main function; see display_usageinfo()
+
+    [[ ! -z "${DEBUG}" ]] && debug "entering \`${FUNCNAME}' with arguments \`$*'"
+
+    ## check if needed commands are available
+    CMD_APLAY=$(which aplay || command_not_found "aplay" "alsa-utils")
+    if [[ $? -ne 0 ]]; then
+	die "The script cannot continue without aplay."
+    fi
+    CMD_FUSER=$(which fuser || command_not_found "fuser" "psmisc")
+
+    ## parse command line arguments
+    analyze_command_line "$@"
+    ## stop pulseaudio when requested
+    pulseaudio_evaluate_stopping
+    ## create a list of alsa audio output interfaces and parse it.
+    fetch_alsa_outputinterfaces
+
+    ## restore and restart pulseaudio if requested and command available.
+    pulseaudio_evaluate_restoring
+
+    ## exit with error if no matching output line was found
+    if [[ ${#ALSA_AIF_HWADDRESSES[@]} == 0 ]]; then
+	msg="\n${MSG_MATCH_IF_NONE_UNLIMITED}"
+	##  display information about the number of interfaces before filtering
+	[[ ! ${NR_AIFS_BEFOREFILTERING} == 0 ]] && \
+	    msg=$(printf "${MSG_MATCH_IF_NONE_LIMITED}"  "${NR_AIFS_BEFOREFILTERING}")
+	inform "\n${msg}"
+    fi
+    
+    [[ ! -z "${DEBUG}" ]] && \
+	debug "Number of audio interfaces after filtering: ${#ALSA_AIF_HWADDRESSES[@]}"
+
+    ## return success if interfaces are found
+    return 0
+
+}
+
+
+function pulseaudio_evaluate_stopping() {
+    ## evaluate if pulseaudio needs to be stopped.
+
+    [[ ! -z "${DEBUG}" ]] && debug "entering \`${FUNCNAME}' with arguments \`$*'"
+    ## check if its installed
+    CMD_PULSEAUDIO=$(which pulseaudio)
+
+    if [[ ! -z "${CMD_PULSEAUDIO}" ]]; then
+	## it is installed
+
+	## check if pulseaudio stopping is requested
+	if [[ ! -z "${OPT_STOP_PULSEAUDIO}" ||  ! -z "${OPT_DISABLE_PULSEAUDIO}" ]]; then
+
+	    ## stopping is requested
+	    ## check if it should be permanently disabled
+	    if [[ -z "${OPT_DISABLE_PULSEAUDIO}" ]]; then
+		# no disabling should be temporary
+		inform " * temporary disabling of pulseaudio requested."
+		## check if there's an existing client.conf
+		if [[ -f ${PA_CLIENT_CONF} ]]; then
+		    ## there is
+		    PA_CLIENT_CONF_EXISTED=True
+		    ## back it up
+		    pulseaudio_backup_clientconf
+		fi
+		if [[ ! -z "$(pulseaudio_is_running)" ]]; then
+		    PA_CLIENT_WAS_RUNNING=True
+		fi
+		
+	    else
+		## disabling should be permanent
+		inform " * permanent disabling of pulseaudio requested."
+	    fi
+	    
+	    ## disable respawn by modifying client.conf
+	    pulseaudio_disable_respawn
+	    
+	    ## stop it
+	    pulseaudio_stop
+	    
+	fi
+    else
+	[[ ! -z "${DEBUG}" ]] && \
+	    debug "no pulseaudio command found in path."
+	
+    fi
+
+}
+
+
+function pulseaudio_evaluate_restoring() {
+    ## evaluate if pulseaudio needs to be restored
+
+    if [[ ! -z "${CMD_PULSEAUDIO}" ]]; then
+
+
+	## check if restoring is required
+	if [[ ! -z "${OPT_STOP_PULSEAUDIO}" && -z "${OPT_DISABLE_PULSEAUDIO}" ]]; then
+	    ## it is
+	    [[ ! -z "${DEBUG}" ]] && \
+		debug "restoring of pulseaudio requested."
+	    
+	    [[ ! -z "${DEBUG}" ]] && \
+		debug "\`OPT_DISABLE_PULSEAUDIO' not set, will restore pulseaudio."
+	    if [[  -z "${PA_CLIENT_CONF_EXISTED}" ]]; then
+		## client.conf is generated by script, remove it
+		rm "${PA_CLIENT_CONF}"
+	    else
+		## restore original
+		pulseaudio_restore_clientconf
+	    fi
+	    
+	    if [[ ! -z "${PA_CLIENT_WAS_RUNNING}" ]]; then
+		## restart it
+		[[ ! -z "${DEBUG}" ]] && \
+		    debug "pulseaudio was running: restart it."
+		
+		pulseaudio_start
+	    else
+		[[ ! -z "${DEBUG}" ]] && \
+		    debug "pulseaudio was not running before: don't restart it."
+		
+	    fi
+	    
+	fi
+
+    else
+	[[ ! -z "${DEBUG}" ]] && \
+	    debug "no pulseaudio command found in path."
+	
+    fi
+    
+}
+
+
+function pulseaudio_restore_clientconf() {
+    ## restore backed up client configuration if created by script.
+
+    [[ ! -z "${DEBUG}" ]] && debug "entering \`${FUNCNAME}' with arguments \`$*'"
+
+    cp -av "${PA_CLIENT_CONF_BACKUP}" "${PA_CLIENT_CONF}"
+    res="$?"
+    if [[ "${res}" = "0" ]]; then
+	## succesfully copied back to client.conf
+	[[ ! -z "${DEBUG}" ]] && \
+	    debug "\`${PA_CLIENT_CONF_BACKUP}' restored to \`${PA_CLIENT_CONF}'."
+	## remove the backup
+	rm "${PA_CLIENT_CONF_BACKUP}"
+	rmres="$?"
+	if [[ "$?" = "0" ]]; then
+	    [[ ! -z "${DEBUG}" ]] && \
+		debug "backup conf \`${PA_CLIENT_CONF_BACKUP}' removed."
+	else
+	    [[ ! -z "${DEBUG}" ]] && \
+		debug "removal of \`${PA_CLIENT_CONF_BACKUP}' failed with error: \`${rmres}'."
+	fi
+	
+    else
+	## error restoring
+	[[ ! -z "${DEBUG}" ]] && \
+	    debug "copying \`${PA_CLIENT_CONF_BACKUP}' to \`${PA_CLIENT_CONF}' \
+failed with error \`${res}'"
+    fi
+   
+}
+
+
+function pulseaudio_is_running() {
+    ## returns pid of pulseaudio if running, otherwise empty
+
+    [[ ! -z "${DEBUG}" ]] && debug "entering \`${FUNCNAME}' with arguments \`$*'"
+    
+
+    pa_running="$(pgrep -u ${USER} pulseaudio)"
+    ## return its pid
+    if [[ ! -z "${pa_running}" ]] ; then
+	[[ ! -z "${DEBUG}" ]] && debug "pulseaudio is running: \`${pa_running}'"
+	printf "%s" "${pa_running}"
+    else
+	[[ ! -z "${DEBUG}" ]] && debug "pulseaudio is not running"
+    fi
+
+}
+
+function pulseaudio_start() {
+    ## start pulseaudio
+    
+    [[ ! -z "${DEBUG}" ]] && debug "entering \`${FUNCNAME}' with arguments \`$*'"
+    
+    if [[ ! -z "$(pulseaudio_is_running)" ]]; then
+	## pulseaudio is running
+	[[ ! -z "${DEBUG}" ]] && \
+	    debug "not starting pulseaudio, is already running."
+    else
+	## pulseaudio is not running, start it
+	res=$(${CMD_PULSEAUDIO} --start)
+	if [[ ! -z "$(pulseaudio_is_running)" ]]; then	
+	    [[ ! -z "${DEBUG}" ]] && debug "pulseaudio started."
+	else
+	    [[ ! -z "${DEBUG}" ]] && debug "pulseaudio could not be started."
+	fi
+    fi
+
+}
+
+function pulseaudio_disable_respawn() {
+    ## disables spawning of pulseaudio
+
+    ## create or overwrite the pulseaudio configuration file
+    res=$(printf "autospawn = no\n" > "${PA_CLIENT_CONF}")
+    if [[ "$?" = "0" ]]; then
+	[[ ! -z "${DEBUG}" ]] && debug "respawning disabled by modifying \`${PA_CLIENT_CONF}'."
+	## return true
+	printf "0"
+    else
+	[[ ! -z "${DEBUG}" ]] && debug "modifying \`${PA_CLIENT_CONF}' failed with error: \`${res}'."	
+    fi
+
+}
+
+
+function pulseaudio_backup_clientconf() {
+    ## backes up client.conf
+
+    if [[ -f "${PA_CLIENT_CONF}" ]] ; then    
+	formatted_date="$(date +'%Y%m%d%k%M%S')"
+	PA_CLIENT_CONF_BACKUP="${HOME}/.pulse/client.conf.backup-${formatted_date}"
+	res=$(cp "${PA_CLIENT_CONF}" "${PA_CLIENT_CONF_BACKUP}")
+	if [[ "$?" = "0" ]]; then
+	    [[ ! -z "${DEBUG}" ]] && \
+		debug "pulseaudio configuration backed up to \`${PA_CLIENT_CONF_BACKUP}'."
+	    printf "0"
+	else
+	    [[ ! -z "${DEBUG}" ]] && \
+		debug "could not copy \`${PA_CLIENT_CONF}' to \`${PA_CLIENT_CONF_BACKUP}. \
+failed with error: \`${res}'."
+	fi
+
+    fi
+
+}
+
+
+function pulseaudio_stop() {
+    ## temporary keep pulseaudio from respawning and stop it
+
+    [[ ! -z "${DEBUG}" ]] && debug "entering \`${FUNCNAME}' with arguments \`$*'"
+
+    ## check if its running
+    pa_running="$(pulseaudio_is_running)"
+    if [[ -z "${pa_running}" ]]; then
+	## it isn't
+	[[ ! -z "${DEBUG}" ]] && debug "pulseaudio is not running."
+    else
+	## it is
+	[[ ! -z "${DEBUG}" ]] && debug "pulseaudio is running."
+
+	## kill pulseaudio
+	res=$(${CMD_PULSEAUDIO} --kill)
+
+	## check if that worked
+	if [[ -z "$(pulseaudio_is_running)" ]]; then
+	    [[ ! -z "${DEBUG}" ]] && debug "pulseaudio killed."
+	else
+	    [[ ! -z "${DEBUG}" ]] && debug "could not kill pulseaudio, error: \`${res}'."
+		## restore to situation before running script
+		pulseaudio_restore
+	fi
+    fi
+
+}
+
+
+### global variables
+
+## indexed arrays to store the details of interfaces of one would
+## declare such an array in another script, that array would be filled
+## instead of these.
+set +u 
+
+[[ -z ${ALSA_AIF_HWADDRESSES} ]] && declare -a ALSA_AIF_HWADDRESSES=()
+[[ -z ${ALSA_AIF_DISPLAYTITLES} ]] && declare -a ALSA_AIF_DISPLAYTITLES=()
+[[ -z ${ALSA_AIF_MONITORFILES} ]] && declare -a ALSA_AIF_MONITORFILES=()
+[[ -z ${ALSA_AIF_DEVLABELS} ]] && declare -a ALSA_AIF_DEVLABELS=()
+[[ -z ${ALSA_AIF_LABELS} ]] && declare -a ALSA_AIF_LABELS=()
+[[ -z ${ALSA_AIF_UACCLASSES} ]] && declare -a ALSA_AIF_UACCLASSES=()
+[[ -z ${ALSA_AIF_FORMATS} ]] && declare -a ALSA_AIF_FORMATS=()
+[[ -z ${ALSA_AIF_CHARDEVS} ]] && declare -a ALSA_AIF_CHARDEVS=()
+
+set -u
+
+PA_CLIENT_CONF=${HOME}/.pulse/client.conf
+
+## counter for unfiltered interfaces
+NR_AIFS_BEFOREFILTERING=0
+
+## static filter for digital interfaces
+DO_FILTER_LIST="$(cat <<EOF
+adat
+aes
+ebu
+digital
+dsd
+hdmi
+i2s
+iec958
+spdif
+s/pdif
+toslink
+uac
+usb
+EOF
+    )"
+
+declare -a DO_INTERFACE_FILTER=($(printf -- '%s' "${DO_FILTER_LIST// /" "}"))
+
+## construction for displayed output 
+UAC="USB Audio Class"
+ALSA_IF_LABEL="alsa audio output interface"
+declare -A ALSA_IF_LABELS=()
+ALSA_IF_LABELS+=(["ao"]="Analog ${ALSA_IF_LABEL}")
+ALSA_IF_LABELS+=(["do"]="Digital ${ALSA_IF_LABEL}")
+ALSA_IF_LABELS+=(["uo"]="${UAC} ${ALSA_IF_LABELS[do]}")
+ALSA_NON_DO_IF="${ALSA_IF_LABELS[ao]}"
+ALSA_NON_UO_IF="Non-UAC ${ALSA_IF_LABELS[do]}"
+
+## strings alsa uses for UAC endpoint descriptors.
+UO_EP_ADAPT_FILTER="ADAPTIVE"
+UO_EP_ASYNC_FILTER="ASYNC"
+## labels for UAC classes.
+UO_EP_ADAPT_LABEL="1 - isochronous adaptive"
+UO_EP_ASYNC_LABEL="2 - isochronous asynchronous"
+
+## strings for pulseaudio handling
+CMD_PULSEAUDIO=""
+PULSEAUDIO_CLIENT_CONF="${HOME}/.pulse/client.conf"
+PULSEAUDIO_CONF_MODIFIED=""
+PA_CLIENT_CONF_EXISTED=""
+PA_CLIENT_WAS_RUNNING=""
+
+## declarative array holding the available UAC classes with
+## description
+declare -A UO_EP_LABELS=( \
+	["${UO_EP_ADAPT_FILTER}"]="${UO_EP_ADAPT_LABEL}" \
+	["${UO_EP_ASYNC_FILTER}"]="${UO_EP_ASYNC_LABEL}" \
+	)
+
+## system messages
+MSG_PROP_NOTAPPLICABLE="(n/a)"
+MSG_PROP_NOTAVAILABLE="(none)"
+MSG_DEVICE_BUSY="can't detect"
+MSG_RUN_AS_ROOT="device in use, run as root to display process."
+MSG_NO_DEVICE="no such device"
+MSG_NO_FILE="no such file"
+MSG_TAB=" * "
+MSG_MARGIN="${MSG_TAB//\*/ }"
+MSG_MATCH_IF_NONE_UNLIMITED="${MSG_TAB}No ${ALSA_IF_LABEL}s found."
+MSG_MATCH_IF_NONE_LIMITED="${MSG_TAB}From the %s available ${ALSA_IF_LABEL}s, \
+none matched your filter."
+
+## command line options
+### optional input parameters, the ones with `:' need an argument
+declare -a OPT_LIMIT_ARGS=("a" "analog" "d" "digital" "u" "usb" "uac")
+SHORT_OPTS=("l:" "c:" "q" "h")
+
+OPT_STOP_PULSEAUDIO="${OPT_STOP_PULSEAUDIO:-}"
+OPT_DISABLE_PULSEAUDIO="${OPT_DISABLE_PULSEAUDIO:-}"
+OPT_FILTER="${OPT_FILTER:-}"
+
+OPT_LIMIT_AO=${OPT_LIMIT_AO:-}
+OPT_LIMIT_DO=${OPT_LIMIT_DO:-}
+OPT_LIMIT_UO=${OPT_LIMIT_UO:-}
+OPT_QUIET=${OPT_QUIET:-}
+OPT_FILTER=${OPT_FILTER:-}
+
+
+## if the script is not sourced by another script but run within its
+## own shell call function `return_alsa_interface'
+[[ "${BASH_SOURCE[0]:-}" != "${0}" ]] || return_alsa_interface "$@"
+
