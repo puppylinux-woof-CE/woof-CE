@@ -172,7 +172,7 @@ do
  
  for ONEREPODB in $DB_MAIN $DB_OTHERS
  do
-  DBFILE="`basename $ONEREPODB`" #ex: Packages-slackware-12.2-official
+  DBFILE="${ONEREPODB##*/}" #basname, ex: Packages-slackware-12.2-official
   #find database entry(s) for this package...
   DB_ENTRIES="`cat $ONEREPODB | grep "$depPATTERN"`" #120903 more than one entry may have been found.
   if [ "$DB_ENTRIES" != "" ];then
@@ -207,7 +207,7 @@ done
 #clean them up...
 for ONEREPODB in $DB_MAIN $DB_OTHERS
 do
- DBFILE="`basename $ONEREPODB`" #ex: Packages-slackware-12.2-official
+ DBFILE="${ONEREPODB##*/}" #ex: Packages-slackware-12.2-official
  if [ -f /tmp/petget_missing_dbentries-${DBFILE}-2 ];then
   sort -u /tmp/petget_missing_dbentries-${DBFILE}-2 > /tmp/petget_missing_dbentries-${DBFILE}
   rm -f /tmp/petget_missing_dbentries-${DBFILE}-2

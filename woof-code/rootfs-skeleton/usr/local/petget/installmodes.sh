@@ -346,10 +346,10 @@ install_package () {
  echo "$(gettext "Calculating total required space...")" > /tmp/petget/install_status
  [ ! -f /root/.packages/skip_space_check ] && check_total_size
  status_bar_func &
- while read LINE; do
-   REPO=$(echo $LINE | cut -f 2 -d '|')
+ while IFS="|" read TREE1 REPO #TREE1|REPO
+ do
+   [ -z "$TREE1" ] && continue
    echo "$REPO" > /tmp/petget/current-repo-triad
-   TREE1=$(echo $LINE | cut -f 1 -d '|')
    if [ -f /tmp/install_quietly ];then
     if [  "$(grep $TREE1 /root/.packages/user-installed-packages 2>/dev/null)" = "" \
      -a -f /tmp/install_pets_quietly ]; then
@@ -384,10 +384,10 @@ export -f install_package
 recalculate_sizes () {
 	if [ "$(grep changed /tmp/mode_changed 2>/dev/null)" != "" ]; then
 		rm -f /tmp/overall_*
-		for LINE in $(cat /tmp/pkgs_to_install)
+		while read LINE
 		do
 			/usr/local/petget/installed_size_preview.sh $LINE ADD
-		done
+		done < /tmp/pkgs_to_install
 	else
 		echo "cool!"
 	fi
@@ -400,7 +400,7 @@ wait_func () {
 	X1PID=$!
 	recalculate_sizes
 	while true ; do
-		sleep 0.2
+		sleep 0.5
 		[ "$(ps -eo pid,command | grep installed_size_preview | grep -v grep)" = "" ] && break
 	done
 	kill -9 $X1PID
@@ -412,7 +412,7 @@ case "$1" in
 		touch /tmp/install_quietly #avoid splashes
 		check_total_size
 		;;
-	"$(gettext 'Auto install')")
+	'Auto install')
 		wait_func
 		rm -f /tmp/install_pets_quietly
 		rm -f /tmp/install_classic 2>/dev/null
@@ -426,7 +426,7 @@ case "$1" in
 		install_package
 		unset VTTITLE
 		;;
-	"$(gettext 'Download packages (no install)')")
+	'Download packages (no install)')
 		wait_func
 		rm -f /tmp/install_pets_quietly
 		rm -f /tmp/install_classic 2>/dev/null
@@ -440,7 +440,7 @@ case "$1" in
 		install_package
 		unset VTTITLE
 		;;
-	"$(gettext 'Download all (packages and dependencies)')")
+	'Download all (packages and dependencies)')
 		wait_func
 		rm -f /tmp/install_pets_quietly
 		rm -f /tmp/install_classic 2>/dev/null
@@ -454,7 +454,7 @@ case "$1" in
 		install_package
 		unset VTTITLE
 		;;
-	"$(gettext 'Step by step installation (classic mode)')")
+	'Step by step installation (classic mode)')
 		wait_func
 		rm -f /tmp/install{,_pets}_quietly
 		rm -f /tmp/download_pets_quietly 2>/dev/null

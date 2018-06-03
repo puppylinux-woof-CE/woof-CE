@@ -592,15 +592,8 @@ if [ -f /usr/local/petget/categories.dat ];then #precaution, but it will be ther
   DBNAMEONLY="$(echo -n "$DB_ENTRY" | cut -f 2 -d '|')"
   DBPATH="$(echo -n "$DB_ENTRY" | cut -f 7 -d '|')"
   DBCOMPILEDDISTRO="$(echo -n "$DB_ENTRY" | cut -f 11 -d '|')"
-  [ ! "$DBCOMPILEDDISTRO" ] && DBCOMPILEDDISTRO='puppy' #any name will do here.
   case $DBCOMPILEDDISTRO in
-   debian|devuan|ubuntu|raspbian)
-    if [ "$DBPATH" ];then #precaution
-     xNAMEONLY="$(basename ${DBPATH})"
-    else
-     xNAMEONLY="$DBNAMEONLY"
-    fi
-   ;;
+   debian|devuan|ubuntu|raspbian) xNAMEONLY=${DBPATH##*/} ;;
    *) xNAMEONLY="$DBNAMEONLY" ;;
   esac
   xnPTN=" ${xNAMEONLY} "
@@ -655,12 +648,12 @@ do
  ICON="`grep '^Icon=' $ONEDOT | cut -f 2 -d '='`"
  if [ "$ICON" != "" ];then
   [ -e "$ICON" ] && continue #it may have a hardcoded path.
-  ICONBASE="`basename "$ICON"`"
+  ICONBASE="${ICON##*/}" #basename "$ICON"
   #110706 fix icon entry in .desktop... 110821 improve...
   #first search where jwm looks for icons... 111207...
   FNDICON="`find /usr/share/pixmaps -maxdepth 2 -name $ICONBASE -o -name $ICONBASE.png -o -name $ICONBASE.xpm -o -name $ICONBASE.jpg -o -name $ICONBASE.jpeg -o -name $ICONBASE.gif -o -name $ICONBASE.svg | grep -i -E 'png$|xpm$|jpg$|jpeg$|gif$|svg$' | head -n 1`"
   if [ "$FNDICON" ];then
-   ICONNAMEONLY="`basename $FNDICON`"
+   ICONNAMEONLY="${FNDICON##*/}" #basename $FNDICON
    iPTN="s%^Icon=.*%Icon=${ICONNAMEONLY}%"
    sed -i -e "$iPTN" $ONEDOT
    continue
@@ -672,7 +665,7 @@ do
    #111207 getting desperate...
    [ ! "$FNDICON" ] && FNDICON="`find /usr/share -name $ICONBASE -o -name $ICONBASE.png -o -name $ICONBASE.xpm -o -name $ICONBASE.jpg -o -name $ICONBASE.jpeg -o -name $ICONBASE.gif -o -name $ICONBASE.svg | grep -i -E 'png$|xpm$|jpg$|jpeg$|gif$|svg$' | head -n 1`"
    if [ "$FNDICON" ];then
-    ICONNAMEONLY="`basename "$FNDICON"`"
+    ICONNAMEONLY="${FNDICON##*/}" #basename "$FNDICON"
     ln -snf "$FNDICON" /usr/share/pixmaps/${ICONNAMEONLY}
     iPTN="s%^Icon=.*%Icon=${ICONNAMEONLY}%"
     sed -i -e "$iPTN" $ONEDOT

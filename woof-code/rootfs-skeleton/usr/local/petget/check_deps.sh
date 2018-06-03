@@ -100,13 +100,6 @@ dependcheckfunc() {
   X1PID=$!
  fi
  
- #a hack if OO is installed...
- if [ "`echo -n "$APKGNAME" | grep 'openoffice'`" != "" ];then
-  [ -d /opt ] && FNDOO="`find /opt -maxdepth 2 -type d -iname 'openoffice*'`"
-  [ "$FNDOO" = "" ] && FNDOO="`find /usr -maxdepth 2 -type d -iname 'openoffice*'`"
-  [ "$FNDOO" = "" ] && LD_LIBRARY_PATH="${FNDOO}/program:${LD_LIBRARY_PATH}"
- fi
-
 if [ "$RETPARAMS" -o "$(cat /var/local/petget/sd_category 2>/dev/null)" != "true" ]; then
  FNDFILES="`cat /root/.packages/$APKGNAME.files`"
  oldIFS=$IFS
@@ -116,8 +109,9 @@ if [ "$RETPARAMS" -o "$(cat /var/local/petget/sd_category 2>/dev/null)" != "true
  do
   ISANEXEC="`file --brief "${ONEFILE}"`"
   case "$ISANEXEC" in *"LSB executable"*|*"shared object"*)
-   MISSINGLIBS="`ldd "${ONEFILE}" | grep "not found" | cut -f 2 | cut -f 1 -d " " | tr "\n" " "`"
+   MISSINGLIBS="`ldd "${ONEFILE}" | grep "not found"`"
    if [ ! "$MISSINGLIBS" = "" ];then
+    MISSINGLIBS="`echo "$MISSINGLIBS" | cut -f 2 | cut -f 1 -d " " | tr "\n" " "`"
     echo "$(gettext 'File') $ONEFILE $(gettext 'has these missing library files:')" >> /tmp/missinglibs_details.txt #100718
     echo " $MISSINGLIBS" >> /tmp/missinglibs_details.txt #100718
     echo " $MISSINGLIBS" >> /tmp/missinglibs.txt #100718
@@ -126,7 +120,7 @@ if [ "$RETPARAMS" -o "$(cat /var/local/petget/sd_category 2>/dev/null)" != "true
  done
  IFS=$oldIFS
 else
-	echo "Skipped" > /tmp/missinglibs.txt
+	echo -n > /tmp/missinglibs.txt #skipped
 fi
 
  if [ -s /tmp/missinglibs.txt ];then #100718 reduce size of list, to fit in window...
