@@ -5,7 +5,6 @@
 #  ENTRY1 is a string, to search for a package.
 #101129 checkboxes for show EXE DEV DOC NLS. fixed some search bugs.
 #110223 run message as separate process.
-#110530 ignore packages with different kernel version number, format -k2.6.32.28- in pkg name (also filterpkgs.sh)...
 #120203 BK: internationalized.
 #120323 replace 'xmessage' with 'pupmessage'.
 #120410 Mavrothal: fix "getext" typo.
@@ -113,17 +112,6 @@ do
 #120504  break
  fi
 done
-
-#110530 ignore packages with different kernel version number, format -k2.6.32.28- in pkg name...
-if [ "$FNDIT" = "yes" ];then
- GOODKERNPTN="`uname -r | sed -e 's%\.%\\\.%g' -e 's%^%\\\-k%' -e 's%$%$%'`" #ex: \-k2.6.32$
- BADKERNPTNS="`grep -o '\-k2\.6\.[^-|a-zA-Z]*' /tmp/petget/filterpkgs.results | cut -f 1 -d '|' | grep -v "$GOODKERNPTN" | sed -e 's%$%-%' -e 's%\.%\\\.%g' -e 's%\-%\\\-%g'`" #ex: \-k2\.6\.32\.28\-
- if [ "$BADKERNPTNS" ];then
-  echo "$BADKERNPTNS" >> /tmp/petget_badkernptns
-  grep -v -f /tmp/petget_badkernptns /tmp/petget/filterpkgs.results > /tmp/petget/filterpkgs.resultsxxx
-  mv -f /tmp/petget/filterpkgs.resultsxxx /tmp/petget/filterpkgs.results
- fi
-fi
 
 if [ "$FNDIT" = "no" ];then
  #120909 these files may have been created at previous search, it will upset show_installed_version_diffs.sh if still exist...

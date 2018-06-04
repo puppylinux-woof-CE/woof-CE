@@ -12,7 +12,6 @@
 #100716 PKGS_MANAGEMENT file has new variable PKG_PET_THEN_BLACKLIST_COMPAT_KIDS.
 #101129 checkboxes for show EXE DEV DOC NLS.
 #101221 yaf-splash fix.
-#110530 ignore packages with different kernel version number, format -k2.6.32.28- in pkg name (also findnames.sh)...
 #120203 BK: internationalized.
 #120504 some files moved into /tmp/petget
 #120504b improved dev,doc,nls,exe pkg selection.
@@ -128,11 +127,6 @@ INSTALLEDALIASES="`grep --file=/tmp/petget_installed_patterns /tmp/petget_pkg_na
 
 #w480 pkg_chooser has created this, pkg names that need to be ignored (for whatever reason)...
 cat /tmp/petget_pkg_name_ignore_patterns >> /tmp/petget_installed_patterns
-
-#110530 ignore packages with different kernel version number, format -k2.6.32.28- in pkg name...
-GOODKERNPTN="`uname -r | sed -e 's%\.%\\\.%g' -e 's%^%\\\-k%' -e 's%$%$%'`" #ex: \-k2.6.32$
-BADKERNPTNS="`grep -o '\-k2\.6\.[^-|a-zA-Z]*' /tmp/petget_fltrd_repo_${PKG_FIRST_CHAR}_${fltrCATEGORY}_${xDEFGUIFILTER}_Packages-${fltrREPO_TRIAD} | cut -f 1 -d '|' | grep -v "$GOODKERNPTN" | sed -e 's%$%-%' -e 's%\.%\\\.%g' -e 's%\-%\\\-%g'`" #ex: \-k2\.6\.32\.28\-
-[ "$BADKERNPTNS" ] && echo "$BADKERNPTNS" >> /tmp/petget_installed_patterns
 
 #100716 PKGS_MANAGEMENT file has new variable PKG_PET_THEN_BLACKLIST_COMPAT_KIDS...
 xDBC="`echo -n "${fltrREPO_TRIAD}" | cut -f 1 -d '-'`" #ex: slackware-12.2-official 1st-param is $DISTRO_BINARY_COMPAT
