@@ -116,7 +116,7 @@ $(gettext 'These needed libraries exist but are not in the library search path (
  fi
 
  export REPORT_DIALOG='
- <window title="'$(gettext 'Puppy Package Manager')'" icon-name="gtk-about" default_height="550">
+ <window title="'$(gettext 'Package Manager')'" icon-name="gtk-about" default_height="550">
  <vbox>
   '"`/usr/lib/gtkdialog/xml_info fixed package_add.svg 60 " " "$(gettext "Package install/download report")"`"'
   <hbox space-expand="true" space-fill="true">
@@ -213,7 +213,7 @@ check_total_size () {
  fi
  #---
  . /etc/rc.d/functions_x
- AVAILABLE=$(fx_personal_storage_free_mb)
+ AVAILABLE=$SIZEFREEM
  if [ ! "$AVAILABLE" ]; then
 	echo "Free space estimation error. Exiting" > /tmp/petget/install_status
 	. /usr/lib/gtkdialog/box_ok "$(gettext 'Free space error')" error "$(gettext 'This is a rare error that fails to report the available free space. It should be OK after a restart')"
@@ -296,27 +296,13 @@ check_total_size () {
   if [ ! -f /tmp/install_classic ]; then
    echo "" > /tmp/petget/install_status
    echo 0 > /tmp/petget/install_status_percent
-   if [ "$(ls /tmp/*_pet{,s}_quietly /tmp/install_classic |wc -l)" -eq 1 ]; then
-	for MODE in $(ls /tmp/*_pet{,s}_quietly /tmp/install_classic)
-	do
-	 mv $MODE $MODE.bak
-	done
-   fi
    clean_up
-   mv $MODE.bak $MODE
   else
     . /usr/lib/gtkdialog/box_yesno "$(gettext 'Last warning')" "$(eval echo $(gettext '$NEEDEDK of the $AVAILABLE  available MB will be used to install the package\(s\) you selected.'))" "<b>$(gettext 'It is NOT sufficient. Please exit now.')</b>"  "$(gettext 'However, if you are sure about the step-by-step process, take a risk.')" "$(gettext 'Do you want to cancel installation?')"
    if [ "$EXIT" = "yes" ]; then
     echo 0 > /tmp/petget/install_status_percent
     echo "" > /tmp/petget/install_status
-    if [ "$(ls /tmp/*_pet{,s}_quietly /tmp/install_classic |wc -l)" -eq 1 ]; then
-	 for MODE in $(ls /tmp/*_pet{,s}_quietly /tmp/install_classic)
-	 do
-	  mv $MODE $MODE.bak
-	 done
-    fi
     clean_up
-    mv $MODE.bak $MODE
    else
     echo "good luck"
    fi
@@ -332,7 +318,7 @@ status_bar_func () {
   PERCENT=$(( $DONEPGKS * 100 / $TOTALPKGS ))
   [ $PERCENT = 100 ] && PERCENT=99
   echo $PERCENT > /tmp/petget/install_status_percent
-  sleep 0.3
+  sleep 0.7
   [ -f /tmp/ppm_reporting ] && break
  done
 }
@@ -406,6 +392,10 @@ wait_func () {
 	kill -9 $X1PID
 }
 export -f wait_func
+
+. /etc/rc.d/functions_x
+SIZEFREEM=$(fx_personal_storage_free_mb)
+export SIZEFREEM
 
 case "$1" in
 	check_total_size)

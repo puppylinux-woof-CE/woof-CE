@@ -26,15 +26,26 @@ DB_dependencies="$1" #in standard format of the package database, field 9.
 #if you want a package to be kernel version sensitive:
 #ex3: |+ncurses,+readline,+glibc,+linux_kernel&ge2.6.39|
 
-xDB_dependencies="`echo -n "$DB_dependencies" | tr ',' '\n' | cut -f 1 -d '&' | tr '\n' ','`" #110722 chop off any versioning info.
+#make pkg deps into patterns...
+( #> /tmp/petget_pkg_deps_patterns
+	#ex: DB_dependencies='+ncurses,+readline,+glibc,+linux_kernel&ge2.6.39'
+	for i in ${DB_dependencies//,/ } #convert ',' to ' '
+	do
+		i=${i#+}      #remove leading '+'
+		i="${i%%&*}"  #chop off any versioning info
+		echo "|${i}|" #e.g.: |ncurses|
+	done
+) > /tmp/petget_pkg_deps_patterns
 
-#make pkg deps into patterns... 110722 change DB_dependencies to xDB_dependencies...
-PKGDEPS_PATTERNS="`echo -n "$xDB_dependencies" | tr ',' '\n' | grep '^+' | sed -e 's%^+%%' -e 's%^%|%' -e 's%$%|%'`"
-echo "$PKGDEPS_PATTERNS" > /tmp/petget_pkg_deps_patterns #ex line, mageia: |libdbus-glib-1_2|
-
-#110722 same as above, but with versioning info...
-PKGDEPS_PATTERNS_WITHVER="`echo -n "$DB_dependencies" | tr ',' '\n' | grep '^+' | sed -e 's%^+%%' -e 's%^%|%' -e 's%$%|%' -e 's%&%|%g'`"
-echo "$PKGDEPS_PATTERNS_WITHVER" > /tmp/petget_pkg_deps_patterns_with_versioning #ex line, mageia: |libdbus-glib-1_2|ge2.3.6|
+#same as above, but with versioning info...
+( #> /tmp/petget_pkg_deps_patterns_with_versioning
+	for i in ${DB_dependencies//,/ } #convert ',' to ' '
+	do
+		i=${i#+}       #remove leading '+'
+		i="${i//&/|}"  #convert '&' to '|'
+		echo "|${i}|"  #e.g.: |linux_kernel|ge2.6.39|
+	done
+) > /tmp/petget_pkg_deps_patterns_with_versioning
 
 #110706 mageia, a dep "libdbus-glib-1_2" must be located in variable PKG_ALIASES_INSTALLED (in file PKGS_MANAGEMENT)...
 #/tmp/petget_pkg_name_aliases_patterns[_raw] created in check_deps.sh

@@ -68,16 +68,18 @@ DB_ENTRY="`grep "$tPATTERN" /root/.packages/$DB_FILE | head -n 1`"
 #line format: pkgname|nameonly|version|pkgrelease|category|size|path|fullfilename|dependencies|description|
 #optionally on the end: compileddistro|compiledrelease|repo| (fields 11,12,13)
 
-DB_pkgname="`echo -n "$DB_ENTRY" | cut -f 1 -d '|'`"
-DB_nameonly="`echo -n "$DB_ENTRY" | cut -f 2 -d '|'`"
-DB_version="`echo -n "$DB_ENTRY" | cut -f 3 -d '|'`"
-DB_pkgrelease="`echo -n "$DB_ENTRY" | cut -f 4 -d '|'`"
-DB_category="`echo -n "$DB_ENTRY" | cut -f 5 -d '|'`"
-DB_size="`echo -n "$DB_ENTRY" | cut -f 6 -d '|'`"
-DB_path="`echo -n "$DB_ENTRY" | cut -f 7 -d '|'`"
-DB_fullfilename="`echo -n "$DB_ENTRY" | cut -f 8 -d '|'`"
-DB_dependencies="`echo -n "$DB_ENTRY" | cut -f 9 -d '|'`"
-DB_description="`echo -n "$DB_ENTRY" | cut -f 10 -d '|'`"
+IFS="|" read F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 etc <<< "$DB_ENTRY"
+
+DB_pkgname="$F1"
+DB_nameonly="$F2"
+DB_version="$F3"
+DB_pkgrelease="$F4"
+DB_category="$F5"
+DB_size="$F6"
+DB_path="$F7"
+DB_fullfilename="$F8"
+DB_dependencies="$F9"
+DB_description="$F10"
 
 [ "$DB_description" = "" ] && DB_description="$(gettext 'no description available')"
 
@@ -86,7 +88,7 @@ SIZEFREEK=$(( $SIZEFREEM * 1024))
 
 if [ $DB_size ];then
  SIZEMK="`echo -n "$DB_size" | rev | cut -c 1`"
- SIZEVAL=`echo -n "$DB_size" | rev | cut -c 2-9 | rev`
+ SIZEVAL=${DB_size%[A-Z]} #remove suffix: K M B .. etc
  SIZEINFO="<text><label>$(gettext 'After installation, this package will occupy') ${SIZEVAL}${SIZEMK}B. $(gettext 'The amount of free space that you have for installation is') ${SIZEFREEM}MB (${SIZEFREEK}KB).</label></text>"
  SIZEVALz=$(( $SIZEVAL / 3))
  SIZEVALz=$(( $SIZEVAL + $SIZEVALz ))

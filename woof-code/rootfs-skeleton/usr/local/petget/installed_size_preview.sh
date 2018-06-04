@@ -1,15 +1,23 @@
-#!/bin/sh
+#!/bin/bash
 # addapted from installpreview.sh
+# called by installpreview.sh and pkg_chooser.sh (add_item2, remove_item2)
 
 . /etc/rc.d/functions_x
 
 [ -f /root/.packages/skip_space_check ] && exit 0
 
-REPO=$(echo $1 | cut -f 4 -d '|') 
-[ ! "$REPO" ] && REPO=$(echo $1 | cut -f 2 -d '|')
+# $1 = TREE1|CATEGORY|DESCRIPTION|REPO
+#audacity_2.1.2-2|Multimedia-sound|[debian-stretch-main] fast cross-platform audio editor|debian-stretch-main|
+
+IFS="|" read TREE1 CAT DESC REPO <<< "$1"
 echo "$REPO" > /tmp/petget/current-repo-triad
-TREE1=$(echo $1 | cut -f 1 -d '|')
 [ ! "$TREE1" ] && exit 0
+
+do_grep() { #$1:str $2:file
+	[ -z "$1" ] && return
+	[ ! -f "$2" ] && return
+	grep "$1" "$2"
+}
 
 export TEXTDOMAIN=petget___installed_size_preview.sh
 export OUTPUT_CHARSET=UTF-8
@@ -17,7 +25,7 @@ export OUTPUT_CHARSET=UTF-8
 . /etc/DISTRO_SPECS #has DISTRO_BINARY_COMPAT, DISTRO_COMPAT_VERSION
 . /root/.packages/DISTRO_PKGS_SPECS
 
-DB_FILE=Packages-`cat /tmp/petget/current-repo-triad`
+DB_FILE=Packages-${REPO} #triad
 tPATTERN='^'"$TREE1"'|'
 EXAMDEPSFLAG='yes'
 ttPTN='^'"$TREE1"'|.*ALREADY INSTALLED'
@@ -33,7 +41,9 @@ DB_ENTRY="`grep "$tPATTERN" /root/.packages/$DB_FILE | head -n 1`"
 DB_dependencies="`echo -n "$DB_ENTRY" | cut -f 9 -d '|'`"
 DB_size="`echo -n "$DB_ENTRY" | cut -f 6 -d '|'`"
 
-SIZEFREEM=$(fx_personal_storage_free_mb)
+if [ -z "$SIZEFREEM" ] ; then
+	SIZEFREEM=$(fx_personal_storage_free_mb)
+fi
 SIZEFREEK=$(($SIZEFREEM * 1024))
 
 if [ "$DB_dependencies" != "" -a ! -f /tmp/download_only_pet_quietly ]; then
@@ -42,12 +52,11 @@ if [ "$DB_dependencies" != "" -a ! -f /tmp/download_only_pet_quietly ]; then
 fi
 
 MISSINGDEPS_PATTERNS="$(cat /tmp/petget_missingpkgs_patterns)"
-if [ "$MISSINGDEPS_PATTERNS" = "" -a "$(grep $DB_ENTRY /tmp/overall_dependencies)" = "" ]; then
- SIZEMK="`echo -n "$DB_size" | rev | cut -c 1`"
- SIZEVAL=`echo -n "$DB_size" | rev | cut -c 2-9 | rev`
- case "$SIZEMK" in
-  K) echo cool /dev/null ;;
-  M) SIZEVAL=$(($SIZEVAL * 1024 )) ;;
+if [ "$MISSINGDEPS_PATTERNS" = "" -a "$(do_grep $DB_ENTRY /tmp/overall_dependencies)" = "" ]; then
+ SIZEVAL=${DB_size%[A-Z]} #remove suffix: K M B .. etc
+ case "$DB_size" in
+  *K) echo -n ;;
+  *M) SIZEVAL=$(($SIZEVAL * 1024 )) ;;
   *) SIZEVAL=$(($SIZEVAL / 1024 )) ;;
  esac
   if [ "$2" = "RMV" ]; then
@@ -82,12 +91,12 @@ FNDMISSINGDBENTRYFILE="`ls -1 /tmp/petget_missing_dbentries-* 2>/dev/null`"
  MAINPKG_NAME="`echo "$DB_ENTRY" | cut -f 1 -d '|'`"
  MAINPKG_SIZE="`echo "$DB_ENTRY" | cut -f 6 -d '|'`"
  INSTALLEDSIZEK=0
- if [ "$MAINPKG_SIZE" != "" -a "$(grep $MAINPKG_NAME /tmp/overall_dependencies)" = "" ]; then
+ if [ "$MAINPKG_SIZE" != "" -a "$(do_grep $MAINPKG_NAME /tmp/overall_dependencies)" = "" ]; then
   if [ "$2" = "RMV" ]; then
-   INSTALLEDSIZEKMAIN=-$(echo "$MAINPKG_SIZE" | rev | cut -c 2-10 | rev)
+   INSTALLEDSIZEKMAIN=-${MAINPKG_SIZE%[A-Z]} #remove suffix: K M B .. etc
    echo "$INSTALLEDSIZEKMAIN" > /tmp/petget_installedsizek # In case all deps are needed
   else
-   INSTALLEDSIZEKMAIN=$(echo "$MAINPKG_SIZE" | rev | cut -c 2-10 | rev)
+   INSTALLEDSIZEKMAIN=${MAINPKG_SIZE%[A-Z]} #remove suffix: K M B .. etc
   fi
  fi
  echo -n "" > /tmp/petget_moreframes
@@ -95,6 +104,7 @@ FNDMISSINGDBENTRYFILE="`ls -1 /tmp/petget_missing_dbentries-* 2>/dev/null`"
  echo "0" > /tmp/petget_frame_cnt
  DEP_CNT=0
  ONEREPO=""
+
  for ONEDEPSLIST in `ls -1 /tmp/petget_missing_dbentries-*`
  do
   ONEREPO_PREV="$ONEREPO"
@@ -105,19 +115,21 @@ FNDMISSINGDBENTRYFILE="`ls -1 /tmp/petget_missing_dbentries-* 2>/dev/null`"
    DEP_NAME="`echo "$ONELIST" | cut -f 1 -d '|'`"
    DEP_SIZE="`echo "$ONELIST" | cut -f 6 -d '|'`"
    ADDSIZEK=0
-   if [ -f /tmp/overall_dependencies -a \
-    "$(grep $DEP_NAME /tmp/overall_dependencies)" != "" ]; then
-    if [ "$2" = "ADD" -o "$(grep $DEP_NAME /tmp/overall_dependencies | wc -l)" -gt 1 ]; then
+   if [ "$(do_grep $DEP_NAME /tmp/overall_dependencies)" != "" ]; then
+    if [ "$2" = "ADD" -o "$(do_grep $DEP_NAME /tmp/overall_dependencies | wc -l)" -gt 1 ]; then
      echo done that
     else
-     [ "$DEP_SIZE" != "" ] && [ "$(grep $DEP_NAME /tmp/overall_dependencies | wc -l)" -le 1 ] \
-      && [ "$(grep $DEP_NAME /tmp/pkgs_to_install)" = "" ] && ADDSIZEK=`echo "$DEP_SIZE" | rev | cut -c 2-10 | rev`
+     if [ "$DEP_SIZE" != "" ] && [ "$(do_grep $DEP_NAME /tmp/overall_dependencies | wc -l)" -le 1 ] \
+     && [ "$(do_grep $DEP_NAME /tmp/pkgs_to_install)" = "" ] ; then
+        ADDSIZEK=${DEP_SIZE%[A-Z]} #remove suffix: K M B .. etc
+     fi
      INSTALLEDSIZEK=$(($INSTALLEDSIZEK - $ADDSIZEK))
      echo "$INSTALLEDSIZEK" > /tmp/petget_installedsizek_rep
     fi
    else
-    [ "$DEP_SIZE" != "" ] && [ "$(grep $DEP_NAME /tmp/pkgs_to_install)" = "" ]  \
-     && ADDSIZEK=`echo "$DEP_SIZE" | rev | cut -c 2-10 | rev`
+    if [ "$DEP_SIZE" != "" ] && [ "$(do_grep $DEP_NAME /tmp/pkgs_to_install)" = "" ] ; then
+     ADDSIZEK=${DEP_SIZE%[A-Z]} #remove suffix: K M B .. etc
+    fi
     INSTALLEDSIZEK=$(($INSTALLEDSIZEK + $ADDSIZEK))
     echo "$INSTALLEDSIZEK" > /tmp/petget_installedsizek_rep
    fi

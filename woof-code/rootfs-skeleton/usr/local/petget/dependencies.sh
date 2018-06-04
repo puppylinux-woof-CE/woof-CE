@@ -185,8 +185,8 @@ do
      condFLG='good'
      for ACOND in $DEPCONDS #ex: gt5.6.7 lt6.7.8
      do
-      DEPOP="`echo -n "$ACOND" | cut -c 1,2`"
-      DEPVER="`echo -n "$ACOND" | cut -c 3-99`"
+      DEPOP=${ACOND:0:2} # cut -c 1,2 
+      DEPVER=${ACOND:2}  # cut -c 3-99
            
       if ! vercmp ${DB_version} ${DEPOP} ${DEPVER};then
        condFLG='bad'
