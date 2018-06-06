@@ -131,13 +131,11 @@ else
    <action>echo \"${TREE1}\" > /tmp/petget_installpreview_pkgname</action>
    <action type=\"exit\">BUTTON_EXAMINE_DEPS</action>
    </button>"
-   DEPINFO="<text><label>$(gettext 'Warning, the following dependent packages are missing:')</label></text>
-   <text use-markup=\"true\"><label>\"<b>${xMISSINGDEPS}</b>\"</label></text>
-   <text><label>$(gettext "A warning, these dependencies may have other dependencies not necessarily listed here. It is recommended that you click the 'Examine dependencies' button to find all dependencies before installing.")</label></text>
-   <text use-markup=\"true\"><label>\"<b>$(gettext "Please click 'Examine dependencies' to install") ${TREE1} $(gettext "as well as its dependencies")</b>\"</label></text>"
+   DEPINFO="<text space-expand=\"true\" space-fill=\"true\" use-markup=\"true\"><label>\"$(gettext 'Dependencies: ') <b>${xMISSINGDEPS}</b>\"</label></text>
+   <text space-expand=\"true\" space-fill=\"true\" use-markup=\"true\"><label>$(gettext "A warning, these dependencies may have other dependencies not necessarily listed here. It is recommended that you click the 'Examine dependencies' button to find all dependencies before installing.")</label></text>
+   <text space-expand=\"true\" space-fill=\"true\" use-markup=\"true\"><label>\"<b>$(gettext "Please click 'Examine dependencies' to install") ${TREE1} $(gettext "as well as its dependencies")</b>\"</label></text>"
   else
-   DEPINFO="<text><label>$(gettext 'Warning, the following dependent packages are missing:')</label></text>
-   <text use-markup=\"true\"><label>\"<b>${xMISSINGDEPS}</b>\"</label></text>"
+   DEPINFO="<text space-expand=\"true\" space-fill=\"true\" use-markup=\"true\"><label>\"$(gettext 'Warning, the following dependent packages are missing: ') <b>${xMISSINGDEPS}</b>\"</label></text>"
   fi
   if [ $DB_size ];then
    MSGWARN1="<text><label>$(gettext 'After installation, this package will occupy') ${SIZEVAL}${SIZEMK}B, $(gettext 'however the dependencies will need more space so you really need to find what they will need first.')</label></text>"
@@ -149,25 +147,29 @@ fi
 
 [ ! -f /tmp/install_quietly ] && kill $X1PID || echo
 if [ ! -f /tmp/install_quietly ]; then
-export PREVIEW_DIALOG="<window title=\"$(gettext 'Puppy Package Manager: preinstall')\" icon-name=\"gtk-about\">
-<vbox>
- <text><label>$(gettext 'You have chosen to install package') '${TREE1}'. $(gettext 'A short description of this package is:')</label></text>
- <text use-markup=\"true\"><label>\"<b>${DB_description}</b>\"</label></text>
- ${DEPINFO}
- 
- ${MSGWARN1}
- 
+export PREVIEW_DIALOG="<window title=\"$(gettext 'Package Manager: preinstall')\" icon-name=\"gtk-about\">
+<vbox space-expand=\"true\" space-fill=\"true\">
  <frame>
-  <hbox>
-   <text><label>$(gettext 'If you would like more information about') '${TREE1}', $(gettext 'such as what it is for and the dependencies, this button will download and display detailed information:')</label></text>
-   <button><label>$(gettext 'More info')</label><action>/usr/local/petget/fetchinfo.sh ${TREE1} & </action></button>
+  <text space-expand=\"true\" space-fill=\"true\" use-markup=\"true\"><label>\"$(gettext 'PKG to install:') <b>${TREE1}</b>.\"</label></text>
+  <text space-expand=\"true\" space-fill=\"true\" use-markup=\"true\"><label>\"$(gettext 'Description: ')<b>${DB_description}</b>\"</label></text>
+  ${DEPINFO}
+  ${MSGWARN1}
+ </frame>
+
+ <frame>
+  <hbox space-expand=\"true\" space-fill=\"true\">
+   <text space-expand=\"true\" space-fill=\"true\"><label>\"$(gettext 'More info.. such as what it is for and the dependencies, this button will download and display detailed information:')\"</label></text>
+   <button>
+     $(/usr/lib/gtkdialog/xml_button-icon internet.svg big)
+     <action>/usr/local/petget/fetchinfo.sh ${TREE1} & </action>
+   </button>
   </hbox>
  </frame>
  
  <hbox>
   ${DEPBUTTON}
   <button>
-   <label>$(gettext 'Install') ${TREE1}${ONLYMSG}</label>
+   <label>$(gettext 'Install') PKG ${ONLYMSG}</label>
    <action>echo \"${TREE1}\" > /tmp/petget_installpreview_pkgname</action>
    <action type=\"exit\">BUTTON_INSTALL</action>
   </button>
@@ -181,7 +183,7 @@ export PREVIEW_DIALOG="<window title=\"$(gettext 'Puppy Package Manager: preinst
 </window>
 "
 
-RETPARAMS="`gtkdialog3 --center --program=PREVIEW_DIALOG`"
+RETPARAMS="`gtkdialog --center --program=PREVIEW_DIALOG`"
 else
  if [ -f /tmp/download_only_pet_quietly ]; then
   RETPARAMS='EXIT="BUTTON_PKGS_DOWNLOADONLY"'
@@ -363,7 +365,7 @@ if [ ! -f /tmp/install_quietly ]; then
 </window>
 "
 
-RETPARAMS="`gtkdialog3 --center --program=DEPS_DIALOG`"
+RETPARAMS="`gtkdialog --center --program=DEPS_DIALOG`"
 else
  if [ ! -f /tmp/download_pets_quietly ]; then
  xEXIT="BUTTON_PKGS_INSTALL"

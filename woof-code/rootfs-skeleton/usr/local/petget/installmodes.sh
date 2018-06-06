@@ -332,7 +332,7 @@ install_package () {
  echo "$(gettext "Calculating total required space...")" > /tmp/petget/install_status
  [ ! -f /root/.packages/skip_space_check ] && check_total_size
  status_bar_func &
- while IFS="|" read TREE1 REPO #TREE1|REPO
+ while IFS="|" read TREE1 REPO zz #TREE1|REPO
  do
    [ -z "$TREE1" ] && continue
    echo "$REPO" > /tmp/petget/current-repo-triad

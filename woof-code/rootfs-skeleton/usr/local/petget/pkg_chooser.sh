@@ -5,7 +5,7 @@
 
 . /etc/rc.d/functions_x
 
-VERSION=2
+VERSION=2.1
 
 export TEXTDOMAIN=petget___pkg_chooser.sh
 export OUTPUT_CHARSET=UTF-8
@@ -400,7 +400,7 @@ progressbar_info () {
 		NEEDED_PGKS="$(</tmp/overall_dependencies)"
 		# Info window/dialogue (display and option to save "missing" info)
 		export NEEDED_DIALOG='
-		<window title="'$(gettext 'Puppy Package Manager')'" icon-name="gtk-about" default_height="350">
+		<window title="'$(gettext 'Package Manager')'" icon-name="gtk-about" default_height="350">
 		<vbox space-expand="true" space-fill="true">
 		  '"`/usr/lib/gtkdialog/xml_info fixed package_add.svg 60 " " "$(gettext "Dependencies needed")"`"'
 		  <hbox space-expand="true" space-fill="true">
@@ -435,25 +435,6 @@ progressbar_info () {
 }
 export -f progressbar_info
 
-#tall or wide orientation in the Ziggy UI
-UI_ORIENT="$(cat /var/local/petget/uo_choice 2>/dev/null)"
-[ "$UI_ORIENT" != "" ] && UI_ORIENT="$UI_ORIENT" || UI_ORIENT="wide"
-if [ "$UI_ORIENT" = "tall" ]; then
-	UO_1="800"
-	UO_2="650"
-	UO_3="210"
-	UO_4="210"
-	UO_5="<vbox space-expand=\"true\" space-fill=\"true\">
-          <hbox space-expand=\"true\" space-fill=\"true\" height-request=\"250\">"
-	UO_6="</vbox>"
-else
-	UO_1="950"
-	UO_2="1000"
-	UO_3="300"
-	UO_4="100"
-	UO_5="<hbox space-expand=\"true\" space-fill=\"true\">"
-	UO_6=''
-fi
 # icon switching
 ICONDIR="/tmp/petget/icons"
 rm -rf "$ICONDIR"
@@ -463,10 +444,26 @@ cp  /usr/share/pixmaps/puppy/close.svg "$ICONDIR"/true.svg
 ln -sf "$ICONDIR"/true.svg "$ICONDIR"/tgb0.svg
 
 # check screen size
-SCREEN_WIDTH=$(xwininfo -root | grep -m 1 '\geometry'  | cut -f1 -d 'x' |rev |cut -f1 -d ' ' |rev)
-[ "$SCREEN_WIDTH" -le 1000 ] && WIDTH="$SCREEN_WIDTH" || WIDTH="$UO_1"
+while read a b c ; do
+	case $a in -geometry)
+		SCRNXY=${b%%+*} #1366x768
+		read SCRN_X SCRN_Y <<< "${SCRNXY//x/ }"
+		break
+	esac
+done <<< "$(LANG=C xwininfo -root)"
 
-S='<window title="'$(gettext 'Puppy Package Manager v')''${VERSION}'" width-request="'${WIDTH}'" icon-name="gtk-about" default_height="440">
+UO_1="1000"
+UO_2="650"
+UO_3="210"
+UO_4="210"
+UO_5="<vbox space-expand=\"true\" space-fill=\"true\">
+          <hbox space-expand=\"true\" space-fill=\"true\" height-request=\"300\">"
+UO_6="</vbox>"
+
+WIDTH="$UO_1"
+[ "$SCRN_X" -le 1000 ] && WIDTH="$((SCRN_X-5))"
+
+S='<window title="'$(gettext 'Package Manager v')''${VERSION}'" width-request="'${WIDTH}'" icon-name="gtk-about" default_height="440">
 <vbox space-expand="true" space-fill="true">
   <vbox space-expand="true" space-fill="true">
     <vbox space-expand="false" space-fill="false">
@@ -500,9 +497,7 @@ S='<window title="'$(gettext 'Puppy Package Manager v')''${VERSION}'" width-requ
           <action>if false hide:VBOX_REMOVE</action>
         </togglebutton>
       
-        <text space-expand="true" space-fill="true"><label>""</label></text>
-
-        <entry width-request="80" activates-default="true" is-focus="true" primary-icon-stock="gtk-clear" secondary-icon-stock="gtk-find">
+        <entry width-request="250" activates-default="true" is-focus="true" primary-icon-stock="gtk-clear" secondary-icon-stock="gtk-find">
           <variable>ENTRY1</variable>
           <action signal="activate">/usr/local/petget/findnames.sh all</action>
           <action signal="activate">refresh:TREE1</action>
@@ -512,8 +507,8 @@ S='<window title="'$(gettext 'Puppy Package Manager v')''${VERSION}'" width-requ
           <action signal="secondary-icon-release">/usr/local/petget/show_installed_version_diffs.sh & </action>
           <action signal="primary-icon-release">clear:ENTRY1</action>
         </entry>
-      
-        <text space-expand="true" space-fill="true"><label>""</label></text>
+
+        <text space-expand="false" space-fill="false"><label>"   "</label></text>
 
         <comboboxtext width-request="150" space-expand="false" space-fill="false">
           <variable>INSTALL_MODE</variable>
@@ -537,6 +532,7 @@ S='<window title="'$(gettext 'Puppy Package Manager v')''${VERSION}'" width-requ
           <action condition="command_is_false(if [ -f /tmp/force_install -a -f /tmp/install_pets_quietly ]; then echo false; else echo true; fi )">enable:VBOX_MAIN</action>
           <action condition="command_is_false(if [ -f /tmp/force_install -a -f /tmp/install_pets_quietly ]; then echo false; else echo true; fi )">enable:DEP_INFO</action>
         </button>
+        <text space-expand="true" space-fill="true"><label>""</label></text>
       </hbox>
     </vbox>
 
@@ -579,6 +575,28 @@ S='<window title="'$(gettext 'Puppy Package Manager v')''${VERSION}'" width-requ
 
       <hbox space-expand="false" space-fill="false">
         <vbox space-expand="true" space-fill="true">
+
+          <frame '$(gettext 'Category')'>
+           <comboboxtext width-request="150" space-expand="false" space-fill="false">
+            <variable>CATEGORY</variable>
+             <item>Desktop</item>
+             <item>System</item>
+             <item>Setup</item>
+             <item>Utility</item>
+             <item>Filesystem</item>
+             <item>Graphic</item>
+             <item>Document</item>
+             <item>Business</item>
+             <item>Personal</item>
+             <item>Network</item>
+             <item>Internet</item>
+             <item>Multimedia</item>
+             <item>Fun</item>
+             <action>/usr/local/petget/filterpkgs.sh $CATEGORY</action>
+             <action>refresh:TREE1</action>
+           </comboboxtext>
+          </frame>
+
           <frame '$(gettext 'Repositories')'>
             <vbox scrollable="true" shadow-type="0" hscrollbar-policy="2" space-expand="true" space-fill="true">
               '${REPOS_RADIO}'
@@ -648,29 +666,6 @@ S='<window title="'$(gettext 'Puppy Package Manager v')''${VERSION}'" width-requ
 
       <vbox space-expand="true" space-fill="true">
         <hbox spacing="1" space-expand="true" space-fill="true">
-          <hbox space-expand="false" space-fill="false">
-            <tree name="category" selected-row="0" exported_column="1" column-visible="true|false" space-expand="false" space-fill="false">
-              <label>'$(gettext 'Category')'|command</label>
-              <variable>CATEGORY</variable>
-              <item stock="gtk-Desktop">'$(gettext 'Desktop')'|Desktop</item>
-              <item stock="gtk-System">'$(gettext 'System')'|System</item>
-              <item stock="gtk-Setup">'$(gettext 'Setup')'|Setup</item>
-              <item stock="gtk-Utility">'$(gettext 'Utility')'|Utility</item>
-              <item stock="gtk-Filesystem">'$(gettext 'Filesystem')'|Filesystem</item>
-              <item stock="gtk-Graphic">'$(gettext 'Graphic')'|Graphic</item>
-              <item stock="gtk-Document">'$(gettext 'Document')'|Document</item>
-              <item stock="gtk-Business">'$(gettext 'Business')'|Business</item>
-              <item stock="gtk-Personal">'$(gettext 'Personal')'|Personal</item>
-              <item stock="gtk-Network">'$(gettext 'Network')'|Network</item>
-              <item stock="gtk-Internet">'$(gettext 'Internet')'|Internet</item>
-              <item stock="gtk-Multimedia">'$(gettext 'Multimedia')'|Multimedia</item>
-              <item stock="gtk-Fun">'$(gettext 'Fun')'|Fun</item>'
-              [ "$(cat /var/local/petget/bb_category 2>/dev/null)" = "true" ] && S=$S'<item stock="gtk-BB">'$(gettext 'BuildingBlock')'|BuildingBlock</item>'
-              S=$S'<width>140</width><height>112</height>
-              <action signal="changed">/usr/local/petget/filterpkgs.sh $CATEGORY</action>
-              <action signal="changed">refresh:TREE1</action>
-            </tree>
-          </hbox>
          '${UO_5}'
             <tree hover-selection="true" selection-mode="1" column-resizeable="true|false" space-expand="true" space-fill="true">
               <label>'$(gettext 'Package')'|'$(gettext 'Description')'</label>
@@ -702,11 +697,11 @@ S='<window title="'$(gettext 'Puppy Package Manager v')''${VERSION}'" width-requ
   <hbox space-expand="false" space-fill="false">
    <eventbox name="dependency_info" space-expand="true" space-fill="true" tooltip-text="'$(gettext 'Click to get a list of the needed dependencies')'">
     <progressbar height-request="25" space-expand="true" space-fill="true">
-      <input>while [ -s /tmp/petget/install_status -a "$(ps aux|grep PPM_GUI|grep gtkdialog|wc -l)" -gt 2 ]; do cat /tmp/petget/install_status_percent; cat /tmp/petget/install_status; sleep 0.5; done</input>
+      <input>while [ -s /tmp/petget/install_status -a "$(ps aux|grep PPM_GUI|grep gtkdialog|wc -l)" -gt 2 ]; do cat /tmp/petget/install_status_percent; cat /tmp/petget/install_status; sleep 1; done</input>
       <action>enable:VBOX_MAIN</action>
       <action>enable:DEP_INFO</action>
       <action>disable:BUTTON_INSTALL</action>
-      <action>rm /tmp/pkgs_to_install</action>
+      <action>echo -n > /tmp/pkgs_to_install</action>
       <action>refresh:TREE_INSTALL</action>
       <action>/usr/local/petget/filterpkgs.sh</action>
       <action>refresh:TREE1</action>
@@ -723,19 +718,13 @@ S='<window title="'$(gettext 'Puppy Package Manager v')''${VERSION}'" width-requ
   </hbox>
 </vbox>
 <action signal="show">kill -9 '$SPID'</action>
-<action signal="delete-event">rm /tmp/pkgs_to_install</action>
+<action signal="delete-event">echo -n > /tmp/pkgs_to_install</action>
 <action signal="delete-event">rm /tmp/petget/install_status</action>
 </window>'
 export PPM_GUI="$S"
 
-mkdir -p /tmp/puppy_package_manager
-ln -s /usr/local/lib/X11/pixmaps/*48.png /tmp/puppy_package_manager 2>/dev/null
-echo '
-style "category" {
-	font_name="bold" }
-widget "*category" style "category"
-
-style "bg_report" {
+mkdir -p /tmp/petget
+echo 'style "bg_report" {
 	bg[NORMAL]="#222" }
 widget "*bg_report" style "bg_report"
 
@@ -745,25 +734,10 @@ widget "*frame_remove" style "frame_remove"
 
 style "icon-style" {
 	GtkStatusbar::shadow_type = GTK_SHADOW_NONE
+}
+class "GtkWidget" style "icon-style"' > /tmp/petget/gtkrc_ppm
 
-	stock["gtk-Desktop"]  = {{ "x48.png", *, *, *}}
-	stock["gtk-System"]	  = {{ "pc48.png", *, *, *}}
-	stock["gtk-Setup"]    = {{ "configuration48.png", *, *, *}}
-	stock["gtk-Utility"]  = {{ "utility48.png", *, *, *}}
-	stock["gtk-Filesystem"] = {{ "folder48.png", *, *, *}}
-	stock["gtk-Graphic"]  = {{ "paint48.png", *, *, *}}
-	stock["gtk-Document"] = {{ "word48.png", *, *, *}}
-	stock["gtk-Business"] = {{ "spread48.png", *, *, *}}
-	stock["gtk-Personal"] = {{ "date48.png", *, *, *}}
-	stock["gtk-Network"]  = {{ "connect48.png", *, *, *}}
-	stock["gtk-Internet"] = {{ "www48.png", *, *, *}}
-	stock["gtk-Multimedia"] = {{ "multimedia48.png", *, *, *}}
-	stock["gtk-Fun"]      = {{ "games48.png", *, *, *}}
-	stock["gtk-BB"]       = {{ "pet48.png", *, *, *}}
-	}
-class "GtkWidget" style "icon-style"' > /tmp/puppy_package_manager/gtkrc_ppm
-
-export GTK2_RC_FILES=/root/.gtkrc-2.0:/tmp/puppy_package_manager/gtkrc_ppm
+export GTK2_RC_FILES=/root/.gtkrc-2.0:/tmp/petget/gtkrc_ppm
 . /usr/lib/gtkdialog/xml_info gtk #build bg_pixmap for gtk-theme
 
 gtkdialog -p PPM_GUI
