@@ -1,10 +1,8 @@
 #!/bin/sh
 #(c) Copyright Barry Kauler LGPL v2 2006,2007 www.puppylinux.com
-# - creation of save-file code is in /usr/sbin/shutdownconfig.
+# - shutdownconfig creates the pupsave (savefile, savefolder)
 # - for a full hd install, PUPMODE=2 (no /initrd)
-# - called by:
-#   /sbin/poweroff
-#   /sbin/reboot
+# /etc/inittab: ::shutdown:/etc/rc.d/rc.shutdown
 
 PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin
 
@@ -12,6 +10,27 @@ export TEXTDOMAIN=rc.shutdown
 export OUTPUT_CHARSET=UTF-8
 L_UNMOUNTING="$(gettext "Unmounting '%s' ...")"
 L_UNMOUNTING_STRAY="$(gettext 'Unmounting stray filesystems:')"
+
+BB=/bin/busybox
+
+##################### stop/kill utilities ########################
+### kill processes. Will kill everything except ourself and init
+# $1 kill flags, everything else - PIDs to kill
+kill_processes() {
+	killflags=$1
+	shift
+	for PID in $*; do 	
+		case $PID in
+			1|$$) ;; # echo dont kill init or own process 
+			*) $BB kill $killflags $PID 2> /dev/null ;;
+		esac
+	done
+}
+### get list of all processes, except transport (ntfs-3g, nbd-client, posixovl)
+all_processes_except_transport() {
+	$BB ps | $BB sed -e '/ntfs-3g/ d; /nbd-client/ d; /posixovl/ d;s/^ *//; s/ .*//'
+}
+#=======================================================================
 
 clear
 exec 1> /dev/null 2>&1
@@ -69,10 +88,7 @@ fi
 [ -f /initrd${PUP_HOME}/fsckme.flg ] && rm -f /initrd${PUP_HOME}/fsckme.flg
 
 #v2.0.0 there could be a save tmpfs->persistent-storage running...
-while [ "`pidof snapmergepuppy | grep '[0-9]'`" != "" ];do
- sleep 1
-done
-killall savepuppyd
+while [ "`pidof snapmergepuppy`" ]; do sleep 1 ; done
 
 cd /
 sync
@@ -111,16 +127,35 @@ if [ "$ACTIVE_INTERFACE" ];then
 fi
 
 # some packages have a service script that requires stopping...
-for service_script in /etc/init.d/* ; do
+for service_script in $(ls /etc/init.d/* | sort -r)
+do
 	[ -x $service_script ] && $service_script stop
 done
 #note, /etc/rc.d/rc.services does same, with 'start' parameter.
 
 [ -d /initrd ] && sfs_load --cli stop
 
+### cleanly unmount cifs shares from /usr/share/Shares
+# must be done here otherwise hang later at mount -a -r at rc.cleanup
+# samba rox app
+find /usr/share/Shares/ -maxdepth 2 -name mnt-point | while read p; do
+	case $p in
+		"") break ;;
+		*)  if grep -q $p /proc/mounts; then
+				fuser -mk $p 
+				${p%/*}/AppRun unmount
+			fi ;;
+	esac
+done
+# yassm
+for p in $(awk '$2 ~ "YASSM" {print $2}' /proc/mounts); do
+	fuser -mk $p 
+	umount $p
+done
 #01micko: umount is not a reliable script, so have to use umount-FULL
 #also see shinobar's msg in http://murga-linux.com/puppy/viewtopic.php?p=605451#605451
 umount-FULL -a -t cifs,smbfs,nfs,sshfs
+###
 
 #100301 brought down below call to 'stop' service scripts, needed for lamesmbxplorer.
 #bring down network interfaces (prevents shutdown sometimes)...
@@ -319,7 +354,6 @@ case $PUPMODE in
     [ "$fUMNT" = "yes" ] && umount /dev/$PDEV1
    fi
   fi
-
  ;;
 
  77) multisavefunc ;; #save to folder on multisession CD/DVD (including 1st shutdown). (13+64=77)
@@ -352,8 +386,6 @@ esac
 # ==============================================================
 
 sync
-umount.crypto_LUKS all
-sync
 
 swapoff -a #works only if swaps are in mtab or ftab
 STRAYPARTD="`cat /proc/swaps | grep "/" | cut -f 1 -d " " | tr "\n" " "`"
@@ -370,8 +402,8 @@ for MOUNT_POINT in $STRAY_MOUNTPOINTS ; do
  echo "$(printf "$L_UNMOUNTING" "$MOUNT_POINT")" >/dev/console
  FLAGCIFS=`echo -n "${MOUNT_POINT}" | grep '^//'`
  if [ ! "$FLAGCIFS" ]; then
-  xFUSER=`fuser -m "$MOUNT_POINT" 2>/dev/null`
-  [ "$xFUSER" ] && fuser -k -m "$MOUNT_POINT"
+  xFUSER=`busybox fuser -m "$MOUNT_POINT" 2>/dev/null`
+  [ "$xFUSER" ] && busybox fuser -k -m "$MOUNT_POINT"
  fi
   killzombies
  sync
@@ -379,64 +411,62 @@ for MOUNT_POINT in $STRAY_MOUNTPOINTS ; do
 done
 sync
 
-#note, there is a problem with unmounting, especially ntfs as it cannot be remounted
-#ro (?). A ntfs part with ${DISTRO_FILE_PREFIX}save.2fs cannot be unmounted because of the mounted
-#${DISTRO_FILE_PREFIX}save.2fs.
-#at least, attempt to kill anything running in the ntfs partition...
-#(i don't think anything will be, only /dev/loop1 (${DISTRO_FILE_PREFIX}save.2fs), but just in case)
+# old code to attempt to free the PDEV1 (PDRV) [doen't seem to work]
+# - "note, there is a problem with unmounting, especially ntfs as it cannot be
+#    remounted ro. A ntfs part with ${DISTRO_FILE_PREFIX}save.2fs cannot be unmounted"
 BPS="`ps -A`"
 SHID="`echo "$BPS" | grep ' -sh$' | head -n 1 | sed -e 's%^ %%g' | cut -f 1 -d ' '`"
 MYPID=$$
 PARENT=$PPID # id of parent process. variable provided by system.
-ABSPUPHOME="/initrd${PUP_HOME}" #v2.16rc
-[ ! "$PUP_HOME" ] && ABSPUPHOME="/initrd/mnt/dev_save" #v2.16rc
-if [ "`busybox mount | grep "$ABSPUPHOME"`" != "" ];then
- # full 'fuser' outputs pids with "m" on end, ex: 6418m  6632m  9169m  9170m
- # busybox 'fuser' does not. well, could remove the "m"...
- BADPIDS="`fuser -m $ABSPUPHOME 2>/dev/null | tr -d 'm'`"
- for ONEBAD in $BADPIDS ; do
-  [ "$ONEBAD" = "$MYPID" ] && continue #shinobar: avoid killing this script.
-  [ "$ONEBAD" = "$PARENT" ] && continue #precaution.
-  [ "$ONEBAD" = "$SHID" ] && continue #121104 save to entire partition, shutdown was aborting.
-  echo "Killing process $ONEBAD..."
-  kill $ONEBAD || { sleep 1 ; kill -9 $ONEBAD 2>/dev/null ; }
-  sleep 1
-  sync
- done
- killzombies
+[ ! "$PUP_HOME" ] && PUP_HOME="/mnt/dev_save"
+if [ "`busybox mount | grep "/initrd${PUP_HOME}"`" != "" ];then
+	BADPIDS="`busybox fuser -m $ABSPUPHOME 2>/dev/null | tr -d 'm'`"
+	for ONEBAD in $BADPIDS ; do
+		case "$ONEBAD" in $MYPID|$PARENT|$SHID) continue ;; esac
+		echo "Killing process $ONEBAD..." >/dev/console
+		kill $ONEBAD || { sleep 1 ; kill -9 $ONEBAD 2>/dev/null ; }
+		sleep 1
+		sync
+	done
+	killzombies
 fi
 
-#v2.16rc try this too... SAVE_LAYER defined in /etc/rc.d/PUPSTATE...
+#=======================================================
+
+PIVOT_INITRD=
+[ "$(mount | grep ' /initrd/files ')" ] && PIVOT_INITRD=1
+case $(file $BB) in *ELF*statically*) PIVOT_INITRD=1 ;; esac
+
+# remount PUNIONFS read-only
 if [ "$SAVE_LAYER" ];then
- sync
- SAVEDEV=`grep "/initrd${SAVE_LAYER}" /proc/mounts | cut -f 1 -d ' '`
- SAVEFS=`grep "/initrd${SAVE_LAYER}" /proc/mounts | cut -f 3 -d ' '`
- #100615 Patriot: suggested this code to enable save-layer to remount ro...
- uniFS=$(awk '/unionfs/ {print $3}' /proc/mounts) #gets fstype, ex: aufs
- if [ "$uniFS" == "aufs" -a "$SAVE_LAYER" == "/pup_rw" ]; then
-  busybox mount -o remount,noxino,noplink,clean_plink,ro -t $uniFS / / >/dev/null 2>&1
-  sync
- fi
- if [ $SAVEDEV ]; then
-  busybox mount -t $SAVEFS -o remount,ro $SAVEDEV /initrd${SAVE_LAYER} >/dev/null 2>&1
-  umount-FULL -i -n -l /initrd${SAVE_LAYER} >/dev/null 2>&1 #-l is lazy unmount.
- else
-  [ -L /initrd${SAVE_LAYER} ] && rm /initrd${SAVE_LAYER}
- fi
+	SAVEDEV=`grep "/initrd${SAVE_LAYER}" /proc/mounts | cut -f 1 -d ' '`
+	SAVEFS=`grep "/initrd${SAVE_LAYER}" /proc/mounts | cut -f 3 -d ' '`
+	#Patriot suggested this code to enable save-layer to remount ro...
+	uniFS=$(awk '/unionfs/ {print $3}' /proc/mounts) #gets fstype, ex: aufs
+	if [ "$uniFS" = "aufs" -a "$SAVE_LAYER" = "/pup_rw" ]; then
+		busybox mount -o remount,noxino,noplink,ro -t $uniFS / / >/dev/null 2>&1
+		sync
+	fi
+	if [ "$SAVEDEV" ]; then
+		busybox mount -t $SAVEFS -o remount,ro $SAVEDEV /initrd${SAVE_LAYER} >/dev/null 2>&1
+		if [ ! "$PIVOT_INITRD" ] ; then
+			# lazy unmount savefile only if /initrd/files is not mounted
+			umount-FULL -i -n -l /initrd${SAVE_LAYER} >/dev/null 2>&1 #-l is lazy unmount.
+		fi
+	fi
 fi
 
-#v2.16 try one more thing for ntfs... lazy unmount, suggested by GuestToo...
-MNTFUSE="`busybox mount | grep 'fuse' | head -n 1 | cut -f 3 -d ' '`"
-[ "$MNTFUSE" != "" ] && fusermount -z -u $MNTFUSE #-u is required with -z...
+# full installs end here
+# also end here if not pivoting into initrd (rc.cleanup)
+if [ ! "$PUNIONFS" ] || [ ! "$PIVOT_INITRD" ] ; then
+	kill_processes "" $(all_processes_except_transport)
+	sleep 1
+	kill_processes -9 $(all_processes_except_transport)
+	umount.crypto_LUKS all
+	umount-FULL -in -a -r -d >/dev/null 2>&1
+	#busybox umount -a -r -d >/dev/null 2>&1 #will use this with static busybox..
+fi
 
-cut -f 2 -d ' ' /proc/mounts | grep '^/initrd/pup'  | busybox xargs -n 1 busybox umount -vl >/dev/null 2>&1
-cut -f 2 -d ' ' /proc/mounts | grep '^/initrd/mnt'  | busybox xargs -n 1 busybox umount -vr >/dev/null 2>&1
-sync
-cut -f 2 -d ' ' /proc/mounts | grep '^/initrd/mnt'  | busybox xargs -n 1 umount-FULL -i -n -l -v >/dev/null 2>&1
-sync
-
-busybox umount -arn >/dev/null 2>&1
-
-sync
+# next: rc.cleanup
 
 ### END ###

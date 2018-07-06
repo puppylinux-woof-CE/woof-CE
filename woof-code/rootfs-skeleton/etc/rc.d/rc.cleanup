@@ -1,0 +1,236 @@
+#!/bin/sh
+# rc.cleanup - umount all fs cleanly for shutdown
+# (C) James Budiono 2012, 2013
+# License: GNU GPL Version 3 or later
+#
+# version 
+# 1.0 - initial release
+# 1.1 - heavy re-work
+# 2.0 - heavy re-work, now using pivot_root
+#
+
+### configuration parameters
+KILL_DELAY=1		# in seconds
+OLDROOT=/oldroot
+CLEANUP=/cleanup
+IS_REBOOT=
+[ -z "$BASELINE_MOUNT" ] && BASELINE_MOUNT=/initrd/files
+[ -f /etc/rc.d/PUPSTATE ] && . /etc/rc.d/PUPSTATE
+
+### static executables
+BB=/bin/busybox
+CRYPTSETUP=/bin/cryptsetup
+#-
+HDPARM=/bin/hdparm
+SDPARM=/bin/sdparm
+LVM=/sbin/lvm
+MDADM=/sbin/mdadm
+
+### utilities - kill processes. Will kill everything except ourself and init
+# $1 kill flags, everything else - PIDs to kill
+kill_processes() {
+	killflags=$1
+	shift
+	for PID in $*; do
+		case $PID in
+			1|$$) ;; # echo dont kill init or own process 
+			*) $BB kill $killflags $PID 2> dev/null ;;
+		esac
+	done
+}
+
+### utilities - get list of all processes, except transport (ntfs-3g, nbd-client)
+all_processes_except_transport() {
+	$BB ps | $BB sed -e '/ntfs-3g/ d; /nbd-client/ d; /posixovl/ d; s/^ *//; s/ .*//' | $BB sort -rn
+}
+
+### utilities - remove and unmount branches from aufs
+# need /sys and $OLDROOT
+unstack_aufs() {
+	# find all the branches of aufs	                   
+	AUFS_ROOT_ID=$($BB awk -v oldroot=$OLDROOT '$2==oldroot && $3=="aufs" { match($4,/si=[0-9a-f]*/); print "si_" substr($4,RSTART+3,RLENGTH-3); exit }' /proc/mounts)
+	[ -z "$AUFS_ROOT_ID" ] && AUFS_ROOT_ID=$(ls /sys/fs/aufs | head -1)
+	BRANCHES=$($BB sed 's/=.*//' /sys/fs/aufs/$AUFS_ROOT_ID/br[0-9]*)
+	echo -n $1
+	# remove all branches from union and unmount them
+	for b in $BRANCHES; do
+		#echo mount -t aufs -o remount,del:$b aufs $OLDROOT
+		echo "* ${b#${OLDROOT}}"
+		$BB mount -t aufs -o remount,del:$b aufs $OLDROOT
+		$BB umount -d -r $b
+	done
+	echo
+}
+
+### utilities - mount /proc and /sys 
+mount_proc_sys() {
+	$BB mount -t proc proc /proc	# need proc to kill & busybox self-exec
+	$BB mount -t sysfs sysfs /sys	# need sys to find the branches
+}
+
+#============================================
+#                  main
+#============================================
+
+PATH=/bin:/sbin
+
+[ ! -e /proc/mounts ] && mount_proc_sys
+
+DEBUG=
+case $(cat /proc/cmdline) in
+	*debuginitrd*)   DEBUG=1 ; set -x   ;;
+	*debugshutdown*) DEBUG=1 ; DSHELL=1; set -x   ;;
+esac
+
+### assume /proc and /sys still mounted
+case "$1" in
+	"") ### phase1 ###
+		# - pivot root, then run static shell with script in $BASELINE_MOUNT
+		echo Stopping filesystems ...
+		$BB swapoff -a
+
+		if [ "$(mount | grep " $BASELINE_MOUNT ")" ] ; then
+			# - already created by the initrd
+			# - remount $BASELINE_MOUNT as r/w, and copy script to $BASELINE_MOUNT
+			$BB mount -o remount,rw $BASELINE_MOUNT
+		else
+			# - have to create a tmpfs..
+			rm -rf $BASELINE_MOUNT
+			mkdir -p $BASELINE_MOUNT
+			mount -t tmpfs tmpfs $BASELINE_MOUNT
+			(
+				cd $BASELINE_MOUNT
+				mkdir bin etc sbin dev proc sys
+				cp -a $BB bin
+				for i in $($BB --list) ; do
+					ln -s busybox ./bin/$i
+				done
+			)
+			case $(file /sbin/cryptsetup) in *ELF*statically*)
+				cp -a /sbin/cryptsetup bin ;;
+			esac
+		fi
+		$BB mkdir $BASELINE_MOUNT/$OLDROOT
+		$BB cp "$0" $BASELINE_MOUNT/$CLEANUP
+		$BB cp /sbin/umount.crypto_LUKS ${BASELINE_MOUNT}/
+		#-
+		cd $BASELINE_MOUNT
+		$BB mkdir -p etc dev proc sys root tmp etc/rc.d
+		cp /etc/rc.d/PUPSTATE etc/rc.d
+		ln -s sys run
+		[ -f /tmp/is_reboot ] && echo > is_reboot
+		$BB pivot_root . $BASELINE_MOUNT/$OLDROOT
+		#-
+		if [ ! -e /dev/loop0 ] ; then
+			$BB mount -o move $OLDROOT/dev /dev
+			$BB mount -o move $OLDROOT/proc /proc
+			$BB mount -o move $OLDROOT/sys /sys
+		fi
+		if [ "$DEBUG" ] ; then
+			exec $BB chroot . ash $CLEANUP phase2 <dev/console >dev/console 2>&1
+		else
+			exec $BB chroot . ash $CLEANUP phase2 <dev/null >dev/null 2>&1
+		fi
+	;;
+esac
+
+########## phase2 #########
+
+if [ -x /bin/grep -a -z "$(grep '^devtmpfs ' /proc/mounts)" ] ; then
+	mount -t devtmpfs devtmpfs /dev
+fi
+if [ -e /is_reboot ] ; then
+	IS_REBOOT=1
+fi
+[ "$DEBUG" ] && sleep 10
+
+lsmod | cut -f 1 -d ' ' | $BB xargs -n 1 rmmod 2>/dev/null
+# sync and then kill all process except transport
+$BB sync
+kill_processes "" $(all_processes_except_transport)
+$BB sleep $KILL_DELAY
+kill_processes -9 $(all_processes_except_transport)
+sync
+
+# unmount idle devices
+#exec 3> /dev/holdme	# keep /dev mounted r/w - needed by lvm/mdadm
+$BB umount -a -r -d
+
+# un-wind our aufs root
+if [ "$PUNIONFS" = "aufs" ]; then
+	mount_proc_sys
+	[ "$DEBUG" ] && lsof
+	[ "$DEBUG" ] && sleep 10
+	[ "$DEBUG" ] && ps
+	[ "$DEBUG" ] && sleep 5
+	[ "$DEBUG" ] && mount
+	[ "$DEBUG" ] && sleep 10
+	# remount ro, disable xino, so r/w layer is unlocked and can be removed
+	$BB mount -t aufs -o ro,remount,noxino,noplink aufs $OLDROOT
+	unstack_aufs "#1: " # remove aufs branches
+	[ "$DEBUG" ] && sleep 10
+	unstack_aufs "#2: " # do it twice to ensure pup_rw is unmounted
+	umount -a -r -d		# unmount savefile, savedevice and aufs
+fi
+
+if [ "$PUNIONFS" = "overlay" ]; then
+	echo -n FIXME
+fi
+
+#----------------------------------
+if [ "$1" = "phase2" ] ; then
+	exec /bin/ash $CLEANUP phase3
+fi
+#----------------------------------
+
+[ "$DEBUG" ] && sleep 10
+
+if [ -x $CRYPTSETUP ] ; then
+	mount_proc_sys
+	/umount.crypto_LUKS all
+	umount -a -r -d
+	[ "$DEBUG" ] && sleep 5
+fi
+
+if [ -x $LVM ] ; then # remove all lvm devices - note lvm before mdadm
+	mount_proc_sys
+	$LVM vgchange -an --sysinit
+	umount -a -r -d
+fi
+
+if [ -x $MDADM ] ; then # remove all mdadm devices
+	mount_proc_sys
+	$MDADM --stop --scan
+	umount -a -r -d
+fi
+
+# final unmount attempt: remove everything
+mount_proc_sys
+
+#----------------------------------------------------
+[ "$DSHELL" ] && exec /bin/ash <dev/console >dev/console 2>&1
+#----------------------------------------------------
+
+if [ -x $SDPARM -a -z "$IS_REBOOT" ] ; then
+	devs=$($BB ls /sys/block | grep -vE "^ram|^loop|^nbd|^dm-|^md|^nand")	# get devs for spin down
+	$BB umount -a -r -d
+	# lastly - sync & stop all disks so that rotating devices don't lose data
+	for dev in $devs; do
+		$SDPARM -C sync /dev/$dev > /dev/null
+		$SDPARM -C stop /dev/$dev > /dev/null
+	done
+elif [ -x $HDPARM -a -z "$IS_REBOOT" ] ; then
+	devs=$(probedisk | grep 'drive|ATA' | cut -f 1 -d '|')
+	$BB umount -a -r -d
+	for dev in $devs; do
+		$HDPARM -f -Y $dev
+	done
+else
+	$BB umount -a -r -d
+fi
+[ "$DEBUG" ] && sleep 10
+
+# Sleep to give time for devices to quiesce.
+[ "$devs" ] && sleep 1
+
+# That's it!

@@ -1,30 +1,72 @@
-#!/bin/bash
+#!/bin/ash
 #
 # unmount luks-encrypted files and partitions...
+# also called by rc.cleanup..
 #
+# filemnt: /dev/mapper/luksfile* /dev/mapper/lukspartition*
+
+#set -x
+
+CRYPTSETUP=cryptsetup
+[ -x /bin/cryptsetup ] && CRYPTSETUP=/bin/cryptsetup
+[ -x /initrd/files/bin/cryptsetup ] && CRYPTSETUP=/initrd/files/bin/cryptsetup
 
 luks_umount() {
-	# something like this:
-	#  /dev/mapper/luksfile11171 on /mnt/+mnt+sda3+slackosave_luks.4fs type ext4 (rw,relatime,data=ordered)
-	read -r device on mountpoint etc <<< "$@"
-	[ "$MOUNTPOINT" ] && mountpoint="$MOUNTPOINT" # /mnt/+mnt+sda3+slackosave_luks.4fs
+	if [ -z "$1" ] ; then
+		return 1
+	elif [ "$1" = "/dev/mapper/control" ] ; then
+		return 0
+	fi
+	#---
+	if [ -b $1 ] ; then # block device
+		# /dev/mapper/luksfile11171
+		mntinfo=$(mount | grep "^${1} ")
+		if [ -z "$mntinfo" ] ; then
+			$CRYPTSETUP luksClose ${1##*/} #basename
+			return $?
+		fi
+	elif [ -d $1 ] ; then # mountpoint
+		# filemnt: /mnt/+mnt+sda3+slackosave_luks.4fs
+		mntinfo=$(mount | grep " $1 ")
+		# something like this:
+		#  /dev/mapper/luksfile11171 on /mnt/+mnt+sda3+slackosave_luks.4fs type ext4 (rw,relatime,data=ordered)
+	else
+		# assume $mntinfo
+		mntinfo="$@"
+	fi
+	#---
+	if [ -z "$mntinfo" ] ; then
+		return 1
+	fi
+	device=$(echo $mntinfo | cut -f 1 -d ' ')
+	mountpoint=$(echo $mntinfo | cut -f 3 -d ' ')
+	#---
 	mpbase=$(basename "$mountpoint")  # +mnt+sda3+slackosave_luks.4fs
 	mpbase=${mpbase##*\+}             # slackosave_luks.4fs
 	#--
 	LUKS_DEVICE=$(basename "$device") # luksfile132434, lukspartition2453
-	#                                busybox    losetup-FULL
-	DEVLOOP=$(losetup -a | grep -E "/${mpbase}$|/${mpbase})$" | cut -f 1 -d ':')
+	#                                 busybox         losetup-FULL
+	DEVLOOP=$(losetup -a | grep -E "${mountpoint}$|${mountpoint})$") 
+	echo ---- $DEVLOOP
+	if [ -z "$DEVLOOOP" ] ; then
+		DEVLOOP=$(losetup -a | grep -E "/${mpbase}$|/${mpbase})$" | cut -f 1 -d ':')
+	fi
 	#--
 	umount "$mountpoint"
-	cryptsetup luksClose -v ${LUKS_DEVICE}
+	$CRYPTSETUP luksClose -v ${LUKS_DEVICE}
 	retval=$?
 	if [ "$DEVLOOP" ] ; then
-		losetup -vd ${DEVLOOP}
+		losetup -d ${DEVLOOP}
 		retval=$?
 	fi
 	return $retval
 }
 
+luks_umount_all() {
+	for i in $(ls /dev/mapper/*) ; do
+		luks_umount $i
+	done
+}
 
 #================================================================
 
@@ -34,14 +76,7 @@ if [ "${0##*/}" != "umount.crypto_LUKS" ] ; then
 fi
 
 if [ "$1" = "all" ] ; then
-	mount | grep -E '/dev/mapper/lukspartition|/dev/mapper/luksfile' | \
-	while read i ; do
-		luks_umount "$i"
-	done
-	for LUKS_DEVICE in $(ls /dev/mapper | grep -vE '^control$|savefile|savepartition')
-	do
-		cryptsetup luksClose -v ${LUKS_DEVICE}
-	done
+	luks_umount_all
 	exit
 fi
 
@@ -49,32 +84,22 @@ fi
 
 if [ "$1" ] ; then
 
-	MOUNTPOINT="$1"
-	mntinfo=$(mount | grep " $MOUNTPOINT ")
-	case "$mntinfo" in
-	"/dev/mapper/luksfile"*|"/dev/mapper/lukspartition"*)
-		luks_umount "$mntinfo"
-		RETVAL=$?
-		;;
-	*) exit 1 ;;
-	esac
+	luks_umount $1
+	RETVAL=$?
 
 	#===============================================================
 	# rox - puppy
-
 	if [ $RETVAL -eq 0 ] ; then
 		if [ -f /usr/local/pup_event/frontend_funcs ] ; then
 			#ROX: create or refresh desktop icon
 			/usr/local/pup_event/frontend_funcs rox_umount_luks "$DEVNAME"
 		fi
 	fi
-
 	#v409, instead just make sure the symlink stays there...
 	if [ ! -L /etc/mtab ];then
-	 rm -f /etc/mtab
-	 ln -s /proc/mounts /etc/mtab
+		rm -f /etc/mtab
+		ln -s /proc/mounts /etc/mtab
 	fi
-
 	##################################################################
 
 	exit $RETVAL
