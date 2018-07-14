@@ -39,12 +39,8 @@
 #121119 change in layout of /etc/xdg/menus/hierarchy caused regex pattern bug.
 #121119 if only one .desktop file, first check if a match in /usr/local/petget/categories.dat.
 #121120 bugfix of 121119.
-#121123 having a problem with multiarch symlinks in full-installation, getting replaced by a directory.
 #121206 default icon needs .xpm extension. note puppy uses older xdg-utilities, Icon field needs image ext.
-#121217 still getting reports multiarch symlinks getting overwritten.
 #130112 some deb's have a post-install script (ex: some python debs).
-#130112 multiarch symlinks now optional. see also 2createpackages, 3builddistro.
-#130114 revert 130112 "multiarch symlinks now optional".
 #130126 'categories.dat' format changed.
 #130219 grep, ignore case.
 #130305 rerwin: ensure tmp directory has all permissions after package expansion.
@@ -224,18 +220,6 @@ elif [ $PUPMODE -eq 3 -o $PUPMODE -eq 7 -o $PUPMODE -eq 13 ];then
 	   sleep 1
 	  done
 	  DIRECTSAVEPATH="/initrd${SAVE_LAYER}" #SAVE_LAYER is in /etc/rc.d/PUPSTATE.
-	  #rm -f $DIRECTSAVEPATH/pet.specs $DIRECTSAVEPATH/pinstall.sh $DIRECTSAVEPATH/puninstall.sh $DIRECTSAVEPATH/install/doinst.sh
-	  # create the symlinks needed if DISTRO_ARCHDIR is set
-	  if [ -n "$DISTRO_ARCHDIR" ];then
-		if [ ! -e "$DIRECTSAVEPATH/lib/$DISTRO_ARCHDIR" -o ! -e "$DIRECTSAVEPATH/usr/lib/$DISTRO_ARCHDIR" -o ! -e "$DIRECTSAVEPATH/usr/bin/$DISTRO_ARCHDIR" ];then
-		 mkdir -p $DIRECTSAVEPATH/lib
-		 mkdir -p $DIRECTSAVEPATH/usr/lib
-		 mkdir -p $DIRECTSAVEPATH/usr/bin
-		 ln -snf ./ $DIRECTSAVEPATH/lib/$DISTRO_ARCHDIR
-		 ln -snf ./ $DIRECTSAVEPATH/usr/lib/$DISTRO_ARCHDIR
-		 ln -snf ./ $DIRECTSAVEPATH/usr/bin/$DISTRO_ARCHDIR
-		fi
-	  fi
 	 fi
 	fi
 fi
@@ -290,31 +274,7 @@ case $DLPKG_BASE in
   [ $? -ne 0 ] && exit 1
   echo "$PFILES" > /root/.packages/${DLPKG_NAME}.files
   install_path_check
-  # Workaround to avoid overwriting the $DISTRO_ARCHDIR symlink.  
-  if [ "$DISTRO_ARCHDIR" != "" -a "$(echo "$PFILES" | grep "$DISTRO_ARCHDIR")" != "" ]; then
-	[ -d /tmp/pget$$ ] && rm -rf /tmp/pget$$
-	mkdir -p /tmp/pget$$/${DLPKG_BASE}/
-	dpkg-deb -x $DLPKG_BASE /tmp/pget$$/${DLPKG_BASE}/
-	(
-	cd /tmp/pget$$/${DLPKG_BASE}/
-	for BASEDIR in bin lib usr/bin usr/lib usr/include ; do
-		if [ -d ./${BASEDIR}/${DISTRO_ARCHDIR} ] ; then
-			[ ! -d ${DIRECTSAVEPATH}/${BASEDIR} ] && mkdir -p ${DIRECTSAVEPATH}/${BASEDIR}
-			cp -a -f --remove-destination ./${BASEDIR}/${DISTRO_ARCHDIR}/* ${DIRECTSAVEPATH}/${BASEDIR}/
-			sync
-			rm -rf ./${BASEDIR}/${DISTRO_ARCHDIR}
-			if [ ! -e ${DIRECTSAVEPATH}/${BASEDIR}/${DISTRO_ARCHDIR} ] ; then
-				ln -s ./ ${DIRECTSAVEPATH}/${BASEDIR}/${DISTRO_ARCHDIR}
-			fi
-		fi
-	done
-	)
-	cp -a -f --remove-destination /tmp/pget$$/${DLPKG_BASE}/* ${DIRECTSAVEPATH}/
-	sync
-	rm -rf /tmp/pget$$
-  else
-	dpkg-deb -x $DLPKG_BASE ${DIRECTSAVEPATH}/
-  fi
+  dpkg-deb -x $DLPKG_BASE ${DIRECTSAVEPATH}/
   [ $? -ne 0 ] && clean_and_die
   [ -d /DEBIAN ] && rm -rf /DEBIAN #130112 precaution.
   dpkg-deb -e $DLPKG_BASE /DEBIAN #130112 extracts deb control files to dir /DEBIAN. may have a post-install script, see below.
@@ -343,21 +303,6 @@ case $DLPKG_BASE in
  ;;
 esac
 
-multiarch_hack() {
-	#hack for multiarch, in case a symlink was replaced by a directory...
-	if [ "$DISTRO_ARCHDIR" ];then
-		for BASEDIR in bin lib usr/bin usr/lib usr/include
-		do
-			if [ -d /${BASEDIR}/${DISTRO_ARCHDIR} -a ! -L /${BASEDIR}/${DISTRO_ARCHDIR} ] ; then
-				cp -a -f --remove-destination /${BASEDIR}/${DISTRO_ARCHDIR}/* /${BASEDIR}/
-				sync
-				rm -rf /${BASEDIR}/${DISTRO_ARCHDIR}
-				ln -s ./ /${BASEDIR}/${DISTRO_ARCHDIR}
-			fi
-		done
-	fi
-}
-
 if [ "$PUPMODE" = "2" ]; then #from BK's quirky6.1
 	mkdir /audit/${DLPKG_NAME}DEPOSED
 	echo -n '' > /tmp/petget/FLAGFND
@@ -381,34 +326,6 @@ if [ "$PUPMODE" = "2" ]; then #from BK's quirky6.1
 	#now write temp-location to final destination...
 	cp -a -f --remove-destination ${DIRECTSAVEPATH}/* /  2> /tmp/petget/install-cp-errlog
 	sync
-	#can have a problem if want to replace a folder with a symlink. for example, got this error:
-	# cp: cannot overwrite directory '/usr/share/mplayer/skins' with non-directory
-	#3builddistro has this fix... which is a vice-versa situation...
-	#firstly, the vice-versa, source is a directory, target is a symlink...
-	CNT=0
-	while [ -s /tmp/petget/install-cp-errlog ];do
-	  echo -n '' > /tmp/petget/install-cp-errlog2
-	  echo -n '' > /tmp/petget/install-cp-errlog3
-	  cat /tmp/petget/install-cp-errlog | grep 'cannot overwrite non-directory' | grep 'with directory' | tr '[`‘’]' "'" | cut -f 2 -d "'" |
-	  while read ONEDIRSYMLINK #ex: /usr/share/mplayer/skins
-	  do
-	   if [ -h "${ONEDIRSYMLINK}" ];then #source is a directory, target is a symlink...
-	    #adding that extra trailing / does the trick...
-	    cp -a -f --remove-destination ${DIRECTSAVEPATH}"${ONEDIRSYMLINK}"/* "${ONEDIRSYMLINK}"/ 2>> /tmp/petget/install-cp-errlog2
-	   else #source is a directory, target is a file...
-	    rm -f "${ONEDIRSYMLINK}" #delete the file!
-	    DIRPATH="$(dirname "${ONEDIRSYMLINK}")"
-	    cp -a -f ${DIRECTSAVEPATH}"${ONEDIRSYMLINK}" "${DIRPATH}"/ 2>> /tmp/petget/install-cp-errlog2 #copy directory (and contents).
-	   fi
-	  done
-	  cat /tmp/petget/install-cp-errlog2 >> /tmp/petget/install-cp-errlog3
-	  cat /tmp/petget/install-cp-errlog3 > /tmp/petget/install-cp-errlog
-	  sync
-	  CNT=$(($CNT + 1))
-	  [ $CNT -gt 10 ] && break #something wrong, get out.
-	done
-	multiarch_hack
-	#end 131220
 
 	rm -rf ${DIRECTSAVEPATH} #131229 131230
 	[ "$DL_SAVE_FLAG" != "true" ] && rm -f $DLPKG_BASE 2>/dev/null
@@ -465,7 +382,6 @@ else #-- anything other than PUPMODE 2 (full install) --
 	  fi
 	 fi
 	done
-	multiarch_hack
 
 	#flush unionfs cache, so files in pup_save layer will appear "on top"...
 	if [ "$DIRECTSAVEPATH" != "" ];then
