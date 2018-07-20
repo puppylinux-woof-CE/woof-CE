@@ -48,10 +48,10 @@ Note: For some modern modems, the default 'ATZ' initialization string is\n
 sufficient and you do not have to do this probe, however it does not do any\n
 harm to do so (and gives further confirmation the modem works)...\"`"
 else
- MSGSUCCESS="`eval_gettext \"Success, the modem responds as \\\$DEVM! (The modem is there; getting it to dial out is another matter!)\n
+ MSGSUCCESS="`eval_gettext "Success, the modem responds as \\\$DEVM! (The modem is there; getting it to dial out is another matter!)\n
 Click the 'yes' button if you would like /dev/modem to be a link to \\\${DEVM} and the Wvdial\n
 configuration file /etc/wvdial.conf set with entry 'Modem = /dev/\\\${DEVM}. An attempt will\n
-also be made to determine appropriate modem initialization strings.\"`"
+also be made to determine appropriate modem initialization strings."`"
 fi
 
 
@@ -67,21 +67,30 @@ irq_from_device_func() { #device passed in, ex: /dev/ttyS0
   esac
 }
 
-#talk to modem, wait for response...
-chat_with_func() { #device passed in.
- rm -f /tmp/answer.txt
- #TODO maybe send +++ to return modem to command-mode.
- #hangs if modem unplugged or turned off (contrary to what docs say)...
- modem-stats -c "ATZ" $1 > /tmp/answer.txt &
- sleep 5 #v413
- killall modem-stats
- if [ -e /tmp/answer.txt ];then
-  if [ -s /tmp/answer.txt ];then #nonzero size.
-   grep "^OK" /tmp/answer.txt > /dev/null 2>&1
-   [ $? -eq 0 ] && return 0 #success
-  fi
- fi
- return 1
+#talk to modem, wait for response, kill if hung...
+# $1: device
+chat_with_modem() {
+	local ANSWERFILE="/tmp/answer.txt"
+	local COMMAND="ATZ" DEVICE=$1 CNTLP=1
+	rm -f $ANSWERFILE
+	if [ "$(which modem-stats 2>/dev/null)" ];then
+		#hangs if modem unplugged or turned off (contrary to what docs say)...
+		modem-stats -c $COMMAND $DEVICE > $ANSWERFILE 2>/dev/null &
+		local MSPID=$!
+		while [ $CNTLP -le 7 ] ;do
+			sleep 1
+			busybox pidof modem-stats | grep -q -w "$MSPID" || break
+			CNTLP=$(( $CNTLP + 1 ))
+		done
+		kill $MSPID 2>/dev/null
+	elif [ "$(which microcom 2>/dev/null)" ];then
+		if [ -f "/var/lock/LCK..${DEVICE##*/}" ] ; then
+			rm -f "/var/lock/LCK..${DEVICE##*/}"
+		fi
+		echo -e "${COMMAND}\n" | microcom -t 200 $DEVICE > $ANSWERFILE 2>/dev/null
+	fi
+	[ -s $ANSWERFILE ] && grep -qE '^OK|^ATZ' $ANSWERFILE
+	return $?
 }
 
 #v433 Set config file Modem line(s), including possible alternate USB modem device.
@@ -110,7 +119,7 @@ modem_test_func() {
   X8PID=$! #v413
   IRQM=$(irq_from_device_func /dev/${DEVM})
   fuser -k /dev/${DEVM} 2>/dev/null #kill processing attached to device.
-  chat_with_func /dev/$DEVM
+  chat_with_modem /dev/$DEVM
   if [ $? -eq 0 ];then
    kill $X8PID #v413
    modem_device_to_conf_func $DEVM #v433 set tested dev

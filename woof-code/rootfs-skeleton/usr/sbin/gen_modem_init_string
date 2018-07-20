@@ -5,35 +5,44 @@
 
 [ ! -e /dev/modem ] && exit
 
-modem_stats_func() {
- #modem-stats has a serious bug, if return string not 'OK' then it never terminates.
- local CNTLP=1
- rm -f /tmp/modemstatsret
- modem-stats $@ >/tmp/modemstatsret &
- MPID=$!
- while [ 1 ];do
-  sleep 1
-  [ "`grep '^[A-Z].*' /tmp/modemstatsret`" != "" ] && break
-  [ $CNTLP -gt 5 ] && break
-  CNTLP=`expr $CNTLP + 1`
- done
- #may need a bit more time to receive all returns from modem...
- [ "`grep -E '^OK|^ERROR' /tmp/modemstatsret`" = "" ] && sleep 1
- kill $MPID > /dev/null 2>&1
- cat /tmp/modemstatsret
+#talk to modem, wait for response, kill if hung...
+# $1: command
+# $2: device
+chat_with_modem() {
+	local ANSWERFILE="/tmp/modemstatsret"
+	local COMMAND=$1 DEVICE=$2 CNTLP=1
+	rm -f $ANSWERFILE
+	if [ "$(which modem-stats 2>/dev/null)" ];then
+		#hangs if modem unplugged or turned off (contrary to what docs say)...
+		modem-stats -c $COMMAND $DEVICE > $ANSWERFILE 2>/dev/null &
+		local MSPID=$!
+		while [ $CNTLP -le 7 ] ;do
+			sleep 1
+			busybox pidof modem-stats | grep -q -w "$MSPID" || break
+			CNTLP=$(( $CNTLP + 1 ))
+		done
+		kill $MSPID 2>/dev/null
+	elif [ "$(which microcom 2>/dev/null)" ];then
+		if [ -f "/var/lock/LCK..${DEVICE##*/}" ] ; then
+			rm -f "/var/lock/LCK..${DEVICE##*/}"
+		fi
+		echo -e "${COMMAND}\n" | microcom -t 200 $DEVICE > $ANSWERFILE 2>/dev/null
+	fi
+	[ -s $ANSWERFILE ] && grep -qE '^OK|^ATZ' $ANSWERFILE
+	return $?
 }
 
-[ "`modem_stats_func -c 'ATZ' /dev/modem | grep '^OK$'`" = "" ] && exit
+chat_with_modem 'ATZ' /dev/modem || exit
 
 ALLSTR=""
 for ONESTEP in 'Q0V1E1' 'Z' 'S0=0' '&C1' '&D2' 'S11=55' '+FCLASS=0'
 do
- if [ "`modem_stats_func -c "AT$ONESTEP" /dev/modem | grep '^OK$'`" = "" ];then
-  modem_stats_func -c 'ATZ' /dev/modem #maybe wise to reset modem.
-  continue
- fi
- [ "$ONESTEP" = "Z" ] && continue
- ALLSTR="$ALLSTR$ONESTEP"
+	if chat_with_modem "AT$ONESTEP" /dev/modem ;then
+		chat_with_modem 'ATZ' /dev/modem #maybe wise to reset modem.
+		continue
+	fi
+	[ "$ONESTEP" = "Z" ] && continue
+	ALLSTR="$ALLSTR$ONESTEP"
 done
 
 #NO, the problem with country codes is there does not seem to be one standard.
