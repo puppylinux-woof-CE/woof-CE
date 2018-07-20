@@ -131,18 +131,21 @@ firmware_tarball_func() {
  fi
 }
 
+decode_id() {
+	[ "${1}" ] || return
+	if [ "$(echo -n ${1} | grep -E '^[a-z]+[0-9]')" -a "$(grep -m1 " ${1}$" /proc/partitions)" ];then
+		echo "$1"  #is a real partition
+	else
+		[ "$BLKIDOUT" ] || BLKIDOUT="$(busybox blkid)"
+		echo "$(echo "$BLKIDOUT" | grep -m1 -E " LABEL=.${1}| UUID=.${1}" | cut -f1 -d: | cut -f3 -d/)" #is LABEL or UUID
+	fi
+}
+
 #================================================================
 #                         MAIN
 #================================================================
 # mount devtmpfs early
 mount -t devtmpfs devtmpfs /dev 2>/dev/null
-
-#if have just done a switch_root, output a 'done' message...
-[ -d /initrd ] && status_func 0
-
-ORIGLANG="`grep '^LANG=' /etc/profile | cut -f 2 -d '=' | cut -f 1 -d ' '`" #120217
-ORIGLANG1="${ORIGLANG%_*}" #ex: en
-export LANG=C
 
 . /etc/DISTRO_SPECS
 . /etc/rc.d/BOOTCONSTRAINED # has BOOT_DISABLESWAP, BOOT_ATIME, BOOT_DIRTYWRITE.
@@ -151,9 +154,19 @@ export LANG=C
 [ $pmedia ] && PMEDIA=$pmedia #boot parameter, broad category of boot media. ex: cd.
 [ $pdev1 ] && PDEV1=$pdev1    #boot parameter, partition have booted off. ex: hda3
 
+# trust PUPSTATE...
+. /etc/rc.d/PUPSTATE
+
+#if have just done a switch_root, output a 'done' message...
+[ $PUPMODE -ne 2 ] && status_func 0
+
+ORIGLANG="`grep '^LANG=' /etc/profile | cut -f 2 -d '=' | cut -f 1 -d ' '`" #120217
+ORIGLANG1="${ORIGLANG%_*}" #ex: en
+export LANG=C
+
 #120301 a problem if initrd has kernel default font, switching here changes all o/p from initrd to partial garbage.
 #workaround, clear the screen...
-if [ -d /initrd ];then #120313 fix...
+if [ $PUPMODE -ne 2 ] ; then #120313 fix...
  PLANG1=`grep '^PLANG=' /etc/rc.d/PUPSTATE | cut -f 2 -d '=' | cut -f 1 -d '_'`
  [ ! "$PLANG1" ] && PLANG1='en'
  [ "$ORIGLANG1" != "$PLANG1" ] && clear > /dev/console #120331 redirection is required.
@@ -173,16 +186,19 @@ mount -t proc none /proc 2>/dev/null; STATUS=$((STATUS+$?))
 FREERAM=`free | grep -o 'Mem: .*' | tr -s ' ' | cut -f 4 -d ' '` #w481 110405
 QTRFREERAM=`expr $FREERAM \/ 4`
 
-# full-hd-install
-if [ ! -d /initrd ];then
- BDEV="$(df | grep '^/dev/' | grep ' /$')"; BDEV=${BDEV%% *}
- if [ "$BOOT_ATIME" ];then # see /etc/rc.d/BOOTCONSTRAINED, variable set in 3builddistro.
-  mount -o remount,rw,${BOOT_ATIME} / 2>/dev/null #have set this to 'relatime'.
-  [ $? -eq 0 ] || mount -o remount,rw,${BOOT_ATIME} $BDEV / #have set this to 'relatime'.
- else
-  mount -o remount,rw / 2>/dev/null
-  [ $? -eq 0 ] || mount -o remount,rw $BDEV /
- fi
+#=============== full-hd-install
+BDEV="$(df | grep '^/dev/' | grep ' /$')"
+BDEV=${BDEV%% *}
+if [ "$BDEV" ] ; then
+	if [ "$BOOT_ATIME" ];then # see /etc/rc.d/BOOTCONSTRAINED, variable set in 3builddistro.
+		mount -o remount,rw,${BOOT_ATIME} / 2>/dev/null #have set this to 'relatime'.
+		[ $? -eq 0 ] || mount -o remount,rw,${BOOT_ATIME} $BDEV / #have set this to 'relatime'.
+	else
+		mount -o remount,rw / 2>/dev/null
+		[ $? -eq 0 ] || mount -o remount,rw $BDEV /
+	fi
+fi
+if [ $PUPMODE -eq 2 ] ; then
  #no longer deleting /tmp/* in rc.shutdown... (note, init script in initrd.gz wipes it)
  rm -rf /tmp/*
  rm -rf /tmp/.[0-9a-zA-Z]*
@@ -208,6 +224,7 @@ export OUTPUT_CHARSET" >> /etc/rc.d/PUPSTATE
    fi
  fi
 fi
+#===============
 . /etc/rc.d/PUPSTATE #variables created at bootup by init script in initrd.
 
 if [ "$BOOT_DIRTYWRITE" ];then #120704 see /etc/rc.d/BOOTCONSTRAINED, variable set in 3builddistro.
@@ -216,7 +233,34 @@ if [ "$BOOT_DIRTYWRITE" ];then #120704 see /etc/rc.d/BOOTCONSTRAINED, variable s
 fi
 
 #redirect all output to a log file (must do after remount rw)...
-[ ! "$LOGLEVEL" ] && exec 1>/tmp/bootsysinit.log 2>&1
+if [ ! "$LOGLEVEL" ] ; then
+	exec 1>/tmp/bootsysinit.log 2>&1
+fi
+
+#-- full-hd-install
+if [ "`mount | grep '^/dev/root ' | grep ' / '`" ] ; then
+	if [ ! -e /dev/root ] ; then # full install without initrd
+		# code from init_full_install
+		for i in $(cat /proc/cmdline) ; do
+			case $i in "root="*) PDRV=${i#root=} ;; esac
+		done
+		case $PDRV in
+			UUID=*) PDRV=${PDRV#UUID=} ;; #remove leading UUID=
+			PARTUUID=*) PDRV="" ;;
+			*/*) PDRV=$(basename $PDRV) ;;
+		esac
+		if [ "$PDRV" ] ; then
+			BLKIDOUT=""
+			PDRV=$(decode_id $PDRV) #decode UUID, LABEL
+			if [ "$PDRV" ] && [ -e /dev/${PDRV} ] ; then
+				ln -sfv /dev/${PDRV} /dev/root
+			fi
+		fi
+	fi
+else
+	rm -fv /dev/root
+fi
+#--
 
 #mount/umount scripts no longer write to /etc/mtab, as gparted failed to create a
 #gparted create ext3 part. failed, fixed by making /etc/mtab a symlink.
@@ -289,14 +333,14 @@ if [ "$SWAPON" = "yes" ];then
  if [ "$(grep '/initrd/mnt/tmpfs' /proc/mounts)" != "" ];then #mounted
   [ -s /initrd/tmp/sfs_ram_sizek ] && ALLOCK=$(($ALLOCK + $(cat /initrd/tmp/sfs_ram_sizek))) #proper size
   mount -t tmpfs -o remount,size=${ALLOCK}k tmpfs /initrd/mnt/tmpfs
- elif [ ! -d /initrd ];then #full-install
+ elif [ $PUPMODE -eq 2 ];then #full-install
   mount -t tmpfs -o remount,size=${ALLOCK}k tmpfs /tmp
  fi
 fi
 
 # Setup /mnt/home symlink before sfs_load
 rm -f /mnt/home 2>/dev/null
-if [ ! -d /initrd ];then
+if [ $PUPMODE -eq 2 ] ; then
  PUP_HOME='/'
  [ ! -f /var/tmp/initrd_full_install_flag ] && echo "PUP_HOME='/'" >> /etc/rc.d/PUPSTATE
  ln -sv / /mnt/home
@@ -318,7 +362,7 @@ else
 fi
 
 #------ load extra sfs's if any ------
-[ -d /initrd ] && sfs_load --cli start
+[ "$PUNIONFS" = "aufs"  ] && sfs_load --cli start
 #-------------------------------------
 
 #######################VERSION UPDATE##########################
@@ -364,7 +408,7 @@ rm -f /etc/modprobe.d/blacklist*.conf
 BLACKLISTVARS="`echo "$SKIPLIST" | tr '\-' '_' | tr ' ' '\n' | sed -e 's/^/blacklist /' | grep -v ' $'`"
 echo "$BLACKLISTVARS" > /etc/modprobe.d/blacklist.conf
 
-if [ ! -d /initrd ];then #full hd install.
+if [ $PUPMODE -eq 2 ] ; then #full hd install.
  #one config of 2.6.33 has base floppy and ps/2 mouse support not builtin. have this in 'init' also...
  [ "`modinfo floppy 2>/dev/null`" != "" ] && modprobe floppy > /dev/null 2>&1
  [ "`modinfo psmouse 2>/dev/null`" != "" ] && modprobe psmouse
@@ -433,7 +477,7 @@ do
  fi
 done
 
-if [ ! -d /initrd ];then #full hd installation.
+if [ $PUPMODE -eq 2 ] ; then #full hd installation.
  modprobe nls_cp437 > /dev/null 2>&1 #these needed by vfat/ntfs/ext2 f.s.'s. 110712 maybe builtin.
  modprobe nls_iso8859-1 > /dev/null 2>&1 # "
  modprobe fuse 2>/dev/null
@@ -818,7 +862,7 @@ fi
 . /etc/rc.d/rc.local
 
 #improper shutdown check. see above, also rc.shutdown and /sbin/init...
-if [ ! -d /initrd ];then #if no /initrd, full hd install.
+if [ $PUPMODE -eq 2 ];then #full hd install.
  [ ! $PDEV1 ] && PDEV1="`df | grep ' /$' | grep '^/dev/' | cut -f 1 -d ' ' | cut -f 3 -d '/'`"
  [ ! $DEV1FS ] && DEV1FS="`mount | grep ' on / ' | grep '^/dev/' | cut -f 5 -d ' '`"
  if [ "$PDEV1" -a "$DEV1FS" ];then
