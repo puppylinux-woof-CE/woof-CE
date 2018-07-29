@@ -32,16 +32,18 @@ fi
 #             full install (without initrd)
 #==============================================================
 
-. /etc/DISTRO_SPECS
-. /etc/rc.d/BOOTCONSTRAINED # has BOOT_DISABLESWAP, BOOT_ATIME, BOOT_DIRTYWRITE.
-
 # tmpfs: exec switch_root /pup_new /sbin/init ramdisk_done
 if [ "$1" = "ramdisk_done" ] ; then
 	# pdev1 is mounted rw, proc is unmounted.
-	exec ${INITEXE}
+	exec ${INITEXE} >/dev/null 2>&1
 fi
 
 #--
+
+PATH='/bin:/sbin:/usr/bin:/usr/sbin'
+
+. /etc/DISTRO_SPECS
+. /etc/rc.d/BOOTCONSTRAINED # has BOOT_DISABLESWAP, BOOT_ATIME, BOOT_DIRTYWRITE.
 
 remount_rootdev() { #${1}: rw/ro
 	$BB sync
@@ -141,7 +143,6 @@ PDEV1=${PDEV1##*/} #basename - only want drv name
 #create a ram disk to change /dev/root to /dev/drv and/or check f.s.
 #===================================================================
 
-PATH='/bin:/sbin:/usr/bin:/usr/sbin'
 OLDROOT=/oldroot
 CLEANUP=/init
 BB=/bin/busybox
@@ -228,14 +229,16 @@ cp -a /dev/* ${CHROOT_MOUNT}/dev/
 
 if [ "$FS_CHECK" = "yes" ] ; then
 	# find the date... # raspi: no battery-backed hardware clock, so date is wrong...
-	HWDATE="`$BB hwclock --show 2>/dev/null`" #ex: Fri 29 Jun 2012 07:45:28 AM WST  -0.725833 seconds
-	if [ "$HWDATE" = "" -a -f /var/local/shutdown_date_saved ];then #see /etc/rc.d/rc.shutdown
-		read HWDATE < /var/local/shutdown_date_saved
+	#-
+	HWDATE0="$(hwclock --show 2>/dev/null)" #ex: 2018-07-30 06:32:16
+	if [ ! "$HWDATE0" ] ; then
+		if [ -f /var/local/shutdown_date_saved ];then
+			read HWDATE < /var/local/shutdown_date_saved #see /etc/rc.d/rc.shutdown
+		fi
+		if [ "$HWDATE" = "" ];then #creation date of build. ex: '2012-06-28 16:20:08'
+			HWDATE="$(stat -c %z /etc/DISTRO_SPECS | cut -f 1 -d '.' | cut -f 1,2 -d ' ')"
+		fi
 	fi
-	if [ "$HWDATE" = "" ];then # busybox date says '29 JUN 2012 10:00:00' invalid format
-		HWDATE="`stat --format=%z /etc/DISTRO_SPECS | cut -f 1 -d '.' | cut -f 1,2 -d ' '`" #creation date of build. ex: '2012-06-28 16:20:08'
-	fi
-	echo "$HWDATE" > ${CHROOT_MOUNT}/date
 fi
 
 rm -f ${CHROOT_MOUNT}/${CLEANUP} #precaution
@@ -254,8 +257,11 @@ if [ "$FS_CHECK" = "yes" ] ; then
 	#34=blue, 33=yellow, 32=green, 31=red, 35=purple, 36=aquablue, 38=black.
 	echo -en "\\033[1;31mNow running in ramdisk, performing filesystem check of ${PDEV1}..."  >/dev/console
 	echo -e "\\033[0;39m" >/dev/console
-	#$BB date -s "${HWDATE}"
-	$BB hwclock -l -s 2>/dev/null
+	if [ "$HWDATE" ] ; then
+		date -s "$HWDATE"
+	else
+		hwclock -l -s 2>/dev/null
+	fi
 	$BB umount ${OLDROOT}/dev 2>/dev/null #if kernel configured to mount fs on /dev
 	$BB umount ${OLDROOT} || umount -f ${OLDROOT}
 	if [ \$? -eq 0 ];then
@@ -273,7 +279,7 @@ else
 		switchroot ${OLDROOT}
 	fi
 fi
-sleep 1
+sleep 0.5
 
 [ "$DSHELL" ] && exec /bin/ash <dev/console >dev/console 2>&1
 
