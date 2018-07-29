@@ -1,1 +1,224 @@
-probepart_init
+#!/bin/ash
+#Barry Kauler www.puppylinux.com
+#LGPL 2007 Puppy Linux www.puppylinux.com
+# Optical drvs = problems. Behavior is not consistent after inserting and removing discs
+# k3.2.18+: sr* may appear in /proc/partitions or may not
+#           only checking sr* in /sys/block
+
+if [ -f /etc/rc.d/functions_x ] ; then
+	. /etc/rc.d/functions_x
+fi
+
+usage() {
+	echo "probepart - show information about partitions
+
+Syntax:
+
+   probepart [options] [device]
+
+It will print info about all the valid partitions
+
+Output: DEVICE|FILESYSTEM|SIZE
+
+Example: /dev/sda1|ext4|827465877
+   SIZE = 512 byte blocks [default]
+
+Options:
+
+   -extra-info: show DEVICE|FILESYSTEM|SIZE|LABEL|MOUNT_STATUS
+   -no-optical: ignore optical devices
+   -m         : SIZE in MB
+   -k         : SIZE in KB
+   -hr        : human readable SIZE
+   zz...      : a way to easily identify the current
+                probepart process through 'ps'..
+                ex: zzFRONTEND_CHANGE
+
+[device]
+   it's possible to specify [unix shell] wildcards
+      ex: probepart 'sda*'      (probe sda drive and partitions)
+      ex: probepart 'sdb[0-9]'   (probe sdb partitions 0-9)
+      ex: probepart 'sdc[0-9]*' (probe all sdc partitions)
+"
+	exit
+}
+
+PROCESS_OPTICAL=yes #default
+
+for i in $@ ; do
+	case $1 in
+		-k|-m) SUNITS="$1" ; shift ;; #allowed params are '-k' or '-m'.
+		-hr|-hr-size) HR_SIZE=yes ; shift ;;
+		-extra-info) EXTRA_INFO=yes ; shift ;; #/dev/$ONEDEV|$FSTYPE|$SIZE|$LABEL
+		-no-optical) PROCESS_OPTICAL=no ; shift ;;
+		-h|-help|--help) usage ;;
+		zz*)  shift ;;
+	esac
+done
+
+#==============================================================
+#                        FUNCTIONS
+#==============================================================
+
+# $1: devname
+# $2: size
+probepart_func() {
+
+	ONEDEV=$1
+	SIZE=$2
+	FSTYPE=""
+	[ -z "$SIZE" -o -z "$ONEDEV" ] && return
+
+	if [ -e /dev/${ONEDEV} ] ; then
+		blockdev=/dev/${ONEDEV}
+	elif [ -e /dev/block/${ONEDEV} ] ; then
+		blockdev=/dev/block/${ONEDEV} #android
+	else
+		return #error
+	fi
+
+	case $ONEDEV in fd*)
+		[ ! -e /sys/block/${ONEDEV}/device/vendor -a ! -e /sys/block/${ONEDEV}/device/model ] && return ;;
+	esac
+
+	DRV_IS_OPTICAL="no"
+	if [ -e /sys/block/${ONEDEV}/device/type ] ; then
+		read -r xtype < /sys/block/${ONEDEV}/device/type
+		if [ "$xtype" = "5" ] ; then
+			[ "$PROCESS_OPTICAL" = "no" ] && return
+			#--
+			DRV_IS_OPTICAL="yes"
+			#--
+			if [ -f /lib/udev/cdrom_id ] ; then
+				eval "$(/lib/udev/cdrom_id $blockdev)"
+				if [ ! "$ID_CDROM_MEDIA" ] ; then
+					return # disc is not inserted...
+				fi
+				if [ "$ID_CDROM_MEDIA_TRACK_COUNT_AUDIO" ] ; then
+					FSTYPE="audiocd"
+				fi
+				if [ $SIZE -eq 0 ] ; then
+					FSTYPE="none" #blank disc
+				fi
+			fi
+		fi
+	fi
+
+	if [ "$FSTYPE" = "" ] ; then
+		BLKDID_OUT="$(busybox blkid ${blockdev} 2>/dev/null)"
+		case $BLKDID_OUT in *' TYPE="'*)
+			FSTYPE="${BLKDID_OUT##* TYPE=\"}"
+			FSTYPE="${FSTYPE%%\"*}" ;;
+		esac
+	fi
+
+	if [ "$FSTYPE" = "" ] ; then
+		[ $SIZE -le 4 ] && return #extended partition (most likely)
+		FSTYPE="unknown"
+	fi
+
+	if [ "$EXTRA_INFO" = "yes" ] ; then
+		PARTITION_LABEL=""
+		case $BLKDID_OUT in *' LABEL="'*)
+			PARTITION_LABEL="${BLKDID_OUT##* LABEL=\"}"
+			PARTITION_LABEL="${PARTITION_LABEL%%\"*}" ;;
+		esac
+		MOUNT_STATUS="not_mounted"
+		while read dev etc ; do
+			[ "$dev" = "$blockdev" ] && MOUNT_STATUS="mounted" && break
+		done < /proc/mounts
+		EXTRA_STUFF="|${PARTITION_LABEL}|${MOUNT_STATUS}"
+	fi
+
+	if [ "$FSTYPE" = "unknown" ] ; then
+		if [ "$ONEDEV_ARG" != "1" -a "$DRV_IS_OPTICAL" != "yes" -a -e /sys/block/${ONEDEV} ] ; then
+			# drive with no f.s.. ignore
+			return
+		fi
+		FSTYPE="none"
+	fi
+
+	if [ "$HR_SIZE" = "yes" ] ; then
+		SIZE=$(fx_format_bytes $(($SIZE * 1024)) ) #format size in KB
+	else
+		case $SUNITS in
+			-m) SIZE=$(($SIZE/1024)) ;; #want MB
+			-k) true                 ;; #want KB
+			"") SIZE=$(($SIZE*2))    ;; #want 512 byte blocks.
+		esac
+	fi
+
+	echo "${blockdev}|$FSTYPE|$SIZE${EXTRA_STUFF}"
+}
+
+#===========
+
+# $1: device
+do_probepart() {
+	#ALLDEVS="`grep " ${device}$" /proc/partitions | tr -s ' ' | cut -f 4-5 -d ' '`"
+	ONEDEV_ARG=1
+	unset ok
+	device="${1##*/}" #basename
+	device="${device//./}" #remove dots / convert grep wilcards to unix shell wildcards..
+	while read major minor blocks name ; do #< /proc/partitions
+		case $name in $device)
+			ok=1
+			probepart_func $name $blocks ;;
+		esac
+	done < /proc/partitions
+	if [ ! "$ok" ] ; then
+		# optical = problems
+		case $device in sr*)
+			for dev in /sys/block/${device}
+			do
+				dev=${dev##*/} #basename
+				if [ -e /sys/block/${dev}/size ] ; then
+					read size < /sys/block/${dev}/size
+					size=$(($size/2)) # kb = /proc/partitions
+					probepart_func $dev $size
+				fi
+			done
+			return
+		esac
+		echo "${device}: invalid device" 1>&2
+		return 1
+	fi
+}
+
+#===========
+
+do_probepart_all() {
+	# devices that have partitions... 
+	while read major minor blocks name ; do #< /proc/partitions
+		case $name in
+			sd*|hd*|mmc*|nvme*) echo $name $blocks ;; #allowed drvs
+		esac
+	done < /proc/partitions | sort | \
+		while read l ; do
+			probepart_func $l
+		done
+	#== optical
+	for dev in /sys/block/sr*
+	do
+		dev=${dev##*/} #basename
+		if [ -e /sys/block/${dev}/size ] ; then
+			read size < /sys/block/${dev}/size
+			size=$(($size/2)) # kb = /proc/partitions
+			probepart_func $dev $size
+		fi
+	done
+}
+
+#==============================================================
+#                          MAIN
+#==============================================================
+
+if [ "$1" ] ; then
+	# process cli argument
+	do_probepart "$1"
+else
+	#normal operation
+	do_probepart_all
+fi
+
+### END ###

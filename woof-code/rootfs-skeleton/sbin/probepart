@@ -1,11 +1,9 @@
 #!/bin/ash
 #Barry Kauler www.puppylinux.com
 #LGPL 2007 Puppy Linux www.puppylinux.com
-#some usb adaptors have slots for cards, plugging/unplugging these cards
-#does not cause a hotplug event and the kernel does not update /proc.
-#120602 kernel 3.2.18 major deviance from earlier kernels, /proc/partitions (and /sys/block) now shows /dev/sr0 when no disk.
-#       new situation, getting duplicate /dev/sr0 so need 'sort -u'.
-# 
+# Optical drvs = problems. Behavior is not consistent after inserting and removing discs
+# k3.2.18+: sr* may appear in /proc/partitions or may not
+#           only checking sr* in /sys/block
 
 if [ -f /etc/rc.d/functions_x ] ; then
 	. /etc/rc.d/functions_x
@@ -62,12 +60,12 @@ done
 #                        FUNCTIONS
 #==============================================================
 
-# $1: size
-# $2: devname
+# $1: devname
+# $2: size
 probepart_func() {
 
-	SIZE=$1
-	ONEDEV=$2
+	ONEDEV=$1
+	SIZE=$2
 	FSTYPE=""
 	[ -z "$SIZE" -o -z "$ONEDEV" ] && return
 
@@ -77,13 +75,6 @@ probepart_func() {
 		blockdev=/dev/block/${ONEDEV} #android
 	else
 		return #error
-	fi
-
-	if [ -e /sys/block/${ONEDEV} ] ; then
-		case $(readlink /sys/block/${ONEDEV}) in *usb*)
-			#force /proc upate mechanism
-			dd if=${blockdev} of=/dev/null bs=512 count=1 &>/dev/null
-		esac
 	fi
 
 	case $ONEDEV in fd*)
@@ -98,15 +89,17 @@ probepart_func() {
 			#--
 			DRV_IS_OPTICAL="yes"
 			#--
-			eval "$(/lib/udev/cdrom_id $blockdev)"
-			if [ ! "$ID_CDROM_MEDIA" ] ; then
-				return # disc is not inserted...
-			fi
-			if [ "$ID_CDROM_MEDIA_TRACK_COUNT_AUDIO" ] ; then
-				FSTYPE="audiocd"
-			fi
-			if [ $SIZE -eq 0 ] ; then
-				FSTYPE="none" #blank disc
+			if [ -f /lib/udev/cdrom_id ] ; then
+				eval "$(/lib/udev/cdrom_id $blockdev)"
+				if [ ! "$ID_CDROM_MEDIA" ] ; then
+					return # disc is not inserted...
+				fi
+				if [ "$ID_CDROM_MEDIA_TRACK_COUNT_AUDIO" ] ; then
+					FSTYPE="audiocd"
+				fi
+				if [ $SIZE -eq 0 ] ; then
+					FSTYPE="none" #blank disc
+				fi
 			fi
 		fi
 	fi
@@ -167,13 +160,14 @@ do_probepart() {
 	unset ok
 	device="${1##*/}" #basename
 	device="${device//./}" #remove dots / convert grep wilcards to unix shell wildcards..
-	while read z zz size dev ; do #< /proc/partitions
-		case $dev in $device)
+	while read major minor blocks name ; do #< /proc/partitions
+		case $name in $device)
 			ok=1
-			probepart_func $size $dev ;;
+			probepart_func $name $blocks ;;
 		esac
 	done < /proc/partitions
 	if [ ! "$ok" ] ; then
+		# optical = problems
 		case $device in sr*)
 			for dev in /sys/block/${device}
 			do
@@ -181,13 +175,13 @@ do_probepart() {
 				if [ -e /sys/block/${dev}/size ] ; then
 					read size < /sys/block/${dev}/size
 					size=$(($size/2)) # kb = /proc/partitions
-					probepart_func $size $dev
+					probepart_func $dev $size
 				fi
 			done
-			exit
+			return
 		esac
 		echo "${device}: invalid device" 1>&2
-		exit 1
+		return 1
 	fi
 }
 
@@ -195,12 +189,11 @@ do_probepart() {
 
 do_probepart_all() {
 	# devices that have partitions... 
-	# k3.2+: sr* may appear in /proc/partitions if disc is inserted
-	while read z zz size dev ; do #< /proc/partitions
-		case $dev in
-			sd*|mmc*|nvme*) echo $size $dev ;; #allowed drvs
+	while read major minor blocks name ; do #< /proc/partitions
+		case $name in
+			sd*|hd*|mmc*|nvme*) echo $name $blocks ;; #allowed drvs
 		esac
-	done < /proc/partitions | sort -k 2,2 | \
+	done < /proc/partitions | sort | \
 		while read l ; do
 			probepart_func $l
 		done
@@ -211,7 +204,7 @@ do_probepart_all() {
 		if [ -e /sys/block/${dev}/size ] ; then
 			read size < /sys/block/${dev}/size
 			size=$(($size/2)) # kb = /proc/partitions
-			probepart_func $size $dev
+			probepart_func $dev $size
 		fi
 	done
 }
