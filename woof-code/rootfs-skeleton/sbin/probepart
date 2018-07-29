@@ -5,6 +5,7 @@
 #does not cause a hotplug event and the kernel does not update /proc.
 #120602 kernel 3.2.18 major deviance from earlier kernels, /proc/partitions (and /sys/block) now shows /dev/sr0 when no disk.
 #       new situation, getting duplicate /dev/sr0 so need 'sort -u'.
+# 
 
 if [ -f /etc/rc.d/functions_x ] ; then
 	. /etc/rc.d/functions_x
@@ -67,6 +68,7 @@ probepart_func() {
 
 	SIZE=$1
 	ONEDEV=$2
+	FSTYPE=""
 	[ -z "$SIZE" -o -z "$ONEDEV" ] && return
 
 	if [ -e /dev/${ONEDEV} ] ; then
@@ -74,7 +76,7 @@ probepart_func() {
 	elif [ -e /dev/block/${ONEDEV} ] ; then
 		blockdev=/dev/block/${ONEDEV} #android
 	else
-		return
+		return #error
 	fi
 
 	if [ -e /sys/block/${ONEDEV} ] ; then
@@ -84,47 +86,42 @@ probepart_func() {
 		esac
 	fi
 
-	OPTICAL="no"
-	if [ -e /sys/block/${ONEDEV}/device/type ] ; then
-		read -r xtype < /sys/block/${ONEDEV}/device/type
-		if [ "$xtype" = "5" ] ; then
-			OPTICAL="yes"
-			[ "$PROCESS_OPTICAL" = "no" ] && return
-		fi
-	fi
-
 	case $ONEDEV in fd*)
 		[ ! -e /sys/block/${ONEDEV}/device/vendor -a ! -e /sys/block/${ONEDEV}/device/model ] && return ;;
 	esac
 
-	if [ "$OPTICAL" = "yes" ];then
-		while read dev etc ; do
-			if [ "$dev" = "$blockdev" ] ; then #mounted
-				#...returns 0 if disc inserted, else 255. #very fast.
-				cddetect_quick -d${blockdev} >/dev/null 2>&1 || return
-				break
+	DRV_IS_OPTICAL="no"
+	if [ -e /sys/block/${ONEDEV}/device/type ] ; then
+		read -r xtype < /sys/block/${ONEDEV}/device/type
+		if [ "$xtype" = "5" ] ; then
+			[ "$PROCESS_OPTICAL" = "no" ] && return
+			#--
+			DRV_IS_OPTICAL="yes"
+			#--
+			eval "$(/lib/udev/cdrom_id $blockdev)"
+			if [ ! "$ID_CDROM_MEDIA" ] ; then
+				return # disc is not inserted...
 			fi
-		done < /proc/mounts
+			if [ "$ID_CDROM_MEDIA_TRACK_COUNT_AUDIO" ] ; then
+				FSTYPE="audiocd"
+			fi
+			if [ $SIZE -eq 0 ] ; then
+				FSTYPE="none" #blank disc
+			fi
+		fi
 	fi
 
-	BLKDID_OUT="$(busybox blkid ${blockdev} 2>/dev/null)"
-	FSTYPE=""
-	case $BLKDID_OUT in *' TYPE="'*)
-		FSTYPE="${BLKDID_OUT##* TYPE=\"}"
-		FSTYPE="${FSTYPE%%\"*}" ;;
-	esac
+	if [ "$FSTYPE" = "" ] ; then
+		BLKDID_OUT="$(busybox blkid ${blockdev} 2>/dev/null)"
+		case $BLKDID_OUT in *' TYPE="'*)
+			FSTYPE="${BLKDID_OUT##* TYPE=\"}"
+			FSTYPE="${FSTYPE%%\"*}" ;;
+		esac
+	fi
 
 	if [ "$FSTYPE" = "" ] ; then
 		[ $SIZE -le 4 ] && return #extended partition (most likely)
 		FSTYPE="unknown"
-	fi
-
-	if [ "$FSTYPE" = "unknown" -a "$OPTICAL" = "yes" ];then # probe optical a bit more.
-		cddetect -q -d${blockdev} > /dev/null 2>&1
-		case $? in 
-			1) FSTYPE="audiocd" ;;
-			*) FSTYPE=`guess_fstype ${blockdev}` ;;
-		esac
 	fi
 
 	if [ "$EXTRA_INFO" = "yes" ] ; then
@@ -141,7 +138,7 @@ probepart_func() {
 	fi
 
 	if [ "$FSTYPE" = "unknown" ] ; then
-		if [ "$ONEDEV_ARG" != "1" -a "$OPTICAL" != "yes" -a -e /sys/block/${ONEDEV} ] ; then
+		if [ "$ONEDEV_ARG" != "1" -a "$DRV_IS_OPTICAL" != "yes" -a -e /sys/block/${ONEDEV} ] ; then
 			# drive with no f.s.. ignore
 			return
 		fi
@@ -161,10 +158,13 @@ probepart_func() {
 	echo "${blockdev}|$FSTYPE|$SIZE${EXTRA_STUFF}"
 }
 
+#===========
+
 # $1: device
 do_probepart() {
 	#ALLDEVS="`grep " ${device}$" /proc/partitions | tr -s ' ' | cut -f 4-5 -d ' '`"
 	ONEDEV_ARG=1
+	unset ok
 	device="${1##*/}" #basename
 	device="${device//./}" #remove dots / convert grep wilcards to unix shell wildcards..
 	while read z zz size dev ; do #< /proc/partitions
@@ -173,42 +173,47 @@ do_probepart() {
 			probepart_func $size $dev ;;
 		esac
 	done < /proc/partitions
-	if [ "$ok" != "1" ] ; then
+	if [ ! "$ok" ] ; then
+		case $device in sr*)
+			for dev in /sys/block/${device}
+			do
+				dev=${dev##*/} #basename
+				if [ -e /sys/block/${dev}/size ] ; then
+					read size < /sys/block/${dev}/size
+					size=$(($size/2)) # kb = /proc/partitions
+					probepart_func $size $dev
+				fi
+			done
+			exit
+		esac
 		echo "${device}: invalid device" 1>&2
 		exit 1
 	fi
 }
 
+#===========
+
 do_probepart_all() {
 	# devices that have partitions... 
-	# early kernels do not have sr0-sr9 in /proc/partitions, 3.2+ do, which causes desktop icon to not appear when audio-cd inserted.
-	#PARTITIONS="`cat /proc/partitions | tr -s ' ' | cut -f 4-5 -d ' ' | grep -vE ' loop| ram| zram| sr |dm-'`" #each line ex: 16076800 sda5
-	HAS_SRX=
-	while read z zz size dev ; do #< /proc/partitions > /tmp/probepart$$
+	# k3.2+: sr* may appear in /proc/partitions if disc is inserted
+	while read z zz size dev ; do #< /proc/partitions
 		case $dev in
-			sd*|hd*|mmc*|nvme*) echo $size $dev ;; # allowed
-			sr*) HAS_SRX=yes ;  echo $size $dev ;; # allowed
+			sd*|mmc*|nvme*) echo $size $dev ;; #allowed drvs
 		esac
-	done < /proc/partitions > /tmp/probepart$$
-	#--
-	if [ "$HAS_SRX" != "yes" -a "$PROCESS_OPTICAL" = "yes" ] ; then
-		for dev in /sys/block/sr*
-		do
-			dev=${dev##*/} #basename
-			if [ -e /sys/block/${dev}/size ] ; then
-				read size < /sys/block/${dev}/size
-				size=$(($size/2)) # kb = /proc/partitions
-				echo ${size} ${dev} >> /tmp/probepart$$
-			fi
+	done < /proc/partitions | sort -k 2,2 | \
+		while read l ; do
+			probepart_func $l
 		done
-	fi
-	#--
-	sort -k 2,2 -u /tmp/probepart$$ | \
-	while read l
+	#== optical
+	for dev in /sys/block/sr*
 	do
-		probepart_func $l
+		dev=${dev##*/} #basename
+		if [ -e /sys/block/${dev}/size ] ; then
+			read size < /sys/block/${dev}/size
+			size=$(($size/2)) # kb = /proc/partitions
+			probepart_func $size $dev
+		fi
 	done
-	rm -f /tmp/probepart$$
 }
 
 #==============================================================

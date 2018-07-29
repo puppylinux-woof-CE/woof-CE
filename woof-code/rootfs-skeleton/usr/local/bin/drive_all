@@ -173,100 +173,71 @@ fi
 
 #oh, now have to analyse the media, decide what app to run...
 
+cdrom_id_has() {
+	while read i ; do
+		case $i in *"$1"*) return 0 ;; esac
+	done <<EOF
+$cdrom_id
+EOF
+	return 1
+}
+
 optical_func() {
+	mount | grep "^/dev/${ONEDRVNAME} " && return #already mounted
+	#--
+	cdrom_id="$(/lib/udev/cdrom_id /dev/${ONEDRVNAME})" #ID_CDROM_* variables
+	eval "$cdrom_id" #debug
+	#--
+	# cd audio
+	if [ "$ID_CDROM_MEDIA_TRACK_COUNT_AUDIO" ] ; then
+		echo "/dev/${ONEDRVNAME}: Audio CD (most likely)"
+		/usr/lib/gtkdialog/box_yesno --yes-first --ok-cancel --image-icon cd_audio.svg --yes-label "Play" --yes-icon cd_audio.svg \
+		"Audio CD detected..." "An audio CD has been detected. Do you want to play it?"
+		case $? in
+			0) ln -snf /dev/${ONEDRVNAME} /dev/cdrom ; exec defaultcdplayer cdda:// ;;
+			*) exit 1 ;; #close/cancel
+		esac
+		exit 1
+	fi
 
-  mount | grep "^/dev/${ONEDRVNAME} " && return #already mounted
-  DRIVEINFO="$(dvd+rw-mediainfo /dev/${ONEDRVNAME})"
-  EXITCODE=$?
-  DRIVETYPE="$(echo "$DRIVEINFO" | grep 'INQUIRY:')"
-  DRIVETYPE2='['"${DRIVETYPE#*[}"
+	# blank disc
+	if [ "$ID_CDROM_MEDIA_STATE" = "blank" ] ; then
+		TTL="Blank Disc"
+		cdrom_id_has 'ID_CDROM_MEDIA_CD' && TTL="Blank CD"
+		cdrom_id_has 'ID_CDROM_MEDIA_DVD' && TTL="Blank DVD"
+		/usr/lib/gtkdialog/box_yesno --yes-first --ok-cancel --image-icon cdrom.svg --yes-label "Run CD Burner" \
+			--yes-icon cdrom.svg "$TTL" "The disk in /dev/${ONEDRVNAME} is blank..."
+		[ $? -eq 0 ] && exec defaultcdrecorder /dev/${ONEDRVNAME}
+		exit
+	fi
 
-  echo "/dev/${ONEDRVNAME} filesystem: $FSTYPE " # debug
-  echo "dvd+rw-mediainfo exit code: $EXITCODE"   # debug
-  echo "${DRIVETYPE}" # debug
-
-  case $EXITCODE in
-    150) # :-( not a DVD unit
-        case "${DRIVETYPE}" in *CD-R*) CDR="true" ;; esac
-        ;;
-    251) # :-( no media mounted
-        # cd/dvd might be blank
-        cddetect_quick -d/dev/${ONEDRVNAME} || exit 1
-        # might be and old dvd drive and the disc a DVD9/DL-DVD
-        echo "===================================="
-        echo "* The disc in /dev/${ONEDRVNAME} is blank (or may be unsupported by your dvd drive)..."
-        echo "===================================="
-        /usr/lib/gtkdialog/box_yesno --yes-first --ok-cancel --image-icon cdrom.svg --yes-label "Run Pburn" --yes-icon cdrom.svg \
-        "Blank disk" "$DRIVETYPE2" "The disc in /dev/${ONEDRVNAME} is blank" "(or may be the case that is not supported by your dvd drive," "could be a double-layer DVD, and your dvd drive too old...)"
-        [ $? -eq 0 ] && which pburn &>/dev/null && exec pburn
-        exit
-        ;;
-    252) CDR="true" ;; # :-( non-DVD media mounted
-  esac
-
-  ####### CDS ########
-  if [ "$CDR" = "true" ] ; then
-     cddetect -d/dev/${ONEDRVNAME} #-q
-     RETVAL=$?
-     echo "cddetect exit code: $RETVAL"
-     case $RETVAL in
-        1|50) #1) audio 50) mixed. we don't want to mount it but we'll see if it plays
-          [ ${RETVAL} -eq 50 ] && mountcd='--extra-button Mount'
-          echo "/dev/${ONEDRVNAME}: Audio CD (most likely)"
-          /usr/lib/gtkdialog/box_yesno --yes-first --ok-cancel --image-icon cd_audio.svg --yes-label "Play" --yes-icon cd_audio.svg $mountcd \
-          "CD Audio detected..." "An audio CD has been detected. Do you want to play it?"
-          case $? in
-            0) ln -snf /dev/${ONEDRVNAME} /dev/cdrom
-               exec defaultcdplayer cdda:// ;;
-            2) true   ;; #continue to mount drive
-            *) exit 1 ;; #close/cancel
-          esac
-          ;;
-        255) #might be blank, double check it's there #140712
-          cddetect_quick -d/dev/${ONEDRVNAME} || exit 1
-          /usr/lib/gtkdialog/box_yesno --yes-first --ok-cancel --image-icon cdrom.svg --yes-label "Run Pburn" --yes-icon cdrom.svg \
-          "Blank CD (most likely)" "$DRIVETYPE2" "The disc in /dev/${ONEDRVNAME} is blank (most likely)" "(if you know it's not blank then the CD might be damaged...)"
-          [ $? -eq 0 ] && which pburn &>/dev/null && exec pburn
-          exit
-          ;;
-     esac
-
-  ####### DVDs and more ######
-  else
-     # check if it's blank
-     ITSBLANK=$(echo "$DRIVEINFO" | grep -i 'Disc status:' | grep -i 'blank')
-     if [ "$ITSBLANK" ] ; then
-        echo "/dev/${ONEDRVNAME}: DVD is blank"
-        /usr/lib/gtkdialog/box_yesno --yes-first --ok-cancel --image-icon cdrom.svg --yes-label "Run Pburn" --yes-icon cdrom.svg "Blank DVD" "The disk /dev/${ONEDRVNAME} is blank..."
-        [ $? -eq 0 ] && which pburn &>/dev/null && exec pburn
-        exit
-     fi
-     # --
-     # mount and look for 'video_ts' directory (dir should contain file video_ts.ifo)...
-     OPTICALMOUNTED="true" #don't try to mount the drive afterwards
-     echo "Trying to mount /dev/${ONEDRVNAME}"
-     mkdir -p /mnt/${ONEDRVNAME}
-     mount -t udf /dev/${ONEDRVNAME} /mnt/${ONEDRVNAME} || mount -t iso9660 /dev/${ONEDRVNAME} /mnt/${ONEDRVNAME}
-     RETVALX=$?
-     [ ${RETVALX} -ne 0 ] && return
-     if [ -d /mnt/${ONEDRVNAME}/video_ts -o -d /mnt/${ONEDRVNAME}/VIDEO_TS ] ; then
-        /usr/lib/gtkdialog/box_yesno --yes-first --ok-cancel --image-icon video.svg --yes-label "Play" --yes-icon cdrom.svg --extra-button Mount \
-        "Video DVD detected..." "This seems to be a Video DVD, do you want to play it?"
-        case $? in
-          0) #play
-            umount /mnt/${ONEDRVNAME} ; echo "/dev/${ONEDRVNAME}: Video DVD detected"
-            ln -snf /dev/${ONEDRVNAME} /dev/dvd
-            exec defaultmediaplayer dvd://
-            ;;
-          2) OPTICALMOUNTED="true" ;; #keep mounted
-          *) umount /mnt/${ONEDRVNAME} ; exit 1 ;;
-        esac
-     else
-        if [ "$FSTYPE" = "0" -o "$FRONTEND_CHANGE" ] ; then
-          umount /mnt/${ONEDRVNAME}
-        fi
-     fi
-  fi
+	# video dvd? ID_CDROM_MEDIA_DVD*
+	if cdrom_id_has 'ID_CDROM_MEDIA_DVD' ; then
+		# mount and look for 'video_ts' directory (dir should contain file video_ts.ifo)...
+		OPTICALMOUNTED="true" #don't try to mount the drive afterwards
+		echo "Trying to mount /dev/${ONEDRVNAME}"
+		mkdir -p /mnt/${ONEDRVNAME}
+		mount -t udf /dev/${ONEDRVNAME} /mnt/${ONEDRVNAME} || mount -t iso9660 /dev/${ONEDRVNAME} /mnt/${ONEDRVNAME}
+		RETVALX=$?
+		[ ${RETVALX} -ne 0 ] && return
+		if [ -d /mnt/${ONEDRVNAME}/video_ts -o -d /mnt/${ONEDRVNAME}/VIDEO_TS ] ; then
+			/usr/lib/gtkdialog/box_yesno --yes-first --ok-cancel --image-icon video.svg --yes-label "Play" --yes-icon cdrom.svg --extra-button Mount \
+			"Video DVD detected..." "This seems to be a Video DVD, do you want to play it?"
+			case $? in
+				0) #play
+					umount /mnt/${ONEDRVNAME} ; echo "/dev/${ONEDRVNAME}: Video DVD detected"
+					ln -snf /dev/${ONEDRVNAME} /dev/dvd
+					exec defaultmediaplayer dvd://
+					;;
+				2) OPTICALMOUNTED="true" ;; #keep mounted
+				*) umount /mnt/${ONEDRVNAME} ; exit 1 ;;
+			esac
+		else
+			if [ "$FSTYPE" = "0" -o "$FRONTEND_CHANGE" ] ; then
+				umount /mnt/${ONEDRVNAME}
+			fi
+		fi
+	fi
 }
 
 if fx_drv_is_optical ${ONEDRVNAME} ; then
