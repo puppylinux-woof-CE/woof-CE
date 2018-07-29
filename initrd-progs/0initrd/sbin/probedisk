@@ -1,6 +1,5 @@
 #!/bin/ash
-#!/system/xbin/ash
-#LGPL 2007 Puppy Linux www.puppyos.com
+#LGPL 2007 Puppy Linux www.puppylinux.com
 #based on probedisk3 written by Dougal.
 # 21 Jun 2007 BK: force /proc update for usb drives.
 #v3.93 10 dec 2007 BK: updated for 2.6.24 kernel, no /dev/hd*.
@@ -12,23 +11,23 @@
 #  Raspberry Pi
 #    /sys/block/mmcblk0 -> ../devices/platform/soc/3f202000.sdhost/mmc_host/mmc0/mmc0:aaaa/block/mmcblk0
 
+#set -x
+
 if [ -f /etc/rc.d/functions_x ] ; then
 	. /etc/rc.d/functions_x
 fi
 
 usage() {
-	echo "probedisk - show information about drives
-
-Syntax:
+	echo "Syntax:
 
    probedisk [options] [drive1 drive2 ...]
 
-It will print info about all the detected drives by the system
-unless one more drives are specified.
+Prints info about all the detected drives by the system
+unless one or more drives are specified.
 
 Output: DEVICE|TYPE|DESC
 
-Options to tweak standard output string:
+Options to tweak the standard output string:
 
     -show-usbflash: change 'usbdrv' to 'usbflash' for usb sticks...
     -extended-usb : show 'usbflash' 'usboptical' 'usbfloppy'
@@ -43,8 +42,6 @@ Options to show specific info after DEVICE:
     -type  : plus |TYPE
     -desc  : plus |DESC   (also -model)
     -size  : plus |SIZE
-    -uuid  : plus |PARTITION TABLE UUID (blkid)
-    -ptable: plus |PARTITION TABLE TYPE (blkid)
 "
 	exit
 }
@@ -66,48 +63,48 @@ for i in $@ ; do
 		-desc) SPECIFIC=yes   ; EXTRA_STR="${EXTRA_STR}|DESC" ; shift ;;
 		-model) SPECIFIC=yes  ; EXTRA_STR="${EXTRA_STR}|DESC" ; shift ;;
 		-size) SPECIFIC=yes   ; EXTRA_STR="${EXTRA_STR}|SIZE" ; shift ;;
-		-uuid) SPECIFIC=yes   ; EXTRA_STR="${EXTRA_STR}|UUID" ;   SHOW_UUID=yes   ; shift ;;
-		-ptable) SPECIFIC=yes ; EXTRA_STR="${EXTRA_STR}|PTABLE" ; SHOW_PTABLE=yes ; shift ;;
 		#--
 		-h|-help|--help) usage ;;
 		-*) echo "* ${0##*/} $1: unknown option. type '${0##*/} -help'" 1>&2 ; shift ;;
 	esac
 done
 
-if [ "$HR_SIZE" = "yes" -a -z "$SPECIFIC" ] ; then
+if [ "$HR_SIZE" = "yes" -a "$SPECIFIC" = "" ] ; then
 	PLUS_SIZE=yes
 fi
 
 device=${@##*/}
 
-###############################################################
+#==============================================================
+#                        FUNCTIONS
+#==============================================================
 
-if [ "$device" ] ; then
-	ALLDRVS=${device} #process cli argument
-	CLI_ARG=1
-else
-	if [ -f $HOME/.usb-drive-log-probedisk ] ; then #force /proc upate mechanism
-		while read ONEUSBDRV ; do
-			dd if=/dev/$ONEUSBDRV of=/dev/null bs=512 count=1 1>/dev/null 2>&1
-		done < $HOME/.usb-drive-log-probedisk
-	fi
-	ALLDRVS="`ls -1 /sys/block | grep -E '^sd|^hd|^mmc|^nvme|^sr' | grep -v boot`"
-fi
+# $1: dev
+hdparm_get_model() {
+    #hdparm -i $i 2>/dev/null | grep Model | cut -f 1 -d ',' | cut -f 2 -d '='
+	hdparm -i $1 2>/dev/null | while read line
+	do
+		case "$line" in *"Model="*)
+			ret=${line%%\,*}
+			ret=${ret#*=}
+			echo $ret
+			break ;;
+		esac
+	done
+}
 
-###############################################################
+# $1: drv
+do_probedisk() {
 
-for DRV in ${ALLDRVS}
-do
+	[ "$1" ] || return 1
+	DRV=${1##*/} #basename
 
-	if [ "$CLI_ARG" != "" ] ; then
-		if [ ! -e /sys/block/${DRV} -a ! -e /proc/ide/${DRV} ] ; then
+	if [ "$CLI_ARG" != "" ] ; then #specifial flag
+		if [ ! -e /sys/block/${DRV} ] ; then
 			echo "${DRV}: invalid drive" 1>&2
 			continue
 		fi
 	fi
-
-	UUID_STR=""
-	PTABLE_STR=""
 
 	vendor=""
 	model=""
@@ -165,7 +162,8 @@ do
 			type=optical
 		else
 			case ${DRV} in
-				sd*) [ "$removable" = "1" ] && usb=yes type=usbdrv ;; # usb hd drives and usb flash drives appear as sdX
+				# $xtype is always set for sd*, even in very old kernels..
+				sd*) usb=yes type=usbdrv ;; # usb hd drives and usb flash drives appear as sdX
 				hd*) [ "$removable" = "1" ] && type=floppy ;; # a zip drv? https://ubuntuforums.org/showthread.php?t=1607383
 			esac
 		fi
@@ -197,15 +195,9 @@ do
 	[ "$type" = "floppy" -a "$model" = "" -a "$vendor" = "" ] && continue
 	# --
 
-	if [ "$SHOW_UUID" = "yes" -o "$SHOW_PTABLE" = "yes" ] ; then
-		BLKID_STR="$(blkid $blockdev)"
-		[ "$SHOW_UUID" = "yes" ]  && UUID_STR="$(echo "$BLKID_STR" | grep -o ' PTUUID=.*' | cut -f 2 -d '"')"
-		[ "$SHOW_PTABLE" = "yes" ]  && PTABLE_STR="$(echo "$BLKID_STR" | grep -o ' PTTYPE=.*' | cut -f 2 -d '"')"
-	fi
-
 	case $type in drive|usbdrive) # -hdparm
 		if [ "$HDPARM" = "yes" -a "$removable" != "1" ] ; then
-			modelx="$(hdparm -i $blockdev | grep Model | cut -f 1 -d ',' | cut -f 2 -d '=' 2>/dev/null)"
+			modelx="$(hdparm_get_model $blockdev)"
 			[ "$modelx" != "" ] && info="$vendor $modelx"
 		fi
 	esac
@@ -225,14 +217,39 @@ do
 		SPECIFIC_STUFF="${SPECIFIC_STUFF//|TYPE/|$type}"
 		SPECIFIC_STUFF="${SPECIFIC_STUFF//|DESC/|$info}"
 		SPECIFIC_STUFF="${SPECIFIC_STUFF//|SIZE/|$size}"
-		SPECIFIC_STUFF="${SPECIFIC_STUFF//|UUID/|$UUID_STR}"
-		SPECIFIC_STUFF="${SPECIFIC_STUFF//|PTABLE/|$PTABLE_STR}"
 		OUTPUT_STR="${blockdev}${SPECIFIC_STUFF}"
 	else
 		OUTPUT_STR="${blockdev}|$type|$info"
 		[ "$PLUS_SIZE" = "yes" ] && OUTPUT_STR="${OUTPUT_STR}|$size"
 	fi
 	echo "$OUTPUT_STR"
-done
+}
+
+do_probedisk_all() {
+	for i in /sys/block/*
+	do
+		ONEDRV=${i##*/} #basename
+		case $ONEDRV in sd*|hd*|mmc*|nvme*|sr*) # allowed drvs
+			do_probedisk $ONEDRV ;;
+		esac
+	done
+}
+
+#==============================================================
+#                          MAIN
+#==============================================================
+
+if [ "$device" ] ; then
+	CLI_ARG=1
+	do_probedisk ${device} #process cli argument
+else
+	if [ -f $HOME/.usb-drive-log-probedisk ] ; then #force /proc upate mechanism
+		while read ONEUSBDRV ; do
+			dd if=/dev/$ONEUSBDRV of=/dev/null bs=512 count=1 1>/dev/null 2>&1
+		done < $HOME/.usb-drive-log-probedisk
+	fi
+	#--
+	do_probedisk_all
+fi
 
 ### END ###

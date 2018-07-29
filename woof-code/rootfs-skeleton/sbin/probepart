@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/ash
 #Barry Kauler www.puppylinux.com
 #LGPL 2007 Puppy Linux www.puppylinux.com
 #some usb adaptors have slots for cards, plugging/unplugging these cards
@@ -36,10 +36,10 @@ Options:
                 ex: zzFRONTEND_CHANGE
 
 [device]
-   it's possible to specify wildcards
-      ex: probepart 'sda.*'      (probe sda drive and partitions)
+   it's possible to specify [unix shell] wildcards
+      ex: probepart 'sda*'      (probe sda drive and partitions)
       ex: probepart 'sdb[0-9]'   (probe sdb partitions 0-9)
-      ex: probepart 'sdc[0-9].*' (probe all sdc partitions)
+      ex: probepart 'sdc[0-9]*' (probe all sdc partitions)
 "
 	exit
 }
@@ -57,92 +57,44 @@ for i in $@ ; do
 	esac
 done
 
-device="${1##*/}"
- 
+#==============================================================
+#                        FUNCTIONS
+#==============================================================
 
-if [ "$device" ] ; then
-	# process cli argument
-	ALLDEVS="`grep " ${device}$" /proc/partitions | tr -s ' ' | cut -f 4-5 -d ' '`"
-	## this is faster but requires changes in scripts using wildcards .. and bash 4.4?
-	#ALLDEVS=$(
-	#	while read zz zzz size dev ; do
-	#		case $dev in $device)
-	#			echo $size $dev ;;
-	#		esac
-	#	done < /proc/partitions
-	#)
-	if [ ! "$ALLDEVS" ] ; then
-		echo "${device}: invalid device" 1>&2
-		exit 1
-	fi
-	ONEDEV_ARG=1
-else
-	#normal operation
-	if [ -f $HOME/.usb-drive-log-probepart ] ; then #force /proc upate mechanism
-		while read ONEUSBDRV ; do
-			dd if=/dev/$ONEUSBDRV of=/dev/null bs=512 count=1 &>/dev/null
-		done < $HOME/.usb-drive-log-probepart
-	fi
-	#devices that have partitions... 
-	#130127 screen out sr0-sr9. early kernels do not have these in /proc/partitions, 3.2+ do, which causes desktop icon to not appear when audio-cd inserted.
-	# size|partition
-	PARTITIONS="`cat /proc/partitions | tr -s ' ' | cut -f 4-5 -d ' ' | grep -vE ' loop| ram| zram| sr |dm-'`" #each line ex: 16076800 sda5
-	## this is faster but requires changes in scripts using wildcards .. and bash 4.4?
-	#PARTITIONS=$(
-	#	while read zz zzz size dev ; do
-	#		case $dev in loop*|ram*|zram*|sr*)
-	#			continue ;; #not allowed
-	#		esac
-	#		echo $size $dev
-	#	done < /proc/partitions
-	#)
-	if [ "$PROCESS_OPTICAL" = "yes" ] ; then
-		#plus optical devices...
-		# size|drv
-		OPTICALDRVS=$(
-		for dev in /sys/block/sr*
-		do
-			[ -e $dev ] || continue
-			dev=${dev##*/}
-			read -r size < /sys/block/${dev}/size
-			size=$(($size/2)) # kb = /proc/partitions
-			echo ${size} ${dev}
-		done
-		)
-	fi
-	ALLDEVS="$(echo -e "${PARTITIONS}\n${OPTICALDRVS}" | sort -k 2,2 -u)"
-fi
+# $1: size
+# $2: devname
+probepart_func() {
 
-#==========================================================================
-
-while read SIZE ONEDEV
-do
-
-	[ -z "$SIZE" -o -z "$ONEDEV" ] && continue
+	SIZE=$1
+	ONEDEV=$2
+	[ -z "$SIZE" -o -z "$ONEDEV" ] && return
 
 	if [ -e /dev/${ONEDEV} ] ; then
 		blockdev=/dev/${ONEDEV}
 	elif [ -e /dev/block/${ONEDEV} ] ; then
 		blockdev=/dev/block/${ONEDEV} #android
 	else
-		continue
+		return
 	fi
 
 	OPTICAL="no"
-	if fx_drv_is_optical ${ONEDEV} ; then
-		OPTICAL="yes"
-		[ "$PROCESS_OPTICAL" = "no" ] && continue
+	if [ -e /sys/block/${ONEDEV}/device/type ] ; then
+		read -r xtype < /sys/block/${ONEDEV}/device/type
+		if [ "$xtype" = "5" ] ; then
+			OPTICAL="yes"
+			[ "$PROCESS_OPTICAL" = "no" ] && return
+		fi
 	fi
 
 	case $ONEDEV in fd*)
-		[ ! -e /sys/block/${ONEDEV}/device/vendor -a ! -e /sys/block/${ONEDEV}/device/model ] && continue ;;
+		[ ! -e /sys/block/${ONEDEV}/device/vendor -a ! -e /sys/block/${ONEDEV}/device/model ] && return ;;
 	esac
 
 	if [ "$OPTICAL" = "yes" ];then
 		while read dev etc ; do
 			if [ "$dev" = "$blockdev" ] ; then #mounted
 				#...returns 0 if disc inserted, else 255. #very fast.
-				cddetect_quick -d${blockdev} >/dev/null 2>&1 || continue
+				cddetect_quick -d${blockdev} >/dev/null 2>&1 || return
 				break
 			fi
 		done < /proc/mounts
@@ -156,7 +108,7 @@ do
 	esac
 
 	if [ "$FSTYPE" = "" ] ; then
-		[ $SIZE -le 4 ] && continue #extended partition (most likely)
+		[ $SIZE -le 4 ] && return #extended partition (most likely)
 		FSTYPE="unknown"
 	fi
 
@@ -184,7 +136,7 @@ do
 	if [ "$FSTYPE" = "unknown" ] ; then
 		if [ "$ONEDEV_ARG" != "1" -a "$OPTICAL" != "yes" -a -e /sys/block/${ONEDEV} ] ; then
 			# drive with no f.s.. ignore
-			continue
+			return
 		fi
 		FSTYPE="none"
 	fi
@@ -201,7 +153,7 @@ do
 
 	echo "${blockdev}|$FSTYPE|$SIZE${EXTRA_STUFF}"
 
-	[ "$ONEDEV_ARG"  ] && continue #(finished processing cli argument)
+	[ "$ONEDEV_ARG"  ] && return #(finished processing cli argument)
 
 	#keep record of usb devs, for forced updating of /proc...
 	if [ -e /sys/block/${ONEDEV} ] ; then
@@ -211,9 +163,73 @@ do
 			echo "$sorted" > $HOME/.usb-drive-log-probepart ;;
 		esac
 	fi
+}
 
-done <<EOF
-$ALLDEVS
-EOF
+# $1: device
+do_probepart() {
+	#ALLDEVS="`grep " ${device}$" /proc/partitions | tr -s ' ' | cut -f 4-5 -d ' '`"
+	ONEDEV_ARG=1
+	device="${1##*/}" #basename
+	device="${device//./}" #remove dots / convert grep wilcards to unix shell wildcards..
+	while read z zz size dev ; do #< /proc/partitions
+		case $dev in $device)
+			ok=1
+			probepart_func $size $dev ;;
+		esac
+	done < /proc/partitions
+	if [ "$ok" != "1" ] ; then
+		echo "${device}: invalid device" 1>&2
+		exit 1
+	fi
+}
+
+do_probepart_all() {
+	if [ -f $HOME/.usb-drive-log-probepart ] ; then #force /proc upate mechanism
+		while read ONEUSBDRV ; do
+			dd if=/dev/$ONEUSBDRV of=/dev/null bs=512 count=1 &>/dev/null
+		done < $HOME/.usb-drive-log-probepart
+	fi
+	# devices that have partitions... 
+	# early kernels do not have sr0-sr9 in /proc/partitions, 3.2+ do, which causes desktop icon to not appear when audio-cd inserted.
+	#PARTITIONS="`cat /proc/partitions | tr -s ' ' | cut -f 4-5 -d ' ' | grep -vE ' loop| ram| zram| sr |dm-'`" #each line ex: 16076800 sda5
+	HAS_SRX=
+	while read z zz size dev ; do #< /proc/partitions > /tmp/probepart$$
+		case $dev in
+			sd*|hd*|mmc*|nvme*) echo $size $dev ;; # allowed
+			sr*) HAS_SRX=yes ;  echo $size $dev ;; # allowed
+		esac
+	done < /proc/partitions > /tmp/probepart$$
+	#--
+	if [ "$HAS_SRX" != "yes" -a "$PROCESS_OPTICAL" = "yes" ] ; then
+		for dev in /sys/block/sr*
+		do
+			dev=${dev##*/} #basename
+			if [ -e /sys/block/${dev}/size ] ; then
+				read size < /sys/block/${dev}/size
+				size=$(($size/2)) # kb = /proc/partitions
+				echo ${size} ${dev} >> /tmp/probepart$$
+			fi
+		done
+	fi
+	#--
+	sort -k 2,2 -u /tmp/probepart$$ | \
+	while read l
+	do
+		probepart_func $l
+	done
+	rm -f /tmp/probepart$$
+}
+
+#==============================================================
+#                          MAIN
+#==============================================================
+
+if [ "$1" ] ; then
+	# process cli argument
+	do_probepart "$1"
+else
+	#normal operation
+	do_probepart_all
+fi
 
 ### END ###
