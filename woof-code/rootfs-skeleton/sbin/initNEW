@@ -6,231 +6,295 @@
 #/etc/rc.d/rc.sysinit creates /fsckme.flg at bootup, rc.shutdown deletes it.
 #this script is /sbin/init in the main Puppy f.s., which is the very first to run.
 #in the case of not a full hd install, this script just passes execution to busybox init.
-#100911 fsckme.err filename changed to fsckme.flg. see also init (initramfs), rc.sysinit, rc.shutdown.
-#101020 no longer have /etc/modprobe.conf.
-#120516 gentoo: libgcc_s.so.1 in wrong place.
-#120627 check ramdisk big enough.
-#120716 revert 120627, /sys not yet loaded. do it a different way. fix for weird 'tr' missing.
-#120716 raspi: no battery-backed hardware clock, so date is wrong, workaround. fixes for rc.sysinit in ramdisk.
-#120717 f.s. maximal mount count reached, perform f.s. check.
-#120718 try force unmount.
-#120729 needed to unmount /old_root/dev, as raspi kernel configured to automount fs on /dev.
-#130203 /bin/probedisk2 now /bin/probedisk only.
-#130418 support kmod (replaces module-init-tools).
+
+BB=/bin/busybox
+
+if [ "$DISPLAY" ] || [ "$XDG_CONFIG_HOME" ] ; then
+	#ac.cidenta.lly ru.nning this sc.ript k.il.ls the sy.stem
+	exit
+fi
 
 INITEXE='/bin/busybox init'
 
-[ -f /var/tmp/initrd_full_install_flag ] && exec ${INITEXE} #full install with initrd
+if [ -f /var/tmp/initrd_full_install_flag ] ; then
+	exec ${INITEXE} #full install with initrd
+fi
 
-[ -f /etc/DISTRO_SPECS ] && . /etc/DISTRO_SPECS
+[ -f /etc/rc.d/PUPSTATE ] && . /etc/rc.d/PUPSTATE
 [ "$PUPMODE" = "" ] && PUPMODE=2
 
 if [ $PUPMODE -ne 2 ] ; then
 	exec ${INITEXE} #not a full hd install.
 fi
 
-#=========================================
-#      full install (without initrd)
-#=========================================
 
-if [ "$pfix" ];then
- for ONEFIX in $(echo -n "$pfix" | tr ',' ' ')
- do
-  case $ONEFIX in
-   xorgwizard) PXORGWIZARD="yes";;#force xorgwizard for this session
-   nox)     PNOX="yes";;          #do not start X.
-   fsck)    PFSCK="yes";;         #do a fsck of ${DISTRO_FILE_PREFIX}save file.
-   fsckp)   PFSCKP="yes";;        #do fsck before first mount of ext partitions
-  esac
- done
+#==============================================================
+#             full install (without initrd)
+#==============================================================
+
+. /etc/DISTRO_SPECS
+. /etc/rc.d/BOOTCONSTRAINED # has BOOT_DISABLESWAP, BOOT_ATIME, BOOT_DIRTYWRITE.
+
+remount_rootdev() { #${1}: rw/ro
+	$BB sync
+	if [ ! "$BDEV" ] ; then
+		BDEV="$($BB df | grep '^/dev/' | grep ' /$')"
+		BDEV=${BDEV%% *}
+	fi
+	if [ "$BOOT_ATIME" ];then # see /etc/rc.d/BOOTCONSTRAINED, variable set in 3builddistro.
+		$BB mount -o remount,${1},${BOOT_ATIME} / 2>/dev/null #have set this to 'relatime'.
+		[ $? -eq 0 ] || $BB mount -o remount,${1},${BOOT_ATIME} $BDEV / #have set this to 'relatime'.
+	else
+		$BB mount -o remount,${1} / 2>/dev/null
+		[ $? -eq 0 ] || $BB mount -o remount,${1} $BDEV / 2>/dev/null
+	fi
+}
+
+# tmpfs: exec switch_root /pup_new /sbin/init ramdisk_done
+if [ "$1" = "ramdisk_done" ] ; then
+	# pdev1 is mounted rw, proc is unmounted.
+	exec ${INITEXE}
 fi
-
-[ "$PXORGWIZARD" = "yes" ] && touch /tmp/xwin_xorgwizard_cli
-[ "$PNOX" = "yes" ] && touch /tmp/bootcnt.txt
 
 clear > /dev/console
 echo -en "\\033[0;34m***\\033[0;37m ${DISTRO_NAME} ${DISTRO_VERSION}" >/dev/console
 echo -en "\\033[0;34m -\\033[0;37m Linux `uname -r` " >/dev/console
 echo -en "\\033[0;31m[\\033[0;37m`uname -m`\\033[0;31m]" >/dev/console
 echo -e "\\033[0;34m ***\\033[0;39m" >/dev/console
+$BB mount -t proc none /proc
+remount_rootdev rw #remount rw
+$BB sync
+$BB ln -snf /proc/mounts /etc/mtab 2>/dev/null
 
-[ ! -e /fsckme.flg ] && exec ${INITEXE} #no error.
-
-[ ! -f /var/local/ram_size_bytes ] && exec ${INITEXE} #created in rc.sysinit
-if [ `cat /var/local/ram_size_bytes` -lt 20000 ];then #was 32768
- rm -f /fsckme.flg
- exec ${INITEXE} #unable to do f.s. check.
+if [ "$pfix" ];then 
+	for ONEFIX in $(echo -n "$pfix" | tr ',' ' ')
+	do
+		case $ONEFIX in
+			xorgwizard) PXORGWIZARD="yes";;#force xorgwizard for this session
+			nox)     PNOX="yes";;          #do not start X.
+			fsck)    PFSCK="yes";;         #do a fsck of ${DISTRO_FILE_PREFIX}save file.
+			fsckp)   PFSCKP="yes";;        #do fsck before first mount of ext partitions
+		esac
+	done
 fi
+[ $dshell ] && DSHELL="yes"
 
-#------- have to create a ram disk to check f.s.
+[ "$PXORGWIZARD" = "yes" ] && echo > /xwin_xorgwizard_cli
+[ "$PNOX" = "yes" ] && echo > /bootcnt.txt
 
-PATH='/bin:/sbin'
-export LANG=C
 
-#only come here if full hd install, and previous improper shutdown.
-PDEV1="`cat /fsckme.flg | cut -f 1 -d ','`" #file format: sda1,ext3,
-DEV1FS="`cat /fsckme.flg | cut -f 2 -d ','`"
-CHECK="`cat /fsckme.flg | cut -f 3 -d ','`" #120717 see rc.shutdown.
+#===================================================================
+#            determine PDEV1 and DEV1FS ...
+#===================================================================
+
+PDEV1="$(rdev | cut -f 1 -d ' ' | head -n 1)"
+[ "$PDEV1" = "/dev/root" ] && PDEV1="" # must check root= kernel param
+DEV1FS="$(grep '^/dev/root ' /proc/mounts | cut -f 3 -d ' ')"
+[ ! "$DEV1FS" ] && DEV1FS="$(grep ' / ' /proc/mounts | cut -f 3 -d ' ')"
+
 case $DEV1FS in
- ext2|ext3|ext4)
-  echo -e "\\033[1;31m"  >/dev/console #34=blue, 33=yellow, 32=green, 31=red, 35=purple, 36=aquablue, 38=black.
-  if [ "$CHECK" = "MAXIMAL" ];then #120717
-   echo "Performing filesystem check of '${PDEV1}', maximal mount count" > /dev/console
-  else
-   echo "Performing filesystem check of '${PDEV1}' after improper shutdown" > /dev/console
-  fi
-  echo -n "NOTE: no progress indication, may take awhile, please wait patiently..."
-  echo -e "\\033[0;39m" >/dev/console
-  echo  >/dev/console
-  busybox mount -t proc none /proc
-  busybox mount -o remount,rw /
-  rm -f /fsckme.flg
-  #creat a ramdisk... 
-  #note, Puppy kernels are compiled with 13MB ramdisk, so need to be careful not to fill it up...
-  echo 'Creating a ramdisk and populating with a Linux environment...'  >/dev/console
-  mkfs.ext2 -q -m 0 /dev/ram0
-  mkdir -p /mnt/ram0
-  busybox mount -t ext2 /dev/ram0 /mnt/ram0
-  #populate the ramdisk...
-  mkdir -p /mnt/ram0/old_root
-  mkdir /mnt/ram0/bin
-  for ONEBIN in "[" "[[" ash autologinroot basename busybox cat chmod chown clear cp cut date dc dd df dirname dmesg du ed expr false find free grep head kill ln login ls lsmod mkdir mknod more mv nice ntfs-3g pidof pwd readlink rev rm rmdir sed sleep sort stat su sync tail tar touch tr true uname usleep waitmax wc which xargs
-  do
-   if [ -e /bin/$ONEBIN ];then
-    cp -a /bin/$ONEBIN /mnt/ram0/bin/
-   else
-    ln -s busybox /mnt/ram0/bin/$ONEBIN
-   fi
-  done
-  ln -snf busybox /mnt/ram0/bin/ps
-  ln -snf busybox /mnt/ram0/bin/rdev
-  ln -snf busybox /mnt/ram0/bin/sh
-  ln -snf busybox /mnt/ram0/bin/mount
-  ln -snf busybox /mnt/ram0/bin/umount
-  mkdir /mnt/ram0/sbin
-  for ONEBIN in depmod dumpe2fs e2fsck elspci fdisk freeramdisk fsck.ext2 fsck.ext3 fsck.ext4 getty guess_fstype halt hdparm hotplug2stdout hotplug2stdout_notimeout hwclock ifconfig ifplugstatus insmod klogd kmod ldconfig loadkmap losetup lsmod mingetty mount.ntfs-3g pivot_root probedisk probepart swapon #130418
-  do
-   if [ -e /sbin/$ONEBIN ];then
-    cp -a /sbin/$ONEBIN /mnt/ram0/sbin/
-   else
-    ln -s ../bin/busybox /mnt/ram0/sbin/$ONEBIN
-   fi
-  done
-  ln -snf ../bin/busybox /sbin/chroot          #must match
-  ln -snf ../bin/busybox /mnt/ram0/sbin/chroot #must match
-  ln -snf ../bin/busybox /mnt/ram0/sbin/init
-  ln -snf ../bin/busybox /mnt/ram0/sbin/poweroff
-  ln -snf ../bin/busybox /mnt/ram0/sbin/reboot
-  mkdir /mnt/ram0/etc
-  #101020 no longer have /etc/modprobe.conf...
-  for ONEFILE in codepage DISTRO_SPECS eventmanager fdprm floppy fontmap group gshadow host.conf hostname hosts hosts.allow hosts.deny inittab inoutrc issue keymap localtime mailcap mime.types mke2fs.conf modules.conf mtab networks nscd.conf nsswitch.conf passwd printcap protocols services shadow
-  do
-   cp -a /etc/$ONEFILE /mnt/ram0/etc/ 2>/dev/null
-  done
-  cp -a /etc/modprobe.d /mnt/ram0/etc/ 2>/dev/null #101020
-  echo '/lib' > /mnt/ram0/etc/ld.so.conf
-  echo 'export PATH="/bin:/sbin"
-export LD_LIBRARY_PATH="/lib"
-ulimit -c 0
-umask 022
-export USER=root
-export LOGNAME=root
-export TERM=linux' > /mnt/ram0/etc/profile
-  LOCALTIME="/usr/share`readlink /etc/localtime | sed 's%^.*/zoneinfo%/zoneinfo%'`"
-  LOCALTDIR="`dirname $LOCALTIME`"
-  mkdir -p /mnt/ram0/$LOCALTDIR
-  cp -a $LOCALTIME /mnt/ram0/$LOCALTDIR/
-  mkdir /mnt/ram0/etc/rc.d
-  #120716 raspi: no battery-backed hardware clock, so date is wrong...
-  mkdir -p /mnt/ram0/var/local/
-  #120718 find the date...
-  HWDATE0="`hwclock --show 2>/dev/null`" #ex: Fri 29 Jun 2012 07:45:28 AM WST  -0.725833 seconds
-  if [ "$HWDATE0" = "" ];then
-   if [ -f /var/local/shutdown_date_saved ];then #see /etc/rc.d/rc.shutdown
-    HWDATE1="`cat /var/local/shutdown_date_saved`"
-   else
-    #either of these formats can set the date: '29 JUN 2012 10:00:00' '2012-06-28 16:20:08'
-    #120718 busybox date says '29 JUN 2012 10:00:00' invalid format
-    HWDATE1="`stat --format=%z /etc/DISTRO_SPECS | cut -f 1 -d '.' | cut -f 1,2 -d ' '`" #creation date of build. ex: '2012-06-28 16:20:08'
-   fi
-   HWDATE0="$HWDATE1"
-  fi
-  echo "#!/bin/sh
-echo 'Now running in ramdisk, performing filesystem check of ${PDEV1}...'
-/bin/busybox mount -t proc none /proc
-HWDATE=\"\`/sbin/hwclock --show 2>/dev/null\`\" #ex: Fri 29 Jun 2012 07:45:28 AM WST  -0.725833 seconds
-if [ \"${HWDATE0}\" != \"\" ];then
- /bin/date -s \"${HWDATE0}\"
-else
- /sbin/hwclock --hctosys --localtime
-fi
-/bin/busybox umount /old_root/dev 2>/dev/null #if kernel configured to mount fs on /dev
-/bin/busybox umount /old_root
-if [ \$? -ne 0 ];then
- echo 'Not so good, was unable to unmount ${PDEV1}. Trying forced unmount...'
- /bin/busybox umount -f /old_root #120718 try force unmount.
- if [ \$? -ne 0 ];then
-  echo 'Unable to unmount, aborting filesystem check.'
- else
-  echo 'Unmount successful, continuing with f.s. check...'
-  UMOUNTFLAG='yes'
- fi
-else
- UMOUNTFLAG='yes'
-fi
-if [ \"\$UMOUNTFLAG\" = \"yes\" ];then
- /sbin/e2fsck -p -f /dev/${PDEV1}
- /bin/busybox sync
- echo 'Filesystem check completed!'
-fi
-echo 'The computer now has to be restarted.'
-echo 'Computer will reboot in 4 minutes, else press ENTER for immediate reboot.'
-echo \"(Developers only: press 'c' then ENTER for shell in ramdisk)\"
-echo
-echo -n 'Press ENTER key to reboot:'
-read -t 240 abcdef
-[ \"\$abcdef\" = \"c\" ] && exit #go to shell in ramdisk.
-/bin/busybox umount /proc
-/bin/busybox reboot" > /mnt/ram0/etc/rc.d/rc.sysinit
-  chmod 755 /mnt/ram0/etc/rc.d/rc.sysinit
-  cp -a /dev /mnt/ram0/
-  mkdir /mnt/ram0/lib
-  cp -a /lib/lib*.so* /mnt/ram0/lib/
-  cp -a /lib/ld*.so* /mnt/ram0/lib/
-  [ ! -e /mnt/ram0/lib/libgcc_s.so.1 ] && cp -a -f --remove-destination /usr/lib/libgcc_s.so.* /mnt/ram0/lib/ 2>/dev/null #120516 gentoo fix.
-  cp -a /lib/e2initrd_helper /mnt/ram0/lib/ 2>/dev/null #dunno what this is.
-  mkdir /mnt/ram0/tmp
-  mkdir -p /mnt/ram0/var/run
-  mkdir /mnt/ram0/proc
-  mkdir -p /mnt/ram0/usr/share
-  cp -a /usr/share/terminfo /mnt/ram0/usr/share/
-  #cleanup files...
-  rm -f /var/log/X*
-  rm -rf /tmp/*
-  rm -f /var/lock/LCK*
-  rm -f /var/run/*.pid
-  rm -rf /root/tmp 2>/dev/null
-  rm -rf /root/.thumbnails/* 2>/dev/null
-  #120716 weird bug raspi, can't find 'tr', so use 'busybox tr'...
-  rm -f `find /var -mount -type s | busybox tr '\n' ' '` #remove sockets.
-  rm -f `find /var -mount -type p | busybox tr '\n' ' '` #remove pipes.
-  sync
-  #pivot_root to the ramdisk...
-  echo 'Performing a pivot_root to the ramdisk...'  >/dev/console
-  busybox mount -o remount,ro /
-  busybox umount /proc
-  cd /mnt/ram0
-  pivot_root . old_root
-  exec chroot . sh -c "exec /bin/busybox init" <dev/console >dev/console 2>&1
-  #...the ramdisk is setup so that /etc/rc.d/rc.sysinit will run, which does the f.s. check.
- ;;
- *)
-  echo -e "\\033[1;31m"  >/dev/console #34=blue, 33=yellow, 32=green, 31=red, 35=purple, 36=aquablue, 38=black.
-  echo -n "Previous improper shutdown, sorry can only do f.s. check of ext2/3/4. Rebooting..." > /dev/console
-  echo -e "\\033[0;39m" >/dev/console
-  sleep 5
-  exec ${INITEXE}
- ;;
+	ext*) ok=1 ;;
+	*)
+		echo "${DEV1FS}: Wrong filesystem!" >/dev/console
+		echo "You should reboot now" >/dev/console
+		remount_rootdev ro #remount ro
+		$BB sync
+		$BB umount /proc
+		while [ 1 ] ; do sleep 100 ; done
+		;;
 esac
 
-###END###
+if [ ! "$PDEV1" ] && [ "$root" ] ; then #root= boot param
+	# code from init_full_install
+	PDRV=${i#root=}
+	case $PDRV in
+		UUID=*) PDRV=${PDRV#UUID=} ;; #remove leading UUID=
+		PARTUUID=*) PDRV="" ;;
+		*/*) PDRV=${PDRV##*/} ;; #$(basename $PDRV) 
+	esac
+	if [ "$PDRV" ] ; then
+		#${PDRV}=$(decode_id $PDRV) #decode UUID, LABEL
+		if [ "$(echo -n ${PDRV} | grep -E '^[a-z]+[0-9]')" -a "$(grep -m1 " ${PDRV}$" /proc/partitions)" ];then
+			ok=1 #is a real partition
+		else
+			PDRV="$($BB blkid | grep -m1 -E " LABEL=.${PDRV}| UUID=.${PDRV}" | cut -f1 -d: | cut -f3 -d/)" #is LABEL or UUID
+		fi
+	fi
+	PDEV1=$PDRV
+fi
+
+PDEV1=${PDEV1##*/} #basename - only want drv name
+(
+	echo 'PUPMODE=2'
+	echo "PUP_HOME='/'"
+	echo "PDEV1='$PDEV1'"
+	echo "DEV1FS='$DEV1FS'"
+	echo "OUTPUT_CHARSET=UTF-8"
+	echo "export OUTPUT_CHARSET"
+) > /etc/rc.d/PUPSTATE
+
+#exec /bin/ash <dev/console >dev/console 2>&1
+
+
+#===================================================================
+#create a ram disk to change /dev/root to /dev/drv and/or check f.s.
+#===================================================================
+
+PATH='/bin:/sbin:/usr/bin:/usr/sbin'
+OLDROOT=/oldroot
+CLEANUP=/init
+BB=/bin/busybox
+E2FSCK=/sbin/e2fsck
+CHROOT_MOUNT=/mnt/ram0
+export LANG=C
+### static executables
+STATIC_BB=/bin/busybox_static
+STATIC_E2FSCK=/sbin/e2fsck_static
+
+FS_CHECK=no
+RAMDISK=no
+
+#----------------------------------------------
+
+if [ -x $STATIC_BB ] ; then
+	RAMDISK=yes
+else
+	case $(file $BB 2>/dev/null) in *ELF*statically*)
+		RAMDISK=yes ; STATIC_BB=$BB ;;
+	esac
+fi
+
+#----------------------------------------------
+
+if [ ! -x $STATIC_E2FSCK ] ; then
+	case $(file $E2FSCK 2>/dev/null) in *ELF*statically*)
+		STATIC_E2FSCK=$E2FSCK ;;
+	esac
+fi
+
+if [ -e /fsckme.flg ] ; then
+	# flsckme.flg = improper shutdown or something wrong with fs (rc.sysinit)
+	IFS="," read PDEV DEVFS SAVEFILE < /fsckme.flg #ex: sdb1,ext3,
+	if [ "$PDEV" = "$PDEV1" ] && [ "$SAVEFILE" = "" ] ; then
+		[ -x $STATIC_E2FSCK ] && FS_CHECK=yes
+		rm -f /fsckme.flg
+	fi
+fi
+
+if [ "$PFSCK" = "yes" -o "$PFSCKP" = "yes" ] ; then #boot params
+	[ -x $STATIC_E2FSCK ] && FS_CHECK=yes
+fi
+
+#----------------------------------------------
+[ $nord ] && RAMDISK=no   #testing
+[ $yesrd ] && RAMDISK=yes #testing
+
+if [ "$RAMDISK" = "no" ] ; then #can't create a ram disk...
+	$BB umount /proc 2>/dev/null
+	exec ${INITEXE}
+fi
+#----------------------------------------------
+
+#cleanup files...
+rm -f /var/lock/LCK* /var/run/*.pid
+find /var -mount -type s -delete #remove sockets.
+find /var -mount -type p -delete #remove pipes.
+$BB sync
+
+rm -rf $CHROOT_MOUNT
+mkdir -p $CHROOT_MOUNT
+$BB mount -t tmpfs tmpfs $CHROOT_MOUNT
+(
+	cd $CHROOT_MOUNT
+	mkdir -p bin etc sbin dev proc sys root tmp etc/
+	cp -a ${STATIC_BB} bin/busybox
+	for i in $(bin/busybox --list) ; do
+		ln -s busybox ./bin/$i
+	done
+	cat > etc/profile <<EOF
+export PATH="/bin:/sbin"
+ulimit -c 0
+umask 022
+USER=root
+LOGNAME=root
+TERM=linux
+EOF
+)
+mkdir -p $CHROOT_MOUNT/$OLDROOT
+cp "$0" $CHROOT_MOUNT/$CLEANUP
+cp $STATIC_E2FSCK $CHROOT_MOUNT/bin/e2fsck
+cp -a /dev/* ${CHROOT_MOUNT}/dev/
+
+if [ "$FS_CHECK" = "yes" ] ; then
+	# find the date... # raspi: no battery-backed hardware clock, so date is wrong...
+	HWDATE="`$BB hwclock --show 2>/dev/null`" #ex: Fri 29 Jun 2012 07:45:28 AM WST  -0.725833 seconds
+	if [ "$HWDATE" = "" -a -f /var/local/shutdown_date_saved ];then #see /etc/rc.d/rc.shutdown
+		read HWDATE < /var/local/shutdown_date_saved
+	fi
+	if [ "$HWDATE" = "" ];then # busybox date says '29 JUN 2012 10:00:00' invalid format
+		HWDATE="`stat --format=%z /etc/DISTRO_SPECS | cut -f 1 -d '.' | cut -f 1,2 -d ' '`" #creation date of build. ex: '2012-06-28 16:20:08'
+	fi
+	echo "$HWDATE" > ${CHROOT_MOUNT}/date
+fi
+
+rm -f ${CHROOT_MOUNT}/${CLEANUP} #precaution
+cat > ${CHROOT_MOUNT}/${CLEANUP} <<EOF
+#!/bin/sh
+
+switchroot() {
+	umount /proc 2>/dev/null
+	exec switch_root \$1 /sbin/init ramdisk_done
+}
+
+$BB mount -t proc none /proc
+$BB ln -s /proc/mounts /etc/mtab 2>/dev/null
+
+if [ "$FS_CHECK" = "yes" ] ; then
+	#34=blue, 33=yellow, 32=green, 31=red, 35=purple, 36=aquablue, 38=black.
+	echo -en "\\033[1;31mNow running in ramdisk, performing filesystem check of ${PDEV1}..."  >/dev/console
+	echo -e "\\033[0;39m" >/dev/console
+	#$BB date -s "${HWDATE}"
+	$BB hwclock -l -s 2>/dev/null
+	$BB umount ${OLDROOT}/dev 2>/dev/null #if kernel configured to mount fs on /dev
+	$BB umount ${OLDROOT} || umount -f ${OLDROOT}
+	if [ \$? -eq 0 ];then
+		e2fsck -y /dev/${PDEV1} >/dev/console 2>&1
+		sync
+	else
+		echo '[tmpfs] Unable to unmount, aborting filesystem check.' >/dev/console 
+		switchroot ${OLDROOT}
+	fi
+else
+	$BB umount ${OLDROOT}/dev 2>/dev/null #if kernel configured to mount fs on /dev
+	$BB umount ${OLDROOT} || umount -f ${OLDROOT}
+	if [ \$? -ne 0 ];then
+		echo '[tmpfs] Unable to unmount $PDEV1' >/dev/console 
+		switchroot ${OLDROOT}
+	fi
+fi
+sleep 1
+
+[ "$DSHELL" ] && exec /bin/ash <dev/console >dev/console 2>&1
+
+mkdir -p /pup_new
+if [ "$BOOT_ATIME" ] ; then
+	$BB mount -o $BOOT_ATIME -t $DEV1FS /dev/${PDEV1} /pup_new
+else
+	$BB mount -t $DEV1FS /dev/${PDEV1} /pup_new
+fi
+sync
+switchroot /pup_new
+EOF
+
+#----------------------------------------------
+
+remount_rootdev ro #remount ro
+sync
+$BB umount /proc 2>/dev/null
+
+#pivot_root
+cd $CHROOT_MOUNT
+$BB pivot_root . $CHROOT_MOUNT/$OLDROOT
+exec $BB chroot . ash $CLEANUP #<dev/console >dev/console 2>&1
+
+### END ###
