@@ -1,0 +1,329 @@
+#!/bin/sh
+#Barry Kauler GPL 2007.
+#called from pupdial.
+#v405 july 2008: total overhaul.
+#v465 rerwin: v413 added module names for wireless modems
+#v477 rerwin: v413 handle both lspci formats (replacing v003).
+#v477 rerwin: v413 added more module names for wireless modems
+#101202 bk: choose erase, remove /var/local/pupdial/hotpluggable (see pupdial).
+#101203 wvdialconf will ignore many devs that are not /dev/ttyS*, for example /dev/ttyAGS3 (agrmodem).
+#101206 changes to pupdial_init_hotpluggable.
+#120201 rodin.s: internationalized.
+#131219 zigbert: gui (gtkdialog) improvements.
+
+export TEXTDOMAIN=modemprobe
+export TEXTDOMAINDIR=/usr/share/locale
+export OUTPUT_CHARSET=UTF-8
+eval_gettext () {
+  local myMESSAGE=$(gettext "$1")
+  eval echo \"$myMESSAGE\"
+}
+export LANGORG=$LANG
+
+MODEMDEV=""
+if [ -h /dev/modem ];then
+ MODEMDEV="`readlink /dev/modem`"
+ MSGMDM3="
+$(gettext 'PORT: /dev/modem is currently linked to port') ${MODEMDEV}."
+fi
+
+#find all loaded modem modules...
+KERNVER=`uname -r` #v433
+ALSAMODEMINFO="`cat /proc/asound/pcm 2>/dev/null | grep ' Modem :'`"
+USBSERIALMODS="" #v433
+lsmod | grep -q '^usbserial ' \
+ && USBSERIALMODS=" `grep -w 'usbserial.ko' /lib/modules/$KERNVER/modules.dep | grep -o '^[^:]*' | rev | cut -f 1 -d / | rev | sed -e 's/\.ko$//' -e 's/^/\|\^/' | tr '\n' ' '`" #v433
+MODEMMODS="`lsmod | grep -E "^agrmodem |^cdc_acm |^esscom |^Intel536 |^[iI]ntel537 |^intel537[ES][AP] |^ltmodem |^martian_dev |^mwave |^pctel |^slamr |^slusb |^snd_via82xx_modem |^snd_atiixp_modem |^snd_intel8x0m |^snd_hda_intel |^dgcusbdcp |^hso |^ipwireless |^nozomi |^hcfpcihw |^hsfcadmus2 |^hsfcadmus2smart |^hsfmc97ali |^hsfmc97ati |^hsfmc97ich |^hsfmc97sis |^hsfmc97via |^hsfpcibasic2 |^hsfpcibasic2bry |^hsfpcibasic2hsfi |^hsfpcibasic2smart |^hsfpcibasic3 |^hsfusbcd2 |^rfcomm$USBSERIALMODS" | cut -f 1 -d ' '`" #v413 v416 v432 v433
+[ "$ALSAMODEMINFO" = "" ] && MODEMMODS="`echo "$MODEMMODS" | grep -v '^snd_'`"
+SNDMOD="`echo "$MODEMMODS" | grep '^snd_' | head -n 1`"
+#v413 For usbserial, reject it unless force-loaded with vendor ID (for usb modems).
+[ "`grep '^ADDLIST=' /etc/rc.d/MODULESCONFIG | grep ' usbserial:vendor='`" = "" ] && MODEMMODS="`echo "$MODEMMODS" | grep -v '^usbserial$'`" #v413
+MODEMMODS="`echo "$MODEMMODS" | sort | tr '\n' ' '`"
+MMCNT=`echo "$MODEMMODS" | wc -w`
+
+MSGMDM2=""
+case $MMCNT in
+ 0)
+#v412 Check for any driver of a modem that is not detected automatically.
+#v433 This check is no longer valid, since any such modem is now supported through the udev rules file /etc/udev/rules.d/60-dialup-modem.rules and, thus, will have its driver loaded. Logic removed.
+ MSGMDM1="$(gettext 'Well, Puppy did not detect anything at bootup, so if the modem was turned-on then it probably is not supported by any of the drivers in Puppy. Tough, you need to get another modem -- an old serial modem is best. There are some USB modems that work well.')"
+ ;;
+ 1)
+  MSGMDM1="$(gettext 'Puppy did detect a modem at bootup, and loaded this driver:')
+<b>${MODEMMODS}${MSGMDM2}${MSGMDM3}</b>"
+ ;;
+ *)
+  MSGMDM1="$(gettext 'Puppy detected more than one modem at bootup and and loaded these drivers:')
+<b>${MODEMMODS}${MSGMDM2}${MSGMDM3}</b>"
+ ;;
+esac
+
+
+
+export PupDial_Modem_Probe='
+<window title="'$(gettext 'PupDial modem selection')'" icon-name="gtk-connect">
+<vbox space-expand="true" space-fill="true">
+  '"`/usr/lib/gtkdialog/xml_info fixed modem_search.svg 60 "$(gettext "Most modems are autodetected by Puppy at bootup, but it has to be turned on! (or plugged in).")" "${MSGMDM1}"`"'
+  <notebook labels="'$(gettext 'Automatic probing')'|'$(gettext 'Detection control')'|'$(gettext 'Manual probing')'" space-expand="true" space-fill="true">
+    <vbox space-expand="true" space-fill="true">
+      <frame>
+        <vbox space-expand="false" space-fill="false">
+          <hbox border-width="5" space-expand="true" space-fill="true">
+            <text use-markup="true" space-expand="false" space-fill="false"><label>"'$(gettext "This will use the 'wvdialconf' program to <b>automatically probe and setup a modem</b> for use by PupDial. If successful will create or update /etc/wvdial.conf and will set /dev/modem as a link to the correct modem port.")'"</label></text>
+            <text space-expand="true" space-fill="true"><label>""</label></text>
+            <vbox space-expand="false" space-fill="false">
+              <button image-position="2" space-expand="false" space-fill="false">
+                <label>'$(gettext 'Probe')'</label>
+                '"`/usr/lib/gtkdialog/xml_button-icon modem_search.svg huge`"'
+                <action type="exit">SETUP</action>
+              </button>
+              <text space-expand="true" space-fill="true"><label>""</label></text>
+            </vbox>
+          </hbox>
+        </vbox>
+      </frame>
+    </vbox>
+
+    <vbox space-expand="true" space-fill="true">
+      <vbox space-expand="true" space-fill="true">
+        <frame>
+          <vbox space-expand="false" space-fill="false">
+            <hbox space-expand="true" space-fill="true">
+              <text use-markup="true" space-expand="false" space-fill="false"><label>"'$(gettext '<b>Blacklist</b> a modem module. Note that you will then have to click the ERASE button, then reboot Puppy so that autodetection can re-occur.')'"</label></text>
+              <text space-expand="true" space-fill="true"><label>""</label></text>
+              <button space-expand="false" space-fill="false">
+                '"`/usr/lib/gtkdialog/xml_button-icon modem_no.svg big`"'
+                <action>/usr/sbin/bootmanager blacklist & </action>
+              </button>
+            </hbox>
+            <text height-request="5"><label>""</label></text>
+            <hbox space-expand="true" space-fill="true">
+              <text use-markup="true" space-expand="false" space-fill="false"><label>"'$(gettext "<b>Erase</b> current modem settings. This will delete /dev/modem thus allowing a fresh auto-probe and will cancel the 'Modem' entry in /etc/wvdial.conf. CLICKING THIS BUTTON WILL CAUSE EXIT FROM PupDial. A REBOOT WILL THEN BE REQUIRED TO PROPERLY RE-DETECT INTERNAL MODEMS (for external modem not essential to reboot)")'"</label></text>
+              <text space-expand="true" space-fill="true"><label>""</label></text>
+              <vbox space-expand="false" space-fill="false">
+                <text space-expand="true" space-fill="true"><label>""</label></text>
+                <button space-expand="false" space-fill="false">
+                  '"`/usr/lib/gtkdialog/xml_button-icon clear.svg big`"'
+                  <action>/usr/sbin/modemprobe_erase</action>
+                </button>
+              </vbox>
+            </hbox>
+            <text height-request="5"><label>""</label></text>
+          </vbox>
+        </frame>
+      </vbox> 
+    </vbox>
+    <vbox space-expand="true" space-fill="true">
+      '"`/usr/lib/gtkdialog/xml_info fixed modem_config.svg 60 "$(gettext "If the 'Automatic probe' for some reason didn't satisfy you, consider some manual probing...")"`"'
+      <vbox space-expand="true" space-fill="true">
+        <frame '$(gettext 'Serial hardware modem')'>
+          <hbox border-width="5" space-expand="true" space-fill="true">
+            <vbox space-expand="false" space-fill="false">
+              <text space-expand="false" space-fill="false"><label>'$(gettext "If you have a true-hardware external serial or internal ISA card (or in some rare cases an internal PCI card), or think you might, click a button to probe. Note that 'ttyS0' is the same as 'com1' in DOS/Windows. Note also, 'ttyS0' is the most likely port, unless you have some other serial device such as a mouse. If the test is succesful then you will be offered to set /dev/modem and basic setup of /etc/wvdial.conf. (Note that these modems are not autodetected at bootup by Puppy, but are probed by the automatic probing.)")'</label></text>
+              <text space-expand="true" space-fill="true"><label>""</label></text>
+            </vbox>
+            <text space-expand="true" space-fill="true"><label>""</label></text>
+            <hbox space-expand="false" space-fill="false">
+              <vbox space-expand="true" space-fill="true">
+                <button>
+                  <label>" ttyS0 "</label>
+                  <action>/usr/sbin/modemtest ttyS0 &</action>
+                  <action type="exit">TTYSN</action>
+                </button>
+                <button>
+                  <label>" ttyS1 "</label>
+                  <action>/usr/sbin/modemtest ttyS1 &</action>
+                  <action type="exit">TTYSN</action>
+                </button>
+                <button>
+                  <label>" ttyS2 "</label>
+                  <action>/usr/sbin/modemtest ttyS2 &</action>
+                  <action type="exit">TTYSN</action>
+                </button>
+                <button>
+                  <label>" ttyS3 "</label>
+                  <action>/usr/sbin/modemtest ttyS3 &</action>
+                  <action type="exit">TTYSN</action>
+                </button>
+                <button>
+                  <label>" ttyS4 "</label>
+                  <action>/usr/sbin/modemtest ttyS4 &</action>
+                  <action type="exit">TTYSN</action>
+                </button>
+              </vbox>
+            </hbox>
+          </hbox>
+        </frame>
+      </vbox>
+    </vbox>
+  </notebook>
+  <hbox space-expand="false" space-fill="false"> 
+    <button space-expand="false" space-fill="false">
+      <label>'$(gettext "Help")'</label>
+      '"`/usr/lib/gtkdialog/xml_button-icon help`"'
+      <action>/usr/sbin/modemprobe_help &</action>
+    </button>
+    <text space-expand="true" space-fill="true"><label>""</label></text>
+    <button space-expand="false" space-fill="false">
+      <label>'$(gettext "Quit")'</label>
+      '"`/usr/lib/gtkdialog/xml_button-icon quit`"'
+      <action>exit:Quit</action>
+    </button>
+  </hbox>
+</vbox>
+</window>'
+
+. /usr/lib/gtkdialog/xml_info gtk #build bg_pixmap for gtk-theme
+RETSTRING="`gtkdialog -p PupDial_Modem_Probe`"
+
+#v405 getting some weird stuff on stdout from gtkdialog3, fix...
+#all lines must have format: variable="value" ...
+xRETSTRING="`echo "$RETSTRING" | grep -E '^[a-zA-Z0-9]+=\".*\"$'`"
+
+eval "$xRETSTRING"
+
+[ "$EXIT" != "SETUP" ] && exit
+
+#101202
+if [ ! -f /var/local/pupdial/hotpluggable ];then #101202 see also pupdial, erase button above.
+ export HOTDIALOG="
+ <window title=\"$(gettext 'PupDial modem Internet dialer')\" icon-name=\"gtk-connect\">
+  <vbox>
+   <text><label>$(gettext 'Before probing, a basic question: do you want to connect to the Internet using an internal fixed modem, or a removable (USB, serial, PCMCIA) modem?')</label></text>
+   <text><label>`gettext \"The reason for asking this, is an internal modem will have been detected at bootup, but a 'hotpluggable' external modem may not have have been detected if plugged in after bootup. Also, if you have both, say an internal analog dialup modem, plus a USB modem, PupDial may choose the wrong one -- ticking or unticking the checkbox here will avoid that confusion...\"`</label></text>
+   <checkbox><label>$(gettext 'Tick checkbox if external modem')</label><variable>CHK_HOT</variable></checkbox>
+   <hbox><button ok></button></hbox>
+  </vbox>
+ </window>"
+ RETSTRING="`gtkdialog --center -p HOTDIALOG`"
+ CHK_HOT="`echo "$RETSTRING" | grep '^CHK_HOT' | cut -f 2 -d '"'`" #'geany
+ [ "$CHK_HOT" = "" ] && CHK_HOT='false'
+ echo -n "$CHK_HOT" > /var/local/pupdial/hotpluggable
+ if [ "$CHK_HOT" = "true" ];then
+  #rm -f /dev/modem
+  pupdial_init_hotpluggable
+ fi
+fi
+MODEMDEV=''
+[ -h /dev/modem ] && MODEMDEV="`readlink /dev/modem`"
+
+#101203 wvdialconf will ignore many devs that are not /dev/ttyS*, for example /dev/ttyAGS3 (agrmodem)...
+#note, also have this same code in /usr/sbin/pupdial.
+if [ "$MODEMDEV" ];then
+ MODEMDEV="`echo -n "$MODEMDEV" | sed -e 's%/dev/%%'`"
+ MODEMBASE="`basename $MODEMDEV`" #ex: modems/mwave becomes: mwave
+ if [ "`echo -n "$MODEMBASE" | cut -c 1-4`" != "ttyS" ];then
+  #some that are recognised by wvdialconf: ttyUSB* (v1.51), ttyLT* (v1.50), ttyACM*, ttyI* (v0.12)
+  OK=0
+  if [ "`echo -n "$MODEMBASE" | cut -c 1-3`" = "tty" ];then
+   CHARS3="`echo -n "$MODEMBASE" | cut -c 4-6`"
+   case $CHARS3 in
+    USB) OK=1 ;;
+    LT*) OK=1 ;;
+    ACM) OK=1 ;;
+    I*)  OK=1 ;;
+   esac
+  fi
+  if [ $OK -eq 0 ];then
+   SMODEMDEV='ttyS_'"`echo -n "$MODEMBASE" | sed -e 's%^tty%%' | cut -c 1-20`"
+   ln -snf $MODEMDEV /dev/$SMODEMDEV
+   ln -snf $SMODEMDEV /dev/modem #so that wvdialconf will look here first.
+   MODEMDEV="$SMODEMDEV"
+  fi
+ fi
+fi
+
+/usr/lib/gtkdialog/box_splash -placement center -text "$(gettext 'Please wait, probing for modems...')" &
+X1PID=$!
+
+#100918 If no modem selected, check bluetooth modem and set as /dev/modem...
+if [ "$MODEMDEV" = "" ] && which rfcomm >/dev/null;then
+ BTMODEMDEVS="`get_bluetooth_connection DUN`"
+ for ONEBTMODEMDEV in $BTMODEMDEVS;do
+  RFCOMMNUM="`echo "$ONEBTMODEMDEV" | grep -o [0-9]*`"
+  if [ "`rfcomm $RFCOMMNUM | grep 'clean'`" != "" ];then
+   rfcomm $ONEBTMODEMDEV connect &
+   X10PID=$!
+   sleep 5
+  fi
+  [ "`rfcomm $RFCOMMNUM | grep 'connected'`" != "" ] \
+   && ln -snf $BTMODEMDEV /dev/modem \
+   && break
+ done
+fi
+
+rm -f /tmp/wvdial.conf 2>/dev/null
+#v4.06 begin
+DEVM=""
+[ -f /etc/wvdial.conf ] && CONFDIR="etc" || CONFDIR="tmp"
+wvdialconf /$CONFDIR/wvdial.conf >/tmp/logwvdialprobe 2>&1
+RETVAL=$?
+if [ $RETVAL -eq 0 ];then #found a modem and set it in wvdial.conf
+ if [ "`grep '/dev/modem' /$CONFDIR/wvdial.conf`" != "" ];then #modem = /dev/modem - substitute /dev/modem target
+  SEDSCRIPT="s%/dev/modem%/dev/`readlink /dev/modem`%" #v416
+  sed -i -e "$SEDSCRIPT" /$CONFDIR/wvdial.conf #v416
+ elif [ "`grep '/dev/ttyS_' /$CONFDIR/wvdial.conf`" != "" ];then
+  #Convert ttyS_ link name to actual node name (e.g., ttyS_536ep -> 536ep)
+  TMPDEVM="`cat /$CONFDIR/wvdial.conf | tr -s ' ' | grep '^Modem = ' | head -n 1 | cut -f 3 -d ' ' | cut -f 3 -d '/'`" #file name
+  if [ -h /dev/$TMPDEVM ];then #it's a link to the correct device node name
+   SEDSCRIPT="s%/dev/$TMPDEVM%/dev/`readlink /dev/$TMPDEVM`%" #v416
+   sed -i -e "$SEDSCRIPT" /$CONFDIR/wvdial.conf #v416
+  fi
+ fi
+ DEVM="`cat /$CONFDIR/wvdial.conf | tr -s ' ' | grep '^Modem = ' | head -n 1 | cut -f 3,4 -d '/'`" #v433
+#v432 Add possible alternate modem device
+ sed -i -e '/#Modem =/d' /$CONFDIR/wvdial.conf
+ DEVMALT="`get_modem_alternate_device $DEVM`"
+ [ "$DEVMALT" != "" ] \
+  && aPATTERN="s%^Modem = .*%&\n#Modem = /dev/${DEVMALT}%" \
+  && sed -i -e "$aPATTERN" /$CONFDIR/wvdial.conf #v432 end
+else #v433
+ [ "$MODEMDEV" = "" ] && rm -f /dev/modem #v433
+fi
+#v4.06 end
+
+kill $X1PID
+
+if [ "$DEVM" != "" ];then #4.06 probe found a modem (and not /dev/modem)
+ ln -snf $DEVM /dev/modem #v4.06 v433
+ touch /tmp/.pupdial-modem_detected #v433
+ 
+ if [ -f /tmp/wvdial.conf ];then
+  grep -v '^;' /tmp/wvdial.conf > /etc/wvdial.conf
+  rm -f /tmp/wvdial.conf
+  echo 'Carrier Check = no
+Dial Command = ATDT
+
+[Dialer isp1]
+Phone = MYISPPHONENUM
+Username = MYUSERNAME
+Password = MYPASSWORD
+
+[Dialer isp1apn]
+Init5 = AT+CGDCONT=1,\"IP\",\"\"
+
+[Dialer isp2]
+Phone = MY2ISPPHONENUM
+Username = MY2USERNAME
+Password = MY2PASSWORD
+
+[Dialer isp2apn]
+Init5 = AT+CGDCONT=1,\"IP\",\"\"
+
+[Dialer pin]
+Init1 = AT+CPIN=
+
+[Dialer wireless]
+#Init4 = AT+COPS=0,0,\"MYOPS\",
+#Init6 = AT+CGEQMIN=1,4,64,384,64,384
+#Init7 = AT+CGEQREQ=1,4,64,384,64,384
+#Init8 = AT+CGDCONT?
+#Init9 = AT+COPS?' >> /etc/wvdial.conf
+ fi
+else #v433
+ rm -f /tmp/.pupdial-modem_detected #v433
+fi
+
+sync
+#leafpad /tmp/logwvdialprobe
+exit $RETVAL #v4.06 Notify caller whether wvdialconf found a modem
