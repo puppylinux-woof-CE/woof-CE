@@ -1,0 +1,75 @@
+#!/bin/sh
+#Barry Kauler GPL 2010.
+#Argument 1: bluetooth service name:
+# DUN - Dial-up Networking
+# SP - Serial Port
+# HF - HF Voice Gateway
+# HS - HS Voice Gateway
+# OPUSH - OBEX Object Push
+# FTP - OBEX File Transfer
+# OBEX-SyncML Client
+# OBEX IrMC Sync Server
+#Optional argument: device RFCOMM*, the current device, in case multiple instances found.
+
+which rfcomm >/dev/null || exit 1
+which sdptool >/dev/null || exit 1
+BTSVCNAME="$1"
+CURRENTDEV="$2"
+SVCRFCOMMDEVICES=""
+#Determine whether a bluetooth modem is available.  However you do that.
+LOCALDEVS="`hcitool dev 3>&1 >/dev/null 2>&3 | tr -s ' ' | tr '\n' ' '`" #edit?
+echo "get_bluetooth_connection ($PPID): `date | tr -s ' ' | cut -f 4 -d ' '` - LOCALDEVS: $LOCALDEVS" >> /tmp/udevtrace-modem.log  #DEBUG
+for ONELOCALDEV in $LOCALDEVS;do
+ #Scan for devices within range...
+ REMOTEBTADDRS="`hcitool -i $ONELOCALDEV scan 3>&1 >/dev/null 2>&3 | grep -o '..:..:..:..:..:..'`" #ex: xx:xx:xx:xx:xx:xx       iPAQ PocketPC
+ echo "get_bluetooth_connection ($PPID): `date | tr -s ' ' | cut -f 4 -d ' '` - REMOTEBTADDRS: $REMOTEBTADDRS" >> /tmp/udevtrace-modem.log  #DEBUG
+ for ONEREMBTADDR in $REMOTEBTADDRS;do
+  SVCCHANNEL="`sdptool search $ONEREMBTADDR $BTSVCNAME 3>&1 >/dev/null 2>&3 | sed -n -e 's/^    Channel: \([0-9]*\).*/\1/p' | head -n 1`"
+  echo "get_bluetooth_connection ($PPID): `date | tr -s ' ' | cut -f 4 -d ' '` - SVCCHANNEL: $SVCCHANNEL" >> /tmp/udevtrace-modem.log  #DEBUG
+  if [ "$SVCCHANNEL" != "" ];then
+   RFCOMMDEVINFO="`rfcomm -a | grep "$ONEREMBTADDR" |  grep " channel $SVCCHANNEL " | cut -f 1 -d :`"
+   echo "get_bluetooth_connection ($PPID): `date | tr -s ' ' | cut -f 4 -d ' '` - RFCOMMDEVINFO: $RFCOMMDEVINFO" >> /tmp/udevtrace-modem.log  #DEBUG
+   if [ "$RFCOMMDEVINFO" = "" ];then
+    RFCOMMNUM=0
+    RFCOMMNUMS="`rfcomm -a | sed -e 's/^rfcomm\([0-9][0-9]*\).*/\1/'`"
+    echo "get_bluetooth_connection ($PPID): `date | tr -s ' ' | cut -f 4 -d ' '` - RFCOMMNUMS: $RFCOMMNUMS" >> /tmp/udevtrace-modem.log  #DEBUG
+
+#Stubbed out here.  Comment out the echo and exit lines to allow debugging.
+echo "get_bluetooth_connection ($PPID): Exit stub." >> /tmp/udevtrace-modem.log  #DEBUG
+exit 1
+#End of stub code.
+
+    if [ "$RFCOMMNUMS" != ""];then
+     for ONERFCOMMNUM in $RFCOMMNUMS;do
+      while [ $RFCOMMNUM -lt $ONERFCOMMNUM ];do
+       pup_event_backend_modprobe_protect --bluetooth_rfcomm_number=$RFCOMMNUM && break
+       RFCOMMNUM=`expr $RFCOMMNUM + 1`
+      done
+      [ $RFCOMMNUM -lt $ONERFCOMMNUM ] && break
+      RFCOMMNUM=`expr $RFCOMMNUM + 1`
+     done
+    fi
+    if [ "$RFCOMMNUMS" = "" ] || [ $RFCOMMNUM -gt $ONERFCOMMNUM ];then
+     while ! pup_event_backend_modprobe_protect --bluetooth_rfcomm_number=$RFCOMMNUM;do
+      RFCOMMNUM=`expr $RFCOMMNUM + 1`
+      [ $RFCOMMNUM -gt 10 ] && exit 1
+     done 
+    fi
+    [ ! -e /dev/rfcomm$RFCOMMNUM ] \
+     && mknod /dev/rfcomm$RFCOMMNUM c 216 $RFCOMMNUM
+    rfcomm bind $RFCOMMNUM $ONEREMBTADDR $SVCCHANNEL
+    RFCOMMDEVINFO="`rfcomm $RFCOMMNUM | grep 'clean' | cut -f 1 -d :`"
+    echo -e "get_bluetooth_connection ($PPID): `date | tr -s ' ' | cut -f 4 -d ' '` - RFCOMMNUM: $RFCOMMNUM  ONEREMBTADDR: $ONEREMBTADDR  SVCCHANNEL: $SVCCHANNEL  : $  RFCOMMDEVINFO:\n $RFCOMMDEVINFO" >> /tmp/udevtrace-modem.log  #DEBUG
+    [ "$RFCOMMDEVINFO" != "" ] \
+     && SVCRFCOMMDEVICES="$SVCRFCOMMDEVICES$RFCOMMDEVINFO "
+   else
+    [ "`echo "$RFCOMMDEVINFO" | grep "$ONELOCALDEV"`" = "" ] && continue
+    SVCRFCOMMDEVICES="$SVCRFCOMMDEVICES$RFCOMMDEVINFO "
+   fi
+  fi
+ done
+done
+
+echo $SVCRFCOMMDEVICES
+exit 1 #DEBUG always fail, for now
+
