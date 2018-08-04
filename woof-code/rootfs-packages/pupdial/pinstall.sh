@@ -2,6 +2,7 @@
 if [ "$(pwd)" = "/" ];then
  #Remove copies from old location.
  rm -f usr/sbin/gen_modem_init_string
+ rm -f usr/sbin/get_bluetooth_connection
  rm -f usr/sbin/modemdisconnect
  rm -f usr/sbin/modemprobe
  rm -f usr/sbin/modemprobe_erase

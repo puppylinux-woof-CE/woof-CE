@@ -2,6 +2,7 @@
 #Restore deleted files in frugal installaions...
 if [ -d /initrd/pup_ro2 ];then
  cp -f /initrd/pup_ro2/usr/sbin/gen_modem_init_string /usr/sbin/
+ cp -f /initrd/pup_ro2/usr/sbin/get_bluetooth_connection /usr/sbin/
  cp -f /initrd/pup_ro2/usr/sbin/modemdisconnect /usr/sbin/
  cp -f /initrd/pup_ro2/usr/sbin/modemprobe /usr/sbin/
  cp -f /initrd/pup_ro2/usr/sbin/modemprobe_erase /usr/sbin/
