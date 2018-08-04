@@ -1,0 +1,73 @@
+#!/bin/sh
+# Functions for pupdial scripts
+
+#talk to modem, wait for response, kill modem-stats if hung...
+# $1: command  $2: device
+#Used by gen_modem_init_string, modemtest & pupdial_init_hotpluggable.
+chat_with_modem() {
+	local ANSWERFILE="/tmp/answer.txt"
+	local COMMAND=$1 DEVICE=$2
+	rm -f $ANSWERFILE
+	if which microcom &>/dev/null; then
+		if [ -f "/var/lock/LCK..${DEVICE##*/}" ] ; then
+			rm -f "/var/lock/LCK..${DEVICE##*/}"
+		fi
+		echo -e "${COMMAND}\r" | microcom -t 200 $DEVICE > $ANSWERFILE 2>/dev/null
+		[ -s $ANSWERFILE ] && grep -q '^OK' $ANSWERFILE && return 0
+	fi
+	if which modem-stats &>/dev/null \
+	  && ( [ ! -s $ANSWERFILE ] || ! grep -q '^OK' $ANSWERFILE ); then
+		#hangs if modem unplugged or turned off (contrary to what docs say)...
+		modem-stats -c $COMMAND $DEVICE > $ANSWERFILE 2>/dev/null &
+		local MSPID=$! CNTLP=1
+		while [ $CNTLP -le 7 ] ;do
+			sleep 1
+			busybox pidof modem-stats | grep -q -w "$MSPID" || break
+			CNTLP=$(( $CNTLP + 1 ))
+		done
+		kill $MSPID 2>/dev/null
+	elif which microcom &>/dev/null; then
+		if [ -f "/var/lock/LCK..${DEVICE##*/}" ] ; then
+			rm -f "/var/lock/LCK..${DEVICE##*/}"
+		fi
+		#Determine time needed to get response + 0.1 sec.
+		for MCTIMEOUT in 2000 5000 7000; do
+			if echo -e "${COMMAND}\r" | microcom -t $MCTIMEOUT $DEVICE > $ANSWERFILE 2>/dev/null; then
+				if grep -q '^OK' $ANSWERFILE; then
+					MCTIMEOUT=$(($MCTIMEOUT + 100))
+					break
+				fi
+			else
+				unset MCTIMEOUT
+				break
+			fi
+		done
+	fi
+	[ -s $ANSWERFILE ] && grep -q '^OK' $ANSWERFILE
+	return $?
+}
+export function chat_with_modem
+
+#Set default initialization strings
+#Used by modemtest & modemprobe_erase.
+reset_to_default_func() {
+ #modify [Dialer Defaults] only...
+ echo -n "" > /tmp/wvdial.conf-reset
+ local WVSECTION=0
+ cat /etc/wvdial.conf |
+ while read ONELINE
+ do
+  if [ "`echo -n "$ONELINE" | cut -c 1`" = "[" ];then
+   WVSECTION=0
+   [ "$ONELINE" = "[Dialer Defaults]" ] && WVSECTION=1
+  fi
+  if [ $WVSECTION -eq 1 ];then
+   NEWONE="`echo -n "$ONELINE" | sed -e 's%^Init3 =.*%Init3 = %'  -e 's%^Init2 =.*%Init2 = ATZ%' -e 's%^Init1 =.*%Init1 = %'`"
+   echo "$NEWONE" >> /tmp/wvdial.conf-reset
+  else
+   echo "$ONELINE" >> /tmp/wvdial.conf-reset
+  fi
+ done
+ mv -f /tmp/wvdial.conf-reset /etc/wvdial.conf
+}
+export function reset_to_default_func

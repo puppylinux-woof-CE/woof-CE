@@ -20,7 +20,7 @@
 #v431 rerwin: retain account checkbox changes; ensure optional lines associated with an account; add APN-specific commands; handle Idle Seconds lines
 #v433 rerwin: accomodate bluetooth-connected modems.
 #v433 Collect monthly transmission data.
-#101202 new script /usr/sbin/pupdial_init_hotpluggable, flag /var/local/pupdial/hotpluggable.
+#101202 new script /usr/local/pupdial/pupdial_init_hotpluggable, flag /var/local/pupdial/hotpluggable.
 #101203 wvdialconf will ignore many devs that are not /dev/ttyS*, for example /dev/ttyAGS3 (agrmodem).
 #101205 warning to wait 30 seconds after plugin.
 #101206 innapropriate for another active network interface.
@@ -36,12 +36,19 @@
 #130331 change "Mono 12" to "Mono 10".
 #130505 rerwin: notify network_tray of analog/wireless connection type
 #131214 zigbert: gui (gtkdialog) improvements.
+#180720 rerwin: Make 130505 conditional.
+#180727 v2.0 rerwin: Wait until modemprobe & modemtest finish before restarting; prevent multiple instances of pupdial; refine Xdialog & splash messages;background modemprobe, to close pupdial window.
 
 [ "`whoami`" != "root" ] && exec sudo -A ${0} ${@} #110505
 
 export TEXTDOMAIN=pupdial
 export TEXTDOMAINDIR=/usr/share/locale
 export OUTPUT_CHARSET=UTF-8
+
+ps h -C pupdial -o pid | grep -qv "$$" \
+ && /usr/lib/gtkdialog/box_splash -close never -bg orange -border false -bg_gradient true -fontsize large -timeout 5 -text "$(gettext 'PupDial is already active.')" \
+ && exit 1 #180727
+
 eval_gettext () {
   local myMESSAGE=$(gettext "$1")
   eval echo \"$myMESSAGE\"
@@ -67,6 +74,9 @@ export -f msg_help
 
 #hint: for debugging, to force pupdial to ask all questions, delete /var/local/pupdial/hotpluggable
 
+export PUPDIAL_DIR=/usr/local/pupdial
+. /usr/local/pupdial/modem_functions
+
 Yes_lbl="$(gettext 'Yes')"
 No_lbl="$(gettext 'No')"
 
@@ -86,7 +96,7 @@ if [ -f "$FW" ];then
 	else
 		"$FW" stop
 		rm "$FW"
-		gtkdialog-splash -bg yellow -timeout 3 -close box -text \
+		gtkdialog-splash -bg yellow -border false -bg_gradient true -timeout 3 -close box -text \
 "$(gettext "Removing firewall. You can reconfigure after successful connection.")"
 	fi
 fi
@@ -120,7 +130,7 @@ if [ "$PASSEDPARAM" = "" ];then #101218 do not probe if re-running pupdial.
  CHK_HOT="`cat /var/local/pupdial/hotpluggable`"
  if [ "$CHK_HOT" = "true" ];then
   #rm -f /dev/modem
-  pupdial_init_hotpluggable
+  $PUPDIAL_DIR/pupdial_init_hotpluggable
  fi
 fi
 
@@ -129,7 +139,7 @@ MYDEVM="MYDEVM"
 [ "$MYDEVM" = "/dev/" ] && MYDEVM="MYDEVM" #101203
 
 #101203 wvdialconf will ignore many devs that are not /dev/ttyS*, for example /dev/ttyAGS3 (agrmodem)...
-#note, also have this code in /usr/sbin/modemprobe.
+#note, also have this code in /usr/local/pupdial/modemprobe.
 if [ "$MYDEVM" != "MYDEVM" ];then
  MODEMDEV="`echo -n "$MYDEVM" | sed -e 's%/dev/%%'`" #could be in a subdir, ex: modems/mwave
  MODEMBASE="`basename $MODEMDEV`" #ex: modems/mwave becomes: mwave
@@ -203,10 +213,7 @@ if [ "$FLAGNEWPROBE" != "yes" ];then
    newMODEM="/dev/`readlink /dev/modem | sed -e 's%/dev/%%'`"
    if [ -e ${newMODEM} ];then #precaution.
     if [ "$wvMODEM" != "$newMODEM" ];then
-     Xdialog --left --wmclass "pupdial" --title "$(gettext 'PupDial: modem changed')" --ok-label "$(gettext 'UPDATE')" --cancel-label "$No_lbl" --yesno "`eval_gettext \"It seems that the modem has changed.\n
-It was '\\\${wvMODEM}', it is now '\\\${newMODEM}'\n
-Do you want to update PupDial?\n
-Recommend click UPDATE button...\"`" 0 0
+     Xdialog --left --wmclass "pupdial" --title "$(gettext 'PupDial: modem changed')" --backtitle "$(eval_gettext "It seems that the modem has changed.\nIt was '\${wvMODEM}', it is now '\${newMODEM}'.")" --ok-label "$(gettext 'UPDATE')" --cancel-label "$No_lbl" --yesno "$(eval_gettext "Do you want to update PupDial? (Recommended)")" 0 0
      [ $? -eq 0 ] && FLAGNEWPROBE='yes'
     fi
    fi
@@ -217,28 +224,15 @@ fi
 #i also want this to rerun after 'erase' button pressed in pupdial...
 if [ "$FLAGNEWPROBE" = "yes" ];then
  if [ "$MYDEVM" != "MYDEVM" -a "$MYDEVM" != "modem" ];then
-  Xdialog --left --wmclass "pupdial" --title "$(gettext 'PupDial: modem found')" --ok-label "$(gettext 'TEST')" --cancel-label "$No_lbl" --yesno "`eval_gettext \"It seems that you have a modem, at port \\\${MYDEVM}\n
-However, it is recommended that you now click the 'TEST' button\n
-to test that it is working.\n
-\n
-Note 1: The test will also optionally probe for what is called an\n
-'inialization string'. If you are running PupDial for the first time\n
-or have changed modems, you will definitely need to click the 'TEST'\n
-button and obtain an initialization string.\n
-\n
-Note 2: If you think that \\\${MYDEVM} might be the wrong modem,\n
-click the 'No' button and the main PupDial GUI has a 'CHOOSE' button\n
-that will enable you to test alternative modem interfaces.\n
-\n
-Recommend click 'TEST' to probe the modem...\"`" 0 0
+  Xdialog --left --wmclass "pupdial" --title "$(gettext 'PupDial: modem found')" --wrap --backtitle "$(eval_gettext "It seems that you have a modem, at port \${MYDEVM}")" --ok-label "$(gettext 'TEST')" --cancel-label "$No_lbl" --yesno "$(gettext "However, it is recommended that you now click the 'TEST' button to test that it is working.")\n\n$(gettext "Note 1: The test will also optionally probe for what is called an 'initialization string'.")  $(gettext "If you are running PupDial for the first time or have changed modems, you will definitely need to click the 'TEST' button and obtain an initialization string.")\n\n$(eval_gettext "Note 2: If you think that \${MYDEVM} might be the wrong modem, click the 'No' button.  The main PupDial GUI has a 'Choose modem' button that will enable you to test alternative modem interfaces.")\n\n$(eval_gettext "Recommend click 'TEST' to probe the modem.")" 0 80
   RETVAL=$?
   DEVM="`echo -n "$MYDEVM" | cut -f 3,4 -d '/'`"
-  [ $RETVAL -eq 0 ] && modemtest $DEVM initonly
+  [ $RETVAL -eq 0 ] && $PUPDIAL_DIR/modemtest $DEVM initonly
  fi
 fi
 
 #v413 Assure user... 120514 bigger font...
-yaf-splash -close never -bg orange -fontsize large -text "$(gettext 'Reading modem configuration file...')" &
+/usr/lib/gtkdialog/box_splash -close never -bg orange -border false -bg_gradient true -fontsize large -text "$(gettext 'Reading modem configuration file...')" &
 X1PID=$!
 #disconnect button...
 STATECONb="disabled"
@@ -407,13 +401,12 @@ fi
     <button>
       <label>'${TESTMSG}'</label>
       <visible>'${STATETEST}'</visible>
-      <action>/usr/sbin/modemtest '${TESTDEVM}'</action>
+      <action>$PUPDIAL_DIR/modemtest '${TESTDEVM}'</action>
       <action type="exit">reload</action>
     </button>
     <button>
       <label>'$(gettext 'Choose modem')'</label>
-      <action>/usr/sbin/modemprobe</action>
-      <action>cat /tmp/logwvdialprobe > /tmp/pupdial.log 2> /dev/null</action>
+      <action>$PUPDIAL_DIR/modemprobe &</action>
       <action type="exit">reload</action>
     </button>
     <checkbox>
@@ -630,7 +623,7 @@ export PupDial='
       <label>'$(gettext 'Disconnect from the internet')'</label>
       '"`/usr/lib/gtkdialog/xml_button-icon internet_connect_no.svg`"'
       <visible>'${STATECONb}'</visible>
-      <action>/usr/sbin/modemdisconnect</action>
+      <action>$PUPDIAL_DIR/modemdisconnect</action>
       <action>rm -f /tmp/pupdial.log</action>
       <action type="exit">EXIT</action>
     </button>
@@ -678,7 +671,13 @@ if [ "$EXIT" = "abort" -o "$EXIT" = "" ];then
  exit
 fi
 
-[ "$EXIT" = "reload" ] && exec pupdial 2 #101218 pass param.
+if [ "$EXIT" = "reload" ] ;then #180727...
+ until [ "$(ps h -C modemprobe,modemtest -o pid)" = '' ];do
+  sleep 1
+ done
+ mv -f /tmp/logwvdialprobe /tmp/pupdial.log 2>/dev/null
+ exec $PUPDIAL_DIR/pupdial 2 #101218 pass param.
+fi
 
 rm -f /tmp/pupdial.log #v3.91
 
@@ -812,9 +811,9 @@ if [ "$EXIT" = "CONNECT1" -o "$EXIT" = "CONNECT2" ];then
     touch /tmp/.pupdial_pin_sent
    fi
  fi
- [ "$WVISP" = "isp1" ] \
-  && ISPSTRING="$ENTRYACC1ISP" \
-  || ISPSTRING="$ENTRYACC2ISP" #130505
+ if [ -d /usr/local/lib/X11/mini-icons/network_tray-xpm ];then #180720...
+  [ "$WVISP" = "isp1" ] && ISPSTRING="$ENTRYACC1ISP" || ISPSTRING="$ENTRYACC2ISP" #130505
+ fi
  rm -f /tmp/pupdial.log
 
  #/etc/ppp/peers/wvdial and wvdial-pipe are part of wvdial pkg, but these files
@@ -842,19 +841,21 @@ if [ "$EXIT" = "CONNECT1" -o "$EXIT" = "CONNECT2" ];then
   && echo "`cat /etc/wvdial_options/APN-${APNSTRING}`" >> /etc/ppp/peers/wvdial #431
  [ -f /etc/ppp/wvdial-pipe ] \
   && cp -f /etc/ppp/wvdial-pipe /etc/ppp/peers/ #v3.98
- echo "$ISPSTRING" | sed 's/.*,//g' | grep -q '^[0-9\.\-]*$' \
-  && touch /tmp/.network_tray-use_analog_dialup_icons #130505
+ if [ -d /usr/local/lib/X11/mini-icons/network_tray-xpm ];then #180720...
+  echo "$ISPSTRING" | sed 's/.*,//g' | grep -q '^[0-9\.\-]*$' \
+   && touch /tmp/.network_tray-use_analog_dialup_icons #130505
+ fi
  wvdial ${WVISP} ${WVPIN} ${WVAPN} ${WVWRLS} &> /tmp/pupdial.log & #v413
  [ ! -f /tmp/pupdial.log ] && sleep 1 
  [ ! -f /tmp/pupdial.log ] && sleep 1 
- /usr/sbin/pupdial_wizard_helper & #101206
- Xdialog --center --wmclass "pupdial" --backtitle "$(gettext 'NOTICE: If the log shows a failure to connect, please click left button')" --title "$(gettext 'PupDial: WvDial connection log')" --ok-label "$(gettext 'DISCONNECT or stop trying')" --cancel-label "$(gettext 'CLOSE window but stay online')" --fixed-font --tailbox /tmp/pupdial.log 20 80 
+ $PUPDIAL_DIR/pupdial_wizard_helper & #101206
+ Xdialog --center --wmclass "pupdial" --backtitle "$(gettext 'NOTICE: If the log shows a failure to connect, please click left button.')" --title "$(gettext 'PupDial: WvDial connection log')" --ok-label "$(gettext 'DISCONNECT or stop trying')" --cancel-label "$(gettext 'CLOSE window but stay online')" --fixed-font --tailbox /tmp/pupdial.log 20 80 
  if [ $? -eq 0 ];then
-  /usr/sbin/modemdisconnect #v433
+  $PUPDIAL_DIR/modemdisconnect #v433
   echo '' >> /tmp/pupdial.log
   echo '------------------------------------------------------' >> /tmp/pupdial.log
   echo '' >> /tmp/pupdial.log
-  exec pupdial 2 #v3.91 go back to main window. 101218 pass param.
+  exec $PUPDIAL_DIR/pupdial 2 #v3.91 go back to main window. 101218 pass param.
  fi
 fi
 
