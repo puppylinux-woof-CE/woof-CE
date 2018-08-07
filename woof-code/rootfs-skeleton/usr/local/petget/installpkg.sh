@@ -777,7 +777,7 @@ echo "PACKAGE: $DLPKG_NAME CATEGORY: $CATEGORY" >> /tmp/petget-installed-pkgs-lo
 #110503 change ownership of some files if non-root...
 #hmmm, i think this will only work if running this script as root...
 # (the entry script pkg_chooser.sh has sudo to switch to root)
-HOMEUSER="`grep '^tty1' /etc/inittab | tr -s ' ' | cut -f 3 -d ' '`" #root or fido.
+read HOMEUSER < /etc/plogin
 if [ "$HOMEUSER" != "root" ];then
  grep -E '^/var|^/root|^/etc' /root/.packages/${DLPKG_NAME}.files |
  while read FILELINE
