@@ -141,7 +141,7 @@ case $Choice in
 		;;
 	*)
 		case "$Choice" in DOTconfig-*)
-			IFS=- read dconf kernel_version kernel_version_info <<< ${CONFIGS_DIR}/$Choice ;;
+			IFS="-" read dconf kernel_version kernel_version_info <<< "$Choice" ;;
 			*) kernel_version="" ;;
 		esac
 		if [ ! "$kernel_version" ] ; then
