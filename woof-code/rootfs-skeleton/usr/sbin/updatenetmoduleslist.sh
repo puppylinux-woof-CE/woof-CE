@@ -47,16 +47,19 @@ r8180/r8180.ko
 	#-
 	while read F1 F2plus ; do
 		case $F1 in
-			"description:") ONEDESCR=$F2plus ;;
-			"alias:") ONETYPE=${F2plus%%:*} ; break ;;
+			"description:") ONEDESCR="$F2plus" ;;
+			"alias:")
+				case "${F2plus}" in "pci:"*|"pcmcia:"*|"usb:"*|"ssb:"*|"sdio:"*)
+					#ssb=b43legacy.ko...  sdio=sdio interfaces...
+					#echo "Adding $ONEBASE" >&2
+					ONETYPE="${F2plus}"
+					echo -e "$ONEBASE \"$ONETYPE:  $ONEDESCR\""
+					break ;;
+				esac
+				;;
 		esac
 	done <<< "$MODINFO"
 	#-
-	case "$ONETYPE" in pci|pcmcia|usb|ssb|sdio)
-		#ssb=b43legacy.ko...  sdio=sdio interfaces...
-		#echo "Adding $ONEBASE" >&2
-		echo -e "$ONEBASE \"$ONETYPE:  $ONEDESCR\""
-	esac
  done < /tmp/nm_rawlist$$
 ) > /etc/networkmodules-${KERNVER}
 
