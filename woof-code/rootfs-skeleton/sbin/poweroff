@@ -4,8 +4,8 @@
 
 for i in $@ ; do
 	case $i in
-		debug) echo > /tmp/debugshutdown ;;
-		shell) echo > /tmp/shutdownshell ;;
+		debug) echo > /tmp/debugshutdown ; shift ;;
+		shell) echo > /tmp/shutdownshell ; shift ;;
 	esac
 done
 
@@ -20,19 +20,61 @@ fi
 
 if [ "$DISPLAY" ] ; then
 	case $script in
-		poweroff)  exec wmpoweroff $@ ;; #avoid freeze on a virtual terminal
-		reboot) exec wmreboot $@ ;;
+		poweroff)  exec wmpoweroff ;; #avoid freeze on a virtual terminal
+		reboot) exec wmreboot ;;
 	esac
 fi
 
 if [ "$script" = "reboot" ] ; then
-	touch /tmp/is_reboot
+	touch /tmp/is_reboot # this is read by rc.cleanup
 fi
 
-case $script in
-	poweroff) /bin/busybox poweroff $@ ;;
-	reboot) /bin/busybox reboot $@ ;;
-	*) exit ;;
-esac
+#============================================================
+# handle inittab
+
+INITTAB=/etc/inittab
+
+# rc.shutdown and rc.cleanup are called by busybox reboot/poweroff
+if grep -q '^::shutdown:/etc/rc.d/rc.shutdown' ${INITTAB} && \
+   grep -q '^::shutdown:/etc/rc.d/rc.cleanup' ${INITTAB} ; then
+	case $script in
+		poweroff) /bin/busybox poweroff ;;
+		reboot) /bin/busybox reboot ;;
+	esac
+	exit # end here
+fi
+
+#------------
+PIVOT_INITRD=
+[ "$(mount | grep ' /initrd/files ')" ] && PIVOT_INITRD=pivot_initrd
+file /bin/busybox | grep -q 'ELF.*statically' && PIVOT_INITRD=pivot_initrd
+[ "$PUNIONFS" = "" ] && PIVOT_INITRD=
+[ "$PIVOT_INITRD" ] && export PIVOT_INITRD
+#------------
+
+# rc.shutdown is not called by busybox reboot/poweroff
+# must run it here
+if ! grep -q '^::shutdown:/etc/rc.d/rc.shutdown' ${INITTAB} ; then
+	/etc/rc.d/rc.shutdown ${PIVOT_INITRD}
+	if ! [ "${PIVOT_INITRD}" ] ; then
+		case $script in
+			poweroff) /bin/busybox poweroff ;;
+			reboot) /bin/busybox reboot ;;
+		esac
+		exit # end here
+	fi
+fi
+
+if ! [ "${PIVOT_INITRD}" ] ; then
+	exit
+fi
+
+# rc.cleanup is exec'd by busybox init
+# trigger busybox's restart mechanism...
+if grep -q '^::restart:/etc/rc.d/rc.cleanup' ${INITTAB} ; then
+	kill -3 1
+	sleep 1
+	kill -1 1
+fi
 
 ### END ###
