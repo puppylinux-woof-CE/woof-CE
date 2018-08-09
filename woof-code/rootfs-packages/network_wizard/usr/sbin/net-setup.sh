@@ -183,7 +183,6 @@ refreshMainWindowInfo ()
   # Dougal: comment out and move to the showLoadModuleWindow -- only used there...
   #findLoadedModules
   getInterfaceList
-  #rm -f /tmp/interface-modules
 
   for INTERFACE in $INTERFACES
   do
@@ -239,9 +238,6 @@ ${INTERFACEBUTTONS}
       ;;
   esac
 
-	#echo "Puppy has done a quick check to see which network driver modules are currently loaded. Here they are (the relevant interface is in brackets):
- #${LOADEDETH}" > /tmp/net-setup_MSGMODULES.txt
-
 } # end refreshMainWindowInfo
 
 #=============================================================================
@@ -287,7 +283,6 @@ showLoadModuleWindow()
 {
   findLoadedModules
   echo -n "" > /tmp/ethmoduleyesload.txt
-  MODULELIST=$(cat /etc/networkmodules | sort | tr "\n" " ")
   # Dougal: create list of modules (pipe delimited)
   sort /etc/networkmodules | tr '"' '|' | tr ':' '|' | sed 's%|$%%g' | tr -s ' ' >/tmp/module-list
 
@@ -742,13 +737,6 @@ loadNdiswrapperModule ()
 } # end loadNdiswrapperModule
 
 #=============================================================================
-#loadSpecificModule ()
-#{
-	#RESPONSE=$(Xdialog --stdout --title "$L_TITLE_Puppy_Network_Wizard" --inputbox "Please type the name of a specific module to load\n(extra parameters allowed, but don't type tab chars)." 0 0 "" 2> /dev/null)
-	#if [ $? -eq 0 ];then
-		#tryLoadModule "${RESPONSE}"
-	#fi
-#} # end loadSpecificModule
 
 loadSpecificModule (){
   export NETWIZ_Load_Specific_Module_Window="<window title=\"$L_TITLE_Load_A_Module\" icon-name=\"gtk-network\" window-position=\"1\">
@@ -1282,40 +1270,6 @@ configureWireless()
 } # end configureWireless
 
 #=============================================================================
-# this expanded and moved to wag-profiles.sh, so can be used by rc.network
-#setupDHCP()
-#{
-	#{
-		## Must kill old dhcpcd first
-		#killDhcpcd "$INTERFACE"
-		#sleep 5
-		#if dhcpcd -d -I '' "$INTERFACE"
-		#then
-			#HAS_ERROR=0
-		#else
-			#HAS_ERROR=1
-		#fi
-		#echo "${HAS_ERROR}" > /tmp/net-setup_HAS_ERROR.txt
-		#echo "XXXX"
-	#} | Xdialog --no-buttons --title "$L_TITLE_Puppy_Network_Wizard: DHCP" --infobox "There may be a delay of up to 60 seconds while Puppy waits for the
-#DHCP server to respond. Please wait patiently..." 0 0 0
-
-  #HAS_ERROR=$(cat /tmp/net-setup_HAS_ERROR.txt)
-
-  #if [ $HAS_ERROR -eq 0 ]
-  #then
-    ## Dougal: not sure about this -- maybe add something? need to know we've used it
-    #MODECOMMANDS=""
-  #else
-    #MODECOMMANDS=""
-    ## need to kill dhcpcd, since it keeps running even with an error!
-    #killDhcpcd "$INTERFACE"
-  #fi
-
-  #return $HAS_ERROR
-#} #end of setupDHCP
-
-#=============================================================================
 showStaticIPWindow()
 {
 	IP_ADDRESS="$(ifconfig $INTERFACE | grep 'inet addr' | sed 's/.*inet addr://' | cut -d" " -f1)"
@@ -1348,9 +1302,6 @@ EOF
 			abort|Cancel) # close window
 				break
 				;; # Do Nothing, It will exit without doing anything
-			#"21" ) # Help
-				#showHelp
-				#;;
 			"OK" ) # OK
 				if validateStaticIP ; then
 					setupStaticIP || EXIT=""
@@ -1474,9 +1425,6 @@ validateStaticIP()
 	fi
 	
 	if [ "${ERROR_MSG}" != "" ] ; then
-	  	#Xdialog --left --title "$L_TITLE_Netwiz_Static_IP" \
-	  			#	--msgbox "Some of the addresses provided are invalid\n${ERROR_MSG}" 0 0
-	  	# change \n to newlines for gtkdialog...
 	  	ERROR_MSG="$(echo -e "$ERROR_MSG" )"
 	  	giveErrorDialog "$L_MESSAGE_Bad_addresses
 $ERROR_MSG
@@ -1525,15 +1473,10 @@ setupStaticIP()
 	ifconfig "$INTERFACE" | grep ' UP ' >> $DEBUG_OUTPUT 2>&1
 	if [ ! $? -eq 0 ];then # wired interface (wireless will be up by now)
 		cleanUpInterface "$INTERFACE"
-		#ifconfig "$INTERFACE" up
 	fi
 	BROADCAST=$(ipcalc -b "$IP_ADDRESS" "$NETMASK" | cut -d= -f2)
-	
-	#ifconfig "$INTERFACE" down
-	
 	CONVO="ifconfig $INTERFACE $IP_ADDRESS netmask $NETMASK broadcast $BROADCAST"
 	CONVG="route add -net default gw $GATEWAY" #dev $INTERFACE"
-	
 	# Dougal: add a cleanup, just in case
 	#cleanUpInterface "$INTERFACE" >> $DEBUG_OUTPUT 2>&1
 	# do the work
@@ -1683,36 +1626,7 @@ findInterfaceInfo()
      DEVICE=${DEVICE#*:}
      INFO=$(lspci | grep -m1 "^${DEVICE} " | cut -d: -f3- | sed 's%Corporation%%g ; s%Co\.%%g ; s%Ltd\.%%g ; s% ,%,%g ; s%(rev [0-9a-z].)%%g' | tr -s ' ')
      ;;
-   usb) # need to try and find info from both /proc/bus/usb/devices and lsusb
-     ## 1) find device and vendor:
-     #DEVICE=`cat /sys/class/net/$INT/device/device 2>/dev/null`
-     #local VENDOR=`cat /sys/class/net/$INT/device/vendor 2>/dev/null`
-     ## those files might not exist...try getting by module name
-     #if [ -z "$DEVICE" -o -z "$VENDOR" ] ; then
-       #local DEVINFO="`grep -F -B5 "Driver=$FI_DRIVER" /proc/bus/usb/devices | grep  '^P' | tr ' ' '\n' | grep -E 'Vendor|ProdID' | tr '\n' ' '`"
-       #DEVICE=${DEVINFO#* } ; DEVICE=${DEVICE#*=} ; DEVICE=${DEVICE% }
-       #VENDOR=${DEVINFO%% *} ; VENDOR=${VENDOR#*=}
-     #fi
-     ## 2) try looking for info in /proc/bus/usb/devices
-     #if [ -n "$DEVICE" -a -n "$VENDOR" ] ; then
-       #grep -Fi -A2 "Vendor=$VENDOR ProdID=$DEVICE" /proc/bus/usb/devices | grep '^S:' >/tmp/proc-info
-       ### /tmp/proc-info can be blank, have lines with bad info or lines with good info...
-       #local MANU="`grep -F 'Manufacturer=' /tmp/proc-info | cut -d= -f2`"
-       #local PROD="`grep -F 'Product=' /tmp/proc-info | cut -d= -f2`"
-       #rm /tmp/proc-info
-       ### need to somehow decide if info (assuming we got it) is good
-       ### (maybe if we have MANU or not)
-       #if [ -n "$MANU" -a -n "$PROD" ] ; then
-         #case "$PROD" in
-          #*"$MANU"*) INFO="$PROD" ;;
-          #*) INFO="$MANU $PROD" ;;
-         #esac
-       #else
-         ## 3) try looking is lsusb output:
-         #INFO="`lsusb -d $VENDOR:$DEVICE 2>/dev/null| head -n1 | cut -d' ' -f7-`"
-       #fi
-     #fi
-     
+   usb)
      # possible alternative to all the above:
      # get the link to the device in dir in /sys/devices 
      # (we only want the part of the top dir for it, like usb1/1-8
@@ -1734,12 +1648,6 @@ findInterfaceInfo()
        INFO=$(modinfo $FI_DRIVER |grep -m1 '^description' |tr -s ' ' |cut -d' ' -f2-)
      fi
      ;;
-   #pcmcia) # I have no idea... try something generic
-     # 1) find device and vendor:
-   #  DEVICE=$(cat /sys/class/net/$INT/device/device)
-   #  local VENDOR=$(cat /sys/class/net/$INT/device/vendor)
-     # maybe use lspcmcia?
-   #  ;;
    firewire)
      FI_DRIVER="eth1394"
      INFO="$L_INFO_Eth_Firewire"
@@ -1755,14 +1663,11 @@ findInterfaceInfo()
 saveInterfaceSetup()
 {
   INTERFACE="$1"
-  # Dougal: use HWaddress for the config files!
-  #HWADDRESS=`cat /sys/class/net/$1/address | tr a-z A-Z`
   # need to address from ifconfig, for firewire (/sys.../address gives 24-bit)
   HWADDRESS=$(ifconfig "$1" | grep "^$1" | tr -s ' ' | cut -d' ' -f5)
   
 # create config file
 		
-  #if [ -e "/tmp/wireless-config" ] ; then
   if checkIfIsWireless "$INTERFACE" ; then
     # Dougal: only need to do this once
     if [ ! -s "${WLAN_INTERFACES_DIR}/$HWADDRESS.conf" ] ; then
