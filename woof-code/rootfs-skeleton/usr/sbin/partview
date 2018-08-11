@@ -8,6 +8,9 @@
 export TEXTDOMAIN=partview
 export OUTPUT_CHARSET=UTF-8
 
+TMPDIR=/tmp/apps/partview
+! [ -d $TMPDIR ] && mkdir -p $TMPDIR
+
 /usr/lib/gtkdialog/box_splash -close never -fontsize large -text "$(gettext 'Please wait, probing drives...')" &
 yPID=$!
 
@@ -16,14 +19,36 @@ yPID=$!
 . /etc/rc.d/functions_x #fx_* functions
 
 KERNEL=`uname -r`
-PUPVER=${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}
+PUPVER="${DISTRO_NAME} ${DISTRO_VERSION}"
 
-PARTSLIST="`probepart -k -extra-info | grep -E 'udf|iso9660|f2fs|ext2|ext3|ext4|reiserfs|btrfs|minix|msdos|vfat|exfat|ntfs'`"
+#================================================================
+
+cd_capacity() {
+	cdrom_id="$(/lib/udev/cdrom_id /dev/${1})" #ID_CDROM_* variables
+	eval "$cdrom_id"
+	while read i ; do
+		case $i in
+			"ID_CDROM_MEDIA_HDDVD"*) echo 15000000 ;;
+			"ID_CDROM_MEDIA_BD"*)    echo 25000000 ;;
+			"ID_CDROM_MEDIA_DVD_PLUS_RW_DL"*) echo 8500000 ;;
+			"ID_CDROM_MEDIA_DVD_PLUS_R_DL"*)  echo 8500000 ;;
+			"ID_CDROM_MEDIA_DVD"*) echo 4500000 ;;
+			"ID_CDROM_MEDIA_CD"*)  echo 716800 ;;
+		esac
+	done <<EOF
+$cdrom_id
+EOF
+}
+
+#================================================================
+
+
+PARTSLIST="`probepart -k -extra-info`"
 
 COUNT=0
 S='<window title="Partview" icon-name="gtk-harddisk">
  <vbox space-expand="true" space-fill="true">
-   '"`/usr/lib/gtkdialog/xml_info fixed "partition.svg" 60 "<b>Puppy Linux</b>" "$(gettext 'Version'): $PUPVER" "$(gettext 'Kernel'): $KERNEL"`"' 
+   '"`/usr/lib/gtkdialog/xml_info fixed "partition.svg" 20 "<b>Partview</b> - $PUPVER - Linux: $KERNEL"`"' 
  <vbox space-expand="true" space-fill="true">
    <vbox scrollable="true" border-width="10">'
 
@@ -31,34 +56,61 @@ while IFS="|" read -r ADEVNAME AFS ASIZE ALABEL AMNT_STATUS
 do
 	MNTSTATUS='(currently mounted)'
 	ADEVNAME="${ADEVNAME#/dev/}" #remove leading '/dev/'
+	AUSED=
+	#--
 	if fx_drv_is_optical $ADEVNAME ; then
-		ASIZE=4300000
-		dvd+rw-mediainfo /dev/${ADEVNAME} 2>&1 | grep -E 'non-DVD|not a DVD' && ASIZE=700000
+		AUSED=$ASIZE
+		ASIZE=$(cd_capacity $ADEVNAME)
+		if [ "$AFS" = "none" ] ; then
+			AUSED=0
+		fi
+	else
+		case $AFS in none|swap) AUSED=0 ;; esac
 	fi
-	AFPATTERN="^/dev/$ADEVNAME "
-	AUSED=`df -k | grep "$AFPATTERN" | head -n 1 | tr -s " " | cut -f 3 -d " "`
-	[ "$AUSED" ] && [ "$(echo -n "$AFPATTERN" | grep \/luks)" != "" ]  && ADEVNAME="${ADEVNAME#mapper/}"
-	if [ ! "$AUSED" ];then
-		MNTSTATUS='(not mounted)'
-		mkdir -p /mnt/$ADEVNAME
-		mount -t $AFS /dev/$ADEVNAME /mnt/$ADEVNAME > /dev/null 2>&1 || continue
+	if [ "$ASIZE" = "0" ] ; then
+		AUSED=0
+	fi
+	#--
+	if [ "$AUSED" = "" ] ; then
+		AFPATTERN="^/dev/$ADEVNAME "
 		AUSED=`df -k | grep "$AFPATTERN" | head -n 1 | tr -s " " | cut -f 3 -d " "`
-		umount /dev/$ADEVNAME
+		if [ "$AUSED" ] && [ "$(echo -n "$AFPATTERN" | grep \/luks)" != "" ] ; then
+			ADEVNAME="${ADEVNAME#mapper/}"
+		fi
+		if [ ! "$AUSED" ];then
+			MNTSTATUS='(not mounted)'
+			mkdir -p /mnt/$ADEVNAME
+			mount -t $AFS /dev/$ADEVNAME /mnt/$ADEVNAME > /dev/null 2>&1 || continue
+			AUSED=`df -k | grep "$AFPATTERN" | head -n 1 | tr -s " " | cut -f 3 -d " "`
+			umount /dev/$ADEVNAME
+		fi
 	fi
-
-	ATAG="$ADEVNAME [${AFS}]"
+	#--
+	if [ "$ASIZE" = "0" -o "$AFS" = "none" -o "$AFS" = "swap" ] ; then
+		ATAG="<b>$ADEVNAME</b> [<span color='"'gray30'"'>${AFS}</span>]"
+	else
+		ATAG="<b>$ADEVNAME</b> [<span color='"'blue'"'>${AFS}</span>]"
+	fi
+	#--
 	if [ "$ALABEL" ] ; then
-		ATAG="$ADEVNAME [${AFS}] (${ALABEL})"
+		ALABEL="(<span color='"'green'"'>${ALABEL}</span>)"
 	fi
- 
+	#--
 	AFREE=$(($ASIZE - $AUSED))
 	#process size...
 	ONEFREE=$( fx_format_bytes $((1024 * $AFREE)) )
 	ONESIZE=$( fx_format_bytes $((1024 * $ASIZE)) )
-	. /usr/lib/gtkdialog/svg_bar 250 "$(($AUSED*250/$ASIZE))" "${ONESIZE} / ${ONEFREE} $(gettext 'free')"  > /tmp/partview_${COUNT}.svg
-	S=$S'<hbox>
-  <text><label>'"${ATAG}"'</label></text>
-  <pixmap><input file>/tmp/partview_'${COUNT}'.svg</input></pixmap>
+	W=250
+	. /usr/lib/gtkdialog/svg_bar ${W} "$(($AUSED*${W}/$ASIZE))" "${ONESIZE} / ${ONEFREE} $(gettext 'free')"  > ${TMPDIR}/partview_${COUNT}.svg
+	S=$S'
+ <hbox>
+  <vbox>
+    <text space-expand="false" space-fill="false" use-markup="true"><label>"'"${ATAG}"'"</label></text>
+    <text space-expand="false" space-fill="false" use-markup="true"><label>"'"${ALABEL}"'"</label></text>
+  </vbox>
+  <vbox>
+    <pixmap space-expand="false" space-fill="true"><input file>'${TMPDIR}'/partview_'${COUNT}'.svg</input></pixmap>
+  </vbox>
  </hbox>'
  COUNT=$(($COUNT+1))
 done <<EOF
@@ -82,8 +134,10 @@ export PartView=$S'</vbox></vbox>
   </hbox>
 </vbox>
 </window>'
+
+#echo "$PartView" > ${TMPDIR}/partview.xml #debug
 . /usr/lib/gtkdialog/xml_info gtk #build bg_pixmap for gtk-theme
 kill $yPID
-gtkdialog -p PartView --geometry=500x400
+gtkdialog -p PartView --geometry=550x400
 
 ###END###
