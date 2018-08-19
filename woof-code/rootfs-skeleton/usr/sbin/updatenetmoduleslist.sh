@@ -3,10 +3,12 @@
 #w001 now in /usr/sbin in the distro, called from /etc/rc.d/rc.update.
 #111027 make modinfo quiet.
 
+! [ -d /tmp/services ] && mkdir -p /tmp/services
+
 KERNVER="`uname -r`"
 DRIVERSDIR="/lib/modules/$KERNVER/kernel/drivers/net"
 
-echo "Updating /etc/networkmodules..."
+echo "Updating /tmp/services/networkmodules..."
 
 ( #> /tmp/nm_rawlist$$
 
@@ -61,11 +63,6 @@ r8180/r8180.ko
 	fi
 	#-
  done < /tmp/nm_rawlist$$
-) > /etc/networkmodules-${KERNVER}
-
-# the generated networkmodules includes the kernel version
-# /etc/networkmodules is a symlink to that file
-rm -f /etc/networkmodules /tmp/nm_rawlist$$
-ln -sv networkmodules-${KERNVER} /etc/networkmodules
+) > /tmp/services/networkmodules
 
 ### END ###

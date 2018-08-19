@@ -97,7 +97,7 @@ else
 	DEBUG_OUTPUT=/dev/null
 fi
 
-if [ ! -f /etc/networkmodules ] ; then
+if [ ! -f /tmp/services/networkmodules ] ; then
 	updatenetmoduleslist.sh
 fi
 
@@ -288,7 +288,7 @@ showLoadModuleWindow()
   findLoadedModules
   echo -n "" > /tmp/ethmoduleyesload.txt
   # Dougal: create list of modules (pipe delimited)
-  sort /etc/networkmodules | tr '"' '|' | tr ':' '|' | sed 's%|$%%g' | tr -s ' ' >/tmp/module-list
+  sort /tmp/services/networkmodules | tr '"' '|' | tr ':' '|' | sed 's%|$%%g' | tr -s ' ' >/tmp/module-list
 
   export NETWIZ_LOAD_MODULE_DIALOG="<window title=\"$L_TITLE_Load_Network_Module\" icon-name=\"gtk-execute\" window-position=\"1\">
 <vbox>
@@ -956,7 +956,7 @@ findLoadedModules ()
   echo -n " " > /tmp/loadedeth.txt
 
   LOADED_MODULES="$(lsmod | cut -f1 -d' ' | sort)"
-  NETWORK_MODULES=" $(cat /etc/networkmodules /etc/networkusermodules  2>/dev/null | cut -f1 -d' ' | tr '\n' ' ') "
+  NETWORK_MODULES=" $(cat /tmp/services/networkmodules /etc/networkusermodules  2>/dev/null | cut -f1 -d' ' | tr '\n' ' ') "
 
   COUNT_MOD=0
   for MOD in $LOADED_MODULES
@@ -1599,15 +1599,33 @@ findInterfaceInfo()
   TYPE="" 
   INFO=""
     
-  local DEVICE=$(readlink /sys/class/net/$INT/device)
-  DEVICE=${DEVICE##*/}
+  FINDTYPE="`readlink /sys/class/net/$INT/device/driver`"
+  local DEVICE=${FINDTYPE##*/}
   
-  FI_DRIVER=$(readlink /sys/class/net/$INT/device/driver)
+  FI_DRIVER=${DEVICE}
+  IF_BUS=
+  IF_INFO=
+  while read F1 F2plus ; do
+	case $F1 in
+		"description:") IF_INFO="$F2plus" ;; #description: Support for Atheros 802.11n wireless LAN cards.
+		"alias:") IF_BUS="${F2plus%%:*}" ;;  #alias: pci:v0000168Cd00000027sv*sd*bc*sc*i*
+	esac
+  done <<< "$(modinfo $FI_DRIVER 2>/dev/null)"
+  if [ ! "$IF_BUS" ] && [ "$FINDTYPE" ];then
+	case $FINDTYPE in
+		*/bus/usb*) IF_BUS="usb" ;;
+		*/bus/pci*) IF_BUS="pci" ;;
+		*/bus/ieee1394*) TYPE="firewire" ;;
+	esac
+  fi
+  TYPE=${IF_BUS}
+  INFO=${IF_INFO}  
+
   case "$FI_DRIVER" in
    */bus/usb*) TYPE="usb" ;;
    */bus/ieee1394*) TYPE="firewire" ;;
    *) # pcmcia and pci apparently both appear as pci...
-      if grep "^${FI_DRIVER##*/} " /etc/networkmodules |grep -q 'pcmcia:' ; then
+      if grep "^${FI_DRIVER##*/} " /tmp/services/networkmodules |grep -q 'pcmcia:' ; then
         TYPE="pcmcia"
       else
         TYPE="pci"
