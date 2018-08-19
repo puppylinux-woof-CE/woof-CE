@@ -166,11 +166,6 @@ if [ "$CURRENTWM" != "jwm" -a "$CURRENTWM" != "icewm" ];then
  [ "$desktop" = "rox" ] && [ -f /usr/bin/lxpanel ] && lxpanel &
 fi
 
-# enable xorg mousekeys
-# they should be enabled by default somewhere in /etc/X11/xkb
-# but who knows
-setxkbmap -option keypad:pointerkeys
-
 which $CURRENTWM && exec $CURRENTWM
 [ -x $CURRENTWM ] && exec $CURRENTWM
 [ "$desktop" = "rox" ] && exec jwm
