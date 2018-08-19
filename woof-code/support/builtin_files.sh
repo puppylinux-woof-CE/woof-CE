@@ -35,7 +35,7 @@ do
 		sed -e "s%^\\.\\./packages-${DISTRO_FILE_PREFIX}/${ONEGENNAME}/%/%" | \
 		sort > /tmp/0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}/${ONEGENNAME}.files
 	sync
-	mkdir -p 0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}/root/.packages/builtin_files
+	mkdir -p 0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${PACKAGES_DIR}/builtin_files
 	(
 	while read ONELINE
 	do
@@ -46,7 +46,7 @@ do
 			echo "${ONELINE}" #only files that are in rootfs-complete
 		fi
 	done < /tmp/0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}/${ONEGENNAME}.files
-	) > 0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}/root/.packages/builtin_files/${ONEGENNAME}
+	) > 0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${PACKAGES_DIR}/builtin_files/${ONEGENNAME}
 done
 
 # do the same for rootfs-packages
@@ -59,7 +59,7 @@ if [ -f /tmp/rootfs-packages.specs ];then
 			sed -e "s%^\\.\\./rootfs-packages/${PKGL}/%/%" | \
 			sort > /tmp/0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}/${PKGL}.files
 		sync
-		mkdir -p 0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}/root/.packages/builtin_files
+		mkdir -p 0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${PACKAGES_DIR}/builtin_files
 		while read ONELINE
 		do
 			case "$ONELINE" in .*) continue ;; esac #catch ex: ../packages-qrky/abiword
@@ -67,7 +67,7 @@ if [ -f /tmp/rootfs-packages.specs ];then
 			[ "${NEWPATH}" = "" ] && continue #ignore top-level files.
 			if [ -e "rootfs-complete${ONELINE}" ];then
 				[ -d "rootfs-complete${ONELINE}" ] && continue #a symlink to a directory
-				echo "${ONELINE}" >> 0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}/root/.packages/builtin_files/${PKGL}
+				echo "${ONELINE}" >> 0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${PACKAGES_DIR}/builtin_files/${PKGL}
 			fi
 		done < /tmp/0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}/${PKGL}.files
 	done < /tmp/rootfs-packages.specs
@@ -82,9 +82,9 @@ dir2tgz 0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}
 tgz2pet 0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}.tar.gz
 rm -rf /tmp/0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}
 echo
-echo "installing pkg lists into rootfs-complete/root/.packages/builtin_files..."
-cp -a -f 0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}/root/.packages/builtin_files \
-	rootfs-complete/root/.packages
+echo "installing pkg lists into rootfs-complete${PACKAGES_DIR}/builtin_files..."
+cp -a -f 0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${PACKAGES_DIR}/builtin_files \
+	rootfs-complete${PACKAGES_DIR}
 echo '...done'
 
 ### END ###
