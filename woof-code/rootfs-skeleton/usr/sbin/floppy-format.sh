@@ -104,6 +104,7 @@ while :; do
  if [ $? -eq 0 ];then #=0 if string found
   CURRENTMNT="`mount | grep "/dev/fd0" | cut -f 3 -d ' '`"
   #this tells Rox to close any window with this directory and subdirectories open...
+  rox -D "$CURRENTMNT"
   sync
   umount "$CURRENTMNT" #/mnt/floppy
   if [ $? -ne 0 ];then
