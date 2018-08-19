@@ -97,6 +97,10 @@ else
 	DEBUG_OUTPUT=/dev/null
 fi
 
+if [ ! -f /etc/networkmodules ] ; then
+	updatenetmoduleslist.sh
+fi
+
 # basic configuration info for interface
 # named $HWADDRESS.conf (assuming the HWaddress is more unique than interface name...)
 # mainly intended to know if interface has been "configured"...
