@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/ash
 # Barry Kauler 2011 GPL3 (/usr/share/doc/legal)
 #pngoverlay.sh is an alternative to pngoverlay written by vovchik (in BaCon)
 # (vovchik's pngoverlay requires X to be running, which may be a disadvantage)

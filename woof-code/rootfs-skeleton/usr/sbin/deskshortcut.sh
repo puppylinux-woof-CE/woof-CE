@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/ash
 #Lesser GPL licence v2 (http://www.fsf.org/licensing/licenses/lgpl.html)
 #this is very primitive script to create desktop shortcut.
 

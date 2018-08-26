@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/ash
 #(c) Copyright Barry Kauler 2009, puppylinux.com.
 #2009 Lesser GPL licence v2 (http://www.fsf.org/licensing/licenses/lgpl.html)
 #generates index.html master help page. called from petget, rc.update,
@@ -14,7 +14,7 @@ export LANG=C
 . /etc/DISTRO_SPECS #has DISTRO_BINARY_COMPAT, DISTRO_COMPAT_VERSION, DISTRO_PUPPYDATE
 . /root/.packages/DISTRO_PKGS_SPECS
 
-WKGDIR="`pwd`"
+WKGDIR=$PWD
 
 #120225 this is done in Woof by rootfs-skeleton/pinstall.sh, but do need to do it
 #here to support language translations (see /usr/share/sss/doc_strings)...
@@ -44,8 +44,6 @@ fi
 #  -e '\% %d' = ignore .desktop files with spaces, otherwise everything fails..
 PKGINFO1="`ls -1 /usr/share/applications | sed -e 's%^%/usr/share/applications/%' -e '\% %d' | xargs cat - | grep '^Name=' | cut -f 2 -d '='`"
 #...normal format of each entry is 'name description', ex: 'Geany text editor'.
-
-EXCLLISTsd=" 0rootfs_skeleton autologin bootflash burniso2cd cd/dvd check configure desktop format network pupdvdtool wallpaper pbackup pburn pcdripper pdict pdisk pdvdrsab pmetatagger pschedule pstopwatch prename pprocess pmirror pfind pcdripper pmount puppy pupctorrent pupscan pupx pwireless set text "
 
 cp -f /usr/share/doc/index.html.top /tmp/newinfoindex.xml
 

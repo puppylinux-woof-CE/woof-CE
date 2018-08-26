@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/ash
 case $1 in
 	low|--low) 
 		DPM=battery PERF=low

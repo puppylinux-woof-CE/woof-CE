@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/ash
 
 # this may fix intel crashes on some chips
 # see http://www.murga-linux.com/puppy/viewtopic.php?p=955636#955636

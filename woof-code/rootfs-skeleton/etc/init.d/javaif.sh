@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/ash
 # /etc/init.d/javaif.sh
 # Derived from /etc/init.d/java.sfs.sh in java-sfs.sh by Uten
 #set -x #DEBUG
@@ -6,7 +6,11 @@
 [ "$1" ] || exit
 ARGUMENT="$1"
 
-function update_configuration () {
+#==============================================================
+#                      FUNCTIONS
+#==============================================================
+
+update_configuration () {
     JAVAHOME="$(javaiffind)"
     local UPDATECONFIG=false
     if [ "$JAVAHOME" ]; then
@@ -34,7 +38,7 @@ function update_configuration () {
     fi
 }
 
-function add_plugin_links() {
+add_plugin_links() {
     for ONEBROWSER in $BROWSERS; do
      if [ -d /usr/lib/$ONEBROWSER ]; then
       for ONEPLUGIN in $BROWSERPLUGINS; do
@@ -47,7 +51,7 @@ function add_plugin_links() {
     done
 }
 
-function remove_plugin_links() {
+remove_plugin_links() {
     for ONEBROWSER in $BROWSERS; do
      if [ -d /usr/lib/$ONEBROWSER ]; then
       for ONEPLUGIN in $BROWSERPLUGINS; do
@@ -59,7 +63,7 @@ function remove_plugin_links() {
     done
 }
 
-function add_icon_links() {
+add_icon_links() {
     for ONEIMAGE in $IMAGES; do
      if [ -f $JREHOME/lib/images/icons/$ONEIMAGE ]; then
       ln -sf $JREHOME/lib/images/icons/$ONEIMAGE /usr/share/pixmaps/
@@ -101,27 +105,39 @@ function add_icon_links() {
     done
 }
 
-function remove_icon_links() {
+remove_icon_links() {
     for ONEIMAGE in $IMAGES; do
-     rm -f /usr/share/pixmaps/$ONEIMAGE
+      [ -f /usr/share/pixmaps/$ONEIMAGE ] && rm -f /usr/share/pixmaps/$ONEIMAGE
     done
     for ONEMAINICON in $MAINICONS; do
-     rm -f /usr/local/lib/X11/mini-icons/$ONEMAINICON
+      [ -f /usr/local/lib/X11/mini-icons/$ONEMAINICON ] && rm -f /usr/local/lib/X11/mini-icons/$ONEMAINICON
     done
     for ONEMIMEICON in $MIMEICONS; do
      [ "$ROXMIMEPATH" ] && rm -f $ROXMIMEPATH/$ONEMIMEICON
     done
     for ONEGROUP in hicolor HighContrast HighContrastInverse LowContrast; do
      for ONEMAINICON in $MAINICONS; do
-      rm -f /usr/share/icons/$ONEGROUP/16x16/apps/$ONEMAINICON
-      rm -f /usr/share/icons/$ONEGROUP/48x48/apps/$ONEMAINICON
+       if [ -f /usr/share/icons/$ONEGROUP/16x16/apps/$ONEMAINICON ] ; then
+         rm -f /usr/share/icons/$ONEGROUP/16x16/apps/$ONEMAINICON
+       fi
+       if [ -f /usr/share/icons/$ONEGROUP/48x48/apps/$ONEMAINICON ] ; then
+         rm -f /usr/share/icons/$ONEGROUP/48x48/apps/$ONEMAINICON
+       fi
      done
      for ONEMIMEICON in $MIMEICONS; do
-      rm -f /usr/share/icons/$ONEGROUP/16x16/mimetypes/gnome-mime-$ONEMIMEICON
-      rm -f /usr/share/icons/$ONEGROUP/48x48/mimetypes/gnome-mime-$ONEMIMEICON
+       if [ -f /usr/share/icons/$ONEGROUP/16x16/mimetypes/gnome-mime-$ONEMIMEICON ] ; then
+         rm -f /usr/share/icons/$ONEGROUP/16x16/mimetypes/gnome-mime-$ONEMIMEICON
+       fi
+       if [ -f /usr/share/icons/$ONEGROUP/48x48/mimetypes/gnome-mime-$ONEMIMEICON ] ; then
+         rm -f /usr/share/icons/$ONEGROUP/48x48/mimetypes/gnome-mime-$ONEMIMEICON
+       fi
      done
     done
 }
+
+#==============================================================
+#                      MAIN
+#==============================================================
 
 case "$ARGUMENT" in
  start|change)
@@ -132,7 +148,7 @@ case "$ARGUMENT" in
   PREVJREHOME="$JREHOME"
   PREVVERSION="$JAVAVERSION"
   FORCEEXECPATH=false
-  ROXMIMEPATH=$(find /usr -maxdepth 5 -name "MIME" | grep -m 1 'ROX-Filer')
+  ROXMIMEPATH=/usr/local/apps/ROX-Filer/ROX/MIME
   update_configuration
   if [ "$JAVAHOME" ]; then
    if [ "$PREVJREHOME" ]; then
