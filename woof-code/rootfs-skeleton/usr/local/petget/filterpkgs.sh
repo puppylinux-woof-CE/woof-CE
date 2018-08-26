@@ -69,7 +69,7 @@ fltrREPO_TRIAD="$FIRST_DB" #ex: slackware-12.2-official
 #or, a selection was made in the main gui (pkg_chooser.sh)...
 [ -f /tmp/petget/current-repo-triad ] && fltrREPO_TRIAD="`cat /tmp/petget/current-repo-triad`"
 
-REPO_FILE="`find /root/.packages -type f -name "Packages-${fltrREPO_TRIAD}*" | head -n 1`"
+REPO_FILE="`find /root/.packages/ -type f -name "Packages-${fltrREPO_TRIAD}*" | head -n 1`"
 
 #choose a category in the repo...
 if [ $1 ];then #$1 exs: Document, Internet, Graphic, Setup, Desktop

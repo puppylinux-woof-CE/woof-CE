@@ -101,7 +101,7 @@ if [ -f /root/.packages/${DB_pkgname}.files ];then
  ###+++2011-12-27 KRG
 else
  firstchar=`echo ${DB_pkgname} | cut -c 1`
- possiblePKGS=`find /root/.packages -type f -iname "$firstchar*.files"`
+ possiblePKGS=`find /root/.packages/ -type f -iname "$firstchar*.files"`
  possible5=`echo "$possiblePKGS" | head -n5`
  count=`echo "$possiblePKGS" | wc -l`
  [ ! "$count" ] && count=0
