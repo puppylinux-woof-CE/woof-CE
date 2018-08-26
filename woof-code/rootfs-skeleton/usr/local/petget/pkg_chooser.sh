@@ -295,9 +295,9 @@ if [ -s /root/.packages/user-installed-packages ];then
  case $DISTRO_BINARY_COMPAT in
   ubuntu|debian|devuan|raspbian)
    #120904 bugfix, was very slow...
-   MODIF1=`stat --format=%Y /root/.packages/user-installed-packages` #seconds since epoch.
+   MODIF1=`stat -c %Y /root/.packages/user-installed-packages` #seconds since epoch.
    MODIF2=0
-   [ -f /var/local/petget/installed_alt_ptns_pet_user ] && MODIF2=`stat --format=%Y /var/local/petget/installed_alt_ptns_pet_user`
+   [ -f /var/local/petget/installed_alt_ptns_pet_user ] && MODIF2=`stat -c %Y /var/local/petget/installed_alt_ptns_pet_user`
    if [ $MODIF1 -gt $MODIF2 ];then
     INSTALLED_PTNS_PET="$(grep '\.pet|' /root/.packages/user-installed-packages | cut -f 2 -d '|')"
     if [ "$INSTALLED_PTNS_PET" != "" ];then

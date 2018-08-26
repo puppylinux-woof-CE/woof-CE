@@ -148,7 +148,7 @@ fi
 
 DIRECTSAVEPATH=""
 read -r TFS TMAX TUSED TMPK TPERCENT TMNTPT <<<$(df -k | grep -w '^tmpfs') #free space in /tmp
-SIZEB=`stat --format=%s "${DLPKG_PATH}"/${DLPKG_BASE}`
+SIZEB=`stat -c %s "${DLPKG_PATH}"/${DLPKG_BASE}`
 SIZEK=$(( $SIZEB / 1024 ))
 EXPK=$(( $SIZEK * 5)) #estimated worst-case expanded size.
 if [ "$PUPMODE" = "2" ]; then # from BK's quirky6.1
