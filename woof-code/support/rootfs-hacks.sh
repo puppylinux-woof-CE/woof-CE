@@ -4,13 +4,8 @@ SR=
 [ "$1" ] && SR="$1" #SYSROOT
 
 # xmessage symlink
-if [ ! -L ${SR}/usr/bin/xmessage ] && [ -f ${SR}/usr/bin/gxmessage ] ; then
+if [ ! -L ${SR}/usr/bin/xmessage ] ; then
 	ln -snfv gxmessage ${SR}/usr/bin/xmessage
-fi
-
-# pupmessage symlink
-if [ ! -e ${SR}/usr/bin/pupmessage ] && [ -f ${SR}/usr/bin/gxmessage ] ; then
-	ln -snfv gxmessage ${SR}/usr/bin/pupmessage
 fi
 
 # rxvt-unicode symlink
