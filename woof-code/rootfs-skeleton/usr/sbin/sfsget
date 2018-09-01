@@ -3,223 +3,283 @@
 #Licence 2011 GPL V3 (/usr/share/doc/legal)
 #$1 is optional name of an sfs file passed on commandline, download it. ex: devx.sfs
 #$1 optional prefix, sub-directory on the official download URL. ex: wary-5.2/devx.sfs
-#110402 first version.
-#110422 DISTRO_VERSION variable now has dotted format. note, also now using full dotted version# in puppy filenames.
-#110813 bug fix, sfs file has '_' in name.
-#120202 BK: internationalized.
-#120224 add slacko support.
-#121103 file DISTRO_SPECS now has variable DISTRO_DB_SUBNAME.
-#130128 also exclude udf and audiocd.
 
 export TEXTDOMAIN=sfsget
 export OUTPUT_CHARSET=UTF-8
 
-SFS_FILE=''; SFS_DIR=''
-if [ $1 ];then
- [ "`echo "$1" | grep '\.sfs$'`" = "" ] && exit 1
- SFS_FILE="`basename $1`"
- SFS_DIR="dirname $1"
+scriptdir=${0%/*}
+
+CONF_FILE=sfsget.conf
+SFS_FILE=''
+
+if [ "$SFS_REPOS" ] ; then
+	# script has exported variables..
+	case $1 in *.conf) shift ;; esac
+else
+	# sfsget.conf
+	case $1 in
+		*.conf)
+			if [ -f $1 ] ; then
+				KONF=$(realpath $1)
+			else
+				echo "File not found: $1"
+				exit 1
+			fi
+			shift
+			;;
+		*)
+			if [ -f ${scriptdir}/${CONF_FILE} ] ; then
+				KONF=${scriptdir}/${CONF_FILE}
+			elif [ -f /etc/${CONF_FILE} ] ; then
+				KONF=/etc/${CONF_FILE}
+			elif [ -f /root/.packages/${CONF_FILE} ] ; then
+				KONF=/root/.packages/${CONF_FILE}
+			#else
+				#echo "Need ${CONF_FILE}"
+				#exit
+			fi
+			;;
+	esac
+	if [ -f $KONF ] ; then #CONF_FILE is optional...
+		. "$KONF"
+		echo
+		echo "Using: $KONF"
+		echo
+	fi
 fi
+
+case $1 in
+	*.sfs|*.pet|*.txz|*.tgz|*.deb)
+		SFS_FILE="`basename $1`"
+		SFS_DIR2="$(dirname $1)"
+		[ "$SFS_DIR2" != "." ] && SFS_DIR="$SFS_DIR2"
+		;;
+	*) [ "$1" ] && exit 1
+		;;
+esac
 
 . /etc/rc.d/PUPSTATE #has PUP_HOME
 . /etc/DISTRO_SPECS #has DISTRO_BINARY_COMPAT, DISTRO_COMPAT_VERSION DISTRO_DB_SUBNAME
 . /root/.packages/DISTRO_PET_REPOS #has PET_REPOS, PACKAGELISTS_PET_ORDER
 
-if [ "`echo -n "$DISTRO_VERSION" | grep '\.'`" = "" ];then #110422
- #convert version to abreviated-dotted, ex1: 142 to 1.4.2  ex2: 150 to 1.5
- for ONECNT in 1 2 3
- do
-  ONEDIGIT="`echo -n $DISTRO_VERSION | cut -c $ONECNT`"
-  case $ONECNT in
-   1)   DOTVER=$ONEDIGIT  ;;
-   2)   DOTVER="${DOTVER}.${ONEDIGIT}"  ;;
-   3)   [ "$ONEDIGIT" != "0" ] && DOTVER="${DOTVER}.${ONEDIGIT}"  ;;
-  esac
- done
-else
- DOTVER="$DISTRO_VERSION"
+export TMPDIR=/tmp/apps/sfsget
+! [ -d $TMPDIR ] && mkdir -p ${TMPDIR}
+
+#==================================================================
+
+echo -n > /tmp/petget_repos #used by /usr/local/pteget/testurls.sh
+
+if ! [ "$SFS_REPOS" ] ; then
+	x_REPOS="`echo -n "$PET_REPOS" | tr ' ' '\n'`"
+	SFS_DIR="pet_packages-${DISTRO_DB_SUBNAME}" # default
+	SFS_REPOS0="`echo -n "$x_REPOS" | tr -s ' ' | tr ' ' '\n' | sort --key=1 --field-separator="|" --unique | cut -f 1,2 -d '|'`"
+	#ex: ibiblio.org|http://distro.ibiblio.org//quirky
+	SFS_REPOS="`echo -n "$SFS_REPOS0" | tr '\n' ' '`"
+	echo "$SFS_REPOS0" > /tmp/petget_repos
+else #from ${CONF_FILE}
+	echo "$SFS_REPOS" | while read i
+	do
+		echo "z|${i}" >> /tmp/petget_repos
+	done
+	SFS_REPOS0="`cat /tmp/petget_repos`"
 fi
 
-#SFS_DIR0 is the release-dir, SFS_DIR1 as general collection of sfs's...
-MAJNUM="`echo -n "$DOTVER" | cut -f 1 -d '.'`" #110422
-x_REPOS="`echo -n "$PET_REPOS" | tr ' ' '\n' | grep -v '/quirky'`"
-SFS_DIR0="${DISTRO_FILE_PREFIX}-${DOTVER}" #121103
-SFS_DIR1="pet_packages-${DISTRO_DB_SUBNAME}" #121103
-SFS_DIR2="$(cat /root/.packages/Custom_SFSs)"
-
-SFS_REPOS0="`echo -n "$x_REPOS" | tr -s ' ' | tr ' ' '\n' | sort --key=1 --field-separator="|" --unique | cut -f 1,2 -d '|'`"
-
-#ex: ibiblio.org|http://distro.ibiblio.org//quirky
-SFS_REPOS="`echo -n "$SFS_REPOS0" | tr '\n' ' '`"
-echo "$SFS_REPOS0" > /tmp/petget_repos #used by /usr/local/pteget/testurls.sh
-
-#probe remote site...
-yaf-splash -placement center -bg yellow -close never -fontsize large -text "$(gettext 'Please wait, probing primary remote site...')" &
-YPID=$!
-echo -n '' > /tmp/sfsget-probe
-echo -n '' > /tmp/sfsget-probe1
-echo -n '' > /tmp/sfsget-probe2
-xSFS_FILE="$SFS_FILE"
-[ ! "$SFS_FILE" ] && xSFS_FILE='*.sfs'
 PRIMARYREPO="`echo "$SFS_REPOS0" | grep 'distro\.ibiblio\.org' | head -n 1 | cut -f 2 -d '|'`"
-if [ "$SFS_DIR" ];then
- SFS_DIR0="$SFS_DIR"
- wget -4 -t 2 -T 20 --waitretry=20 --spider --recursive --level=1 --accept "${xSFS_FILE}" -S ${PRIMARYREPO}/${SFS_DIR}/  2>&1 | grep '\.sfs$' | rev | cut -f 1 -d '/' | rev > /tmp/sfsget-probe
+[ -z "$PRIMARYREPO" ] && PRIMARYREPO="`echo "$SFS_REPOS0" | head -n 1 | cut -f 2 -d '|'`"
+#echo $PRIMARYREPO
+
+if [ "$SFS_PKGS_DBFILE" ] ; then #${CONF_FILE}
+	wget "$SFS_PKGS_DBFILE" -O ${TMPDIR}/sfsget-pkgs
+	SFS_PKGS="`cat ${TMPDIR}/sfsget-pkgs`"
+elif [ "$SFS_PKGS" ] ; then #${CONF_FILE}
+	echo "$SFS_PKGS" | sed 's|.*/||' > ${TMPDIR}/sfsget-pkgs
 else
- wget -4 -t 2 -T 20 --waitretry=20 --spider --recursive --level=1 --accept "${xSFS_FILE}" -S ${PRIMARYREPO}/${SFS_DIR0}/  2>&1 | grep '\.sfs$' | rev | cut -f 1 -d '/' | rev > /tmp/sfsget-probe
- [ "$SFS_DIR1" ] && wget -4 -t 2 -T 20 --waitretry=20 --spider --recursive --level=1 --accept "${xSFS_FILE}" -S ${PRIMARYREPO}/${SFS_DIR1}/  2>&1 | grep '\.sfs$' | rev | cut -f 1 -d '/' | rev > /tmp/sfsget-probe1
- [ "$SFS_DIR2" ] && wget -4 -t 2 -T 20 --waitretry=20 --spider --recursive --level=1 --accept "${xSFS_FILE}" -S ${PRIMARYREPO}/${SFS_DIR2}/  2>&1 | grep '\.sfs$' | rev | cut -f 1 -d '/' | rev > /tmp/sfsget-probe2
+	if [ "$SFS_FILE" ];then
+		# will download file..
+		echo -n
+	else
+		#probe remote site...
+		yaf-splash -placement center -bg yellow -close never -fontsize large -text "$(gettext 'Please wait, probing primary remote site...')" &
+		YPID=$!
+		rm -f ${TMPDIR}/sfsget-pkgs.raw.txt
+		wget -4 -t 2 -T 20 --waitretry=20 ${PRIMARYREPO}/${SFS_DIR} -O ${TMPDIR}/sfsget-pkgs.raw.txt
+		cat ${TMPDIR}/sfsget-pkgs.raw.txt | grep -o '.*\.sfs' | \
+			sed -e 's|.*>||' -e 's|.*/||' | grep -v '^ ' | sort -u > ${TMPDIR}/sfsget-pkgs
+		sync
+		kill $YPID
+	fi
 fi
-sync
-kill $YPID
 
-if [ ! -s /tmp/sfsget-probe ];then
- if [ ! -s /tmp/sfsget-probe1 ];then
-  if [ ! -s /tmp/sfsget-probe2 ];then
-   yaf-splash -placement center -bg red -close box -fontsize large -text "$(gettext 'Either your Internet connection is not working, or the primary repository is down. Aborting SFS Downloader')"
-   exit 1
-  fi
- fi
+if [ ! -s ${TMPDIR}/sfsget-pkgs ];then
+	yaf-splash -placement center -bg red -close box -fontsize large -text "$(gettext 'Either your Internet connection is not working, or the primary repository is down. Aborting SFS Downloader')"
+	exit 1
 fi
 
-if [ ! "$SFS_FILE" ];then
- #ask which sfs to download...
- SFSBUTTONS=''
- for ONESFS in `cat /tmp/sfsget-probe /tmp/sfsget-probe1 /tmp/sfsget-probe2 | sort -u | tr '\n' ' '`
- do
-  SFSBUTTONS="${SFSBUTTONS}<radiobutton><label>${ONESFS}</label><variable>RADIO_URL_${ONESFS}</variable></radiobutton>"
- done
- export SFS_DIALOG="<window title=\"$(gettext 'SFS Downloader: choose file')\" default_height=\"400\" default_width=\"400\" resizable=\"true\" icon-name=\"gtk-about\" window_position=\"1\">
- <vbox>
-  <text><label>$(gettext 'Please choose an SFS file that you would like to download:')</label></text>
-  <frame>
-    <vbox scrollable=\"true\">
-        ${SFSBUTTONS} 
-    </vbox>
-  </frame>
-  <hbox>
-   <button ok></button>
-   <button cancel></button>
-  </hbox>
- </vbox>
- </window>"
- RETPARAMS="`gtkdialog --program=SFS_DIALOG`"
- [ "`echo "$RETPARAMS" | grep '^EXIT' | grep 'OK'`" = "" ] && exit 1
- SFS_FILE="`echo "$RETPARAMS" | grep 'RADIO_URL_' | grep '"true"' | cut -f 1 -d '=' | cut -f 3-9 -d '_'`" #110813 bug fix.
-fi
-[ "`grep "$SFS_FILE" /tmp/sfsget-probe`" != "" ] && SFS_DIR="$SFS_DIR0"
-[ ! "$SFS_DIR" ] && [ "$SFS_DIR1" ] && [ "`grep "$SFS_FILE" /tmp/sfsget-probe1`" != "" ] && SFS_DIR="$SFS_DIR1"
-[ ! "$SFS_DIR" ] && [ "$SFS_DIR2" ] && [ "`grep "$SFS_FILE" /tmp/sfsget-probe2`" != "" ] && SFS_DIR="$SFS_DIR2"
+#==================================================================s
 
-#decide where to download to...
+if [ ! "$SFS_FILE" ];then #ask which sfs to download...
+	SFSBUTTONS=''
+	for ONESFS in `cat ${TMPDIR}/sfsget-pkgs | sort -u | grep -E '*\.sfs$|*\.pet$|*\.txz$|*\.deb$' | tr '\n' ' '`
+	do
+		SFSBUTTONS="${SFSBUTTONS}
+			<radiobutton><label>${ONESFS}</label><variable>RADIO_URL_${ONESFS}</variable></radiobutton>"
+	done
+	export SFS_DIALOG='
+<window title="'$(gettext 'SFS Downloader: choose file')'" default_height="400" default_width="400" resizable="true" icon-name="gtk-about" window_position="1">
+<vbox>
+	<text><label>'$(gettext 'Please choose an SFS file that you would like to download:')'</label></text>
+	<frame>
+		<vbox scrollable="true">
+			'${SFSBUTTONS}'
+		</vbox>
+	</frame>
+	<hbox>
+		<button ok></button>
+		<button cancel></button>
+	</hbox>
+</vbox>
+</window>'
+	echo "$SFS_DIALOG" > ${TMPDIR}/dialog_SFS_DIALOG.xml
+	RETPARAMS="`gtkdialog --program=SFS_DIALOG`"
+	[ "`echo "$RETPARAMS" | grep '^EXIT' | grep 'OK'`" = "" ] && exit 1
+	SFS_FILE="`echo "$RETPARAMS" | grep 'RADIO_URL_' | grep '"true"' | cut -f 1 -d '=' | cut -f 3-9 -d '_'`" #110813 bug fix.
+fi
+
+if [ "$SFS_PKGS" ] ; then
+	xFILE=$(echo "$SFS_PKGS" | grep "${SFS_FILE}$")
+	SFS_FILE=$(basename $xFILE)
+	SFS_DIR=$(dirname $xFILE)
+	echo "$SFS_DIR - $SFS_FILE" #debug
+fi
+
+#==================================================================
+#             decide where to download to...
+#==================================================================
 #where the save-file is, or if PUPMODE=5 then ask...
-DLPART=''; RUNBOOTMGR=''
+DLPART=''
+
 if [ -L /mnt/home ];then
- DLMOUNT="/mnt/home"
- DLMOUNT1="`readlink /mnt/home`"
- REGEXd=" ${DLMOUNT1}$"
- DLPART="`df | grep "$REGEXd" | cut -f 1 -d ' ' | grep '/dev/' | cut -f 3 -d '/'`" #ex: sda1
+	 DLMOUNT="/mnt/home"
+	 DLMOUNT1="`readlink /mnt/home`"
+	 DLPART="`df | grep " ${DLMOUNT1}$" | cut -f 1 -d ' ' | grep '/dev/' | cut -f 3 -d '/'`" #ex: sda1
+	 DLDIR_RAD='<radiobutton><label>"'${DLPART}/'"</label><variable>RADIO_DLDIR</variable></radiobutton>'
+	 if [ "$PSUBDIR" ] ; then
+		DLDIR_RAD='<radiobutton><label>"'${DLPART}${PSUBDIR}'"</label><variable>RADIO_DLDIR_PSUBDIR</variable></radiobutton>
+'"${DLDIR_RAD}"''
+	 fi
 fi
+
 if [ "$DLPART" ];then
- RUNBOOTMGR='yes'
- cd $DLMOUNT
+	cd $DLMOUNT
 else
- DLPARTS="`probepart -m | grep -v -E 'none|iso9660|swap|udf|audiocd' | tr '\n' ' '`" #130128 also exclude udf and audiocd.
- DLBUTTONS=""
- [ "$DLPARTS" = "" ] && DLBUTTONS="<text use-markup=\"true\"><label>\"<b>$(gettext 'NO PARTITIONS FOUND')</b>\"</label></text>"
- for ONEDLSPEC in $DLPARTS
- do
-  DEVNODE="`echo -n "$ONEDLSPEC" | cut -f 1 -d '|' | cut -f 3 -d '/'`"
-  DEVFS="`echo -n "$ONEDLSPEC" | cut -f 2 -d '|'`"
-  DEVSIZEM="`echo -n "$ONEDLSPEC" | cut -f 3 -d '|'`"
-  DLBUTTONS="${DLBUTTONS}<radiobutton><label>${DEVNODE} $(gettext 'filesystem:') ${DEVFS} $(gettext 'size:') ${DEVSIZEM}MB</label><variable>RADIO_URL_${DEVNODE}</variable></radiobutton>"
- done
- export DL_DIALOG="<window title=\"$(gettext 'SFS Downloader: destination')\" icon-name=\"gtk-about\" window_position=\"1\">
- <vbox>
-  <text><label>$(gettext 'This is a first boot of Puppy and you have not yet saved a session. You want to download') ${SFS_FILE}, $(gettext "and this needs to be downloaded to the same partition in which you will be creating the session save-file. Then, at next boot, Puppy will load the session and will also see the SFS file and be able to load that also (a 'zdrv' will load automatically, others need to be manually selected in te BootManager -- see System menu)")</label></text>
-  <text><label>$(gettext 'Here is a list of suitable partitions. Whichever one you choose, at shutdown you will be asked to save the session and be sure to choose the same partition. Well, even if you download it to the wrong place, you can move it afterward! Click the one you want:')</label></text>
-  <frame>
-   ${DLBUTTONS}
-  </frame>
-  <hbox>
-   <button ok></button>
-   <button cancel></button>
-  </hbox>
- </vbox>
- </window>"
- RETPARAMS="`gtkdialog --program=DL_DIALOG`"
- [ "`echo "$RETPARAMS" | grep '^EXIT' | grep 'OK'`" = "" ] && exit 1
- DLPART="`echo "$RETPARAMS" | grep 'RADIO_URL_' | grep '"true"' | cut -f 1 -d '=' | cut -f 3 -d '_'`"
- REGEXd="/dev/${DLPART} "
- DLMOUNT="`mount | grep "$REGEXd" | cut -f 3 -d ' '`"
- if [ "$DLMOUNT" = "" ];then
-  mkdir -p /mnt/${DEVNODE}
-  REGEXe="/dev/${DLPART}|"
-  DLFS="`echo "$DLPARTS" | grep "$REGEXe" | cut -f 2 -d '|'`"
-  mount -t $DLFS /dev/$DEVNODE /mnt/$DEVNODE
-  if [ $? -ne 0 ];then
-   /usr/lib/gtkdialog/box_ok "sfsget" error "$(gettext 'ERROR: Could not mount') /dev/${DEVNODE}, $(gettext 'aborting')"
-   exit 1
-  fi
-  DLMOUNT="/mnt/$DEVNODE"
- fi
- cd $DLMOUNT
+	DLPARTS="`probepart -m | grep -v -E 'none|iso9660|swap|udf|audiocd' | tr '\n' ' '`" #130128 also exclude udf and audiocd.
+	DLBUTTONS=""
+	[ "$DLPARTS" = "" ] && DLBUTTONS="<text use-markup=\"true\"><label>\"<b>$(gettext 'NO PARTITIONS FOUND')</b>\"</label></text>"
+	for ONEDLSPEC in $DLPARTS
+	do
+		DEVNODE="`echo -n "$ONEDLSPEC" | cut -f 1 -d '|' | cut -f 3 -d '/'`"
+		DEVFS="`echo -n "$ONEDLSPEC" | cut -f 2 -d '|'`"
+		DEVSIZEM="`echo -n "$ONEDLSPEC" | cut -f 3 -d '|'`"
+		DLBUTTONS="${DLBUTTONS}<radiobutton><label>${DEVNODE} $(gettext 'filesystem:') ${DEVFS} $(gettext 'size:') ${DEVSIZEM}MB</label><variable>RADIO_URL_${DEVNODE}</variable></radiobutton>"
+	done
+	export DL_DIALOG='
+<window title="'$(gettext 'SFS Downloader: destination')'" icon-name="gtk-about" window_position="1">
+<vbox>
+	<text><label>'$(gettext 'This is a first boot of Puppy and you have not yet saved a session. You want to download') ${SFS_FILE}, $(gettext "and this needs to be downloaded to the same partition in which you will be creating the session save-file. Then, at next boot, Puppy will load the session and will also see the SFS file and be able to load that also (a 'zdrv' will load automatically, others need to be manually selected in te BootManager -- see System menu)")'</label></text>
+	<text><label>'$(gettext 'Here is a list of suitable partitions. Whichever one you choose, at shutdown you will be asked to save the session and be sure to choose the same partition. Well, even if you download it to the wrong place, you can move it afterward! Click the one you want:')'</label></text>
+	<frame>
+		'${DLBUTTONS}'
+	</frame>
+	<hbox>
+		<button ok></button>
+		<button cancel></button>
+	</hbox>
+</vbox>
+</window>'
+	echo "$DL_DIALOG" > ${TMPDIR}/dialog_DL_DIALOG.xml
+	RETPARAMS="`gtkdialog --program=DL_DIALOG`"
+	[ "`echo "$RETPARAMS" | grep '^EXIT' | grep 'OK'`" = "" ] && exit 1
+	DLPART="`echo "$RETPARAMS" | grep 'RADIO_URL_' | grep '"true"' | cut -f 1 -d '=' | cut -f 3 -d '_'`"
+	REGEXd="/dev/${DLPART} "
+	DLMOUNT="`mount | grep "$REGEXd" | cut -f 3 -d ' '`"
+	if [ "$DLMOUNT" = "" ];then
+		mkdir -p /mnt/${DEVNODE}
+		REGEXe="/dev/${DLPART}|"
+		DLFS="`echo "$DLPARTS" | grep "$REGEXe" | cut -f 2 -d '|'`"
+		mount -t $DLFS /dev/$DEVNODE /mnt/$DEVNODE
+		if [ $? -ne 0 ];then
+			/usr/lib/gtkdialog/box_ok "sfsget" error "$(gettext 'ERROR: Could not mount') /dev/${DEVNODE}, $(gettext 'aborting')"
+			exit 1
+		fi
+		DLMOUNT="/mnt/$DEVNODE"
+	fi
+	cd $DLMOUNT
 fi
 
 REPOBUTTONS=""
 for ONEREPOSPEC in $SFS_REPOS
 do
- URL_FULL="`echo -n "$ONEREPOSPEC" | cut -f 2 -d '|'`"
- URL_TEST="`echo -n "$URL_FULL" | cut -f 3 -d '/'`" #ex: distro.ibiblio.org
- REPOBUTTONS="${REPOBUTTONS}<radiobutton><label>${URL_TEST}</label><variable>RADIO_URL_${URL_TEST}</variable></radiobutton>"
+	URL_FULL="`echo -n "$ONEREPOSPEC" | cut -f 2 -d '|'`"
+	URL_TEST="`echo -n "$URL_FULL" | cut -f 3 -d '/'`" #ex: distro.ibiblio.org
+	REPOBUTTONS="${REPOBUTTONS}<radiobutton><label>${URL_TEST}</label><variable>RADIO_URL_${URL_TEST}</variable></radiobutton>"
 done
 
 DLRET=1
-while [ $DLRET -ne 0 ];do
- export DEPS_DIALOG="<window title=\"$(gettext 'SFS Downloader: host site')\" icon-name=\"gtk-about\" window_position=\"1\">
+while [ $DLRET -ne 0 ]
+do
+	export DEPS_DIALOG='
+<window title="'$(gettext 'SFS Downloader: host site')'" icon-name="gtk-about" window_position="1">
 <vbox>
- <text><label>$(gettext 'You have chosen to download this SFS file:')</label></text>
- <text use-markup=\"true\"><label>\"<b>${SFS_FILE}</b>\"</label></text>
- <text><label>$(gettext 'It will be downloaded to the top-level (/) in partition') /dev/${DLPART}.</label></text>
- <text><label>$(gettext 'Please choose which URL you would like to download it from:')</label></text>
+	<text><label>"'$(gettext 'You have chosen to download this SFS file:')'"</label></text>
+	<text use-markup="true"><label>"<b>'${SFS_FILE}'</b>"</label></text>
 
- <frame>
-  ${REPOBUTTONS}
- </frame>
- 
- <hbox>
-  <button>
-   <label>$(gettext 'Test URLs')</label>
-   <action>/usr/local/petget/testurls.sh</action>
-  </button>
-  <button>
-   <label>$(gettext 'Download SFS file')</label>
-   <action type=\"exit\">BUTTON_SFS_DOWNLOAD</action>
-  </button>
-  <button cancel></button>
- </hbox>
+	<frame '$(gettext 'Mirrors')'>
+		'${REPOBUTTONS}'
+	</frame>
+
+	<frame '$(gettext 'Download location')'>
+		'${DLDIR_RAD}'
+	</frame>
+
+	<hbox>
+		<button>
+			<label>'$(gettext 'Test URLs')'</label>
+			<action>/usr/local/petget/testurls.sh</action>
+		</button>
+		<button>
+			<label>'$(gettext 'Download SFS file')'</label>
+			<action type="exit">BUTTON_SFS_DOWNLOAD</action>
+		</button>
+		<button cancel></button>
+	</hbox>
 </vbox>
 </window>
-" 
- RETPARAMS="`gtkdialog --program=DEPS_DIALOG`"
+'
+	echo "$DEPS_DIALOG" > ${TMPDIR}/dialog_DEPS_DIALOG.xml
+	RETPARAMS="`gtkdialog --program=DEPS_DIALOG`"
 
- [ "`echo "$RETPARAMS" | grep 'BUTTON_SFS_DOWNLOAD'`" = "" ] && exit 1
+	[ "`echo "$RETPARAMS" | grep 'BUTTON_SFS_DOWNLOAD'`" = "" ] && exit 1
 
- URL_BASIC="`echo "$RETPARAMS" | grep 'RADIO_URL_' | grep '"true"' | cut -f 1 -d '=' | cut -f 3 -d '_'`"
- DOWNLOADFROM="`cat /tmp/petget_repos | grep "$URL_BASIC" | head -n 1 | cut -f 2 -d '|'`"
+	PSB="`echo "$RETPARAMS" | grep '_PSUBDIR' | grep '"true"'`"
+	URL_BASIC="`echo "$RETPARAMS" | grep 'RADIO_URL_' | grep '"true"' | cut -f 1 -d '=' | cut -f 3 -d '_'`"
+	DOWNLOADFROM="`cat /tmp/petget_repos | grep "$URL_BASIC" | head -n 1 | cut -f 2 -d '|'`"
 
- ####DOWNLOAD IT#####
- download_file ${DOWNLOADFROM}/${SFS_DIR}/${SFS_FILE}
- ####################
+	if [ "$PSB" ] ; then
+		cd ${DLMOUNT}${PSUBDIR}
+	fi
 
- DLRET=$?
+	####DOWNLOAD IT#####
+	download_file ${DOWNLOADFROM}/${SFS_DIR}/${SFS_FILE}
+	####################
+
+	DLRET=$?
 done #while loop
 
-if [ "$RUNBOOTMGR" = "yes" ];then
- sfs_load /mnt/$DEVNODE/${SFS_FILE}
-else
- yaf-splash -placement center -bg green -close box -fontsize large -text "$(gettext "The SFS file has been downloaded, however you have to save the session (at shutdown) then on next bootup the BootManager will run and offer the SFS file (a 'zdrv' SFS will automatically load).")" &
-fi
+case ${SFS_FILE} in
+	*.sfs|*.SFS) sfs_load /mnt/$DEVNODE/${SFS_FILE} ;;
+	*.pet|*.txz|*.tgz|*.deb) petget /mnt/$DEVNODE/${SFS_FILE} ;;
+esac
 
 exit 0
+
 ###END###
