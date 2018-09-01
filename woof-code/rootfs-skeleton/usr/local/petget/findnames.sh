@@ -96,12 +96,7 @@ do
  fi
 
  if [ "$FNDENTRIES" ];then
-#  FIRSTCHAR="`echo "$FNDENTRIES" | cut -c 1 | tr '\n' ' ' | sed -e 's% %%g'`"
-#  #write these just in case needed...
-#  ALPHAPRE="`cat /tmp/petget_pkg_first_char`"
-  #this is read when update TREE1 in pkg_chooser.sh...
-  #echo "$FNDENTRIES" | cut -f 1,10 -d '|' > /tmp/petget/filterpkgs.results
-  repoPTN="s%$%|${ONEREPO}|%" #note, '|' on the end also, needed below by printcols.
+  repoPTN="s%$%|${ONEREPO}|%"
   FPR="`echo "$FNDENTRIES" | sed "$repoPTN"`"
   if  [ "$FPR" = "|${ONEREPO}" ];then
    echo -n "" > /tmp/petget/filterpkgs.results #nothing.
@@ -109,7 +104,6 @@ do
    echo "$FPR" >> /tmp/petget/filterpkgs.results #120504 append repo-triad each line.
   fi
   FNDIT=yes
-#120504  break
  fi
 done
 
@@ -146,12 +140,17 @@ else
  #when we have searched multiple repos, move repo-triad into description field, so that it will show up on main window...
  if [ "$SEARCH_REPOS_FLAG" = "all" ];then
   #creates descript field like: "[puppy-4-official] Abiword word processor"
-  #note, printcols (see support/printcols.c in Woof) needs a '|' on the end to work.
   #120811 format in /tmp/petget/filterpkgs.results.post now: pkgname|subcategory|description|dbfile, 
   # ex: htop-0.9-i486|System|View Running Processes|puppy-wary5-official (previously was: pkgname|description|dbfile)
-  POSTPROCLIST="`printcols /tmp/petget/filterpkgs.results.post 1 2 4 3 4 | sed -e 's%|%FIRSTBARCHAR%' -e 's%|%SECBARCHAR[%' -e 's%|%] %' -e 's%FIRSTBARCHAR%|%' -e 's%SECBARCHAR%|%'`"
-  echo "$POSTPROCLIST" > /tmp/petget/filterpkgs.results.post
-  #ex line: abiword-1.2.3|[puppy-4-official] Abiword word processor|puppy-4-official|
+  #cut -f 1,2,3,4 -d '|' /tmp/petget/filterpkgs.results.post > /tmp/petget/filterpkgs.results.post2
+  (
+    while IFS="|" read F1 F2 F3 F4 ETC
+    do
+      echo "${F1}|${F2}|[${F4}] ${F3}|${F4}|"
+    done < /tmp/petget/filterpkgs.results.post
+  ) > /tmp/petget/filterpkgs.results.post2
+  mv -f /tmp/petget/filterpkgs.results.post2 /tmp/petget/filterpkgs.results.post
+  ## ex line: abiword-1.2.3|[puppy-4-official] Abiword word processor|puppy-4-official|
  fi
  
 fi

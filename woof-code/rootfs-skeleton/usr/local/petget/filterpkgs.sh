@@ -92,11 +92,11 @@ categoryPATTERN="|${fltrCATEGORY}[;|]"
 #w460 filter out all 'language-' pkgs, too many (ubuntu/debian)...
 if [ ! -f /tmp/petget_fltrd_repo_${PKG_FIRST_CHAR}_${fltrCATEGORY}_${xDEFGUIFILTER}_Packages-${fltrREPO_TRIAD} ];then
  case $DISTRO_BINARY_COMPAT in
-  ubuntu|debian|devuan|raspbian)
-   FLTRD_REPO="`printcols $REPO_FILE 1 2 3 5 10 6 9 | grep -v -E '^lib|^language\\-' | grep -i "^[${PKG_FIRST_CHAR}]" | grep "$categoryPATTERN" | grep -i ${EXCPARAM} -E "$guiPTN" | sed -e 's%||$%|unknown|%'`" #130330  130331 ignore case.
+  ubuntu|debian|devuan|raspbian)  
+   FLTRD_REPO="`cut -f 1,2,3,5,6,9,10 -d '|' $REPO_FILE | grep -v -E '^lib|^language\\-' | grep -i "^[${PKG_FIRST_CHAR}]" | grep "$categoryPATTERN" | grep -i ${EXCPARAM} -E "$guiPTN" | sed -e 's%||$%|unknown|%'`" #130330  130331 ignore case.
   ;;
   *)
-   FLTRD_REPO="`printcols $REPO_FILE 1 2 3 5 10 6 9 | grep -i "^[${PKG_FIRST_CHAR}]" | grep "$categoryPATTERN" | grep -i ${EXCPARAM} -E "$guiPTN" | sed -e 's%||$%|unknown|%'`" #130330  130331 ignore case.
+   FLTRD_REPO="`cut -f 1,2,3,5,6,9,10 -d '|' $REPO_FILE | grep -i "^[${PKG_FIRST_CHAR}]" | grep "$categoryPATTERN" | grep -i ${EXCPARAM} -E "$guiPTN" | sed -e 's%||$%|unknown|%'`" #130330  130331 ignore case.
   ;;
  esac
  #...extracted fields, reordered: pkgname|nameonly|version|category|description|size|dependencies
@@ -149,7 +149,7 @@ fprPTN="s%$%|${fltrREPO_TRIAD}%" #120504 append repo-triad on end of each line.
 #120811 keep subcategory for icon (if no subcategory, will use category)... 120813 fix...
 #120813 pick subcategory if it exists...
 #120817 no, modify category field in postfilterpkgs.sh...
-FPR="`grep --file=/tmp/petget_installed_patterns -v /tmp/petget_fltrd_repo_${PKG_FIRST_CHAR}_${fltrCATEGORY}_${xDEFGUIFILTER}_Packages-${fltrREPO_TRIAD} | cut -f 1,4,5 -d '|' | sed -e "$fprPTN"`"
+FPR="`grep --file=/tmp/petget_installed_patterns -v /tmp/petget_fltrd_repo_${PKG_FIRST_CHAR}_${fltrCATEGORY}_${xDEFGUIFILTER}_Packages-${fltrREPO_TRIAD} | cut -f 1,4,7 -d '|' | sed -e "$fprPTN"`"
 if  [ "$FPR" = "|${fltrREPO_TRIAD}" ];then
  echo -n "" > /tmp/petget/filterpkgs.results #nothing.
 else
