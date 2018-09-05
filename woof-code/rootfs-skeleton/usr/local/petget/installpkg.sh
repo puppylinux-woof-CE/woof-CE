@@ -416,6 +416,7 @@ if [ "$PUPMODE" = "2" ]; then #from BK's quirky6.1
 	#pkgname.files may need to be fixed...
 	FIXEDFILES="`cat /root/.packages/${DLPKG_NAME}.files | grep -v '^\\./$'| grep -v '^/$' | sed -e 's%^\\.%%' -e 's%^%/%' -e 's%^//%/%'`"
 	echo "$FIXEDFILES" > /root/.packages/${DLPKG_NAME}.files 
+	DIRECTSAVEPATH=/ # set it to the new cocation
 
 else #-- anything other than PUPMODE 2 (full install) --
 
@@ -507,8 +508,6 @@ ls -dl /tmp | grep -q '^drwxrwxrwt' || chmod 1777 /tmp #130305 rerwin.
 
 #post-install script?...
 #          puppy         slackware       debian/ubuntu/etc
-# By now we have changed the location of the files in full installs
-[ "$PUPMODE" = "2" ] && DIRECTSAVEPATH=/
 for i in pinstall.sh install/doinst.sh DEBIAN/postinst
 do
 	[ ! -e "$DIRECTSAVEPATH/$i" ] && continue
