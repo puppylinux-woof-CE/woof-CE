@@ -507,6 +507,8 @@ ls -dl /tmp | grep -q '^drwxrwxrwt' || chmod 1777 /tmp #130305 rerwin.
 
 #post-install script?...
 #          puppy         slackware       debian/ubuntu/etc
+# By now we have changed the location of the files in full installs
+[ "$PUPMODE" = "2" ] && DIRECTSAVEPATH=/
 for i in pinstall.sh install/doinst.sh DEBIAN/postinst
 do
 	[ ! -e "$DIRECTSAVEPATH/$i" ] && continue
