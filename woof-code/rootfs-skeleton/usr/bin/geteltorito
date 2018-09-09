@@ -1,0 +1,181 @@
+#!/bin/ash
+#
+# geteltorito.sh = geteltorito.pl
+#
+# https://userpages.uni-koblenz.de/~krienke/ftp/noarch/geteltorito/geteltorito/geteltorito
+# https://sites.google.com/site/h2obsession/ibm-pc-at/windows/boot-process/phase-2-el-torito
+# https://pdos.csail.mit.edu/6.828/2014/readings/boot-cdrom.pdf
+#
+
+#set -x
+
+vSecSize=512;
+secSize=2048;
+
+tmpfile=$(mktemp -u)
+[ -z "$tmpfile" ] && tmpfile=geteltorito$$
+#tmpfile=/tmp/zz.sector #debug
+
+#
+# Read a particular sector from a file
+# sector counting starts at 0, not 1
+#
+getSector() {
+	local secNum="$1" secCount="$2" file="$3"
+	LANG=C dd if="$file" of=${tmpfile} bs=${vSecSize} \
+		skip=$(( secNum * secSize / $vSecSize )) \
+		count=${secCount} 1>/dev/null 2>&1
+}
+
+
+usage() {
+	printf "
+$0 [-hv] [-o outputfilename] cd-image
+Script will try to extract an El Torito image from a
+bootable CD (or cd-image) given by <cd-image> and write
+the data extracted to STDOUT or to a file.
+   -h:        This help.
+   -v:        Print version of script and exit.
+   -o <file>: Write extracted data to file <file> instead of STDOUT.
+"
+	exit 0;    
+}
+
+#===========================================================================
+
+i=0
+t=$#
+while [ $i -le $t ] ; do
+	case $1 in
+		-v) printf "Version: 0.6\n" ; exit 0 ;;
+		-h) usage ;;
+		-o) shift ; outputFilename="$1" ;;
+		*) break ;;
+	esac
+	i=$((i+1))
+	shift;
+done
+
+if [ ! "$1" ] ; then
+	usage;
+fi
+
+imageFile="$1";
+
+if [ ! -r "$imageFile" ] ; then
+	printf "Cannot read image/device \"$imageFile\". Aborting\n" 1>&2
+	exit 1
+fi
+
+#===========================================================================
+
+#
+# Read Sector 17 from CD which should contain a Boot Record Volume
+# descriptor. This descriptor contains at its start the text ($isoIdent)
+# CD001     and ($toritoSpec)
+# EL TORITO SPECIFICATION
+# see http://www.cdpage.com/Compact_Disc_Variations/eltoritoi.html
+# for details
+#
+getSector 17 1 "$imageFile"
+
+isoIdent="`cut -b 2-6 ${tmpfile} | tr -d '\0'`"
+toritoSpec="`cut -b 8-30 ${tmpfile} | tr -d '\0'`" #"EL TORITO SPECIFICATION" at offset 7 within the sector
+if [ "$isoIdent" != "CD001" ] || [ "$toritoSpec" != "EL TORITO SPECIFICATION" ] ; then
+	printf "This data image does not seem to be a bootable CD-image\n" 1>&2
+	exit 1
+fi
+
+# the 4-byte value (dword) at offset 71 (0x47) specifies the sector of the "boot catalog."
+# The BIOS must then read that sector to see if the disc is bootable.
+bootP=`hexdump -s 71 -n 4 -e '"%d"' ${tmpfile}`
+
+#
+# Now fetch the sector of the booting catalog 
+#
+getSector $bootP  1 "$imageFile"
+
+printf "Booting catalog starts at sector: $bootP \n" 1>&2
+
+# The first 32 bytes of this sector contains the validation entry for a
+# boot. The first byte has to be 01, the next byte determines the
+# architecture the image is designed for, where 00 is i86, 01 is PowerPC
+# and 02 is Mac. More data give info about manufacturer, etc.  The 
+# final two bytes must contain 0x55 and 0xAA respectively (as 
+# defined by the El Torito standard).
+
+header=$(hexdump -s 0 -n 1 -e '"%d"' ${tmpfile})
+platform=$(hexdump -s 1 -n 1 -e '"%d"' ${tmpfile})
+manufact=$(cut -b 5-27 ${tmpfile} | tr -d '\0')
+five=$(hexdump -s 30 -n 1 -e '"%X"' ${tmpfile})
+aa=$(hexdump -s 31 -n 1 -e '"%X"' ${tmpfile})
+
+if [ "$header" != "1" ] || [ "$five" != "55" ] || [ "$aa" != "AA" ] ; then
+	printf "Invalid Validation Entry on image\n" 1>&2
+	exit 1
+fi
+
+(
+printf "Manufacturer of CD: $manufact\n";
+printf "Image architecture: ";
+case "$platform" in
+	0|'*') printf "x86\n" ;;
+	1) printf "PowerPC\n" ;;
+	2) printf "Mac\n" ;;
+	*) printf "unknown ($platform)\n" ;;
+esac
+) 1>&2
+
+#
+# Now we examine the initial/defaultentry which follows the validate
+# entry and has a size of 32 bytes. 
+
+boot=$(hexdump -s 32 -n 1 -e '"%X"' ${tmpfile})
+media=$(hexdump -s 33 -n 1 -e '"%X"' ${tmpfile})
+sCount=$(hexdump -s 38 -n 1 -e '"%d"' ${tmpfile})
+imgStart=$(hexdump -s 40 -n 4 -e '"%d"' ${tmpfile})
+
+if [ "$boot" != "88" ] ; then
+	 printf "Boot indicator in Initial/Default-Entry is not 0x88. CD is not bootable.\n" 1>&2
+	 exit 1
+fi 
+
+printf "Boot media type is: " 1>&2
+case "$media" in
+	0|'*') printf "no emulation\n" 1>&2 ; count=0 ;;
+	1) printf "1.2meg floppy\n"    1>&2 ; count=$((1200*1024/$vSecSize)) ;;
+	2) printf "1.44meg floppy\n"   1>&2 ; count=$((1440*1024/$vSecSize)) ;;
+	3) printf "2.88meg floppy\n"   1>&2 ; count=$((2880*1024/$vSecSize)) ;;
+	4)
+		printf "harddisk\n" 1>&2
+		getSector $imgStart 1 "$imageFile"
+		firstSector=$(hexdump -s 454 -n 4 -e '"%d"' ${tmpfile})
+		partitionSize=$(hexdump -s 458 -n 4 -e '"%d"' ${tmpfile})
+		count=$(( firstSector + partitionSize))
+		;;
+esac
+
+# Only use the internal sector counter if the real size is unknown
+if [ "$count" = "0" ] || [ -z "$count" ] ; then
+	cnt=$sCount
+else
+	cnt=$count
+fi
+
+printf "El Torito image starts at sector $imgStart and has $cnt sector(s) of $vSecSize Bytes\n" 1>&2
+
+# We are there:
+# Now read the bootimage to stdout
+getSector $imgStart $cnt "$imageFile"
+
+if [ "$outputFilename" ] ; then
+   cp ${tmpfile} "$outputFilename"
+   printf "\nImage has been written to file \"$outputFilename\".\n" 1>&2
+else
+   cat ${tmpfile}
+   printf "\nImage has been written to stdout ...\n" 1>&2
+fi
+
+rm -f ${tmpfile}
+
+### END ###
