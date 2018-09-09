@@ -2,8 +2,7 @@ CC = gcc
 #CC = musl-gcc
 STATIC = -static
 
-all: cddetect \
-	debdb2pupdb \
+all: debdb2pupdb \
 	find_cat \
 	findpkgs-dep-helper \
 	findpkgs-search-helper \
@@ -12,9 +11,6 @@ all: cddetect \
 
 debdb2pupdb:
 	$(CC) $(STATIC) -O3 -fomit-frame-pointer -ffunction-sections -fdata-sections -fmerge-all-constants -Wl,--sort-common -Wl,-gc-sections -o debdb2pupdb debdb2pupdb.c
-
-cddetect:
-	$(CC) $(STATIC) -O3 -fomit-frame-pointer -ffunction-sections -fdata-sections -fmerge-all-constants -Wl,--sort-common -Wl,-gc-sections -o cddetect cddetect.c
 
 find_cat:
 	$(CC) $(STATIC) -O3 -fomit-frame-pointer -ffunction-sections -fdata-sections -fmerge-all-constants -Wl,--sort-common -Wl,-gc-sections -o find_cat find_cat.c
@@ -32,4 +28,4 @@ vercmp:
 	$(CC) $(STATIC) -O3 -fomit-frame-pointer -ffunction-sections -fdata-sections -fmerge-all-constants -Wl,--sort-common -Wl,-gc-sections -o vercmp vercmp.c
 
 clean:
-	rm -f cddetect debdb2pupdb find_cat findpkgs-dep-helper findpkgs-search-helper vercmp pup_event_frontend_d
+	rm -f debdb2pupdb find_cat findpkgs-dep-helper findpkgs-search-helper vercmp pup_event_frontend_d
