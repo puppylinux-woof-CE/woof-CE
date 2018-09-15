@@ -1,0 +1,416 @@
+#!/bin/bash
+##
+## cli/gui app
+##
+## 2014, updated sept 2018
+##
+## Deps
+## - cdrtools
+## - udftools
+## - /usr/sbin/filesize (zz script)
+##
+
+#set -x
+
+DIR2ISOIMAGE='/usr/share/pixmaps/puppy/copy_cd.svg'
+DIR2ISOICON="--window-icon=${DIR2ISOIMAGE}"
+GUI=
+[ "$DISPLAY" ] && GUI=1
+
+#=======================================================
+#                     COMMAND LINE
+#=======================================================
+
+usage() {
+	echo "
+${0##*/}: create .iso from directory
+
+usage: ${0##*/} [opts] <directory> [output.iso]
+
+Opts:
+  -y           : follow defaults, answer yes in 'yes/no' questions
+  -label <txt> : volume id
+  -boot  <bld> : booloader (ex: grlder, isolinux.bin, etc..)
+                 this is ignored in pure UDF ISOs
+  -udf         : create a pure UDF ISO with udftools
+                 - this is always used for Blu-ray ISOs (> 8700 MB)
+                 - specially for data BD ISOs...
+                 - video dvd ISOs are still created by mkisofs
+  -joliet <opt>: no, yes, long
+                 - joliet is not allowed in BD and Video DVD isos.
+                 - 'no'  = default for bootable isos
+                 - s'yes' = default for data CD/DVD ISOs
+  -nodvdvideo  : create a data dvd ISO even when a dvd video content is detected..
+  -cli   : force cli
+  -gui   : force gui
+
+Notes:
+  * supports 'repacking' extracted woofce/fatdog isos [uefi,bios]
+  * can create generic isolinux/grub4dos isos
+  * can create a video DVD iso
+  * can create a data CD/DVD/BD (properly readable in several systems..)
+
+ This is basically to 'recreate' extracted isos and to create data cd/dvd/bd isos... 
+"
+}
+
+i=0
+t=$#
+while [ $i -le $t ]
+do
+	case $1 in
+		-y)     ANSWER_YES=1    ;;
+		-udf)   UDFISO=1 ;;
+		-label) VOLUMEID="$2"   ; shift ;;
+		-boot)  BOOTLOADER="$2" ; shift ;;
+		-joliet) joliet="$2"    ; shift ;;
+		-nodvdvideo) NODVDVIDEO="$1" ;;
+		-cli)   GUI=  ;;
+		-gui)   GUI=1 ;;
+		-h|-help|--help) usage; exit ;;
+		*) break ;;
+	esac
+	i=$((i+1))
+	shift
+done
+
+if [ "$1" ] ; then
+	INPUTDIR="$1"
+	if [ ! -d "$INPUTDIR" ] ; then
+		echo "$INPUTDIR is not a directory"
+		usage
+		exit 1
+	fi
+elif [ ! "$1" ] && [ ! "$GUI" ] ; then
+	echo "You must specify a directory"
+	usage
+	exit 1
+fi
+
+if [ "$2" ] ; then
+	OUTFILE="$2"
+fi
+
+if [ "$joliet" ] ; then
+	case $joliet in
+		no|yes|long) ok=1 ;;
+		*) echo "$0: joliet can only be 'no', 'yes' or 'long'" ; exit 1 ;;
+	esac
+fi
+
+#=======================================================
+
+if ! which mkisofs >/dev/null ; then
+	echo "Could not find mkisofs from cdrtools package"
+	if [ "$GUI" ] ; then
+		yad --title="Error" --text="Could not find mkisofs from cdrtools package" --center --image=dialog-error --button=gtk-ok ${DIR2ISOICON}
+	fi
+	exit 1
+fi
+
+if [ "$GUI" ] && [ ! -d "$INPUTDIR" ] ; then
+	## get input directory
+	INPUTDIR=$(yad --title="Select INPUT directory" --file --directory --width=640 --height=480 \
+		--button=gtk-ok --button=gtk-cancel --center ${DIR2ISOICON})
+	[ ! -d "$INPUTDIR" ] && echo "User cancelled operation" && exit 1
+fi
+
+INPUTDIR=$(realpath "$INPUTDIR")
+INPUTDIR=${INPUTDIR%/}
+echo "INPUTDIR: $INPUTDIR"
+
+if [ "$BOOTLOADER" ] && [ ! "$UDFISO" ] ; then #cli
+	if [ ! -f "${INPUTDIR}/${BOOTLOADER}" ] ; then
+		echo "${INPUTDIR}/${BOOTLOADER}: file not found"
+		exit 1
+	fi
+fi
+
+if [ ! "$OUTFILE" ] ; then
+	if [ "$GUI" ] && [ ! "$ANSWER_YES" ] ; then
+		OUTFILE=$(yad --title="Specify OUTPUT file" --file --save --width=640 --height=480 \
+			--button=gtk-ok --button=gtk-cancel --center --filename="${INPUTDIR}.iso" ${DIR2ISOICON})
+		[ $? -ne 0 ] || [ ! "$OUTFILE" ] && echo "User cancelled operation" && exit 1
+	else
+		OUTFILE=${INPUTDIR}.iso
+	fi
+fi
+echo "OUTFILE: $OUTFILE"
+
+if [ ! "$VOLUMEID" ] ; then
+	VOLUMEID=${INPUTDIR##*/}
+	VOLUMEID=$(echo $VOLUMEID | tr -s ' ' | tr ' ' '_')
+	VOLUMEID=${VOLUMEID^^}
+fi
+echo "VOLUMEID: $VOLUMEID"
+
+#=======================================================
+
+if [ ! "$BOOTLOADER" ] ; then
+	## bootable iso? grub4dos, isolinux 
+	for gfile in grldr isolinux.bin
+	do
+		if [ -f "$INPUTDIR/$gfile" ] ; then
+			bloadercombo="${gfile}!${bloadercombo}"
+			if [ $? -eq 0 ] ; then
+				BOOTLOADER=${gfile}
+				echo "BOOTLOADER: $BOOTLOADER"
+			fi
+		fi
+	done
+fi
+
+## size of inputdir
+DIRBYTES=$(filesize -b "$INPUTDIR")
+DIRSIZE=$(filesize -bytes "$DIRBYTES")
+DIRMEGABYTES=$(filesize -bytes -m "$DIRBYTES")
+DIRMEGABYTES=${DIRMEGABYTES%.*} #integer
+if [ ${DIRMEGABYTES%.*} -gt 8700 ] ; then
+	UDFISO=1
+fi
+
+type='data'
+if [ ! "$joliet" ] ; then
+	if [ "$BOOTLOADER" ] ; then
+		joliet='no' #default for bootable isos..
+	else
+		joliet='yes' #default for data cd/dvd isos..
+	fi
+fi
+
+if [ "$UDFISO" ] ; then
+	joliet='no'
+	[ "$GUI" ] && jolietcombo='no'
+fi
+
+## Check if dir qualifies as DVD Video
+if [ -z "$NODVDVIDEO" ] && [ -f "$INPUTDIR/VIDEO_TS/VIDEO_TS.IFO" ] ; then
+	type='dvd_video'
+	joliet='no'
+	if [ "$GUI" ] ; then
+		typecombo='dvd_video!data'
+		jolietcombo='no'
+	fi
+fi
+
+if [ "$GUI" ] && [ ! "$ANSWER_YES" ] ; then
+	if [ -z "$jolietcombo" ] ; then
+		jolietcombo='yes!long!no'
+		jolietcombo=${jolietcombo//$joliet/\^$joliet}
+	fi
+	[ -z "$typecombo" ] && typecombo="$type"
+	[ -z "$bloadercombo" ] && bloadercombo="${BOOTLOADER}"
+	## main dialog 
+	dialog_result=$(yad --title="dir2iso" ${DIR2ISOICON} --width 635 \
+		--center --separator="\n" --form  \
+		--field="Input dir::RO" "$INPUTDIR" \
+		--field="Dir size::RO" "$DIRSIZE" \
+		--field="Out file::RO" "$OUTFILE" \
+		--field="Bootloader::CB" "$bloadercombo" \
+		--field="type::CB" "$typecombo" \
+		--field="joliet::CB" "$jolietcombo" \
+		--field="volume ID" "$VOLUMEID" \
+		--button=gtk-ok:0 --button=gtk-cancel:1 
+	)
+	[ $? -ne 0 ] || [ "$dialog_result" = "" ] && echo "User cancelled operation" && exit 2
+	x=1
+	while read fieldvalue; do
+		if [ "$fieldvalue" = "(null)" ] ; then
+			fieldvalue=""
+		fi
+		[ $x -eq 4 ] && BOOTLOADER="$fieldvalue"
+		[ $x -eq 5 ] && type="$fieldvalue"
+		[ $x -eq 6 ] && joliet="$fieldvalue"
+		[ $x -eq 7 ] && VOLUMEID="$fieldvalue"
+		let x++
+	done <<< "$dialog_result" #use this method instead of a pipe (problem with variables)
+fi
+echo "type: $type"
+echo "joliet: $joliet"
+#================================================================
+
+if [ "$type" = "dvd_video" ] ; then
+	DVD_VIDEO="yes"
+	mkdir -p "$INPUTDIR/AUDIO_TS"
+	echo "DVD_VIDEO: $DVD_VIDEO"
+fi
+
+## replace output file?
+if [ ! "$ANSWER_YES" ] ; then
+	if [ -s "$OUTFILE" ] ; then
+		if [ "$GUI" ] ; then
+			yad --title="Confirm" --text="File $OUTFILE already exists\n\nDo you want to replace it?" \
+				--image=dialog-warning --center --button=gtk-yes:0 --button=gtk-no:1 ${DIR2ISOICON}
+			[ $? -ne 0 ] && echo "User cancelled operation" && exit 1
+		else
+			echo -e "\n$OUTFILE already exists"
+			echo -n "Do you want to overwrite it? [y/N]: "
+			read o
+			case $o in
+				y|Y) ok=1 ;;
+				*) echo "Not overwriting file" ; exit ;;
+			esac
+		fi
+	fi
+fi
+
+## Volume ID
+if [ "$VOLUMEID" ] ; then
+	VOLUMEID=$(echo $VOLUMEID | tr -s ' ' | tr ' ' '_')
+	VOLUMEID=${VOLUMEID^^}
+	echo "VOLUMEID: $VOLUMEID"
+fi
+
+case $joliet in
+	long) JOLIET_OPT='-J -joliet-long' ;;
+	yes)  JOLIET_OPT='-J' ;;
+	*)    JOLIET_OPT=''   ;;
+esac
+
+if [ "$VOLUMEID" ] ; then
+	#mkisofs: Volume ID string too long (cur. 33 max. 32 chars).
+	VOLUMEID=$(echo $VOLUMEID | cut -b 1-30)
+fi
+
+# this directory is not part of the ISO...
+if [ -d "$INPUTDIR/[BOOT]" ] ; then
+	rm -rf "$INPUTDIR/[BOOT]"
+fi
+
+#=======================================================
+
+export INPUTDIR OUTFILE VOLUMEID 
+export DIRMEGABYTES DVD_VIDEO BOOTLOADER JOLIET_OPT
+export GUI
+
+#=======================================================
+#                     CREATE ISO
+#=======================================================
+
+function create_iso() {
+
+	[ "$VOLUMEID" ] && VOLUMEID="-V $VOLUMEID"
+	#--
+	if [ "$BOOTLOADER" ] ; then
+		EFI_IMG=
+		[ -f "$INPUTDIR/efi.img" ] &&     EFI_IMG="efi.img"     #wce
+		[ -f "$INPUTDIR/efiboot.img" ] && EFI_IMG="efiboot.img" #fatdog
+		if [ "$BOOTLOADER" = "isolinux.bin" -a "$EFI_IMG" != "" ] ; then
+			echo "* UEFI ISO detected" ; echo
+			UEFI_ISO=yes
+		fi
+		echo "============================="
+		echo "	${BOOTLOADER} ISO"
+		echo "============================="
+		if [ "$UEFI_ISO" ] ; then
+			echo '#' mkisofs ${JOLIET_OPT} -iso-level 4 -D -R -o "${OUTFILE}" -b isolinux.bin -no-emul-boot -boot-load-size 4 -boot-info-table -eltorito-alt-boot -eltorito-platform efi -b ${EFI_IMG} -no-emul-boot "${INPUTDIR}"
+			mkisofs ${JOLIET_OPT} -iso-level 4 -D -R -o "${OUTFILE}" -b isolinux.bin -no-emul-boot -boot-load-size 4 -boot-info-table -eltorito-alt-boot -eltorito-platform efi -b ${EFI_IMG} -no-emul-boot "${INPUTDIR}"
+		else
+			echo '#' mkisofs ${JOLIET_OPT} -D -R ${VOLUMEID} -o "${OUTFILE}" -b ${BOOTLOADER} -c boot.cat -no-emul-boot -boot-load-size 4 -boot-info-table "${INPUTDIR}"
+			mkisofs ${JOLIET_OPT} -J -D -R ${VOLUMEID} -o "${OUTFILE}" -b ${BOOTLOADER} -c boot.cat -no-emul-boot -boot-load-size 4 -boot-info-table "${INPUTDIR}"
+		fi
+	else
+		if [ "$DVD_VIDEO" ] ; then
+			echo '#' mkisofs ${VOLUMEID} -dvd-video -udf -o "${OUTFILE}" "${INPUTDIR}" #-find
+			mkisofs ${VOLUMEID} -dvd-video -udf -o "${OUTFILE}" "${INPUTDIR}" #-find
+		else
+			# data CD/DVD ISO
+			defoptions="-R -udf -iso-level 3 -no-limit-pathtables"
+			echo '#' mkisofs ${JOLIET_OPT} ${defoptions} ${VOLUMEID} -o "${OUTFILE}" "${INPUTDIR}" #-find "${INPUTDIR}" #-output-charset UTF-8
+			mkisofs ${JOLIET_OPT} ${defoptions} ${VOLUMEID} -o "${OUTFILE}" "${INPUTDIR}"
+		fi
+	fi
+	#--
+	echo
+	if [ $? -ne 0 ] ; then
+		echo "ERROR: mkisofs ended with errors"
+	else
+		if [ "$BOOTLOADER" = "isolinux.bin" ] ; then
+			if which isohybrid ; then
+				[ "$UEFI_ISO" ] && U='-u'
+				echo 'Converting ISO to isohybrid.'
+				isohybrid ${U} "${OUTFILE}"
+			fi
+		fi
+	fi
+	echo ${OUTFILE}: $(filesize "${OUTFILE}") #/usr/sbin/filesize
+	echo
+	if [ "$GUI" ] ; then
+		echo -n "PRESS ENTER TO CLOSE DE THIS WINDOW"
+		read zzz
+	fi
+}
+
+# Pure UDF ISO for Bluray ISO images..
+function create_pure_udf_iso() {
+
+	[ "$VOLUMEID" ] && VOLUMEID="--vid=$VOLUMEID"
+	MOUNTPOINT="/mnt/udf$$"
+
+	# mkudffs: need some extra space... a slightly bigger iso
+	if [ $DIRMEGABYTES -gt 800 ] ; then
+		DIRMEGABYTES=$((DIRMEGABYTES+120))
+	else
+		DIRMEGABYTES=$((DIRMEGABYTES+30))
+	fi
+	isosize=$DIRMEGABYTES
+
+	echo '#' truncate -s ${isosize}MB "${OUTFILE}"
+	truncate -s ${isosize}MB "${OUTFILE}"
+	echo
+	echo '#' mkudffs ${VOLUMEID} "${OUTFILE}"
+	mkudffs ${VOLUMEID} "${OUTFILE}" || {
+		if [ "$GUI" ] ; then
+			echo; echo -n "PRESS ENTER TO CLOSE DE THIS WINDOW"
+			read zzz
+		fi
+		exit 1
+	}
+	echo
+	mkdir -p ${MOUNTPOINT}
+	echo '#' mount -t udf -o loop,rw "${OUTFILE}" ${MOUNTPOINT}
+	mount -t udf -o loop,rw "${OUTFILE}" ${MOUNTPOINT}
+	echo
+	if which rsync &>/dev/null ; then
+		rsync -ax --delete ${INPUTDIR}/ ${MOUNTPOINT}
+	else
+		cp -a --remove-destination ${INPUTDIR}/* ${MOUNTPOINT}
+	fi
+	if [ $? -ne 0 ] ; then
+		echo -e "Error copying files from:\n ${INPUTDIR}"
+		if [ "$GUI" ] ; then
+			yad --center --title="dir2iso error" --text="Error copying files from: \n\n${INPUTDIR}" --image=dialog-error --button=gtk-ok:0 ${DIR2ISOICON}
+		fi
+		umount ${MOUNTPOINT}
+		rm -rf ${MOUNTPOINT}
+		exit 1
+	fi
+	chmod -R 777 ${MOUNTPOINT}          ##
+	chown -R nobody:65534 ${MOUNTPOINT} ##
+	umount ${MOUNTPOINT}
+	rm -rf ${MOUNTPOINT}
+	echo
+	echo ${OUTFILE}: $(filesize "${OUTFILE}")
+	echo
+	if [ "$GUI" ] ; then
+		echo -n "PRESS ENTER TO CLOSE DE THIS WINDOW"
+		read zzz
+	fi
+}
+
+#==========================================================
+
+if [ "$GUI" ] ; then
+	export -f create_iso
+	export -f create_pure_udf_iso
+	GUI_CMD='rxvt -title di2iso -e bash -c'
+fi
+rm -f "${OUTFILE}"
+
+if [ "$UDFISO" ] ; then
+	$GUI_CMD create_pure_udf_iso
+else
+	$GUI_CMD create_iso
+fi
+
+### END ###
