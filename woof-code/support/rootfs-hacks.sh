@@ -54,3 +54,8 @@ fi
 if [ -e ${SR}/usr/bin/unsquashfs ] && [ ! -e ${SR}/usr/bin/unsquashfs4 ] ; then
 	ln -snf unsquashfs ${SR}/usr/bin/unsquashfs4
 fi
+
+# /usr/bin/env symlink
+if [ ! -e ${SR}/usr/bin/env ] && [ -e ${SR}/bin/env ] ; then
+	ln -snf /bin/env ${SR}/usr/bin/env
+fi
