@@ -13,5 +13,6 @@ if [ "$(pwd)" = "/" ];then
  rm -f usr/sbin/pupdial_wizard_helper
 fi
 
-#Replace placeholder with link.
+#Replace placeholders with links.
 ln -snf ../local/pupdial/pupdial /usr/sbin/
+ln -snf ../local/pupdial/modemdisconnect /usr/sbin/
