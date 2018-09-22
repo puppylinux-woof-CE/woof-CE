@@ -59,3 +59,8 @@ fi
 if [ ! -e ${SR}/usr/bin/env ] && [ -e ${SR}/bin/env ] ; then
 	ln -snf /bin/env ${SR}/usr/bin/env
 fi
+
+# fix Grub4DosConfig.desktop
+sed -i -e 's%^Categories=.*%Categories=X-SetupUtility%' \
+	-e 's%^Icon=.*%Icon=/usr/share/pixmaps/puppy/install.svg%' \
+	${SR}/usr/share/applications/Grub4DosConfig.desktop
