@@ -5,11 +5,25 @@
 #exec &>/tmp/${0##*/}.log ; set -x ; env #debug
 
 set_time_from_server() {
-	echo "* Synchronizing with time server..."
-	if ntpdate pool.ntp.org &> /tmp/settertime ; then
+	#set -x
+	NTP_SERVER='pool.ntp.org' #precaution
+	if [ -s "$HOME/.config/psync_server" ] ; then
+		read NTP_SERVER < $HOME/.config/psync_server
+	fi
+	#--
+	echo "* Synchronizing to $NTP_SERVER..."
+	if which ntpdate &>/dev/null ; then
+		ntpdate $NTP_SERVER &> /tmp/settertime
+		RETVAL=$?
+	else
+		busybox ntpd -nqp $NTP_SERVER
+		RETVAL=$?
+	fi
+	#--
+	if [ $RETVAL -eq 0 ] ; then
 		echo "* Success..."
 	else
-		"* ERROR..."
+		echo "* ERROR..."
 		return 1
 	fi
 	date
@@ -17,9 +31,18 @@ set_time_from_server() {
 	if [ $? -ne 0 ] ; then
 		echo "* Could not set hardware clock..."
 	fi
-	touch ${SYSROOT}/var/tmp/psync_done
 	return 0
 }
+
+if [ -z "$HOME" -o "$HOME" = '/' ] ; then
+	if [ -f /etc/plogin ] ; then
+		read puser < /etc/plogin
+		HOME=$(awk -F: '$1=="'${puser}'" {print $6}' /etc/passwd)
+	fi
+	if [ -z "$HOME" -o "$HOME" = '/' ] ; then
+		HOME=/root
+	fi
+fi
 
 #==============================================================
 #                    SERVICE
@@ -38,7 +61,11 @@ case $1 in
 		if [ "$CONNECTED" = "no" ] ; then
 			exit 1
 		fi
-		set_time_from_server
+		set_time_from_server || {
+			# might need some more time..
+			sleep 15
+			set_time_from_server
+		}
 		exit $?
 		;;
 	stop)
@@ -111,7 +138,7 @@ usage() {
 	echo " -autostart     : enable service"
 	echo " -noautostart   : disable service"
 	echo " -status        : report service status"
-	echo " -sync          : sync with time server"
+	echo " -sync          : sync to time server"
 	echo " -timezone <tz> : set timezone"
 	echo
 }
@@ -162,7 +189,7 @@ if [ ! "$GUI" ] ; then
 			autostart   "'enable service on bootup'" \
 			noautostart "'disable service'" \
 			timezone    "'set timezone...'" \
-			sync        "'sync with timeserver'" \
+			sync        "'sync to timeserver'" \
 			exit "'$(gettext 'Exit')'" || exit
 		case $retstr in
 			autostart) enable_psync ; sleep 3 ;;
@@ -181,8 +208,9 @@ fi
 
 export -f enable_psync
 export -f disable_psync
-export psync_chkbox=' <checkbox>
-          <label>'$(gettext 'Synchronise at startup (autostart)')'</label>
+export psync_chkbox='
+          <checkbox>
+          <label>'$(gettext 'Synchronise your clock at each system startup')'</label>
           <default>'${PSYNC_ENABLED}'</default>
           <variable>PSYNC_ENABLED</variable>
           <action>if true enable_psync</action>
@@ -191,22 +219,27 @@ export psync_chkbox=' <checkbox>
 '
 
 function synchronise_clock() {
-	if [ ! -f /var/tmp/psync_done ] ; then
-		/usr/lib/gtkdialog/box_yesno --ok-cancel --no-first --yes-label Sync --info "Psync" "Confirm action..." "(if in doubt click on the Help button...)"
-		[ $? -ne 0 ] && return
+	NTP_SERVER='pool.ntp.org' #precaution
+	if [ -s "$HOME/.config/psync_server" ] ; then
+		read NTP_SERVER < $HOME/.config/psync_server
 	fi
-	/usr/lib/gtkdialog/box_splash -close never -text "$(printf "$(gettext 'Please wait...')")" &
+	/usr/lib/gtkdialog/box_splash -close never -text "Synchronizing to $NTP_SERVER..." &
 	X1PID=$!
 	set_time_from_server
 	if [ $? -ne 0 ] ; then
 		kill $X1PID
-		/usr/lib/gtkdialog/box_ok "Psync" error "$(gettext 'Error synchronizing with NTP server')"
+		/usr/lib/gtkdialog/box_ok "Psync" error "$(gettext 'Error synchronizing to NTP server')"
 		exit 1
 	fi
 	kill $X1PID
 	NEWCURRENT_TIME=`date +%c`
-	secs=`cat /tmp/settertime | tail -2 | grep 'offset'`
-	offset=${secs#*offset}
+	if which ntpdate &>/dev/null ; then
+		secs=`cat /tmp/settertime | tail -2 | grep 'offset'`
+		offset=${secs#*offset}
+		offset_txt='<text use-markup="true"><label>" <b>  Offset was '${offset}'      </b>"</label></text>'
+	else
+		offset_txt=''
+	fi
 	#=
 	cd $HOME
 	export timeis='<window title="Synchronised System Time" image-name="/usr/share/pixmaps/puppy/clock_countdown.svg">
@@ -214,22 +247,20 @@ function synchronise_clock() {
       <frame Updated Time>
         <text use-markup="true"><label>"<b>'${NEWCURRENT_TIME}'</b>"</label></text>
 	    <text><label>"       "</label></text>
-	    <text use-markup="true"><label>" <b>  Offset was '${offset}'      </b>"</label></text>
+	    '${offset_txt}'
 	  </frame>
       <frame>
-        <text><label> To synchronise your clock at each startup. </label></text>
-        <text><label>Press the button for auto run at each startup.</label></text>
         '${psync_chkbox}'
         <text><label>"       "</label></text>
         <hbox>
           <button space-expand="true" space-fill="true">
-            <label>'$(gettext "Show main dialog")'</label>
-            <action>EXIT:0</action>
-          </button>
-          <button space-expand="true" space-fill="true">
-            <label>'$(gettext "Quit")'</label>
+            <label>'$(gettext "Exit")'</label>
             '"`/usr/lib/gtkdialog/xml_button-icon quit`"'
             <action>EXIT:quit</action>
+          </button>
+          <button space-expand="true" space-fill="true">
+            <label>'$(gettext "Show main dialog")'</label>
+            <action>EXIT:0</action>
           </button>
         </hbox>
       </frame>
@@ -238,7 +269,7 @@ function synchronise_clock() {
 
 	#execute gtkdialog
 	eval "$(gtkdialog -c -p timeis)"
-	[ "$EXIT" = "quit" ] && return 10
+	[ "$EXIT" != "0" ] && return 10
 }
 export -f synchronise_clock
 case $1 in synchronise_clock|set)
@@ -263,11 +294,12 @@ CURRENT_TIME=`date +%X%t%Z`
 OFF=`date +%z`
 
 help_box() {
-	echo  "<b>GMT-/+ time zones</b>
+	echo  "
+<b>GMT-/+ time zones</b>
 If you use a GMT timezone with offset then the top line hardware report will show the offset in reverse notation. 
 After setting the time there is an option to run Psync automatically at each startup.
 
-<b>Set timezone..</b>
+<b>Timezone..</b>
 Use this to set a proper time zone
 
 <b>Synchronise to time server</b>
@@ -275,11 +307,40 @@ For this to work as expected, you should have already selected a proper timezone
 
 <b>The time is wrong</b>
 And more importantly, if the time is wrong.. try not using a GMT* timezone, but a more specific one: America/... Asia/... Africa/... Europe/...
+
+<b>Server</b>
+In most cases it's best to use pool.ntp.org to find an NTP server (or 0.pool.ntp.org, 1.pool.ntp.org, etc if you need multiple server names). The system will try finding the closest available servers for you.
 " > /tmp/box_help
 	/usr/lib/gtkdialog/box_help Psync
 }
 export -f help_box
 
+combo_servers='
+<text><label>"Server (/etc/psync.servers):"</label></text>
+       <combobox width-request="150" space-expand="false" space-fill="false">
+          <variable>PSYNC_SERVER</variable>
+'
+
+if [ -s "$HOME/.config/psync_server" ] ; then
+	read def < "$HOME/.config/psync_server"
+			combo_servers="$combo_servers
+<item>${def}</item>"
+fi
+
+if [ -f /etc/psync.servers ] ; then
+	servers=$(cat /etc/psync.servers)
+	if [ "$def" ] ; then
+		servers=$(echo "$servers" | grep -v "^${def}$")
+	fi
+	while read s ; do
+		[ -z "$s" ] && continue
+		combo_servers="$combo_servers
+<item>${s}</item>"
+	done <<< "$servers"
+fi
+
+combo_servers="$combo_servers
+</combobox>"
 
 cd $HOME
 WELCOME_MSG=$(/usr/lib/gtkdialog/xml_info fixed clock_countdown.svg 25 "$(gettext 'Psync synchronises system and hardware clock to a public time server')")
@@ -290,12 +351,9 @@ export Psync='
    <hbox space-expand="true" space-fill="true">
      '${psync_chkbox}'
    </hbox>
-   <frame ------------System Time & Offset to current Hardware Clock>
-     <text use-markup="true"><label>"<b>'${CURRENT_HW}'</b>"</label></text>
-   </frame>
-   <frame -------------------------------Hardware Time >
-     <text use-markup="true"><label>"<b>'${CURRENT_DATE}'</b>"</label></text>
-   </frame>
+   <hseparator></hseparator>
+
+   '$combo_servers'
 
    <hbox>
      <frame ------------Time Zone set as :->
@@ -306,25 +364,30 @@ export Psync='
      </frame>
    </hbox>
 
+   <frame ------------System Time & Offset to current Hardware Clock>
+     <text use-markup="true"><label>"<b>'${CURRENT_HW}'</b>"</label></text>
+   </frame>
+   <frame -------------------------------Hardware Time >
+     <text use-markup="true"><label>"<b>'${CURRENT_DATE}'</b>"</label></text>
+   </frame>
+
    <hbox>
       <button space-expand="false" space-fill="false">
         '"`/usr/lib/gtkdialog/xml_button-icon help`"'
-        <label>"'$(gettext 'Help')'"</label>
         <action>help_box &</action>
       </button>
 
       <button space-expand="false" space-fill="false">
-         <label>'$(gettext "Set timezone...")'</label>
+         <label>'$(gettext "Timezone..")'</label>
          '"`/usr/lib/gtkdialog/xml_button-icon country_timezone.svg icon`"'
          <action>exit:set_timezone</action>
       </button>
-      <button space-expand="false" space-fill="false">
+      <button space-expand="true" space-fill="true">
          <label>'$(gettext "Sync to time server")'</label>
          '"`/usr/lib/gtkdialog/xml_button-icon clock_countdown.svg`"'
          <action>exit:sync</action>
       </button>
       <button space-expand="false" space-fill="false">
-         <label>'$(gettext "Quit")'</label>
          '"`/usr/lib/gtkdialog/xml_button-icon quit`"'
          <action>EXIT:quit</action>
       </button>
@@ -340,6 +403,9 @@ if [ "$EXIT" = "set_timezone" ] ; then
 	timezone-set
 	exec $0
 elif [ "$EXIT" = "sync" ] ; then
+	if [ "$PSYNC_SERVER" ] ; then
+		echo "$PSYNC_SERVER" > "$HOME/.config/psync_server"
+	fi
 	synchronise_clock
 	[ $? -eq 10 ] && exit #quit
 	exec $0
