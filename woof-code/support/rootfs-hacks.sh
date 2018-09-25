@@ -60,6 +60,11 @@ if [ ! -e ${SR}/usr/bin/env ] && [ -e ${SR}/bin/env ] ; then
 	ln -snf /bin/env ${SR}/usr/bin/env
 fi
 
+# /usr/bin/expr symlink
+if [ ! -e ${SR}/usr/bin/expr ] && [ -e ${SR}/bin/expr ] ; then
+	ln -snf /bin/expr ${SR}/usr/bin/expr
+fi
+
 # fix Grub4DosConfig.desktop
 sed -i -e 's%^Categories=.*%Categories=X-SetupUtility%' \
 	-e 's%^Icon=.*%Icon=/usr/share/pixmaps/puppy/install.svg%' \
