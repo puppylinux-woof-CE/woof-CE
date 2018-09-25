@@ -63,6 +63,36 @@ selectDriverFile()
 	esac
   done
 }
+#selectDriverFile()
+#{
+  #while true ; do
+    #INF_FILE_NAME="$(Xdialog --left --title \"Select the driver information file \(.INF\)\" \
+     #--stdout --no-buttons --fselect \"${PREV_LOCATION}/*\" 0 0)" 
+    #if [ $? -eq 0 ] ; then
+      ##PREV_LOCATION="`expr "$INF_FILE_NAME" : '\(.*\)/'`"
+      #PREV_LOCATION=${INF_FILE_NAME%/*}
+      #echo "$PREV_LOCATION" > "$CONFIG_DIR/prev_location"
+      ##echo "$INF_FILE_NAME" | grep -Eiq "\.inf$" 
+      ##if [ $? -eq 0 ] ; then
+      #case "$INF_FILE_NAME" in 
+       #*.[iI][nN][fF])
+         #selectDriverFile_RC=0
+         #break
+         #;;
+       #*) # else
+         #Xdialog --screen-center --title "$L_TITLE_Netwiz_Ndiswrapper" \
+            #--msgbox "The file name should end in \".inf\"" 0 0
+         #;;     
+      #esac #fi
+    #else
+      #selectDriverFile_RC=1
+      #break
+    #fi
+  #done
+
+  #return $selectDriverFile_RC
+#} # end of selectDriverFile
+
 #=============================================================================
 showNdiswrapperGUI()
 {

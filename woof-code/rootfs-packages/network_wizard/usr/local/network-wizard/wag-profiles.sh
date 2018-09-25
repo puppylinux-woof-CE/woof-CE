@@ -447,6 +447,27 @@ showProfilesWindow()
 
 } # end showProfilesWindow
 
+#=============================================================================
+#giveNoWPADialog(){
+	#export NETWIZ_No_WPA_Dialog="<window title=\"$L_TITLE_Puppy_Network_Wizard\" icon-name=\"gtk-dialog-info\" window-position=\"1\">
+ #<vbox>
+  #<pixmap icon_size=\"6\">
+      #<input file stock=\"gtk-dialog-info\"></input>
+    #</pixmap>
+  #<text>
+    #<label>${L_TEXT_No_Wpa_p1}${INTMODULE}${L_TEXT_No_Wpa_p2}</label>
+  #</text>
+  #<hbox>
+    #<button ok></button>
+  #</hbox>
+ #</vbox>
+#</window>"
+
+	#gtkdialog --program NETWIZ_No_WPA_Dialog >/dev/null 2>&1
+	#clean_up_gtkdialog NETWIZ_No_WPA_Dialog
+	#unset NETWIZ_No_WPA_Dialog
+#}
+
 giveNoWPADialog(){
 	export NETWIZ_No_WPA_Dialog="<window title=\"$L_TITLE_Puppy_Network_Wizard\" icon-name=\"gtk-dialog-info\" window-position=\"1\">
  <vbox>
@@ -867,6 +888,19 @@ setWpaFields()
 "
 }
 
+#=============================================================================
+# Dougal: removed NWID code from top of advanced fields
+#<hbox>
+	#<vbox>
+		#<text><label>Network Id:</label></text>
+		#<pixmap><input file>$BLANK_IMAGE</input></pixmap>
+	#</vbox>
+	#<entry>
+		#<variable>PROFILE_NWID</variable>
+		#${DEFAULT_NWID}
+	#</entry>
+#</hbox>
+
 setAdvancedFields()
 {
 	if [ ! "$ADVANCED" ] ; then
@@ -1188,6 +1222,29 @@ giveErrorDialog(){
 	unset NETWIZ_ERROR_DIALOG
 }
 
+#giveNoNetworkDialog(){
+	#export NO_NETWORK_ERROR_DIALOG="<window title=\"Puppy Network Wizard\" icon-name=\"gtk-dialog-error\" window-position=\"1\">
+ #<vbox>
+  #<pixmap icon_size=\"6\">
+      #<input file stock=\"gtk-dialog-error\"></input>
+    #</pixmap>
+  #<text>
+    #<label>\"Error!
+#The profile had no network associated with it.
+#You must run a wireless scan and select a
+#network, then create a profile for it.\"</label>
+  #</text>
+  #<hbox>
+    #<button ok></button>
+  #</hbox>
+ #</vbox>
+#</window>"
+
+	#gtkdialog --program NO_NETWORK_ERROR_DIALOG >/dev/null 2>&1
+	#clean_up_gtkdialog NO_NETWORK_ERROR_DIALOG
+	#unset NO_NETWORK_ERROR_DIALOG
+#}
+
 #=============================================================================
 #131225 shinobar: retry with WPA/AES
 switchTkipAes() {
@@ -1230,6 +1287,15 @@ killWpaSupplicant ()
 	# If there are supplicant processes for the current interface, kill them
 	[ -d /var/run/wpa_supplicant ] || return
 	[ "$INTERFACE" ] || INTERFACE="$1"
+	#SUPPLICANT_PIDS=$( ps -e | grep -v "grep" | grep -E "wpa_supplicant.+${INTERFACE}" | grep -oE "^ *[0-9]+")
+	#if [ -n "$SUPPLICANT_PIDS" ]; then
+	#	rm /var/run/wpa_supplicant/$INTERFACE* > /dev/null 2>&1
+	#	for SUPPLICANT_PID in $SUPPLICANT_PIDS ; do
+	#		kill $SUPPLICANT_PID > /dev/null 2>&1
+	#	done		
+	#	sleep 5 # to wait for the supplicant to shutdown
+	#fi
+	# Dougal: replace the above with this...
 	wpa_cli -i "$INTERFACE" terminate 2>&1 |grep -v 'Failed to connect'
 	[ -e /var/run/wpa_supplicant/$INTERFACE ] && rm -rf /var/run/wpa_supplicant/$INTERFACE
 } # end killWpaSupplicant
@@ -1237,6 +1303,11 @@ killWpaSupplicant ()
 # Dougal: put this into a function, for maintainability and so it can be used in setupDHCP
 killDhcpcd(){
 	[ "$INTERFACE" ] || INTERFACE="$1"
+	# release dhcpcd
+	#dhcpcd -k "$INTERFACE" 2>/dev/null
+	# dhcpcd -k caused problems with instances of dhcpcd running on other interfaces...
+	#kill $(ps ax | grep "dhcpcd -d -I  $INTERFACE" | awk '{print $1}') 2>/dev/null
+	# clean up if needed
 	## Dougal: check /var first, since /etc/dhcpc might exist in save file from the past...
 	if [ -d /var/lib/dhcpcd ] ; then
 	  if [ -s /var/run/dhcpcd-${INTERFACE}.pid ] ; then
@@ -1279,6 +1350,12 @@ cleanUpInterface(){
 	ifconfig "$1" down
 	# reset ip address (set a false one)
 	ifconfig "$1" 0.0.0.0
+	# stop dhcpcd 
+	#killall dhcpcd 2>/dev/null
+	# flush routing table
+	#ip route flush dev "$1"
+	# bring interface up again
+	#ifconfig "$1" up
 	if ! ERROR=$(ifconfig "$1" up 2>&1) ; then
 	  giveErrorDialog "${L_MESSAGE_Failed_To_Raise_p1}${1}${L_MESSAGE_Failed_To_Raise_p2} ifconfig $1 up
 $L_MESSAGE_Failed_To_Raise_p3
@@ -1354,6 +1431,7 @@ useIwconfig ()
 	fi
 	unset NETWIZ_Connecting_DIALOG
 	return $STATUS
+  #) | Xdialog --title "Puppy Ethernet Wizard" --progress "Saving profile" 0 0 3
 } # end useIwconfig
 
 #=============================================================================
@@ -1483,6 +1561,8 @@ $WPA_CONF
 $L_MESSAGE_No_Wpaconfig_p2"
 			return 1
 		fi
+		#TMPLOG="/tmp/wag-profiles_tmp.log"
+		#rm "$TMPLOG" >> $DEBUG_OUTPUT 2>&1
 		cleanUpInterface "$INTERFACE" >> $DEBUG_OUTPUT 2>&1
 	else # running from rc.network
     	WPA_CONF="$1"
@@ -1700,6 +1780,9 @@ checkIsPCMCIA(){
 
 #=============================================================================
 waitForPCMCIA(){
+	# see if this is a pcmcia device at all
+	#grep -q "^pcmcia:" /sys/class/net/$INTERFACE/device/modalias || return
+	#case $INTMODULE in *_cs) ;; *) return ;; esac
 	export NETWIZ_Wait_For_PCMCIA_Dialog="<window title=\"$L_TITLE_Network_Wizard\" window-position=\"1\">
  <progressbar>
   <label>\"$L_PROGRESS_Waiting_For_PCMCIA\"</label>
@@ -1778,6 +1861,9 @@ buildScanWindow()
 {
 	SCANWINDOW_BUTTONS=""
 	(
+		#ifconfig "$INTERFACE" up
+		#cleanUpInterface "$INTERFACE" >> $DEBUG_OUTPUT 2>&1
+
 		#  Dougal: use files for the scan results, so we can try a few times
 		#+ and see which is biggest (sometimes not all networks show)
 		rm /tmp/net-setup_scan*.tmp >/dev/null 2>&1
@@ -1790,6 +1876,19 @@ buildScanWindow()
 		echo "X"
 
 		ScanListFile=$(du -b /tmp/net-setup_scan*.tmp |sort -n | tail -n1 |cut -f2)
+		# Dougal: if nothing found, try again!
+		# (put the retry here, so progress is more even in bar...)
+		#case "$SCANALL" in *'No scan results'*)
+		#if grep -Fq 'No scan results' $ScanListFile ; then
+		#  sleep 1
+		  #SCANALL=$(iwlist "$INTERFACE" scan 2>>$DEBUG_OUTPUT)
+		#  iwlist "$INTERFACE" scan >/tmp/net-setup_scan3.tmp 2>>$DEBUG_OUTPUT
+		#  ScanListFile="/tmp/net-setup_scan3.tmp"
+		  #;; 
+		#esac
+		#fi
+		#SCAN_LIST=$(echo "$SCANALL" | grep 'Cell\|ESSID\|Mode\|Frequency\|Quality\|Encryption\|Channel\|IE:\|Extra:')
+		#echo "$SCAN_LIST" > /tmp/net-setup_scanlist
 		echo "$ScanListFile" > /tmp/net-setup_scanlistfile
 		grep -Eo 'Cell [0-9]+|Signal level=-*[0-9]+ dBm' $ScanListFile | sed -e '/Cell / {;N;s/Cell \([0-9][0-9]*\).*=\([0-9-][0-9]*\).*/\1@\2/;}' > /tmp/net-setup_cell_signal.tmp #170622
 		#if [ -z "$SCAN_LIST" ]; then
@@ -1798,6 +1897,7 @@ buildScanWindow()
 			FI_DRIVER=$(readlink /sys/class/net/$INTERFACE/device/driver)
 			if [ "$1" = "retry" ] ; then # we're on the second try already
 				createNoNetworksDialog
+				#echo "Xdialog --left --title \"Puppy Network Wizard:\" --msgbox \"No networks detected\" 0 0 " > /tmp/net-setup_scanwindow
 			elif [ -n "$IsPCMCIA" ] ; then
 				createRetryPCMCIAScanDialog
 			else
@@ -1805,6 +1905,7 @@ buildScanWindow()
 			fi
 		else
 			# give each Cell its own button
+			#CELL_LIST=$(echo "$SCAN_LIST" | grep -Eo "Cell [0-9]+" | cut -f2 -d " ")
 			CELL_LIST="$(sort -g -r -t @ -k 2 /tmp/net-setup_cell_signal.tmp)" #170622
 			for CELL in $(echo "$CELL_LIST" | cut -f 1 -d '@') ; do #170622
 				#getCellParameters $CELL
@@ -1819,6 +1920,8 @@ ${L_SCANWINDOW_Strength}${CELL_QUALITY}\""
 		echo "X"
 	)  | gtkdialog --program=NETWIZ_Scan_Progress_Dialog >/dev/null
 	clean_up_gtkdialog NETWIZ_Scan_Progress_Dialog
+	
+	#Xdialog --title "Puppy Ethernet Wizard" --progress "Scanning wireless networks" 0 0 3
 	
 	#SCAN_LIST="$(cat /tmp/net-setup_scanlist)"
 	read ScanListFile < /tmp/net-setup_scanlistfile
@@ -2052,6 +2155,7 @@ setupScannedProfile()
 getCellParameters()
 {
 	CELL=$1
+	#SCAN_CELL=`echo "$SCAN_LIST" | grep -F -A5 "Cell ${CELL}"`
 	# Dougal: try and get exactly everything matching our cell
 	START=$(echo "$SCAN_LIST" | grep -F -n "Cell $CELL" |cut -d: -f1)
 	NEXT=$(expr $CELL + 1)
@@ -2076,14 +2180,41 @@ getCellParameters()
 	CELL_MODE=$(echo "$SCAN_CELL" | grep -o 'Mode:Managed\|Mode:Ad-Hoc\|Mode:Master' | cut -d":" -f2)
 	CELL_ENCRYPTION=$(echo "${SCAN_CELL}" | grep -F 'Encryption key:' | cut -d: -f2 | tr -d ' ')
 	CELL_ENC_TYPE="$CELL_ENCRYPTION"
+	## comment out all below code: IE: output isn't reliable (reports WPA as WPA2 at times)
+	# Dougal: add this to let the user know the type of encryption
+	#CELL_ENC_TYPE=$(echo "${SCAN_CELL}" | grep -F 'IE: ') # | grep -o 'WPA2\|WPA')
+	## Need to also check for wpa_ie/rsn_ie
+	#if [ "$CELL_ENCRYPTION" = "on" ] ;then
+	  #if [ "$CELL_ENC_TYPE" ] ; then # IE: might appear twice: with WPA and WPA2...
+	    #case "$CELL_ENC_TYPE" in
+	      #*WPA2*) CELL_ENC_TYPE="WPA2" ;;
+	      #*WPA*) CELL_ENC_TYPE="WPA" ;;
+	      #*) CELL_ENC_TYPE="on" ;; # this just in case...
+	    #esac
+	  #else
+	    #CELL_ENC_TYPE=$(echo "${SCAN_CELL}" | grep -F 'Extra:')
+	    #case "$CELL_ENC_TYPE" in
+	      #*Extra:rsn_ie*) CELL_ENC_TYPE="WPA2" ;;
+	      #*Extra:wpa_ie*) CELL_ENC_TYPE="WPA" ;;	      
+	      #*) CELL_ENC_TYPE="WEP" ;; #else it's wep
+	    #esac  
+	  #fi
+	#else
+	  #CELL_ENC_TYPE="off"
+	#fi
+	
 } # end of getCellParameters
 
 #=============================================================================
 # a modified version of the above, that uses a file rather than SCAN_LIST
 ## it sexpects the variable ScanListFile to be set (file containing scan output)
 Get_Cell_Parameters(){
+	#CELL=$1
+	#SCAN_CELL=`echo "$SCAN_LIST" | grep -F -A5 "Cell ${CELL}"`
 	# Dougal: try and get exactly everything matching our cell
+	#START=$(echo "$SCAN_LIST" | grep -F -n "Cell $CELL" |cut -d: -f1)
 	START=$(grep -F -n "Cell $1" $ScanListFile |cut -d: -f1)
+	#NEXT=$(expr $CELL + 1)
     # remove the 0 from the cell number, so the shell won't think it's hex or something
 	case $1 in
 	 0[1-9]) Acell=${1#0} ;;
@@ -2091,6 +2222,7 @@ Get_Cell_Parameters(){
 	esac
 	NEXT=$((Acell+1))
 	[ ${#NEXT} -lt 2 ] && NEXT="0$NEXT"
+	#END=$(echo "$SCAN_LIST" | grep -F -n "Cell $NEXT" |cut -d: -f1)
 	END=$(grep -F -n "Cell $NEXT" $ScanListFile |cut -d: -f1)
 	# there might not be one...
 	if [ -n "$END" ] ; then
@@ -2098,6 +2230,7 @@ Get_Cell_Parameters(){
 	else
 	  END=$(wc -l $ScanListFile | awk '{print $1}')
 	fi
+	#SCAN_CELL=$(echo "$SCAN_LIST" | sed -n "${START},${END}p")
 	SCAN_CELL=$(sed -n "${START},${END}p" $ScanListFile)
 	CELL_ESSID=$(echo "$SCAN_CELL" | grep -E -o 'ESSID:".+"' | grep -E -o '".+"' | grep -E -o '[^"]+')
 	[ "$CELL_ESSID" = "<hidden>" ] && CELL_ESSID=""
