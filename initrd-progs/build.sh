@@ -8,12 +8,10 @@ export TARGET_TRIPLET=
 
 SITE=http://01micko.com/wdlkmpx/woof-CE
 
-#X86_CC=cross-compiler-i486-20170704.tar.xz
-X86_CC=cross-compiler-i686-20170828.tar.xz
-X86_64_CC=cross-compiler-x86_64-20170705.tar.xz
-#ARM_CC=cross-compiler-arm-20170705.tar.xz #armv5
-ARM_CC=cross-compiler-arm-20170706.tar.xz #armv6
-ARM64_CC=cross-compiler-aarch64-20170705.tar.xz
+X86_CC=cross-compiler-i686-20180925.tar.xz
+X86_64_CC=cross-compiler-x86_64-20180925.tar.xz
+ARM_CC=cross-compiler-arm-20180925.tar.xz #armv6
+ARM64_CC=cross-compiler-aarch64-20180925.tar.xz
 
 INITRD_PROGS_STATIC=initrd_progs-20170706-2-static.tar.xz
 
@@ -31,7 +29,7 @@ ARCH_LIST="default $DEFAULT_x86 x86_64 arm aarch64"
 PREBUILT_BINARIES="${SITE}/${INITRD_PROGS_STATIC}"
 
 #aarch64_PREBUILT_BINARIES=
-arm_PREBUILT_BINARIES='https://gitlab.com/woodenshoe-wi/initrd-progs-arm/raw/master/initrd_progs-arm-20180227-static.tar.xz'
+#arm_PREBUILT_BINARIES=
 #i686_PREBUILT_BINARIES=
 #x86_64_PREBUILT_BINARIES=
 
