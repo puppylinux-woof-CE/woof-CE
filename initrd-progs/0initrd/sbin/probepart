@@ -6,7 +6,7 @@
 #           only checking sr* in /sys/block
 
 if [ -f /etc/rc.d/functions_x ] ; then
-	. /etc/rc.d/functions_x
+	. /etc/rc.d/functions_x #want fx_drv_* functions
 fi
 
 usage() {
@@ -60,6 +60,16 @@ done
 #                        FUNCTIONS
 #==============================================================
 
+# $1: ID_...
+cdrom_id_has() {
+	while read i ; do
+		case $i in *"$1"*) return 0 ;; esac
+	done <<EOF
+$cdrom_id
+EOF
+	return 1
+}
+
 # $1: devname
 # $2: size
 probepart_func() {
@@ -78,23 +88,21 @@ probepart_func() {
 	fi
 
 	case $ONEDEV in fd*)
+		# skip "fake" fdX devices...
 		[ ! -e /sys/block/${ONEDEV}/device/vendor -a ! -e /sys/block/${ONEDEV}/device/model ] && return ;;
 	esac
 
 	DRV_IS_OPTICAL="no"
-	if [ -e /sys/block/${ONEDEV}/device/type ] ; then
-		read -r xtype < /sys/block/${ONEDEV}/device/type
-		if [ "$xtype" = "5" ] ; then
-			[ "$PROCESS_OPTICAL" = "no" ] && return
-			#--
+	if [ "$PROCESS_OPTICAL" = "yes" ] ; then
+		if fx_drv_is_optical ${ONEDEV} ; then
 			DRV_IS_OPTICAL="yes"
 			#--
 			if [ -f /lib/udev/cdrom_id ] ; then
-				eval "$(/lib/udev/cdrom_id $blockdev)"
-				if [ ! "$ID_CDROM_MEDIA" ] ; then
+				cdrom_id="$(/lib/udev/cdrom_id $blockdev)" #ID_CDROM_* variables
+				if ! cdrom_id_has "ID_CDROM_MEDIA"  ; then
 					return # disc is not inserted...
 				fi
-				if [ "$ID_CDROM_MEDIA_TRACK_COUNT_AUDIO" ] ; then
+				if cdrom_id_has "ID_CDROM_MEDIA_TRACK_COUNT_AUDIO" ; then
 					FSTYPE="audiocd"
 				fi
 				if [ $SIZE -eq 0 ] ; then
@@ -113,8 +121,14 @@ probepart_func() {
 	fi
 
 	if [ "$FSTYPE" = "" ] ; then
-		[ $SIZE -le 4 ] && return #extended partition (most likely)
-		FSTYPE="unknown"
+		if [ $SIZE -le 4 ] ; then
+			return #extended partition (most likely)
+		fi
+		if [ "$ONEDEV_ARG" != "1" -a "$DRV_IS_OPTICAL" != "yes" -a -e /sys/block/${ONEDEV} ] ; then
+			# drive with no f.s.. ignore
+			return
+		fi
+		FSTYPE="none"
 	fi
 
 	if [ "$EXTRA_INFO" = "yes" ] ; then
@@ -128,14 +142,6 @@ probepart_func() {
 			[ "$dev" = "$blockdev" ] && MOUNT_STATUS="mounted" && break
 		done < /proc/mounts
 		EXTRA_STUFF="|${PARTITION_LABEL}|${MOUNT_STATUS}"
-	fi
-
-	if [ "$FSTYPE" = "unknown" ] ; then
-		if [ "$ONEDEV_ARG" != "1" -a "$DRV_IS_OPTICAL" != "yes" -a -e /sys/block/${ONEDEV} ] ; then
-			# drive with no f.s.. ignore
-			return
-		fi
-		FSTYPE="none"
 	fi
 
 	if [ "$HR_SIZE" = "yes" ] ; then
@@ -160,7 +166,8 @@ do_probepart() {
 	unset ok
 	device="${1##*/}" #basename
 	device="${device//./}" #remove dots / convert grep wilcards to unix shell wildcards..
-	while read major minor blocks name ; do #< /proc/partitions
+	while read major minor blocks name #< /proc/partitions
+	do
 		case $name in $device)
 			ok=1
 			probepart_func $name $blocks ;;
@@ -189,24 +196,32 @@ do_probepart() {
 
 do_probepart_all() {
 	# devices that have partitions... 
-	while read major minor blocks name ; do #< /proc/partitions
-		case $name in
-			sd*|hd*|mmc*|nvme*) echo $name $blocks ;; #allowed drvs
+	while read major minor blocks name  #< /proc/partitions
+	do
+		if ! fx_drv_is_ok $name ; then
+			continue
+		fi
+		case $name in sr*)
+			continue ;;
 		esac
+		echo $name $blocks
+		#-
 	done < /proc/partitions | sort | \
 		while read l ; do
 			probepart_func $l
 		done
 	#== optical
-	for dev in /sys/block/sr*
-	do
-		dev=${dev##*/} #basename
-		if [ -e /sys/block/${dev}/size ] ; then
-			read size < /sys/block/${dev}/size
-			size=$(($size/2)) # kb = /proc/partitions
-			probepart_func $dev $size
-		fi
-	done
+	if [ "$PROCESS_OPTICAL" = "yes" ] ; then
+		for dev in /sys/block/sr*
+		do
+			dev=${dev##*/} #basename
+			if [ -e /sys/block/${dev}/size ] ; then
+				read size < /sys/block/${dev}/size
+				size=$(($size/2)) # kb = /proc/partitions
+				probepart_func $dev $size
+			fi
+		done
+	fi
 }
 
 #==============================================================
