@@ -75,9 +75,14 @@
 #170329 rerwin: set as current network exec, retaining previous exec name.
 #170509 rerwin: replace gtkdialog3 with gtkdialog.
 #170514 add message about already running
+#180923 move network wizard to its package directory.
 
-APPDIR="$(dirname $0)"
-[ "$APPDIR" = "." ] && APPDIR="$(pwd)"
+if [ -d /usr/local/network-wizard ] ; then #180923...
+	APPDIR='/usr/local/network-wizard'
+else
+	APPDIR="$(dirname $0)"
+	[ "$APPDIR" = "." ] && APPDIR="$(pwd)"
+fi
 
 # Dougal: add localization
 mo=net-setup.mo
