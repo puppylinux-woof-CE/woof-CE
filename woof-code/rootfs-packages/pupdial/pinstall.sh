@@ -14,5 +14,5 @@ if [ "$(pwd)" = "/" ];then
 fi
 
 #Replace placeholders with links.
-ln -snf ../local/pupdial/pupdial /usr/sbin/
-ln -snf ../local/pupdial/modemdisconnect /usr/sbin/
+ln -snf /usr/local/pupdial/pupdial usr/sbin/
+ln -snf /usr/local/pupdial/modemdisconnect usr/sbin/
