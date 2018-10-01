@@ -70,7 +70,6 @@
 # Update: Feb. 22nd: change the backing up of resolve.conf so it only saves as resolv.conf.old
 # Update: Mar. 19th: add wireless scan files to cleanUpTmp, change shebang to bash
 # Update: Apr.  1st: improve finding of usb device info from /sys
-# 25feb10: shinobar: old and new ifplugstatus
 #111015 BK: strip out chars that might upset gtkdialog.
 #170329 rerwin: set as current network exec, retaining previous exec name.
 #170509 rerwin: replace gtkdialog3 with gtkdialog.
@@ -994,7 +993,6 @@ testInterface()
   INTERFACE="$1"
   
   (
-	UNPLUGGED="false"
 	ifconfig "$INTERFACE" | grep ' UP ' >> $DEBUG_OUTPUT 2>&1
 	if [ ! $? -eq 0 ];then #=0 if found
 		#cleanUpInterface "$INTERFACE" >> $DEBUG_OUTPUT 2>&1
@@ -1007,35 +1005,22 @@ $ERROR
 "
 		fi
 	fi
-	#BK1.0.7 improved link-beat detection...
+
 	echo "X"
-  #091108 old ifplugstatus now -0.18, latest is just 'ifplugstatus'...
-  # 25feb10: shinobar: old and new ifplugstatus
-  IFPLUGOLD=ifplugstatus
-  IFPLUGNEW=ifplugstatus
-  [ -x /sbin/ifplugstatus-0.18 ] && IFPLUGOLD=ifplugstatus-0.18
-  [ -x /sbin/ifplugstatus-0.25 ] && IFPLUGNEW=ifplugstatus-0.25
-	if ! $IFPLUGOLD "$INTERFACE" | grep -F -q 'link beat detected' ;then
-	  sleep 2
-	  echo "X"
-	  if ! $IFPLUGNEW "$INTERFACE" | grep -F -q 'link beat detected' ;then
-		sleep 2
-		echo "X"
-		if ! $IFPLUGOLD "$INTERFACE" | grep -F -q 'link beat detected' ;then
-		  sleep 2
-		  echo "X"
-		  if ! $IFPLUGNEW "$INTERFACE" | grep -F -q 'link beat detected' ;then
-		    # add ethtool test, just in case it helps at times...
-		    sleep 1
-		    echo "X"
-		    if ! ethtool "$INTERFACE" | grep -Fq 'Link detected: yes' ; then
-		      UNPLUGGED="true"
-		    fi
-		  fi
+	LINK_DETECTED=no
+	for i in 1 2 3 4 5 ; do
+		if ethtool "$INTERFACE" | grep -Fq 'Link detected: yes' ; then
+			LINK_DETECTED="yes"
+			break
 		fi
-	  fi
+		sleep 1.3
+		echo "X"
+	done
+	if [ "$LINK_DETECTED" = "no" ] ; then
+		echo -n true > /tmp/net-setup_UNPLUGGED.txt
+	else
+		echo -n false > /tmp/net-setup_UNPLUGGED.txt
 	fi
-	echo "${UNPLUGGED}" > /tmp/net-setup_UNPLUGGED.txt
   ) | Xdialog --title "$L_TITLE_Network_Wizard" --progress "$L_PROGRESS_Testing_Interface ${INTERFACE}" 0 0 5
 
   UNPLUGGED=$(cat /tmp/net-setup_UNPLUGGED.txt)
