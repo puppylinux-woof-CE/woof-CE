@@ -101,9 +101,10 @@ else
 	DEBUG_OUTPUT=/dev/null
 fi
 
-if [ ! -f /tmp/services/networkmodules ] ; then
+if [ ! -f /tmp/services/networkmodules -a ! -f /tmp/networkmodules ] ; then #compatability
 	updatenetmoduleslist.sh
 fi
+[ -d /tmp/services ] && TMPDIR=/tmp/services || TMPDIR=/tmp #compatability
 
 # basic configuration info for interface
 # named $HWADDRESS.conf (assuming the HWaddress is more unique than interface name...)
@@ -292,7 +293,7 @@ showLoadModuleWindow()
   findLoadedModules
   echo -n "" > /tmp/ethmoduleyesload.txt
   # Dougal: create list of modules (pipe delimited)
-  sort /tmp/services/networkmodules | tr '"' '|' | tr ':' '|' | sed 's%|$%%g' | tr -s ' ' >/tmp/module-list
+  sort $TMPDIR/networkmodules | tr '"' '|' | tr ':' '|' | sed 's%|$%%g' | tr -s ' ' >/tmp/module-list
 
   export NETWIZ_LOAD_MODULE_DIALOG="<window title=\"$L_TITLE_Load_Network_Module\" icon-name=\"gtk-execute\" window-position=\"1\">
 <vbox>
@@ -960,7 +961,7 @@ findLoadedModules ()
   echo -n " " > /tmp/loadedeth.txt
 
   LOADED_MODULES="$(lsmod | cut -f1 -d' ' | sort)"
-  NETWORK_MODULES=" $(cat /tmp/services/networkmodules /etc/networkusermodules  2>/dev/null | cut -f1 -d' ' | tr '\n' ' ') "
+  NETWORK_MODULES=" $(cat $TMPDIR/networkmodules /etc/networkusermodules  2>/dev/null | cut -f1 -d' ' | tr '\n' ' ') "
 
   COUNT_MOD=0
   for MOD in $LOADED_MODULES
@@ -1615,7 +1616,7 @@ findInterfaceInfo()
    */bus/usb*) TYPE="usb" ;;
    */bus/ieee1394*) TYPE="firewire" ;;
    *) # pcmcia and pci apparently both appear as pci...
-      if grep "^${FI_DRIVER##*/} " /tmp/services/networkmodules |grep -q 'pcmcia:' ; then
+      if grep "^${FI_DRIVER##*/} " $TMPDIR/networkmodules |grep -q 'pcmcia:' ; then
         TYPE="pcmcia"
       else
         TYPE="pci"
