@@ -69,3 +69,8 @@ fi
 sed -i -e 's%^Categories=.*%Categories=X-SetupUtility%' \
 	-e 's%^Icon=.*%Icon=/usr/share/pixmaps/puppy/install.svg%' \
 	${SR}/usr/share/applications/Grub4DosConfig.desktop
+
+# (.petbuild) launching dhcpcd / don't need ifplugd...
+if [ -e ${SR}/etc/init.d/ifplugd ] ; then
+	rm -f ${SR}/etc/init.d/ifplugd
+fi
