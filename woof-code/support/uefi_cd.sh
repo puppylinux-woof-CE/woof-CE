@@ -50,8 +50,6 @@ NEWNAME=bootx64.efi
 GRUB2=`find ../sandbox3/rootfs-complete/usr/share -maxdepth 2 -type f -name "${GRUBNAME}*"`
 BUILD=../sandbox3/build
 HELP=${BUILD}/help
-MSG1=../boot/boot-dialog/help.msg
-MSG2=../boot/boot-dialog/help2.msg
 BOOTLABEL=puppy
 PPMLABEL=`which ppmlabel`
 TEXT="-text $DISTRO_VERSION"
@@ -77,18 +75,22 @@ esac
 if [ -n "$PPMLABEL" ];then # label the image with version
 	pngtopnm < ${RESOURCES}/${pic}.png | \
 	${PPMLABEL} ${GEOM} ${TEXT} | \
-	pnmtopng > ${BUILD}/${pic}.png
+	pnmtopng > ${BUILD}/splash.png
 else
-	cp -a ${RESOURCES}/${pic}.png 	$BUILD
+	cp -a ${RESOURCES}/${pic}.png ${BUILD}/splash.png
 fi
 # cp -a ${RESOURCES}/efi.img 		$BUILD
 cp -a $ISOLINUX		$BUILD
 cp -a $VESAMENU		$BUILD
 [ -n "$FIXUSB" ] && cp -a $FIXUSB $BUILD
-mkdir -p $HELP
-sed -e "s/DISTRO_FILE_PREFIX/${DISTRO_FILE_PREFIX}/g" \
-	-e "s/BOOTLABEL/${BOOTLABEL}/g"< $MSG1 > $HELP/help.msg
-sed "s/BOOTLABEL/${BOOTLABEL}/g" < $MSG2 > $HELP/help2.msg
+
+mkdir -p ${BUILD}/help
+cp -f ../boot/boot-dialog/*.msg ${BUILD}/help/
+cp -f ../boot/boot-dialog/*.cfg ${BUILD}/
+
+sed -i -e "s/DISTRO_FILE_PREFIX/${DISTRO_FILE_PREFIX}/g" \
+		-e "s/BOOTLABEL/${BOOTLABEL}/g" \
+		${BUILD}/*.cfg ${BUILD}/help/*.msg
 
 # build the efi image
 mk_efi_img $BUILD $GRUB2 $NEWNAME
@@ -98,125 +100,15 @@ if [ $ret -ne 0 ];then
 	exit $ret
 fi
 
-# construct grub.cfg
-cat > ${BUILD}/grub.cfg <<GRUB
-insmod png
-background_image /${pic}.png
-set timeout=10
-menuentry "Start $DISTRO_FILE_PREFIX" {
-    linux /vmlinuz pmedia=cd
-    initrd /initrd.gz
-}
-menuentry "Start $DISTRO_FILE_PREFIX - RAM only" {
-    linux /vmlinuz pfix=ram pmedia=cd
-    initrd /initrd.gz
-}
-menuentry "Start $DISTRO_FILE_PREFIX - No X" {
-    linux /vmlinuz pfix=nox pmedia=cd
-    initrd /initrd.gz
-}
-menuentry "Start $DISTRO_FILE_PREFIX - check filesystem" {
-    linux /vmlinuz pfix=fsck pmedia=cd
-    initrd /initrd.gz
-}
-menuentry "Start $DISTRO_FILE_PREFIX - No KMS" {
-    linux /vmlinuz nomodeset
-    initrd /initrd.gz
-}
-menuentry "Shutdown" {
-	halt
-}
-menuentry "Reboot" {
-	reboot
-}
-GRUB
-
-# construct isolinux.cfg
-cat > ${BUILD}/isolinux.cfg <<ISO
-default $DISTRO_FILE_PREFIX
-prompt 1
-timeout 100
-
-F2 help/help.msg
-F3 help/help2.msg
-
-ui vesamenu.c32
-menu resolution 800 600
-menu title $DISTRO_FILE_PREFIX Live
-menu background ${pic}.png
-menu tabmsg Press Tab to edit entry, F2 for help, Esc for boot prompt
-menu color border 37;40  #80ffffff #00000000 std
-menu color sel 7;37;40 #80ffffff #20ff8000 all
-menu margin 1
-menu rows 20
-menu tabmsgrow 26
-menu cmdlinerow -2
-menu passwordrow 19
-menu timeoutrow 28
-menu helpmsgrow 30
-
-
-
-label ${DISTRO_FILE_PREFIX}
-linux vmlinuz
-initrd initrd.gz
-append pmedia=cd
-menu label ${DISTRO_FILE_PREFIX}
-text help
-Start ${DISTRO_FILE_PREFIX} normally.
-endtext
-
-
-label ${DISTRO_FILE_PREFIX}-fsck
-linux vmlinuz
-initrd initrd.gz
-append pfix=fsck pmedia=cd
-menu label ${DISTRO_FILE_PREFIX} filesystem check
-text help
-Start ${DISTRO_FILE_PREFIX} normally with save filesystem check.
-endtext
-
-
-label ${DISTRO_FILE_PREFIX}-ram
-linux vmlinuz
-initrd initrd.gz
-append pfix=ram pmedia=cd
-menu label $DISTRO_FILE_PREFIX with no savefile
-text help
-Start ${DISTRO_FILE_PREFIX} with no savefile RAM only.
-endtext
-
-
-label ${DISTRO_FILE_PREFIX}-nox
-linux vmlinuz
-initrd initrd.gz
-append pfix=nox pmedia=cd
-menu label ${DISTRO_FILE_PREFIX} without graphical desktop
-text help
-Start ${DISTRO_FILE_PREFIX} in command-line mode (Linux console). 
-Graphical desktop later can be started by typing "xwin".
-endtext
-
-
-menu separator
-
-label ${DISTRO_FILE_PREFIX}-nokms
-linux vmlinuz
-initrd initrd.gz
-append pfix=ram,nox pmedia=cd
-menu label For machines with severe video problems
-text help
-Start ${DISTRO_FILE_PREFIX} without savefile, without KMS, and run xorgwizard 
-to choose video resolutions before starting graphical desktop.
-endtext
-ISO
-
 # build the iso
 sync
 mk_iso $BUILD $OUT
 sync
-(cd ../$WOOF_OUTPUT
+
+(
+cd ../$WOOF_OUTPUT
 md5sum ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${SCSIFLAG}${UFLG}${XTRA_FLG}.iso \
-> ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${SCSIFLAG}${UFLG}${XTRA_FLG}.iso.md5.txt
+	> ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${SCSIFLAG}${UFLG}${XTRA_FLG}.iso.md5.txt
 sha256sum ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${SCSIFLAG}${UFLG}${XTRA_FLG}.iso \
-> ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${SCSIFLAG}${UFLG}${XTRA_FLG}.iso.sha256.txt)
+	> ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${SCSIFLAG}${UFLG}${XTRA_FLG}.iso.sha256.txt
+)
