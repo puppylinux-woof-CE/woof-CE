@@ -76,6 +76,25 @@
 #170514 add message about already running
 #180923 move network wizard to its package directory.
 
+# $1: interface
+interface_is_wireless() {
+	if [ ! "$1" ] ; then
+		return 1 #error
+	fi
+	if grep -q "${1}:" /proc/net/wireless ; then
+		return 0 #yes
+	fi
+	if [ -d /sys/class/net/${1}/wireless ] ; then
+		return 0 #yes
+	fi
+	# k3.2.x: my problematic wireless pci adapter is only recognized by iwconfig..
+	# hmm with 2 pci wireless adapters only iwconfig does the trick
+	if iwconfig ${1} 2>&1 | grep -q 'no wireless' ; then
+		return 1 #no
+	fi
+	return 0 #yes
+}
+
 if [ -d /usr/local/network-wizard ] ; then #180923...
 	APPDIR='/usr/local/network-wizard'
 else
@@ -1238,12 +1257,11 @@ checkIfIsWireless ()
   INTMODULE=$(readlink /sys/class/net/$INTERFACE/device/driver)
   INTMODULE=${INTMODULE##*/}
 
-  if [ -d "/sys/class/net/$INTERFACE/wireless" ] || \
-     [ "$INTMODULE" = "prism2_usb" ] || \
-     grep -q "$INTERFACE" /proc/net/wireless
-  then IS_WIRELESS="yes" ; return 0
+  if interface_is_wireless ${INTERFACE} ; then
+    return 0
+  else
+    return 1
   fi
-  return 1
 }
 
 #=============================================================================
@@ -1624,12 +1642,11 @@ findInterfaceInfo()
       ;;
   esac
   FI_DRIVER=${FI_DRIVER##*/}
-  
-  if [ -d "/sys/class/net/$INT/wireless" ] || \
-     [ "$FI_DRIVER" = "prism2_usb" ] || \
-     grep -q "$INT" /proc/net/wireless 
-  then INTTYPE="$L_INTTYPE_Wireless"
-  else INTTYPE="$L_INTTYPE_Ethernet"
+
+  if interface_is_wireless ${INTERFACE} ; then
+    INTTYPE="$L_INTTYPE_Wireless"
+  else
+    INTTYPE="$L_INTTYPE_Ethernet"
   fi
   
   case "$TYPE" in
