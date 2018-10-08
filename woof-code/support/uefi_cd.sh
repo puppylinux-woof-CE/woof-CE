@@ -133,15 +133,12 @@ GRUB
 
 # construct isolinux.cfg
 cat > ${BUILD}/isolinux.cfg <<ISO
-#display help/boot.msg
 default $DISTRO_FILE_PREFIX
 prompt 1
 timeout 100
 
-#F1 help/boot.msg
 F2 help/help.msg
 F3 help/help2.msg
-
 
 ui vesamenu.c32
 menu resolution 800 600
