@@ -2,6 +2,7 @@
 # efi.img/grub2 is thanks to jamesbond
 # basic CD structure is the same as Fatdog64
 # called from 3builddistro-Z
+
 . ../DISTRO_SPECS
 
 # make an UEFI iso
@@ -40,16 +41,14 @@ mk_efi_img() {
 	return 0
 }
 
-# RESOURCES=`find ../ -type d -name UEFI -maxdepth 2`
-RESOURCES=`find ../sandbox3/rootfs-complete/usr/share/ -maxdepth 2 -type d -name 'grub2-efi'`
-ISOLINUX=`find ../sandbox3/rootfs-complete/usr -maxdepth 3 -type f -name 'isolinux.bin'`
-VESAMENU=`find ../sandbox3/rootfs-complete/usr -maxdepth 3 -type f -name 'vesamenu.c32'`
-FIXUSB=`find ../sandbox3/rootfs-complete/usr -maxdepth 2 -type f -name 'fix-usb.sh'`
+PX=../sandbox3/rootfs-complete
+
+FIXUSB=${PX}/usr/sbin/fix-usb.sh
+RESOURCES=${PX}/usr/share/grub2-efi # rootfs-package
 GRUBNAME=grubx64.efi
 NEWNAME=bootx64.efi
-GRUB2=`find ../sandbox3/rootfs-complete/usr/share -maxdepth 2 -type f -name "${GRUBNAME}*"`
+GRUB2=${PX}/usr/share/grub2-efi/${GRUBNAME}*
 BUILD=../sandbox3/build
-HELP=${BUILD}/help
 BOOTLABEL=puppy
 PPMLABEL=`which ppmlabel`
 TEXT="-text $DISTRO_VERSION"
@@ -62,6 +61,8 @@ OUT=../${WOOF_OUTPUT}/${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${SCSIFLAG}${UFLG}$
 [ -z "$ISOLINUX" ] && echo "Can't find isolinux" && exit 32
 [ -z "$VESAMENU" ] && echo "Can't find vesamenu" && exit 33
 [ -z "$GRUB2" ] && echo "Can't find Grub2" && exit 34
+
+#======================================================
 
 # custom backdrop
 pic=puppy
@@ -79,7 +80,7 @@ if [ -n "$PPMLABEL" ];then # label the image with version
 else
 	cp -a ${RESOURCES}/${pic}.png ${BUILD}/splash.png
 fi
-# cp -a ${RESOURCES}/efi.img 		$BUILD
+
 cp -a $ISOLINUX		$BUILD
 cp -a $VESAMENU		$BUILD
 [ -n "$FIXUSB" ] && cp -a $FIXUSB $BUILD
@@ -112,3 +113,5 @@ md5sum ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${SCSIFLAG}${UFLG}${XTRA_FLG}.iso 
 sha256sum ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${SCSIFLAG}${UFLG}${XTRA_FLG}.iso \
 	> ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${SCSIFLAG}${UFLG}${XTRA_FLG}.iso.sha256.txt
 )
+
+### END ###
