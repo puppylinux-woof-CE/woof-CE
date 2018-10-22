@@ -117,46 +117,33 @@ OUT=../${WOOF_OUTPUT}/${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${SCSIFLAG}${UFLG}$
 ISOLINUX=
 VESAMENU=
 
-# syslinux 6 - pet pkg
-if [ -d ${PX}/usr/share/syslinux/efi64 ] ; then
-	if [ -f ${PX}/usr/share/syslinux/isolinux.bin ] ; then
-		ISOLINUX=${PX}/usr/share/syslinux/isolinux.bin
-		VESAMENU="
-		${PX}/usr/share/syslinux/ldlinux.c32
-		${PX}/usr/share/syslinux/libcom32.c32
-		${PX}/usr/share/syslinux/libutil.c32
-		${PX}/usr/share/syslinux/vesamenu.c32"
-	fi
-fi
-
-# syslinux 4 -standard- syslinux,syslinux-common
-if [ -z "$ISOLINUX" -a -f ${PX}/usr/share/syslinux/isolinux.bin ] ; then
-	ISOLINUX=${PX}/usr/share/syslinux/isolinux.bin
-	VESAMENU=${PX}/usr/share/syslinux/vesamenu.c32
-	CHAIN=${PX}/usr/share/syslinux/chain.c32
-fi
-
-# syslinux 6 - debian
-#isolinux pkg (debian/ubuntu) xenial+
-if [ -z "$ISOLINUX" -a -f ${PX}/usr/lib/ISOLINUX/isolinux.bin ] ; then
+if [ -f ${PX}/usr/lib/ISOLINUX/isolinux.bin ] ; then
+	#isolinux pkg (debian/ubuntu) xenial+
 	ISOLINUX=${PX}/usr/lib/ISOLINUX/isolinux.bin
+elif [ -f ${PX}/usr/share/syslinux/isolinux.bin ] ; then
+	# standard location
+	ISOLINUX=${PX}/usr/share/syslinux/isolinux.bin
 fi
-if [ -z "$VESAMENU" -a -f ${PX}/usr/lib/syslinux/modules/bios/vesamenu.c32 ] ; then
-	VESAMENU="
-		${PX}/usr/lib/syslinux/modules/bios/ldlinux.c32
-		${PX}/usr/lib/syslinux/modules/bios/libcom32.c32
-		${PX}/usr/lib/syslinux/modules/bios/libutil.c32
-		${PX}/usr/lib/syslinux/modules/bios/vesamenu.c32"
+
+if [ -f ${PX}/usr/lib/syslinux/modules/bios/vesamenu.c32 ] ; then
+	# syslinux 6
+	VESAMENU=${PX}/usr/lib/syslinux/modules/bios
+elif [ ${PX}/usr/share/syslinux/vesamenu.c32 ] ; then
+	VESAMENU=${PX}/usr/share/syslinux
 fi
 
 [ -z "$ISOLINUX" ] && echo "Can't find isolinux" && exit 32
 [ -z "$VESAMENU" ] && echo "Can't find vesamenu" && exit 33
 
+cp -a $ISOLINUX		$BUILD
+for i in ldlinux.c32 libcom32.c32 libutil.c32 vesamenu.c32 ; do
+	if [ -f $VESAMENU/${i} ] ; then
+		cp -a $VESAMENU/${i} $BUILD
+	fi
+done
+
 #======================================================
 
-
-cp -a $ISOLINUX		$BUILD
-cp -a $VESAMENU		$BUILD
 [ -n "$FIXUSB" ] && cp -a $FIXUSB $BUILD
 
 mkdir -p ${BUILD}/help
