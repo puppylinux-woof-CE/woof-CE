@@ -7,6 +7,24 @@
 . ../_00build.conf
 [ "$UFEI_ISO" ] && UEFI_ISO=${UFEI_ISO} #UFEI is a typo
 
+#set -x
+
+EFI_64='bootx64.efi'
+EFI_32='bootia32.efi'
+EFI32_SOURCE=''
+EFI64_SOURCE=''
+GRUB2_TARBALL='' #rootfs-package.. will be removed
+PX=../sandbox3/rootfs-complete
+FIXUSB=${PX}/usr/sbin/fix-usb.sh
+BUILD=../sandbox3/build
+BOOTLABEL=puppy
+PPMLABEL=`which ppmlabel`
+TEXT="-text $DISTRO_VERSION"
+RESOURCES=${PX}/usr/share/grub2-efi
+SCREENRES='640 480' #UEFI_ISO=yes: 800x600
+
+#===================================================
+
 # make an UEFI iso
 mk_iso() {
 	tmp_isoroot=$1 	# input
@@ -26,10 +44,14 @@ mk_iso() {
 
 # make a grub2 efi image
 mk_efi_img() {
-	TGT=$1; GRUB=$2; NEW=$3
+	TGT=$1
 	mkdir -p /tmp/efi_img # mount point
 	echo "making ${TGT}/efi.img"
-	dd if=/dev/zero of=${TGT}/efi.img bs=512 count=8192 || return 1
+	size=8192 #4mb
+	if [ "$EFI32_SOURCE" ] ; then
+		size=$((size+4096)) #6 mb
+	fi
+	dd if=/dev/zero of=${TGT}/efi.img bs=512 count=${size} || return 1
 	echo "formatting ${TGT}/efi.img - vfat"
 	mkdosfs ${TGT}/efi.img
 	FREE_DEV=`losetup -f`
@@ -39,32 +61,47 @@ mk_efi_img() {
 		(losetup -d $FREE_DEV;return 3)
 	echo "copying files"
 	mkdir -p /tmp/efi_img/EFI/boot/ || return 4
-	tar -xJvf $GRUB -C /tmp/efi_img/EFI/boot/ || return 5
-	mv /tmp/efi_img/EFI/boot/${GRUBNAME} /tmp/efi_img/EFI/boot/${NEW} \
-		|| return 6
+	if [ "$GRUB2_TARBALL" ] ; then #old stuff, will be deleted.
+		tar -xJvf "$GRUB2_TARBALL" -C /tmp/efi_img/EFI/boot/ || return 5
+		mv /tmp/efi_img/EFI/boot/grubx64.efi /tmp/efi_img/EFI/boot/${EFI_64} || return 6
+	fi
+	if [ "$EFI64_SOURCE" ] ; then
+		cp "$EFI64_SOURCE" /tmp/efi_img/EFI/boot/${EFI_64} || return 5
+	fi
+	if [ "$EFI32_SOURCE" ] ; then
+		cp "$EFI32_SOURCE" /tmp/efi_img/EFI/boot/${EFI_32} || return 5
+	fi
 	echo "unmounting /tmp/efi_img"
 	umount /tmp/efi_img || return 7
-	losetup -a | grep -o -q "${FREE_DEV##*/}" && losetup -d $FREE_DEV
+	losetup -d $FREE_DEV 2>/dev/null #precaution
 	rm -r /tmp/efi_img
 	return 0
 }
 
-PX=../sandbox3/rootfs-complete
-
-FIXUSB=${PX}/usr/sbin/fix-usb.sh
-BUILD=../sandbox3/build
-BOOTLABEL=puppy
-PPMLABEL=`which ppmlabel`
-TEXT="-text $DISTRO_VERSION"
-RESOURCES=${PX}/usr/share/grub2-efi # rootfs-package
-SCREENRES='640 480'
-
 if [ "$UEFI_ISO" = "yes" ] ; then
 	SCREENRES='800 600'
-	GEOM="-x 680 -y 380"
-	GRUBNAME=grubx64.efi
-	NEWNAME=bootx64.efi
-	GRUB2=${PX}/usr/share/grub2-efi/${GRUBNAME}*
+	#--
+	if [ -f ${RESOURCES}/grubx64.efi-fedora ] ; then
+		EFI64_SOURCE=${RESOURCES}/grubx64.efi-fedora
+	fi
+	if [ -f ${RESOURCES}/grubx64.efi ] ; then
+		EFI64_SOURCE=${RESOURCES}/grubx64.efi
+	fi
+	if [ -f ${RESOURCES}/grubia32.efi ] ; then
+		EFI32_SOURCE=${RESOURCES}/grubia32.efi
+	fi
+	#--
+	# old stuff
+	if [ "$EFI64_SOURCE" ] ; then
+		rm -f ${RESOURCES}/grubx64.efi.tar.xz
+	fi
+	if [ -f ${RESOURCES}/grubx64.efi.tar.xz ] ; then
+		GRUB2_TARBALL=${RESOURCES}/grubx64.efi.tar.xz
+	fi
+	#
+	if [ -z "$EFI32_SOURCE" -a -z "$EFI64_SOURCE" -a -z "$GRUB2_TARBALL" ] ; then
+		exit 100
+	fi
 	UFLG=-uefi
 fi
 
@@ -72,8 +109,10 @@ WOOF_OUTPUT="woof-output-${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${SCSIFLAG}${UFL
 [ -d ../$WOOF_OUTPUT ] || mkdir -p ../$WOOF_OUTPUT
 OUT=../${WOOF_OUTPUT}/${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${SCSIFLAG}${UFLG}${XTRA_FLG}.iso
 
+
 #======================================================
-# isolinux
+#                  isolinux
+#======================================================
 
 ISOLINUX=
 VESAMENU=
@@ -115,6 +154,7 @@ fi
 
 #======================================================
 
+
 cp -a $ISOLINUX		$BUILD
 cp -a $VESAMENU		$BUILD
 [ -n "$FIXUSB" ] && cp -a $FIXUSB $BUILD
@@ -145,6 +185,7 @@ if [ "$UEFI_ISO" = "yes" ] ; then
 
 	# update and transfer the skeleton files
 	if [ -n "$PPMLABEL" ];then # label the image with version
+		GEOM="-x 680 -y 380"
 		pngtopnm < ${RESOURCES}/${pic}.png | \
 		${PPMLABEL} ${GEOM} ${TEXT} | \
 		pnmtopng > ${BUILD}/splash.png
@@ -152,7 +193,7 @@ if [ "$UEFI_ISO" = "yes" ] ; then
 		cp -a ${RESOURCES}/${pic}.png ${BUILD}/splash.png
 	fi
 
-	mk_efi_img $BUILD $GRUB2 $NEWNAME
+	mk_efi_img $BUILD
 	ret=$?
 	if [ $ret -ne 0 ];then
 		echo "An error occured and the program is aborting with $ret status."
