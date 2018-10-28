@@ -33,7 +33,7 @@
 # +gettext
 # +grubx*.efi.tar.xz from jamesbond
 #-----------------------------------------------------------------------------#
-ver=0.2
+ver=0.5
 
 # vars
 . /etc/DISTRO_SPECS
@@ -46,10 +46,20 @@ ABTMSG=$(gettext "You aborted the installation.")
 FULLINST=yes
 MNTERR=$(gettext "Aborting... Failed to mount ")
 CPERR=$(gettext "Copy error")
-SYSDIR=`find /usr -type d -name 'syslinux' -maxdepth 4`
-LABEL=""
-DISTRO=""
-VERSION=""
+BOOTLABEL='puppy'
+
+if [ -f /usr/lib/syslinux/modules/bios/vesamenu.c32 ] ; then
+	# syslinux 6
+	SYSDIR='/usr/lib/syslinux/modules/bios'
+elif [ /usr/share/syslinux/vesamenu.c32 ] ; then
+	SYSDIR='/usr/share/syslinux'
+fi
+
+if [ -f /usr/lib/syslinux/mbr/mbr.bin ] ; then #ubuntu
+	MBR_BIN='/usr/lib/syslinux/mbr/mbr.bin'
+elif [ -f /usr/lib/syslinux/mbr.bin ] ; then 
+	MBR_BIN='/usr/lib/syslinux/mbr.bin'
+fi
 
 # functions====================================================================
 error_func() {
@@ -59,6 +69,13 @@ error_func() {
 	[ "$retval" ] || color=red retval=$2
 	gtkdialog-splash -close box -bg $color -text "$1"
 	[ "$retval" ] && exit "$retval" || exit 1
+}
+
+copy_boot_menu() {
+	sed -e "s/DISTRO_FILE_PREFIX/${DISTRO_FILE_PREFIX}/g" \
+		-e "s/DISTRO_DESC/${DISTRO_FILE_PREFIX} ${DISTRO_VERSION}/g" \
+		-e "s/BOOTLABEL/${BOOTLABEL}/g"  \
+		-e 's/pmedia=cd/pmedia=usbflash/' ${1} > ${2}
 }
 
 # check running state, frugal and live only supported
@@ -72,7 +89,7 @@ pupcheck() {
 # check Grub UEFI
 grub2_chk() {
 	GRUB_ERR="No suitable grub2 file found. Exiting"
-	ls /usr/share/grub2-efi | grep -qE 'grubx[0-9][0-9].efi.tar.xz' || error_func "$GRUB_ERR" orange $?
+	ls /usr/share/grub2-efi | grep -qE 'grub.*.efi.*' || error_func "$GRUB_ERR" orange $?
 }
 
 # find usb drive
@@ -91,9 +108,12 @@ mbr_func () {
 	echo "======================"
 	echo "mbr_func"
 	echo "======================"
+	if [ -z "$MBR_BIN" ] ; then
+		return 1
+	fi
 	dd if=${device} of=/tmp/mbr_old.bin bs=446 count=1
 	
-	dd if=${SYSDIR}/mbr.bin of=${device} bs=440 count=1 conv=notrunc
+	dd if=${MBR_BIN} of=${device} bs=440 count=1 conv=notrunc
 	retval="$?"
 	return $retval
 }
@@ -166,9 +186,9 @@ func_gui1() {
 	mount|grep -q "$TMPMNT1" || mount -t vfat "$dev1" "$TMPMNT1" -o utf8
 	CSIZE=`df -m "$dev1"|awk '{print $2}'|tail -n1`
 	if [ "$CSIZE" -lt 20 ];then
-	SIZERR=$(gettext "Your boot partition is too small. Try again")
-	umount "$TMPMNT1"
-	error_func "$SIZERR" 77
+		SIZERR=$(gettext "Your boot partition is too small. Try again")
+		umount "$TMPMNT1"
+		error_func "$SIZERR" 77
 	fi
 	umount "$TMPMNT1"
 	
@@ -191,7 +211,7 @@ func_gui1() {
 	MSG_FS1_1=$(gettext "is of type")
 	MSG_FS1_2=$(gettext "it needs to be vfat. Exiting now.")
 	if ! [ "`echo $FST1|grep -i 'fat'`" ];then
-	error_func "$dev1 $MSG_FS1_1 $FST1 ${MSG_FS1_2}" 4
+		error_func "$dev1 $MSG_FS1_1 $FST1 ${MSG_FS1_2}" 4
 	fi
 	
 	sync
@@ -208,26 +228,19 @@ copy_func(){
 	# puppy_*_*.sfs, z(a,y)drv_*_*.sfs to the vfat partition
 	SRCF="$1" dev1="$2"
 	PUPPY=`ls "$SRCF"|grep '^puppy_'|grep 'sfs$'`
-	DISTRO=`echo "$PUPPY"|cut -d _ -f2`
-	VERSION=`echo "$PUPPY"|cut -d _ -f3`
-	VERSION=${VERSION%.*}
-	LABEL="$DISTRO $VERSION"
-	echo "$LABEL"
+	DISTRO_FILE_PREFIX=`echo "$PUPPY"|cut -d _ -f2`
+	DISTRO_VERSION=`echo "$PUPPY"|cut -d _ -f3`
+	DISTRO_VERSION=${DISTRO_VERSION%.*}
+	echo "$DISTRO_FILE_PREFIX $DISTRO_VERSION"
 	mount|grep -q "$TMPMNT1" || mount -t vfat "$dev1" "$TMPMNT1" -o utf8
 	[ "$?" = 0 ] || error_func "$MNTERR ${dev1}" $?
 	
 	# Only support root of drive for now.. 
 	HOMEDIR="$TMPMNT1"
 	# copy *sfs
-	for s in `ls $SRCF|grep 'sfs$'`;do
-	  cp -a "${SRCF}"/"$s" $HOMEDIR
+	for s in `ls $SRCF|grep 'sfs$'` vmlinuz initrd.gz ;do
+		cp -a "${SRCF}"/"$s" $HOMEDIR
 	done
-	sync
-	# copy kernel and initramfs
-	for v in vmlinuz initrd.gz; do
-	cp -a "${SRCF}"/"$v" $HOMEDIR
-	done
-	touch $HOMEDIR/USBFLASH # maybe not needed with new init?
 	sync
 	PID=`cat /tmp/u_pid`
 	kill -9 $PID
@@ -362,91 +375,16 @@ sys_func () {
 	dev1="$1" pic="$2"
 	SYSPLASH=$(gettext "Now installing syslinux in to ")
 	gtkdialog-splash -close never -timeout 3 -bg green -text "$SYSPLASH $dev1" &
-	extlinux -i "$TMPMNT1"
-	for b in vesamenu.c32 chain.c32;do 
-	   cp ${SYSDIR}/$b "$TMPMNT1" 2>/dev/null #top level
+	syslinux -i "$TMPMNT1"
+	for b in ldlinux.c32 libcom32.c32 libutil.c32 vesamenu.c32 ;do 
+		cp ${SYSDIR}/$b "$TMPMNT1" 2>/dev/null #top level
 	done
 	sync
-
-# build syslinux.conf	
-cat > "$TMPMNT1"/syslinux.cfg <<SYS
-#display help/boot.msg
-default $DISTRO_FILE_PREFIX
-prompt 1
-timeout 100
-
-
-ui vesamenu.c32
-menu resolution 800 600
-menu title $DISTRO_FILE_PREFIX Live
-menu background ${pic}.png
-menu tabmsg Press Tab to edit entry, Esc for boot prompt
-menu color border 37;40  #80ffffff #00000000 std
-menu color sel 7;37;40 #80ffffff #20ff8000 all
-menu margin 1
-menu rows 20
-menu tabmsgrow 26
-menu cmdlinerow -2
-menu passwordrow 19
-menu timeoutrow 28
-menu helpmsgrow 30
-
-
-
-label ${DISTRO_FILE_PREFIX}
-linux vmlinuz
-initrd initrd.gz
-append pmedia=usbflash
-menu label ${DISTRO_FILE_PREFIX}
-text help
-Start ${DISTRO_FILE_PREFIX} normally.
-endtext
-
-
-label ${DISTRO_FILE_PREFIX}-fsck
-linux vmlinuz
-initrd initrd.gz
-append pfix=fsck pmedia=usbflash
-menu label ${DISTRO_FILE_PREFIX} filesystem check
-text help
-Start ${DISTRO_FILE_PREFIX} normally with save filesystem check.
-endtext
-
-
-label ${DISTRO_FILE_PREFIX}-ram
-linux vmlinuz
-initrd initrd.gz
-append pfix=ram pmedia=usbflash
-menu label $DISTRO_FILE_PREFIX with no savefile
-text help
-Start ${DISTRO_FILE_PREFIX} with no savefile RAM only.
-endtext
-
-
-label ${DISTRO_FILE_PREFIX}-nox
-linux vmlinuz
-initrd initrd.gz
-append pfix=nox pmedia=usbflash
-menu label ${DISTRO_FILE_PREFIX} without graphical desktop
-text help
-Start ${DISTRO_FILE_PREFIX} in command-line mode (Linux console). 
-Graphical desktop later can be started by typing "xwin".
-endtext
-
-
-menu separator
-
-label ${DISTRO_FILE_PREFIX}-nokms
-linux vmlinuz
-initrd initrd.gz
-append pfix=ram,nox pmedia=usbflash
-menu label For machines with severe video problems
-text help
-Start ${DISTRO_FILE_PREFIX} without savefile, without KMS, and run xorgwizard 
-to choose video resolutions before starting graphical desktop.
-endtext
-SYS
-	
+	# build syslinux.conf
+	copy_boot_menu /usr/share/boot-dialog/isolinux.cfg "$TMPMNT1"/syslinux.cfg
+	mkdir -p "$TMPMNT1"/help
+	copy_boot_menu /usr/share/boot-dialog/help.msg "$TMPMNT1"/help/help.msg
+	copy_boot_menu /usr/share/boot-dialog/help2.msg "$TMPMNT1"/help/help2.msg
 }
 
 # grub2 - make bootable
@@ -459,70 +397,46 @@ boot_func() {
 	GSPLASH=$(gettext "Now installing grub2 in to ")
 	gtkdialog-splash -close never -timeout 3 -bg green -text "$GSPLASH $dev1" &
 	GRUBDIR="/usr/share/grub2-efi"
-	GRUB2="$GRUBDIR/grubx64.efi.tar.xz"
 	mkdir -p ${HOMEDIR}/EFI/boot
-	tar -xJvf $GRUB2 -C ${HOMEDIR}/EFI/boot/
-	mv ${HOMEDIR}/EFI/boot/* ${HOMEDIR}/EFI/boot/bootx64.efi
+
+	if [ -f ${GRUBDIR}/grubia32.efi ] ; then
+		cp ${GRUBDIR}/grubia32.efi ${HOMEDIR}/EFI/boot/
+	fi
+	if [ -f ${GRUBDIR}/grubx64.efi ] ; then
+		cp ${GRUBDIR}/grubx64.efi ${HOMEDIR}/EFI/boot/
+	elif [ -f $GRUBDIR/grubx64.efi.tar.xz ] ; then # old stuff
+		tar -xJvf $GRUBDIR/grubx64.efi.tar.xz -C ${HOMEDIR}/EFI/boot/
+		mv ${HOMEDIR}/EFI/boot/grubx64.efi ${HOMEDIR}/EFI/boot/bootx64.efi
+	fi
 	sync
-	
-# add boot image (png)
+
+	# add boot image (png)
 	pic=puppy
 	case ${DISTRO_FILE_PREFIX} in
 		[Tt]ahr*)pic=tahr;;
 		[Ss]lacko*)pic=slacko;;
 		[Xx]enial*)pic=xenial;;
 	esac
-	cp -a ${GRUBDIR}/${pic}.png ${HOMEDIR}/ 2>/dev/null
+	cp -a ${GRUBDIR}/${pic}.png ${HOMEDIR}/splash.png 2>/dev/null
 
-# build grub.cfg	
-cat > ${HOMEDIR}/grub.cfg <<GRUB
-insmod png
-background_image /${pic}.png
-set timeout=10
-menuentry "Start $DISTRO_FILE_PREFIX" {
-    linux /vmlinuz pmedia=usbflash
-    initrd /initrd.gz
-}
-menuentry "Start $DISTRO_FILE_PREFIX - RAM only" {
-    linux /vmlinuz pfix=ram pmedia=usbflash
-    initrd /initrd.gz
-}
-menuentry "Start $DISTRO_FILE_PREFIX - No X" {
-    linux /vmlinuz pfix=nox pmedia=usbflash
-    initrd /initrd.gz
-}
-menuentry "Start $DISTRO_FILE_PREFIX - check filesystem" {
-    linux /vmlinuz pfix=fsck pmedia=usbflash
-    initrd /initrd.gz
-}
-menuentry "Start $DISTRO_FILE_PREFIX - No KMS" {
-    linux /vmlinuz nomodeset pmedia=usbflash
-    initrd /initrd.gz
-}
-menuentry "Shutdown" {
-	halt
-}
-menuentry "Reboot" {
-	reboot
-}
-GRUB
-
-	# add syslinux if wanted
-	ALTMSG=$(gettext "Would you like to add legacy BIOS boot capability to your installation?")
-	Xdialog -title "Add Legacy BIOS" --yesno "$ALTMSG" 0 0 0
-	case $? in
-		0)sys_func $dev1 $pic;;
-		*);;
-	esac
-	
-	mount|grep -q "$TMPMNT1" && umount "$TMPMNT1"
-	
-	HAPPY=$(gettext "Everything looks good. Make sure $dev1 is unmounted and remove the media. \
+	# build grub.cfg
+	copy_boot_menu /usr/share/boot-dialog/grub.cfg ${HOMEDIR}/grub.cfg
+	if which syslinux ; then
+		# add syslinux if wanted
+		ALTMSG=$(gettext "Would you like to add legacy BIOS boot capability to your installation?")
+		Xdialog -title "Add Legacy BIOS" --yesno "$ALTMSG" 0 0 0
+		case $? in
+			0)sys_func $dev1 $pic;;
+			*);;
+		esac
+		mount|grep -q "$TMPMNT1" && umount "$TMPMNT1"
+		HAPPY=$(gettext "Everything looks good. Make sure $dev1 is unmounted and remove the media. \
 After first boot you are given the option to make a \
-'save file'. To keep your changes choose this or to boot to RAM every time don't cretate a save file. \
+'save file'. To keep your changes choose this or to boot to RAM every time don't create a save file. \
 If you have Windows, be sure that you boot to Windows and disable hibernation, aka fast boot, aka hybdrid \
 sleep, etc, and configure your UEFI to disable Secure Boot.")
-	error_func "$HAPPY" green 0 #not an error, but a clean get out!
+		error_func "$HAPPY" green 0 #not an error, but a clean get out!
+	fi
 }
 
 
