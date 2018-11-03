@@ -18,49 +18,22 @@
 #120828 rerwin: --use-blacklist again.
 #120908 rerwin: Change preference processing to ensure preferred module loaded first.
 #120909 rerwin: Use temporary blacklisting for preferences to avoid interference and inconsistency.
+#181023 rerwin: Modprobe only if module changed; remove support of passed module name; change all exit code 1s to 0; remove obsolete (?) FASTBOOTMODULESLIST check; remove dual-mode 3G modem logic made obsolete by usb_modeswitch. 
 
 export LANG=C
 . /etc/rc.d/PUPSTATE
-. /etc/rc.d/MODULESCONFIG
+. /etc/rc.d/MODULESCONFIG-backend_modprobe
 
 KERNVER="`uname -r`"
 
-[ "$FASTBOOTMODULESLIST" != "" ] && exit 1 #fastboot, see /etc/rc.d/MODULESCONFIG.
-
-#101121 rerwin: optional $1 supplied by triggered udev rule, see /etc/udev/rules.d/60-udev-modem.rules
-RULEMODULE=""
-[ $1 ] && RULEMODULE="$1"
-
 SLEEPU=`echo -n ${$} | rev` #110509 ex: pid 3124 becomes 4213, more variability for sleep.
-
-#120908...
-write_preference_log() {
- echo "$(date +%H:%M:%S.%N | cut -c 1-12) ${$} $MODULE - $1" >> /tmp/pup_event_backend/preferences.log
-}
 
 #note, no longer using /tmp/pup_event_modprobe.conf (which was created in rc.sysinit)...
 #110508 -i to ignore "install" and "remove" commands in /etc/modprobe.d/*.conf...
 #120823 rerwin: --use-blacklist (or -b) to apply the blacklist commands in the configuration files (if any) to module names as well...
 MODULE="`/sbin/modprobe -i --use-blacklist --show-depends $MODALIAS 2>/dev/null | tail -n 1 | rev | cut -f 1 -d '/' | rev | cut -f 1 -d '.' | tr '\-' '_'`"
-if [ "$RULEMODULE" != "" ];then
- if [ "$MODULE" = "" -o "$MODULE" = "usb_storage" -o "$MODULE" = "snd_hda_intel" ];then
-  #110508 do not allow argument-module if it is blacklisted (note blacklist.conf created in rc.sysinit)...
-  [ "`cat /etc/modprobe.d/blacklist*.conf | grep -w "${RULEMODULE}"`" = "" ] && MODULE="$RULEMODULE" #101121 rerwin: Use module from argument
- fi
-fi
-[ "$MODULE" = "" ] && exit 1
-
-#101202 usb_storage may have claimed an interface that is needed by another module (dual-mode 3G modems)...
-if [ "$MODULE" = "usb_storage" ];then
- if [ "`lsmod | grep '^usb_storage '`" != "" ];then
-  if [ ! -f /etc/modprobe.d/blacklist-usb_storage.conf ];then
-   echo 'blacklist usb_storage' > /etc/modprobe.d/blacklist-usb_storage.conf
-   #120828 rerwin: --use-blacklist (or -b) to apply the blacklist commands in the configuration files (if any) to module names as well...
-   MODULE="`/sbin/modprobe -i --use-blacklist --show-depends $MODALIAS 2>/dev/null | tail -n 1 | rev | cut -f 1 -d '/' | rev | cut -f 1 -d '.' | tr '\-' '_'`" #110508 120828
-   [ "$MODULE" = "" ] && exit 1
-  fi
- fi
-fi
+[ "$MODULE" = "" ] && exit 0 #181023
+origMODULE="$MODULE" #181023
 
 case $MODALIAS in
  pci:*)
@@ -70,18 +43,20 @@ case $MODALIAS in
   DEVICE='0x'"`echo -n "$MODALIAS" | cut -f 2 -d 'v' | cut -b 10-17 | tr [A-Z] [a-z]`"
   aPATTERN="$VENDOR $DEVICE"
   REPLACEMENT="`echo "$PCI_OVERRIDES" | grep "$aPATTERN" | cut -f 1 -d ' '`"
-  [ "$REPLACEMENT" = "(none)" ] && exit 1
-  #101121 rerwin: RULEMODULE: replace only if not already forced by udev rule...
-  [ "$REPLACEMENT" != "" ] && [ "$RULEMODULE" = "" ] && MODULE="$REPLACEMENT"
+  [ "$REPLACEMENT" != "" ] && MODULE="$REPLACEMENT" #181023
  ;;
 esac
+
+#120908...
+write_preference_log() {
+ echo "$(date +%H:%M:%S.%N | cut -c 1-12) ${$} $MODULE - $1" >> /tmp/pup_event_backend/preferences.log
+}
 
 #101218 bugfix, improve...
 #preferences list, ex rt2500usb and rt73usb both hits, then choose latter...
 modPATTERN='^'"$MODULE"':'
 PREFHIT="`echo -n "$PREFLIST" | tr ' ' '\n' | grep "$modPATTERN" | head -n 1`" #120908
 if [ "$PREFHIT" != "" ];then
- origMODULE="$MODULE" #120908
  cat /etc/modprobe.d/* 2>/dev/null | grep -o '^blacklist  *[^ ]*' | tr -s ' ' > /tmp/pup_event_backend/blacklist-$$.conf #120909
  PREFMODS="`echo -n "$PREFHIT" | cut -f 2-9 -d ':' | tr ':' ' '`"
  for PREFMOD in $PREFMODS #format can have multiple ':', ex: 8139cp:8139too:8139xx (last is most preferred).
@@ -97,6 +72,12 @@ if [ "$PREFHIT" != "" ];then
   && write_preference_log "Retained ($PREFHIT)" \
   || write_preference_log "Substituted for module $origMODULE ($PREFHIT)" #120908
 fi
+
+#181023 if no module change needed & kernel >= 4.0, let udev do the modprobe...
+#but usb_storage devpath is needed by rc.sysinit.
+[ "$MODULE" = "$origMODULE" -a "$MODULE" != 'usb_storage' ] \
+ && vercmp $(uname -r) ge 4.0.0 \
+ && exit 0
 
 #module already loaded, exit...
 mREGEX='MODULE='"$MODULE"' DEVPATH'
@@ -126,12 +107,8 @@ rm -f /tmp/pup_event_backend/lock1-${$} && \
  [ `cat /tmp/pup_event_backend/protect1-* | grep "$mREGEX" | wc -l` -gt 1 ] && \
  rm -f /tmp/pup_event_backend/protect1-${$} && exit
 
-MODULEx="`echo -n "$MODULE" | tr '_' '-'`"
-
 #log to file. rc.sysinit needs this info to find out if any modaliases missed (also above)...
 echo "MODULE=$MODULE DEVPATH=$DEVPATH MODALIAS=$MODALIAS" >> /tmp/pup_event_backend/pup_event_module_devpath_log${$}
-
-cd /sbin #v408 rerwin thinks this is needed for slamr module.
 
 #120908 Wait for any preference processing, then ensure a preferred module is loaded first and any active conflicting modules afterward...
 if [ "$(ls /tmp/pup_event_backend/preference_processing_active* 2>/dev/null)" != "" ];then
