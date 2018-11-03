@@ -1,20 +1,7 @@
 #!/bin/bash
-#
-# * Currently using wee + grub4dos, syslinux support can be added later..
-# * If puppy is running in UEFI mode, bootflash execs 'uefi-usb-installer'
-#
 
 export TEXTDOMAIN=bootflash
 export OUTPUT_CHARSET=UTF-8
-
-if [ -d /sys/firmware/efi ] ; then
-	if which uefi-usb-installer ; then
-		exec uefi-usb-installer $@
-	else
-		/usr/lib/gtkdialog/box_yesno --ok-cancel --no-first --yes-label Continue --no-label Close --warning "BootFlash" "UEFI is not supported. This is only useful if you want to boot in legacy bios mode.."
-		[ $? -ne 0 ] && exit
-	fi
-fi
 
 [ "`whoami`" != "root" ] && exec sudo -A ${0} ${@} #110505
 
@@ -46,6 +33,27 @@ if [ $1 ] ; then
 	probedisk -extended-usb -card-as-usbflash | grep usbflash | grep "/${1}|" || exit
 	PARAM1="$1"
 	USBDRV="$PARAM1"
+fi
+
+if [ "$USBDRV" = "" ];then
+	FDS=$(probedisk -extended-usb -card-as-usbflash -plus-size | grep usbflash)
+	if [ -z "$FDS" ] ; then
+		/usr/lib/gtkdialog/box_ok "Bootflash" error "$(gettext 'No USB drive plugged in')"
+		exit 1
+	fi
+	echo "$FDS" | sed 's|/dev/||' | \
+	while read USBINFO
+	do
+		IFS="|" read -r ONEUSB USBTYPE USBINFO USBSIZE <<< "$USBINFO"
+		USBSIZE=$(filesize -bytes=512 -2 $USBSIZE)
+		echo "$ONEUSB \"Flash memory, ${USBINFO}, ${USBSIZE}\""
+	done > /tmp/xselections$$
+	xSELECTIONS="`cat /tmp/xselections$$ | tr '\n' ' ' | tr -s ' '`"
+	rm -f /tmp/xselections$$
+	CHOOSEDLG="Xdialog --wmclass \"gtkdialog2\" --title \"$(gettext 'BootFlash: make USB drive bootable')\" --no-cancel --stdout --menubox \"$(gettext 'Choose which drive to format:')\" 10 60 0 ${xSELECTIONS}"
+	DRVSEL="`eval "$CHOOSEDLG"`"
+	[ $? -ne 0 ] && exit
+	USBDRV="$DRVSEL"
 fi
 
 #======================================================================
@@ -201,31 +209,113 @@ locate_puppy_src_files() {
 	fi
 } #end locate_puppy_src_files function.
 
-#======================================================================
-#							MAIN DIALOG
-#======================================================================
 
-if [ "$USBDRV" = "" ];then
-	FDS=$(probedisk -extended-usb -card-as-usbflash -plus-size | grep usbflash)
-	if [ -z "$FDS" ] ; then
-		/usr/lib/gtkdialog/box_ok "Bootflash" error "$(gettext 'No USB drive plugged in')"
-		exit 1
-	fi
-	echo "$FDS" | sed 's|/dev/||' | \
-	while read USBINFO
-	do
-		IFS="|" read -r ONEUSB USBTYPE USBINFO USBSIZE <<< "$USBINFO"
-		USBSIZE=$(filesize -bytes=512 -2 $USBSIZE)
-		echo "$ONEUSB \"Flash memory, ${USBINFO}, ${USBSIZE}\""
-	done > /tmp/xselections$$
-	xSELECTIONS="`cat /tmp/xselections$$ | tr '\n' ' ' | tr -s ' '`"
-	rm -f /tmp/xselections$$
-	CHOOSEDLG="Xdialog --wmclass \"gtkdialog2\" --title \"$(gettext 'BootFlash: make USB drive bootable')\" --no-cancel --stdout --menubox \"$(gettext 'Choose which drive to format:')\" 10 60 0 ${xSELECTIONS}"
-	DRVSEL="`eval "$CHOOSEDLG"`"
-	[ $? -ne 0 ] && exit
-	USBDRV="$DRVSEL"
-fi
 
+#=================================================================
+#                     MAIN DIALOG
+#=================================================================
+
+export ASKDIALOG='
+<window title="'"Bootflash $USBDRV"'" icon-name="gtk-preferences">
+<vbox>
+  <frame Bootflash '$USBDRV'>
+    '"`/usr/lib/gtkdialog/xml_info 0 flashcard_usb.svg 48 "$(gettext "This tool allows to create a bootable usb drive.. be aware that all data on the usb drive will be lost..")"`"'
+    <hbox space-expand="true" space-fill="true">
+      <text space-expand="false" space-fill="false"><label>""</label></text>
+      <text xalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"'$(gettext '<b>Write ISO file to USB drive</b>
+Choose any ISO file. A compatible ISO must be a isohybrid ISO (and must have isolinux.bin as the bootloader). Hybrid ISOs are produced by the isohybrid utility. Many ISOs are released with this feature enabled..')'"</label></text>
+      <vbox space-expand="false" space-fill="false">
+        <button>
+          '"`/usr/lib/gtkdialog/xml_button-icon cd_burn.svg big`"'
+          <action type="exit">1</action>
+        </button>
+      </vbox>
+    </hbox>
+    <hseparator></hseparator>
+    <hbox space-expand="true" space-fill="true">
+      <text space-expand="false" space-fill="false"><label>""</label></text>
+      <text xalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"'$(gettext '<b>Create grub4dos USB</b>
+wee + grub4dos. This should work in older computers. Installs the running system. Does not support UEFI.')'"</label></text>
+      <vbox space-expand="false" space-fill="false">
+        <button>
+          '"`/usr/lib/gtkdialog/xml_button-icon install_options.svg big`"'
+          <action type="exit">2</action>
+        </button>
+      </vbox>
+    </hbox>
+
+  </frame>
+  
+    <hbox space-expand="false" space-fill="false">
+     <button>
+       '"`/usr/lib/gtkdialog/xml_button-icon quit`"'
+       <label>'$(gettext 'Quit')'</label>
+       <action type="exit">EXIT</action>
+     </button>
+    </hbox>
+
+  </vbox>
+</window>'
+
+. /usr/lib/gtkdialog/xml_info gtk #build bg_pixmap for gtk-theme
+RETVAL="`gtkdialog --center -p ASKDIALOG 2>/dev/null`"
+eval "$RETVAL"
+
+#=================================================================
+#                      DD ISO TO USB DRV
+#=================================================================
+
+case $EXIT in
+	1)
+		iso_file=$(/usr/lib/gtkdialog/file_chooser --last-path "Select ISO file")
+		if [ ! "$iso_file" ] ; then
+			exit
+		fi
+		case $iso_file in *.[iI][sS][oO]) ok=1 ;;
+			*) /usr/lib/gtkdialog/box_ok "Error" error "$(gettext 'You did not select an ISO file..')"
+				exit;;
+		esac
+		finfo=$(file "$iso_file") 
+		echo "$finfo" | grep -q " DOS" || {
+			/usr/lib/gtkdialog/box_yesno --error --yes-label "$(gettext 'Continue')" --no-label "$(gettext 'Cancel')" "Non-hybrid ISO detected.." \
+			"$(gettext 'The file you selected does not seem to be a hybrid ISO. The usb drive will not be bootable. If you know the file is ok then you might want to conitnue anyway.')"
+			[ $? -ne 0 ] && exit
+		}
+		MYSELECTION="`echo "$xSELECTIONS" | grep "^${USBDRV} " | tr '"' ' ' | tr -s ' '`" #'geany
+		/usr/lib/gtkdialog/box_yesno --warning --yes-label "$(gettext 'Write ISO to USB')" \
+			--no-label "$(gettext 'Cancel')" "$(gettext 'Write ISO to USB')" \
+			"ISO: ${iso_file##*/}" \
+			"USB: /dev/${MYSELECTION}"
+		[ $? -ne 0 ] && exit
+		/usr/lib/gtkdialog/box_splash -close never -text "$(gettext 'Please wait, writing ISO file to usb drive...')" "${USBDRV}" &
+		X1PID=$!
+		dd if=${iso_file} of=/dev/${USBDRV}
+		kill $X1PID
+		res=$(yad --title="Bootflash - $USBDRV" --window-icon="gtk-yes" --button=gtk-ok:0 \
+		--center --sticky --on-top --fixed --form \
+		--field="$(gettext 'Now we are going to make the extra space usable again'):LBL" "" \
+		--field="$(gettext 'Filesystem'):CB" "ext4!ext3!ntfs!fat")
+		FS_TYPE=$(echo $res | cut -f 2 -d "|")
+		if [ -z "$FS_TYPE" ] ; then
+			FS_TYPE='ext4'
+		fi
+		fix-usb.sh -yes -fs ${FS_TYPE} /dev/${USBDRV}
+		/usr/lib/gtkdialog/box_ok "Done" info "$(gettext 'done!')"
+		exit
+		;;
+	2)
+		echo -n # wee
+		;;
+	*)
+		exit ;;
+esac
+
+
+#=================================================================
+#=================================================================
+#                     WEE + GRUB4DOS
+#=================================================================
+#=================================================================
 
 WELCOME_MSG=$(/usr/lib/gtkdialog/xml_info fixed execute_yes.svg 30 "$(gettext 'The intention of BootFlash is to make a USB memory stick (Flash drive) bootable.. then to install Puppy on it')")
 export MAIN_DIALOG='<window title="'"BootFlash: $USBDRV"'" icon-name="gtk-preferences">
