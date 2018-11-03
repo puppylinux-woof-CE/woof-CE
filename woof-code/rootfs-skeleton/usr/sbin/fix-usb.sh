@@ -2,10 +2,10 @@
 # This small script will fix the "missing space" caused by dd-ing fatdog isohybrid to a flash drive
 # making the rest of the space available again for use.
 # Only run this after dd-ing fatdog iso and not after anything else.
-# (C) jamesbond 2013
+# (C) jamesbond 2013, Jake SFR 2018
 
 ### configuration
-RESERVED_SPACE=786432	# reserve this amount of sectors by default, it will be made larger if necessary.
+RESERVED_SPACE=1048576 # reserve 512MB (1024k secotors) by default, it will be made larger if necessary.
 
 ### can't run from X to prevent accident
 if ! [ -t 0 ]; then
@@ -71,9 +71,9 @@ case $(readlink -f /sys/block/$DEV) in
 esac
 
 ### paranoia check - partition 3 must be empty
-check=$(sfdisk -uS -l $1 2>/dev/null| awk -v dev=${1}3 '$1==dev {print $6}')
+check=$(sfdisk -uS -l $1 2>/dev/null| grep "^${1}3")
 case $check in
-	Empty) ;;
+    *"Empty"*|'') ;;    # 1st for old sfdisk's output, 2nd for new sfdisk's output
 	*)	echo "Partition 3 of $1 (${1}3) is not empty."
 		echo "Aborting."
 		exit
@@ -96,7 +96,7 @@ fi
 echo You choose \"$partition\" as the type.
 
 ### check reserved space
-ACTUAL_USED=$(sfdisk -uS -l $1 2>/dev/null | awk '/\*/ {print $4}')
+ACTUAL_USED=$(sfdisk -uS -l $1 2>/dev/null | awk '/^\/.*\*/ {print $4}')
 if [ $RESERVED_SPACE -lt $ACTUAL_USED ]; then
 	RESERVED_SPACE=$(( (($ACTUAL_USED/4096)+4)*4096 )) # round up to next nearest 4096 
 fi
