@@ -7,10 +7,23 @@
 ### configuration
 RESERVED_SPACE=1048576 # reserve 512MB (1024k secotors) by default, it will be made larger if necessary.
 
-### can't run from X to prevent accident
-if ! [ -t 0 ]; then
-	Xdialog --title "Error!" --infobox "Please run this from console." 0 0 10000
-	exit
+OPTS=
+for i in $@
+do
+	case $1 in
+		-yes|-y) OPT_YES=1 ; OPTS=1 ; shift ;;
+		-fs)    FS_TYPE=$2 ; OPTS=1 ; shift 2 ;;
+		-*) shift ;;
+		*) break ;;
+	esac
+done
+
+if [ ! "$OPTS" ] ; then
+	### can't run from X to prevent accident
+	if ! [ -t 0 ]; then
+		Xdialog --title "Error!" --infobox "Please run this from console." 0 0 10000
+		exit
+	fi
 fi
 
 ### usage
@@ -80,7 +93,16 @@ case $check in
 esac
 
 ### ask filesystem type
-cat << EOF
+if [ "$FS_TYPE" ] ; then
+	case "$FS_TYPE" in
+		ext*) partition='L' ;;
+		fat) partition='b' ;;
+		ntfs|exfat) partition='7' ;;
+		uefi) partition='ef' ;;
+		*) echo error ; exit 1;;
+	esac
+else
+	cat << EOF
 Specify filesystem type (in hex number). These are common ones:
 L  - linux (ext2/3/4)
 b  - FAT32
@@ -88,12 +110,13 @@ b  - FAT32
 ef - UEFI boot partition
 Default is FAT32
 EOF
-read partition
-if [ -z "$partition" ]; then
-	echo "No partition type is supplied, will assume FAT32"
-	partition=b
+	read partition
+	if [ -z "$partition" ]; then
+		echo "No partition type is supplied, will assume FAT32"
+		partition=b
+	fi
+	echo You choose \"$partition\" as the type.
 fi
-echo You choose \"$partition\" as the type.
 
 ### check reserved space
 ACTUAL_USED=$(sfdisk -uS -l $1 2>/dev/null | awk '/^\/.*\*/ {print $4}')
@@ -103,15 +126,27 @@ fi
 echo "Reserving space for $RESERVED_SPACE sectors."
 
 ### all checks go, one more time to confirm
-read -p "Last chance to abort - are you sure to you want to fix $1 [y/N]? " check
-case "$check" in
-	y|Y|yes|Yes|YES) ;;
-	*)	echo "Aborting."
-		exit ;;
-esac
+if [ ! "$OPT_YES" ] ; then
+	read -p "Last chance to abort - are you sure to you want to fix $1 [y/N]? " check
+	case "$check" in
+		y|Y|yes|Yes|YES) ;;
+		*)	echo "Aborting."
+			exit ;;
+	esac
+fi
 
 ### create the partition
 echo "$RESERVED_SPACE,$(( $(sfdisk -s $1 2>/dev/null) * 2 - $RESERVED_SPACE)),$partition" | sfdisk -f -N3 -uS $1
+
+if [ "$FS_TYPE" ] ; then
+	case "$FS_TYPE" in
+		fat|vfat) mkdosfs ${1}3 ;;
+		ntfs) mkntfs -F ${1}3 ;;
+		ext*) mkfs.${FS_TYPE} -F ${1}3 ;;
+		*) exit 1 ;;
+	esac
+	exit $?
+fi
 
 ### final message
 cat << EOF
