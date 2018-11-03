@@ -4,8 +4,11 @@
 # Only run this after dd-ing fatdog iso and not after anything else.
 # (C) jamesbond 2013, Jake SFR 2018
 
+#set -x
+
 ### configuration
-RESERVED_SPACE=1048576 # reserve 512MB (1024k secotors) by default, it will be made larger if necessary.
+#RESERVED_SPACE=1048576 # reserve 512MB (1024k secotors) by default, it will be made larger if necessary.
+RESERVED_SPACE=262144 #128 MB
 
 OPTS=
 for i in $@
@@ -43,6 +46,14 @@ EOF
 	exit
 fi
 DEV=${1##*/}
+
+# determine partition number
+UEFI_ISO=$(sfdisk -uS  -l ${1} 2>/dev/null | grep "^${1}2" | grep ' EFI ')
+if [ "$UEFI_ISO" ] ; then
+	PARTNUM=3
+else
+	PARTNUM=2
+fi
 
 ### paranoia check - make sure sfdisk exist
 if ! which sfdisk > /dev/null; then
@@ -83,11 +94,11 @@ case $(readlink -f /sys/block/$DEV) in
 		exit
 esac
 
-### paranoia check - partition 3 must be empty
-check=$(sfdisk -uS -l $1 2>/dev/null| grep "^${1}3")
+### paranoia check - partition $PARTNUM must be empty
+check=$(sfdisk -uS -l $1 2>/dev/null| grep "^${1}${PARTNUM}")
 case $check in
     *"Empty"*|'') ;;    # 1st for old sfdisk's output, 2nd for new sfdisk's output
-	*)	echo "Partition 3 of $1 (${1}3) is not empty."
+	*)	echo "Partition ${PARTNUM} of $1 (${1}${PARTNUM}) is not empty."
 		echo "Aborting."
 		exit
 esac
@@ -136,16 +147,26 @@ if [ ! "$OPT_YES" ] ; then
 fi
 
 ### create the partition
-echo "$RESERVED_SPACE,$(( $(sfdisk -s $1 2>/dev/null) * 2 - $RESERVED_SPACE)),$partition" | sfdisk -f -N3 -uS $1
+echo "$RESERVED_SPACE,$(( $(sfdisk -s $1 2>/dev/null) * 2 - $RESERVED_SPACE)),$partition" | \
+	sfdisk -f -N${PARTNUM} -uS $1
+
+if [ ! -b ${1}${PARTNUM} ] ; then
+	echo "Could not create partition (${1}${PARTNUM})"
+	exit 1
+fi
 
 if [ "$FS_TYPE" ] ; then
 	case "$FS_TYPE" in
-		fat|vfat) mkdosfs ${1}3 ;;
-		ntfs) mkntfs -F ${1}3 ;;
-		ext*) mkfs.${FS_TYPE} -F ${1}3 ;;
+		fat|vfat) mkdosfs ${1}${PARTNUM} ;;
+		ntfs) mkntfs -F ${1}${PARTNUM} ;;
+		ext*) mkfs.${FS_TYPE} -F ${1}${PARTNUM} ;;
 		*) exit 1 ;;
 	esac
-	exit $?
+	res=$?
+	sync
+	sleep 1
+	echo change > /sys/block/${DEV}/uevent 
+	exit $res
 fi
 
 ### final message
@@ -153,10 +174,10 @@ cat << EOF
 
 Done. Now you need to make filesystem in it. How to do it depends on the
 filesystem you have chosen.
-For FAT32, do "mkdosfs ${1}3"
-For NTFS,  do "mkntfs ${1}3"
-For exFAT, do "mkfs -t exfat ${1}3"
-For Linux, do "mkfs -t ext4 ${1}3" (or ext3 or ext2 as you wish)
+For FAT32, do "mkdosfs ${1}${PARTNUM}"
+For NTFS,  do "mkntfs ${1}${PARTNUM}"
+For exFAT, do "mkfs -t exfat ${1}${PARTNUM}"
+For Linux, do "mkfs -t ext4 ${1}${PARTNUM}" (or ext3 or ext2 as you wish)
 For other filesystem - I assume you know what you're doing :)
 
 If you already have a previous filesystem there (ie you dd fatdog.iso to 
