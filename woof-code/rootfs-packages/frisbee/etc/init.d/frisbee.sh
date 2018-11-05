@@ -21,8 +21,6 @@
 
 grep -q '^frisbee_mode=1' /etc/frisbee/frisbee.conf || exit
 
-#set -x
-
 [ -d /usr/local/frisbee ] && . /usr/local/frisbee/func || . /usr/lib/frisbee/func
 
 [ -f /etc/default/frisbee ] && . /etc/default/frisbee #140531
@@ -67,7 +65,7 @@ case "$1" in
 
 		[ -x /usr/sbin/connectwizard_crd ] && connectwizard_crd >&2 #170612
 
-		WAITCNT=0; WAITMAX=30 #180203...
+		WAITCNT=0; WAITMAX=10 #180203...
 		while true; do
 			WIFACES="$(get_ifs_wireless)" || [ $WAITCNT -ge $WAITMAX ] && break
 			sleep 1
