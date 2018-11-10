@@ -5,7 +5,6 @@
 
 . ../DISTRO_SPECS
 . ../_00build.conf
-[ "$UFEI_ISO" ] && UEFI_ISO=${UFEI_ISO} #UFEI is a typo
 
 #set -x
 
@@ -21,7 +20,12 @@ BOOTLABEL=puppy
 PPMLABEL=`which ppmlabel`
 TEXT="-text $DISTRO_VERSION"
 RESOURCES=${PX}/usr/share/grub2-efi
-SCREENRES='640 480' #UEFI_ISO=yes: 800x600
+SCREENRES='640 480'
+
+UEFI_ISO=''
+if [ "$(ls ${PX}/usr/share/grub2-efi/grub*.efi* 2>/dev/null)" ] ; then
+	UEFI_ISO=yes
+fi
 
 #===================================================
 
@@ -30,7 +34,7 @@ mk_iso() {
 	tmp_isoroot=$1 	# input
 	OUTPUT=$2 		# output
 
-	if [ "$UEFI_ISO" = "yes" ] ; then
+	if [ "$UEFI_ISO" ] ; then
 		mkisofs -iso-level 4 -D -R -o $OUTPUT -b isolinux.bin -no-emul-boot -boot-load-size 4 -boot-info-table \
 			-eltorito-alt-boot -eltorito-platform efi -b efi.img -no-emul-boot "$tmp_isoroot" || exit 100
 		echo "Converting ISO to isohybrid."
@@ -78,7 +82,7 @@ mk_efi_img() {
 	return 0
 }
 
-if [ "$UEFI_ISO" = "yes" ] ; then
+if [ "$UEFI_ISO" ] ; then
 	SCREENRES='800 600'
 	#--
 	if [ -f ${RESOURCES}/grubx64.efi-fedora ] ; then
@@ -149,7 +153,7 @@ done
 mkdir -p ${BUILD}/help
 cp -f ../boot/boot-dialog/*.msg ${BUILD}/help/
 cp -f ../boot/boot-dialog/isolinux.cfg ${BUILD}/
-[ "$UEFI_ISO" = "yes" ] && cp -f ../boot/boot-dialog/grub.cfg ${BUILD}/
+[ "$UEFI_ISO" ] && cp -f ../boot/boot-dialog/grub.cfg ${BUILD}/
 
 sed -i "s/menu resolution.*/menu resolution ${SCREENRES}/" ${BUILD}/isolinux.cfg
 
@@ -161,7 +165,7 @@ sed -i -e "s/DISTRO_FILE_PREFIX/${DISTRO_FILE_PREFIX}/g" \
 #======================================================
 
 # build the efi image
-if [ "$UEFI_ISO" = "yes" ] ; then
+if [ "$UEFI_ISO" ] ; then
 	# custom backdrop
 	pic=puppy
 	case ${DISTRO_FILE_PREFIX} in
