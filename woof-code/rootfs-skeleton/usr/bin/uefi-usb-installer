@@ -48,20 +48,55 @@ MNTERR=$(gettext "Aborting... Failed to mount ")
 CPERR=$(gettext "Copy error")
 BOOTLABEL='puppy'
 
-if [ -f /usr/lib/syslinux/modules/bios/vesamenu.c32 ] ; then
-	# syslinux 6
-	SYSDIR='/usr/lib/syslinux/modules/bios'
-elif [ /usr/share/syslinux/vesamenu.c32 ] ; then
-	SYSDIR='/usr/share/syslinux'
-fi
-
-if [ -f /usr/lib/syslinux/mbr/mbr.bin ] ; then #ubuntu
-	MBR_BIN='/usr/lib/syslinux/mbr/mbr.bin'
-elif [ -f /usr/lib/syslinux/mbr.bin ] ; then 
-	MBR_BIN='/usr/lib/syslinux/mbr.bin'
-fi
-
 # functions====================================================================
+
+# $1: drive
+write_wee_mbr() {
+	XDEV=${1##*/}
+	BLOCKDEV=$1
+	WEE_MBR='/usr/share/g4dos/wee.mbr'
+	if [ ! -f $WEE_MBR ] ; then
+		echo "file not found: $WEE_MBR"
+		exit 1
+	fi
+	cp ${WEE_MBR} /tmp/wee.mbr
+	## Read disk signature and partition table from MBR
+	## and write it to wee.mbr:
+	dd if=${BLOCKDEV} bs=1 skip=439 count=72 2>/dev/null | \
+		dd of=/tmp/wee.mbr bs=1 seek=439 conv=notrunc
+	## backup MBR
+	dd if=${BLOCKDEV} of=/tmp/${XDEV}.mbr bs=512 count=63
+	## Write wee MBR to $MBR_DEV
+	echo "Installing bootloader(Wee) on ${BLOCKDEV} ..."
+	dd if=/tmp/wee.mbr of=${BLOCKDEV}
+}
+
+# $1: directory
+# $2: distro
+# $3: pmedia
+copy_g4dos_cd() {
+	if [ ! -d "$1" ] ; then
+		return 1
+	fi
+	cp -fv /usr/share/g4dos/pcd/* "$1"/
+	if [ "$2" ] ; then #distro
+		if [ "$2" = "auto" ] ; then
+			. /etc/DISTRO_SPECS
+			sed -i "s%#distrodesc#%${DISTRO_NAME} ${DISTRO_VERSION}%" "$1"/menu.lst
+		else
+			sed -i "s%#distrodesc#%${2}%" "$1"/menu.lst
+		fi
+	fi
+	if [ "$3" ] ; then #pmedia
+		sed -i "s|pmedia=cd|pmedia=${3}|" "$1"/menu.lst
+	fi
+	if [ -f /usr/lib/grub4dos/grldr ] ; then
+		cp /usr/lib/grub4dos/grldr "$1"/
+	elif [ -f /usr/share/g4dos/grldr ] ; then
+		cp /usr/share/g4dos/grldr "$1"/
+	fi
+}
+
 error_func() {
 	#rm -r "$TMP"
 	retval="$3"
@@ -74,6 +109,7 @@ error_func() {
 copy_boot_menu() {
 	sed -e "s/DISTRO_FILE_PREFIX/${DISTRO_FILE_PREFIX}/g" \
 		-e "s/DISTRO_DESC/${DISTRO_FILE_PREFIX} ${DISTRO_VERSION}/g" \
+		-e "s/#distrodesc#/${DISTRO_FILE_PREFIX} ${DISTRO_VERSION}/g" \
 		-e "s/BOOTLABEL/${BOOTLABEL}/g"  \
 		-e 's/pmedia=cd/pmedia=usbflash/' ${1} > ${2}
 }
@@ -100,22 +136,6 @@ find_usb() {
 $(gettext "A USB drive can not be found. Is it plugged in? Exiting now")
 	  error_func "$MSG2" 3
 	fi
-}
-
-# fix mbr
-mbr_func () {
-	device="$1"
-	echo "======================"
-	echo "mbr_func"
-	echo "======================"
-	if [ -z "$MBR_BIN" ] ; then
-		return 1
-	fi
-	dd if=${device} of=/tmp/mbr_old.bin bs=446 count=1
-	
-	dd if=${MBR_BIN} of=${device} bs=440 count=1 conv=notrunc
-	retval="$?"
-	return $retval
 }
 
 # gui 1
@@ -147,12 +167,12 @@ func_gui1() {
 	</vbox>
 	</window>'
 	gtkdialog -p gui1 > "$TMP"/uefi-chosen
-	CHOSEN=`grep "true" "$TMP"/uefi-chosen|cut -d '=' -f1`
-	echo $CHOSEN
-	if [ ! "$CHOSEN" ];then 
+	USBDRV=`grep "true" "$TMP"/uefi-chosen|cut -d '=' -f1`
+	echo $USBDRV
+	if [ ! "$USBDRV" ];then 
 	error_func "$ABTMSG" yellow 0
 	fi
-	DESC2=`grep "$CHOSEN" "$TMP"/uefi-wiz-list|rev|cut -d '|' -f1|rev` 
+	DESC2=`grep "$USBDRV" "$TMP"/uefi-wiz-list|rev|cut -d '|' -f1|rev` 
 	# splash some info
 	DMSG1=$(gettext "You have chosen ")
 	DMSG2=$(gettext "When you click OK gparted will open to allow you to partition your \
@@ -162,7 +182,7 @@ func_gui1() {
 	export guigp='<window title="UEFI usb installer v-'$ver'" window-position="1">
 	<vbox space-expand="true" space-fill="true">
 	  <frame>
-		<text><label>"'"$DMSG1 $CHOSEN - $DESC2"'"</label></text>
+		<text><label>"'"$DMSG1 $USBDRV - $DESC2"'"</label></text>
 		<text><label>"'"$DMSG2"'"</label></text>
 		<text use-markup="true"><label>"<b>'"$DMSG3"'</b>"</label></text>
 	  </frame>
@@ -173,9 +193,9 @@ func_gui1() {
 	[ "$EXIT" = "abort" ] && error_func "$ABTMSG" yellow 0
 	# run gparted on chosen partition
 	GPERR=$(gettext "Gparted exited with an error. Exiting.")
-	gparted "$CHOSEN"
+	gparted "$USBDRV"
 	[ "$?" = 0 ] || error_func "$GPERR" $?
-	dev1=${CHOSEN}1
+	dev1=${USBDRV}1
 	sync
 	# check fs type
 	FSNOT=$(gettext " is the wrong filesystem for that partition!")
@@ -194,16 +214,11 @@ func_gui1() {
 	
 	# check if boot flag set
 	NOTBOOT=$(gettext " device is not bootable! Try again.")
-	disktype "${CHOSEN}"|grep -q 'bootable'
-	[ "$?" -ne 0 ] && error_func "$CHOSEN $NOTBOOT" 78
-	
-	# make bootable
-	MBRF=(gettext "Failed to make bootable.")
-	mbr_func "$CHOSEN"
-	[ "$?" -ne 0 ] && error_func "$MBRF" "$?"
-	
+	disktype "${USBDRV}"|grep -q 'bootable'
+	[ "$?" -ne 0 ] && error_func "$USBDRV $NOTBOOT" 78
+
 	FPART1=`probepart|grep -iE 'fat'|cut -d '|' -f1`
-	
+
 	rm -rf $TMP/UEFI* 2>/dev/null
 	# sanity check
 	FST1=`guess_fstype "$dev1"`
@@ -367,26 +382,6 @@ sfs files,\nTHEN HIGHLIGHT ANY ONE OF THEM in the right pane \nand click the OK 
 	esac
 }
 
-# make syslinux bootable
-sys_func () {
-		echo "======================"
-	echo "sys_func"
-	echo "======================"
-	dev1="$1" pic="$2"
-	SYSPLASH=$(gettext "Now installing syslinux in to ")
-	gtkdialog-splash -close never -timeout 3 -bg green -text "$SYSPLASH $dev1" &
-	syslinux -i "$TMPMNT1"
-	for b in ldlinux.c32 libcom32.c32 libutil.c32 vesamenu.c32 ;do 
-		cp ${SYSDIR}/$b "$TMPMNT1" 2>/dev/null #top level
-	done
-	sync
-	# build syslinux.conf
-	copy_boot_menu /usr/share/boot-dialog/isolinux.cfg "$TMPMNT1"/syslinux.cfg
-	mkdir -p "$TMPMNT1"/help
-	copy_boot_menu /usr/share/boot-dialog/help.msg "$TMPMNT1"/help/help.msg
-	copy_boot_menu /usr/share/boot-dialog/help2.msg "$TMPMNT1"/help/help2.msg
-}
-
 # grub2 - make bootable
 boot_func() {
 	echo "======================"
@@ -400,10 +395,10 @@ boot_func() {
 	mkdir -p ${HOMEDIR}/EFI/boot
 
 	if [ -f ${GRUBDIR}/grubia32.efi ] ; then
-		cp ${GRUBDIR}/grubia32.efi ${HOMEDIR}/EFI/boot/
+		cp ${GRUBDIR}/grubia32.efi ${HOMEDIR}/EFI/boot/bootia32.efi
 	fi
 	if [ -f ${GRUBDIR}/grubx64.efi ] ; then
-		cp ${GRUBDIR}/grubx64.efi ${HOMEDIR}/EFI/boot/
+		cp ${GRUBDIR}/grubx64.efi ${HOMEDIR}/EFI/boot/bootx64.efi
 	elif [ -f $GRUBDIR/grubx64.efi.tar.xz ] ; then # old stuff
 		tar -xJvf $GRUBDIR/grubx64.efi.tar.xz -C ${HOMEDIR}/EFI/boot/
 		mv ${HOMEDIR}/EFI/boot/grubx64.efi ${HOMEDIR}/EFI/boot/bootx64.efi
@@ -419,24 +414,22 @@ boot_func() {
 	esac
 	cp -a ${GRUBDIR}/${pic}.png ${HOMEDIR}/splash.png 2>/dev/null
 
-	# build grub.cfg
 	copy_boot_menu /usr/share/boot-dialog/grub.cfg ${HOMEDIR}/grub.cfg
-	if which syslinux ; then
-		# add syslinux if wanted
-		ALTMSG=$(gettext "Would you like to add legacy BIOS boot capability to your installation?")
-		Xdialog -title "Add Legacy BIOS" --yesno "$ALTMSG" 0 0 0
-		case $? in
-			0)sys_func $dev1 $pic;;
-			*);;
-		esac
-		mount|grep -q "$TMPMNT1" && umount "$TMPMNT1"
-		HAPPY=$(gettext "Everything looks good. Make sure $dev1 is unmounted and remove the media. \
+
+	ALTMSG=$(gettext "Would you like to add legacy BIOS boot capability to your installation?")
+	Xdialog -title "Add Legacy BIOS" --yesno "$ALTMSG" 0 0 0
+	if [ $? -eq 0 ] ; then
+		write_wee_mbr ${USBDRV}
+		copy_g4dos_cd ${HOMEDIR} auto usbflash
+	fi
+	mount|grep -q "$TMPMNT1" && umount "$TMPMNT1"
+	HAPPY=$(gettext "Everything looks good. Make sure $dev1 is unmounted and remove the media. \
 After first boot you are given the option to make a \
 'save file'. To keep your changes choose this or to boot to RAM every time don't create a save file. \
 If you have Windows, be sure that you boot to Windows and disable hibernation, aka fast boot, aka hybdrid \
 sleep, etc, and configure your UEFI to disable Secure Boot.")
-		error_func "$HAPPY" green 0 #not an error, but a clean get out!
-	fi
+	error_func "$HAPPY" green 0 #not an error, but a clean get out!
+
 }
 
 
