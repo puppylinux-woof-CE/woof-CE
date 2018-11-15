@@ -30,6 +30,7 @@
 #180115 move test for builtin driver; log module loading/readiness wait time.
 #180125 unblock wlan softblock.
 #180706 Accommodate large network list, by omitting unneeded iwlist lines and limiting search for 'Scan completed'.
+#181109 Replace module-loading & MAC-address loop logic with greps of lists; speed up scan result processing & sort by strength.
 
 export TEXTDOMAIN=sns___rc.network
 export OUTPUT_CHARSET=UTF-8
@@ -75,7 +76,7 @@ cancel_splash_and_exit() { #170505...
 	  && ps -fC yaf-splash | grep -wq "$SPLASHPID" \
 	  && kill $SPLASHPID
 	fi
-	exit
+	exit 0
 } #170505 end
 
 export LANG='C'
@@ -108,50 +109,45 @@ rm -f /tmp/sns_interface_success 2>/dev/null
 [ -f /root/.connectwizardrc ] \
  || echo 'CURRENT_EXEC=sns' > /root/.connectwizardrc #170309
 
-[ "`grep '|ndiswrapper|' /etc/simple_network_setup/connections`" != "" ] && modprobe ndiswrapper #100314
-
-KERN_FOLDER="$(uname -r)" #161008 ex: 4.4.8
+if [ "`grep '|ndiswrapper|' /etc/simple_network_setup/connections`" != "" ];then #100314...
+ modprobe ndiswrapper \
+  && touch /tmp/simple_network_setup/udevmodulelist/ndiswrapper
+fi
 
 #wait for interfaces to become available...
 #note, do not test for wlan0 or wlan1 (etc) to become available, as these can change depending on plugged-in devices.
-WAITCNT=0 ; WAITMAX=10 ; TESTLIST='|' #180108
-sleep 1
-echo -n "" > /tmp/sns_connections_available
-for ONEMODULE in `cut -f 3 -d '|' /etc/simple_network_setup/connections | sort -u | tr '\n' ' '` #100804
-do
- oPATTERN="^${ONEMODULE} |^${ONEMODULE//-/_} " #ex: "^via-rhine |^via_rhine "
- mPATTERN='|'"$ONEMODULE"'|'
- iPATTERN='/'"$ONEMODULE"'.ko$'
- if ! grep -q "${iPATTERN}" /lib/modules/${KERN_FOLDER}/modules.builtin; then #180115
-  while [ 1 ];do #101122 wait for module to load. 161008 but not if builtin...
-   lsmod | grep -q -E "$oPATTERN" && break
-   [ "`echo "$TESTLIST" | grep "$mPATTERN"`" != "" ] && continue 2 #avoid re-waiting on same module
-   [ $WAITCNT -ge $WAITMAX ] && continue 2 #no module loaded. #171222 180108
-   sleep 1
-   WAITCNT=$(($WAITCNT + 1))
-  done
- fi #180115
-MACADDRESSES="`grep "$mPATTERN" /etc/simple_network_setup/connections | cut -f 6 -d '|' | sort -u | tr '\n' ' '`" #100804
- for MACADDRESS in $MACADDRESSES #100804
- do
-  while [ 1 ];do
-   ALL_MACADDRESS="`ifconfig -a | grep 'Link encap:Ethernet' | grep -o 'HWaddr .*' | cut -f 2 -d ' '`"
-   if [ "`echo "$ALL_MACADDRESS" | grep "$MACADDRESS"`" != "" ];then
-    #interface is ready. copy all connections with that module and macaddress...
-    macPATTERN='|'"$MACADDRESS"'|'
-    MACMATCH="`grep "$mPATTERN" /etc/simple_network_setup/connections | grep "$macPATTERN"`"
-    [ "$MACMATCH" ] && echo "$MACMATCH" >> /tmp/sns_connections_available
-    break
-   fi
-   [ $WAITCNT -ge $WAITMAX ] && break 2 #timeout. #171222 180108
-   WAITCNT=$(($WAITCNT + 1))
-   sleep 1
-  done
- done
- TESTLIST="${TESTLIST}${ONEMODULE}|" #101122. 160922 moved down.
-done
-[ $WAITCNT -gt 0 ] && echo "SNS rc.network: waited for ethernet interfaces: seconds=${WAITCNT}" #180115
+WAITCNT=0 ; WAITMAX=10 #180108
+sleep 1 # Allow time for all module loading to be initiated.
 
+#181109 Collect driver names from save connection profiles & make grep patterns...
+CONNECTION_DRIVER_LIST="$(cut -f 3 -d '|' /etc/simple_network_setup/connections | sort -u)"
+[ -z "$CONNECTION_DRIVER_LIST" ] && exit
+CONNECTION_DRIVER_PATTERNS="$(echo "$CONNECTION_DRIVER_LIST" | sed 's%.*%/&.ko%')"
+CONNECTION_BUILTIN_PATTERNS="$(grep -soF "${CONNECTION_DRIVER_PATTERNS}" /lib/modules/$(uname -r)/modules.builtin | sed 's%/\(.*\)\.ko%|\1|%')"
+# Collect names of modules identified by udev events...
+UDEV_RULE_LIST="$(ls -1 /tmp/simple_network_setup/udevmodulelist/ 2>/dev/null)"
+# Collect names of any modules substituted by backend_modprobe...
+SUBSTITUTE_LIST="$(grep -sho '^MODULE=[^ ]*' /tmp/pup_event_backend/pup_event_module_devpath_log* \
+  | cut -f2 -d =)"
+[ -z "${UDEV_RULE_LIST}${SUBSTITUTE_LIST}" ] && exit
+# Get names of connection modules being loaded & the number of them (except substitutes)...
+ACTIVE_CONNECTION_MODULE_LIST="$(echo "$CONNECTION_DRIVER_LIST" | grep -xF "${UDEV_RULE_LIST}${SUBSTITUTE_LIST}" | grep -vE '^$')"
+ACTIVE_CONNECTION_MODULE_COUNT="$(echo "$CONNECTION_DRIVER_LIST" | grep -xF "${UDEV_RULE_LIST}" | grep -vE '^$' | wc -l)"
+
+while [ 1 ];do # Wait for all 'active'connection module(s) to load...
+ LOADED_CONNECTION_MODULE_PATTERNS="$(lsmod | cut -f 1 -d ' ' | grep -xF "${ACTIVE_CONNECTION_MODULE_LIST}" | sed 's%^.*%|&|%')"
+ LOADED_CONNECTION_MODULE_COUNT="$(echo "$LOADED_CONNECTION_MODULE_PATTERNS" | grep -vE '^$' | wc -l)"
+ [ $LOADED_CONNECTION_MODULE_COUNT -ge $ACTIVE_CONNECTION_MODULE_COUNT ] && break
+ [ $WAITCNT -ge $WAITMAX ] && break #all modules not loaded.
+ sleep 1
+ WAITCNT=$(($WAITCNT + 1))
+done
+
+ACTIVE_MACADDRESS_PATTERNS="$(ifconfig -a | grep 'Link encap:Ethernet' | grep -o 'HWaddr .*' | cut -f 2 -d ' ' | sed 's%^.*%|&|%')"
+AVAILABLE_CONNECTIONS="$(grep -F "${LOADED_CONNECTION_MODULE_PATTERNS}${CONNECTION_BUILTIN_PATTERNS}" /etc/simple_network_setup/connections | grep -F "${ACTIVE_MACADDRESS_PATTERNS}")"
+[ -n "$AVAILABLE_CONNECTIONS" ] && echo "$AVAILABLE_CONNECTIONS" > /tmp/sns_connections_available #181109 end
+
+[ $WAITCNT -gt 0 ] && echo "SNS rc.network: waited for ethernet interfaces: seconds=${WAITCNT}" #180115
 [ ! -s /tmp/sns_connections_available ] && cancel_splash_and_exit #170505
 INTERFACES="`ifconfig -a | grep -F 'Link encap:Ethernet' | cut -f1 -d' ' | tr '\n' ' '`"
 
@@ -166,7 +162,7 @@ echo -n "" > /tmp/simple_network_setup/rc_network_wireless_connection_log
 grep '|Wireless|' /tmp/sns_connections_available > /tmp/sns_connections_wireless
 
 if [ -s /tmp/sns_connections_wireless ];then #170924
- ESSIDSwant="$(grep '|Wireless|' /etc/simple_network_setup/connections | cut -f 12 -d '|')"
+ ESSIDSwant="$(grep '|Wireless|' /etc/simple_network_setup/connections | cut -f 12 -d '|' | sort -u)"
  echo -n "$ESSIDSwant" > /tmp/simple_network_setup/essids-want
  for INTERFACE in $INTERFACES #exs: wlan0 eth0
  do
@@ -190,30 +186,30 @@ if [ -s /tmp/sns_connections_wireless ];then #170924
   echo " SUCCESS: ifconfig ${INTERFACE} up" >> /tmp/simple_network_setup/rc_network_wireless_connection_log
   sleep 3
   SECS=3
+  ESSID_PATTERNS="$(sed 's/.*/ESSID:"&"/' /tmp/simple_network_setup/essids-want)"
   echo " EXECUTING SCAN: iwlist ${INTERFACE} scan | grep -E (messages & labels)" >> /tmp/simple_network_setup/rc_network_wireless_connection_log #180706
-  SCANRESULT="`iwlist $INTERFACE scan | grep -E 'Address:|Channel:|Frequency:|Quality[:=]|Encryption key:|ESSID:|Scan completed|No scan results'`" ###SCANNING### 110203 180706
-  echo " SCANRESULT=${SCANRESULT}" >> /tmp/simple_network_setup/rc_network_wireless_connection_log
-  #note, possible to get: 'wlan0     No scan results' so delay then try again...
-  if [ "$ESSIDSwant" ];then
-   SFLAG="$(echo "$SCANRESULT" | grep 'ESSID' | grep -f /tmp/simple_network_setup/essids-want)"
-  else
-   SFLAG="$(echo "$SCANRESULT" | grep 'Scan completed')"
-  fi
-  if [ "$SFLAG" == "" ];then
+  for I in 1 2;do
+   SCANRESULT="`iwlist $INTERFACE scan | grep -E 'Address:|Channel:|Frequency:|Quality[:=]|Encryption key:|ESSID:|Scan completed|No scan results'`" ###SCANNING### 110203 180706
+   echo " SCANRESULT=${SCANRESULT}" >> /tmp/simple_network_setup/rc_network_wireless_connection_log
+   #note, possible to get: 'wlan0     No scan results' so delay then try again...
+   if [ "$ESSIDSwant" ];then
+    SCAN_WANTS="$(echo "$SCANRESULT" | grep -FB 5 "${ESSID_PATTERNS}")"
+   else
+    SCAN_WANTS="$(echo "$SCANRESULT" | grep -m 1 'Scan completed')"
+   fi
+   [ "$SCANRESULT" != "" -o $I -gt 1 ] && break
    sleep 2
    SECS=5
    echo " EXECUTING SCAN AGAIN: iwlist ${INTERFACE} scan | grep -E (messages & labels)" >> /tmp/simple_network_setup/rc_network_wireless_connection_log #180706
-   SCANRESULT="`iwlist $INTERFACE scan | grep -E 'Address:|Channel:|Frequency:|Quality[:=]|Encryption key:|ESSID:|Scan completed|No scan results'`" ###SCANNING### 110203 180706
-   echo " SCANRESULT=${SCANRESULT}" >> /tmp/simple_network_setup/rc_network_wireless_connection_log
-  fi
+  done
   ifconfig $INTERFACE down
   echo " EXECUTING: ifconfig $INTERFACE down" >> /tmp/simple_network_setup/rc_network_wireless_connection_log #110203
-  if [ "`echo "$SCANRESULT" | grep -m 1 'Scan completed'`" = "" ];then #110203 180706
+  if [ "$SCAN_WANTS" = "" ];then #110203 180706
    echo 'SCAN FAILURE, EXPECTED STRING "Scan completed"' >> /tmp/simple_network_setup/rc_network_wireless_connection_log
    continue #110203
   fi
   #convert each found network into a single line... 110203
-  SRLINES="`echo "$SCANRESULT" | grep -v 'Scan completed' | tr '|' ' ' | tr '\n' '|' | sed -e 's%       Cell %\n%g' | tr -s ' '`"
+  SRLINES="`echo "$SCAN_WANTS" | grep -v 'Scan completed' | tr '|' ' ' | tr '\n' '|' | sed -e 's%       Cell %\n%g' | tr -s ' ' | sed -e 's%\(Signal level=\)\(-[0-9][0-9]*\)%\1@\2@%' | sort -g -r -t @ -k 2 | sed -e 's%\(Signal level=\)@\(-[0-9][0-9]*\)@%\1\2%'`"
   echo "$SRLINES" |
   while read ONELINE
   do
