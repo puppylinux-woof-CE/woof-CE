@@ -7,7 +7,6 @@
 #DISTRO_VERSION, DISTRO_NAME are global variables visible here.
 #110422 DISTRO_VERSION variable now has dotted format. note, also now using full dotted version# in puppy filenames.
 #120225 create symlink release-notes.htm to actual release-notes file. NO.
-#120225 backup doc files, refer /usr/sbin/indexgen.sh.
 #120818 now have /etc/xdg in Woof, taken out of xdg_puppy PET, relocated pinstall.sh to here.
 #132211 removed icewm template from default, who uses that anyway?
 
@@ -20,7 +19,6 @@ rm -f /tmp/fbvideomode.txt
 
 echo "Configuring Puppy Help page..."
 
-#refer /usr/sbin/indexgen.sh...
 cp -f usr/share/doc/index.html.top usr/share/doc/index.html.top-raw #120225
 cp -f usr/share/doc/index.html.bottom usr/share/doc/index.html.bottom-raw #120225
 cp -f usr/share/doc/home.htm usr/share/doc/home-raw.htm #120225
@@ -39,7 +37,6 @@ PATTERN2="s/DISTRO_VERSION/${DISTRO_VERSION}/g"
 nPATTERN="s/DISTRO_NAME/${DISTRO_NAME}/g"
 sed -i -e "$PATTERN1" -e "$PATTERN2" -e "$nPATTERN" -e "$dPATTERN" -e "$cPATTERN" usr/share/doc/index.html.top
 sed -i -e "$PATTERN1" -e "$PATTERN2" -e "$nPATTERN" -e "$dPATTERN" usr/share/doc/index.html.bottom
-#...note, /usr/sbin/indexgen.sh puts these together as index.html (via rc.update and 3builddistro).
 
 echo "Writing distro name to jumping-off page..."
 sed -i -e "$nPATTERN" usr/share/doc/home.htm
