@@ -1,70 +1,256 @@
-#!/bin/sh
+#!/bin/bash
 #(c) Copyright Barry Kauler 2006 www.puppylinux.com
 #2007 Lesser GPL licence v2 (http://www.fsf.org/licensing/licenses/lgpl.html)
-#BK updated v2.22, sync with rc.shutdown multisession bugfix.
-#v3.01: BK 11 oct 2007, removed multisavefunc() to /etc/rc.d/functions4puppy.
 
-#/etc/rc.d/rc.shutdown saves session at shutdown, savesession-dvd is called
-#from desktop icon to do an immediate save to multisession-cd.
+# /etc/rc.d/rc.shutdown saves session at shutdown, creates /tmp/rc.shutdown_config
+# savesession-dvd is called from desktop icon to do an immediate save to multisession-cd.
 
-#variables created at bootup by /initrd/usr/sbin/init...
-. /etc/rc.d/PUPSTATE #v2.02
-. /etc/DISTRO_SPECS #v412
-ORIGPUPMODE=$PUPMODE #v2.22
+#set -x
 
-. /etc/rc.d/functions4puppy #v3.01 has multisavefunc.
-
-CONSRUN="$1" #will execute multisavefunc from a rxvt console.
-#...this script calls itself a second time, as multisavefunc uses dialog,
-#   and runs without X.
-#also test if X not running...
-pidof X >/dev/null || pidof Xorg >/dev/null || CONSRUN="yes"
-
-if [ ! "$PUPSAVE" = "" ];then
- SAVEFS="`echo -n "$PUPSAVE" | cut -f 2 -d ','`"   #f.s. and partition where ${DISTRO_FILE_PREFIX}save.2fs is located.
- SAVEPART="`echo -n "$PUPSAVE" | cut -f 1 -d ','`" # "
- SAVEFILE="`echo -n "$PUPSAVE" | cut -f 3 -d ','`"
+if pidof X >/dev/null || pidof Xorg >/dev/null ; then
+	DEVCONSOLE="/dev/tty"
+	DIALOG=Xdialog
 else
- exit #v2.22
+	DEVCONSOLE="/dev/console"
+	DIALOG=dialog
 fi
+
+#=======================================================================
+
+if [ -f /tmp/rc.shutdown_config ] ; then
+	# rc.shutdown
+	. /tmp/rc.shutdown_config # PUPMODE SAVEFS PUPSAVE SAVEPART SAVEFILE NAMEONLY SAVEPATH MYPASSWORD SFEXT
+	rm -f /tmp/rc.shutdown_config
+else
+	# savesession-dvd
+	. /etc/rc.d/PUPSTATE
+	ORIGPUPMODE=$PUPMODE
+	SAVEFS="`echo -n "$PUPSAVE" | cut -f 2 -d ','`"   #f.s. and partition where ${DISTRO_FILE_PREFIX}save.2fs is located.
+	SAVEPART="`echo -n "$PUPSAVE" | cut -f 1 -d ','`" # "
+	if [ "$PUPMODE" != "77" ] || [ "$SAVEPART" = "" ] ; then
+		$DIALOG --title "SaveSession - ERROR" --msgbox "$(gettext 'ERROR: This is not a multisession live-CD/DVD')" 0 0 >$DEVCONSOLE
+		exit 1
+	fi
+
+	$DIALOG --title "SaveSession" --yes-label "SAVE" --no-label "CANCEL" \
+		--yesno "This program takes a snapshot of changed and new files and
+	saves them to CD/DVD. For the multisession-CD/DVD, this happens at shutdown
+	however, this tool allows you to back up your critical files whenever you want to.
+
+	WARNING: for CDs use this Save script infrequently
+
+	Click SAVE button to save session..." 0 0 >$DEVCONSOLE
+	if [ $? -ne 0 ];then
+		exit
+	fi
+fi
+
+#=======================================================================
+
+waittrayclosed_func() {
+	CDDRV="$1"
+	if ! cddetect_quick -d${CDDRV} >/dev/null ;then #v2.22
+		$DIALOG --title "Save session" --msgbox "The device is not ready
+		Insert media and/or close tray, wait until it's ready, then press ENTER." 0 0 >$DEVCONSOLE
+	fi
+	[ "$2" ] && return
+	echo -e "\\033[1;34mIF STOPPED LONG TIME AT THIS MSG, MAKE SURE TRAY IS CLOSED THEN PRESS ENTER KEY:\\033[0;39m " >$DEVCONSOLE #34=blue
+}
+
+#=======================================================================
+#                          MAIN
+#=======================================================================
+
+# these variables must be preset before calling...
+# PUPSAVE=partition,filesystem,/${DISTRO_FILE_PREFIX}save.2fs where 1st 2 are the partition holding the file.
+# SAVEPART=filesystem which is same as above filesystem.
+
 CDR="/dev/$SAVEPART"
 
-if [ ! "$CONSRUN" = "" ];then
- multisavefunc 2>/tmp/savesession-dvd.log
- exit $?
+#save session to folder on multisession CD/DVD.
+CDRECORD='cdrecord'
+MKISOFS='mkisofs'
+if [ "`which xorriso`" != "" ];then # use xorriso if it is installed
+	CDRECORD='xorrecord'
+	MKISOFS='xorrisofs' #growisofs reads this variable.
+fi
+export CDRECORD MKISOFS
+
+touch -c /.badfolders #update modifytime, so will get saved. badlist, see init script.
+
+if [ "`mount | grep "$CDR "`" != "" ];then
+	echo "/dev/$SAVEPART mounted, must unmount it..."
+	fuser -k -m /dev/$SAVEPART
+	sync
+	umount /dev/$SAVEPART 2> /dev/null
 fi
 
-[ "$PUPMODE" != "77" ] && exec /usr/lib/gtkdialog/box_ok "$(gettext 'Save session to DVD')" error "$(gettext 'This is not a multisession live-CD/DVD')"
-[ "$CDR" = "" ] && exec /usr/lib/gtkdialog/box_ok "$(gettext 'Save session to DVD')" error "$(gettext 'This is not a multisession live-CD/DVD')"
-
-#before can save a session back to DVD, have to be sure that DVD is unmounted...
-if [ "`mount | grep "$CDR"`" != "" ];then
- sync
- echo "Unmounting $CDR..."
- fuser -k -m $CDR
- sync
- umount $CDR
- if [ ! $? -eq 0 ];then
-  /usr/lib/gtkdialog/box_ok "$(gettext 'Save session to DVD')" error "$CDR $(gettext 'is currently mounted and cannot be automatically unmounted. You will need to unmount it manually.')" "$(gettext 'Click OK button to quit...')"
-  exit
- fi
+if [ "`mount | grep "$CDR "`" != "" ];then #v3.01
+	$DIALOG --title "Save session - ERROR" --msgbox "ERROR: The drive $CDR could not be unmounted,
+	so current session cannot be saved to it.
+	This can happen if PC has insufficient RAM to
+	copy all files off the CD, or an application
+	is using the CD and cannot be killed." 0 0 >$DEVCONSOLE
+	clear >$DEVCONSOLE
+	exit 1
 fi
 
-xmessage -bg "#ffc0c0" -center -title "SaveSession" -buttons "SAVE:10,CANCEL:11" "This program takes a snapshot of changed and new files and
-saves them to CD/DVD. For the multisession-CD/DVD, this happens
-at shutdown, however, if you are working on critical files and
-do not want to lose your work in case of a power-outage or
-system crash (latter very unlikely), this program is a solution
--- just run it whenever you want to backup.
+HDRCDR="$CDR"
+$DIALOG --title "Save session" --yes-label "SAVE" --no-label "NO SAVE" \
+	--yesno "Please insert the Puppy live-CD/DVD media that you booted from,
+	into the same CD/DVD drive that you booted from --
+	this is /dev/$SAVEPART and it must be a burner drive!
 
-WARNING: CDs have much less space than DVDs, and there is more
-wasted space in each saved session, meaning that a CD will fill
-up fast. Therefore, for CDs use this Save script infrequently.
+	Insert CD/DVD media now, then press ENTER key to save session...
+	Or, press TAB then ENTER to not save session..." 0 0 >$DEVCONSOLE
+if [ ! $? -eq 0 ];then
+	eject $CDR
+	$DIALOG --title "Save session" --msgbox "Have not saved session to live-CD/DVD.
+	Remove CD/DVD media if you wish.
+	Do not press close button on drive.
+	Press ENTER key to close drive tray" 0 0 >$DEVCONSOLE
+	eject -t $CDR
+	sleep 1
+	clear >$DEVCONSOLE
+	waittrayclosed_func $CDR #v2.16
+	exit 1
+fi
 
-Click SAVE button to save session..."
-[ ! $? -eq 10 ] && exit
+clear >$DEVCONSOLE
+waittrayclosed_func $CDR q
+waittrayclosed_func $CDR
 
-#recursive execution...
-exec rxvt -e /usr/sbin/savesession-dvd yes
+MEDIATYPE="CD"
+if [ "`dvd+rw-mediainfo $CDR 2>&1 | grep -E "non\\-DVD|not a DVD unit|Input/Output error|Input/output error|Invalid argument"`" = "" ] ; then
+	MEDIATYPE="DVD"
+fi
 
-###END###
+#if new version iso inserted, need to save all files, not just changed/new...
+DVDMNTPT="`mount | grep "$CDR " | tr -s " " | cut -f 3 -d " "`" #in case not unmounted.
+if [ "$DVDMNTPT" = "" ];then
+	mkdir -p /tmp/dvdmntpt
+	mount -t iso9660 $CDR /tmp/dvdmntpt
+	[ $? -eq 0 ] && DVDMNTPT="/tmp/dvdmntpt"
+fi
+if [ "$DVDMNTPT" != "" ];then
+	if [ $ORIGPUPMODE -eq 77 ];then #bypass first boot, PUPMODE=5. v2.22
+		[ "`find $DVDMNTPT -maxdepth 1 -type d -name '20[0-9][0-9]*'`" != "" ] && NEWISO="yes"
+	fi
+	umount $CDR 2>/dev/null
+fi
+
+pup_rw="$(stat -Lc %m /initrd/pup_rw)"
+pup_ro1="$(stat -Lc %m /initrd/pup_ro1)"
+
+#want to copy contents of ${pup_rw} to a new folder on /dev/$SAVEPART...
+MYDATE="`date "+%Y-%m-%d-%H-%M"`" #this will become the folder name on cd.
+
+SAVEABORT="" #v3.01
+while [ 1 ] #WHILELOOP1
+do
+	#if have new live-cd, need a 'full save', not just what is in pup_rw. Maybe easiest
+	#way is to save two tracks, pup_ro1, which has all prior saved folders read from cd
+	#at bootup, then save latest session, pup_rw...
+	if [ "$NEWISO" = "yes" ];then
+		echo "Burning data from previous $MEDIATYPE to first track..." >$DEVCONSOLE
+		#use last folder name from previous cd, to avoid name conflict with next folder...
+		FOLDEROLD="`echo -n "$PUPSAVE" | cut -f 3 -d ','`"
+		#minimal error checking here, errors reported when save current session (below)...
+		if [ "$MEDIATYPE" = "CD" ];then
+			waittrayclosed_func $CDR #v2.16 v3.01 now HDRCDR...
+			SECT=`$CDRECORD -msinfo dev=${HDRCDR} 2>/tmp/cdrerr.txt | grep '^[0-9]*.[0-9]'` #v3.01
+			if [ "$SECT" = "" ];then
+				SAVEABORT="$CDR" #v3.01
+				break
+			fi
+			waittrayclosed_func $CDR #v2.16
+			$MKISOFS -D -R -C $SECT -M $CDR -quiet -new-dir-mode 0755 -graft-points ${FOLDEROLD}=${pup_ro1} | \
+			$CDRECORD -multi -data -tao -eject -v speed=4 gracetime=2 padsize=300k dev=${HDRCDR} -
+		else #dvd
+			waittrayclosed_func $CDR #v2.16
+			#v2.16 removed '-speed=4' as got 'failed to change write speed' error on one drive...
+			growisofs -M $CDR -D -R -quiet -new-dir-mode 0755 -graft-points ${FOLDEROLD}=${pup_ro1} 2> /tmp/dvderr.txt
+		fi
+	fi
+
+	#normal session save of new/changed files...
+	REMSFS=""
+	#tack on this exclude as well... (samba network drives mount here)
+	[ -d ${pup_rw}/root/mnt ] && REMSFS="$REMSFS -x ${pup_rw}/root/mnt"
+	#if a new iso, do not want to save /.badfolders file...
+	if [ "$NEWISO" = "yes" ];then
+		[ -f ${pup_rw}/.badfolders ] && REMSFS="$REMSFS -x ${pup_rw}/.badfolders"
+	fi
+
+	#100820 relocate /var/local so it will get saved (see 'init' script at bootup)...
+	if [ -d ${pup_rw}/var/local ];then
+		rm -rf ${pup_rw}/root/.var_saved #precaution.
+		mkdir -p ${pup_rw}/root/.var_saved
+		cp -a ${pup_rw}/var/local ${pup_rw}/root/.var_saved/
+	fi
+
+	if [ "$MEDIATYPE" = "CD" ];then
+		waittrayclosed_func $CDR #v2.16 v3.01 now HDRCDR...
+		SECT=`$CDRECORD -msinfo dev=${HDRCDR} 2>/tmp/cdrerr.txt | grep '^[0-9]*.[0-9]'`
+		if [ "$SECT" = "" ];then
+			SAVEABORT="$CDR" #v3.01
+			break #v3.01
+		else
+			waittrayclosed_func $CDR #v2.16
+			TSIZE="`$MKISOFS -print-size -D -R -C $SECT -M $CDR -quiet -new-dir-mode 0755 -graft-points -x ${pup_rw}/tmp $REMSFS -x ${pup_rw}/dev -x ${pup_rw}/proc -x ${pup_rw}/sys -x ${pup_rw}/var -x ${pup_rw}/initrd -x ${pup_rw}/mnt -x ${pup_rw}/root/.XLOADED ${MYDATE}=${pup_rw}`" #120823
+			#-J Joliet extension disabled, sometimes causes failure...
+			waittrayclosed_func $CDR #v2.16 v3.01 now HDRCDR...
+			$MKISOFS -D -R -C $SECT -M $CDR -quiet -new-dir-mode 0755 -graft-points -x ${pup_rw}/tmp $REMSFS -x ${pup_rw}/dev -x ${pup_rw}/proc -x ${pup_rw}/sys -x ${pup_rw}/var -x ${pup_rw}/initrd -x ${pup_rw}/mnt -x ${pup_rw}/root/.XLOADED ${MYDATE}=${pup_rw} | \
+			$CDRECORD -multi -data -tao -eject -v speed=4 gracetime=2 padsize=300k tsize=${TSIZE}s dev=${HDRCDR} - #120823
+			[ $? -eq 0 ] && break
+		fi
+		echo "Cannot write to CD" > /tmp/dvderr.txt
+	else #dvd
+		waittrayclosed_func $CDR #v2.16
+		#v2.16 removed '-speed=4' as got 'failed to change write speed' error on one drive...
+		growisofs -M $CDR -D -R -quiet -new-dir-mode 0755 -graft-points -x ${pup_rw}/tmp $REMSFS -x ${pup_rw}/dev -x ${pup_rw}/proc -x ${pup_rw}/sys -x ${pup_rw}/var -x ${pup_rw}/initrd -x ${pup_rw}/mnt ${MYDATE}=${pup_rw} 2> /tmp/dvderr.txt
+		[ $? -eq 0 ] && break
+	fi
+	$DIALOG --title "Save session - ERROR" --msgbox "ERROR MESSAGE:
+	`cat /tmp/dvderr.txt | head -n 1`
+
+	It seems to be time to migrate to a new live-${MEDIATYPE}.
+
+	Run remasterpup2 to create a new ISO file
+	and use burniso2cd to burn the ISO to a new ${MEDIATYPE}" 0 0 >$DEVCONSOLE
+	exit 1
+done #end WHILELOOP1
+
+sync
+
+if [ "`mount | grep "$CDR"`" != "" ] ; then
+	STILLMNTD="yes"
+fi
+
+if [ "$STILLMNTD" = "yes" ];then
+	CLOSEMSG="Press ENTER key to complete the shutdown..."
+else
+	CLOSEMSG="Remove $MEDIATYPE media if you wish.
+	Do not press close button on drive.
+	Press ENTER key to close drive tray
+	(laptop drive, have to manually close)"
+	eject $CDR
+fi
+
+if [ "$SAVEABORT" = "" ];then #v3.01
+	$DIALOG --title "Save session" --msgbox "Have saved session to live-$MEDIATYPE
+	(unless it has not, which is an error).
+
+	${CLOSEMSG}" 0 0 >$DEVCONSOLE
+else
+	$DIALOG --title "Save session - ERROR" \
+	--msgbox "A problem with the ${MEDIATYPE} drive ${SAVEABORT},
+	unable to save to it. Sorry.
+	${ERRORMSG}
+	${CLOSEMSG}" 0 0 >$DEVCONSOLE
+fi
+
+[ "$STILLMNTD" != "yes" ] && eject -t $CDR #close tray.
+sleep 1
+
+### END ###
