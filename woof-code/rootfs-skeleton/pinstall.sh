@@ -10,6 +10,8 @@
 #120818 now have /etc/xdg in Woof, taken out of xdg_puppy PET, relocated pinstall.sh to here.
 #132211 removed icewm template from default, who uses that anyway?
 
+. etc/DISTRO_SPECS
+
 WKGDIR="`pwd`"
 
 echo "Configuring Puppy skeleton..."
@@ -38,21 +40,24 @@ nPATTERN="s/DISTRO_NAME/${DISTRO_NAME}/g"
 sed -i -e "$PATTERN1" -e "$PATTERN2" -e "$nPATTERN" -e "$dPATTERN" -e "$cPATTERN" usr/share/doc/index.html.top
 sed -i -e "$PATTERN1" -e "$PATTERN2" -e "$nPATTERN" -e "$dPATTERN" usr/share/doc/index.html.bottom
 
+(
+cat usr/share/doc/index.html.top
+cat usr/share/doc/index.html.bottom
+) > usr/share/doc/index.html
+
 echo "Writing distro name to jumping-off page..."
 sed -i -e "$nPATTERN" usr/share/doc/home.htm
 
 echo "Creating base release notes..."
 if [ ! -e usr/share/doc/release-${cutDISTRONAME}-${DISTRO_VERSION}.htm ];then
- mv -f usr/share/doc/release-skeleton.htm usr/share/doc/release-${cutDISTRONAME}-${DISTRO_VERSION}.htm
- sed -i -e "$PATTERN1" -e "$PATTERN2" -e "$nPATTERN" -e "$rPATTERN" usr/share/doc/release-${cutDISTRONAME}-${DISTRO_VERSION}.htm
-#else
-# rm -f usr/share/doc/release-skeleton.htm
+	mv -f usr/share/doc/release-skeleton.htm usr/share/doc/release-${cutDISTRONAME}-${DISTRO_VERSION}.htm
+	sed -i -e "$PATTERN1" -e "$PATTERN2" -e "$nPATTERN" -e "$rPATTERN" usr/share/doc/release-${cutDISTRONAME}-${DISTRO_VERSION}.htm
 fi
 if [ ! -e usr/share/doc/release-${cutDISTRONAME}-${RIGHTVER}.htm ];then
- ln -s release-${cutDISTRONAME}-${DISTRO_VERSION}.htm usr/share/doc/release-${cutDISTRONAME}-${RIGHTVER}.htm
+	ln -s release-${cutDISTRONAME}-${DISTRO_VERSION}.htm usr/share/doc/release-${cutDISTRONAME}-${RIGHTVER}.htm
 fi
+
 # write extra stuff for release notes
-. etc/DISTRO_SPECS
 if [ -f ../../support/release_extras/"${DISTRO_FILE_PREFIX}.htm" ];then
 	echo "Customising ${cutDISTRONAME}-${DISTRO_VERSION}.htm"
 	[ -f /tmp/release.htm ] && rm /tmp/release.*m
