@@ -74,3 +74,10 @@ sed -i -e 's%^Categories=.*%Categories=X-SetupUtility%' \
 if [ -e ${SR}/etc/init.d/ifplugd ] ; then
 	rm -f ${SR}/etc/init.d/ifplugd
 fi
+
+# fix permissions
+chmod 600 ${SR}/etc/gshadow
+chmod 600 ${SR}/etc/shadow
+chmod 640 ${SR}/etc/sudoers
+chmod 1777 ${SR}/tmp
+chmod 777 ${SR}/var
