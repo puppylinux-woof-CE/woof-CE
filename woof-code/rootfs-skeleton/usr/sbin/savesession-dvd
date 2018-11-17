@@ -2,8 +2,12 @@
 #(c) Copyright Barry Kauler 2006 www.puppylinux.com
 #2007 Lesser GPL licence v2 (http://www.fsf.org/licensing/licenses/lgpl.html)
 
-# /etc/rc.d/rc.shutdown saves session at shutdown, creates /tmp/rc.shutdown_config
+# called by /etc/rc.d/rc.shudown
+#   - /tmp/rc.shutdown_config = first boot, save session at shutdown
+#   - $RC_SHUTDOWN = save session at shutdown, PUPMODE = 77
+#
 # savesession-dvd is called from desktop icon to do an immediate save to multisession-cd.
+#
 
 #set -x
 
@@ -16,11 +20,39 @@ else
 fi
 
 #=======================================================================
+# tests
+
+if [ "$1" = "test" ] ; then
+	if [ $(pupmode) -eq 5 ] ; then
+		# simulate shutdownconfig's output
+		cat > /tmp/rc.shutdown_config <<EOF
+PUPMODE=77
+SAVEPART='sr0'
+SAVEFS=''
+SAVEFILE=''
+PUPSAVE='sr0,,'
+SFEXT=''
+xPDEV='sr0'
+xDEVFS='iso9660'
+xPSUBDIR=''
+EOF
+	else
+		echo TODO
+		exit
+	fi
+fi
+
+#=======================================================================
 
 if [ -f /tmp/rc.shutdown_config ] ; then
-	# rc.shutdown
+	# rc.shutdown pupmode 5
 	. /tmp/rc.shutdown_config # PUPMODE SAVEFS PUPSAVE SAVEPART SAVEFILE NAMEONLY SAVEPATH MYPASSWORD SFEXT
 	rm -f /tmp/rc.shutdown_config
+elif [ "$RC_SHUTDOWN" ] ; then
+	# rc.shutdown pupmode 77
+	. /etc/rc.d/PUPSTATE
+	SAVEFS="`echo -n "$PUPSAVE" | cut -f 2 -d ','`"   #f.s. and partition where ${DISTRO_FILE_PREFIX}save.2fs is located.
+	SAVEPART="`echo -n "$PUPSAVE" | cut -f 1 -d ','`" # "
 else
 	# savesession-dvd
 	. /etc/rc.d/PUPSTATE
@@ -124,7 +156,8 @@ if [ "`dvd+rw-mediainfo $CDR 2>&1 | grep -E "non\\-DVD|not a DVD unit|Input/Outp
 	MEDIATYPE="DVD"
 fi
 
-pup_rw="$(stat -Lc %m /initrd/pup_rw)"
+pup_rw=/initrd/pup_rw
+[ -L $pup_rw ] && pup_rw=`readlink $pup_rw`
 
 #want to copy contents of ${pup_rw} to a new folder on /dev/$SAVEPART...
 MYDATE="`date "+%Y-%m-%d-%H-%M"`" #this will become the folder name on cd.
@@ -144,6 +177,22 @@ do
 		cp -a ${pup_rw}/var/local ${pup_rw}/root/.var_saved/
 	fi
 
+	EXCLUDE_LIST="
+-x ${pup_rw}/tmp $REMSFS
+-x ${pup_rw}/dev
+-x ${pup_rw}/proc
+-x ${pup_rw}/sys
+-x ${pup_rw}/var
+-x ${pup_rw}/initrd
+-x ${pup_rw}/mnt
+-x ${pup_rw}/root/.XLOADED
+"
+	if [ "$1" = "test" ] ; then
+		echo $MKISOFS -o cd.iso -D -R -quiet -new-dir-mode 0755 -graft-points ${EXCLUDE_LIST} ${MYDATE}=${pup_rw}
+		$MKISOFS -o cd.iso -D -R -quiet -new-dir-mode 0755 -graft-points ${EXCLUDE_LIST} ${MYDATE}=${pup_rw}
+		exit
+	fi
+
 	if [ "$MEDIATYPE" = "CD" ];then
 		waittrayclosed_func $CDR #v2.16 v3.01 now HDRCDR...
 		SECT=`$CDRECORD -msinfo dev=${HDRCDR} 2>/tmp/cdrerr.txt | grep '^[0-9]*.[0-9]'`
@@ -155,7 +204,7 @@ do
 			TSIZE="`$MKISOFS -print-size -D -R -C $SECT -M $CDR -quiet -new-dir-mode 0755 -graft-points -x ${pup_rw}/tmp $REMSFS -x ${pup_rw}/dev -x ${pup_rw}/proc -x ${pup_rw}/sys -x ${pup_rw}/var -x ${pup_rw}/initrd -x ${pup_rw}/mnt -x ${pup_rw}/root/.XLOADED ${MYDATE}=${pup_rw}`" #120823
 			#-J Joliet extension disabled, sometimes causes failure...
 			waittrayclosed_func $CDR #v2.16 v3.01 now HDRCDR...
-			$MKISOFS -D -R -C $SECT -M $CDR -quiet -new-dir-mode 0755 -graft-points -x ${pup_rw}/tmp $REMSFS -x ${pup_rw}/dev -x ${pup_rw}/proc -x ${pup_rw}/sys -x ${pup_rw}/var -x ${pup_rw}/initrd -x ${pup_rw}/mnt -x ${pup_rw}/root/.XLOADED ${MYDATE}=${pup_rw} | \
+			$MKISOFS -D -R -C $SECT -M $CDR -quiet -new-dir-mode 0755 -graft-points ${EXCLUDE_LIST} ${MYDATE}=${pup_rw} | \
 			$CDRECORD -multi -data -tao -eject -v speed=4 gracetime=2 padsize=300k tsize=${TSIZE}s dev=${HDRCDR} - #120823
 			[ $? -eq 0 ] && break
 		fi
@@ -163,7 +212,7 @@ do
 	else #dvd
 		waittrayclosed_func $CDR #v2.16
 		#v2.16 removed '-speed=4' as got 'failed to change write speed' error on one drive...
-		growisofs -M $CDR -D -R -quiet -new-dir-mode 0755 -graft-points -x ${pup_rw}/tmp $REMSFS -x ${pup_rw}/dev -x ${pup_rw}/proc -x ${pup_rw}/sys -x ${pup_rw}/var -x ${pup_rw}/initrd -x ${pup_rw}/mnt ${MYDATE}=${pup_rw} 2> /tmp/dvderr.txt
+		growisofs -M $CDR -D -R -quiet -new-dir-mode 0755 -graft-points ${EXCLUDE_LIST} ${MYDATE}=${pup_rw} 2> /tmp/dvderr.txt
 		[ $? -eq 0 ] && break
 	fi
 	$DIALOG --title "Save session - ERROR" --msgbox "ERROR MESSAGE:
