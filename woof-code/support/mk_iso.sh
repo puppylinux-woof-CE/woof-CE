@@ -8,11 +8,6 @@
 
 #set -x
 
-EFI_64='bootx64.efi'
-EFI_32='bootia32.efi'
-EFI32_SOURCE=''
-EFI64_SOURCE=''
-GRUB2_TARBALL='' #rootfs-package.. will be removed
 PX=../sandbox3/rootfs-complete
 FIXUSB=${PX}/usr/sbin/fix-usb.sh
 BUILD=../sandbox3/build
@@ -20,11 +15,16 @@ BOOTLABEL=puppy
 PPMLABEL=`which ppmlabel`
 TEXT="-text $DISTRO_VERSION"
 RESOURCES=${PX}/usr/share/grub2-efi
-SCREENRES='640 480'
+EFI64_SOURCE=${RESOURCES}/grubx64.efi #grub2_efi noarch pkg
+EFI32_SOURCE=${RESOURCES}/grubia32.efi
 
-UEFI_ISO=''
-if [ "$(ls ${PX}/usr/share/grub2-efi/grub*.efi* 2>/dev/null)" ] ; then
+if [ -f "$EFI32_SOURCE" -o -f "$EFI64_SOURCE" ] ; then
+	SCREENRES='800 600'
 	UEFI_ISO=yes
+	UFLG=-uefi
+else
+	SCREENRES='640 480'
+	UEFI_ISO=
 fi
 
 #===================================================
@@ -33,7 +33,6 @@ fi
 mk_iso() {
 	tmp_isoroot=$1 	# input
 	OUTPUT=$2 		# output
-
 	if [ "$UEFI_ISO" ] ; then
 		mkisofs -iso-level 4 -D -R -o $OUTPUT -b isolinux.bin -no-emul-boot -boot-load-size 4 -boot-info-table \
 			-eltorito-alt-boot -eltorito-platform efi -b efi.img -no-emul-boot "$tmp_isoroot" || exit 100
@@ -52,7 +51,7 @@ mk_efi_img() {
 	mkdir -p /tmp/efi_img # mount point
 	echo "making ${TGT}/efi.img"
 	size=8192 #4mb
-	if [ "$EFI32_SOURCE" ] ; then
+	if [ -f "$EFI32_SOURCE" ] ; then
 		size=$((size+4096)) #6 mb
 	fi
 	dd if=/dev/zero of=${TGT}/efi.img bs=512 count=${size} || return 1
@@ -63,51 +62,18 @@ mk_efi_img() {
 	losetup $FREE_DEV ${TGT}/efi.img || return 2
 	mount -t vfat $FREE_DEV /tmp/efi_img || \
 		(losetup -d $FREE_DEV;return 3)
+	sync
 	echo "copying files"
 	mkdir -p /tmp/efi_img/EFI/boot/ || return 4
-	if [ "$GRUB2_TARBALL" ] ; then #old stuff, will be deleted.
-		tar -xJvf "$GRUB2_TARBALL" -C /tmp/efi_img/EFI/boot/ || return 5
-		mv /tmp/efi_img/EFI/boot/grubx64.efi /tmp/efi_img/EFI/boot/${EFI_64} || return 6
-	fi
-	if [ "$EFI64_SOURCE" ] ; then
-		cp "$EFI64_SOURCE" /tmp/efi_img/EFI/boot/${EFI_64} || return 5
-	fi
-	if [ "$EFI32_SOURCE" ] ; then
-		cp "$EFI32_SOURCE" /tmp/efi_img/EFI/boot/${EFI_32} || return 5
-	fi
+	cp "$EFI64_SOURCE" /tmp/efi_img/EFI/boot/bootx64.efi 2>/dev/null
+	cp "$EFI32_SOURCE" /tmp/efi_img/EFI/boot/bootia32.efi 2>/dev/null 
+	sync
 	echo "unmounting /tmp/efi_img"
 	umount /tmp/efi_img || return 7
 	losetup -d $FREE_DEV 2>/dev/null #precaution
 	rm -r /tmp/efi_img
 	return 0
 }
-
-if [ "$UEFI_ISO" ] ; then
-	SCREENRES='800 600'
-	#--
-	if [ -f ${RESOURCES}/grubx64.efi-fedora ] ; then
-		EFI64_SOURCE=${RESOURCES}/grubx64.efi-fedora
-	fi
-	if [ -f ${RESOURCES}/grubx64.efi ] ; then
-		EFI64_SOURCE=${RESOURCES}/grubx64.efi
-	fi
-	if [ -f ${RESOURCES}/grubia32.efi ] ; then
-		EFI32_SOURCE=${RESOURCES}/grubia32.efi
-	fi
-	#--
-	# old stuff
-	if [ "$EFI64_SOURCE" ] ; then
-		rm -f ${RESOURCES}/grubx64.efi.tar.xz
-	fi
-	if [ -f ${RESOURCES}/grubx64.efi.tar.xz ] ; then
-		GRUB2_TARBALL=${RESOURCES}/grubx64.efi.tar.xz
-	fi
-	#
-	if [ -z "$EFI32_SOURCE" -a -z "$EFI64_SOURCE" -a -z "$GRUB2_TARBALL" ] ; then
-		exit 100
-	fi
-	UFLG=-uefi
-fi
 
 WOOF_OUTPUT="woof-output-${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${SCSIFLAG}${UFLG}${XTRA_FLG}"
 [ -d ../$WOOF_OUTPUT ] || mkdir -p ../$WOOF_OUTPUT
@@ -151,9 +117,9 @@ done
 [ -n "$FIXUSB" ] && cp -a $FIXUSB $BUILD
 
 mkdir -p ${BUILD}/help
-cp -f ../boot/boot-dialog/*.msg ${BUILD}/help/
-cp -f ../boot/boot-dialog/isolinux.cfg ${BUILD}/
-[ "$UEFI_ISO" ] && cp -f ../boot/boot-dialog/grub.cfg ${BUILD}/
+cp -f ${PX}/usr/share/boot-dialog/*.msg ${BUILD}/help/
+cp -f ${PX}/usr/share/boot-dialog/isolinux.cfg ${BUILD}/
+[ "$UEFI_ISO" ] && cp -f ${PX}/usr/share/boot-dialog/grub.cfg ${BUILD}/
 
 sed -i "s/menu resolution.*/menu resolution ${SCREENRES}/" ${BUILD}/isolinux.cfg
 
