@@ -24,33 +24,24 @@ sed -i -e "$PATTERN2" -e "$nPATTERN" -e "$dPATTERN" usr/share/doc/index.html.bot
 	cat usr/share/doc/index.html.bottom
 ) > usr/share/doc/index.html
 
-echo "Writing distro name to jumping-off page..."
 sed -i -e "$nPATTERN" usr/share/doc/home.htm
 
-echo "Creating base release notes..."
-if [ ! -e usr/share/doc/release-${cutDISTRONAME}-${DISTRO_VERSION}.htm ];then
-	mv -f usr/share/doc/release-skeleton.htm usr/share/doc/release-${cutDISTRONAME}-${DISTRO_VERSION}.htm
-	sed -i -e "$PATTERN2" -e "$nPATTERN" -e "$rPATTERN" usr/share/doc/release-${cutDISTRONAME}-${DISTRO_VERSION}.htm
+if [ -f usr/share/doc/release-skeleton.top.htm ] ; then
+	(
+		sed -e "$PATTERN2" -e "$nPATTERN" -e "$rPATTERN" usr/share/doc/release-skeleton.top.htm
+		if [ -f ../../support/release_extras/"${DISTRO_FILE_PREFIX}.htm" ];then
+			sed -e "s/DISTRO_VERSION/$DISTRO_VERSION/g" -e "$rPATTERN" \
+				../../support/release_extras/"${DISTRO_FILE_PREFIX}.htm"
+		fi
+		if [ -f ../../support/release_extras/"${DISTRO_FILE_PREFIX}-${DISTRO_COMPAT_VERSION}.htm" ];then
+			sed -e "s/DISTRO_VERSION/$DISTRO_VERSION/g" -e "$rPATTERN" \
+				../../support/release_extras/"${DISTRO_FILE_PREFIX}-${DISTRO_COMPAT_VERSION}.htm"
+		fi
+		sed -e "$PATTERN2" -e "$nPATTERN" -e "$rPATTERN" usr/share/doc/release-skeleton.bottom.htm
+	) > usr/share/doc/release-${cutDISTRONAME}-${DISTRO_VERSION}.htm
 fi
 
-# write extra stuff for release notes
-if [ -f ../../support/release_extras/"${DISTRO_FILE_PREFIX}.htm" ];then
-	echo "Customising ${cutDISTRONAME}-${DISTRO_VERSION}.htm"
-	[ -f /tmp/release.htm ] && rm /tmp/release.*m
-	ctrl=0
-	while read htmline;do
-		if [ $ctrl -lt 45 ];then # must be updated if the skeleton released notes are altered
-			echo  "$htmline" >> /tmp/release.htm
-		else
-			echo  "$htmline" >> /tmp/release.bottom
-		fi
-		ctrl=$(($ctrl + 1))
-	done < usr/share/doc/release-${cutDISTRONAME}-${DISTRO_VERSION}.htm
-	cat "../../support/release_extras/${DISTRO_FILE_PREFIX}.htm" >> /tmp/release.htm
-	sed -i -e "s/DISTRO_VERSION/$DISTRO_VERSION/g" -e "$rPATTERN" /tmp/release.htm
-	cat /tmp/release.bottom >> /tmp/release.htm
-	cp -af /tmp/release.htm usr/share/doc/release-${cutDISTRONAME}-${DISTRO_VERSION}.htm
-fi
+rm -f usr/share/doc/release-skeleton.*
 
 #screenshot
 TAS=`find usr/bin usr/sbin usr/local/bin -name tas`
