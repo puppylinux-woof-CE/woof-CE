@@ -42,11 +42,6 @@ fi
 # frontend_startup creates /var/local/shared/x_display
 if [ -f /var/local/shared/x_display ] ; then
 	. /var/local/shared/x_display
-else
-	if pidof X &>/dev/null || pidof Xorg &>/dev/null ; then
-		DISPLAY=":0"
-		PATH="/bin:/usr/bin:/sbin:/usr/sbin:/usr/local/bin"
-	fi
 fi
 
 if [ -z "$DISPLAY" -o -z "$PATH" ] ; then
@@ -60,6 +55,10 @@ export DISPLAY PATH HOME LANG USER
 
 if fx_drv_is_optical ${DEV_NAME} ; then
 	FC_OPTICAL_DRV=1
+	if [ -f /tmp/frontend_startup_lock ] ; then
+		# frontend_startup is running
+		exit
+	fi
 	if [ "$ACTION" = "add" -a ! -e /sys/block/${DEV_NAME} ] ; then
 		exit
 	fi
@@ -82,7 +81,7 @@ fi
 
 # frontend_rox_funcs = ROX-Filer
 if [ -f /usr/local/pup_event/frontend_rox_funcs ] ; then
-	. /usr/local/pup_event/frontend_rox_funcs "" 2>/dev/null
+	. /usr/local/pup_event/frontend_rox_funcs 2>/dev/null
 else
 	ICONPARTITIONS='false'
 	rox_remove_pinboard_func() {
@@ -112,10 +111,6 @@ if [ "$ACTION" = "change" ] ; then
 		if [ "$ID_CDROM_MEDIA_STATE" ] || \
 		   [ "$ID_CDROM_MEDIA_TRACK_COUNT_AUDIO" ] ; then
 			ACTION='add'
-			# testing a bad optical drive there's a timing issue
-			# and a race condition with frontend_timeout
-			PS="`busybox ps`"
-			echo "$PS" | grep "zzFRONTEND_CHANGE ${DRV_NAME}" && exit
 		elif [ "$ID_CDROM_MEDIA" = "1" ] ; then
 			exit # it's still processing stuff
 		else
@@ -141,20 +136,32 @@ case $ACTION in
 			exit #desktop icon (and partitions) already exist.
 		fi
 
+		# drive is still being processed, must ignore the current uevent
+		if [ -f /tmp/frontend_change_processing_${DRV_NAME} ] ; then
+			exit
+		fi
+
+		# "lock"
+		touch /tmp/frontend_change_processing_${DRV_NAME}
+
 		PROBEDISK="$(probedisk -plus-size $DRV_NAME)"
 		if [ -z "$PROBEDISK" ] ; then
 			logger -s "PROBEDISK FAILED"
+			rm -f /tmp/frontend_change_processing_${DRV_NAME} # "unlock"
 			exit 1
 		fi
 
 		IFS="|" read -r DEV DRV_CATEGORY DRV_DESCRIPTION DRV_SIZE zz <<< "$PROBEDISK"
 
 		if [ "$ICONPARTITIONS" = "true" ] ; then
-			PROBEPART="`probepart -k -extra-info zzFRONTEND_CHANGE "${DRV_NAME}*"`"
+			PROBEPART="`probepart -k -extra-info "${DRV_NAME}*"`"
 			if [ -z "$PROBEPART" ] ; then
+				rm -f /tmp/frontend_change_processing_${DRV_NAME} # "unlock"
 				exit 2
 			fi
 		fi
+
+		rm -f /tmp/frontend_change_processing_${DRV_NAME} # "unlock"
 
 		#'startup' param just prevents func from running 'probepart'...
 		create_icon_func startup #uses DEV_NAME, DRV_CATEGORY, DRV_DESCRIPTION
