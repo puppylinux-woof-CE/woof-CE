@@ -1,8 +1,5 @@
 #!/bin/bash
-#(c) Copyright 2008 Barry Kauler, puppylinux.com
-# Masaki Shinomiya <shino@pos.to>, karl godt
-#2008 Lesser GPL licence v2 (see /usr/share/doc/legal)
-# 
+
 #this script is launched by pup_event_frontend_d when the icon is first created. also,
 #this script is launched when user clicks on deskop icon (former is configurable,
 # see /usr/sbin/eventmanager.
@@ -12,161 +9,24 @@
 #110720 should not open a layer inside aufs, ex: session saved entire partition, desktop drive icon is /initrd/pup_rw.
 #110721 detect if have clicked on a close-box of mounted partition.
 #120110 running as finn, popup password box changes mouse pointer position, need read before run sudo.
-#120516 pup_event_frontend_d may call here when a drive plugged in, fix handling of automounting.
+#120516 frontend_change may call here when a drive plugged in, fix handling of automounting.
 
 #exec &> /tmp/drive_all.log ; set -x #debug
 
 export LANG	# need to restart pmount with correct locale
 export TEXTDOMAIN=drive_all
 export OUTPUT_CHARSET=UTF-8
-. gettext.sh
 
 [ "`whoami`" != "root" ] && exec sudo -A ${0} ${@} #110505
 
-grep -q -m1 -i 'rox' /usr/local/bin/defaultfilemanager && ROX_FILER=yes
-
-unmount_func() {
- [ "$ROX_FILER" = "yes" ] && rox -D $MNTPT
- sync
- while [ 1 ];do
-  umount.crypto_LUKS "$MNTPT" || umount "$MNTPT"
-  umVAL=$?
-  #fix zombie process prevents partition unmount, invisible to fuser...
-  if [ $umVAL -ne 0 ];then
-   #120129 karl godt: fix ZOMBIES, see http://murga-linux.com/puppy/viewtopic.php?t=71767&start=420 ...
-    ZOMBIES="`ps -H -A | grep '<defunct>' | sed 's/^[[:blank:]]*//;s/  /|/g' | grep -v '|||' | cut -f 1 -d ' ' | tr '\n' ' '`"
-   for ONEZOMBIE in $ZOMBIES
-   do
-    echo "Killing parentless zombie process $ONEZOMBIE"
-    kill $ONEZOMBIE
-   done
-   umount $MNTPT ; umVAL=$?
-  fi
-  #rare ocassion, partition got unmounted before umount runs above...
-  mount | grep -q "${MNTPT} " || umVAL=0 #not mounted
-  if [ $umVAL -ne 0 ];then
-   EXTRAMSG0="`fuser -v -m $MNTPT`"  
-   if [ "$EXTRAMSG0" = "" ];then
-    /usr/lib/gtkdialog/box_ok "$(gettext 'Puppy drive manager')" error  "$(gettext 'FAILURE! In the case of removable media, the most
-common reason is the media is not currently inserted.
-If so, please remedy.')"
-   else
-    xmessage -bg "#ff99ff" -title "$(gettext 'Puppy drive manager: FAIL')" -center -buttons "$(gettext 'KILL')":10,"$(gettext 'EXIT')":20 "$(gettext 'FAILURE!')
-$(gettext 'One or more processes (programs) are currently
-using the partition. Here they are:')
-${EXTRAMSG0}
-
-$(gettext "If you press the 'KILL' button, Puppy will attempt to
-kill the offending programs for you. Only do this as a
-last resort.")
-$(gettext "Firstly you should try to close the programs
-manually, so do not press 'KILL'.")
-$(gettext "PLEASE PRESS THE 'EXIT' BUTTON!")"
-    if [ $? -eq 10 ];then
-     fuser -k -m $MNTPT
-     continue
-    fi
-   fi
-  else
-   [ "$DRV_CATEGORY" = "optical" ]  && eject /dev/$ONEDRVNAME
-  fi
-  break
- done
-}
-
 ONEDRVNAME="$1" # /tmp/pup_event_frontend/drive_<ONEDRVNAME>/AppRun
 PARAM1="$2"
-FSTYPE="$3" #see pup_event_frontend_d.
+FSTYPE="$3"
 
-if pidof ROX-Filer &>/dev/null ; then
-	#--------------------------------------------------------------------
-	#   detect if have clicked on a close-box of mounted partition...
-	#--------------------------------------------------------------------
-	#when left-click desktop icon, param1 passed this script: drive|card|floppy|optical|usbdrv
-	# and param2 has the fs type...
-	case $PARAM1 in drive|card|floppy|optical|usbdrv)
-	  MNTPT="`mount | grep -m1 -E "^/dev/${ONEDRVNAME} |^/dev/mapper/lukspartition_${ONEDRVNAME} " | tr -s ' ' | cut -f 3 -d ' '`"
-	  if [ "$MNTPT" ];then
-	   read CURPOSX CURPOSY <<< `getcurpos`
-	   #get coords of desktop icon...
-	   drPTN=">/tmp/pup_event_frontend/drive_${ONEDRVNAME}<"
-	   PPENTRY="`grep "$drPTN" /root/Choices/ROX-Filer/PuppyPin`"
-	   if [ "$PPENTRY" ];then
-		xleft="`echo -n "$PPENTRY" | grep -o ' x="[0-9]*"' | cut -f 2 -d '"'`" #'geany
-		ytop="`echo -n "$PPENTRY" | grep -o ' y="[0-9]*"' | cut -f 2 -d '"'`" #'geany
-		#hmmm, have to apply correction to cursor position...
-		CURPOSX=$(($CURPOSX + 24))
-		CURPOSY=$(($CURPOSY + 32))
-		xcloseleft=$(($xleft + 35)) #close-box is 13x13 pixels, want bigger pickup area.
-		xcloseright=$(($xleft + 53))
-		yclosetop=$(($ytop - 5))
-		yclosebottom=$(($ytop + 13))
-		if [ $CURPOSX -ge $xcloseleft ];then
-		 if [ $CURPOSX -le $xcloseright ];then
-		  if [ $CURPOSY -ge $yclosetop ];then
-		   if [ $CURPOSY -le $yclosebottom ];then
-		    PARAM1="unmount"
-		   fi
-		  fi
-		 fi
-		fi
-	   fi
-	  fi
-	 ;;
-	esac
-
-	# rox right-clik menu items...
-	case "${PARAM1}" in
-		unmount)
-			# "Unmount drive [if currently mounted]"
-			MNTPT="`mount | grep -m1 -E "^/dev/${ONEDRVNAME} |^/dev/mapper/lukspartition_${ONEDRVNAME} " | tr -s ' ' | cut -f 3 -d ' '`"
-			if [ -e /sys/block/${ONEDRVNAME}  ] ; then
-				DRV_CATEGORY=$(probedisk $ONEDRVNAME | cut -d'|' -f 2)
-				[ "$MNTPT" = "" -a "$DRV_CATEGORY" = "optical" ] && eject /dev/$ONEDRVNAME
-			fi
-			[ "$MNTPT" = "" ] && exit #precaution.
-			if [ "$MNTPT" = "/" -o "`echo "$MNTPT" | grep '/initrd/'`" != "" ];then
-				/usr/lib/gtkdialog/box_ok "$(gettext 'Puppy drive manager')" error  "$(eval_gettext "/dev/\${ONEDRVNAME} mounted on \${MNTPT}
-	is in use by Puppy. You cannot unmount it.")"
-				exit
-			fi
-			unmount_func
-			exit
-			;;
-		pmount_*)
-			# "Run Pmount Puppy Drive Mounter"
-			DRV_CATEGORY="`echo -n "${PARAM1}" | cut -f 2 -d '_'`"
-			if [ "`pidof gtkdialog_pmount`" != "" ];then #if pmount running, kill it.
-				killall gtkdialog_pmount 2>/dev/null
-				sleep 0.1
-			fi
-			exec pmount $ONEDRVNAME
-			exit
-			;;
-		unmountall)
-			# "Unmount ALL mounted partitions"
-			for MNTPT in `mount | grep '^/dev/' | grep -vE '^/dev/loop|^/dev/ram' | cut -f 3 -d ' ' | grep -v '^/initrd/' | grep -v '^/$' | tr '\n' ' '`
-			do
-				unmount_func
-			done
-			exit
-			;;
-		eventmanager)
-			# "Run Desktop Drive Icon Manager"
-			exec eventmanager desktop
-			exit
-			;;
-	esac
-
-	#see /etc/eventmanager
-	# ICONPARTITIONS=false - ICONDESK=false
-	if [ "$ONEDRVNAME" = "drives" ];then
-		if [ "`pidof gtkdialog_pmount`" != "" ];then #if pmount running, kill it.
-			killall gtkdialog_pmount 2>/dev/null
-			sleep 0.1
-		fi
-		exec pmount
-	fi
+if [ -f /usr/local/pup_event/frontend_rox_funcs ] ; then
+	. /usr/local/pup_event/frontend_rox_funcs
+	rox_desktop_icon_clicked "$1" "$2" "$3"
+	# it might exit
 fi
 
 #===========================================================================
