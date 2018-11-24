@@ -14,9 +14,8 @@ BUILD=../sandbox3/build
 BOOTLABEL=puppy
 PPMLABEL=`which ppmlabel`
 TEXT="-text $DISTRO_VERSION"
-RESOURCES=${PX}/usr/share/grub2-efi
-EFI64_SOURCE=${RESOURCES}/grubx64.efi #grub2_efi noarch pkg
-EFI32_SOURCE=${RESOURCES}/grubia32.efi
+EFI64_SOURCE=${PX}/usr/share/grub2-efi/grubx64.efi #grub2_efi noarch pkg
+EFI32_SOURCE=${PX}/usr/share/grub2-efi/grubia32.efi
 
 if [ -f "$EFI32_SOURCE" -o -f "$EFI64_SOURCE" ] ; then
 	SCREENRES='800 600'
@@ -143,11 +142,11 @@ if [ "$UEFI_ISO" ] ; then
 	# update and transfer the skeleton files
 	if [ -n "$PPMLABEL" ];then # label the image with version
 		GEOM="-x 680 -y 380"
-		pngtopnm < ${RESOURCES}/${pic}.png | \
+		pngtopnm < ${PX}/usr/share/boot-dialog/${pic}.png | \
 		${PPMLABEL} ${GEOM} ${TEXT} | \
 		pnmtopng > ${BUILD}/splash.png
 	else
-		cp -a ${RESOURCES}/${pic}.png ${BUILD}/splash.png
+		cp -a ${PX}/usr/share/boot-dialog/${pic}.png ${BUILD}/splash.png
 	fi
 
 	mk_efi_img $BUILD
