@@ -52,6 +52,12 @@ if [ "$CURRENTWM" = "startkde" ];then
  /sbin/pup_event_frontend_d & #130525
  exec startkde
 fi
+CURRENTWM="`cat /etc/windowmanager`"
+if [ "$CURRENTWM" = "startxfce4" ];then
+ /sbin/pup_event_frontend_d & #130525
+ exec startxfce4
+rox --pinboard= 
+fi
 
 #100501 if full nvidia pkg installed, it has a gui config app...
 [ -f /root/.nvidia-settings-rc ] && nvidia-settings --load-config-only
