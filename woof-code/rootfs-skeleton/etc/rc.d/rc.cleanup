@@ -17,23 +17,19 @@ fi
 KILL_DELAY=1.5		# in seconds
 OLDROOT=/oldroot
 CLEANUP=/cleanup
-IS_REBOOT=
 ### static executables
 BB=/bin/busybox
 CRYPTSETUP=/bin/cryptsetup
 #-
-HDPARM=/bin/hdparm
-SDPARM=/bin/sdparm
 LVM=/sbin/lvm
 MDADM=/sbin/mdadm
 
-if [ -z "$BASELINE_MOUNT" ] ; then
-	BASELINE_MOUNT=/initrd/files
-fi
+BASELINE_MOUNT=/initrd/files
+
 if [ -f /etc/rc.d/PUPSTATE ] ; then
 	. /etc/rc.d/PUPSTATE
 	if [ $PUPMODE -eq 2 ] ; then
-		exit 1
+		exit
 	fi
 fi
 
@@ -103,44 +99,15 @@ fi
 ### assume /proc and /sys still mounted
 case "$1" in
 	"") ### phase1 ###
+		if [ "$(mount | grep ' /initrd/files ')" = "" ] ; then
+			umount.crypto_LUKS all
+			umount-FULL -in -a -r -d >/dev/null 2>&1
+			exit
+		fi
 		if [ ! -f /tmp/shutdown_pivot_initrd ] ; then # /sbin/poweroff
 			rm -f /tmp/shutdown_pivot_initrd /tmp/debugshutdown /tmp/shutdownshell
 		fi
-		swapoff -a
-		# - pivot root, then run static shell with script in $BASELINE_MOUNT
-		if [ "$($BB mount | grep " $BASELINE_MOUNT ")" ] ; then
-			# - already created by the initrd
-			# - remount $BASELINE_MOUNT as r/w, and copy script to $BASELINE_MOUNT
-			$BB mount -o remount,rw $BASELINE_MOUNT
-		else
-			# - have to create a tmpfs..
-			case $PUNIONFS in #precaution
-				aufs) $BB mount -o remount,rw -t aufs / /
-			esac
-			rm -rf $BASELINE_MOUNT
-			mkdir -p $BASELINE_MOUNT
-			mount -t tmpfs tmpfs $BASELINE_MOUNT
-			(
-				cd $BASELINE_MOUNT
-				mkdir bin etc sbin dev proc sys
-				cp -a $BB bin
-				for i in $($BB --list) ; do
-					ln -s busybox ./bin/$i
-				done
-	cat > etc/profile <<EOF
-export PATH="/bin:/sbin"
-ulimit -c 0
-umask 022
-export USER=root
-export LOGNAME=root
-TERM=linux
-EOF
-				case $(file /sbin/cryptsetup) in *ELF*statically*)
-					cp -a /sbin/cryptsetup bin ;;
-				esac
-				$BB cp /sbin/probedisk sbin
-			)
-		fi
+		$BB mount -o remount,rw $BASELINE_MOUNT
 		$BB mkdir $BASELINE_MOUNT/$OLDROOT
 		$BB cp "$0" $BASELINE_MOUNT/$CLEANUP
 		$BB cp /sbin/umount.crypto_LUKS ${BASELINE_MOUNT}/
@@ -149,11 +116,8 @@ EOF
 		$BB mkdir -p etc dev proc sys root tmp etc/rc.d
 		SH=ash
 		[ -e bin/sh ] && SH=sh
-		echo "::sysinit:${SH} ${CLEANUP} phase2" > etc/inittab
-		echo "::restart:${BB} init" >> etc/inittab
 		cp /etc/rc.d/PUPSTATE etc/rc.d
 		ln -s sys run
-		[ -f /tmp/is_reboot ] && echo > is_reboot
 		[ -f /tmp/debugshutdown ] && echo > tmp/debugshutdown
 		[ -f /tmp/shutdownshell ] && echo > tmp/shutdownshell
 		$BB pivot_root . $BASELINE_MOUNT/$OLDROOT
@@ -165,10 +129,8 @@ EOF
 		#--
 		if [ "$DEBUG" ] ; then
 			exec $BB chroot . /bin/ash $CLEANUP phase2 <dev/console >dev/console 2>&1
-			#exec $BB chroot . /bin/init <dev/console >dev/console 2>&1
 		else
 			exec $BB chroot . /bin/ash $CLEANUP phase2 <dev/null >dev/null 2>&1
-			#exec $BB chroot . /bin/init <dev/null >dev/null 2>&1
 		fi
 	;;
 esac
@@ -178,11 +140,6 @@ esac
 if [ -x /bin/grep -a -z "$(grep '^devtmpfs ' /proc/mounts)" ] ; then
 	mount -t devtmpfs devtmpfs /dev 2>/dev/null
 fi
-
-if [ -e /is_reboot ] ; then
-	IS_REBOOT=1
-fi
-#[ "$DEBUG" ] && sleep 10
 
 # sync and then kill all process except transport
 $BB sync
@@ -246,21 +203,7 @@ mount_proc_sys
 [ "$DSHELL" ] && exec /bin/ash <dev/console >dev/console 2>&1
 #----------------------------------------------------
 
-if [ -x $HDPARM -a -z "$IS_REBOOT" ] ; then
-	probedisk | \
-	while read line ; do
-		case $line in *"drive|ATA"*|*"|optical|"*) $HDPARM -f -Y ${line%%|*} ; devs=1 ;; esac
-	done
-	# Sleep to give time for devices to quiesce.
-	[ "$devs" ] && sleep 1
-fi
 $BB umount -a -r -d
 [ "$DEBUG" ] && sleep 10
-
-#if [ "$IS_REBOOT" ] ; then
-#	$BB reboot
-#else
-#	$BB poweroff
-#fi
 
 # That's it!
