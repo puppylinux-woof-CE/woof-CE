@@ -98,21 +98,30 @@ elif [ -e ${SR}/usr/lib64/cups ] ; then
 	LIBCUPS=${SR}/usr/lib64/cups
 fi
 
-if [ "$LIBCUPS" ] ; then
-	if [ ! -e ${LIBCUPS}/backend/smb ];then
-		if [ -f ${SR}/opt/samba/bin/smbspool ] ; then
-			ln -s /opt/samba/bin/smbspool ${LIBCUPS}/backend/smb
-		fi
-		if [ -f ${SR}/usr/bin/smbspool ] ; then
-			ln -s /usr/bin/smbspool ${LIBCUPS}/backend/smb
-		fi
+for i in ${SR}/usr/lib/cups ${SR}/usr/lib64/cups
+do
+	if [ ! -d $i ] ; then
+		continue
 	fi
-	# fix CUPS thanks to jamesbond, shinobar
-	# re http://www.murga-linux.com/puppy/viewtopic.php?p=784181#784181
-	chmod 0755 ${LIBCUPS}/backend
-	chmod 0755 ${LIBCUPS}/filter
-	chmod 500 ${LIBCUPS}/backend/*
-fi
+	LIBCUPS=$i
+	if [ -d ${LIBCUPS}/backend ] ; then
+		if [ ! -e ${LIBCUPS}/backend/smb ];then
+			if [ -f ${SR}/opt/samba/bin/smbspool ] ; then
+				ln -s /opt/samba/bin/smbspool ${LIBCUPS}/backend/smb
+			fi
+			if [ -f ${SR}/usr/bin/smbspool ] ; then
+				ln -s /usr/bin/smbspool ${LIBCUPS}/backend/smb
+			fi
+		fi
+		# fix CUPS thanks to jamesbond, shinobar
+		# re http://www.murga-linux.com/puppy/viewtopic.php?p=784181#784181
+		chmod 0755 ${LIBCUPS}/backend
+		chmod 500 ${LIBCUPS}/backend/*
+	fi
+	if [ -d ${LIBCUPS}/filter ] ; then
+		chmod 0755 ${LIBCUPS}/filter
+	fi
+done
 
 [ -f ${SR}/etc/opt/samba/smb.conf ] && chmod 755 ${SR}/etc/opt/samba/smb.conf #need world-readable.
 [ -f ${SR}/etc/samba/smb.conf ] && chmod 755 ${SR}/etc/samba/smb.conf #need world-readable.
