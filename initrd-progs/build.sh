@@ -345,7 +345,6 @@ function check_bin() {
 		fuse-exfat_static) static_bins='mount.exfat-fuse' ;;
 		findutils_static) static_bins='find' ;;
 		util-linux_static) static_bins='losetup' ;;
-		util-linux-222_static) static_bins='losetup-222' ;;
 		*) static_bins=${init_pkg%_*} ;;
 	esac
 	for sbin in ${static_bins} ; do
@@ -471,7 +470,6 @@ function generate_initrd() {
 		rm -fv bin/ntfs-3g
 		rm -fv bin/mount.exfat-fuse
 		rm -fv bin/fsck.fat
-		rm -fv bin/losetup-222
 		rm -fv bin/exfatfsck
 		rm -fv bin/resize2fs
 		mv init_full_install init

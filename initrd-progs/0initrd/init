@@ -180,6 +180,10 @@ check_status() #args: [-critical] $RET_VAL "$ERROR_MSG"
   else
     echo -en "\\033[72G" >/dev/console #move to column 72.
     echo -e "\\033[1;31m${L_FAILED}\\033[0;39m" >/dev/console #31=red
+    if [ "$FLAG_NO_TIMEOUT" ] ; then
+      FLAG_NO_TIMEOUT=
+      return
+    fi
     echo -e "\\033[1;35m${L_DUMPING_BOOTINIT_LOG}\\033[0;39m" >/dev/console #35=purple
     echo -en "\\033[1;31m" >/dev/console #31=red
     cat /tmp/bootinit.log | tail -n 4 >/dev/console
@@ -460,87 +464,48 @@ load_ext_file() { #ex: stretchsave.4fs
  #--
  # is the ${DISTRO_FILE_PREFIX}save encrypted?...
  SFFS=$(blkid "$SAVE_FN" | grep -o ' TYPE=".*' | cut -f 2 -d '"')
- if echo "$SAVE_FN" | grep -q '_crypt' ; then
-   echo "cryptoloop encryption detected"
-   ENCRYPTED=yes
-   ENCTYPE=cryptoloop
-   case $SAVE_FN in 
-     *cryptx*) CRYPTO='-e 1' ;;
-     *) CRYPTO='-e aes' ;;
-   esac
- fi
+ #-- 
  if [ "$SFFS" = "crypto_LUKS" ] ; then
-   echo "LUKS encryption detected"
    ln -sv /pup_new/lib/modules/${KERNELVER} /lib/modules/${KERNELVER}
    modprobe dm-crypt || ERROR_M_DESC="Or maybe the kernel doesn't properly support dm-crypt"
    modprobe xts || ERROR_M_DESC="Or maybe the kernel doesn't properly support dm-crypt"
-   ENCRYPTED=yes
-   ENCTYPE=luks 
- fi
- #-- 
- if [ "$ENCRYPTED" = "yes" ] ; then
    while [ 1 ]
    do
-     ERROR_MOUNTING_ENCRYPTED_SAVEFILE='no'
      ONE_LOOP="$(losetup -f)"
      #mount encrypted savefile
      echo >/dev/console
-     if [ -x /bin/dialog ] ; then
-       MYPASS=$(dialog --stdout --title "Password required" --passwordbox "$L_PASSWORD_MSG_1 $L_PASSWORD_MSG_2" 0 0 2>/dev/console) ; clear
-     else
-       echo -e "${L_PASSWORD_MSG_1}\n${L_PASSWORD_MSG_2}"  >/dev/console
-       echo -en "\\033[1;36m${L_PASSWORD} \\033[0;39m" >/dev/console #aqua-blue
-       read -s MYPASS
+     MYPASS=$(dialog --stdout --title "Password required" --passwordbox "$L_PASSWORD_MSG_1 $L_PASSWORD_MSG_2" 0 0 2>/dev/console) ; clear
+     losetup $ONE_LOOP $SAVE_FN
+     echo -n "$MYPASS" | cryptsetup luksOpen -v $ONE_LOOP savefile -
+     if [ $? -ne 0 ] ; then
+       cryptsetup luksClose savefile
+       losetup -d $ONE_LOOP
+       dialog --title "Wrong password" --ok-label "Retry" --yes-label "Retry" \
+       --cancel-label "Drop to console" --no-label "Drop to console" \
+        --extra-button --extra-label "Reboot" --yesno "You entered a wrong password (most likely). $ERROR_M_DESC"  0 0 &>/dev/console
+       case $? in
+          0) continue ;;
+          3) reboot ;;
+          *) exec /bin/sh >/dev/console 2>&1 ;;
+        esac
      fi
-     if [ "$ENCTYPE" = "luks" ] ; then
-       losetup $ONE_LOOP $SAVE_FN
-       echo -n "$MYPASS" | cryptsetup luksOpen -v $ONE_LOOP savefile - || {
-         cryptsetup luksClose savefile
-         losetup -d $ONE_LOOP
-         ERROR_MOUNTING_ENCRYPTED_SAVEFILE='yes'
-       }
-       ONE_LOOP_PREV=$ONE_LOOP
-       ONE_LOOP=/dev/mapper/savefile #hack
-     else
-       echo "$MYPASS" | losetup-222 -p 0 $CRYPTO $ONE_LOOP $SAVE_FN || {
-         losetup -d $ONE_LOOP
-         ERROR_MOUNTING_ENCRYPTED_SAVEFILE='yes'
-	   }
-     fi
-     if [ "$ERROR_MOUNTING_ENCRYPTED_SAVEFILE" = "yes" ] ; then
-       if [ -x /bin/dialog ] ; then
-         dialog --title "Wrong password" --ok-label "Retry" --yes-label "Retry" \
-           --cancel-label "Drop to console" --no-label "Drop to console" \
-           --extra-button --extra-label "Reboot" --yesno "You entered a wrong password (most likely). $ERROR_M_DESC"  0 0 &>/dev/console
-         case $? in
-           0) continue ;;
-           3) reboot ;;
-           *) exec /bin/sh >/dev/console 2>&1 ;;
-         esac
-       else
-         continue
-       fi
-     fi
+     ONE_LOOP_PREV=$ONE_LOOP
+     ONE_LOOP=/dev/mapper/savefile #hack
+     SFFS=ext4
      break
    done
  else # unencrypted savefile
+   if echo "$SAVE_FN" | grep -q '_crypt' ; then
+     dialog --msgbox "Your savefile name contains: *_crypt*. It's probably an old cryptoloop savefile. No longer supported. Will not use it. However you can open ${PUPSAVE##*/} to see its contents by clicking on it (filemnt)" 0 0 &>/dev/console
+     echo 'Warning: old cryptoloop savefile... setting PUPSAVE=""' #debug
+     FLAG_NO_TIMEOUT=1
+     PUPSAVE=""
+     return
+   fi
    ONE_LOOP="$(losetup -f)"
    losetup $ONE_LOOP $SAVE_FN
  fi
  #--
- case $SFFS in #savefile filesystem
-   ext2|ext3|ext4) ok=1 ;;
-   *) # might be encrypted - unrecognizable..
-     case "$SAVE_FN" in #savefile can have any extension/name. but must one of these strings
-       *".2fs"*) SFFS=ext2 ;;
-       *".3fs"*) SFFS=ext3 ;;
-       *".4fs"*) SFFS=ext4 ;;
-       *) echo "$L_SFFS_ERROR" #debug
-          echo -e "\\033[1;31m${L_SFFS_ERROR}\\033[0;39m" >/dev/console #31=red
-          ;;
-     esac
-     ;;
- esac
  if [ "$PFSCK" = "yes" ] ; then
    echo "" > /dev/console
    fsck_func "$ONE_LOOP" "$SFFS"
