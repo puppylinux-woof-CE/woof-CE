@@ -51,7 +51,6 @@ echo -n "" > /tmp/shutdownconfig_results
 
 . /etc/rc.d/PUPSTATE
 . /etc/DISTRO_SPECS
-. /etc/rc.d/functions_x #fx_ functions
 if [ -e /sys/block/$PDEV1 ] ; then
 	PDEV1_ISOPTICAL=$(probedisk $PDEV1 | grep '|optical')
 fi
@@ -463,52 +462,6 @@ This must be remembered and entered at every bootup.')"
  fi
 }
 
-choosecrypt() {
- CRYPTO=""
- T_cryptotitle="$(gettext 'First shutdown: encryption')"
- T_cryptono="$(gettext 'NORMAL (no encryp.)')"
- T_cryptoheavy="$(gettext 'Heavy encrypted')"
- T_cryptolight="$(gettext 'Light encrypted')"
- T_yesno="$(eval_gettext "Do you want to encrypt the '\${DISTRO_FILE_PREFIX}save'?")
-$(eval_gettext "If the '\${DISTRO_FILE_PREFIX}save' is encrypted, then a password will have to be entered at every bootup. The reason for doing this is security, as no one else will be able to see what is inside the \${DISTRO_FILE_PREFIX}save. Encryption does slow \${DISTRO_NAME} down slightly, the 'heavy' encryption the most. Two scenarios:")
-\Zb$(gettext '1.')\ZB $(eval_gettext "If the \${DISTRO_FILE_PREFIX}save file is on a Flash drive, encryption is protection in case the drive is mislaid. Heavy encryption is recommended, as \${DISTRO_NAME} minimises writes to the save file (to prolong life of the Flash drive, but this also minimises encryption slowdown).")
-\Zb$(gettext '2.')\ZB $(eval_gettext "If the \${DISTRO_FILE_PREFIX}save file is on a hard drive, 'light' encryption is recommended to minimise slowdown, particularly on older PCs.")
-
-$(eval_gettext "Encrypted \${DISTRO_FILE_PREFIX}save files have another advantage, they allow multiple users. Recommended if spouse and kids are going to be using the same \${DISTRO_NAME} installation.")
-
-$(gettext 'Unless you have a good reason to use encryption, it is recommended not to, to avoid the overhead. Recommend choose \ZbNORMAL\ZB button...')"
- ${DIALOGEXE} ${BACKGROUNDYELLOW} ${TITLEPARAM} "$T_cryptotitle" --colors --extra-button --ok-label "$T_cryptono" --cancel-label "$T_cryptoheavy" --extra-label "$T_cryptolight" --yesno "$T_yesno" 0 0 #110926
- RETVAL=$?
- if [ $RETVAL -eq 1 -o $RETVAL -eq 3 ];then
-  T_passtitle="$(gettext 'First shutdown: password')"
-  T_passtext="$(gettext 'Please choose a password.
-This must be remembered and entered at every bootup.')"
-  while [ 1 ];do
-    if [ "$DISPLAY" ] ; then
-      MYPASSWORD="$(/usr/lib/gtkdialog/box_passwd --show --default "puppyisgreat" "$T_passtitle" "$T_passtext")"
-    else
-      MYPASSWORD="`${DIALOGEXE} ${BACKGROUNDYELLOW} ${TITLEPARAM} "$T_passtitle" --screen-center --stdout --no-cancel --inputbox "$T_passtext" 0 0 "puppyisgreat"`" #110926
-    fi
-   [ "$MYPASSWORD" ] && break
-  done
-  modprobe cryptoloop
-  if [ $RETVAL -eq 1 ];then
-   DENSITY="a" #heavy aes encryption
-   CRYPTO='-e aes'
-   modprobe aes_generic 2>/dev/null #builtin my recent kernels.
-   #did not explicitly load these two before, but do so in init script...
-   modprobe crypto_blkcipher 2>/dev/null #builtin my recent kernels.
-   modprobe cbc 2>/dev/null #110926 builtin in my 2.6.32-smp-45 kernel.
-  else
-   DENSITY="x" #light xor encryption.
-   CRYPTO='-e 1' #'-e xor' --bug, loads xor.ko which is something else.
-  fi 
-  CRYPT_NAME="_crypt${DENSITY}"
-  SFEXT="2fs"
-  SFFS="ext2"
- fi
-}
-
 nameclash() {
  #save with different name if clash...
  [ ! -e $SMNTPT$SAVEFILE ] && return 0
@@ -600,8 +553,6 @@ If anything looks wrong, choose \Zb\\\${T_notsave}\ZB...\"`"
  [ ! -d ${SMNTPT}${SAVEPATH} ] && mkdir -p ${SMNTPT}${SAVEPATH}
  [ ! -d ${SMNTPT}${SAVEPATH} ] && return 1 #some kind of error, abort.
 
- [ "$SAVEPART" = "fd0" ] && SIZEPFILE=`expr $SIZEPFILE - 16`
- [ "$SFEXT" = "3fs" ] && JOPT='-j'
  #echo "Creating $NAMEONLY in /dev/$SAVEPART, please wait awhile..."
  T_createtitle="$(gettext 'First shutdown: creating save-file')"
  T_createsf="$(eval_gettext "Creating \${NAMEONLY} in \${SAVEPART}, please wait awhile (no need to click OK button)...")"
@@ -622,14 +573,9 @@ If anything looks wrong, choose \Zb\\\${T_notsave}\ZB...\"`"
  fi
  dd if=/dev/zero of=${SMNTPT}$SAVEFILE bs=1k count=$SIZEPFILE >&2
  sync
- #pupkill $w1PID
  echo "`eval_gettext \"Creating a \\\${SFFS} filesystem in \\\${NAMEONLY}...\"`"
  if [ "$CRYPTO" = "" ];then
-  case $SFFS in
-   ext2) mkfs.ext2 -q -m 0 -F ${SMNTPT}$SAVEFILE ;;
-   ext3) mkfs.ext3 -q -m 0 -F ${SMNTPT}$SAVEFILE ;;
-   ext4) mkfs.ext4 -q -m 0 -F ${SMNTPT}$SAVEFILE ;;
-  esac
+  mkfs.${SFFS} -q -m 0 -F ${SMNTPT}$SAVEFILE
   #...default is f.s. auto checked every 26 mounts or 180 days. tune2fs to change.
   pupkill $w1PID #130525 moved down.
  else
@@ -641,11 +587,6 @@ If anything looks wrong, choose \Zb\\\${T_notsave}\ZB...\"`"
     echo -n "$MYPASSWORD" | cryptsetup luksFormat -v $DEVLOOP - &>>/tmp/mk2fs.log
     echo -n "$MYPASSWORD" | cryptsetup luksOpen -v $DEVLOOP savefile - &>>/tmp/mk2fs.log
     FSCK_DEV=/dev/mapper/savefile
-  else
-    #'-p 0' means read password from stdin...
-    echo "losetup-222 -v -p 0 $CRYPTO $DEVLOOP ${SMNTPT}$SAVEFILE" >>/tmp/mk2fs.log
-    echo "$MYPASSWORD" | losetup-222 -v -p 0 $CRYPTO $DEVLOOP ${SMNTPT}$SAVEFILE &>>/tmp/mk2fs.log
-    FSCK_DEV=$DEVLOOP
   fi
   echo "mke2fs -v -t $SFFS -m 0 -E nodiscard -F $FSCK_DEV" >>/tmp/mk2fs.log
   mke2fs -v -t $SFFS -m 0 -E nodiscard -F $FSCK_DEV &>>/tmp/mk2fs.log && \
@@ -842,8 +783,6 @@ case $SAVECHOICE in
     SFEXT=''
     if cryptsetup --help &>/dev/null && modprobe dm-crypt && modprobe xts ; then
       choosecrypt_new
-    elif which losetup-222 2>/dev/null ; then
-      choosecrypt
     fi
     [ -z "$DENSITY" ] && [ "$SAVEFS_IS_LINUX" ] && choosestyle
     if [ "$SAVESTYLE" = "file" ]; then
