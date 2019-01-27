@@ -5,17 +5,17 @@
 
 . /etc/rc.d/functions_x
 
-VERSION=2.1
+VERSION=2.1.1
 
 export TEXTDOMAIN=petget___pkg_chooser.sh
 export OUTPUT_CHARSET=UTF-8
 
 # Do not allow another instance
 wait
-PCN=$(pidof pkg_chooser.sh | wc -w)
-PPN=$(pidof ppm | wc -w)
-[ "$(( $PCN + $PPN ))" -gt 2 ] && /usr/lib/gtkdialog/box_splash -timeout 3 -bg \
-	red -text "$(gettext 'PPM is already running. Exiting.')" && exit 0
+if ps --no-headers -C pkg_chooser.sh,ppm | grep -qwv "^$$"; then #v2.1.1...
+ /usr/lib/gtkdialog/box_splash -timeout 3 -bg red -text "$(gettext 'PPM is already running. Exiting.')"
+ exit 0
+fi
 
 LANG1="${LANG%_*}" #ex: de
 HELPFILE="/usr/local/petget/help.htm"
