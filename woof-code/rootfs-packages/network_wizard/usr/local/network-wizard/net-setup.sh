@@ -1034,7 +1034,7 @@ $ERROR
 			LINK_DETECTED="yes"
 			break
 		fi
-		sleep 1.3
+		sleep 1 #190204
 		echo "X"
 	done
 	if [ "$LINK_DETECTED" = "no" ] ; then
