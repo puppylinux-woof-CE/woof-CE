@@ -5,7 +5,9 @@
 # A very simple firewall based on Alienbob's script
 # at http://www.slackware.com/~alien/efg/
 [ "`whoami`" != "root" ] && exec sudo -A ${0} ${@}
-version=0.7
+CONFDIR="$HOME/.config/firewall"
+export CONF="$CONFDIR/fw.conf"
+version=0.8
 
 # gettext : only the GUI
 export TEXTDOMAIN=firewall_ng
@@ -50,10 +52,10 @@ add_extras() {
 	if echo $1|grep -q ',';then
 		IFS=',' read -r a1 a2 a3 a4 a5 <<< "$1"
 		echo $a1|grep -q '[a-zA-Z\!@\$%\^\&\*\(\)_+\-\=\.]' && \
-			error_cond "Error: illegal characters! Must be a port number."
+			error_cond "$(gettext "Error: illegal characters! Must be a port number.")"
 		case $a2 in
 			TCP|UDP): ;;
-			*)error_cond "Error: 2nd arg must be 'TCP' or 'UDP'." ;;
+			*)error_cond "$(gettext "Error: 2nd arg must be 'TCP' or 'UDP'.")" ;;
 		esac
 		echo "# Custom entry for port $a1" >> $FILE
 		if [ -n "$a3" ];then
@@ -61,11 +63,11 @@ add_extras() {
 				TCP|UDP): ;;
 				[1-9]*[0-9])echo ;;
 				*)error_cond \
-				"Error: 3rd arg must be 'TCP', 'UDP' or an IP or range." ;;
+				"$(gettext "Error: 3rd arg must be 'TCP', 'UDP' or an IP or range.")" ;;
 			esac
 		fi
 		[ -n "$a4" ] && echo $a4|grep -q '[a-zA-Z\!@\$%\^\&\*\(\)_+\-\=]' && \
-			error_cond "Error: illegal characters! Must be an IP or range."
+			error_cond "$(gettext "Error: illegal characters! Must be an IP or range.")"
 		[ -z "$a3" -o -z "$a4" ] && IP=0/0
 		[ -n "$a3" ] && echo $a3 | grep '^[1-9]' | grep -q '[0-9]$' && IP=$a3
 		[ -n "$a4" ] && echo $a4 | grep '^[1-9]' | grep -q '[0-9]$' && IP=$a4
@@ -95,7 +97,7 @@ add_extras() {
 		fi
 	else
 		echo $1|grep -q '[a-zA-Z\!@\$%\^\&\*\(\)_+\-\=\.]' && \
-			error_cond "Error: illegal characters! Must be a port number."
+			error_cond "$(gettext "Error: illegal characters! Must be a port number.")"
 		echo "# Custom entry for port $1" >> $FILE
 		mk_entry $1 UDP udp_inbound "0/0"
 		mk_entry $1 TCP tcp_inbound "0/0"
@@ -103,19 +105,37 @@ add_extras() {
 }
 export -f add_extras
 
+process_ports() {
+	read -a name <<< "$1"
+	for ((z=0; z<10; z++));do
+		[ -z "${name[z]}" ] && break
+		add_extras ${name[z]}
+	done
+
+}
+export -f process_ports
+
 # extra ports gui
 extras_gui() {
 	TEXT1="$(gettext "Place a space delimited array of ports and options in the 
 	box below. Up to 10 can be specified. You must comma 
-	delimit the options. You can't use ports below 1024.
+	delimit the options.
 	Specifying the port number only allows inbound TCP
 	and UDP traffic from any source.")"
 	TEXT2="$(gettext "Example:")"
 	TEXT3=51200,TCP
 	TEXT4="$(gettext "Or:")"
 	TEXT5=5100,TCP,UDP,192.168.1.0/16
+	TEXT6="$(gettext "Place extra ports here")"
+	if [ -f "$CONF" ];then
+		. "$CONF"
+		EXTRA_CONF="$CONFIG_EXTRAS"
+		[ -z "$EXTRA_CONF" ] && EXTRA_CONF="$TEXT6"
+	else
+		EXTRA_CONF="$TEXT6"
+	fi
 
-	export extras="<window title=\"Extra ports\">
+	export extras="<window title=\"$(gettext "Extra ports")\">
 	<vbox>
 		<hbox space-expand=\"true\" space-fill=\"true\" width-request=\"500\">
 			<vbox>
@@ -139,7 +159,7 @@ extras_gui() {
 		<hbox space-expand=\"true\" space-fill=\"true\" width-request=\"500\">
 			<entry>
 				<variable>extra_ports</variable>
-				<default>Place extra ports here</default>
+				<default>$EXTRA_CONF</default>
 			</entry>
 		</hbox>
 		<hbox><button ok></button></hbox>
@@ -147,14 +167,11 @@ extras_gui() {
 </window>"
 	eval $(gtkdialog -p extras)
 	[ "$EXIT" = "abort" ] && return
-	[ "$extra_ports" = "Place extra ports here" ] && error_cond \
-		"Error: No rules set!"
-	read -a name <<< "$extra_ports"
-	for ((z=0; z<10; z++));do
-		[ -z "${name[z]}" ] && break
-		add_extras ${name[z]}
-	done
-	error_cond "Setting custom rules" z
+	[ "$extra_ports" = "$TEXT6" ] && error_cond \
+		"Error: $(gettext "No rules set!")"
+	echo "$extra_ports" > /tmp/extra_ports.txt
+	process_ports "$extra_ports"
+	error_cond "$(gettext "Setting custom rules")" z
 }
 export -f extras_gui
 
@@ -208,11 +225,10 @@ SUBNET=${host}/${sub}
 
 # setup
 sens=false
-CONFDIR="$HOME/.config/firewall"
-CONF="$CONFDIR/fw.conf"
 [ -d "$CONFDIR" ] || mkdir -p "$CONFDIR"
 if [ -f "$CONF" ];then
 	. "$CONF"
+	def_extra="$CONFIG_EXTRAS"
 	defgen=$GENERIC
 	loggen=$LOGGING
 	defmain=$MAIN
@@ -396,6 +412,14 @@ CONFIG_HTTP=$CONFIG_HTTP
 CONFIG_DNS=$CONFIG_DNS
 CONFIG_DHCP=$CONFIG_DHCP
 CONFIG_NFS=$CONFIG_NFS" > $CONF # (re)write config
+	if [ -f /tmp/extra_ports.txt ];then
+		XTRAS="`cat /tmp/extra_ports.txt`"
+		echo "CONFIG_EXTRAS=\"$XTRAS\"" >> $CONF # add a new custom setup
+		rm /tmp/extra_ports.txt
+	else
+		echo "CONFIG_EXTRAS=\"$def_extra\"" >> $CONF # save initial custom setup
+		process_ports "$def_extra"
+	fi
 	;;
 	Redo)
 	if [ -f "$CONF" ];then
