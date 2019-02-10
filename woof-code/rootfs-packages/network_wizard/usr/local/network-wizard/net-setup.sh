@@ -75,7 +75,7 @@
 #170509 rerwin: replace gtkdialog3 with gtkdialog.
 #170514 add message about already running
 #180923 move network wizard to its package directory.
-#190204 v2.0.1: increase wait for ethtool link detected (5 > 8 seconds).
+#190209 v2.0.1: increase wait for ethtool link detected, to 7.5 secs).
 
 # $1: interface
 interface_is_wireless() {
@@ -1029,12 +1029,12 @@ $ERROR
 
 	echo "X"
 	LINK_DETECTED=no
-	for i in 1 2 3 4 5 6 7 8 ; do #190204
+	for i in 1 2 3 4 5 ; do
 		if ethtool "$INTERFACE" | grep -Fq 'Link detected: yes' ; then
 			LINK_DETECTED="yes"
 			break
 		fi
-		sleep 1 #190204
+		sleep 1.5 #190209
 		echo "X"
 	done
 	if [ "$LINK_DETECTED" = "no" ] ; then
