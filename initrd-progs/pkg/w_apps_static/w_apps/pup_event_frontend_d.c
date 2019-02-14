@@ -1,8 +1,5 @@
 /*
 *
-* BK GPL3
-* libc ref: http://www.gnu.org/software/libc/manual/html_node/Function-Index.html#Function-Index
-*
 * path:
 *	/usr/local/pup_event/pup_event_frontend_d
 *
@@ -14,200 +11,181 @@
 
 #include <stdlib.h>        // getenv(), system()
 #include <sys/types.h>
-#include <sys/socket.h>    // AF_NETLINK, bind()
-#include <linux/netlink.h> // struct sockaddr_nl
-#include <poll.h>          // poll(), struct pollfd
 #include <unistd.h>        // getpid() access()
 #include <string.h>        // strstr() etc..
 #include <stdio.h>
-#include <regex.h>         // regcomp()
 #include <dirent.h>        // opendir(), readdir()
 
-#define __SIGNALS 1
-
-#if __SIGNALS
-#include <signal.h>
-#endif
+#include <mntent.h>        //mntent
+// disc_is_inserted()
+#include <sys/ioctl.h>
+#include <fcntl.h>
+#include <limits.h>
+#include <linux/cdrom.h>
 
 int debug = 0;
-char log2file = 0;
-char logfile[] = "/tmp/pup_event_frontend_d.log";
 char *app_name = NULL;
 FILE *outf = NULL;
+int PUPMODE = 5;
 
 #define trace(...) { fprintf (outf, __VA_ARGS__); }
 
-void cleanup(void) {
-	if (log2file && outf) {
-		fclose(outf);
+//=============================================================================
+
+int dev_is_mounted(const char *dev) {
+	struct mntent *ent;
+	FILE *fhandle;
+	fhandle = setmntent("/proc/mounts", "r");
+	if (fhandle == NULL) {
+		return 0; /* error */
 	}
+	while (NULL != (ent = getmntent(fhandle))) {
+		//                    /dev/sda2       /mnt/sda2
+		//printf("%s %s\n", ent->mnt_fsname, ent->mnt_dir);
+		if (strcmp(ent->mnt_fsname, dev) == 0) {
+			endmntent(fhandle);
+			return 1; /* ok */
+		}
+	}
+	endmntent(fhandle);
+	return 0; /* error */
 }
 
-#if __SIGNALS
-void signal_callback_handler(int signum) {
-	if (outf) {
-		fprintf(outf, "Caught signal %d\n",signum);
-		cleanup();
+int disc_is_inserted(char *device) { /* /dev/sr0 */
+	int fd, status;
+	fd = open(device, O_RDONLY | O_NONBLOCK);
+	if (fd < 0) {
+		return 0; /* err */
 	}
-	exit(signum);
+	// read the drive status info
+	status = ioctl(fd, CDROM_DRIVE_STATUS, CDSL_CURRENT);
+	close(fd);
+	if (status == CDS_DISC_OK) {
+		return 1; /* ok */
+	}
+	return 0; /* err */
 }
-#endif
 
-// -----------------------------------------------------------------------
+//=======================================================================
+//                  FRONTEND_TIMEOUT
+//=======================================================================
+
+int MINUTE=0;
+int CHECK_SR0=1; // check sr0
+
+void frontend_timeout(void) {
+	/* check if lock files are active */
+	if (access("/tmp/frontend_startup_lock", F_OK) != -1) {
+		return;
+	}
+	struct dirent *pDirent;
+	DIR *pDir;
+	pDir = opendir("/tmp");
+	if (pDir) {
+		while ((pDirent = readdir(pDir)) != NULL) {
+			//printf ("[%s]\n", pDirent->d_name);
+			if (strstr(pDirent->d_name, "frontend_change_processing_")) {
+				closedir (pDir);
+				return;
+			}
+		}
+		closedir (pDir);
+	}
+	//
+	MINUTE += 10;
+	if (MINUTE == 60) {
+		MINUTE=0;
+		//-
+		int ret = system("/usr/local/pup_event/pup_event_timeout60");
+		if (ret == 0) {
+			CHECK_SR0=1; // do check
+		} else {
+			CHECK_SR0=0; // don't check
+		}
+	}
+	if (!CHECK_SR0) {
+		return;
+	}
+	// probe optical drives
+	char *drvname = NULL;
+	char blockdev[30] = "";
+	for (int i = 0; ; i++) {
+		snprintf(blockdev, sizeof(blockdev), "/dev/sr%d", i);
+		drvname = strrchr(blockdev, '/');
+		if (drvname) drvname++;
+		if (access(blockdev, F_OK) == -1) {
+			break;
+		}
+		if (dev_is_mounted(blockdev)) {
+			if (debug) trace("%s is mounted\n", blockdev);
+			continue;
+		}
+		char pup_event_drv[50];
+		char drv_uevent[40];
+		snprintf(drv_uevent, sizeof(drv_uevent), "/sys/block/%s/uevent", drvname);
+		snprintf(pup_event_drv, sizeof(pup_event_drv), "/tmp/pup_event_frontend/drive_%s", drvname);
+		if (debug) trace("%s - %s\n", drv_uevent, pup_event_drv);
+		FILE *fp = fopen(drv_uevent, "w");
+		if (fp) {
+			if (disc_is_inserted(blockdev)) {
+				if (debug) trace("disc is inserted\n");
+				if (access(pup_event_drv, F_OK) == -1) {
+					if (debug) trace("add\n");
+					fprintf(fp, "add\n"); // echo "add" > /sys/block/${DRV_NAME}/uevent
+				}
+			} else {
+				if (debug) trace("disc is NOT inseted\n");
+				if (access(pup_event_drv, F_OK) != -1) {
+					if (debug) trace("remove\n");
+					fprintf(fp, "remove\n"); // echo "remove" > /sys/block/${DRV_NAME}/uevent
+				}
+			}
+			fclose(fp);
+		}
+	}
+	//
+	return;
+}
+
+//=======================================================================
+//                        MAIN
+//=======================================================================
+
 
 int main(int argc, char **argv) {
-
-#if __SIGNALS // http://www.cplusplus.com/reference/csignal/
-	signal(SIGINT, signal_callback_handler);
-	signal(SIGTERM, signal_callback_handler);
-#endif
 
 	outf = stderr;
 
 	app_name = strrchr(argv[0], '/');
-	if (app_name) {
-		app_name++;
-	} else {
-		app_name = argv[0];
-	}
-
-	int i;
-	for (i = 1; i < argc; i++) {
-		if (strcmp(argv[i], "-debug") == 0) {
-			debug = 1;
-		}
-		else if (strcmp(argv[i], "-log2file") == 0) {
-			log2file = 1;
-		}
-		else if (!strcmp(argv[i], "-h") || !strcmp(argv[i], "-help") || !strcmp(argv[i], "--help")) {
-			printf("\n%s -debug|-log2file:\n\n", app_name);
-			printf("  -debug    : print debug info\n");
-			printf("  -log2file : log to %s\n",logfile);
-			return 0;
-		}
+	if (app_name) app_name++;
+	if (argv[1]) {
+		if (strcmp(argv[1], "-debug") == 0) debug = 1;
 	}
 	if (getenv("PUPEVENT_DEBUG"))    debug = 1;
-	if (getenv("PUPEVENT_LOG2FILE")) log2file = 1;
+	if (getenv("PUP_EVENT_DEBUG"))   debug = 1;
 
 	fprintf(stderr, "%s: starting...\n", app_name);
 
-	if (log2file) {
-		outf = fopen(logfile, "w");
-		if (!outf) {
-			return 1;
-		}
-		fprintf(stderr, "%s: logging to %s\n", app_name, logfile);
-	}
-
-	char buf[512] = "";
-	int eventstatus = 0;
-
-	struct sockaddr_nl nls;
-	struct pollfd pfd;
-
+	// ==
 	int ret = system("/usr/local/pup_event/frontend_startup");
 	if (ret != 0) {
 		trace("%s: exited with code: %d\n", app_name, WEXITSTATUS(ret));
 		trace("exiting...\n");
-		cleanup();
 		return 9;
 	}
 
-	// initialise the nls structure
-	memset(&nls,0,sizeof(struct sockaddr_nl));
-	nls.nl_family = AF_NETLINK;
-	nls.nl_pid = getpid();
-	nls.nl_groups = -1;
+	// ==
+	ret = system("/usr/local/bin/pupmode");
+	PUPMODE = WEXITSTATUS(ret);
+	if (debug) trace("PUPMODE %d\n", PUPMODE);
 
-	// Open hotplug event netlink socket...
-	pfd.events = POLLIN;
-	pfd.fd = socket(PF_NETLINK, SOCK_DGRAM, NETLINK_KOBJECT_UEVENT);
-	if (pfd.fd == -1) {
-		trace("%s: could not open netlink socket\n", app_name);
-		cleanup();
-		return 1;
-	}
-	// listen to netlink socket...
-	int retval = bind(pfd.fd, (void *)&nls, sizeof(struct sockaddr_nl));
-	if (retval == -1) {
-		trace("%s: could not listen to netlink socket\n", app_name);
-		cleanup();
-		return 2;
-	}
+	unlink("/tmp/services/pup_event_timeout");
 
-	int cnt = 0;
-	char exe_change[256] = "";
-
-	/* big loop */
 	while (1) {
-		// 2 second timeout... note, -1 is wait indefinitely.
-		eventstatus = poll(&pfd, 1, 1000);
-		if (debug) trace("eventstatus: %d\n", eventstatus);
-		if (eventstatus == -1) {
-			cleanup();
-			return 3;
-		}
-		if (eventstatus == 0) {
-			// one-second timeout.
-			// graceful exit if shutdown X (see /usr/bin/restartwm,wmreboot,wmpoweroff)...
-			if ( access( "/tmp/wmexitmode.txt", F_OK ) != -1 ) {
-				// file exists
-				trace("%s: found /tmp/wmexitmode.txt .. exiting\n", app_name);
-				cleanup();
-				return 8;
-			}
-			// want to call a pup_event script every four seconds...
-			cnt++;
-			if (cnt >= 6) {
-				if (debug) trace("/usr/local/pup_event/frontend_timeout\n");
-				system("/usr/local/pup_event/frontend_timeout");
-				cnt = 0;
-			}
-			continue;
-		}
+		sleep(10);
+		frontend_timeout();
+	}
 
-		cnt = 0;
-
-		// get the uevent...
-		int len = recv(pfd.fd, buf, sizeof(buf), MSG_DONTWAIT);
-		if (len == -1) {
-			cleanup();
-			return 4;
-		}
-		// if (debug) trace("len: %d - buf: %s\n", len, buf);
-
-		//add@/devices/pci0000:00/0000:00:1d.7/usb1/1-6/1-6:1.0/host33/target33:0:0/33:0:0:0/block/sdb
-		//add@/devices/pci0000:00/0000:00:1d.7/usb1/1-6/1-6:1.0/host37/target37:0:0/37:0:0:0/block/sdb/sdb1
-		char *block_str_pos = strstr(buf, "/block/");
-		if (!block_str_pos) {
-			continue;
-		}
-		// .../block/sdb        - ok
-		// .../block/sdb/sdb1   - err
-		char *drv = block_str_pos + 7; // sdb/sdb1
-		if (strchr(drv, '/')) {
-			continue;
-		}
-		if (debug) trace("drv: %s\n", drv);
-
-		// process the uevent...
-		// only add@, remove@, change@ uevents...
-		if (strncmp(buf, "add", 3) == 0) {
-			snprintf(exe_change, sizeof(exe_change), "/usr/local/pup_event/frontend_change add %s", drv);
-		} else if (strncmp(buf, "remove", 6) == 0) {
-			snprintf(exe_change, sizeof(exe_change), "/usr/local/pup_event/frontend_change remove %s", drv);
-		} else if (strncmp(buf, "change", 6) == 0) {
-			snprintf(exe_change, sizeof(exe_change), "/usr/local/pup_event/frontend_change change %s", drv);
-		} else {
-			continue;
-		}
-
-		if (debug) trace("exe_change: %s\n", exe_change);
-		system(exe_change);
-
-	} /* end of big loop */
-
-	cleanup();
 	return 0;
 }
 
