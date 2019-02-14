@@ -3,8 +3,6 @@
 #Puppy ethernet network setup script.
 #I got some bits of code from:
 # trivial-net-setup, by Seth David Schoen <schoen@linuxcare.com> (c)2002
-# and the little executables and, or, dotquad from the
-# lnx-bbx Linux project. ipcalc app from Redhat 7.
 # Thanks to GuestToo and other guys on the Puppy Forum for bug finding.
 # Rarsa (Raul Suarez) reorganized the code and cleaned up the user interface
 # Ported to gtkdialog3 and abused by Dougal, June 2007
@@ -142,6 +140,31 @@ HAVEX='yes'
 
 ## Dougal: put this into a variable
 BLANK_IMAGE=/usr/share/pixmaps/net-setup_btnsize.png
+
+#==================================================================
+
+### $1:ipv4
+function ip2dec() { #ip to decimal
+	local a b c d ip=$@
+	IFS=. read -r a b c d <<< "$ip"
+	printf '%d\n' "$((a * 256 ** 3 + b * 256 ** 2 + c * 256 + d))" #return value
+}
+
+### $1:ipv4
+function validip4() { #replace dotquad.c to parse $1 as a dotted-quad IP address
+	local ip=$1
+	local stat=1
+	if [[ $ip =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+		OIFS=$IFS
+		IFS='.'
+		ip=($ip)
+		IFS=$OIFS
+		[[ ${ip[0]} -le 255 && ${ip[1]} -le 255 \
+			&& ${ip[2]} -le 255 && ${ip[3]} -le 255 ]]
+		stat=$?
+	fi
+	return $stat
+}
 
 #=============================================================================
 #============= FUNCTIONS USED IN THE SCRIPT ==============
@@ -1292,7 +1315,7 @@ showStaticIPWindow()
 	# get current dns servers
 	NUM=1
 	while read A B ; do
-	  if [ "$A" = "nameserver" ] && dotquad "$B" ; then # being really paranoid...
+	  if [ "$A" = "nameserver" ] && validip4 "$B" ; then # being really paranoid...
 	    eval DNS_SERVER$NUM="$B"
 	    NUM=$((NUM+1))
 	  fi
@@ -1420,21 +1443,21 @@ validateStaticIP()
 	[ -z "$DNS_SERVER1" ] && DNS_SERVER1="0.0.0.0"
 	[ -z "$DNS_SERVER2" ] && DNS_SERVER2="0.0.0.0"
 	ERROR_MSG=""
-	if ! validip "${IP_ADDRESS}" ; then
+	if ! validip4 "${IP_ADDRESS}" ; then
 		ERROR_MSG="${ERROR_MSG}\n- $L_ERROR_Invalid_IP_Address"
 	fi
-	if ! validip "${NETMASK}" ; then
+	if ! validip4 "${NETMASK}" ; then
 		ERROR_MSG="${ERROR_MSG}\n- $L_ERROR_Invalid_Netmask"
 	fi
 	if [ ! -z "$GATEWAY" ] ; then
-		if ! validip "${GATEWAY}"  ; then
+		if ! validip4 "${GATEWAY}"  ; then
 			ERROR_MSG="${ERROR_MSG}\n- $L_ERROR_Invalid_Gateway"
 		fi
 	fi
-	if ! validip "${DNS_SERVER1}"  ; then
+	if ! validip4 "${DNS_SERVER1}"  ; then
 		ERROR_MSG="${ERROR_MSG}\n- $L_ERROR_Invalid_DNS1"
 	fi
-	if ! validip "${DNS_SERVER2}"  ; then
+	if ! validip4 "${DNS_SERVER2}"  ; then
 		ERROR_MSG="${ERROR_MSG}\n- $L_ERROR_Invalid_DNS2"
 	fi
 	
@@ -1463,9 +1486,9 @@ $ERROR_MSG
 		unset HOSTNET
 		unset GATENET
 	else
-		HOSTNUM=$(dotquad "$IP_ADDRESS") 
-		MASKNUM=$(dotquad "$NETMASK")
-		GATENUM=$(dotquad "$GATEWAY")
+		HOSTNUM=$(ip2dec "$IP_ADDRESS") 
+		MASKNUM=$(ip2dec "$NETMASK")
+		GATENUM=$(ip2dec "$GATEWAY")
 	fi
 
 	return 0
@@ -1562,17 +1585,6 @@ unloadNewModule()
 
   refreshMainWindowInfo
 } # end unloadNewModule
-
-#=============================================================================
-validip() {
-  # uses dotquad.c to parse $1 as a dotted-quad IP address
-  if dotquad "$1" > /dev/null 2>&1
-  then
-	return 0
-  else
-	return 1
-  fi
-} #end of validip function
 
 #=============================================================================
 setDefaultMODULEBUTTONS ()
