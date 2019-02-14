@@ -1466,17 +1466,8 @@ $ERROR_MSG
 		HOSTNUM=$(dotquad "$IP_ADDRESS") 
 		MASKNUM=$(dotquad "$NETMASK")
 		GATENUM=$(dotquad "$GATEWAY")
-		HOSTNET=$(and "$MASKNUM" "$HOSTNUM")
-		GATENET=$(and "$MASKNUM" "$GATENUM")
 	fi
-	
-	if [ "x${HOSTNET}" != "x${GATENET}" ] ; then
-  		#Xdialog --center --wrap --title "$L_TITLE_Netwiz_Static_IP" \
-  				#	--msgbox "Your gateway $GATEWAY is not on this network! Please try again.\n(You may have entered your address, gateway or netmask incorrectly.)" 0 0  0 0
-  		giveErrorDialog "$L_MESSAGE_Bad_Gateway_p1 $GATEWAY $L_MESSAGE_Bad_Gateway_p2"
-  		return 1
-	fi
-	
+
 	return 0
 } #end of validateStaticIP
 
