@@ -72,8 +72,6 @@ if [ "$HR_SIZE" = "yes" -a "$SPECIFIC" = "" ] ; then
 	PLUS_SIZE=yes
 fi
 
-device=${@##*/}
-
 #==============================================================
 #                        FUNCTIONS
 #==============================================================
@@ -92,39 +90,23 @@ hdparm_get_model() {
 	done
 }
 
-# $1: drv
+# $1: drvname
 do_probedisk() {
 
-	[ "$1" ] || return 1
-	DRV=${1##*/} #basename
-
-	if [ ! -e /sys/block/${DRV} ] ; then
-		echo "${DRV}: invalid drive" 1>&2
-		continue
-	fi
+	DRV=$1
 
 	vendor=""
 	model=""
 	size=""
 	removable=""
 	usb=""
-	xtype=""
 
 	blockdev=/dev/${DRV}
-	[ -e /dev/block/${DRV} ] && blockdev=/dev/block/${DRV} #android
-
-	case $(readlink /sys/block/${DRV}) in */usb*)
-		usb=yes ;;
-	esac
 
 	[ -f /sys/block/${DRV}/device/vendor ] && read -r vendor < /sys/block/${DRV}/device/vendor
 	[ -f /sys/block/${DRV}/device/model ] && read -r model < /sys/block/${DRV}/device/model
 	[ -f /sys/block/${DRV}/size ] && read -r size < /sys/block/${DRV}/size
 	[ -f /sys/block/${DRV}/removable ] && read -r removable < /sys/block/${DRV}/removable
-	blockdev=/dev/${DRV}
-	#Android
-	[ -f /sys/block/${DRV}/device/name ] && read -r name < /sys/block/${DRV}/device/name
-	[ -f /sys/block/${DRV}/device/date ] && read -r date < /sys/block/${DRV}/device/date
 
 	info="$vendor"
 	[ -n "$model" ] && info="$info $model"
@@ -132,20 +114,30 @@ do_probedisk() {
 	[ -n "$date" ] && info="$info $date"
 
 	type=drive #default
+
+	case $(readlink /sys/block/${DRV}) in */usb*)
+		type="usbdrv"
+		usb=yes ;;
+	esac
+
 	if [ -e /sys/block/${DRV}/device/type ] ; then
 		# http://lxr.free-electrons.com/source/include/scsi/scsi.h?v=3.12
 		read -r xtype < /sys/block/${DRV}/device/type
-		case $xtype in
-			0) [ "$usb" = "yes" ] && type="usbdrv" ;; #define TYPE_DISK 0x00
-			5) type='optical' ;; #define TYPE_ROM 0x05 //see below
-			MMC) info="MMC${info}" ;; #android
-			SD) info="SD${info}" ;; #android
-		esac
+		if [ "$xtype" = "5" ] ; then
+			if [ -e /sys/block/${DRV}/device/rev ] ; then
+				read rev < /sys/block/${DRV}/device/rev
+				info="$info [Rev $rev]"
+			fi
+			type='optical'
+		fi
 	fi
 
 	case ${DRV} in
-		sr*)  type=optical ;;
-		fd*)  type=floppy  ;;
+		fd*)
+			# might be a "fake" floppy device. have to check..
+			[ "$model" = "" -a "$vendor" = "" ] && return
+			type=floppy
+			;;
 		mmc*)
 			type=card
 			if [ "$SHOW_USBFLASH" = "yes" -a "$CARD_AS_USBFLASH" = "yes" ] ; then
@@ -153,17 +145,6 @@ do_probedisk() {
 			fi
 			;;
 	esac
-
-	if [ "$type" = "optical" ] ; then
-		if [ -e /sys/block/${DRV}/device/rev ] ; then
-			read rev < /sys/block/${DRV}/device/rev
-			info="$info [Rev $rev]"
-		fi
-	fi
-
-	# might be a "fake" floppy device. have to check..
-	[ "$type" = "floppy" -a "$model" = "" -a "$vendor" = "" ] && continue
-	# --
 
 	case $type in drive|usbdrive) # -hdparm
 		if [ "$HDPARM" = "yes" -a "$removable" != "1" ] ; then
@@ -209,7 +190,13 @@ do_probedisk_all() {
 #                          MAIN
 #==============================================================
 
+device=${@##*/}
+
 if [ "$device" ] ; then
+	if [ ! -e /sys/block/${device} ] ; then
+		echo "${device}: invalid drive" 1>&2
+		exit 1
+	fi
 	do_probedisk ${device} #process cli argument
 else
 	do_probedisk_all
