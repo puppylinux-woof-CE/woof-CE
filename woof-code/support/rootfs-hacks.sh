@@ -132,3 +132,13 @@ chmod 600 ${SR}/etc/shadow
 chmod 640 ${SR}/etc/sudoers
 chmod 1777 ${SR}/tmp
 chmod 777 ${SR}/var
+
+# ensure application_x-bittorrent is assigned to defaulttorrent..
+if [ -f ${SR}/etc/xdg/rox.sourceforge.net/MIME-types/application_x-bittorrent ] ; then
+	if ! grep -q defaulttorrent ${SR}/etc/xdg/rox.sourceforge.net/MIME-types/application_x-bittorrent ; then
+		echo '#!/bin/sh
+exec defaulttorrent "$@"
+' > ${SR}/etc/xdg/rox.sourceforge.net/MIME-types/application_x-bittorrent
+		chmod +x ${SR}/etc/xdg/rox.sourceforge.net/MIME-types/application_x-bittorrent
+	fi
+fi
