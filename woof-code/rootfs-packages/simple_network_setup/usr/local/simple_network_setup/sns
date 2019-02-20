@@ -35,7 +35,8 @@
 #170619 display networks in order of signal quality.
 #170924 add short sleep to allow time for dhcpcd to write to resolv.conf.
 #180706 Accommodate large network list, by omitting unneeded iwlist lines and limiting search for 'Scan completed'.
-#190209 v2.1.1: increase wait for ethtool link detected, to 7.5 secs total).
+#190209 v2.1.1: increase wait for ethtool link detected, to 6 secs total).
+#190216 v2.2: Correct 'already running' check; correct support of long SSIDs truncated for display; avoid wait after link timeout; move 'current exec' logic, so exec change avoided if main window aborted (X); update 'make default' message.
 
 export TEXTDOMAIN=sns___sns
 export OUTPUT_CHARSET=UTF-8
@@ -43,14 +44,10 @@ export OUTPUT_CHARSET=UTF-8
 
 [ "`whoami`" != "root" ] && exec sudo -A ${0} ${@} #110505
 
-DUPPIDS="$(ps --no-headers -fC 'sns' | grep -wv "$$" | grep -wv "$PPID" | tr -s ' ' | cut -f 2 -d ' ' | tr '\n' ' ')"
-if [ -n "$DUPPIDS" ];then #170514...
+if ps --no-headers -C 'sns' | grep -qwv "$$";then #170514... 190216
  Xdialog --left --wmclass "sns" --title "$(gettext 'Simple Network Setup')"  --backtitle "\n$(gettext 'Simple Network Setup cannot start now because it is already active.')" --icon /usr/local/lib/X11/pixmaps/error.xpm --msgbox "\n$(gettext 'Please use the active SNS session or\nterminate it and start SNS again.')\n" 0 70
  exit 1
 fi #170514 end
-
-#170329 Update current exec name. 
-which connectwizard_exec &>/dev/null && connectwizard_exec sns
 
 #each line of /etc/simple_network_setup/connections has everything known about a connection:
 #(please ignore spaces, put here for readability only)
@@ -299,11 +296,12 @@ export SNS_main='
       <button space-expand="false" space-fill="false">
         '"`/usr/lib/gtkdialog/xml_button-icon quit`"'
         <label>'$(gettext 'Quit')'</label>
-      </button>
+        <action type="exit">QUIT</action>
+        </button>
     </hbox>
   </vbox>
 </vbox>
-</window>' #170505
+</window>' #170505 190217
 
 echo 'style "status"
 {
@@ -319,8 +317,13 @@ RETSTRING="`gtkdialog -p SNS_main`" ###main window### #170505
 echo "$RETSTRING"
 EXIT="`echo "$RETSTRING" | grep '^EXIT' | cut -f2 -d'"'`" #'geany
 [ "`echo "$EXIT" | grep 'EXITRESTART'`" != "" ] && exec sns ###restarting sns###
-[ "`echo "$EXIT" | grep 'Interface'`" = "" ] && exit
-
+if [ "`echo "$EXIT" | grep 'Interface'`" = "" ];then #190217...
+ [ "`echo "$EXIT" | grep -Ew 'EXITNOW|QUIT'`" != "" ] \
+   && which connectwizard_exec &>/dev/null \
+   && connectwizard_exec sns #Update current exec name. 170329
+ exit
+fi
+ 
 INTERFACE="`echo -n "$EXIT" | cut -f2 -d '_'`" #ex: wlan1
 
 if [ "$INTERFACE" == "Windows" ];then #100313
@@ -428,7 +431,7 @@ if [ "$IF_INTTYPE" == "Wireless" ];then
    CELL_CHANNEL="`echo -n "$ONELINE" | grep -o ' Channel:.*' | cut -f2 -d':' | cut -f1 -d'|'`"
    [ "$CELL_CHANNEL" == "" ] && CELL_CHANNEL="`echo -n "$ONELINE" | grep -o ' (Channel .*' | cut -f 3 -d ' ' | cut -f 1 -d')'`"
    CELL_QUALITY="`echo -n "$ONELINE" | grep -o ' Quality[:=].*' | cut -f 2 -d ' ' | cut -f 2 -d '=' | cut -f 2 -d ':'`"
-   CELL_ESSID="`echo -n "$ONELINE" | grep -o ' ESSID:.*' | cut -f 2 -d '"' | head -c20`" #'geany
+   CELL_ESSID="`echo -n "$ONELINE" | grep -o ' ESSID:.*' | cut -f 2 -d '"'`" #190216
    CELL_ENCRYPTIONKEY="`echo -n "$ONELINE" | grep -o 'Encryption key:.*' | cut -f 2 -d ':' | cut -f1 -d '|'`" #ex: off
 
    #build network list
@@ -449,9 +452,9 @@ if [ "$IF_INTTYPE" == "Wireless" ];then
    fi
    [ "$CELL_ESSID" ] || CELL_ESSID="(hidden ESSID)" #$CELL_ESSID must not be blank
    echo '<radiobutton height-request="25" space-expand="false" space-fill="false">
-       <label>'$CELL_ESSID'</label>
+       <label>'${CELL_ESSID:0:20}'</label>
        <variable>RADIO_'${CELL_NUMBER}'</variable>
-     </radiobutton>' >> /tmp/sns_scan_radiobuttons
+     </radiobutton>' >> /tmp/sns_scan_radiobuttons #190216
    echo '
    <hbox space-expand="false" space-fill="false">
      <text xalign="1" yalign="1" use-markup="true" space-expand="true" space-fill="true">
@@ -870,7 +873,8 @@ network={
             <text><label>""</label></text>
             '${XML_FIREWALL}'
             <hseparator></hseparator>
-            <text xalign="0"><label>'$(gettext "Let SNS automatically connect to the Internet at bootup. Also clicking the 'connect' icon on the desktop will immediately launch SNS...")'</label></text>
+            <text xalign="0"><label>'$(gettext "SNS will automatically connect to the Internet at bootup, wirelessly if possible.")'</label></text>
+            <text xalign="0"><label>'$(gettext "To make SNS the default network setup tool so that clicking the 'connect' icon on the desktop or selecting 'Setup networking' from the network tray icon will immediately launch SNS...")'</label></text>
             <checkbox>
               <label>'$(gettext 'Set SNS as default network setup tool')'</label>
               <default>true</default>
@@ -885,7 +889,7 @@ network={
             </button>
           </hbox>
         </vbox>
-        </window>'
+        </window>' #190216
         RETSTR3="`gtkdialog -p SNS_complete --center`"
         if [ "`echo "$RETSTR3" | grep '^CHK_SNSDEF' | grep 'true'`" != "" ];then
          echo -e '#!/bin/sh\nexec sns' > /usr/local/bin/defaultconnect
@@ -978,7 +982,7 @@ if [ "$IF_INTTYPE" == "Wired" ];then
        LINK_DETECTED="yes"
        break
      fi
-     sleep 1.5 #190209
+     [ $i -lt 5 ] && sleep 1.5 #190209 190216
   done
   if [ "$LINK_DETECTED" = "no" ] ; then
      ifconfig $INTERFACE down
@@ -1017,7 +1021,8 @@ if [ "$IF_INTTYPE" == "Wired" ];then
       <text use-markup="true"><label>"<b>'$(gettext 'Successful connection to wired network')' '${INTERFACE}'</b>"</label></text>
       <text><label>""</label></text>
       <hseparator></hseparator>
-      <text xalign="0"><label>'$(gettext "Let SNS automatically connect to the Internet at bootup. Also clicking the 'connect' icon on the desktop will immediately launch SNS...")'</label></text>
+      <text xalign="0"><label>'$(gettext "SNS will automatically connect to the Internet at bootup, wirelessly if possible.")'</label></text>
+      <text xalign="0"><label>'$(gettext "To make SNS the default network setup tool so that clicking the 'connect' icon on the desktop or selecting 'Setup networking' from the network tray icon will immediately launch SNS...")'</label></text>
       <checkbox>
         <label>'$(gettext 'Set SNS as default network setup tool')'</label>
         <default>true</default>
@@ -1032,7 +1037,7 @@ if [ "$IF_INTTYPE" == "Wired" ];then
       </button>
     </hbox>
   </vbox>
-  </window>'
+  </window>' #190216
   RETSTR5="`gtkdialog -p SNS_complete --center`"
   if [ "`echo "$RETSTR5" | grep '^CHK_SNSDEF' | grep 'true'`" != "" ];then
    echo -e '#!/bin/sh\nexec sns' > /usr/local/bin/defaultconnect
