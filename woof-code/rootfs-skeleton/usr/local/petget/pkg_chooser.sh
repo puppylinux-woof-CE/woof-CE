@@ -5,14 +5,14 @@
 
 . /etc/rc.d/functions_x
 
-VERSION=2.1.1
+VERSION=2.1.2
 
 export TEXTDOMAIN=petget___pkg_chooser.sh
 export OUTPUT_CHARSET=UTF-8
 
 # Do not allow another instance
 wait
-if ps --no-headers -C pkg_chooser.sh,ppm | grep -qwvE "^$$|^ $$"; then #v2.1.1...
+if ps --no-headers -C pkg_chooser.sh,ppm | grep -qwv "$$"; then #v2.1.2...
  /usr/lib/gtkdialog/box_splash -timeout 3 -bg red -text "$(gettext 'PPM is already running. Exiting.')"
  exit 0
 fi
