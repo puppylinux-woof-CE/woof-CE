@@ -12,7 +12,7 @@ export OUTPUT_CHARSET=UTF-8
 
 # Do not allow another instance
 wait
-if ps --no-headers -C pkg_chooser.sh,ppm | grep -qwv "$$"; then #v2.1.2...
+if ps --no-headers -C pkg_chooser.sh,ppm | grep -qwv "^ *$$"; then #v2.1.2...
  /usr/lib/gtkdialog/box_splash -timeout 3 -bg red -text "$(gettext 'PPM is already running. Exiting.')"
  exit 0
 fi

@@ -1763,7 +1763,7 @@ cleanUpTmp(){
 # Cleanup older temp files (in case didn't exit nicely last time)
 cleanUpTmp
 
-if ps --no-headers -C 'net-setup.sh' | grep -qwv "$$";then #190217
+if ps --no-headers -C 'net-setup.sh' | grep -qwv "^ *$$";then #190217
  giveErrorDialog "$L_MESSAGE_Already_Running
  $L_MESSAGE_Use_or_Terminate_Existing" #190217
  exit 1
