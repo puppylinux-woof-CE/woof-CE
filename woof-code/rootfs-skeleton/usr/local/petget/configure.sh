@@ -63,7 +63,7 @@ else
 	SIZEBOX=''
 fi
 
-if [ $PUPMODE -eq 3 -o $PUPMODE -eq 7 -o $PUPMODE -eq 13 ]; then
+if [ $PUPMODE -eq 13 ]; then
 	[ -f /var/local/petget/sc_category ] && \
      CATEGORY_IM=$(cat /var/local/petget/install_mode) || CATEGORY_IM="false"
 	IMODE="<checkbox>
@@ -261,7 +261,7 @@ echo -n "$RETPARAMS" | grep 'CATEGORY_SD' | cut -d= -f2 | tr -d '"' > /var/local
 echo -n "$RETPARAMS" | grep 'CATEGORY_SI' | cut -d= -f2 | tr -d '"' > /var/local/petget/si_category
 
 # handle install mode
-if [ $PUPMODE -eq 3 -o $PUPMODE -eq 7 -o $PUPMODE -eq 13 ]; then
+if [ $PUPMODE -eq 13 ]; then
   echo -n "$RETPARAMS" | grep 'CATEGORY_IM' | cut -d= -f2 | tr -d '"' > /var/local/petget/install_mode
 fi
 

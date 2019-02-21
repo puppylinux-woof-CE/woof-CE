@@ -178,7 +178,7 @@ if [ "$PUPMODE" = "2" ]; then # from BK's quirky6.1
 	fi
 
 #boot from flash: bypass tmpfs top layer, install direct to pup_save file... #170623 reverse this!
-elif [ $PUPMODE -eq 3 -o $PUPMODE -eq 7 -o $PUPMODE -eq 13 ];then
+elif [ $PUPMODE -eq 13 ];then
 	# SFR: let user chose...
 	if [ -f /var/local/petget/install_mode ] ; then
 	 IM="`cat /var/local/petget/install_mode`"

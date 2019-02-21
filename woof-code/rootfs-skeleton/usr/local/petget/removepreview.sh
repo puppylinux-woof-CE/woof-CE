@@ -52,7 +52,7 @@ fi
 
 #111228 if snapmergepuppy running, wait for it to complete (see also /usr/local/petget/installpkg.sh)...
 #note, inverse true, /sbin/pup_event_frontend_d will not run snapmergepuppy if removepreview.sh running.
-if [ $PUPMODE -eq 3 -o $PUPMODE -eq 7 -o $PUPMODE -eq 13 ];then
+if [ $PUPMODE -eq 13 ];then
   while [ "`pidof snapmergepuppy`" != "" ];do
    sleep 1
   done
@@ -78,7 +78,7 @@ if [ -f /root/.packages/${DB_pkgname}.files ];then
      #restore the original pristine file...
      cp -a --remove-destination "$S" "$ONESPEC" #120103 shinobar.
      #120103 apparently for odd# PUPMODEs, save layer may have a lurking old file and/or whiteout...
-     if [ $PUPMODE -eq 3 -o $PUPMODE -eq 7 -o $PUPMODE -eq 13 ];then
+     if [ $PUPMODE -eq 13 ];then
       [ -f "/initrd${SAVE_LAYER}${ONESPEC}" ] && rm -f "/initrd${SAVE_LAYER}${ONESPEC}" #normally /pup_ro1
       BN="`basename "$ONESPEC"`"
       DN="`dirname "$ONESPEC"`"
