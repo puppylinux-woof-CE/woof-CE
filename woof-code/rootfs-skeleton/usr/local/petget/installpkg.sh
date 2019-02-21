@@ -476,10 +476,6 @@ else #-- anything other than PUPMODE 2 (full install) --
 	 do
 	  ONEWHITEOUTFILE="`basename "$ONEWHITEOUT"`"
 	  ONEWHITEOUTPATH="`dirname "$ONEWHITEOUT"`"
-	  if [ "$ONEWHITEOUTFILE" = ".wh.__dir_opaque" ];then
-	   [ "`grep "$ONEWHITEOUTPATH" /root/.packages/${DLPKG_NAME}.files`" != "" ] && rm -f "/initrd/pup_rw/$ONEWHITEOUT"
-	   continue
-	  fi
 	  ONEPATTERN="`echo -n "$ONEWHITEOUT" | sed -e 's%/\\.wh\\.%/%'`"'/*'	;#echo "$ONEPATTERN" >&2
 	  [ "`grep -x "$ONEPATTERN" /root/.packages/${DLPKG_NAME}.files`" != "" ] && rm -f "/initrd/pup_rw/$ONEWHITEOUT"
 	 done
