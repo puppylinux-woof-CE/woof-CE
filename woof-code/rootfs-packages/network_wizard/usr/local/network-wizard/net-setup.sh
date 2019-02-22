@@ -72,8 +72,9 @@
 #170329 rerwin: set as current network exec, retaining previous exec name.
 #170509 rerwin: replace gtkdialog3 with gtkdialog.
 #170514 add message about already running
-#180923 move network wizard to its package directory.
-#190209 v2.0.1: increase wait for ethtool link detected, to 7.5 secs).
+#180923 v2.0:  move network wizard to its package directory.
+#190213 replace functions validip with validip4, dotquad with ip2dec.
+#190217 v2.1: shorten wait after link timeout; remember choice of interface for boot-up; stop interfaces other than that selected, before starting selected interface; separate 'running' test and 'current exec' logic, so exec change avoided if main window aborted (X); refine 'already running' dialog & add to locale files.
 
 # $1: interface
 interface_is_wireless() {
@@ -203,8 +204,14 @@ showMainWindow()
 			10) showLoadModuleWindow ;;
 			17) saveNewModule ;;
 			18) unloadNewModule ;;
-			19) break ;;
-			13) showConfigureInterfaceWindow "$INTERFACE" ;;
+			19) which connectwizard_exec &>/dev/null \
+				  && connectwizard_exec net-setup.sh #190217
+				break ;;
+			13) which connectwizard_exec &>/dev/null \
+				  && connectwizard_exec net-setup.sh #190217
+				local HWADDRESS=$(ifconfig "$INTERFACE" | grep "^$INTERFACE" | tr -s ' ' | cut -d' ' -f5) #190217
+				ln -snf $HWADDRESS.conf ${NETWORK_INTERFACES_DIR}/selected_conf #190217
+				showConfigureInterfaceWindow "$INTERFACE" ;;
 			66) AutoloadUSBmodules ;;
 			#21) showHelp  ;;
 			abort) break ;;
@@ -1057,7 +1064,7 @@ $ERROR
 			LINK_DETECTED="yes"
 			break
 		fi
-		sleep 1.5 #190209
+		[ $i -lt 5 ] && sleep 1.3 || sleep 0.5 #190217
 		echo "X"
 	done
 	if [ "$LINK_DETECTED" = "no" ] ; then
@@ -1126,6 +1133,7 @@ showConfigureInterfaceWindow()
           exit
           ;;
       10) # AutoDHCP
+          killOtherInterface #(if any) 190217
           # Must kill old dhcpcd first
 		  killDhcpcd "$INTERFACE"
 		  sleep 3
@@ -1341,6 +1349,7 @@ EOF
 				;; # Do Nothing, It will exit without doing anything
 			"OK" ) # OK
 				if validateStaticIP ; then
+					killOtherInterface #(if any) 190217
 					setupStaticIP || EXIT=""
 				else
 					EXIT=""
@@ -1561,6 +1570,18 @@ $L_MESSAGE_Ifconfig_Failed_p3"
 } #end of setupStaticIP
 
 #=============================================================================
+killOtherInterface() #190217...
+{
+  # derived from rc.network stop_all.
+  for IFACE in $(ifconfig | grep -F 'Link encap:Ethernet' | cut -f 1 -d " " | grep -vw "$INTERFACE") ; do
+    cleanUpInterface "$IFACE" >/dev/null 2>&1
+    ip route flush dev "$IFACE"
+    ifconfig "$IFACE" down
+  done
+} #end of killOtherInterface
+
+
+#=============================================================================
 saveNewModule()
 {
   # save newly loaded module
@@ -1696,9 +1717,9 @@ findInterfaceInfo()
 #=============================================================================
 saveInterfaceSetup()
 {
-  INTERFACE="$1"
+  local INTERFACE="$1"
   # need to address from ifconfig, for firewire (/sys.../address gives 24-bit)
-  HWADDRESS=$(ifconfig "$1" | grep "^$1" | tr -s ' ' | cut -d' ' -f5)
+  local HWADDRESS=$(ifconfig "$1" | grep "^$1" | tr -s ' ' | cut -d' ' -f5)
   
 # create config file
 		
@@ -1721,7 +1742,6 @@ saveInterfaceSetup()
     # Dougal: maybe append? in case used both for dhcp and static.
     echo -e "${MODECOMMANDS}\nIS_WIRELESS=''" > ${NETWORK_INTERFACES_DIR}/$HWADDRESS.conf
   fi
-
 } # end saveInterfaceSetup
 
 #=============================================================================
@@ -1743,10 +1763,9 @@ cleanUpTmp(){
 # Cleanup older temp files (in case didn't exit nicely last time)
 cleanUpTmp
 
-#170329 Update current exec name. 
-if which connectwizard_exec &>/dev/null \
-  && ! connectwizard_exec net-setup.sh; then #170514...
- Xdialog --left --title "$L_TITLE_Puppy_Network_Wizard"  --backtitle "\n$L_ECHO_Already_Running_Message" --icon /usr/local/lib/X11/pixmaps/error.xpm --msgbox "\n$L_ECHO_Use_or_Terminate_Existing_Message\n" 0 70
+if ps --no-headers -C 'net-setup.sh' | grep -qwv "^ *$$";then #190217
+ giveErrorDialog "$L_MESSAGE_Already_Running
+ $L_MESSAGE_Use_or_Terminate_Existing" #190217
  exit 1
 fi #170514 end
 

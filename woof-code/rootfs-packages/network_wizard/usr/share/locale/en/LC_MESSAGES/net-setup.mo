@@ -328,6 +328,8 @@ L_INTTYPE_Wireless="Wireless"
 L_INTTYPE_Ethernet="Ethernet"
 L_INFO_Eth_Firewire="Ethernet over firewire"
 
+L_MESSAGE_Already_Running="Network Wizard cannot start now because it is already active."
+L_MESSAGE_Use_or_Terminate_Existing="Please use the active Network Wizard session or terminate it and start it again."
 L_TOPMSG_Initial="Hi, networking is not always easy to setup, but let's give it a go!"
 
 ############### end net-setup.sh ###############

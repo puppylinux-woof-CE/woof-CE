@@ -108,6 +108,7 @@
 #170504 correct clean_up_gtkdialog PID extraction 
 #170509 rerwin: replace gtkdialog3 with gtkdialog.
 #170622 display networks in order of signal quality (except prism2); remove cell number from display.
+#190217 v2.1: avoid logging progress updates when X not running; correct use of argument in kill functions.
 
 #
 # Paul Siu
@@ -261,7 +262,7 @@ setupDHCP()
 				fi
 				#  i*3 will only get us up to 90% at 30 sec, but still... this
 				#+ could be tweaked and obviously needs to be adjusted to the max time 
-				echo $((i*$I_MULTIPLY))
+				[ "$HAVEX" = "yes" ] && echo $((i*$I_MULTIPLY)) #190217
 			done
 		}
 
@@ -1229,14 +1230,14 @@ killWpaSupplicant ()
 {
 	# If there are supplicant processes for the current interface, kill them
 	[ -d /var/run/wpa_supplicant ] || return
-	[ "$INTERFACE" ] || INTERFACE="$1"
+	[ "$1" ] && local INTERFACE="$1" #190217
 	wpa_cli -i "$INTERFACE" terminate 2>&1 |grep -v 'Failed to connect'
 	[ -e /var/run/wpa_supplicant/$INTERFACE ] && rm -rf /var/run/wpa_supplicant/$INTERFACE
 } # end killWpaSupplicant
 
 # Dougal: put this into a function, for maintainability and so it can be used in setupDHCP
 killDhcpcd(){
-	[ "$INTERFACE" ] || INTERFACE="$1"
+	[ "$1" ] && local INTERFACE="$1" #190217
 	## Dougal: check /var first, since /etc/dhcpc might exist in save file from the past...
 	if [ -d /var/lib/dhcpcd ] ; then
 	  if [ -s /var/run/dhcpcd-${INTERFACE}.pid ] ; then
