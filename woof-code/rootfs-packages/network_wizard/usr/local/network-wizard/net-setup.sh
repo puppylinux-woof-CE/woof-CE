@@ -75,6 +75,7 @@
 #180923 v2.0:  move network wizard to its package directory.
 #190213 replace functions validip with validip4, dotquad with ip2dec.
 #190217 v2.1: shorten wait after link timeout; remember choice of interface for boot-up; stop interfaces other than that selected, before starting selected interface; separate 'running' test and 'current exec' logic, so exec change avoided if main window aborted (X); refine 'already running' dialog & add to locale files.
+#190223 v2.1.1: Avoid exec change on exiting if no interface buttons used.
 
 # $1: interface
 interface_is_wireless() {
@@ -204,9 +205,7 @@ showMainWindow()
 			10) showLoadModuleWindow ;;
 			17) saveNewModule ;;
 			18) unloadNewModule ;;
-			19) which connectwizard_exec &>/dev/null \
-				  && connectwizard_exec net-setup.sh #190217
-				break ;;
+			19) break ;;
 			13) which connectwizard_exec &>/dev/null \
 				  && connectwizard_exec net-setup.sh #190217
 				local HWADDRESS=$(ifconfig "$INTERFACE" | grep "^$INTERFACE" | tr -s ' ' | cut -d' ' -f5) #190217
