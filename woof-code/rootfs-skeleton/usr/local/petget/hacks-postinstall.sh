@@ -12,7 +12,7 @@ INSTALLEDPKG="$1" #ex: vlc_2.0.3-0ubuntu0.12.04.1_i386, without .deb
 INSTALLEDNAME="$2" #130326
 
 case $INSTALLEDPKG in
- vlc-nox_*)
+ vlc_*)
   #120907 vlc in debian/ubuntu configured to not run as root (it is a pre-compile configure option to enable running as root).
   #this hack will fix it...
   #note, this code is also in FIXUPHACK in 'vlc' template.
