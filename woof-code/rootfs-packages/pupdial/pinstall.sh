@@ -13,6 +13,11 @@ if [ "$(pwd)" = "/" ];then
  rm -f usr/sbin/pupdial_wizard_helper
 fi
 
+if [ "$(pwd)" = "/" ];then
+ #v2.2 compensate for old, adapted wvdial packages
+ mv -f etc/ppp/wvdial* etc/ppp/peers/
+fi
+
 #Replace placeholders with links.
 ln -snf /usr/local/pupdial/pupdial usr/sbin/
 ln -snf /usr/local/pupdial/modemdisconnect usr/sbin/
