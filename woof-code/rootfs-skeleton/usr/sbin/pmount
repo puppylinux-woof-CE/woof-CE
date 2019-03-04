@@ -206,11 +206,12 @@ mountme (){
 	#         UNMOUNT_/dev/sda2_ext4_/mnt/sda2
 	IFS="_" read DOACTION DODEV DOFS MNTPT <<< "$1"
 	DEVNAME="`echo -n "$DODEV" | cut -f 3 -d '/'`"
+	[ "$DOFS" = "crypto" ] && [ "${MNTPT:0:4}" = "LUKS" ] && { DOFS='crypto_LUKS'; MNTPT=''; }
 	devPATTERN="^$DEVNAME|"
 	TOPACTUAL="`echo "$DEV2TAB" | tr ' ' '\n' | grep "$devPATTERN" | cut -f 2 -d '|'`" #find top tab.
 	if [ "$DOACTION" = 'DOMOUNT' ];then
 		mkdir -p /mnt/$DEVNAME
-		mount -t $DOFS $DODEV /mnt/$DEVNAME
+		mount -t $DOFS $DODEV /mnt/$DEVNAME > ${TMPDIR}/mount.log
 		RETVAL1=$?
 		if [ $RETVAL1 -eq 0 ]; then
 			defaultfilemanager_x /mnt/$DEVNAME &
@@ -219,9 +220,17 @@ mountme (){
 			exec ${TMPDIR}/pmount_reload
 		fi
 	else
-		[ -z $MNTPT ] && MNTPT=$(mount | grep "^${DODEV} " | cut -f 3 -d ' ')
+		if [ "$DOFS" = "crypto_LUKS" ]; then
+			MNTPT="/mnt/$DEVNAME"
+			DODEV="$(grep " $MNTPT " /proc/mounts | cut -f 1 -d ' ')"
+		fi
+		[ -z "$MNTPT" ] && MNTPT=$(mount | grep "^${DODEV} " | cut -f 3 -d ' ')
 		sync
-		umount $DODEV
+		if [ "$DOFS" = "crypto_LUKS" ]; then
+			umount.crypto_LUKS "$MNTPT" > ${TMPDIR}/umount.log
+		else
+			umount "$MNTPT"
+		fi
 		umVAL=$?
 		#v3.99 fix zombie process prevents partition unmount, invisible to fuser...
 		if [ $umVAL -ne 0 ];then
@@ -231,7 +240,12 @@ mountme (){
 				echo "Killing parentless zombie process $ONEZOMBIE"
 				kill $ONEZOMBIE
 			done
-			umount $DODEV ; umVAL=$?
+			if [ "$DOFS" = "crypto_LUKS" ]; then
+				umount.crypto_LUKS "$MNTPT" >> ${TMPDIR}/umount.log
+			else
+				umount "$MNTPT"
+			fi
+			umVAL=$?
 		fi
 		#v3.99 rare ocassion, partition got unmounted before umount runs above...
 		umPATTERN="${MNTPT} "
@@ -451,12 +465,16 @@ do
   #====================
   while IFS="|" read -r ONEDEV ONEFS ONESIZE ONELABEL IS_MOUNTED
   do
-	[ -z $ONEDEV -o "$ONEDEV" = "none" ] && continue
+	[ -z "$ONEDEV" -o "$ONEDEV" = "none" ] && continue
 	CNT=$((CNT+1))
 	DEVNAME=${ONEDEV##*/} #basename $ONEDEV
 
 	export DEV2TAB="${DEV2TAB} ${DEVNAME}|${CURRENTTAB}" #remember which tab a partition is in.
-	ONEMNTPT="`grep "${ONEDEV} " /proc/self/mountinfo | grep '/ ' | cut -f 5 -d ' '`"
+	if [ "$ONEFS" = "crypto_LUKS" ]; then
+		ONEMNTPT="$(grep " /mnt/$DEVNAME " /proc/mounts | cut -f 2 -d ' ')"
+	else
+		ONEMNTPT="`grep "${ONEDEV} " /proc/self/mountinfo | grep '/ ' | cut -f 5 -d ' '`"
+	fi
 	[ "$ROOTDEV2" != "" ] && [ "$ROOTDEV2" = "$ONEDEV" ] && ONEMNTPT='/' #v3.96
 
 	#in some cases prevent unmounting...
