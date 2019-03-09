@@ -1,16 +1,22 @@
 #!/bin/bash
 # efi.img/grub2 is thanks to jamesbond
 # basic CD structure is the same as Fatdog64
-# called from 3builddistro-Z
-
-. ../DISTRO_SPECS
-. ../_00build.conf
+# called from 3builddistro-Z (or build-iso.sh)
 
 #set -x
 
-PX=../sandbox3/rootfs-complete
+if [ -f ../_00build.conf ] ; then
+	. ../_00build.conf
+	. ../DISTRO_SPECS
+elif [ -f ./build.conf ] ; then #zwoof-next
+	. ./build.conf
+	. ./DISTRO_SPECS
+fi
+
+[ -z "$PX" ]    && PX=../sandbox3/rootfs-complete
+[ -z "$BUILD" ] && BUILD=../sandbox3/build
+
 FIXUSB=${PX}/usr/sbin/fix-usb.sh
-BUILD=../sandbox3/build
 BOOTLABEL=puppy
 PPMLABEL=`which ppmlabel`
 TEXT="-text $DISTRO_VERSION"
@@ -74,9 +80,13 @@ mk_efi_img() {
 	return 0
 }
 
-WOOF_OUTPUT="woof-output-${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${SCSIFLAG}${UFLG}${XTRA_FLG}"
-[ -d ../$WOOF_OUTPUT ] || mkdir -p ../$WOOF_OUTPUT
-OUT=../${WOOF_OUTPUT}/${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${SCSIFLAG}${UFLG}${XTRA_FLG}.iso
+ISO_BASENAME=${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${UFLG}${XTRA_FLG}
+WOOF_OUTPUT=../woof-output-${ISO_BASENAME}
+if [ -L ../woof-code ] ; then #zwoof-next
+	WOOF_OUTPUT=${WOOF_OUTPUT#../} #use current dir
+fi
+[ -d $WOOF_OUTPUT ] || mkdir -p $WOOF_OUTPUT
+OUT=${WOOF_OUTPUT}/${ISO_BASENAME}.iso
 
 
 #======================================================
@@ -163,11 +173,9 @@ mk_iso $BUILD $OUT
 sync
 
 (
-cd ../$WOOF_OUTPUT
-md5sum ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${SCSIFLAG}${UFLG}${XTRA_FLG}.iso \
-	> ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${SCSIFLAG}${UFLG}${XTRA_FLG}.iso.md5.txt
-sha256sum ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${SCSIFLAG}${UFLG}${XTRA_FLG}.iso \
-	> ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${SCSIFLAG}${UFLG}${XTRA_FLG}.iso.sha256.txt
+	cd $WOOF_OUTPUT
+	md5sum ${ISO_BASENAME}.iso > ${ISO_BASENAME}.iso.md5.txt
+	sha256sum ${ISO_BASENAME}.iso > ${ISO_BASENAME}.iso.sha256.txt
 )
 
 ### END ###
