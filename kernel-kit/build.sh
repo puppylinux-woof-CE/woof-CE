@@ -177,7 +177,7 @@ fi
 log_msg "kernel_version=${kernel_version}"
 log_msg "kernel_version_info=${kernel_version_info}"
 case "$kernel_version" in
-	3.*|4.*) ok=1 ;; #----
+	3.*|4.*|5.*) ok=1 ;; #----
 	*) exit_error "ERROR: Unsupported kernel version" ;;
 esac
 
@@ -190,9 +190,11 @@ FW_URL=${FW_URL:-http://distro.ibiblio.org/puppylinux/firmware}
 # $package_name_suffix $custom_suffix $kernel_ver
 aufs_git_3="git://github.com/puppylinux-woof-CE/aufs3-standalone.git"
 aufs_git_4="git://github.com/sfjro/aufs4-standalone.git"
+aufs_git_5="git://github.com/sfjro/aufs5-standalone.git"
 [ ! "$kernel_mirrors" ] && kernel_mirrors="https://www.kernel.org/pub/linux/kernel"
 ksubdir_3=v3.x #http://www.kernel.org/pub/linux/kernel/v3.x
 ksubdir_4=v4.x
+ksubdir_5=v5.x
 #-- random kernel mirror first
 rn=$(( ( RANDOM % $(echo "$kernel_mirrors" | wc -l) )  + 1 ))
 x=0
@@ -297,6 +299,7 @@ log_msg "aufs=$aufsv"
 case $kernel_series in
 	3) ksubdir=${ksubdir_3} ; aufs_git=${aufs_git_3} ; aufs_git_dir=aufs3_sources_git ;;
 	4) ksubdir=${ksubdir_4} ; aufs_git=${aufs_git_4} ; aufs_git_dir=aufs4_sources_git ;;
+	5) ksubdir=${ksubdir_5} ; aufs_git=${aufs_git_5} ; aufs_git_dir=aufs5_sources_git ;;
 esac
 
 ## create directories for the results
