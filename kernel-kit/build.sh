@@ -537,21 +537,27 @@ rm -rf aufs-util
 cp -a sources/aufs-util_git aufs-util
 (
 	cd aufs-util
-	git branch -a | grep "aufs$kernel_series" | \
-		grep -v -E 'rcN|\)' | cut -d '.' -f2 | \
+	branch=""
+	git branch -a | grep -v -E 'master|rcN|\)' | sed 's|.*/aufs||' | \
 		sort -n > /tmp/aufs-util-version #we go for stable only
 	while read line ; do 
-		if [ "$line" -le "$kernel_branch" ] ; then #less or equal than $kernel_branch
+		[ -z "$line" ] && continue
+		if vercmp $line le ${kernel_major_version} ; then # less or equal than 3.14, 4.9, etc
 			branch=$line
 			#echo $line ##debug
 		else
 			break
 		fi
 	done < /tmp/aufs-util-version
-	git checkout aufs${kernel_series}.${branch} #>> ${BUILD_LOG} 2>&1
-	cp Makefile Makefile-orig
-	sed -i -e 's/-static //' -e 's|ver_test ||' -e 's|BuildFHSM = .*||' Makefile
-	diff -ru Makefile-orig Makefile > ../output/patches-${kernel_version}-${HOST_ARCH}/aufs-util.patch
+	if [ "$branch" ] ; then
+		echo "* aufs-util branch: $branch"
+		git checkout aufs${branch} #>> ${BUILD_LOG} 2>&1
+		cp Makefile Makefile-orig
+		sed -i -e 's/-static //' -e 's|ver_test ||' -e 's|BuildFHSM = .*||' Makefile
+		diff -ru Makefile-orig Makefile > ../output/patches-${kernel_version}-${HOST_ARCH}/aufs-util.patch
+	else
+		exit_error "aufs-util: cannot select git branch."
+	fi
 )
 
 log_msg "Extracting the Aufs sources"
