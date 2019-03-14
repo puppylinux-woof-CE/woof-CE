@@ -142,3 +142,10 @@ exec defaulttorrent "$@"
 		chmod +x ${SR}/etc/xdg/rox.sourceforge.net/MIME-types/application_x-bittorrent
 	fi
 fi
+
+# enable xorg mouse keys
+for i in ${SR}/usr/share/X11/xkb/symbols/pc ${SR}/etc/X11/xkb/symbols/pc ; do
+	[ -f $i ] || continue
+	sed -i 's%key <NMLK>.*Num_Lock.*%key <NMLK> { [ Num_Lock, Pointer_EnableKeys ] };%' $i
+	# grep 'key <NMLK>.*Num_Lock' /usr/share/X11/xkb/symbols/pc
+done
