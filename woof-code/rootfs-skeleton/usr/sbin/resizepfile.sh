@@ -1,24 +1,13 @@
 #!/bin/sh
 #2007 Lesser GPL licence v2 (http://www.fsf.org/licensing/licenses/lgpl.html)
 #make the pup_save.2fs file bigger.
-#v412 /etc/DISTRO_SPECS, renamed pup_xxx.sfs, pup_save.2fs etc.
-#v555 pup files renamed to woofr555.sfs, woofsave.2fs.
-#100913 simplified filenames, minor update of comments.
-#120202 rodin.s: internationalized.
-#120323 partial replace 'xmessage' with 'pupmessage'.
-#130715 some translation fixes.
-#131223 gtkdialog
-#131226 rodin.s: updating i18n
 
 export TEXTDOMAIN=resizepfile.sh
-export TEXTDOMAINDIR=/usr/share/locale
 export OUTPUT_CHARSET=UTF-8
 
 . gettext.sh
-
-#variables created at bootup by /initrd/usr/sbin/init...
-. /etc/rc.d/PUPSTATE
-. /etc/DISTRO_SPECS #v412
+. /etc/rc.d/PUPSTATE #variables created at bootup by /initrd/usr/sbin/init...
+. /etc/DISTRO_SPECS
 
 if [ -f /initrd/tmp/no_resize2fs ] ; then #set by the initrd init script...
 	/usr/lib/gtkdialog/box_ok "$(gettext 'Resize Personal Storage File')" error \
@@ -26,30 +15,13 @@ if [ -f /initrd/tmp/no_resize2fs ] ; then #set by the initrd init script...
 	exit 1
 fi
 
-SAVELOC=$(echo $PUPSAVE | cut -f3 -d ',')
-[ -d /mnt/home$SAVELOC ] && /usr/lib/gtkdialog/box_ok "$(gettext 'Resize personal storage file')" info "<b>$(gettext "Puppy is currently using a savefolder. There is no need to resize it")</b>" " " && exit 0 
-
-#find out what modes use a ${DISTRO_FILE_PREFIX}save.2fs file...
-CANDOIT="no"
 case $PUPMODE in
- "12") #${DISTRO_FILE_PREFIX}save.3fs (pup_rw), nothing on pup_ro1, ${DISTRO_PUPPYSFS} (pup_ro2).
-  PERSISTMNTPT="/initrd/pup_rw"
-  CANDOIT="yes"
-  ;;
- "13") #tmpfs (pup_rw), ${DISTRO_FILE_PREFIX}save.3fs (pup_ro1), ${DISTRO_PUPPYSFS} (pup_ro2).
-  PERSISTMNTPT="/initrd/pup_ro1"
-  CANDOIT="yes"
-  ;;
-esac
-
-if [ "$CANDOIT" != "yes" ];then
-/usr/lib/gtkdialog/box_ok "$(gettext 'Resize personal storage file')" error "<b>$(gettext "Sorry, Puppy is not currently using a personal persistent storage file.")</b>" " " "$(eval_gettext "If this is the first time that you booted Puppy, say from a live-CD, you are currently running totally in RAM and you will be asked to create a personal storage file when you end the session (shutdown the PC or reboot). Note, the file will be named \${DISTRO_FILE_PREFIX}save.2fs and will be created in a place that you nominate.")
+	"12") PERSISTMNTPT="/initrd/pup_rw"  ;;
+	"13") PERSISTMNTPT="/initrd/pup_ro1" ;;
+	*) /usr/lib/gtkdialog/box_ok "$(gettext 'Resize personal storage file')" error "<b>$(gettext "Sorry, Puppy is not currently using a personal persistent storage file.")</b>" " " "$(eval_gettext "If this is the first time that you booted Puppy, say from a live-CD, you are currently running totally in RAM and you will be asked to create a personal storage file when you end the session (shutdown the PC or reboot).")
 $(eval_gettext "If you have installed Puppy to hard drive, or installed such that personal storage is an entire partition, then you will not have a \${DISTRO_FILE_PREFIX}save.2fs file either.")"
-  exit
-fi
 
-[ ! "$PUPSAVE" ] && exit #precaution
-[ ! "$PUP_HOME" ] && exit #precaution.
+esac
 
 SAVEFS="`echo -n "$PUPSAVE" | cut -f 2 -d ','`"
 SAVEPART="`echo -n "$PUPSAVE" | cut -f 1 -d ','`"
@@ -57,6 +29,10 @@ SAVEFILE="`echo -n "$PUPSAVE" | cut -f 3 -d ','`"
 NAMEPFILE="`basename $SAVEFILE`"
 
 HOMELOCATION="/initrd${PUP_HOME}${SAVEFILE}"
+if [ -d $HOMELOCATION ] ; then
+	exec /usr/lib/gtkdialog/box_ok "$(gettext 'Resize personal storage file')" info "<b>$(gettext "Puppy is currently using a savefolder. There is no need to resize it")</b>" " "
+fi
+
 SIZEFREE=`df -m | grep "$PERSISTMNTPT" | tr -s " " | cut -f 4 -d " "` #free space in ${DISTRO_FILE_PREFIX}save.3fs
 ACTUALSIZK=`stat -c %s $HOMELOCATION` #total size of ${DISTRO_FILE_PREFIX}save.3fs
 ACTUALSIZE=`expr $ACTUALSIZK \/ 1024 \/ 1024`
@@ -125,20 +101,12 @@ x='
 export resize="$x"
 . /usr/lib/gtkdialog/xml_info gtk > /dev/null #build bg_pixmap for gtk-theme
 eval $(gtkdialog -p resize)
-case ${EXIT} in
-  save)KILOBIG=$(($KILOBIG * 1024))
+case ${EXIT} in save)
+	KILOBIG=$(($KILOBIG * 1024))
 	echo "KILOBIG=$KILOBIG" > /initrd${PUP_HOME}/pupsaveresizenew.txt
 	echo "PUPSAVEFILEX=$SAVEFILE" >> /initrd${PUP_HOME}/pupsaveresizenew.txt #131231
-   ;;
-   *)
-    exit
-   ;;
+	/usr/lib/gtkdialog/box_ok "$(gettext 'Resize personal storage file')" complete "$(eval_gettext "Okay, you have chosen to <b>increase \${NAMEPFILE} by \${KILOBIG} Kbytes</b>, however as the file is currently in use, it will happen at reboot.")" " " "$(gettext 'Technical notes:')" "$(eval_gettext "The required size increase has been written to file pupsaveresizenew.txt, in partition \${SAVEPART} (currently mounted on /mnt/home).")" "$(gettext 'File pupsaveresizenew.txt will be read at bootup and the resize performed then pupsaveresizenew.txt will be deleted.')" "$(eval_gettext "WARNING: If you have multiple \${DISTRO_FILE_PREFIX}save files, be sure to select the same one when you reboot.")" " " "<b>$(gettext 'You can keep using Puppy. The change will only happen at reboot.')</b>"
+	;;
 esac
 
-
-/usr/lib/gtkdialog/box_ok "$(gettext 'Resize personal storage file')" complete "$(eval_gettext "Okay, you have chosen to <b>increase \${NAMEPFILE} by \${KILOBIG} Kbytes</b>, however as the file is currently in use, it will happen at reboot.")" " " "$(gettext 'Technical notes:')" "$(eval_gettext "The required size increase has been written to file pupsaveresizenew.txt, in partition \${SAVEPART} (currently mounted on /mnt/home).")" "$(gettext 'File pupsaveresizenew.txt will be read at bootup and the resize performed then pupsaveresizenew.txt will be deleted.')" "$(eval_gettext "WARNING: If you have multiple \${DISTRO_FILE_PREFIX}save files, be sure to select the same one when you reboot.")" " " "<b>$(gettext 'You can keep using Puppy. The change will only happen at reboot.')</b>"
-
-###END###
-
-#notes:
-#  dd if=/dev/zero bs=1k count=$KILOBIG | tee -a $HOMELOCATION > /dev/null
+### END ###
