@@ -141,14 +141,6 @@ for i in ${SR}/usr/share/X11/xkb/symbols/pc ${SR}/etc/X11/xkb/symbols/pc ; do
 	# grep 'key <NMLK>.*Num_Lock' /usr/share/X11/xkb/symbols/pc
 done
 
-# future: -FULL apps might become the standard apps
-for i in bin/df bin/mount bin/ps bin/umount sbin/losetup
-do
-	if [ -e ${SR}/$i ] && [ ! -e ${SR}/${i}-FULL ] ; then
-		ln -sv ${i##*/} ${SR}/${i}-FULL
-	fi
-done
-
 # workaround for hardcoded rox everywhere - allow more default file managers..
 if [ -f ${SR}/usr/local/bin/rox ] && [ ! -L ${SR}/usr/local/bin/rox ] ; then
 	mv -f ${SR}/usr/local/bin/rox ${SR}/usr/local/bin/roxfiler
@@ -211,4 +203,23 @@ fi
 if [ -f ${SR}/usr/bin/normalize-audio ] && [ ! -f ${SR}/usr/bin/normalize ] ; then
 	ln -s normalize-audio ${SR}/usr/bin/normalize
 fi
+
+# -pup scripts replace binaries which become -FULL apps ..
+find ${SR}/bin ${SR}/sbin -name '*-pup' 2>/dev/null | \
+while read i ; do
+	app=${i%-pup} #remove -pup suffix
+	if [ -f $app ] ; then
+		[ -h $app ] && continue
+		mv -fv $app ${app}-FULL
+		mv -fv $i ${app}
+	fi
+done
+
+# future: -FULL apps might become the standard apps
+for i in bin/df bin/mount bin/ps bin/umount sbin/losetup
+do
+	if [ -e ${SR}/$i ] && [ ! -e ${SR}/${i}-FULL ] ; then
+		ln -sv ${i##*/} ${SR}/${i}-FULL
+	fi
+done
 
