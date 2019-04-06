@@ -16,14 +16,6 @@ echo '' > /var/local/pup_event_icon_change_flag
 #/sbin/pup_event_frontend_d &
 #130525 ...start this further down.
 
-#w482 reshape background image if widescreen...
-#120708 need to reshape for PUPMODE=2 also...
-#[ $PUPMODE -eq 5 ] && /usr/sbin/background_reshape
-NEEDRESHAPE='yes'
-[ -f /usr/share/backgrounds_original/ORIGINAL-default.jpg ] && NEEDRESHAPE='no'
-[ -f /usr/share/backgrounds_original/ORIGINAL-default.png ] && NEEDRESHAPE='no'
-[ "$NEEDRESHAPE" = "yes" ] && /usr/sbin/background_reshape
-
 userresources=$HOME/.Xresources
 usermodmap=$HOME/.Xmodmap
 sysresources=/usr/lib/X11/xinit/Xresources
