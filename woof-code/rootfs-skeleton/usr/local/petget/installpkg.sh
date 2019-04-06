@@ -423,14 +423,14 @@ ls -dl /tmp | grep -q '^drwxrwxrwt' || chmod 1777 /tmp #130305 rerwin.
 for i in pinstall.sh install/doinst.sh DEBIAN/postinst
 do
 	[ ! -e "$DIRECTSAVEPATH/$i" ] && continue
-	chmod +x $DIRECTSAVEPATH/${i}
 	cd $DIRECTSAVEPATH/
-	LANG=$LANG_USER nohup sh ${i} &
-	sleep 0.2
+	LANG=$LANG_USER sh ${i}
+	sync
 	rm -f ${i}
 done
 rm -rf $DIRECTSAVEPATH/install
 rm -rf $DIRECTSAVEPATH/DEBIAN
+
 #130314 run arch linux pkg post-install script...
 if [ -f $DIRECTSAVEPATH/.INSTALL ];then #arch post-install script.
  if [ -f /usr/local/petget/ArchRunDotInstalls ];then #precaution. see 3builddistro, script created by noryb009.
