@@ -4,7 +4,7 @@ SR=
 [ "$1" ] && SR="$1" #SYSROOT
 
 # xmessage symlink
-if [ ! -L ${SR}/usr/bin/xmessage ] ; then
+if [ -x ${SR}/usr/bin/gxmessage ] && [ ! -L ${SR}/usr/bin/xmessage ] ; then
 	ln -snfv gxmessage ${SR}/usr/bin/xmessage
 fi
 
@@ -79,25 +79,17 @@ fi
 
 # disable ext4 64bit feature in /etc/mke2fs.conf
 #  ...the 'wee' bootloader does not support it
-# this should be removed only when a fixed 'wee' version is available for all builds..
 if [ -f ${SR}/etc/mke2fs.conf ] ; then
 	sed -i 's/64bit,//g' ${SR}/etc/mke2fs.conf
 fi
 
-#100524 fix cups for samba, got this code from /usr/sbin/cups_shell...
-#fixes from rcrsn51 for samba printing...
+# fix cups for samba, got this code from /usr/sbin/cups_shell...
+# fixes from rcrsn51 for samba printing...
 if [ -f ${SR}/etc/cups/snmp.conf ] ; then
 	if [ "`stat -c %U%G ${SR}/etc/cups/snmp.conf | grep 'UNKNOWN'`" != "" ] ; then
 		chown root:nobody ${SR}/etc/cups/snmp.conf
 	fi
 fi
-
-if [ -e ${SR}/usr/lib/cups ] ; then
-	LIBCUPS=${SR}/usr/lib/cups
-elif [ -e ${SR}/usr/lib64/cups ] ; then
-	LIBCUPS=${SR}/usr/lib64/cups
-fi
-
 for i in ${SR}/usr/lib/cups ${SR}/usr/lib64/cups
 do
 	if [ ! -d $i ] ; then
@@ -122,7 +114,6 @@ do
 		chmod 0755 ${LIBCUPS}/filter
 	fi
 done
-
 [ -f ${SR}/etc/opt/samba/smb.conf ] && chmod 755 ${SR}/etc/opt/samba/smb.conf #need world-readable.
 [ -f ${SR}/etc/samba/smb.conf ] && chmod 755 ${SR}/etc/samba/smb.conf #need world-readable.
 
@@ -149,3 +140,75 @@ for i in ${SR}/usr/share/X11/xkb/symbols/pc ${SR}/etc/X11/xkb/symbols/pc ; do
 	sed -i 's%key <NMLK>.*Num_Lock.*%key <NMLK> { [ Num_Lock, Pointer_EnableKeys ] };%' $i
 	# grep 'key <NMLK>.*Num_Lock' /usr/share/X11/xkb/symbols/pc
 done
+
+# future: -FULL apps might become the standard apps
+for i in bin/df bin/mount bin/ps bin/umount sbin/losetup
+do
+	if [ -e ${SR}/$i ] && [ ! -e ${SR}/${i}-FULL ] ; then
+		ln -sv ${i##*/} ${SR}/${i}-FULL
+	fi
+done
+
+# workaround for hardcoded rox everywhere - allow more default file managers..
+if [ -f ${SR}/usr/local/bin/rox ] && [ ! -L ${SR}/usr/local/bin/rox ] ; then
+	mv -f ${SR}/usr/local/bin/rox ${SR}/usr/local/bin/roxfiler
+	ln -sv defaultfilemanager ${SR}/usr/local/bin/rox
+fi
+if [ -f ${SR}/usr/share/applications/ROX-Filer-file-manager.desktop ] ; then
+	sed -i 's|Exec=rox.*|Exec=roxfiler|' ${SR}/usr/share/applications/ROX-Filer-file-manager.desktop
+fi
+
+# debian's procps has a wrong pkill symlink
+if [ -L ${SR}/usr/bin/pkill ] ; then
+	if [ "`readlink ${SR}/usr/bin/pkill`" = "pgrep" ] ; then
+		ln -snfv ../../bin/busybox ${SR}/usr/bin/pkill
+	fi
+fi
+
+# ensure X is a symlink to Xorg
+if [ -f ${SR}/usr/bin/Xorg ] && [ ! -L ${SR}/usr/bin/X ] ; then
+	ln -snfv Xorg ${SR}/usr/bin/X
+fi
+
+# need a working wget
+if [ -f ${SR}/etc/wgetrc ] ; then
+	if ! grep -q "check_certificate = off" ${SR}/etc/wgetrc ; then
+		echo "check_certificate = off
+	#ca_certificate = /etc/ssl/certs/ca-certificates.crt
+	continue = on" >> ${SR}/etc/wgetrc
+	fi
+fi
+
+# fix some apps to work without root
+for i in usr/bin/xsane usr/bin/xchat usr/bin/hexchat usr/bin/amule
+do
+	if [ -f ${SR}/${i} ] ; then
+		sed -i "s/getuid/getpid/g" ${SR}/${i}
+	fi
+done
+
+# delete files
+rm -f ${SR}/etc/profile.d/*.csh* 2>/dev/null # slackware: just in case any got through, remove c-shell scripts...
+rm -rf ${SR}/install 2>/dev/null #maybe stray /install dir from slackware pkgs...
+rm -f ${SR}/etc/cron.daily 2>/dev/null #slackware pkg may create this...
+rm -f ${SR}/puninstall.sh
+rm -f ${SR}/pet.specs
+[ -d ${SR}/usr/share/xine/libxine1/fonts ] && rm -rf ${SR}/usr/share/xine/libxine1/fonts
+[ -f ${SR}/usr/share/applications/qv4l2.desktop ] && rm ${SR}/usr/share/applications/qv4l2.desktop #slackware
+
+# in puppy 'run' is a relative link to 'tmp'
+if [ -d ${SR}/run ] && [ ! -L ${SR}/run ] ; then
+	rm -rf ${SR}/run
+	ln -sv tmp ${SR}/run
+fi
+
+# gutenprint_FIXUPHACK
+if [ -d ${SR}/usr/share/gutenprint/samples ] ; then
+	rm -rf ${SR}/usr/share/gutenprint/samples
+fi
+
+# normalize_FIXUPHACK
+if [ -f ${SR}/usr/bin/normalize-audio ] && [ ! -f ${SR}/usr/bin/normalize ] ; then
+	ln -s normalize-audio ${SR}/usr/bin/normalize
+fi
+
