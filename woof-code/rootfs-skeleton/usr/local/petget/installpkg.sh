@@ -23,7 +23,6 @@
 #111013 revert above. it works for me, except if file already on top -- that is another problem, needs to be addressed.
 #111207 improve search for menu icon.
 #111229 /usr/local/petget/removepreview.sh when uninstalling a pkg, may have copied a file from sfs-layer to top, check.
-#120102 install may have overwritten a symlink-to-dir.
 #120107 rerwin: need quotes around some paths in case of space chars. remove '--unlink-first' from tar (was introduced 120102, don't think necessary).
 #120126 noryb009: fix typo.
 #120219 was not properly internationalized (there was no TEXTDOMAIN).
@@ -343,45 +342,6 @@ else #-- anything other than PUPMODE 2 (full install) --
 	#pkgname.files may need to be fixed...
 	FIXEDFILES="`cat /root/.packages/${DLPKG_NAME}.files | grep -v '^\\./$'| grep -v '^/$' | sed -e 's%^\\.%%' -e 's%^%/%' -e 's%^//%/%'`"
 	echo "$FIXEDFILES" > /root/.packages/${DLPKG_NAME}.files
-
-	#120102 install may have overwritten a symlink-to-dir...
-	#tar defaults to not following symlinks, for both dirs and files, but i want to follow symlinks
-	#for dirs but not for files. so, fix here... (note, dir entries in .files have / on end)
-	cat /root/.packages/${DLPKG_NAME}.files | grep '[a-zA-Z0-9]/$' | sed -e 's%/$%%' | grep -v '^/mnt' |
-	while read ONESPEC
-	do
-	 if [ -d "${DIRECTSAVEPATH}${ONESPEC}" ];then
-	  if [ ! -h "${DIRECTSAVEPATH}${ONESPEC}" ];then
-	   DIRLINK=""
-	   if [ -h "/initrd${PUP_LAYER}${ONESPEC}" ];then #120107
-	    DIRLINK="`readlink -m "/initrd${PUP_LAYER}${ONESPEC}" | sed -e "s%/initrd${PUP_LAYER}%%"`" #PUP_LAYER: see /etc/rc.d/PUPSTATE. 120107
-	    xDIRLINK="`readlink "/initrd${PUP_LAYER}${ONESPEC}"`" #120107
-	   fi
-	   if [ ! "$DIRLINK" ];then
-	    if [ -h "/initrd${SAVE_LAYER}${ONESPEC}" ];then #120107
-	     DIRLINK="`readlink -m "/initrd${SAVE_LAYER}${ONESPEC}" | sed -e "s%/initrd${SAVE_LAYER}%%"`" #SAVE_LAYER: see /etc/rc.d/PUPSTATE. 120107
-	     xDIRLINK="`readlink "/initrd${SAVE_LAYER}${ONESPEC}"`" #120107
-	    fi
-	   fi
-	   if [ "$DIRLINK" ];then
-	    if [ -d "$DIRLINK"  ];then
-	     if [ "$DIRLINK" != "${ONESPEC}" ];then #precaution.
-	      mkdir -p "${DIRECTSAVEPATH}${DIRLINK}" #120107
-	      cp -a -f --remove-destination ${DIRECTSAVEPATH}"${ONESPEC}"/* "${DIRECTSAVEPATH}${DIRLINK}/" #ha! fails if put double-quotes around entire expression.
-	      rm -rf "${DIRECTSAVEPATH}${ONESPEC}"
-	      if [ "$DIRECTSAVEPATH" = "" ];then
-	       ln -s "$xDIRLINK" "${ONESPEC}"
-	      else
-	       DSOPATH="`dirname "${DIRECTSAVEPATH}${ONESPEC}"`"
-	       DSOBASE="`basename "${DIRECTSAVEPATH}${ONESPEC}"`"
-	       rm -f "${DSOPATH}/.wh.${DSOBASE}" #allow underlying symlink to become visible on top.
-	      fi
-	     fi
-	    fi
-	   fi
-	  fi
-	 fi
-	done
 
 	#flush unionfs cache, so files in pup_save layer will appear "on top"...
 	if [ "$DIRECTSAVEPATH" != "" ];then
