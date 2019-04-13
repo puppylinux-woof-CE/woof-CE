@@ -30,8 +30,8 @@ DB_ENTRY="`echo -n "$ONEDBENTRY" | cut -f 4-19 -d '|'`" #take GENERICNAME|PETorC
 CATEGORY="`echo -n "$DB_ENTRY" | cut -f 5 -d '|'`" #exs: Document, Document;edit
 [ "$CATEGORY" = "" ] && CATEGORY='BuildingBlock' #paranoid precaution.
 #xCATEGORY and DEFICON will be the fallbacks if Categories entry in .desktop is invalid...
-xCATEGORY="`echo -n "$CATEGORY" | sed -e 's%^%X-%' -e 's%;%-%'`" #ex: X-Document-edit (refer /etc/xdg/menu/*.menu)
-DEFICON="`echo -n "$CATEGORY" | sed -e 's%^%mini-%' -e 's%;%-%'`" #ex: mini-Document-edit (refer /usr/local/lib/X11/mini-icons -- these are in jwm search path)
+DEFICON=X-${CATEGORY//;/-} #ex: X-Document-edit (refer /etc/xdg/menu/*.menu)
+DEFICON=${CATEGORY//;/-}.svg #ex: Document-edit (refer /usr/share/pixmaps/puppy -- these are in jwm search path)
 case $CATEGORY in
 	Calculate)     CATEGORY='Business'             ; xCATEGORY='X-Business'            ; DEFICON='Business.svg'            ;; #Calculate is old name, now Business.
 	Develop)       CATEGORY='Utility;development'  ; xCATEGORY='X-Utility-development' ; DEFICON='Utility-development.svg' ;; #maybe an old pkg has this.
@@ -58,9 +58,8 @@ if [ -f /usr/local/petget/categories.dat ];then #precaution, but it will be ther
 			debian|devuan|ubuntu|raspbian) xNAMEONLY=${DBPATH##*/} ;;
 			*) xNAMEONLY="$DBNAMEONLY" ;;
 		esac
-		xnPTN=" ${xNAMEONLY} "
 		#130219 categories.dat format changed slightly... ignore case...
-		CATVARIABLE="$(grep -i "$xnPTN" /usr/local/petget/categories.dat | grep '^PKGCAT' | head -n 1 | cut -f 1 -d '=' | cut -f 2,3 -d '_' | tr '_' '-')" #ex: PKGCAT_Graphic_camera=" gphoto2 gtkam "
+		CATVARIABLE="$(grep -i " ${xNAMEONLY} " /usr/local/petget/categories.dat | grep '^PKGCAT' | head -n 1 | cut -f 1 -d '=' | cut -f 2,3 -d '_' | tr '_' '-')" #ex: PKGCAT_Graphic_camera=" gphoto2 gtkam "
 		if [ "$CATVARIABLE" ];then #ex: Graphic-camera
 			xCATEGORY="X-${CATVARIABLE}"
 			cPATTERN="s%^Categories=.*%Categories=${xCATEGORY}%"
@@ -113,23 +112,20 @@ do
 		#first search where jwm looks for icons...
 		FNDICON=""
 		if [ -d ${ROOTDIR}/usr/share/pixmaps ] ; then
-			FNDICON="`find ${ROOTDIR}/usr/share/pixmaps -maxdepth 1 -name $ICONBASE -o -name $ICONBASE.png -o -name $ICONBASE.xpm -o -name $ICONBASE.jpg -o -name $ICONBASE.jpeg -o -name $ICONBASE.gif -o -name $ICONBASE.svg | grep -i -E 'png$|xpm$|jpg$|jpeg$|gif$|svg$' | head -n 1`"
+			FNDICON="`find ${ROOTDIR}/usr/share/pixmaps -maxdepth 1 -type f -name $ICONBASE.png -o -name $ICONBASE.xpm -o -name $ICONBASE.jpg -o -name $ICONBASE.jpeg -o -name $ICONBASE.gif -o -name $ICONBASE.svg | head -n 1`"
 		fi
 		if [ "$FNDICON" ];then
 			ICONNAMEONLY="${FNDICON##*/}" #basename $FNDICON
-			iPTN="s%^Icon=.*%Icon=${ICONNAMEONLY}%"
-			sed -i -e "$iPTN" $ONEDESKTOP
+			sed -i -e "s%^Icon=.*%Icon=${ICONNAMEONLY}%" $ONEDESKTOP
 			continue
 		else
-			#look elsewhere, including in running puppy... DANGER DANGER
-			FNDICON="`find ${ROOTDIR} /usr/share/icons /usr/share/pixmaps -name $ICONBASE -o -name $ICONBASE.png -o -name $ICONBASE.xpm -o -name $ICONBASE.jpg -o -name $ICONBASE.jpeg -o -name $ICONBASE.gif -o -name $ICONBASE.svg  | grep -i -E 'png$|xpm$|jpg$|jpeg$|gif$|svg$' | head -n 1`"
-			if [ -n "${ROOTDIR}" ] ; then
-				FNDICON="$(echo "$FNDICON" | sed -e "s%${ROOTDIR}%%")"
-			fi
+			#look elsewhere
+			FNDICON="`find ${ROOTDIR} -type f -name $ICONBASE.png -o -name $ICONBASE.xpm -o -name $ICONBASE.jpg -o -name $ICONBASE.jpeg -o -name $ICONBASE.gif -o -name $ICONBASE.svg | head -n 1`"
 			if [ "$FNDICON" ];then
+				FNDICON=${FNDICON//$ROOTDIR/}
 				ICONNAMEONLY="${FNDICON##*/}" #basename "$FNDICON"
 				mkdir -p ${ROOTDIR}/usr/share/pixmaps #120514
-				ln -snf "$FNDICON" ${ROOTDIR}/usr/share/pixmaps/${ICONNAMEONLY} #111207 fix path.
+				ln -snfv "$FNDICON" ${ROOTDIR}/usr/share/pixmaps/${ICONNAMEONLY}
 				sed -i -e "s%^Icon=.*%Icon=${ICONNAMEONLY}%" $ONEDESKTOP
 				continue
 			fi
