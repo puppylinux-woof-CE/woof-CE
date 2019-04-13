@@ -237,6 +237,14 @@ if [ -e ${SR}/usr/bin/killall-BB ] ; then
 	mv -fv ${SR}/usr/bin/killall-BB ${SR}/usr/bin/killall
 fi
 
+# need busybox su - spot
+# ubuntu tarh-cosmic: 'login' pkg
+# ubuntu disco+     : 'util-linux' pkg
+if [ -e ${SR}/bin/su-BB ] ; then
+	mv -fv ${SR}/bin/su ${SR}/bin/su-FULL
+	mv -fv ${SR}/bin/su-BB ${SR}/bin/su
+fi
+
 echo ----
 
 ### END ###
