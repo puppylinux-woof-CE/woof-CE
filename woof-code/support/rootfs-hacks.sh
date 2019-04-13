@@ -1,5 +1,8 @@
 #!/bin/sh
 
+echo
+echo "Executing ${0}.."
+
 SR=
 [ "$1" ] && SR="$1" #SYSROOT
 
@@ -223,3 +226,17 @@ do
 	fi
 done
 
+# upupdd: ptheme calls killall and killall fails for some reason
+# need busybox killall (debian: psmisc, slackware: procps(-ng))
+if [ -e ${SR}/bin/killall-BB ] ; then
+	mv -fv ${SR}/bin/killall ${SR}/bin/killall-FULL
+	mv -fv ${SR}/bin/killall-BB ${SR}/bin/killall
+fi
+if [ -e ${SR}/usr/bin/killall-BB ] ; then
+	mv -fv ${SR}/usr/bin/killall ${SR}/usr/bin/killall-FULL
+	mv -fv ${SR}/usr/bin/killall-BB ${SR}/usr/bin/killall
+fi
+
+echo ----
+
+### END ###
