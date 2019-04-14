@@ -30,7 +30,7 @@ DB_ENTRY="`echo -n "$ONEDBENTRY" | cut -f 4-19 -d '|'`" #take GENERICNAME|PETorC
 CATEGORY="`echo -n "$DB_ENTRY" | cut -f 5 -d '|'`" #exs: Document, Document;edit
 [ "$CATEGORY" = "" ] && CATEGORY='BuildingBlock' #paranoid precaution.
 #xCATEGORY and DEFICON will be the fallbacks if Categories entry in .desktop is invalid...
-DEFICON=X-${CATEGORY//;/-} #ex: X-Document-edit (refer /etc/xdg/menu/*.menu)
+xCATEGORY=X-${CATEGORY//;/-} #ex: X-Document-edit (refer /etc/xdg/menu/*.menu)
 DEFICON=${CATEGORY//;/-}.svg #ex: Document-edit (refer /usr/share/pixmaps/puppy -- these are in jwm search path)
 case $CATEGORY in
 	Calculate)     CATEGORY='Business'             ; xCATEGORY='X-Business'            ; DEFICON='Business.svg'            ;; #Calculate is old name, now Business.
