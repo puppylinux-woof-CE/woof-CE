@@ -24,19 +24,18 @@
 LANGORG="$(locale | grep '^LANG=' | cut -d '=' -f 2)" #121116
 export LANG=C #faster.
 
-if [ "$SETUPCALLEDFROM" = "ppm" ];then
- DBmethod="$(cat /var/local/petget/db_verbose 2>/dev/null)"
- [ "$DBmethod" = "" ] && DBmethod=true
- if [ "$DBmethod" = "false" ]; then
-  LANG=${LANGORG} . yaf-splash -icon gtk-info -bg white -placement top -close never -text "$(gettext 'Updating package databases.
-Please wait...')" &
-  XPID=$!
- fi
-else
- DBmethod=true
-fi
+exit_error() {
+	echo "$@"
+	if [ "$RUNNINGPUP" = "yes" ] ; then
+		echo
+		echo "$(gettext 'PPM database update failed.')" 
+		echo  -n "Press ENTER key to exit: "
+		read zzz
+	fi
+	exit 1
+}
 
-if [ -f ./DISTRO_SPECS ];then
+if [ -d ./support -a -f ./DISTRO_SPECS -a "$SETUPCALLEDFROM" != "ppm" ] ;then
   . ./DISTRO_SPECS
   . ./_00func
   source_compat_repos
@@ -63,6 +62,21 @@ fi
 #remove comments from PKGS_SPECS_TABLE
 PKGS_SPECS_TABLE="`echo "$PKGS_SPECS_TABLE" | grep -v '^#'`"
 
+#======================================================================
+if [ "$1" = "" ] ; then
+	PROMPT=
+	for PKGLISTSPEC in $PKG_DOCS_DISTRO_COMPAT ; do
+		PKGLISTFILE="`echo -n "$PKGLISTSPEC" | cut -f 3 -d '|'`"
+		if [ -f "$PKGLISTFILE" ] ; then
+			PROMPT=1
+			break
+		fi
+	done
+	if [ "$PROMPT" ] ; then
+		echo -n "Press ENTER to update all package databases (or CTRL-C to cancel): "
+		read downloadit
+	fi
+fi
 #======================================================================
 
 if wget --help | grep -q '\-\-show\-progress' ; then
@@ -148,32 +162,15 @@ Search for suitable packages in these files:
 Or, search online. In the case of Debian or Ubuntu, you can search
 at packages.debian.org or packages.ubuntu.com.
 After you have fixed PKGS_SPECS_TABLE, run this script again." | tee -a /var/woof/0setup_fail_report_$RUNNINGPUP
-	 if [ "$DBmethod" = "false" ];then
-	  kill $XPID
-	  Xdialog --title "$(gettext 'PPM database')" --left --msgbox "$(gettext 'PPM database failed. Chech /var/woof/0setup_fail_report_')$RUNNINGPUP $(gettext 'for details.')" 0 100
-	 fi
-	 unset OSETUP_CALLED_FROM
 	else
 	 echo -e "\nFinished, successful." | tee -a /var/woof/0setup_fail_report_$RUNNINGPUP
 	fi
 
-	if [ "$DBmethod" = "true" ]; then
-	 echo
-	 echo "The log of '0setup', as reported above, is saved for future reference."
-	 echo "(In file /var/woof/0setup_fail_report_${RUNNINGPUP})"
-	 echo "In the Woof GUI, tab 'Download dbs', click the 'REPORT' button to"
-	 echo "retrieve this log."
-	 echo -e "\nScript finished."
-	 [ "$WOOF_GUI" ] && { echo -n "Press ENTER key to exit: " ; read zzz ; }
-	else
-	 kill $XPID
-	 if [ "$(grep -e 'FAIL|exited|failures' /var/woof/0setup_fail_report_$RUNNINGPUP)" = "" ]; then
-	  Xdialog --title "$(gettext 'PPM database')" --left --msgbox "$(gettext 'PPM databases update was successfully completed.')" 0 100
-	 else
-	  Xdialog --title "$(gettext 'PPM database')" --left --msgbox "$(gettext 'PPM databases update failed. Chech /var/woof/0setup_fail_report_')$RUNNINGPUP $(gettext 'for details.')" 0 100
-	 fi
-	fi
-	unset OSETUP_CALLED_FROM
+	echo
+	echo "The log of '0setup', as reported above, is saved for future reference."
+	echo "(In file /var/woof/0setup_fail_report_${RUNNINGPUP})"
+	echo -e "\nScript finished."
+	[ "$WOOF_GUI" ] && { echo -n "Press ENTER key to exit: " ; read zzz ; }
 }
 
 case $1 in check|-check)
@@ -194,119 +191,68 @@ Mostly only errors get logged, so the less seen below, the better.
 Log of last run of '0setup':
 " >> /var/woof/0setup_fail_report_$RUNNINGPUP
 
-function pkg_db_confirm_download() {
-  downloadit=""
-  if [ "$DBmethod" = "true" ];then
-   echo
-   LANG=${LANGORG} echo "A package information database file needs to be downloaded:"
-   echo "> $PKGLISTFILE"
-   LANG=${LANGORG} echo "This will be downloaded from:"
-   echo "> $PKGLISTURI"
-   if [ "$RUNNINGPUP" = "yes" ];then
-     LANG=${LANGORG} echo "and will be processed and named: ${PKGLISTFILE}"
-     LANG=${LANGORG} echo -n "Press ENTER key to download, any other to skip it: " #120126
-     read downloadit
-   fi
-  fi
-  [ "$downloadit" = "" ] && return 0 || return 1
-}
-
 #download docs on compatible-distro pkgs...
-function download_compat_pkg_dbs() {
+function download_pkg_dbs() {
 	for PKGLISTSPEC in "$@" #see file DISTRO_PKGS_SPECS-ubuntu
 	do
-	 PKGLISTFILE="`echo -n "$PKGLISTSPEC" | cut -f 3 -d '|'`"
+	 #PKG_DOCS_DISTRO_COMPAT="z|http://ftp.nluug.nl/pub/os/Linux/distr/salix/${DBIN_ARCH}/slackware-${DISTRO_COMPAT_VERSION}/PACKAGES.TXT|Packages-slackware${DSUFFIX}-${DISTRO_COMPAT_VERSION}-official"
+	 #PKG_DOCS_PET_REPOS="z|https://raw.githubusercontent.com/puppylinux-woof-CE/woof-CE/testing/woof-distro/Packages-puppy-noarch-official|z"
 	 PKGLISTURI="`echo -n "$PKGLISTSPEC" | cut -f 2 -d '|'`"
+	 PKGLISTFILE="`echo -n "$PKGLISTSPEC" | cut -f 3 -d '|'`"
+	 DLFILE=${PKGLISTURI##*/} #basename
+	 xDLFILE=${DLFILE}
 	 [ "$PKGLISTURI" = "" ] && continue #w478 no url, pkg db file only kept in woof.
-	 skipdl=""
-	 if [ "$RUNNINGPUP" = "no" -a -f $PKGLISTFILE -a "$DBmethod" = "true" ];then
-	  echo
-	  echo "Local db file '${PKGLISTFILE}' already exists."
-	  echo "Press ENTER key only to upgrade it,"
-	  echo -n "or any other printable char to skip: "
-	  read skipdl
+	 if [ "$PKGLISTFILE" = "z" ] || [ ! "$PKGLISTFILE" ] ; then
+	   PKGLISTFILE=${DLFILE}
 	 fi
-	 if [ "$skipdl" = "" ];then 
-	  if pkg_db_confirm_download ; then
-	   DLFILE="`basename $PKGLISTURI`"
-	   xDLFILE="$DLFILE"
-	   [ -f $DLFILE ] && mv -f $DLFILE /tmp/${DLFILE}-backup1 #v431 otherwise wget creates a new file ${DLFILE}.1
-	   echo "+ Downloading..."
-	   $WGET $PKGLISTURI
-	   if [ $? -eq 0 ];then
-		case ${DISTRO_BINARY_COMPAT} in
-		 ubuntu|trisquel|debian|devuan|raspbian)
-		  xDLFILE="`basename $DLFILE`"
-		  xDLFILE=${xDLFILE%.*}
-		  rm -f $xDLFILE
-		  case "$DLFILE" in
-		   *.gz)  gunzip  $DLFILE ; RETSTAT=$? ;;
-		   *.bz2) bunzip2 $DLFILE ; RETSTAT=$? ;;
-		   *.xz)  unxz    $DLFILE ; RETSTAT=$? ;;
-		  esac
-		  [ $RETSTAT -eq 0 ] && mv -f $xDLFILE ${PKGLISTFILE}pre
-		 ;;
-		 slackware*) RETSTAT=0 ; mv -f $xDLFILE ${PKGLISTFILE}pre ;;
-		 puppy) RETSTAT=0 ;;
-		esac
-		if [ $RETSTAT -eq 0 ];then
-		 LANG=${LANGORG} echo "...success."
-		else
-		 LANG=${LANGORG} echo "Downloaded file is corrupted. Deleting file and aborting."
-		 rm -f $DLFILE $xDLFILE 2>/dev/null
-		 if [ "$DBmethod" = "false" ];then
-		  kill $XPID
-		  Xdialog --title "$(gettext 'PPM database')" --left --msgbox "$(gettext 'PPM database failed. Chech /var/woof/0setup_fail_report_')$RUNNINGPUP $(gettext 'for details.')" 0 100
-		 fi
-		 unset OSETUP_CALLED_FROM
-		 exit
-		fi
-	   else #file not found
-		LANG=${LANGORG} echo "Failed to download, aborting."
-		LANG=${LANGORG} echo "
-	Failed to download db file: 
-	 ${PKGLISTURI}
-	...exited from 0setup script." >> /var/woof/0setup_fail_report_$RUNNINGPUP
-		if [ "$DBmethod" = "false" ];then
-		 kill $XPID
-		 Xdialog --title "$(gettext 'PPM database')" --left --msgbox "$(gettext 'PPM database failed. Chech /var/woof/0setup_fail_report_')$RUNNINGPUP $(gettext 'for details.')" 0 100
-		fi
-		unset OSETUP_CALLED_FROM
-		exit
+	 case $PKGLISTFILE in
+	   Packages-puppy-*|Packages-pet-*) PETPKG=1 ;;
+	   *) PETPKG= ;;
+	 esac
+	 rm -f $DLFILE
+	 echo
+	 echo "- PKG DB  : $PKGLISTFILE"
+	 echo "- LOCATION: $PKGLISTURI"
+	 echo "+ Downloading..."
+	 $WGET -O ${DLFILE}.tmp $PKGLISTURI
+	 if [ $? -ne 0 ];then
+	   rm -f ${DLFILE}.tmp
+	   LANG=${LANGORG} echo "*** failed to download"
+	   ! [ "$PETPKG" ] && exit_error
+	 fi
+	 if [ "$PETPKG" ] ; then
+	   if [ -f ${DLFILE}.tmp ] ; then
+	     mv -f ${DLFILE}.tmp ${PKGLISTFILE}
+	   else
+	     echo "***  will use local pkg db"
 	   fi
-	  else #120126
-	   LANG=${LANGORG} echo "...skipped"
-	  fi
+	   if [ ! -f ${PKGLISTFILE} ] ; then
+	     exit_error "* ERROR: ${PKGLISTFILE} is missing"
+	   fi
+	   echo "*** success"
+	   continue
+	 fi
+	 #--
+	 mv -f ${DLFILE}.tmp ${DLFILE}
+	 RETSTAT=0
+	 case "$DLFILE" in
+	   *.gz)  gunzip  $DLFILE ; RETSTAT=$? ; xDLFILE=${xDLFILE%.*} ;;
+	   *.bz2) bunzip2 $DLFILE ; RETSTAT=$? ; xDLFILE=${xDLFILE%.*} ;;
+	   *.xz)  unxz    $DLFILE ; RETSTAT=$? ; xDLFILE=${xDLFILE%.*} ;;
+	 esac
+	 if [ $RETSTAT -eq 0 ];then
+	   mv -f $xDLFILE ${PKGLISTFILE}pre
+	   LANG=${LANGORG} echo "...success."
+	 else
+	   LANG=${LANGORG} echo 
+	   rm -f $DLFILE $xDLFILE 2>/dev/null
+	   exit_error "Downloaded file is corrupted. Deleting file and aborting."
 	 fi
 	done
 }
 
-###download pet pkg databases...
-for PKGLISTSPEC in $PKG_DOCS_PET_REPOS  #see file DISTRO_PET_REPOS
-do
- PKGLISTURI="`echo -n "$PKGLISTSPEC" | cut -f 2 -d '|'`"
- PKGLISTFILE="${PKGLISTURI##*/}" #basename
- if echo "$PKGS_DOCS_PET_REPOS_LOCAL_ONLY" | grep -q "^${PKGLISTFILE}$" ; then
-   echo -e "\n- Keeping local ${PKGLISTFILE}\n-"
-   continue
- fi
- if pkg_db_confirm_download ; then
-   DLFILE=${PKGLISTFILE}
-   [ -f $DLFILE ] && mv -f $DLFILE /tmp/${DLFILE}-backup1 #v431 otherwise wget creates a new file ${DLFILE}.1 111129 prevent error msg.
-   echo "+ Downloading..."
-   $WGET $PKGLISTURI
-   if [ $? -eq 0 ];then
-      LANG=${LANGORG} echo "...success"
-   else
-      rm -f $DLFILE
-      LANG=${LANGORG} echo "*** ERROR" && sleep 3
-   fi
- else #120126
-   LANG=${LANGORG} echo "...skipped"
- fi
-done
-
-download_compat_pkg_dbs $PKG_DOCS_DISTRO_COMPAT #---
+download_pkg_dbs $PKG_DOCS_PET_REPOS
+download_pkg_dbs $PKG_DOCS_DISTRO_COMPAT #---
 
 # -update dbs... #${DISTRO_BINARY_COMPAT}-updates package databases
 PKGLISTS_COMPAT_UPDATES=""
@@ -317,7 +263,7 @@ case $DISTRO_BINARY_COMPAT in ubuntu|trisquel|debian|devuan) #130319 removed |ra
    PKGLISTS_COMPAT_U=$(echo "$PKG_DOCS_DISTRO_COMPAT" | tr ' ' '\n' | grep -v 'deb-multimedia' | \
      sed -e "s|-${DISTRO_COMPAT_VERSION}-|-${DISTRO_COMPAT_VERSION}_updates-|" \
          -e "s|/${DISTRO_COMPAT_VERSION}/|/${DISTRO_COMPAT_VERSION}-updates/|")
-   download_compat_pkg_dbs $PKGLISTS_COMPAT_U
+   download_pkg_dbs $PKGLISTS_COMPAT_U
    #see further down
    PKGLISTS_COMPAT_UPDATES=$(echo "$PKGLISTS_COMPAT_U" | cut -f 3 -d "|" | tr '\n' ' ')
 esac
@@ -327,7 +273,7 @@ case $DISTRO_BINARY_COMPAT in slackware*) # slackware official updates = patches
    PKGLISTS_COMPAT_U=$(echo "$PKG_DOCS_DISTRO_COMPAT" | tr ' ' '\n' | grep official | \
     sed -e "s|-official|_updates-official|" \
         -e "s|/PACKAGES.TXT|/patches/PACKAGES.TXT|")
-   download_compat_pkg_dbs $PKGLISTS_COMPAT_U
+   download_pkg_dbs $PKGLISTS_COMPAT_U
    PKGLISTS_COMPAT_UPDATES=$(echo "$PKGLISTS_COMPAT_U" | cut -f 3 -d "|" | tr '\n' ' ')
 esac
 
@@ -356,7 +302,9 @@ do
  case ${DISTRO_BINARY_COMPAT} in
   ubuntu|trisquel|debian|devuan|raspbian)
     #new fast compiled app...
-    [ ! -f $DEBDB2PUPDB ] && { echo "FATAL: Could not find $DEBDB2PUPDB" ; exit 1 ; }
+    if [ ! -f $DEBDB2PUPDB ] ; then
+      exit_error "FATAL: Could not find $DEBDB2PUPDB"
+    fi
     #create an intermediate-converted file...
     #121113 added "Section"... 121113 insert STARTMARKER...
     MANIPULATED1="$(grep -E '^Package:|^Installed\-Size:|^Architecture:|^Version:|^Depends:|^Filename:|^Description:|^Homepage:|^Section:' ${ONE_PKGLISTS_COMPAT}pre | tr '[\t"|`]' ' ' | tr -s ' ' | sed -e 's%^Installed\-Size%InstalledSize%' -e 's%^Package:%STARTMARKER|PKG\nPackage:%' -e 's%: %|%' -e 's% $%%')" #`geany
@@ -495,23 +443,15 @@ case $DISTRO_BINARY_COMPAT in
 	debian) dedup -multimedia ${PKGLISTS_COMPAT} ;;
 esac
 
-if [ "$RUNNINGPUP" = "yes" -a "$DBmethod" = "true" ];then
+if [ "$RUNNINGPUP" = "yes" ];then
  echo
  LANG=${LANGORG} echo "FINISHED"
  LANG=${LANGORG} echo "After restarting Puppy Package Manager (PPM),"
  LANG=${LANGORG} echo "it will be reading the updated database files."
  LANG=${LANGORG} echo -n "Press ENTER key to exit: "
  read enditnow
- DATE="`date +%Y%m%d `"
- echo "$DATE" > /root/.packages/db-date
- unset OSETUP_CALLED_FROM
- exit
-elif [ "$RUNNINGPUP" = "yes" ];then
- kill $XPID
- Xdialog --title "$(gettext 'PPM database')" --left --msgbox "$(gettext 'PPM database was successfully completed.')" 0 100
- DATE="`date +%Y%m%d `"
- echo "$DATE" > /root/.packages/db-date
- unset OSETUP_CALLED_FROM
+ DATE=
+ echo "`date +%Y%m%d `" > /root/.packages/db-date
  exit
 fi
 
