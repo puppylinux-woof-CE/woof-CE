@@ -5,7 +5,7 @@
 
 . /etc/rc.d/functions_x
 
-VERSION=2.1.2
+VERSION=2.3
 
 export TEXTDOMAIN=petget___pkg_chooser.sh
 export OUTPUT_CHARSET=UTF-8
@@ -388,12 +388,6 @@ echo '#!/bin/sh
 echo $1 > /tmp/petget_proc/petget/current-repo-triad
 ' > /tmp/petget_proc/filterversion.sh
 chmod 777 /tmp/petget_proc/filterversion.sh
-
-#run the traditional ui if set in config
-if [ "$(cat /var/local/petget/ui_choice 2>/dev/null)" = "Classic" ]; then
-	. /usr/local/petget/ui_Classic
-	exit 0
-fi
 
 progressbar_info () {
 	if [ "$(cat /tmp/petget_proc/overall_dependencies | wc -l)" -ge 1 ];then

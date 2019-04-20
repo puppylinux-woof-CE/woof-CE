@@ -167,12 +167,6 @@ S='<window title="'$(gettext 'Package Manager - Configure')'" icon-name="gtk-abo
         <variable>CATEGORY_SI</variable>'
         [ "$(</var/local/petget/si_category)" = "true" ] && S=$S'<default>true</default>'
       S=$S'</checkbox>
-      <checkbox>
-        <label>'$(gettext "Use traditional, non-auto, user interface")'</label>'
-        [ "$(</var/local/petget/ui_choice)" = "Classic" ] && S=$S'<default>true</default>'
-        S=$S'<action>if true echo Classic > /var/local/petget/ui_choice</action>
-        <action>if false echo Ziggy > /var/local/petget/ui_choice</action>
-      </checkbox>
       '${SIZEBOX}'
       <checkbox>
         <label>'$(gettext "Do not show the terminal with PPM actions")'</label>
