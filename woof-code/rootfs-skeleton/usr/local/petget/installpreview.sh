@@ -47,7 +47,6 @@ EXAMDEPSFLAG='yes'
 ttPTN='^'"$TREE1"'|.*ALREADY INSTALLED'
 if [ "`grep "$ttPTN" /tmp/petget_proc/petget/filterpkgs.results.post`" != "" ];then #created by postfilterpkgs.sh
  EXAMDEPSFLAG='no'
-
 fi
 
 #120504 if findnames.sh searched multiple repos, /tmp/petget_proc/petget/current-repo-triad (set in pkg_chooser.sh) might be wrong...
@@ -89,7 +88,7 @@ SIZEFREEK=$(( $SIZEFREEM * 1024))
 if [ $DB_size ];then
  SIZEMK="`echo -n "$DB_size" | rev | cut -c 1`"
  SIZEVAL=${DB_size%[A-Z]} #remove suffix: K M B .. etc
- SIZEINFO="<text><label>$(gettext 'After installation, this package will occupy') ${SIZEVAL}${SIZEMK}B. $(gettext 'The amount of free space that you have for installation is') ${SIZEFREEM}MB (${SIZEFREEK}KB).</label></text>"
+ SIZEINFO="<text><label>$(gettext 'SIZE:') ${SIZEVAL}${SIZEMK}B. $(gettext 'The amount of free space that you have for installation is') ${SIZEFREEM}MB.</label></text>"
  SIZEVALz=$(( $SIZEVAL / 3))
  SIZEVALz=$(( $SIZEVAL + $SIZEVALz ))
  SIZEVALx2=$(( $SIZEVALz + 10000 ))
@@ -122,68 +121,53 @@ else
  ONLYMSG=""
  if [ "$MISSINGDEPS_PATTERNS" = "" ];then
   DEPINFO="<text><label>$(gettext 'It seems that all dependencies are already installed. Sometimes though, the dependency information in the database is incomplete, however a check for presence of needed shared libraries will be done after installation.')</label></text>"
+  EXAMDEPSFLAG=no
  else
-  ONLYMSG=" $(gettext 'ONLY')"
-  xMISSINGDEPS="`echo "$MISSINGDEPS_PATTERNS" | sed -e 's%|%%g' | tr '\n' ' '`"
-  if [ "$EXAMDEPSFLAG" != "no" ];then #120828
-   DEPBUTTON="<button>
-   <label>$(gettext 'Examine dependencies')</label>
-   <action>echo \"${TREE1}\" > /tmp/petget_proc/petget_installpreview_pkgname</action>
-   <action type=\"exit\">BUTTON_EXAMINE_DEPS</action>
-   </button>"
-   DEPINFO="<text space-expand=\"true\" space-fill=\"true\" use-markup=\"true\"><label>\"$(gettext 'Dependencies: ') <b>${xMISSINGDEPS}</b>\"</label></text>
-   <text space-expand=\"true\" space-fill=\"true\" use-markup=\"true\"><label>$(gettext "A warning, these dependencies may have other dependencies not necessarily listed here. It is recommended that you click the 'Examine dependencies' button to find all dependencies before installing.")</label></text>
-   <text space-expand=\"true\" space-fill=\"true\" use-markup=\"true\"><label>\"<b>$(gettext "Please click 'Examine dependencies' to install") ${TREE1} $(gettext "as well as its dependencies")</b>\"</label></text>"
-  else
-   DEPINFO="<text space-expand=\"true\" space-fill=\"true\" use-markup=\"true\"><label>\"$(gettext 'Warning, the following dependent packages are missing: ') <b>${xMISSINGDEPS}</b>\"</label></text>"
-  fi
-  if [ $DB_size ];then
-   MSGWARN1="<text><label>$(gettext 'After installation, this package will occupy') ${SIZEVAL}${SIZEMK}B, $(gettext 'however the dependencies will need more space so you really need to find what they will need first.')</label></text>"
-  else
-   MSGWARN1="<text><label>$(gettext 'Also, the package database provider has not supplied the installed size of this package, so you will have to try and estimate whether you have enough free space for it (and the dependencies)')</label></text>"
-  fi
+  EXAMDEPSFLAG=yes
  fi 
 fi
 
-[ ! -f /tmp/petget_proc/install_quietly ] && kill $X1PID || echo
-if [ ! -f /tmp/petget_proc/install_quietly ]; then
-export PREVIEW_DIALOG="<window title=\"$(gettext 'Package Manager: preinstall')\" icon-name=\"gtk-about\">
-<vbox space-expand=\"true\" space-fill=\"true\">
- <frame>
-  <text space-expand=\"true\" space-fill=\"true\" use-markup=\"true\"><label>\"$(gettext 'PKG to install:') <b>${TREE1}</b>.\"</label></text>
-  <text space-expand=\"true\" space-fill=\"true\" use-markup=\"true\"><label>\"$(gettext 'Description: ')<b>${DB_description}</b>\"</label></text>
-  ${DEPINFO}
-  ${MSGWARN1}
- </frame>
+[ ! -f /tmp/install_quietly ] && kill $X1PID || echo
 
+if [ ! -f /tmp/install_quietly ] ; then
+ if [ "$EXAMDEPSFLAG" = "yes" ] ; then
+   EXIT=BUTTON_EXAMINE_DEPS
+ else
+   export PREVIEW_DIALOG='
+<window title="'$(gettext 'Package Manager: preinstall')'" icon-name="gtk-about">
+<vbox space-expand="true" space-fill="true">
  <frame>
-  <hbox space-expand=\"true\" space-fill=\"true\">
-   <text space-expand=\"true\" space-fill=\"true\"><label>\"$(gettext 'More info.. such as what it is for and the dependencies, this button will download and display detailed information:')\"</label></text>
+  <text space-expand="true" space-fill="true" use-markup="true"><label>"'$(gettext 'PKG to install:')' <b>'${TREE1}'</b>."</label></text>
+  <text space-expand="true" space-fill="true" use-markup="true"><label>"'$(gettext 'Description: ')'<b>'${DB_description}'</b>"</label></text>
+  '${DEPINFO}'
+  '${MSGWARN1}'
+  <hbox space-expand="true" space-fill="true">
+   <text space-expand="true" space-fill="true"><label>"'$(gettext 'More info.. such as what it is for and the dependencies...')'"</label></text>
    <button>
-     $(/usr/lib/gtkdialog/xml_button-icon internet.svg big)
-     <action>/usr/local/petget/fetchinfo.sh ${TREE1} & </action>
+     '$(/usr/lib/gtkdialog/xml_button-icon internet.svg big)'
+     <action>/usr/local/petget/fetchinfo.sh '${TREE1}' & </action>
    </button>
   </hbox>
  </frame>
  
  <hbox>
-  ${DEPBUTTON}
+  '${DEPBUTTON}'
   <button>
-   <label>$(gettext 'Install') PKG ${ONLYMSG}</label>
-   <action>echo \"${TREE1}\" > /tmp/petget_proc/petget_installpreview_pkgname</action>
-   <action type=\"exit\">BUTTON_INSTALL</action>
+   <label>'$(gettext 'Install')' PKG '${ONLYMSG}'</label>
+   <action>echo "'${TREE1}'" > /tmp/petget_installpreview_pkgname</action>
+   <action type="exit">BUTTON_INSTALL</action>
   </button>
   <button>
-   <label>$(gettext 'Download-only')</label>
-   <action type=\"exit\">BUTTON_PKGS_DOWNLOADONLY</action>
+   <label>'$(gettext 'Download-only')'</label>
+   <action type="exit">BUTTON_PKGS_DOWNLOADONLY</action>
   </button>
   <button cancel></button>
  </hbox>
 </vbox>
 </window>
-"
-
-RETPARAMS="`gtkdialog --center --program=PREVIEW_DIALOG`"
+'
+  RETPARAMS="`gtkdialog --center --program=PREVIEW_DIALOG`"
+ fi
 else
  if [ -f /tmp/petget_proc/download_only_pet_quietly ]; then
   RETPARAMS='EXIT="BUTTON_PKGS_DOWNLOADONLY"'
@@ -197,6 +181,10 @@ else
 fi
 
 eval "$RETPARAMS"
+case $EXIT in abort|Cancel)
+	exit 100 ;;
+esac
+
 if [ "$EXIT" != "BUTTON_INSTALL" -a "$EXIT" != "BUTTON_EXAMINE_DEPS" -a "$EXIT" != "BUTTON_PKGS_DOWNLOADONLY" ];then
  [ -f /tmp/petget_proc/petget/current-repo-triad.previous ] && mv -f /tmp/petget_proc/petget/current-repo-triad.previous /tmp/petget_proc/petget/current-repo-triad
  exit
@@ -204,8 +192,7 @@ fi
 
 #DB_ENTRY has the database entry of the main package that we want to install.
 #DB_FILE has the name of the database file that has the main entry, ex: Packages-slackware-12.2-slacky
-
-if [ "$EXIT" = "BUTTON_EXAMINE_DEPS" ];then
+if [ "$EXAMDEPSFLAG" = "yes" ] ; then
  /usr/local/petget/dependencies.sh
  [ $? -ne 0 ] && exec /usr/local/petget/installpreview.sh #reenter.
  #returns with /tmp/petget_proc/petget_missing_dbentries-* has the database entries of missing deps.
@@ -245,75 +232,41 @@ $(gettext "Please cancel installation, close the Puppy Package Manager, then cli
  MAINPKG_NAME="`echo "$DB_ENTRY" | cut -f 1 -d '|'`"
  MAINPKG_SIZE="`echo "$DB_ENTRY" | cut -f 6 -d '|'`"
  MAINPKG_DESCR="`echo "$DB_ENTRY" | cut -f 10 -d '|'`"
- MAIN_CHK="<checkbox><default>true</default><label>${MAINPKG_NAME} SIZE: ${MAINPKG_SIZE}B DESCRIPTION: ${MAINPKG_DESCR}</label><variable>CHECK_PKG_${MAIN_REPO}_${MAINPKG_NAME}</variable></checkbox>"
+ MAIN_CHK="<checkbox><default>true</default><label>${MAINPKG_NAME} SIZE: ${MAINPKG_SIZE}B [${MAINPKG_DESCR}]</label><variable>CHECK_PKG_${MAIN_REPO}_${MAINPKG_NAME}</variable></checkbox>"
  INSTALLEDSIZEK=0
- [ "$MAINPKG_SIZE" != "" ] && INSTALLEDSIZEK=`echo "$MAINPKG_SIZE" | rev | cut -c 2-10 | rev`
+ [ "$MAINPKG_SIZE" != "" ] && INSTALLEDSIZEK=${INSTALLEDSIZEK%[A-Z]} #remove suffix: K M B .. etc
  
- #making up the dependencies into tabs, need limit of 8 per tab...
- #also limit to 6 tabs (gedit is way beyond this!)...
- echo -n "" > /tmp/petget_proc/petget_moreframes
- echo -n "" > /tmp/petget_proc/petget_tabs
- echo "0" > /tmp/petget_proc/petget_frame_cnt
+ echo -n "" > /tmp/petget_moreframes
  DEP_CNT=0
  ONEREPO=""
  for ONEDEPSLIST in `ls -1 /tmp/petget_proc/petget_missing_dbentries-*`
  do
   ONEREPO_PREV="$ONEREPO"
   ONEREPO="`echo "$ONEDEPSLIST" | grep -o 'Packages.*' | sed -e 's%Packages\\-%%'`"
-  FRAME_CNT=`cat /tmp/petget_proc/petget_frame_cnt`
-  if [ "$ONEREPO_PREV" != "" ];then #next repo, so start a new tab.
-   DEP_CNT=0
-   FRAME_CNT=$(( $FRAME_CNT + 1))
-   echo "$FRAME_CNT" > /tmp/petget_proc/petget_frame_cnt
-   #w017 bugfix, prevent double frame closure...
-   [ "`cat /tmp/petget_proc/petget_moreframes | tail -n 1 | grep '</frame>$'`" = "" ] && echo "</frame>" >> /tmp/petget_proc/petget_moreframes
-  fi
-  cat $ONEDEPSLIST |
-  while read ONELIST
+  DEP_CNT=0
+  while IFS="|" read F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 ETC
   do
-   DEP_NAME="`echo "$ONELIST" | cut -f 1 -d '|'`"
-   DEP_SIZE="`echo "$ONELIST" | cut -f 6 -d '|'`"
-   DEP_DESCR="`echo "$ONELIST" | cut -f 10 -d '|'`"
+   DEP_NAME=$F1
+   DEP_SIZE=$F6
+   DEP_DESCR=$F10
    DEP_CNT=$(( $DEP_CNT + 1))
-   case $DEP_CNT in
-    1)
-     echo -n "<frame REPOSITORY: ${ONEREPO}>" >> /tmp/petget_proc/petget_moreframes
-     echo -n "Dependencies|" >> /tmp/petget_proc/petget_tabs
-     echo -n "<checkbox><default>true</default><label>${DEP_NAME} SIZE: ${DEP_SIZE}B DESCRIPTION: ${DEP_DESCR}</label><variable>CHECK_PKG_${ONEREPO}_${DEP_NAME}</variable></checkbox>" >> /tmp/petget_proc/petget_moreframes
-    ;;
-    8)
-     FRAME_CNT=`cat /tmp/petget_proc/petget_frame_cnt`
-     FRAME_CNT=$(( $FRAME_CNT + 1 ))
-     if [ $FRAME_CNT -gt 10 ];then #120907
-      echo -n "<text use-markup=\"true\"><label>\"<b>$(gettext 'SORRY! Too many dependencies, list truncated. Suggest click Cancel button and install some deps first.')</b>\"</label></text>" >> /tmp/petget_proc/petget_moreframes #120907
-     else
-      echo -n "<checkbox><default>true</default><label>${DEP_NAME} SIZE: ${DEP_SIZE}B DESCRIPTION: ${DEP_DESCR}</label><variable>CHECK_PKG_${ONEREPO}_${DEP_NAME}</variable></checkbox>" >> /tmp/petget_proc/petget_moreframes
-     fi
-     echo "</frame>" >> /tmp/petget_proc/petget_moreframes
-     DEP_CNT=0
-     echo "$FRAME_CNT" > /tmp/petget_proc/petget_frame_cnt
-    ;;
-    *)
-     echo -n "<checkbox><default>true</default><label>${DEP_NAME} SIZE: ${DEP_SIZE}B DESCRIPTION: ${DEP_DESCR}</label><variable>CHECK_PKG_${ONEREPO}_${DEP_NAME}</variable></checkbox>" >> /tmp/petget_proc/petget_moreframes
-    ;;
-   esac
-   [ $FRAME_CNT -gt 10 ] && break #too wide! 120907
+   if [ $DEP_CNT -gt 100 ] ; then
+      echo -n "<text use-markup=\"true\"><label>\"<b>$(gettext 'SORRY! Too many dependencies, list truncated. Suggest click Cancel button and install some deps first.')</b>\"</label></text>" >> /tmp/petget_moreframes #120907
+      break
+   else
+      echo -n "<checkbox><default>true</default><label>${DEP_NAME} SIZE: ${DEP_SIZE}B  [${DEP_DESCR}]</label><variable>CHECK_PKG_${ONEREPO}_${DEP_NAME}</variable></checkbox>" >> /tmp/petget_moreframes
+   fi
    ADDSIZEK=0
-   [ "$DEP_SIZE" != "" ] && ADDSIZEK=`echo "$DEP_SIZE" | rev | cut -c 2-10 | rev`
+   [ "$DEP_SIZE" != "" ] && ADDSIZEK=${DEP_SIZE%[A-Z]} #remove suffix: K M B .. etc
    INSTALLEDSIZEK=$(( $INSTALLEDSIZEK + $ADDSIZEK ))
-   echo "$INSTALLEDSIZEK" > /tmp/petget_proc/petget_installedsizek
-  done
-  INSTALLEDSIZEK=`cat /tmp/petget_proc/petget_installedsizek`
-  FRAME_CNT=`cat /tmp/petget_proc/petget_frame_cnt`
-  [ $FRAME_CNT -gt 10 ] && break #too wide! 120907
+   echo "$INSTALLEDSIZEK" > /tmp/petget_installedsizek
+  done < $ONEDEPSLIST
+  INSTALLEDSIZEK=`cat /tmp/petget_installedsizek`
  done
- TABS="`cat /tmp/petget_proc/petget_tabs`"
- MOREFRAMES="`cat /tmp/petget_proc/petget_moreframes`"
- #make sure last frame has closed...
- [ "`echo "$MOREFRAMES" | tail -n 1 | grep '</frame>$'`" = "" ] && MOREFRAMES="${MOREFRAMES}</frame>"
+ MOREFRAMES="`cat /tmp/petget_moreframes`"
  
  INSTALLEDSIZEM=$(( $INSTALLEDSIZEK / 1024))
- MSGWARN2="$(gettext "If that looks like enough free space, go ahead and click the 'Install' button...")"
+ MSGWARN2="$(gettext "If that looks OK, click the 'Install' button...")"
  testSIZEK=$(( $INSTALLEDSIZEK / 3 ))
  testSIZEK=$(( $INSTALLEDSIZEK + $testSIZEK ))
  testSIZEK=$(( $testSIZEK + 8000 ))
@@ -325,38 +278,38 @@ if [ ! -f /tmp/petget_proc/install_quietly ]; then
  <frame REPOSITORY: ${MAIN_REPO}>
   ${MAIN_CHK}
  </frame>
-
- <notebook labels=\"${TABS}\">
- ${MOREFRAMES}
- </notebook>
- 
- <hbox>
- <text><label>$(gettext "Sometimes Puppy's automatic dependency checking comes up with a list that may include packages that don't really need to be installed, or are already installed under a different name. If uncertain, just accept them all, but if you spot one that does not need to be installed, then un-tick it.")</label></text>
- 
- <text><label>$(gettext 'Puppy usually avoids listing the same package more than once if it exists in two or more repositories. However, if the same package is listed twice, choose the one that seems to be most appropriate.')</label></text>
- </hbox>
- 
- <hbox>
-  <vbox>
-   <text><label>$(gettext 'Click to see the hierarchy of the dependencies:')</label></text>
-   <hbox>
-    <button>
-     <label>$(gettext 'View hierarchy')</label>
-     <action>/usr/local/bin/defaulttextviewer /tmp/petget_proc/petget_deps_visualtreelog & </action>
-    </button>
-   </hbox>
+ <frame Dependencies>
+ <hbox space-expand=\"true\" space-fill=\"true\">
+  <vbox scrollable=\"true\" shadow-type=\"0\" border-width=\"10\" space-expand=\"true\" space-fill=\"true\">
+    ${MOREFRAMES}
   </vbox>
-  <text><label>\"   \"</label></text>
-  <text use-markup=\"true\"><label>\"<b>$(gettext 'If all of the above packages are selected, the total installed size will be') ${INSTALLEDSIZEK}KB (${INSTALLEDSIZEM}MB). $(gettext 'The free space available for installation is') ${SIZEFREEK}KB (${SIZEFREEM}MB). ${MSGWARN2}</b>\"</label></text>
  </hbox>
- 
+ </frame>
+
  <hbox>
+   <text space-expand=\"true\" space-fill=\"true\"><label>Number of missing depedencies: $DEP_CNT</label></text>
+   <button space-expand=\"true\" space-fill=\"false\">
+    <label>$(gettext 'View hierarchy of dependencies')</label>
+    <action>/usr/local/bin/defaulttextviewer /tmp/petget_deps_visualtreelog & </action>
+   </button>
+ </hbox>
+
+ <frame>
+  <hbox space-expand=\"true\" space-fill=\"true\">
+   <text space-expand=\"true\" space-fill=\"true\"><label>$(gettext "Sometimes Puppy's automatic dependency checking comes up with a list that may include packages that don't really need to be installed, if you spot one that does not need to be installed, then un-tick it.")</label></text>
+  </hbox>
+  <hbox space-expand=\"true\" space-fill=\"true\">
+   <text use-markup=\"true\"><label>\"<b>$(gettext 'If all of the above packages are selected, the total installed size will be') ${INSTALLEDSIZEM}MB. $(gettext 'Free space:') ${SIZEFREEM}MB. ${MSGWARN2}</b>\"</label></text>
+  </hbox>
+ </frame>
+ 
+ <hbox space-expand=\"true\" space-fill=\"true\">
   <button>
-   <label>$(gettext 'Download-only selected packages')</label>
+   <label>$(gettext 'DOWNLOAD ONLY')</label>
    <action type=\"exit\">BUTTON_PKGS_DOWNLOADONLY</action>
   </button>
   <button>
-   <label>$(gettext 'Download-and-install selected packages')</label>
+   <label>$(gettext 'INSTALL selected pkgs')</label>
    <action type=\"exit\">BUTTON_PKGS_INSTALL</action>
   </button>
   <button cancel></button>
@@ -364,8 +317,12 @@ if [ ! -f /tmp/petget_proc/install_quietly ]; then
 </vbox>
 </window>
 "
+ RETPARAMS="`gtkdialog --center --program=DEPS_DIALOG`"
+ eval "$RETPARAMS"
+ case $EXIT in abort|Cancel)
+	exit 100 ;;
+ esac
 
-RETPARAMS="`gtkdialog --center --program=DEPS_DIALOG`"
 else
  if [ ! -f /tmp/petget_proc/download_pets_quietly ]; then
  xEXIT="BUTTON_PKGS_INSTALL"
@@ -423,10 +380,15 @@ fi
 
 #now do the actual install...
 PASSEDPRM=""
-[ "`echo "$RETPARAMS" | grep '^EXIT' | grep 'BUTTON_PKGS_DOWNLOADONLY'`" != "" ] && PASSEDPRM="DOWNLOADONLY" && touch /tmp/petget_proc/manual_pkg_download
+if [ -f /tmp/download_only_pet_quietly ]; then
+  PASSEDPRM="DOWNLOADONLY"
+  touch /tmp/manual_pkg_download
+fi
 /usr/local/petget/downloadpkgs.sh $PASSEDPRM
 if [ $? -ne 0 ];then
- [ -f /tmp/petget_proc/petget/current-repo-triad.previous ] && mv -f /tmp/petget_proc/petget/current-repo-triad.previous /tmp/petget_proc/petget/current-repo-triad #120504
+ if [ -f /tmp/petget/current-repo-triad.previous ] ; then
+   mv -f /tmp/petget/current-repo-triad.previous /tmp/petget/current-repo-triad #120504
+ fi
  exit 1
 fi
 [ "$PASSEDPRM" = "DOWNLOADONLY" ] && exit

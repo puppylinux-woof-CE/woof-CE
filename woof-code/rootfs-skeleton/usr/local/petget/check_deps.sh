@@ -160,53 +160,7 @@ if [ $1 ];then
   [ -f /root/.packages/${APKGNAME}.files ] && dependcheckfunc
  done
 else
- #ask user what pkg to check...
- ACTIONBUTTON="<button>
-     <label>$(gettext 'Check dependencies')</label>
-     <action type=\"exit\">BUTTON_CHK_DEPS</action>
-    </button>"
- echo -n "" > /tmp/petget_proc/petget_depchk_buttons
- cat /root/.packages/user-installed-packages | cut -f 1,10 -d '|' |
- while read ONEPKGSPEC
- do
-  [ "$ONEPKGSPEC" = "" ] && continue
-  ONEPKG="`echo -n "$ONEPKGSPEC" | cut -f 1 -d '|'`"
-  ONEDESCR="`echo -n "$ONEPKGSPEC" | cut -f 2 -d '|'`"
-  #120222 npierce: replaced radiobuttons with list and items 
-  echo "<item>${ONEPKG} DESCRIPTION: ${ONEDESCR}</item>" >> /tmp/petget_proc/petget_depchk_buttons
- done
- RADBUTTONS="`cat /tmp/petget_proc/petget_depchk_buttons`"
- if [ "$RADBUTTONS" = "" ];then
-  ACTIONBUTTON=""
-  RADBUTTONS="<item>$(gettext "No packages installed by user, click 'Cancel' button")</item>"
- fi
- export DEPS_DIALOG="<window title=\"$(gettext 'Puppy Package Manager')\" icon-name=\"gtk-about\">
-  <vbox>
-   <text><label>$(gettext 'Please choose what package you would like to check the dependencies of:')</label></text>
-   <frame $(gettext 'User-installed packages')>
-    <list selection-mode=\"2\">
-     <variable>LIST</variable>
-     ${RADBUTTONS}
-    </list>
-   </frame>
-   <hbox>
-    ${ACTIONBUTTON}
-    <button cancel></button>
-   </hbox>
-  </vbox>
- </window>
-" 
- RETPARAMS="`gtkdialog3 --geometry=630x327 --program=DEPS_DIALOG`" #120222
- #ex returned:
- #LIST="audacious-1.5.1"
- #EXIT="BUTTON_CHK_DEPS"
-
- [ "`echo "$RETPARAMS" | grep 'BUTTON_CHK_DEPS'`" = "" ] && exit
- 
- #120222 npierce: Allow '_' in package name.  CAUTION: Names must not contain spaces. 
- APKGNAME="`echo "$RETPARAMS" | grep '^LIST=' | cut -f 1 -d ' ' | cut -f 2 -d '"'`" #'geanyfix
- dependcheckfunc
- 
+ exit 1 
 fi
 
 if [ -f /tmp/petget_proc/install_pets_quietly ]; then
@@ -216,57 +170,16 @@ else
  missingpkgsfunc
 fi
 
-#present results to user...
-MISSINGMSG1="<text use-markup=\"true\"><label>\"<b>$(gettext 'No missing shared libraries')</b>\"</label></text>"
-if [ -s /tmp/petget_proc/missinglibs.txt ];then
- MISSINGMSG1="<text><label>$(gettext 'These libraries are missing:')</label></text><text use-markup=\"true\"><label>\"<b>`cat /tmp/petget_proc/missinglibs.txt`</b>\"</label></text>"
-fi
-if [ -s /tmp/petget_proc/missinglibs_hidden.txt ];then #100830
- MISSINGMSG1="${MISSINGMSG1} <text><label>$(gettext 'These needed libraries exist but are not in the library search path (it is assumed that a startup script in the package makes these libraries loadable by the application):')</label></text><text use-markup=\"true\"><label>\"<b>`cat /tmp/petget_proc/missinglibs_hidden.txt`</b>\"</label></text>"
-fi
-MISSINGMSG2="<text use-markup=\"true\"><label>\"<b>$(gettext 'No missing dependent packages')</b>\"</label></text>"
-if [ "$MISSINGDEPS_PATTERNS" != "" ];then #[ -s /tmp/petget_proc/petget_missingpkgs ];then
- MISSINGPKGS="`echo "$MISSINGDEPS_PATTERNS" | sed -e 's%|%%g' | tr '\n' ' '`" #v431
- MISSINGMSG2="<text use-markup=\"true\"><label>\"<b>${MISSINGPKGS}</b>\"</label></text>"
-fi
-
-DETAILSBUTTON=""
-if [ -s /tmp/petget_proc/missinglibs.txt -o -s /tmp/petget_proc/missinglibs_hidden.txt ];then #100830 details button
- DETAILSBUTTON="<button><label>$(gettext 'View details')</label><action>defaulttextviewer /tmp/petget_proc/missinglibs_details.txt & </action></button>"
-fi
-
 PKGS="$APKGNAME"
 [ $1 ] && PKGS="`echo -n "${1}" | tr '|' ' '`"
 
-#120905 vertical scrollbars, fix window too high...
-if [ ! -f /tmp/petget_proc/install_quietly ]; then
-export DEPS_DIALOG="<window title=\"$(gettext 'Puppy Package Manager')\" icon-name=\"gtk-about\">
-  <vbox>
-   <text><label>$(gettext 'Puppy has searched for any missing shared libraries of these packages:')</label></text>
-   <vbox scrollable=\"true\" height=\"100\">
-    <text><label>${PKGS}</label></text>
-   </vbox>
-   <vbox scrollable=\"true\" height=\"100\">
-    ${MISSINGMSG1}
-   </vbox>
-   <text><label>$(gettext 'Puppy has examined all user-installed packages and found these missing dependencies:')</label></text>
-   ${MISSINGMSG2}
-   <hbox>
-    ${DETAILSBUTTON}
-    <button ok></button>
-   </hbox>
-  </vbox>
- </window>
-" 
- RETPARAMS="`gtkdialog4 --center --program=DEPS_DIALOG`"
-else
  RETPARAMS='EXIT="OK"'
- rm -f /tmp/petget_proc/petget_missing_dbentries-* 2>/dev/null
- cat /tmp/petget_proc/petget_missingpkgs_patterns_with_versioning >> \
-  /tmp/petget_proc/overall_petget_missingpkgs_patterns.txt
- rm -f /tmp/petget_proc/petget_missingpkgs_patterns* 2>/dev/null
- cat /tmp/petget_proc/missinglibs.txt >> /tmp/petget_proc/overall_missing_libs.txt
- cat /tmp/petget_proc/missinglibs_hidden.txt >> /tmp/petget_proc/overall_missing_libs_hidden.txt
- rm -f /tmp/petget_proc/missinglibs* 2>/dev/null
-fi
+ rm -f /tmp/petget_missing_dbentries-* 2>/dev/null
+ cat /tmp/petget_missingpkgs_patterns_with_versioning >> \
+  /tmp/overall_petget_missingpkgs_patterns.txt
+ rm -f /tmp/petget_missingpkgs_patterns* 2>/dev/null
+ cat /tmp/missinglibs.txt >> /tmp/overall_missing_libs.txt
+ cat /tmp/missinglibs_hidden.txt >> /tmp/overall_missing_libs_hidden.txt
+ rm -f /tmp/missinglibs* 2>/dev/null
+
 ###END###

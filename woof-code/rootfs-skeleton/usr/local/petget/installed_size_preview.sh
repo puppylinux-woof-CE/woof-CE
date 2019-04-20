@@ -59,11 +59,7 @@ if [ "$MISSINGDEPS_PATTERNS" = "" -a "$(do_grep $DB_ENTRY /tmp/petget_proc/overa
   *M) SIZEVAL=$(($SIZEVAL * 1024 )) ;;
   *) SIZEVAL=$(($SIZEVAL / 1024 )) ;;
  esac
-  if [ "$2" = "RMV" ]; then
-   echo -$SIZEVAL >> /tmp/petget_proc/overall_pkg_size_RMV
-  else
-   echo $SIZEVAL >> /tmp/petget_proc/overall_pkg_size
-  fi
+ echo $SIZEVAL >> /tmp/overall_pkg_size
  sync
  /usr/local/petget/installmodes.sh check_total_size &
  exit 0
@@ -91,13 +87,8 @@ FNDMISSINGDBENTRYFILE="`ls -1 /tmp/petget_proc/petget_missing_dbentries-* 2>/dev
  MAINPKG_NAME="`echo "$DB_ENTRY" | cut -f 1 -d '|'`"
  MAINPKG_SIZE="`echo "$DB_ENTRY" | cut -f 6 -d '|'`"
  INSTALLEDSIZEK=0
- if [ "$MAINPKG_SIZE" != "" -a "$(do_grep $MAINPKG_NAME /tmp/petget_proc/overall_dependencies)" = "" ]; then
-  if [ "$2" = "RMV" ]; then
-   INSTALLEDSIZEKMAIN=-${MAINPKG_SIZE%[A-Z]} #remove suffix: K M B .. etc
-   echo "$INSTALLEDSIZEKMAIN" > /tmp/petget_proc/petget_installedsizek # In case all deps are needed
-  else
+ if [ "$MAINPKG_SIZE" != "" -a "$(do_grep $MAINPKG_NAME /tmp/overall_dependencies)" = "" ]; then
    INSTALLEDSIZEKMAIN=${MAINPKG_SIZE%[A-Z]} #remove suffix: K M B .. etc
-  fi
  fi
  echo -n "" > /tmp/petget_proc/petget_moreframes
  echo -n "" > /tmp/petget_proc/petget_tabs
@@ -115,16 +106,9 @@ FNDMISSINGDBENTRYFILE="`ls -1 /tmp/petget_proc/petget_missing_dbentries-* 2>/dev
    DEP_NAME="`echo "$ONELIST" | cut -f 1 -d '|'`"
    DEP_SIZE="`echo "$ONELIST" | cut -f 6 -d '|'`"
    ADDSIZEK=0
-   if [ "$(do_grep $DEP_NAME /tmp/petget_proc/overall_dependencies)" != "" ]; then
-    if [ "$2" = "ADD" -o "$(do_grep $DEP_NAME /tmp/petget_proc/overall_dependencies | wc -l)" -gt 1 ]; then
+   if [ "$(do_grep $DEP_NAME /tmp/overall_dependencies)" != "" ]; then
+    if [ "$(do_grep $DEP_NAME /tmp/overall_dependencies | wc -l)" -gt 1 ]; then
      echo done that
-    else
-     if [ "$DEP_SIZE" != "" ] && [ "$(do_grep $DEP_NAME /tmp/petget_proc/overall_dependencies | wc -l)" -le 1 ] \
-     && [ "$(do_grep $DEP_NAME /tmp/petget_proc/pkgs_to_install)" = "" ] ; then
-        ADDSIZEK=${DEP_SIZE%[A-Z]} #remove suffix: K M B .. etc
-     fi
-     INSTALLEDSIZEK=$(($INSTALLEDSIZEK - $ADDSIZEK))
-     echo "$INSTALLEDSIZEK" > /tmp/petget_proc/petget_installedsizek_rep
     fi
    else
     if [ "$DEP_SIZE" != "" ] && [ "$(do_grep $DEP_NAME /tmp/petget_proc/pkgs_to_install)" = "" ] ; then
@@ -138,23 +122,14 @@ FNDMISSINGDBENTRYFILE="`ls -1 /tmp/petget_proc/petget_missing_dbentries-* 2>/dev
    cat /tmp/petget_proc/petget_installedsizek_rep >> /tmp/petget_proc/petget_installedsizek
   fi
  done
-rm -f /tmp/petget_proc/petget_installedsizek_rep
-INSTALLEDSIZEK=`cat /tmp/petget_proc/petget_installedsizek`
-if [ "$2" = "RMV" ]; then
-   echo "$INSTALLEDSIZEK" >> /tmp/petget_proc/overall_pkg_size_RMV
-   for LINE in $(cat /tmp/petget_proc/petget_missing_dbentries-* 2>/dev/null | sort | uniq | cut -f1 -d '|')
-   do
-    sed -i "0,/$LINE/{//d;}" /tmp/petget_proc/overall_dependencies
-   done
-else
-   echo "$INSTALLEDSIZEK" >> /tmp/petget_proc/overall_pkg_size
-   echo "$INSTALLEDSIZEKMAIN" >> /tmp/petget_proc/overall_pkg_size
-   cat /tmp/petget_proc/petget_missing_dbentries-* | cut -f1 -d '|' >> /tmp/petget_proc/dependecies_list
-fi
+rm -f /tmp/petget_installedsizek_rep
+INSTALLEDSIZEK=`cat /tmp/petget_installedsizek`
+echo "$INSTALLEDSIZEK" >> /tmp/overall_pkg_size
+echo "$INSTALLEDSIZEKMAIN" >> /tmp/overall_pkg_size
+cat /tmp/petget_missing_dbentries-* | cut -f1 -d '|' >> /tmp/dependecies_list
 
-if [ "$2" = "ADD" ]; then
-  cat /tmp/petget_proc/dependecies_list | sort | uniq  >> /tmp/petget_proc/overall_dependencies
-  rm -f /tmp/petget_proc/dependecies_list
-fi
+cat /tmp/dependecies_list | sort | uniq  >> /tmp/overall_dependencies
+rm -f /tmp/dependecies_list
+
 sync
 /usr/local/petget/installmodes.sh check_total_size &

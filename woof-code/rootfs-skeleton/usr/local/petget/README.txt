@@ -7,7 +7,6 @@ Calling hierarchy
 pkg_chooser.sh
     finduserinstalledpkgs.sh
     filterpkgs.sh
-    filterversion.sh
     findnames.sh
     installpreview.sh
         findmissingpkgs.sh

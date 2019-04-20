@@ -127,16 +127,11 @@ if [ "`grep "$PTN1" /root/.packages/user-installed-packages`" != "" ];then
   dialog ${DISPTIME1} --msgbox "$(gettext 'This package is already installed. Cannot install it twice:') ${DLPKG_NAME}" 0 0
  else
   LANG=$LANG_USER
-  if [ "$(</var/local/petget/ui_choice)" = "Classic" -o -f /tmp/petget_proc/install_classic ]; then
-   /usr/lib/gtkdialog/box_ok "$(gettext 'Puppy package manager')" error "$(gettext 'This package is already installed. Cannot install it twice:')" "<i>${DLPKG_NAME}</i>"
-   [ -f /tmp/petget_proc/install_classic ] && echo ${DLPKG_NAME} >> /tmp/petget_proc/pgks_failed_to_install_forced
-  else
-   /usr/lib/gtkdialog/box_ok "$(gettext 'Puppy package manager')" error "$(gettext 'This package is already installed. Cannot install it twice:')" "<i>${DLPKG_NAME}</i>" & 
-   XPID=$!
-   sleep 3
-   pkill -P $XPID
-   echo ${DLPKG_NAME} >> /tmp/petget_proc/pgks_failed_to_install_forced
-  fi
+  /usr/lib/gtkdialog/box_ok "$(gettext 'Puppy package manager')" error "$(gettext 'This package is already installed. Cannot install it twice:')" "<i>${DLPKG_NAME}</i>" & 
+  XPID=$!
+  sleep 3
+  pkill -P $XPID
+  echo ${DLPKG_NAME} >> /tmp/pgks_failed_to_install_forced
  fi
  exit 1
 fi
@@ -547,49 +542,6 @@ do
   fi
   #substitute a default icon...
   sed -i -e "$iPATTERN" $ONEDOT #note, ONEDOT is name of .desktop file.
- fi
- 
- #120926 if a langpack installed, it will have /usr/share/applications.in (see /usr/sbin/momanager, /usr/share/doc/langpack-template/pinstall.sh).
- ABASEDESKTOP="`basename $ONEDOT`"
- ADIRDESKTOP="`dirname $ONEDOT`"
- if [ -f /usr/share/applications.in/${ABASEDESKTOP} ];then
-  TARGETLANG="`echo -n $LANG_USER | cut -f 1 -d '_'`" #ex: de
-  tlPTN="^Name\[${TARGETLANG}\]"
-  if [ "$(grep "$tlPTN" ${ADIRDESKTOP}/${ABASEDESKTOP})" = "" ];then
-   if [ "$(grep "$tlPTN" /usr/share/applications.in/${ABASEDESKTOP})" != "" ];then
-    #aaargh, these accursed back-slashes! ....
-    INSERTALINE="`grep "$tlPTN" /usr/share/applications.in/${ABASEDESKTOP} | sed -e 's%\[%\\\\[%' -e 's%\]%\\\\]%'`"
-    sed -i -e "s%^Name=%${INSERTALINE}\\nName=%" ${ADIRDESKTOP}/${ABASEDESKTOP}
-   fi
-  fi
-  #do same for Comment field...
-  tlPTN="^Comment\[${TARGETLANG}\]"
-  if [ "$(grep "$tlPTN" ${ADIRDESKTOP}/${ABASEDESKTOP})" = "" ];then
-   if [ "$(grep "$tlPTN" /usr/share/applications.in/${ABASEDESKTOP})" != "" ];then
-    #aaargh, these accursed back-slashes! ....
-    INSERTALINE="`grep "$tlPTN" /usr/share/applications.in/${ABASEDESKTOP} | sed -e 's%\[%\\\\[%' -e 's%\]%\\\\]%'`"
-    sed -i -e "s%^Comment=%${INSERTALINE}\\nComment=%" ${ADIRDESKTOP}/${ABASEDESKTOP}
-   fi
-  fi
-  #well, i suppose need this too...
-  TARGETLANG="`echo -n $LANG_USER | cut -f 1 -d '.'`" #ex: de_DE
-  tlPTN="^Name\[${TARGETLANG}\]"
-  if [ "$(grep "$tlPTN" ${ADIRDESKTOP}/${ABASEDESKTOP})" = "" ];then
-   if [ "$(grep "$tlPTN" /usr/share/applications.in/${ABASEDESKTOP})" != "" ];then
-    #aaargh, these accursed back-slashes! ....
-    INSERTALINE="`grep "$tlPTN" /usr/share/applications.in/${ABASEDESKTOP} | sed -e 's%\[%\\\\[%' -e 's%\]%\\\\]%'`"
-    sed -i -e "s%^Name=%${INSERTALINE}\\nName=%" ${ADIRDESKTOP}/${ABASEDESKTOP}
-   fi
-  fi
-  #do same for Comment field...
-  tlPTN="^Comment\[${TARGETLANG}\]"
-  if [ "$(grep "$tlPTN" ${ADIRDESKTOP}/${ABASEDESKTOP})" = "" ];then
-   if [ "$(grep "$tlPTN" /usr/share/applications.in/${ABASEDESKTOP})" != "" ];then
-    #aaargh, these accursed back-slashes! ....
-    INSERTALINE="`grep "$tlPTN" /usr/share/applications.in/${ABASEDESKTOP} | sed -e 's%\[%\\\\[%' -e 's%\]%\\\\]%'`"
-    sed -i -e "s%^Comment=%${INSERTALINE}\\nComment=%" ${ADIRDESKTOP}/${ABASEDESKTOP}
-   fi
-  fi
  fi
  
 done
