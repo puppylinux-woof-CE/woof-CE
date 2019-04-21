@@ -784,11 +784,56 @@ if [ "$HOMEUSER" != "root" ];then
 fi
 
 #120523 precise puppy needs this... (refer also rc.update and 3builddistro)
-if [ "`grep '/usr/share/glib-2.0/schemas' /root/.packages/${DLPKG_NAME}.files`" != "" ];then
+PKGFILES="/root/.packages/${DLPKG_NAME}.files"
+
+if [ "`grep '/usr/share/glib-2.0/schemas' $PKGFILES`" != "" ];then
  [ -e /usr/bin/glib-compile-schemas ] && /usr/bin/glib-compile-schemas /usr/share/glib-2.0/schemas
 fi
-if [ "`grep '/usr/lib/gio/modules' /root/.packages/${DLPKG_NAME}.files`" != "" ];then
+
+if [ "`grep '/usr/lib/gio/modules' $PKGFILES`" != "" ];then
  [ -e /usr/bin/gio-querymodules ] && /usr/bin/gio-querymodules /usr/lib/gio/modules
+fi
+
+if [ "`grep '/usr/share/applications/' $PKGFILES`" != "" ];then
+ rm -f /usr/share/applications/mimeinfo.cache
+ [ -e /usr/bin/update-desktop-database ] && /usr/bin/update-desktop-database /usr/share/applications
+fi
+
+if [ "`grep '/usr/share/mime/' $PKGFILES`" != "" ];then
+ [ -e /usr/bin/update-mime-database ] && /usr/bin/update-mime-database /usr/share/mime
+fi
+
+if [ "`grep '/usr/share/icons/hicolor/' $PKGFILES`" != "" ];then
+ [ -e /usr/bin/gtk-update-icon-cache ] && /usr/bin/gtk-update-icon-cache /usr/share/icons/hicolor
+fi
+
+if [ "`grep '/usr/lib/gdk-pixbuf' $PKGFILES`" != "" ];then
+ gdk-pixbuf-query-loaders --update-cache
+fi
+
+if [ "`grep '/usr/lib/gconv/' $PKGFILES`" != "" ];then
+ iconvconfig
+fi
+
+if [ "`grep '/usr/lib/pango/' $PKGFILES`" != "" ];then
+ pango-querymodules --update-cache
+fi
+
+for gtkver in '1.0' '2.0' '3.0'
+do
+ if [ "`grep '/usr/lib/gtk-$gtkver' $PKGFILES | grep "/immodules"`" != "" ];then
+  [ -e /usr/bin/gtk-query-immodules-$gtkver ] && gtk-query-immodules-$gtkver --update-cache
+ fi
+done
+
+if [ "`grep '/usr/share/fonts/' $PKGFILES`" != "" ];then
+ fc-cache -f
+fi
+
+KERNVER="$(uname -r)"
+
+if [ "`grep "/lib/modules/$KERNVER/" $PKGFILES`" != "" ];then
+ depmod -a
 fi
 
 rm -f $HOME/nohup.out
