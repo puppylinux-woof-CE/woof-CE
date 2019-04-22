@@ -20,6 +20,10 @@
 #120203 BK: internationalized.
 #120323 replace 'xmessage' with 'pupmessage'.
 
+if [ -e /tmp/libfiles.txt ]; then
+ rm -f /tmp/libfiles.txt
+fi
+
 [ "$(cat /var/local/petget/nt_category 2>/dev/null)" != "true" ] && \
  [ -f /tmp/remove_pets_quietly ] && set -x
  #; mkdir -p /tmp/PPM_LOGs ; NAME=$(basename "$0"); exec 1>> /tmp/PPM_LOGs/"$NAME".log 2>&1
@@ -30,6 +34,52 @@ export OUTPUT_CHARSET=UTF-8
 . /etc/rc.d/PUPSTATE  #111228 this has PUPMODE and SAVE_LAYER.
 . /etc/DISTRO_SPECS #has DISTRO_BINARY_COMPAT, DISTRO_COMPAT_VERSION
 . /root/.packages/DISTRO_PKGS_SPECS
+
+fix_broken_symlinks(){
+LLIB=""
+
+for LIBx in $(cat /tmp/libfiles.txt)
+do
+	LIBDN="$(dirname $LIBx)"
+	BLIB="$(basename $LIBx)"
+
+	ORGLIB="$(echo "$BLIB" | sed -e "s#\.so#\|#g")"
+	xORGLIB="$(echo "$ORGLIB" | cut -f 1 -d '|')"
+
+	if [ "$xORGLIB" != "" ]; then
+		if [ "$LLIB" == "" ] || [ "$LLIB" != "$xORGLIB" ]; then
+		LLIB="$xORGLIB"
+		MOTHERFILE=$(find ${LIBDN} -type f -name "${xORGLIB}.so*" -maxdepth 1 | head -n 1)
+			if [ "$MOTHERFILE" != "" ]; then
+			 SLL=$(find ${LIBDN} -type l -name "${xORGLIB}.so*" -maxdepth 1 | tr '\n' ' ')
+				if [ "$SLL" != "" ]; then
+				  for SLINK in $SLL
+				  do
+					  BLINK="$(basename $SLINK)"
+					  RL="$(readlink ${LIBDN}/$BLINK)"
+					  if [ "$(echo $RL | cut -c 1)" != "/" ]; then
+						xRL="$(basename $RL)"
+						if [ ! -f ${LIBDN}/$xRL ]; then
+						 rm -f $SLINK
+						 ln -s ${MOTHERFILE} $SLINK
+						fi
+					  elif [ "$(echo $RL | cut -c 1)" == "/" ]; then
+						if [ ! -f $RL ]; then
+						 rm -f $SLINK
+						 ln -s ${MOTHERFILE} $SLINK
+						fi
+					  else
+						 rm -f $SLINK
+						 ln -s ${MOTHERFILE} $SLINK					    
+					  fi
+				  done
+				fi
+			 fi
+		fi
+	fi
+done	
+}
+
 
 DB_pkgname="$TREE2"
 
@@ -60,6 +110,10 @@ fi
 
 if [ -f /root/.packages/${DB_pkgname}.files ];then
  if [ "$PUP_LAYER" = '/pup_ro2' ]; then #120103 shinobar.
+  
+  #List all library files of a package
+  cat /root/.packages/${DB_pkgname}.files | grep -E "*\.so" > /tmp/libfiles.txt
+  
   cat /root/.packages/${DB_pkgname}.files |
   while read ONESPEC
   do
@@ -314,6 +368,12 @@ if [ "$UPDATE_MENUS" = "yes" ]; then
   fi
  fi
 fi
+
+if [ -e /tmp/libfiles.txt ] && [ $PUPMODE -ne 2 ]; then
+ fix_broken_symlinks
+fi
+
+rm -f /tmp/petget-proc/libfiles.txt > /dev/null
 
 PKGFILES="/root/.packages/${DB_pkgname}.files"
 
