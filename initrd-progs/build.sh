@@ -8,10 +8,10 @@ export TARGET_TRIPLET=
 
 SITE=http://01micko.com/wdlkmpx/woof-CE
 
-X86_CC=cross-compiler-i686-20180925.tar.xz
-X86_64_CC=cross-compiler-x86_64-20180925.tar.xz
-ARM_CC=cross-compiler-arm-20180925.tar.xz #armv6
-ARM64_CC=cross-compiler-aarch64-20180925.tar.xz
+X86_CC=cross-compiler-i686-20190424.tar.xz
+X86_64_CC=cross-compiler-x86_64-20190424.tar.xz
+ARM_CC=cross-compiler-arm-20190424.tar.xz #armv6
+ARM64_CC=cross-compiler-aarch64-20190424.tar.xz
 
 INITRD_PROGS_STATIC=initrd_progs-20180925-static.tar.xz
 
