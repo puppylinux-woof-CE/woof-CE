@@ -773,7 +773,14 @@ if [ "$installed_pkg" != "" ]; then
 	  echo "$xline" >> /root/.packages/${DLPKG_NAME}.files
 	 fi
 	done < /root/.packages/${installed_files}.files
+	
 	rm -f /root/.packages/${installed_files}.files
+	
+	cat /root/.packages/user-installed-packages | grep -v "$installed_pkg" > /root/.packages/user-installed-packages.tmp
+	echo "$DB_ENTRY" >> /root/.packages/user-installed-packages.tmp
+	cp -f /root/.packages/user-installed-packages.tmp /root/.packages/user-installed-packages
+	rm -f  /root/.packages/user-installed-packages.tmp
+	
     else
      echo "$DB_ENTRY" >> /root/.packages/user-installed-packages
     fi
