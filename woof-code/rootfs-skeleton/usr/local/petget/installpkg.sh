@@ -795,8 +795,10 @@ if [ "`grep '/usr/lib/gio/modules' $PKGFILES`" != "" ];then
 fi
 
 if [ "`grep '/usr/share/applications/' $PKGFILES`" != "" ];then
- rm -f /usr/share/applications/mimeinfo.cache
- [ -e /usr/bin/update-desktop-database ] && /usr/bin/update-desktop-database /usr/share/applications
+ if [ -e /usr/bin/update-desktop-database ] ; then
+   rm -f /usr/share/applications/mimeinfo.cache
+   /usr/bin/update-desktop-database /usr/share/applications
+ fi
 fi
 
 if [ "`grep '/usr/share/mime/' $PKGFILES`" != "" ];then
