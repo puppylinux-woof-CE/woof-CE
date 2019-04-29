@@ -34,34 +34,24 @@ case $KERNELPKG in
 esac
 KERNELVER="`$cmd ../kernel_pkgs/${KERNELPKG} 2>/dev/null | grep -o '/lib/modules/[23456789]\..*' | head -n 1 | cut -f 4 -d '/'`" #120502 hide error msg.
 
-dotnum="`echo -n "$KERNELVER" | sed -e 's%[^\.]%%g' | wc -c`"
-SUB_KERNELVER=`echo -n "$KERNELVER" | cut -f 1 -d '-' | cut -f 3 -d '.'`
-MAJ_KERNELVER=`echo -n "$KERNELVER" | cut -f 1 -d '-' | cut -f 1 -d '.'` #111014 2 or 3.
-#allow only 2.6.29 kernel+, mksquashfs v4.0...
-if [ "$MAJ_KERNELVER" = "2" -a "$SUB_KERNELVER" != "" -a "$SUB_KERNELVER" -lt 29 ] ; then
-	echo "ERROR: only kernel 2.6.29+ allowed "
-	exit 1
-fi
-
 echo "You have chosen $KERNELPKG, which is version $KERNELVER."
 
 #now do the kernel...
 rm -rf zdrv
-mkdir -p zdrv
 echo
 case $KERNELPKG in
 	*.pet)
-		rm -f $KERNELPKG
 		KERNPKGNAMEONLY="`basename $KERNELPKG .pet`"
-		rm -rf $KERNPKGNAMEONLY
-		cp ../kernel_pkgs/${KERNELPKG} ./
-		pet2tgz $KERNELPKG
-		tar -xf $KERNPKGNAMEONLY.tar.?z
-		rm -rf zdrv/
-		mv -f $KERNPKGNAMEONLY zdrv/
+		head -c -32 ../kernel_pkgs/${KERNELPKG} > ${KERNPKGNAMEONLY}.tar
+		tar -xf ${KERNPKGNAMEONLY}.tar ; sync
+		mv -f ${KERNPKGNAMEONLY} zdrv/
 		;;
-	#*.txz|*.tgz) #TODO
+	*.txz|*.tgz|*.tar.*) #TODO
+		mkdir -p zdrv
+		tar -C zdrv -ixf ../kernel_pkgs/${KERNELPKG} 
+		;;
 	*.deb)
+		mkdir -p zdrv
 		dpkg-deb -x ../kernel_pkgs/${KERNELPKG} zdrv 1>/dev/null
 		;;
 esac
@@ -73,14 +63,6 @@ mkdir -p zdrv/lib/modules/$KERNELVER
 [ -f zdrv/etc/modules/modules.order ] && cp -a -f zdrv/etc/modules/modules.order zdrv/lib/modules/$KERNELVER/
 
 cp -a zdrv/boot/System.map* ./System.map 2>/dev/null
-depmod -b zdrv -F System.map $KERNELVER
-
-#echo "deleting big modem modules..."
-for i in agr hcf hsf intel5 Intel5 esscom pctel ; do
-  find zdrv/lib/modules/${KERNELVER}/ -type f -name ${i}*.ko -o -name ${i}*HIDE -delete
-done
-rm -rf zdrv/lib/modules/all-firmware/{hsfmodem*,hcfpcimodem*,intel536ep*,intel537*} 2>/dev/null
-
 depmod -b zdrv -F System.map $KERNELVER
 sync
 
