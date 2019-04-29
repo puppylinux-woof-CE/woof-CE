@@ -479,7 +479,7 @@ else
 		fw_pkg=${fw_pkg##* }
 		if [ -f sources/${fw_pkg} ] ; then
 			log_msg "Verifying sources/${fw_pkg}"
-			tar -taf sources/${fw_pkg} &>/dev/null
+			tar -tf sources/${fw_pkg} &>/dev/null
 			[ $? -ne 0 ] && exit_error "failed verify ${fw_pkg##* }"
 		else
 			log_msg "You chose ${fw_pkg}. If that isn't correct change it manually later."
@@ -537,13 +537,13 @@ elif [ "$USE_MAINLINE_KERNEL_PLUS_PATCH" = "yes" ] ; then
 	rm -rf linux-${kernel_version}
 	mkdir linux-${kernel_version}
 	cd linux-${kernel_version}
-	tar --strip-components=1 -axf ../sources/kernels/linux-${kernel_major_version}.tar.xz >> ${BUILD_LOG} 2>&1
+	tar --strip-components=1 -xf ../sources/kernels/linux-${kernel_major_version}.tar.xz >> ${BUILD_LOG} 2>&1
 	[ $? -ne 0 ] && exit_error "ERROR extracting kernel sources."
 	unxz -dc ../sources/kernels/patch-${kernel_tarball_version}.xz | patch -s -p1
 	[ $? -ne 0 ] && exit_error "ERROR patching kernel sources."
 	cd ..
 else
-	tar -axf sources/kernels/linux-${kernel_tarball_version}.tar.xz >> ${BUILD_LOG} 2>&1
+	tar -xf sources/kernels/linux-${kernel_tarball_version}.tar.xz >> ${BUILD_LOG} 2>&1
 fi
 if [ $? -ne 0 ] ; then
 	rm -f sources/kernels/linux-${kernel_tarball_version}.tar.xz
@@ -951,7 +951,7 @@ if [ "$FW_PKG_URL" ] ; then
 			;;
 		*.tar.*)
 			mkdir -p output/${linux_kernel_dir}/lib
-			tar -xaf sources/${fw_pkg} -C output/${linux_kernel_dir}/lib/
+			tar -xf sources/${fw_pkg} -C output/${linux_kernel_dir}/lib/
 			[ $? -ne 0 ] && exit_error "failed to unpack ${fw_pkg}"
 			;;
 	esac

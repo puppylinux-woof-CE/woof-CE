@@ -232,7 +232,7 @@ case $DLPKG_BASE in
   DLPKG_MAIN="`basename $DLPKG_BASE .pet`"
   pet2tgz $DLPKG_BASE || exit 1
   tarball=$(echo ${DLPKG_MAIN}.tar.[gx]z)
-  PETFILES="$(tar --list -a -f $tarball)" || exit 1
+  PETFILES="$(tar --list -f $tarball)" || exit 1
   #check for renamed pets. Will produce an empty ${DLPKG_NAME}.files file
   PETFOLDER=$(echo "${PETFILES}" | cut -f 2 -d '/' | head -n 1)
   [ "$PETFOLDER" = "" ] && PETFOLDER=$(echo "${PETFILES}" | cut -f 1 -d '/' | head -n 1)
@@ -251,13 +251,13 @@ case $DLPKG_BASE in
    pPATTERN="s%^\\./${DLPKG_NAME}%%"
    echo "$PETFILES" | sed -e "$pPATTERN" -e "s#^\.\/#\/#g" -e "s#^#\/#g" -e "s#^\/\/#\/#g" -e 's#^\/$##g' -e 's#^\/\.$##g' > /root/.packages/${DLPKG_NAME}.files
    install_path_check
-   tar -a -x --strip=2 --directory=${DIRECTSAVEPATH}/ -f ${tarball} #120102. 120107 remove --unlink-first
+   tar -x --strip=2 --directory=${DIRECTSAVEPATH}/ -f ${tarball} #120102. 120107 remove --unlink-first
   else
    #new2dir and tgz2pet creates them this way...
    pPATTERN="s%^${DLPKG_NAME}%%"
    echo "$PETFILES" | sed -e "$pPATTERN" -e "s#^\.\/#\/#g" -e "s#^#\/#g" -e "s#^\/\/#\/#g" -e 's#^\/$##g' -e 's#^\/\.$##g' > /root/.packages/${DLPKG_NAME}.files
    install_path_check
-   tar -a -x --strip=1 --directory=${DIRECTSAVEPATH}/ -f ${tarball} #120102. 120107. 131122
+   tar -x --strip=1 --directory=${DIRECTSAVEPATH}/ -f ${tarball} #120102. 120107. 131122
   fi
   rm -f "${tarball}"
   [ $? -ne 0 ] && clean_and_die
@@ -277,10 +277,10 @@ case $DLPKG_BASE in
   DLPKG_MAIN="`basename $DLPKG_BASE`" #remove directory - filename only
   DLPKG_MAIN=${DLPKG_MAIN%*.tar.*}    #remove .tar.xx extension
   DLPKG_MAIN=${DLPKG_MAIN%.t[gx]z}    #remove .t[gx]z extension
-  PFILES="`tar --list -a -f $DLPKG_BASE`" || exit 1
+  PFILES="`tar --list -f $DLPKG_BASE`" || exit 1
   echo "$PFILES" | sed -e "s#^\.\/#\/#g" -e "s#^#\/#g" -e "s#^\/\/#\/#g" -e 's#^\/$##g' -e 's#^\/\.$##g' > /root/.packages/${DLPKG_NAME}.files
   install_path_check
-  tar -a -x --directory=${DIRECTSAVEPATH}/ -f $DLPKG_BASE #120102. 120107
+  tar -x --directory=${DIRECTSAVEPATH}/ -f $DLPKG_BASE #120102. 120107
   [ $? -ne 0 ] && clean_and_die
  ;;
  *.rpm) #110523

@@ -100,13 +100,13 @@ download_kernel() {
 	local URL="$1" TARBALL="${1##*/}"
 	if [ -f ../../local-repositories/huge_kernels/${TARBALL} ] ; then
 		echo "Verifying ../../local-repositories/huge_kernels/${TARBALL}"
-		if tar -taf ../../local-repositories/huge_kernels/${TARBALL} &>/dev/null ; then
+		if tar -tf ../../local-repositories/huge_kernels/${TARBALL} &>/dev/null ; then
 			cp -fv ../../local-repositories/huge_kernels/${TARBALL} ${HUGE_KERNEL_DIR}/
 			return
 		fi
 	elif [ -f ${HUGE_KERNEL_DIR}/${TARBALL} ] ; then
 		echo "Verifying ${HUGE_KERNEL_DIR}/${TARBALL}"
-		if tar -taf ${HUGE_KERNEL_DIR}/${TARBALL} &>/dev/null ; then
+		if tar -tf ${HUGE_KERNEL_DIR}/${TARBALL} &>/dev/null ; then
 			cp -fv ${HUGE_KERNEL_DIR}/${TARBALL} ../../local-repositories/huge_kernels/
 			return
 		fi
@@ -124,7 +124,7 @@ download_kernel() {
 	if [ -z "$MD5" ] ; then
 		echo "*** WARNING: no checksum"
 		echo "Verifying tarball integrity..."
-		if ! tar -taf ${HUGE_KERNEL_DIR}/${TARBALL} &>/dev/null ; then
+		if ! tar -tf ${HUGE_KERNEL_DIR}/${TARBALL} &>/dev/null ; then
 			echo "ERROR"
 			exit 1
 		fi

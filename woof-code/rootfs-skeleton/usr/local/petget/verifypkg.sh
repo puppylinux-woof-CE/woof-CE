@@ -15,7 +15,7 @@ case $DLPKG in
 		exit $RETVAL
 		;;
 	*.deb) dpkg-deb --contents "$DLPKG" &>/dev/null ; exit $? ;;
-	*.t[gx]z|*.tar.*) tar -taf "$DLPKG" &>/dev/null ; exit $? ;;
+	*.t[gx]z|*.tar.*) tar -tf "$DLPKG" &>/dev/null ; exit $? ;;
 esac
 
 ### END ###
