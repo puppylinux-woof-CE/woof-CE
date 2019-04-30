@@ -759,7 +759,37 @@ if [ "$DESKTOPFILE" != "" ];then
  fi
 fi
 
-echo "$DB_ENTRY" >> /root/.packages/user-installed-packages
+#If there is an already installed package, just update the package files list and its database entry
+xpkgname="$(echo "$DB_ENTRY" | cut -f 2 -d '|')"
+installed_pkg="$(cat /root/.packages/user-installed-packages | grep "|$xpkgname|")"
+
+if [ "$installed_pkg" != "" ]; then
+  installed_files="$(echo "$installed_pkg" | cut -f 1 -d '|')"
+  if [ "$installed_files" != "" ]; then
+    if [ -e /root/.packages/${installed_files}.files ]; then
+	while IFS= read -r xline
+	do
+  	 if [ "$(cat /root/.packages/${DLPKG_NAME}.files | grep "$xline")" == "" ]; then
+	  echo "$xline" >> /root/.packages/${DLPKG_NAME}.files
+	 fi
+	done < /root/.packages/${installed_files}.files
+	
+	rm -f /root/.packages/${installed_files}.files
+	
+	cat /root/.packages/user-installed-packages | grep -v "$installed_pkg" > /root/.packages/user-installed-packages.tmp
+	echo "$DB_ENTRY" >> /root/.packages/user-installed-packages.tmp
+	cp -f /root/.packages/user-installed-packages.tmp /root/.packages/user-installed-packages
+	rm -f  /root/.packages/user-installed-packages.tmp
+	
+    else
+     echo "$DB_ENTRY" >> /root/.packages/user-installed-packages
+    fi
+  else
+    echo "$DB_ENTRY" >> /root/.packages/user-installed-packages
+  fi
+else
+ echo "$DB_ENTRY" >> /root/.packages/user-installed-packages
+fi
 
 #120907 post-install hacks...
 /usr/local/petget/hacks-postinstall.sh $DLPKG_MAIN
@@ -823,7 +853,7 @@ fi
 
 for gtkver in '1.0' '2.0' '3.0'
 do
- if [ "`grep '/usr/lib/gtk-$gtkver' $PKGFILES | grep "/immodules"`" != "" ];then
+ if [ "`grep "/usr/lib/gtk-$gtkver" $PKGFILES | grep "/immodules"`" != "" ];then
   [ -e /usr/bin/gtk-query-immodules-$gtkver ] && gtk-query-immodules-$gtkver --update-cache
  fi
 done
