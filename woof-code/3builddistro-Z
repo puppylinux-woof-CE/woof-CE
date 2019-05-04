@@ -1472,30 +1472,37 @@ elif [ "$SDFLAG" ];then #120506 sd image
 	fi
 	sync
 
-	#120703 allow 2nd partition to be ext2, ext3 or ext4...
-	SDIMGINFO="`disktype ../${WOOF_OUTPUT}/${PUPIMG}`"
-	SDFS2="`echo "$SDIMGINFO" | grep -o 'Ext[0-9] file system' | cut -f 1 -d ' ' | tr '[A-Z]' '[a-z]'`"
-	case $SDFS2 in
-		ext2|ext3|ext4) SDFS2="ext4" ;; #120706 hack for now. disktype misreports ext4 without journal as ext2.
-		*)
-			echo -n "wrong f.s. ${SDFS2} in ${SDIMAGE}, aborting. Press ENTER: "
-			read exitme
-			exit
-			;;
-	esac
- 
-	#130530 better to write everything to the image file first, then write to sd afterward...
-	#need to know the offsets of the filesystems...
-	P1BYTES=`echo "$SDIMGINFO" | grep '^Partition 1:' | cut -f 2 -d '(' | cut -f 1 -d ' '`
-	P1SECTORS=`echo "$SDIMGINFO" | grep '^Partition 1:' | cut -f 2 -d '(' | cut -f 3 -d ' '`
-	P1STARTSECTORS=`echo "$SDIMGINFO" | grep '^Partition 1:' | rev | cut -f 1 -d ' ' | rev | cut -f 1 -d ')'`
-	BYTESPERSECTOR=`expr $P1BYTES \/ $P1SECTORS` #normally 512.
-	P1STARTBYTES=`expr $P1STARTSECTORS \* $BYTESPERSECTOR`
- 
-	P2BYTES=`echo "$SDIMGINFO" | grep '^Partition 2:' | cut -f 2 -d '(' | cut -f 1 -d ' '`
-	P2SECTORS=`echo "$SDIMGINFO" | grep '^Partition 2:' | cut -f 2 -d '(' | cut -f 3 -d ' '`
-	P2STARTSECTORS=`echo "$SDIMGINFO" | grep '^Partition 2:' | rev | cut -f 1 -d ' ' | rev | cut -f 1 -d ')'`
-	P2STARTBYTES=`expr $P2STARTSECTORS \* $BYTESPERSECTOR`
+	SDIMGINFO="`LANG=C fdisk -l ../${WOOF_OUTPUT}/${PUPIMG}`"
+	IS_EXT2="`echo "$SDIMGINFO" | grep 'Linux'`"
+	if ! [ "$IS_EXT2" ] ; then
+		echo -n "need ext4 in the second partition of ${SDIMAGE}, aborting."
+		exit 1
+	fi
+	SDFS2=ext4
+	# better to write everything to the image file first, then write to sd afterward...
+	# need to know the offsets of the filesystems...
+	#Units: sectors of 1 * 512 = 512 bytes
+	BYTESPERSECTOR="`echo "$SDIMGINFO" | grep 'sectors of' | cut -f 2 -d '=' | cut -f 2 -d ' '`"
+	p1=`echo "$SDIMGINFO" | grep "${PUPIMG}1" | tr -s ' '`
+	p2=`echo "$SDIMGINFO" | grep "${PUPIMG}2" | tr -s ' '`
+	if [ "`echo "$SDIMGINFO" | grep 'StartCHS'`" ] ; then
+		#busybox
+		case "$p1" in
+		*"*"*) read IMG BOOT STARTCHS ENDCHS P1STARTSECTORS P1ENDSECTOR P1SECTORS ETC <<< "$p1" ;;
+		*)     read IMG      STARTCHS ENDCHS P1STARTSECTORS P1ENDSECTOR P1SECTORS ETC <<< "$p1" ;;
+		esac
+		read IMG STARTCHS ENDCHS P2STARTSECTORS P2ENDSECTOR P2SECTORS ETC <<< "$p2"
+	else
+		case "$p1" in
+		*"*"*) read IMG BOOT P1STARTSECTORS P1ENDSECTOR P1SECTORS ETC <<< "$p1" ;;
+		*)     read IMG      P1STARTSECTORS P1ENDSECTOR P1SECTORS ETC <<< "$p1" ;;
+		esac
+		read IMG P2STARTSECTORS P2ENDSECTOR P2SECTORS ETC <<< "$p2"
+	fi
+	P1BYTES=$((P1SECTORS * BYTESPERSECTOR))
+	P1STARTBYTES=$((P1STARTSECTORS * BYTESPERSECTOR))
+	P2BYTES=$((P2SECTORS * BYTESPERSECTOR))
+	P2STARTBYTES=$((P2STARTSECTORS * BYTESPERSECTOR))
  
 	echo
 	echo "Copying Linux kernel to SD image file..."
@@ -1614,18 +1621,14 @@ elif [ "$SDFLAG" ];then #120506 sd image
 			read sdcorrect
 			[ "$sdcorrect" = "" ] && break
 		done
-		echo
-		echo "Sanity check: ${PUPIMG}
- is to be written to ${SDDEVICE}."
+		echo -e "\nSanity check: ${PUPIMG}\n is to be written to ${SDDEVICE}."
 		echo -n "Press ENTER to continue: "
 		read yepgo
 
-		SDCARDINFO="`disktype ${SDDEVICE}`"
-		#120506b check that sd card big enough...
-		SDCARDBYTES=`echo "$SDCARDINFO" | grep '^Block device' | cut -f 2 -d '(' | cut -f 1 -d ' '` #ex: 4023386112
+		# check that sd card big enough...
+		SDCARDBYTES=`LANG=C fdisk -l ${SDDEVICE} | grep "${SDDEVICE}:" | cut -f 2 -d ',' | cut -f 2 -d ' '`
 		if [ $IMGBYTES -gt $SDCARDBYTES ];then
-			echo
-			echo "Sorry, the image file is ${IMGBYTES}bytes, however the
+			echo -e "\nSorry, the image file is ${IMGBYTES}bytes, however the
 SD card is only ${SDCARDBYTES}bytes. Cannot continue."
 			exit 1
 		fi
