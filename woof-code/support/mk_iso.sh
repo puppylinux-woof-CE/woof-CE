@@ -8,7 +8,7 @@
 if [ -f ../_00build.conf ] ; then
 	. ../_00build.conf
 	. ../DISTRO_SPECS
-elif [ -f ./build.conf ] ; then #zwoof-next
+elif [ -f ./build.conf ] ; then #zwn
 	. ./build.conf
 	. ./DISTRO_SPECS
 fi
@@ -20,8 +20,17 @@ FIXUSB=${PX}/usr/sbin/fix-usb.sh
 BOOTLABEL=puppy
 PPMLABEL=`which ppmlabel`
 TEXT="-text $DISTRO_VERSION"
-EFI64_SOURCE=${PX}/usr/share/grub2-efi/grubx64.efi #grub2_efi noarch pkg
-EFI32_SOURCE=${PX}/usr/share/grub2-efi/grubia32.efi
+
+if [ "$BOOT_FILES_PATH" ] ; then # zwn, build.conf
+	EFI64_SOURCE=${BOOT_FILES_PATH}/grubx64.efi
+	EFI32_SOURCE=${BOOT_FILES_PATH}/grubia32.efi
+elif [ -f ../boot/grubx64.efi ] ; then
+	EFI64_SOURCE=../boot/grubx64.efi
+	EFI32_SOURCE=../boot/grubia32.efi
+else
+	EFI64_SOURCE=${PX}/usr/share/grub2-efi/grubx64.efi #grub2_efi noarch pkg
+	EFI32_SOURCE=${PX}/usr/share/grub2-efi/grubia32.efi
+fi
 
 if [ -f "$EFI32_SOURCE" -o -f "$EFI64_SOURCE" ] ; then
 	SCREENRES='800 600'
@@ -82,7 +91,7 @@ mk_efi_img() {
 
 ISO_BASENAME=${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${UFLG}${XTRA_FLG}
 WOOF_OUTPUT=../woof-output-${ISO_BASENAME}
-if [ -L ../woof-code ] ; then #zwoof-next
+if [ -L ../woof-code ] ; then #zwn
 	WOOF_OUTPUT=${WOOF_OUTPUT#../} #use current dir
 fi
 [ -d $WOOF_OUTPUT ] || mkdir -p $WOOF_OUTPUT
