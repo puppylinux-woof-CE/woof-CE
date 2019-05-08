@@ -1,6 +1,6 @@
 #!/bin/sh
 # Prepare build system.
-# Copyright (C) James Budiono 2014 
+# Copyright (C) James Budiono 2014, 2019 
 # License: GNU GPL Version 3 or later.
 
 ### configuration
@@ -98,7 +98,7 @@ get_kernel() {
 
 map_target_arch() { # as needed to meet source distro name
 	case $SOURCE in
-		ubuntu|debian)
+		ubuntu|debian|devuan)
 			case $TARGET_ARCH in
 				x86)    MAPPED_ARCH=i386 ;;
 				x86_64) MAPPED_ARCH=amd64 ;;
@@ -148,7 +148,7 @@ EXTRAPKG_PATH="\$WOOFCE/woof-code/rootfs-packages"
 # loads DEFAULT_REPOS, WITH_APT_DB and other repository options
 . ./repo-url 
 
-# debian/ubuntu only
+# debian/ubuntu/devuan only
 APT_SOURCES_DIR=/etc/apt/sources.list.d
 APT_PKGDB_DIR=/var/lib/apt/lists
 
@@ -217,6 +217,20 @@ map_version
 prepare_work_dir
 confirmation
 exit
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 # === Original code kept for future reference ===
