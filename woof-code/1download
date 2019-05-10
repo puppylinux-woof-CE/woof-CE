@@ -22,14 +22,22 @@ mkdir -p packages-pet
 rm -f DOWNLOAD-FAILS-* DOWNLOAD-ERRORS 2>/dev/null
 wget --help | grep -q '\-\-show\-progress' && WGET_SHOW_PROGRESS='-q --show-progress'
 
+xabort() {
+	if [ -f /tmp/1dl_busy ] ; then
+		read file < /tmp/1dl_busy
+		rm -f $file /tmp/1dl_busy
+	fi
+	do_exit "Aborted"
+}
+
 function do_exit() { #$1: msg
-	kill `cat /tmp/1download_controlpanel_pid` &>/dev/null
-	rm -f /tmp/1download_controlpanel_pid &>/dev/null
 	echo -e "\n${1}"
 	echo -e "\nScript finished."
 	[ "$WOOF_GUI" ] && { echo -n "Press ENTER key to exit: " ; read zzz ; }
 	exit
 }
+
+trap "xabort" SIGINT SIGTERM
 
 ##################################
 #120501 support arm build, download sd images...
@@ -103,42 +111,6 @@ run_findpkgs #find all packages that will be used in the Puppy build...
 
 #==============================================================================
 
-function download_controlpanel() {
-	export DOWNLOAD_CONTROLPANEL='
-<window title="1download control panel" icon-name="gtk-dialog-warning">
- <vbox>
-  <hbox>
-   <text><label>Pause after current package has downloaded:</label></text>
-   <button>
-      <label>Pause</label>
-      <action>echo 'Pause' > /tmp/1download-status-request</action>
-   </button>
-  </hbox>
-  <hbox>
-   <text><label>Resume downloading if currently paused:</label></text>
-   <button>
-      <label>Resume</label>
-      <action>echo 'Resume' > /tmp/1download-status-request</action>
-   </button>
-  </hbox>
-  <hbox>
-   <text><label>Quit 1download script after current pkg has download:</label></text>
-   <button>
-      <label>Quit</label>
-      <action>echo 'Quit' > /tmp/1download-status-request</action>
-      <action type="exit">Exit</action>
-   </button>
-  </hbox>
-  <text><label>Note: If you Quit, 1download can be run again and will continue from where it left off. That is, previously downloaded packages will not be re-downloaded.</label></text>
- </vbox>
-</window>
-'
-	gtkdialog --program=DOWNLOAD_CONTROLPANEL &
-	echo -n $! > /tmp/1download_controlpanel_pid
-}
-
-#==============================================================================
-
 REPOS_DISTRO_COMPAT=$(echo "$REPOS_DISTRO_COMPAT" | tr ' ' '\n')
 PET_REPOS=$(echo "$PET_REPOS" | tr ' ' '\n')
 
@@ -198,7 +170,8 @@ do
  cd ${MWD}
 
  if [ -f "${FILE_DIR}/${DB_fullfilename}" ] ; then
-   echo -n " ${DB_fullfilename}" ; SUCCESS='yes'
+   echo -n " ${DB_fullfilename}"
+   SUCCESS='yes'
    continue
  fi
  echo -e "\n* Downloading ${DB_fullfilename}"
@@ -220,9 +193,13 @@ $(echo "$XREPOS" | grep -v "|${DBFILE}$")"
 
  for ONE_URL in ${URLS}
  do
-    [ -f "$DB_fullfilename" ] && { SUCCESS='yes' ; break ; }
+    if [ -f "$DB_fullfilename" ] ; then
+      SUCCESS='yes'
+      break
+    fi
     REMOTE_PATH=${ONE_URL}/${DB_path}/${DB_fullfilename}
     echo "  - from ${REMOTE_PATH%/*}"
+    echo -n "$PWD/${DB_fullfilename}" > /tmp/1dl_busy
     wget -c ${WGET_SHOW_PROGRESS} --timeout=15 ${REMOTE_PATH} || {
        echo "  failed (file not found on server or could not finish download)"
        rm -f ${DB_fullfilename}
@@ -236,8 +213,13 @@ $(echo "$XREPOS" | grep -v "|${DBFILE}$")"
        echo "  failed (file not found or corrupted file)"
        rm -f ${DB_fullfilename} 2>/dev/null
     fi
+    rm -f /tmp/1dl_busy
     #--
-    [ "$SUCCESS" = "yes" ] && { echo "  success" ; echo "${DB_genericname}" >> $MWD/status/download_list ; break ; }
+    if [ "$SUCCESS" = "yes" ] ; then
+      echo "  success"
+      echo "${DB_genericname}" >> $MWD/status/download_list
+      break
+    fi
  done
 
  cd ${MWD}
@@ -245,27 +227,9 @@ $(echo "$XREPOS" | grep -v "|${DBFILE}$")"
  [ "$SUCCESS" = "no" ] && echo "DOWNLOAD FAIL: ${DB_fullfilename}"
  [ "$SUCCESS" = "no" ] && echo "$DB_fullfilename" >> ${LFILE}
 
- #check controlpanel, whether need to pause, resume or quit...
- [ -f /tmp/1download-status-request ] || continue
- CP_STATUS_REQ="`cat /tmp/1download-status-request`" #Run, Pause, Resume, Quit
- pausecnt=0; PIDCP=0
- while [ "$CP_STATUS_REQ" = "Pause" ];do
-  #echo "Status: paused ${pausecnt}seconds"
-  if [ $PIDCP -eq 0 ];then
-   yaf-splash -close never -placement top -bg orange -text "1download script is currently in paused state" &
-   PIDCP=$!
-  fi
-  sleep 5
-  pausecnt=`expr $pausecnt + 5`
-  CP_STATUS_REQ="`cat /tmp/1download-status-request`"
- done
- [ $PIDCP -ne 0 ] && kill $PIDCP
- [ "$CP_STATUS_REQ" = "Quit" ] && break 2 #pipe into while above is a separate process, need '2' to break out.
-
 done
 
 [ $XPKG ] && echo && exit
-[ "$CP_STATUS_REQ" = "Quit" ] && do_exit "1download aborted."
 do_exit ""
 
 ###END###
