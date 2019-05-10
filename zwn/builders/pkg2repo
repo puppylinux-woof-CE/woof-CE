@@ -1,0 +1,93 @@
+#!/bin/sh
+#DL_URL=http://your_remove_pkg_host.tld/packages/
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# any later version.
+
+function gen_packages_txt {
+	echo '' > PACKAGES.TXT
+	find . -type f -name '*.meta' -exec cat {} \; >> PACKAGES.TXT
+  cat PACKAGES.TXT | gzip -9 -c - > PACKAGES.TXT.gz
+}
+
+function gen_md5_checksums {
+	echo '' > CHECKSUMS.md5
+	find . -type f -regextype posix-egrep -regex '.*\.[tgblzikx]+$' -exec md5sum {} \; >> CHECKSUMS.md5
+  cat CHECKSUMS.md5 | gzip -9 -c - > CHECKSUMS.md5.gz
+}
+
+function gen_meta {
+	if [ ! -f $1 ]; then
+		echo "File not found: $1"
+		exit 1;
+	fi
+		if [ "`echo $1|grep -E '(.*{1,})\-(.*[\.\-].*[\.\-].*).[tgblzikx]{2,}[ ]{0,}$'`" == "" ]; then
+			return;
+		fi
+
+  PKGEXT=${1##*.}
+  case $PKGEXT in
+	tgz) DECOMPRESS=gzip ;;
+	tbz) DECOMPRESS=bzip2 ;;
+	tlz) DECOMPRESS=lzma ;;
+	txz) DECOMPRESS=xz ;;
+  esac
+
+	NAME=$(echo $1|sed -re "s/(.*\/)(.*.$PKGEXT)$/\2/")
+	LOCATION=$(echo $1|sed -re "s/(.*)\/(.*.$PKGEXT)$/\1/")
+  SIZE=$(du -bk $1 | awk '{print $1}')
+	USIZE=$(expr $(cat $1 | $DECOMPRESS -dc | wc -c) / 1024)
+	REQUIRED=$($DECOMPRESS -dc $1 | tar -xO install/slack-required 2>/dev/null|xargs -r -iZ echo -n "Z,"|sed -e "s/,$//")
+	CONFLICTS=$($DECOMPRESS -dc $1 | tar -xO install/slack-conflicts 2>/dev/null|xargs -r -iZ echo -n "Z,"|sed -e "s/,$//")
+	SUGGESTS=$($DECOMPRESS -dc $1 | tar -xO install/slack-suggests 2>/dev/null|xargs -r )
+	METAFILE=${NAME%$PKGEXT}meta
+	echo "PACKAGE NAME:  $NAME" > $LOCATION/$METAFILE
+	if [ -n "$DL_URL" ]; then
+		echo "PACKAGE MIRROR:  $DL_URL" >> $LOCATION/$METAFILE
+	fi
+	echo "PACKAGE LOCATION:  $LOCATION" >> $LOCATION/$METAFILE
+	echo "PACKAGE SIZE (compressed):  $SIZE K" >> $LOCATION/$METAFILE
+	echo "PACKAGE SIZE (uncompressed):  $USIZE K" >> $LOCATION/$METAFILE
+	echo "PACKAGE REQUIRED:  $REQUIRED" >> $LOCATION/$METAFILE
+	echo "PACKAGE CONFLICTS:  $CONFLICTS" >> $LOCATION/$METAFILE
+	echo "PACKAGE SUGGESTS:  $SUGGESTS" >> $LOCATION/$METAFILE
+	echo "PACKAGE DESCRIPTION:" >> $LOCATION/$METAFILE
+	$DECOMPRESS -dc $1 | tar -xO install/slack-desc |grep -E '\w+\:'|grep -v '^#' >> $LOCATION/$METAFILE
+	echo "" >> $LOCATION/$METAFILE
+}
+
+case "$1" in
+	pkg)
+		if [ -n "$2" ]; then
+			gen_meta $(readlink -f $2)
+		else
+			echo "$0 [pkg [file]|all|new|PACKAGESTXT|MD5]"
+		fi
+	;;
+	all)
+		for pkg in `find . -type f -regex '.*\.[tgblzikx]+$' -print`
+		do
+			gen_meta $pkg
+		done
+		$0 PACKAGESTXT
+		$0 MD5
+	;;
+	new)
+		for pkg in `find . -type f -regex '.*\.[tgblzikx]+$' -print`
+		do
+			if [ ! -f ${pkg%${pkg##*.}}meta ]; then
+				gen_meta $pkg
+			fi
+		done
+	;;
+	PACKAGESTXT)
+		gen_packages_txt
+	;;
+	MD5)
+		gen_md5_checksums
+	;;
+	*)
+		echo "$0 [pkg [file]|all|new|PACKAGESTXT|MD5]"
+	;;
+esac

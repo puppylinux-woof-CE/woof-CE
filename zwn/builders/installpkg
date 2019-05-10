@@ -1,0 +1,461 @@
+#!/bin/dash
+# Copyright 1994, 1998, 2000  Patrick Volkerding, Concord, CA, USA 
+# Copyright 2001, 2003  Slackware Linux, Inc., Concord, CA, USA
+# Copyright 2007, 2009, 2011  Patrick Volkerding, Sebeka, MN, USA 
+# Copyright 2014, James Budiono (optimised for speed)
+#           2015, James Budiono - add uninstall script.
+# All rights reserved.
+#
+# Redistribution and use of this script, with or without modification, is
+# permitted provided that the following conditions are met:
+#
+# 1. Redistributions of this script must retain the above copyright
+#    notice, this list of conditions and the following disclaimer.
+#
+#  THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR IMPLIED
+#  WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+#  MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO
+#  EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+#  SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+#  PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+#  OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+#  WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
+#  OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
+#  ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#
+# Fri Apr 22 20:45:45 UTC 2011
+# A stronger formula is needed to regularize output that will be parsed.
+unset LANG LC_CTYPE LC_NUMERIC LC_TIME LC_COLLATE LC_MONETARY \
+  LC_MESSAGES LC_PAPER LC_NAME LC_ADDRESS LC_TELEPHONE LC_MEASUREMENT \
+  LC_IDENTIFICATION LC_ALL
+LANG=C
+export LANG
+
+### run-time variables ###
+MD5SUM=0        # Do not store md5sums by default:
+TAR=${TAR:-tar} 
+
+# prefix for the package database directories (packages, scripts).
+# will be redefined later in "prepare"
+ADM_DIR="$ROOT/var/log" 
+
+EXITSTATUS=0
+# If installpkg encounters a problem, it will return a non-zero error code.
+# If it finds more than one problem (i.e. with a list of packages) you'll only
+# hear about the most recent one. :)
+# 1 = tar returned error code
+# 2 = corrupt compression envelope
+# 3 = does not end in .tgz
+# 4 = no such file
+# 5 = external compression utility missing
+# 99 = user abort from menu mode
+
+
+######### helpers ##########
+
+# $1-pkg-full path, out: PKGNAME, PKGEXT
+# PKGNAME=pkg filename without path and extension, PKGEXT=extension 
+get_pkg_filename() {
+	local fn="${1##*/}"
+	PKGEXT="${fn##*.}"
+	case $PKGEXT in 
+		tgz|tbz|tlz|txz) PKGNAME="${fn%.t?z}" ;; # remove ext for valid packages only
+		*) PKGNAME=$fn PKGEXT="" ;;
+	esac
+}
+
+# original message
+usage() {
+ cat << EOF
+Usage: installpkg [options] <package_filename>
+
+Installpkg is used to install a .t{gz,bz,lz,xz} package like this:
+   installpkg slackware-package-1.0.0-i486-1.tgz (or .tbz, .tlz, .txz)
+
+options:      --warn (warn if files will be overwritten, but do not install)
+              --root /mnt (install someplace else, like /mnt)
+              --infobox (use dialog to draw an info box)
+              --terse (display a one-line short description for install)
+              --menu (confirm package installation with a menu, unless
+                    the priority is [required] or ADD)
+              --ask (used with menu mode: always ask if a package should be
+                   installed regardless of what the package's priority is)
+              --priority ADD|REC|OPT|SKP  (provide a priority for the entire
+                    package list to use instead of the priority in the
+                    tagfile)
+              --tagfile /somedir/tagfile (specify a different file to use
+                    for package priorities.  The default is "tagfile" in
+                    the package's directory)
+              --md5sum (record the package's md5sum in the metadata file)
+
+EOF
+}
+
+
+# $1-PKGNAME out: PKGBASE, PKGBUILD, PKGARCH, PKGVER
+split_pkg_name() {
+	PKGBASE="$1"
+
+	# count number of dash
+	DASH_COUNT=$(printf "%s" "$PKGBASE" | sed 's/[^-]//g' | wc -m)
+
+	# Zero dash: old style package name with one segment:
+	# One or two dashes: old-style (or out of spec) package name:
+	[ $DASH_COUNT -lt 2 ] && return # && echo "$PKGBASE" && return
+
+	# compliant 3-dashes or more (4 segments or more)
+	# remove the last 3 segments, and take the rest as the name
+	PKGBUILD=${PKGBASE##*-} PKGBASE=${PKGBASE%-*}
+	PKGARCH=${PKGBASE##*-}  PKGBASE=${PKGBASE%-*}
+	PKGVER=${PKGBASE##*-}   PKGBASE=${PKGBASE%-*}
+	# leftover is PKGBASE itself
+}
+
+# Parse options: $@ - original parameters
+parse_options() {
+	IGNORE=0 # number of options to ignore, that is, no of shifts done here
+	MODE=install # standard text-mode
+	while [ 0 ]; do
+		case "$1" in
+			-warn|--warn)        MODE=warn;       shift; : $((IGNORE+=1)) ;;
+			-md5sum|--md5sum)    MD5SUM=1;        shift; : $((IGNORE+=1)) ;;
+			-infobox|--infobox)  MODE=infobox;    shift; : $((IGNORE+=1)) ;;
+			-terse|--terse)      MODE=terse;      shift; : $((IGNORE+=1)) ;;
+			-menu|--menu)        MODE=menu;       shift; : $((IGNORE+=1)) ;;
+			-ask|--ask)          ALWAYSASK="yes"; shift; : $((IGNORE+=1)) ;;
+			
+			-tagfile|--tagfile)
+				if [ -r "$2" ]; then
+				  USERTAGFILE="$2"
+				elif [ -r "$(pwd)/$2" ]; then
+				  USERTAGFILE="$(pwd)/$2"
+				else
+				  usage
+				  exit
+				fi
+				shift 2; : $((IGNORE+=2))
+				;;
+				
+			-priority|--priority)
+				if [ "$2" = "" ]; then
+				  usage
+				  exit
+				fi
+				USERPRIORITY="$2"
+				shift 2; : $((IGNORE+=2))
+				;;
+
+			-root|--root)
+				if [ "$2" = "" ]; then
+				  usage
+				  exit
+				fi
+				ROOT="$2"
+				shift 2; : $((IGNORE+=2))
+				;;
+				
+			*) break ;;
+		esac
+	done
+}
+
+# output: ADM_DIR, TMP
+prepare() {
+	# create package database dirs
+	ADM_DIR="$ROOT/var/log"
+	for PKGDBDIR in packages removed_packages removed_scripts scripts setup ; do
+		if [ ! -d $ADM_DIR/$PKGDBDIR ]; then
+			rm -rf $ADM_DIR/$PKGDBDIR # make sure it's not a symlink or something stupid
+			mkdir -p $ADM_DIR/$PKGDBDIR
+			chmod 755 $ADM_DIR/$PKGDBDIR 
+		fi
+	done
+
+	# If the $TMP directory doesn't exist, create it:	
+	TMP=$ADM_DIR/setup/tmp
+	if [ ! -d $TMP ]; then
+		rm -rf $TMP # make sure it's not a symlink or something stupid
+		mkdir -p $TMP
+		chmod 700 $TMP # no need to leave it open
+	fi
+}
+
+### check for existing files that will get modified / deleted.
+# $1-package to check
+check_package() {
+	mkdir -p $TMP/scan$$
+
+	# Determine extension:
+	packageext=${1##*.}
+
+	# Determine compressor utility:
+	case $packageext in
+		'tgz' ) packagecompression=gzip  ;;
+		'tbz' ) packagecompression=bzip2 ;;
+		'tlz' ) packagecompression=lzma  ;;
+		'txz' ) packagecompression=xz    ;;
+	esac
+
+	# decompress package
+	< $1 $packagecompression -dc > $TMP/ipkg$$
+
+	# show files getting "rm -rf"
+	$TAR -xf $TMP/ipkg$$ -C $TMP/scan$$ install 2> /dev/null	
+	if [ -r $TMP/scan$$/install/doinst.sh ]; then
+		if grep -q ' rm -rf ' $TMP/scan$$/install/doinst.sh; then
+		grep ' rm -rf ' $TMP/scan$$/install/doinst.sh > $TMP/scan$$/install/delete
+		for f in `cat $TMP/scan$$/install/delete | cut -f 3,7 -d ' ' | tr ' ' '/'`; do
+			f="/$f"
+			[ -f "$f" -o -L "$f" ] && echo "$f"
+		done
+		fi
+	fi
+	
+	# show files get overwritten
+	for f in `$TAR -tf $TMP/ipkg$$ | grep -v 'drwx'`; do
+		f="/$f"
+		[ -f "/$f" -o -L "/$f" ] && echo "$f"
+	done
+	rm -rf $TMP/ipkg$$ $TMP/scan$$
+}
+
+# log and install package.
+# $1-package to install
+doinstall() {
+	package="$1"
+	
+	# Simple package integrity check:
+	if [ ! -f $package ]; then
+		EXITSTATUS=4
+		[ "$MODE" = "install" ] && echo "Cannot install $package:  file not found"
+		continue
+	fi
+
+	# setup variables
+	# "shortname"=full package name without extension
+	get_pkg_filename "$package" # get PKGNAME, PKGEXT  
+	split_pkg_name   "$PKGNAME" # get PKGBASE, PKGARCH, PKGBUILD, PKGVER
+	shortname="$PKGNAME" 
+	packagedir="${package%/*}"
+	packagefn=${PKGNAME}.${PKGEXT}
+	packagebase="$PKGBASE"      # base package name, used for grepping tagfiles and descriptions:
+
+	# Reject package if it does not end in '.t{gz,bz,lz,xz}':
+	case $PKGEXT in
+		tgz) packagecompression=gzip  ;;
+		tbz) packagecompression=bzip2 ;;
+		tlz) packagecompression=lzma  ;;
+		txz) packagecompression=xz    ;;
+		*) EXITSTATUS=3
+		   [ "$MODE" = "install" ] && echo "Cannot install $package:  file does not end in .tgz, .tbz, .tlz, or .txz"
+		   continue ;;
+	esac
+
+	# Test presence of external compression utility:
+	if ! $packagecompression --help 1> /dev/null 2> /dev/null ; then
+		EXITSTATUS=5
+		[ "$MODE" = "install" ] && echo "Cannot install $package:  external compression utility $packagecompression missing"
+		continue;
+	fi
+
+	# Determine package's priority:
+	TAGFILE="${USERTAGFILE:-$packagedir/tagfile}"
+	[ ! -r "$TAGFILE" ] && TAGFILE=/dev/null
+  
+	unset PRIORITY PMSG
+	case $(grep "^$packagebase:" "$TAGFILE" 2>/dev/null) in
+		*ADD*) PRIORITY="ADD"; PMSG="[ADD]" ;;
+		*REC*) PRIORITY="REC"; PMSG="[REC]" ;;
+		*OPT*) PRIORITY="OPT"; PMSG="[OPT]" ;;
+		*SKP*) PRIORITY="SKP"; PMSG="[SKP]" ;
+			   [ "$ALWAYSASK" != "yes" ] && continue # if not always-ask, skip immediately
+			   ;;
+	esac
+  
+	# Decompress - this is the slowest operation in the chain, so do it only once.
+	# All operation after this will use the decompressed file.
+	[ "$MODE" = "install" ] && echo "Decompressing $package."
+	< $package $packagecompression -dc > $TMP/ipkg$$; ERR=$?
+	if [ ! $ERR = "0" ]; then
+		EXITSTATUS=2 # compression envelope corrupt
+		[ "$MODE" = "install" ] && echo "Unable to install $package:  compressed file is corrupt (compressor returned error code $ERR)"
+		rm -f $TMP/ipkg$$
+		continue
+	fi
+	COMPRESSED="$(du -sh "$(readlink -f $package)" | awk '{print $1}')"	
+	UNCOMPRESSED=$(du -sh $TMP/ipkg$$ | awk '{print $1}')
+  
+	# Test tarball integrity 
+	[ "$MODE" = "install" ] & echo "Verifying package $package."
+	$TAR -tf $TMP/ipkg$$ 1> $TMP/tmplist$$ 2> /dev/null
+	TARERROR=$?
+	if [ ! "$TARERROR" = "0" ]; then
+		EXITSTATUS=1 # tar file corrupt
+		[ "$MODE" = "install" ] && echo "Unable to install $package:  tar archive is corrupt (tar returned error code $TARERROR)"
+		rm -f $TMP/tmplist$$ $TMP/ipkg$$
+		continue
+	fi
+
+	# Get DESCRIPTION
+	DESCRIPTION=""
+	# First check for .txt file next to the package.
+	if grep -q "^$packagebase:" "$packagedir/$shortname.txt" 2> /dev/null ; then
+		DESCRIPTION="$packagedir/$shortname.txt"
+	elif grep -q "^$shortname:" "$packagedir/$shortname.txt" 2> /dev/null ; then
+		DESCRIPTION="$packagedir/$shortname.txt"
+	fi
+	
+	# Then check inside
+	if [ -z "$DESCRIPTION" ]; then
+		mkdir -p $TMP/scan$$
+		$TAR -xf $TMP/ipkg$$ -C $TMP/scan$$ install 2> /dev/null
+		if grep -q "^$packagebase:" "$TMP/scan$$/install/slack-desc" 2> /dev/null ; then
+			DESCRIPTION="$TMP/scan$$/install/slack-desc"
+		elif grep -q "^$shortname:" "$TMP/scan$$/install/slack-desc" 2> /dev/null ; then
+			DESCRIPTION="$TMP/scan$$/install/slack-desc"
+		fi
+	fi
+
+	if [ -z "$DESCRIPTION" ]; then
+		echo "WARNING NO SLACK-DESC"
+		DESCRIPTION="/dev/null"
+	fi
+
+	# dialog specific stuff, skip it for non-dialog usage
+	case $MODE in
+		install|terse) ;; # skip it
+		infobox|menu)  # For infobox, menu, and all others
+			# Gather package infomation into a temporary file:	
+			cat $DESCRIPTION | grep "^$packagebase:" | cut -f 2- -d : | cut -b2- 1> $TMP/tmpmsg$$ 2> /dev/null
+			[ "$shortname" != "$packagebase" ] && 
+			cat $DESCRIPTION | grep "^$shortname:" | cut -f 2- -d : | cut -b2- 1>> $TMP/tmpmsg$$ 2> /dev/null
+
+			# Adjust the length here.  This allows a slack-desc to be any size up to 13 lines instead of fixed at 11.
+			# Also, we add \n to every end of line; this necessary for recent version of dialog, otherwise
+			# it will remove repeating spaces and mess up our careful formatting.
+			# will not mess up formatting
+			< $TMP/tmpmsg$$ awk -v final="Size: Compressed: ${COMPRESSED}, uncompressed: ${UNCOMPRESSED}." \
+			'NR<=12 { print $0 "\\n" } END { while (NR<12) { print "\\n"; NR++ }; print final "\\n" }' > $TMP/tmpmsg2$$
+			mv $TMP/tmpmsg2$$ $TMP/tmpmsg$$
+			;;
+	esac
+
+	# Emit information to the console:
+	if [ "$MODE" = "install" ]; then
+		echo "Installing package $packagefn ${PMSG:-:}"
+		echo "PACKAGE DESCRIPTION:"
+		cat $DESCRIPTION | grep "^$packagebase:" | uniq | sed "s/^$packagebase:/#/g"
+		[ "$shortname" != "$packagebase" ] && 
+		cat $DESCRIPTION | grep "^$shortname:" | uniq | sed "s/^$shortname:/#/g"
+
+	elif [ "$MODE" = "terse" ]; then # emit a single description line
+		printf "%-72s %-6s\n" "$(echo $shortname: $(cat $DESCRIPTION | grep "^$packagebase:" | sed "s/^$packagebase: //g" | head -n 1 | tr -d '()' | sed "s/^$packagebase //g" ) | cut -b1-72)" "[${UNCOMPRESSED}]" | cut -b1-80
+		
+	elif [ "$MODE" = "infobox" ]; then # install infobox package
+		dialog --title "Installing package $shortname $PMSG" --infobox "$(cat $TMP/tmpmsg$$)" 0 0
+		
+	elif [ "$MODE" = "menu" -a "$PRIORITY" = "ADD" -a ! "$ALWAYSASK" = "yes" ]; then # ADD overrides menu mode unless -ask was used
+		dialog --title "Installing package $shortname $PMSG" --infobox "$(cat $TMP/tmpmsg$$)" 0 0
+		
+	elif [ "$MODE" = "menu" -a "$USERPRIORITY" = "ADD" ]; then # install no matter what $PRIORITY
+		dialog --title "Installing package $shortname $PMSG" --infobox "$(cat $TMP/tmpmsg$$)" 0 0
+		
+	else # we must need a full menu:
+		dialog --title "Package Name: $shortname $PMSG" --menu "$(cat $TMP/tmpmsg$$)" 0 0 3 \
+		"Yes" "Install package $shortname" \
+		"No" "Do not install package $shortname" \
+		"Quit" "Abort software installation completely" 2> $TMP/reply$$
+		[ ! $? = 0 ] && echo "No" > $TMP/reply$$
+		read REPLY < $TMP/reply$$
+		rm -f $TMP/reply$$ $TMP/tmpmsg$$
+		if [ "$REPLY" = "Quit" ]; then
+			exit 99 # EXIT STATUS 99 = ABORT!
+		elif [ "$REPLY" = "No" ]; then
+			continue # skip the package
+		fi
+	fi
+
+	# Make sure there are no symbolic links sitting in the way of
+	# incoming package files:
+	cat $TMP/tmplist$$ | grep -v "/$" | while read file ; do
+		[ -L "$ROOT/$file" ] && rm -f "$ROOT/$file"
+	done
+	rm -f $TMP/tmplist$$
+
+	# Write the package file database entry and install the package:
+	echo "PACKAGE NAME:     $shortname" > $ADM_DIR/packages/$shortname
+	echo "COMPRESSED PACKAGE SIZE:     $COMPRESSED" >> $ADM_DIR/packages/$shortname
+	echo "UNCOMPRESSED PACKAGE SIZE:     $UNCOMPRESSED" >> $ADM_DIR/packages/$shortname
+	echo "PACKAGE LOCATION: $package" >> $ADM_DIR/packages/$shortname
+  
+	# Record the md5sum if that's a selected option:
+	[ $MD5SUM = 1 ] && echo "PACKAGE MD5SUM: $(md5sum $package | cut -f 1 -d ' ')" >> $ADM_DIR/packages/$shortname
+	echo "PACKAGE DESCRIPTION:" >> $ADM_DIR/packages/$shortname
+	cat $DESCRIPTION | grep "^$packagebase:" >> $ADM_DIR/packages/$shortname 2> /dev/null
+	[ "$shortname" != "$packagebase" ] && 
+	cat $DESCRIPTION | grep "^$shortname:" >> $ADM_DIR/packages/$shortname 2> /dev/null
+	echo "FILE LIST:" >> $ADM_DIR/packages/$shortname
+  
+	# install the package (finally!)
+	$TAR -xlUpvf $TMP/ipkg$$ -C $ROOT/ >> $TMP/$shortname 2> /dev/null
+  
+	if [ "$(cat $TMP/$shortname | grep '^\./' | wc -l | tr -d ' ')" = "1" ]; then
+		# Good.  We have a package that meets the Slackware spec.
+		cat $TMP/$shortname >> $ADM_DIR/packages/$shortname
+	else
+		# Some dumb bunny built a package with something other than makepkg.  Bad!
+		# Oh well.  Bound to happen.  Par for the course.  Fix it and move on...
+		echo "WARNING:  Package has not been created with 'makepkg'"
+		echo './' >> $ADM_DIR/packages/$shortname
+		cat $TMP/$shortname >> $ADM_DIR/packages/$shortname
+	fi
+	rm -f $TMP/$shortname
+
+	# It's a good idea to make sure those newly installed libraries
+	# are properly activated for use:
+	[ -x /sbin/ldconfig ] && /sbin/ldconfig
+
+	# run install script
+	if [ -f $ROOT/install/doinst.sh ]; then
+		[ "$MODE" = "install" ] && 	echo "Executing install script for $packagefn."
+		( cd $ROOT/ ; sh install/doinst.sh -install; )
+	fi 
+  
+	# Clean up the mess...
+	rm -rf "$TMP/scan$$" $TMP/ipkg$$ $TMP/tmpmsg$$ $TMP/reply$$  
+	if [ -d $ROOT/install ]; then
+		if [ -r $ROOT/install/doinst.sh ]; then
+			cp $ROOT/install/doinst.sh $ADM_DIR/scripts/$shortname
+			chmod 755 $ADM_DIR/scripts/$shortname
+		fi
+		if [ -r $ROOT/install/slack-uninstall.sh ]; then
+			cp $ROOT/install/slack-uninstall.sh $ADM_DIR/scripts/$shortname.uninstall
+			chmod 755 $ADM_DIR/scripts/$shortname.uninstall
+		fi		
+		# /install/doinst.sh and /install/slack-* are reserved locations for the package system.
+		rm -f $ROOT/install/doinst.sh $ROOT/install/slack-* 1> /dev/null 2>&1
+		rmdir $ROOT/install 1> /dev/null 2>&1
+	fi
+
+	# done
+	if [ "$MODE" = "install" ]; then
+		echo "Package $packagefn installed."
+		echo
+	fi
+}
+
+########### main ############
+
+# usage(), exit if called with no arguments:
+[ $# = 0 ] && usage && exit
+umask 022
+parse_options "$@" # returns $IGNORE
+shift $IGNORE
+prepare
+for package in $* ; do
+	case $MODE in
+		warn) check_package "$package" ;;
+		*)    doinstall "$package" ;;
+	esac
+done
+exit $EXITSTATUS
