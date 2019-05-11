@@ -68,128 +68,96 @@ cp DISTRO_SPECS sandbox3/rootfs-complete/etc/
 cp -a rootfs-skeleton/* sandbox3/rootfs-complete/
 cat sandbox3/rootfs-complete/pinstall.sh >> sandbox3/pinstall.sh
 
+PKGSSPECS=DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}
+
 # extra packages
 CHOICE=/tmp/rootfs_choice$$
-if [ ! -f support/rootfs-packages.conf ];then
-	echo
-	echo "If you know what packages you want included from rootfs-packages
-you can bypass the checkbox GUI by renaming 
-
-'support/rootfs-packages.conf-backup'
-
+if [ -f support/rootfs-packages.conf ];then
+	cp -a support/rootfs-packages.conf $CHOICE
+elif ! grep 'yes|xorg' $PKGSSPECS ; then #cli-only build
+	echo -e "\nCLI-ONLY BUILD, NOT INCLUDING EXTRA PACKAGES ...\n"
+	(
+	for d in $(ls rootfs-packages) ; do
+		echo "$d=\"false\""
+	done
+	) > $CHOICE
+else
+	echo -e "\nAUTO SELECTING EXTRA PACKAGES ...
+If you know what extra packages you want
+you can bypass this automatic selection, by renaming:
+	'support/rootfs-packages.conf-backup'
 to
-
-'support/rootfs-packages.conf'
-
+	'support/rootfs-packages.conf'
 and edit it to include your customised package list.
-
-You can CTRL-C out of this script and try it right now if you wish
-or hit Enter/Return to continue."
-
-	read carry_on
-
+"
+	(
 	for d in $(ls rootfs-packages)
 	do  
-	       state=true
-	       def=false
-	       case "$d" in
-			jwm_config|ptheme|pt_*)
-				if grep 'yes|jwmconfig' DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} ;then
-					state=false #cant choose them if jwmconfig is in specs. 
-				else
-					def=true
-				fi
-				;;
-			pmusic)
-				if grep -q 'yes|ffmpeg' DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION};then
-					def=true
-				else 
-					state=false
-				fi # depends ffmpeg
-				;;		
-			cups_backend*) # contains the backends smbw and pdf-writer
-				if grep -q 'yes|cups|' DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION};then
-					def=true
-				else 
-					state=false
-				fi
-				;;		
-			*)
-				if grep "yes|${d}|" DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} ;then
-					state=false # don't overwrite user chosen specs
-				else
-					def=true
-				fi
-				;;
-		   esac
-	       CBOXES="$CBOXES""<hbox space-expand=\"true\" space-fill=\"true\">
-			<checkbox>
-				<label>$d</label>
-				<default>$def</default>
-				<variable>$d</variable>
-				<sensitive>$state</sensitive>
-			</checkbox>
-		</hbox>"
+		case "$d" in
+		rox_config)
+			state=false
+			grep -q 'yes|rox.*filer|' $PKGSSPECS && state=true
+			;;
+		jwm_config|ptheme|pt_*)
+			if grep -q 'yes|jwmconfig' $PKGSSPECS ; then
+				state=false #cant choose them if jwmconfig is in specs. 
+			elif grep -q 'yes|jwm|' $PKGSSPECS ; then
+				state=true
+			fi
+			;;
+		pmusic)
+			state=false
+			grep -q 'yes|ffmpeg' $PKGSSPECS && state=true
+			grep -q 'yes|pcd|' $PKGSSPECS && state=false
+			;;		
+		cups_backend*) # contains the backends smbw and pdf-writer
+			state=false
+			grep -q 'yes|cups|' $PKGSSPECS && state=true
+			;;
+		*)
+			state=true
+			grep -q "yes|${d}|" $PKGSSPECS && state=false # don't overwrite user chosen specs
+			;;
+		esac
+		echo "$d=\"$state\""
 	done
-		
-	export GUIC="<window title=\"Choose extra packages\">
-		<vbox>
-			<hbox>
-				<text>
-					<label>Here you can choose what extra packages to install. It is recommended that you leave the checked boxes checked as these are usually dependencies of installed programs in puppy. If the checkbox for a program is disabled then it means that a coressponding program is in DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}</label>
-				</text>
-			</hbox>
-			<hbox space-expand=\"true\" space-fill=\"true\">	
-				<text use-markup=\"true\">
-					<label>\"<b>These are maintained as part of woof.</b>\"</label>
-				</text>
-			</hbox>
-			<vbox scrollable=\"true\" height=\"160\" width=\"380\">
-				$CBOXES
-			</vbox>
-			<hbox><button ok></button></hbox>
-		</vbox>
-	</window>"
-	gtkdialog -p GUIC -c > $CHOICE
-else
-	cp -a support/rootfs-packages.conf $CHOICE
-	EXIT=OK
+	) > $CHOICE
+	#cat $CHOICE
 fi
 
 . $CHOICE
 [ -f /tmp/rootfs-packages.specs ] && rm /tmp/rootfs-packages.specs # in case we baled out on last build
 [ -f /tmp/rootfs_pkgs_pinstall.sh ] && rm /tmp/rootfs_pkgs_pinstall.sh # this needs doing anyway
 
-if [ "$EXIT" = "OK" ];then
-	while read line
-	do 
-		rpkg=${line%%=*}
-		if echo $line | grep -q "false" ;then
+while read line
+do 
+	rpkg=${line%%=*}
+	if echo $line | grep -q "false" ;then
+		continue
+	fi
+	if [ ! -d rootfs-packages/${rpkg} ] ; then
+		echo "* rootfs-packages/${rpkg} does not exist"
+		continue
+	fi
+	echo "copying ${line%%=*}"
+	cp -a rootfs-packages/${rpkg}/* sandbox3/rootfs-complete/
+	if [ -f rootfs-packages/${rpkg}/pinstall.sh ];then
+		if grep -qw 'exit' rootfs-packages/${rpkg}/pinstall.sh;then
 			continue
 		fi
-		if [ ! -d rootfs-packages/${rpkg} ] ; then
-			echo "* rootfs-packages/${rpkg} does not exist"
-			continue
+		if grep -q 'poor man' rootfs-packages/${rpkg}/pinstall.sh;then # ptheme must go last
+			cat rootfs-packages/${rpkg}/pinstall.sh > /tmp/rootfs_pkgs_pinstall_ptheme.sh
+		else
+			(
+			echo -e "\n#== ${line%%=*}/pinstall.sh ==\n"
+			cat rootfs-packages/${rpkg}/pinstall.sh
+			) >> /tmp/rootfs_pkgs_pinstall.sh
 		fi
-		echo "copying ${line%%=*}"
-		cp -a rootfs-packages/${rpkg}/* sandbox3/rootfs-complete/
-		if [ -f rootfs-packages/${rpkg}/pinstall.sh ];then
-			if grep -qw 'exit' rootfs-packages/${rpkg}/pinstall.sh;then
-				continue
-			fi
-			if grep -q 'poor man' rootfs-packages/${rpkg}/pinstall.sh;then # ptheme must go last
-				cat rootfs-packages/${rpkg}/pinstall.sh > /tmp/rootfs_pkgs_pinstall_ptheme.sh
-			else
-				(
-				echo -e "\n#== ${line%%=*}/pinstall.sh ==\n"
-				cat rootfs-packages/${rpkg}/pinstall.sh
-				) >> /tmp/rootfs_pkgs_pinstall.sh
-			fi
-		fi
-		cat sandbox3/rootfs-complete/pet.specs >> /tmp/rootfs-packages.specs
-	done < $CHOICE
-	cat /tmp/rootfs_pkgs_pinstall_ptheme.sh >> /tmp/rootfs_pkgs_pinstall.sh
-fi
+	fi
+	cat sandbox3/rootfs-complete/pet.specs >> /tmp/rootfs-packages.specs
+done < $CHOICE
+cat /tmp/rootfs_pkgs_pinstall_ptheme.sh >> /tmp/rootfs_pkgs_pinstall.sh
+
 rm $CHOICE
 #creates devx-only-installed-packages.
 ./support/findwoofinstalledpkgs # moved to here so we can add /tmp/rootfs-packages.specs
