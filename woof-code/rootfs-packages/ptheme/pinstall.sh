@@ -209,6 +209,30 @@ JWMRCVER=$(grep JWMRC_VERSION etc/xdg/templates/_root_.jwmrc | cut -f 4 -d '_' |
 UPDATEVER=$(grep JWMRC_VERSION etc/rc.d/rc.update | cut -f 3 -d '_' | cut -f 1 -d ' ')
 [ "$JWMRCVER" != "$UPDATEVER" ] && sed -i "s/$UPDATEVER/$JWMRCVER/" etc/rc.d/rc.update
 
+# pt_buntoo
+[ -f etc/DISTRO_SPECS ] && . etc/DISTRO_SPECS
+BUN=buntoo.svg
+(
+cd usr/share/backgrounds
+
+if [ -f "${DISTRO_FILE_PREFIX}-wall2.svg" ];then
+	mv -f $BUN obuntoo.svg
+	cp -af "${DISTRO_FILE_PREFIX}-wall2.svg" $BUN
+fi
+)
+
+# pt_faux_xfwm
+[ -f etc/DISTRO_SPECS ] && . etc/DISTRO_SPECS
+XF=xfwallpaper.svg
+(
+cd usr/share/backgrounds
+
+if [ -f "${DISTRO_FILE_PREFIX}-wall1.svg" ];then
+	mv -f $XF oxfwallpaper.svg
+	cp -af "${DISTRO_FILE_PREFIX}-wall1.svg" $XF
+fi
+)
+
 sync
 echo "done"
 echo
