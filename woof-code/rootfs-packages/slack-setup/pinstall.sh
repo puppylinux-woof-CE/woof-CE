@@ -22,5 +22,7 @@ for p in ./usr/share/fonts/*; do
 	mkfontdir "$p"
 done
 
-
+# sns require busybox ifconfig
+mv ./sbin/ifconfig ./sbin/ifconfig-FULL
+ln -s ../bin/busybox ./sbin/ifconfig
 
