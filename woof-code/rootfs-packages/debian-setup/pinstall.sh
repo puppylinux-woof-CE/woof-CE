@@ -11,6 +11,10 @@ ln -s xterm usr/bin/x-terminal-emulator # some programs look for this symlink
 ! [ -e sbin/dhcpcd ] && [ -e sbin/dhcpcd3 ] && ln -s dhcpcd3 sbin/dhcpcd
 ! [ -e sbin/dhcpcd ] && [ -e sbin/dhcpcd5 ] && ln -s dhcpcd5 sbin/dhcpcd
 
+# udevd
+! [ -e sbin/udevd ] && [ -e lib/systemd/systemd-udevd ] &&
+ln -s ../lib/systemd/systemd-udevd sbin/udevd
+
 echo Generating locale files
 chroot . /usr/bin/localedef --no-archive -i en_US en_US
 chroot . /usr/bin/localedef --no-archive -i en_AU en_AU
