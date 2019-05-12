@@ -94,7 +94,7 @@ add_repo() {
 		fi
 
 		# add sources to SLAPTGET_PKGDB
-		[ -z "$DRY_RUN" ] && echo "SOURCE=${pkgdb_url%/*/*}:OFFICIAL" >> $CHROOT_DIR/$SLAPTGET_PKGDB
+		[ -z "$DRY_RUN" ] && echo "SOURCE=${pkgdb_url%/*}:OFFICIAL" >> $CHROOT_DIR/$SLAPTGET_PKGDB
 		
 		if ! grep -F -m1 -q "$MARKER" $REPO_DIR/$LOCAL_PKGDB 2>/dev/null; then	
 			echo Processing database for "$2 $p" ...
