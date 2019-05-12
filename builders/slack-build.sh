@@ -58,7 +58,7 @@ prepare_dirs() {
 	
 	# prepare slapt-getrc template
 	mkdir -p $CHROOT_DIR/${SLAPTGET_PKGDB%/*}
-	> $CHROOT_DIR/${SLAPTGET_PKGDB} << EOF
+	cat > $CHROOT_DIR/${SLAPTGET_PKGDB} << EOF
 # Working directory for local storage/cache.
 WORKINGDIR=/var/slapt-get
 
