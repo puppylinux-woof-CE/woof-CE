@@ -10,6 +10,8 @@ echo "Configuring Puppy skeleton..."
 find . -name "*MARKER" -delete
 
 # set permissions and owners as needed
+mknod ./dev/null c 1 3
+chmod 666 ./dev/null
 chmod 1777 tmp archive
 chown 0755 usr/lib/cups/backend usr/lib/cups/filters
 chmod 0500 usr/lib/cups/backend/*
