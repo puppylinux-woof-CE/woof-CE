@@ -97,10 +97,7 @@ Options:
   -download   : download pkgs only, this overrides other options
   -specs file : DISTRO_SPECS file to use
   -prebuilt   : use prebuilt binaries
-  -lang locale: set locale
-  -keymap km  : set keyboard layout
   -auto       : don't prompt for input
-  -gz|-xz     : compression method for the initrd
   -help       : show help and exit
 
   Valid <targets> for -arch:
@@ -128,10 +125,6 @@ while [ "$1" ] ; do
 		-nord)     INITRD_CREATE=no    ; shift ;;
 		-auto)     PROMPT=no           ; shift ;;
 		-v)        V=-v                ; shift ;;
-		-lang)     LOCALE="$2"         ; shift 2
-			       [ "$LOCALE" = "" ] && fatal_error "$0 -locale: No locale specified" ;;
-		-keymap)   KEYMAP="$2"         ; shift 2
-			       [ "$KEYMAP" = "" ] && fatal_error "$0 -locale: No keymap specified" ;;
 		-pkg)      BUILD_PKG="$2"      ; shift 2
 			       [ "$BUILD_PKG" = "" ] && fatal_error "$0 -pkg: Specify a pkg to compile" ;;
 		-pet)      export CREATE_PET=1
@@ -395,20 +388,6 @@ function build_pkgs() {
 
 #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
-function set_lang() { #in $MWD
-	[ "${LOCALE%_*}" = "en" ] && LOCALE=""
-	[ ! "$LOCALE" ] && { echo -e "\n* Using default locale" ; rm -f ZZ_initrd-expanded/PUPPYLANG ; return; }
-	echo -e "* LANG set to: $LOCALE\n"
-	echo -n "$LOCALE" > ZZ_initrd-expanded/PUPPYLANG
-}
-
-function set_keymap() { #in $MWD
-	[ ! -f 0initrd/lib/keymaps/${KEYMAP}.gz ] && KEYMAP=""
-	case $KEYMAP in default|en|us|"") echo "* Using default keymap"; rm -f ZZ_initrd-expanded/PUPPYKEYMAP ; return ;; esac
-	echo -e "* Keymap set to: '${KEYMAP}'"
-	echo -n "$KEYMAP" > ZZ_initrd-expanded/PUPPYKEYMAP
-}
-
 function generate_initrd() {
 	[ "$CREATE_PET" ] && return
 	[ "$DLD_ONLY" = "yes" ] && return
@@ -426,9 +405,6 @@ function generate_initrd() {
 	mkdir -p ZZ_initrd-expanded
 	cp -rf 0initrd/* ZZ_initrd-expanded
 	find ZZ_initrd-expanded -type f -name '*MARKER' -delete
-
-	set_lang    #
-	set_keymap  #
 
 	cd ZZ_initrd-expanded
 
@@ -475,11 +451,7 @@ function generate_initrd() {
 
 	find . | cpio -o -H newc > ../initrd 2>/dev/null
 	cd ..
-	[ -f initrd.[gx]z ] && rm -f initrd.[gx]z
-	case ${INITRD_COMP} in
-		gz) gzip -f initrd ;;
-		xz) xz --check=crc32 --lzma2 initrd ;;
-	esac
+	gzip -f initrd
 	[ $? -eq 0 ] || exit_error "ERROR"
 
 	echo -e "\n***        INITRD: ${INITRD_FILE} [${ARCH}]"
