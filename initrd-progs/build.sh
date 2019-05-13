@@ -2,6 +2,7 @@
 # compile musl static apps
 
 . ./build.conf
+[ "$BUILD_TARBALL" ] && . ./build.tarball.conf
 export MKFLG
 export MWD=`pwd`
 export TARGET_TRIPLET=
@@ -50,6 +51,7 @@ function get_initrd_progs() {
 
 case "$1" in release|tarball) #this contains the $PREBUILT_BINARIES
 	echo "If you made changes then don't forget to remove all 00_* directories first"
+	export BUILD_TARBALL=1
 	sleep 4
 	if [ -n "$2" ]; then
 		$0 -nord -auto -arch $2
@@ -112,10 +114,7 @@ CROSS_COMPILE=no
 FORCE_BUILD_ALL=no
 export DLD_ONLY=no
 INITRD_CREATE=yes
-case ${INITRD_COMP} in
-	gz|xz) ok=yes ;;
-	*) INITRD_COMP="gz" ;;
-esac
+INITRD_COMP=gz
 
 ## command line ##
 while [ "$1" ] ; do
@@ -124,7 +123,6 @@ while [ "$1" ] ; do
 		-sysgcc)   USE_SYS_GCC=yes     ; USE_PREBUILT=no; shift ;;
 		-cross)    CROSS_COMPILE=yes   ; USE_PREBUILT=no; shift ;;
 		-all)      FORCE_BUILD_ALL=yes ; shift ;;
-	-gz|-xz|gz|xz) INITRD_COMP=${1#-}  ; shift ;;
 		-download) DLD_ONLY=yes        ; shift ;;
 		-prebuilt) USE_PREBUILT=yes    ; shift ;;
 		-nord)     INITRD_CREATE=no    ; shift ;;
@@ -415,8 +413,7 @@ function generate_initrd() {
 	[ "$CREATE_PET" ] && return
 	[ "$DLD_ONLY" = "yes" ] && return
 	[ "$INITRD_CREATE" = "no" ] && return
-	INITRD_FILE="initrd.${INITRD_COMP}"
-	[ "$INITRD_GZ" = "yes" ] && INITRD_FILE="initrd.gz"
+	INITRD_FILE="initrd.gz"
 
 	if [ "$USE_PREBUILT" = "no" ] ; then
 		[ "$PROMPT" = "yes" ] && echo -en "\nPress enter to create ${INITRD_FILE}, CTRL-C to end here.." && read zzz
@@ -484,7 +481,6 @@ function generate_initrd() {
 		xz) xz --check=crc32 --lzma2 initrd ;;
 	esac
 	[ $? -eq 0 ] || exit_error "ERROR"
-	[ "$INITRD_GZ" = "yes" -a -f initrd.xz ] && mv -f initrd.xz initrd.gz
 
 	echo -e "\n***        INITRD: ${INITRD_FILE} [${ARCH}]"
 	echo -e "*** /DISTRO_SPECS: ${DISTRO_NAME} ${DISTRO_VERSION} ${DISTRO_TARGETARCH}"
