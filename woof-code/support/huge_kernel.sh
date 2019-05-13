@@ -18,15 +18,9 @@ if [ ! -d ../../local-repositories/huge_kernels ] ; then
 fi
 
 mkdir -p ../../local-repositories/huge_kernels
-
-# precaution
 mkdir -p build
-[ -z $PUPPYSFS ] && PUPPYSFS="puppy_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION}.sfs"
 [ -z $ZDRVSFS ] && ZDRVSFS="zdrv_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION}.sfs"
 [ -z $FDRVSFS ] && FDRVSFS="fdrv_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION}.sfs"
-[ -z $ADRVSFS ] && ADRVSFS="adrv_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION}.sfs"
-[ -z $YDRVSFS ] && YDRVSFS="ydrv_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION}.sfs"
-[ -z $DEVXSFS ] && DEVXSFS="devx_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION}.sfs"
 
 #-----------------------------------------
 
@@ -121,24 +115,9 @@ download_kernel() {
 	wget -t0 -c $URL -P ${HUGE_KERNEL_DIR}
 	wget ${URL}.md5.txt -P ${HUGE_KERNEL_DIR}
 	CHK=`md5sum ${HUGE_KERNEL_DIR}/${TARBALL} | cut -d ' ' -f1`
+	MD5=`cat ${HUGE_KERNEL_DIR}/${TARBALL}.md5.txt| cut -d ' ' -f1`
 	# - md5.txt file might not be available: 404  not found
 	# -  e.g.: huge-3.14.79-tahr_noPAE.tar.bz2.md5
-	MD5=`cat ${HUGE_KERNEL_DIR}/${TARBALL}.md5.txt| cut -d ' ' -f1`
-	# PROBLEM:
-	# most md5.txt files only have MD5 sums
-	#    da3c0c75d756926adaea56205c00715f  huge-3.4.94-slacko4G2-i686.tar.bz2
-	# but a few others have this format
-	#    # MD5
-	#    b9264da180c2a8a08924058c1f17e56d  huge-4.9.15-xenialpup64.tar.bz2
-	#    # SHA1
-	#    7150b153a5d184ba3e3a6d9400b5817c099af8f2  huge-4.9.15-xenialpup64.tar.bz2
-	#    # SHA256
-	#    059db29d5aa006ced51bda1013e42a4ccf97af31839a00ecf660f19d021d2630  huge-4.9.15-xenialpup64.tar.bz2
-	if [ ! -z "$MD5" ] ; then
-		if grep -q '# MD5' ${HUGE_KERNEL_DIR}/${TARBALL}.md5.txt ; then
-			MD5=$(sed -n '2p' ${HUGE_KERNEL_DIR}/${TARBALL}.md5.txt | cut -d ' ' -f1)
-		fi
-	fi
 	echo "${TARBALL}         : $CHK"
 	echo "${TARBALL}.md5.txt : $MD5"
 	rm -f ${HUGE_KERNEL_DIR}/${TARBALL}.md5.txt
