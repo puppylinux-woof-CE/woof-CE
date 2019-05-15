@@ -80,8 +80,8 @@ get_kernel() {
 	
 	# prepare filters
 	case $TARGET_ARCH in
-		x86) filter="/-$TARGET_ARCH\./p; /-i.86\./p;" ;;
-		*)   filter="/-$TARGET_ARCH\./p;" ;;
+		x86) filter="/-$TARGET_ARCH\./p; /-i.86\./p; /64/d; p;" ;;
+		*)   filter="/-$TARGET_ARCH\./p; /64/p;" ;;
 	esac
 	p=${KERNEL_URL##*//}; p=${p%%/*}
 	echo Getting list of available kernels from $p ...
@@ -95,7 +95,7 @@ get_kernel() {
 		*) KERNEL_URL="" KERNEL_TARBALL="" ;; # self-build - clear the variables
 	esac
 }
-
+get_kernel; exit
 map_target_arch() { # as needed to meet source distro name
 	case $SOURCE in
 		ubuntu|debian|devuan)
