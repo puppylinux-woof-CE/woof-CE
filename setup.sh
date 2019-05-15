@@ -95,7 +95,7 @@ get_kernel() {
 		*) KERNEL_URL="" KERNEL_TARBALL="" ;; # self-build - clear the variables
 	esac
 }
-get_kernel; exit
+
 map_target_arch() { # as needed to meet source distro name
 	case $SOURCE in
 		ubuntu|debian|devuan)
