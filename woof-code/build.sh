@@ -21,7 +21,7 @@ fi
 # run helper scripts and log the output (script.log)
 
 case $1 in
-0)
+0|"")
 	./xlog 0setup a             #requires a param or ENTER the 2nd time you run it
 	./xlog 1download            #[pkg]
 	./xlog 2createpackages -all #or pkg
