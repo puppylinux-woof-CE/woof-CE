@@ -1,4 +1,6 @@
-lib/libcap.a
+# needs $1 = dir
+
+libs='lib/libcap.a
 usr/lib/abiword-*/plugins/*.a
 usr/lib/enchant/*.a
 usr/lib/heimdal/*.a
@@ -138,4 +140,71 @@ usr/lib/libzip.a
 usr/lib/python2.6/site-packages/gsf/gnomemodule.a
 usr/lib/python2.6/site-packages/gsf/_gsfmodule.a
 usr/lib/python2.7/site-packages/ieee1284module.a
-usr/lib/xchat/plugins/*.a
+usr/lib/xchat/plugins/*.a'
+
+files='
+usr/bin/oldfind
+usr/bin/ftsfind
+bin/mt
+bin/mt-GNU
+bin/mt-gnu
+usr/bin/ogg123
+usr/bin/pngfix
+usr/bin/png-fix-itxt'
+
+#==============================================================================
+
+if ! [ -d "$1" ] ; then
+	echo "$0 <directory>"
+	exit 1
+fi
+
+cd "$1"
+echo
+echo "Running $0"
+echo
+
+echo "$libs" > /tmp/files2delete.libs
+
+while read i ; do
+	[ "$i" ] || continue
+	for file in $(echo ./$i) #might cointain wildcards
+	do
+		[ -f ${file} ] && rm -fv ${file}
+	done
+done < /tmp/files2delete.libs
+
+if [ -d lib64 ] ; then
+	sed 's%/lib/%/lib64/%' /tmp/files2delete.libs > /tmp/files2delete.libs64
+	while read i ; do
+		[ "$i" ] || continue
+		for file in $(echo ./$i) #might cointain wildcards
+		do
+			[ -f ${file} ] && rm -fv ${file}
+		done
+	done < /tmp/files2delete.libs64
+fi
+
+for i in i386-linux-gnu x86_64-linux-gnu arm-linux-gnueabihf
+do
+	[ -d lib/$i ] || continue
+	sed "s%/lib/%/lib/${i}/%" /tmp/files2delete.libs > /tmp/files2delete.libs.${i}
+	while read i ; do
+		for file in $(echo ./$i) #might cointain wildcards
+		do
+			[ -f ${file} ] && rm -fv ${file}
+		done
+	done < /tmp/files2delete.libs.${i}
+done
+
+echo "$files" | \
+while read i ; do
+	[ "$i" ] || continue
+	for file in $(echo ./$i) ; do #might cointain wildcards
+		[ -f ${file} ] && rm -fv ${file}
+	done
+done
+
+echo
+
+### END ###
