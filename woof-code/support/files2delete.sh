@@ -185,7 +185,7 @@ if [ -d lib64 ] ; then
 	done < /tmp/files2delete.libs64
 fi
 
-for i in i386-linux-gnu x86_64-linux-gnu arm-linux-gnueabihf
+for i in i386-linux-gnu x86_64-linux-gnu arm-linux-gnueabihf aarch64-linux-gnu
 do
 	[ -d lib/$i ] || continue
 	sed "s%/lib/%/lib/${i}/%" /tmp/files2delete.libs > /tmp/files2delete.libs.${i}
