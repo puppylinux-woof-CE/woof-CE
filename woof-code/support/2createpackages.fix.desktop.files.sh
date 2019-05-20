@@ -1,9 +1,7 @@
 #!/bin/sh
 #
 # fix *.desktop files..
-#
 # old code - slightly updated..
-#
 
 #set -x
 
@@ -46,7 +44,7 @@ iPATTERN="s%^Icon=.*%Icon=${DEFICON}%"
 
 #121120 if only one .desktop file, first check if a match in /usr/local/petget/categories.dat (see also /usr/local/petget/installpkg.sh)...
 CATDONE='no'
-if [ -f /usr/local/petget/categories.dat ];then #precaution, but it will be there -- yes, have added code above makes sure it is.
+if [ -f rootfs-skeleton/usr/local/petget/categories.dat ];then #precaution, but it will be there -- yes, have added code above makes sure it is.
 	NUMDESKFILE="$(echo -n "$FND_DESKTOP" | wc -w)"
 	if [ "$NUMDESKFILE" = "1" ];then
 		#to lookup categories.dat, we need to know the generic name of the package, which may be different from pkg name...
@@ -59,7 +57,7 @@ if [ -f /usr/local/petget/categories.dat ];then #precaution, but it will be ther
 			*) xNAMEONLY="$DBNAMEONLY" ;;
 		esac
 		#130219 categories.dat format changed slightly... ignore case...
-		CATVARIABLE="$(grep -i " ${xNAMEONLY} " /usr/local/petget/categories.dat | grep '^PKGCAT' | head -n 1 | cut -f 1 -d '=' | cut -f 2,3 -d '_' | tr '_' '-')" #ex: PKGCAT_Graphic_camera=" gphoto2 gtkam "
+		CATVARIABLE="$(grep -i " ${xNAMEONLY} " rootfs-skeleton/usr/local/petget/categories.dat | grep '^PKGCAT' | head -n 1 | cut -f 1 -d '=' | cut -f 2,3 -d '_' | tr '_' '-')" #ex: PKGCAT_Graphic_camera=" gphoto2 gtkam "
 		if [ "$CATVARIABLE" ];then #ex: Graphic-camera
 			xCATEGORY="X-${CATVARIABLE}"
 			cPATTERN="s%^Categories=.*%Categories=${xCATEGORY}%"

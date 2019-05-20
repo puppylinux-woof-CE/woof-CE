@@ -3,33 +3,20 @@
 # grab binary ubuntu/debian/slackware packages and build puppy packages.
 # to packages-$DISTRO_FILE_PREFIX/, into the "generic name". Note that one generic
 # name can have one or more binary pkgs.
-# Note, DISTRO_FILE_PREFIX is specified in DISTRO_SPECS file.
 #110820 support/findpkgs is new script to find all pkgs to be used in Puppy build. Major changes!
 #110830 fix if 3rd field specifies multiple pet pkgs.
-#111204 do not execute post-install script if FIXUPHACK has DISABLE_POST_INSTALL_SCRIPT=yes. (this existed before, but was broken)
-#121102 file DISTRO_SPECS has new variable DISTRO_DB_SUBNAME. ex: for 14.0-based slacko, DISTRO_DB_SUBNAME=slacko14
+#111204 do not execute post-install script if FIXUPHACK has DISABLE_POST_INSTALL_SCRIPT=yes.
 #
 #some information about template-packages/GENERICNAME:
 #  copy all non-zero files to target (overwrite existing files)
 #As a last resort, if target pkg is wrong, a file 'FIXUPHACK' is a script that can be at top dir
 #  in template. It executes in target, with current-dir set to where FIXUPHACK is located. (ex: perl_tiny).
-#
 
 #set -x
-
 MWD=$(pwd)
-
 export LANG=C #faster.
 
-case $1 in
-	-h*) echo " syntax:
-	$0 <pkg>: process specific pkg or 'generic name'
-	$0 -all : force processing all packages
-	$0 -downloaded:
-	    process all packages listed in status/download_list as made by 1download
-"
-		exit
-		;;
+case $1 in # pkg / -all / -downloaded
 	-all) COMMANDLINE_CHOICE=ALL_PACKAGES ;;
 	-downloaded)
 		#create all packages listed in status/download_list as made by 1download
@@ -37,8 +24,7 @@ case $1 in
 			echo "/status/download_list cannot be found - exiting"
 			exit -1
 		fi
-		for pkg in `sort -u ./status/download_list | cut -d : -f 2`
-		do
+		for pkg in `sort -u ./status/download_list | cut -d : -f 2` ; do
 			[ "$pkg" != "" ] && $0 $pkg
 		done
 		exit 0
@@ -68,8 +54,7 @@ export BINARIES ARCHDIR #ex: deb-xenial
 PLIBDIRS="lib usr/lib"
 if [ "$DISTRO_BINARY_COMPAT" = "slackware64" ] ; then
 	PLIBDIRS="lib64 usr/lib64"
-fi
-if [ "$ARCHDIR" ] ; then
+elif [ "$ARCHDIR" ] ; then
 	PLIBDIRS="$PLIBDIRS lib/${ARCHDIR} usr/lib/${ARCHDIR}"
 fi
 export PLIBDIRS
@@ -78,17 +63,7 @@ PLIB=lib
 [ "$DISTRO_BINARY_COMPAT" = "slackware64" ] && PLIB=lib64
 export PLIB
 
-CURRDIR="`pwd`"
-
-#PKGS_SPECS_TABLE table fomat:
-#will pkg be in woof.
-#    Generic name for pkg. Note: PET packages, if exist, use this name + version#.
-#            Comma-separated list of ubuntu/debian part-names for pkg(s). '-' prefix, exclude.
-#            Empty field, then use PET pkg.
-#                    How the package will get split up in woof (optional redirection '>' operator).
-#                    Missing field, it goes into exe. Can also redirect >null, means dump it.
-#yes|abiword|iceword_|exe,dev,doc,nls
-
+#PKGS_SPECS_TABLE table fomat: see README.pkgs_specs
 #remove comments from PKGS_SPECS_TABLE... make sure '|' on end... get rid of old |+udev,+whatever on end...
 PKGS_SPECS_TABLE="`echo "$PKGS_SPECS_TABLE" | grep -v '^#' | grep -v '^$' | tr '\t' ' ' | tr -s ' ' | tr '+' '&' | sed -e 's%|&.*%%' | tr '&' '+' | sed -e 's% #.*%%' -e 's% $%%' -e 's%$%|%' -e 's%||$%|%'`"
 
@@ -98,8 +73,6 @@ if [ -z "$COMMANDLINE_CHOICE" ] ; then
 	COMMANDLINE_CHOICE=""
 	[ $1 ] && COMMANDLINE_CHOICE="$1"
 fi
-
-mkdir -p /tmp/2createpackages_tmp
 
 mkdir -p status
 if [ "$COMMANDLINE_CHOICE" = "ALL_PACKAGES" ] ; then
@@ -118,7 +91,7 @@ if [ "$COMMANDLINE_CHOICE" = "" ];then
 	read USERINPUT
 else
 	USERINPUT="$COMMANDLINE_CHOICE"
-	if [ "$COMMANDLINE_CHOICE" = "ALL_PACKAGES" ];then #see woof_gui_tabs.
+	if [ "$COMMANDLINE_CHOICE" = "ALL_PACKAGES" ];then
 		USERINPUT=""
 	fi
 fi
@@ -128,23 +101,14 @@ if [ "$USERINPUT" = "" ];then
 	CHOICE_PKGS_SPECS_TABLE="$PKGS_SPECS_TABLE"
 else
 	CHOICE_PKGS_SPECS_TABLE="`echo "$PKGS_SPECS_TABLE" | grep "^yes|${USERINPUT}|"`"
-	if [ "$CHOICE_PKGS_SPECS_TABLE" = "" ];then
-		echo "ERROR: Generic-name must be from 2nd field of variable PKGS_SPECS_TABLE"
-		echo "in file ${DPSFILE}."
-		echo "There must also be a 'yes' in the first field."
-	fi
+	[ "$CHOICE_PKGS_SPECS_TABLE" ] || echo "ERROR: pkg not defined or not enabled in $DPSFILE"
 fi
-
-#121120 further down, wants this in the host system...
-[ -f rootfs-skeleton/usr/local/petget/categories.dat ] && cp -f rootfs-skeleton/usr/local/petget/categories.dat /usr/local/petget/
 
 ############################################################################
 #read through PKGS_SPECS_TABLE, find matching pkg(s) in 'packages-${BINARIES}',
 #process and create raw woof packages in 'packages-${DISTRO_FILE_PREFIX}'...
 
 STRIP_BIN="`which strip`"
-
-echo -n "" > /tmp/2createpackages-redo #091211
 rm -f ERROR-2CREATEPACKAGES 2>/dev/null
 
 pre_process_pkg() {
@@ -168,8 +132,7 @@ do
  [ "$YESNO" = "no" ] && continue
  BINARYPARTNAMES="${BINARYPARTNAMES//,/ }" #convert "," to " "
 
- echo
- echo "Processing ${GENERICNAME}"
+ echo -e "\nProcessing ${GENERICNAME}"
 
  #processing pkgs that will be combined into ${GENERICNAME}...
  #a pkg may be shared by multiple generic names, ex: :gcc_lib::gcc_dev:|compat|... (ex from Slacko).
@@ -193,10 +156,6 @@ do
  # rootfs-packages override pet pkgs
  if [ -d ${PWD}/rootfs-packages/${GENERICNAME} ] ; then
 	echo " * rootfs-packages/${GENERICNAME} overrides pet pkg"
-	if [ -f ${PWD}/rootfs-packages/${GENERICNAME}/pet.specs ] ; then
-		IFS="|" read a b < ${PWD}/rootfs-packages/${GENERICNAME}/pet.specs
-		echo " processing $a"
-	fi
 	cp -a ${PWD}/rootfs-packages/${GENERICNAME} ${PWD}/packages-${DISTRO_FILE_PREFIX}
 	continue
  fi
@@ -245,13 +204,6 @@ do
 	#...pkgname onwards is the full db entry for a package.
 	IFS="|" read -r F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 ETC <<< "$ONEDBENTRY"
 	PETorCOMPAT="$F2" #ex: compat
-	if [ "$PETorCOMPAT" != "pet" -a "$PETorCOMPAT" != "compat" ];then
-		( echo
-		echo "Syntax ERROR in status/findpkgs_FINAL_PKGS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}:"
-		echo " $ONEDBENTRY"
-		echo "Ignoring this line." ) >> ERROR-2CREATEPACKAGES
-		continue
-	fi
 	DBFILE="$F3"           #ex: Packages-puppy-5-official
 	DB_pkgname="$F4"       #ex: abiword-2.3.4-w5
 	DB_fullfilename="$F11" #ex: abiword-2.3.4-w5.pet
@@ -262,16 +214,14 @@ do
 		mkdir -p "packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}${EXE%_NULL}"
 		continue
 	fi
-	case "$DB_fullfilename" in *"-dev_"*|*"_DEV"*)
-		if [ "$DEV" = "_NULL" ] ; then
-			mkdir -p "packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}${EXE%_NULL}_DEV"
-			continue
-		fi ;;
+	case "$DB_fullfilename" in
+		*"-dev_"*|*"_DEV"*)
+			if [ "$DEV" = "_NULL" ] ; then
+				mkdir -p "packages-${DISTRO_FILE_PREFIX}/${GENERICNAME}${EXE%_NULL}_DEV"
+				continue
+			fi ;;
+		*"-doc_"*|*"_DOC"*) [ "$DOC" = "_NULL" ] && continue ;;
 	esac
-	case "$DB_fullfilename" in *"-doc_"*|*"_DOC"*)
-		[ "$DOC" = "_NULL" ] && continue ;;
-	esac
-	case "$DB_fullfilename" in *"_NLS"*) continue ;; esac
 	#--
 
 	#--------------------------------
@@ -495,16 +445,11 @@ do
 		[ "$EXE" = "_NULL" ] && { rm -f "$ONEFILE" ; continue ; }
 		#anything left over goes into the main 'executable' package...
 		case "$ONEFILE" in *"/bin"*|*"/sbin"*|*"/lib"*)
-			#strip the file... but not if a cross-build (see file WOOFMERGEVARS)
 			if [ "$STRIP_BINARIES" = "yes" ];then #build.conf
 			if [ "$STRIP_BIN" -a "$WOOF_HOSTARCH" = "$WOOF_TARGETARCH" ];then #needs devx.
 				if [ ! -h "$ONEFILE" ];then #make sure it isn't a symlink
-					FILE_INFO=$(file "$ONEFILE")
-					case $FILE_INFO in *"ELF"*)
-						case $FILE_INFO in
-						*"shared object"*) strip --strip-debug "$ONEFILE" ;;
-						*"executable"*) strip --strip-unneeded "$ONEFILE" ;;
-						esac
+					case $(file "$ONEFILE") in *" ELF "*)
+						strip --strip-debug "$ONEFILE" ;;
 					esac
 				fi
 			fi
@@ -542,19 +487,7 @@ do
 
 done #process next GENERICNAME.
 
-if [ -s /tmp/2createpackages-redo ];then #091211
-	for ONEREDO in `cat /tmp/2createpackages-redo`
-	do
-		./2createpackages $ONEREDO
-	done
-fi
-
-echo
-echo "Script finished."
-if [ -s ERROR-2CREATEPACKAGES ];then
-	echo "WARNING: Errors were logged to file ERROR-2CREATEPACKAGES"
-fi
-
-[ "$WOOF_GUI" ] && { echo -n "Press ENTER key to exit: " ; read zzz ; }
+echo -e "\nScript finished."
+[ -s ERROR-2CREATEPACKAGES ] && echo "WARNING: Errors were logged to file ERROR-2CREATEPACKAGES"
 
 ###END###
