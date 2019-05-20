@@ -1,25 +1,10 @@
 #!/bin/bash
 #(c) Copyright 2009 Barry Kauler.
-#120126 mavrothal: offer option to skip specific repos. refer http://bkhome.org/blog/?viewDetailed=02650
-#120315 pkg list entries may have optional forced repo field. Ref: http://bkhome.org/blog/?viewDetailed=02414
-#120515 build from "gentoo" binary tarballs (refer support/gentoo). --no need to modify anything in 0setup.
-#120719 support raspbian. fix debian db format change.
-#120804 fix when only have pkgname_DEV, no pkgname.
-#120812 db category now allows optional subcategory (for which an icons exists in /usr/local/lib/X11/mini-icons).
-#120815 for debian, ubuntu, use the generic name provided in the $DB_path, instead of $Package, for find_cat.
-#120825 debian/ubuntu/raspbian: merge -updates dbs.
+#120825 debian/ubuntu: merge -updates dbs.
 #121102 file DISTRO_SPECS has new variable DISTRO_DB_SUBNAME. ex: for 14.0-based slacko, DISTRO_DB_SUBNAME=slacko14
 #121111 debdb2pupdb, new fast deb to pup db converter.
-#121112 note, debdb2pupdb no longer calls find_cat.
-#121113 improve file PKGS_HOMEPAGES sort after run debdb2pupdb.
-#121113 read Ubuntu-db 'Section' parameter to help assign category.
-#121113 ubuntu-db: introduce STARTMARKER field between db records.
-#121113 reverse question, enter only for ubuntu db -updates.
 #121116 0setup also runs in running puppy called from ppm. some o/p needs to be translated, done in /usr/share/sss/script_strings/script_strings. see below all LANGORG insertions.
-#130126 find_cat rewritten. works as before, also can post-process an entire db-entry or db-entries-file. arch code rewritten by noryb009
-#130305 debdb2pupdb.bac now also check that deps exist, create list of pkgs.
 #130316 debdb2pupdb does not use /tmp/0setupcompletelistpkgs in a running puppy.
-#130319 remove 'raspbian' from updates code section.
 
 LANGORG="$(locale | grep '^LANG=' | cut -d '=' -f 2)" #121116
 export LANG=C #faster.
@@ -86,97 +71,9 @@ else
 fi
 
 #w008 convert pkg database ${PKGLISTFILE}pre to a standard format...
-#120812 subcategory...
 #each line: pkgname|nameonly|version|pkgrelease|category[;subcategory]|size|path|fullfilename|dependencies|description|
 #ex: abiword-1.2.4|abiword|1.2.4|5|Document|999K|slackware/ab|abiword-1.2.4-5-i486.tgz|+aiksausus,+gtk2|a nice wordprocessor|
 PKGLISTS_COMPAT="`echo "$PKG_DOCS_DISTRO_COMPAT" | tr ' ' '\n' | cut -f 3 -d '|' | tr '\n' ' '`" #see file DISTRO_PKGS_SPECS-ubuntu
-
-function check_compat_distro_pkgs() {
-	####################################
-	#extract all the package names of compat-distro, without version info...
-	#                 *this*
-	#automake_1.14.1|automake|1.14.1|2ubuntu1|Filesystem;filemanager|1492K|pool/main/a/automake-1.14|automake_1.14.1-2ubuntu1_all.deb|+autoconf&ge2.65,+autotools-dev&ge20020320.1|Tool for generating GNU Standards-compliant Makefiles|ubuntu|trusty||
-	cat $PKGLISTS_COMPAT | cut -f 2 -d '|' > zz_pkgnamespre
-	#in debian/ubuntu there are too many lib* packages
-	grep '^lib' zz_pkgnamespre > zz_pkgnames
-	grep -v '^lib' zz_pkgnamespre >> zz_pkgnames
-
-	#check the entries in PKGS_SPECS_TABLE against those in Packages-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}.
-	#that is, need to verify that pkgs specified in table do actually exist.
-	echo -e "\nChecking that compat-distro pkgs specified in PKGS_SPECS_TABLE actually exist..." | tee /var/woof/0setup_fail_report_$RUNNINGPUP
-	FAILCHK="no"
-
-	#120315 extra field on end to force repo... grep -v '||[a-zA-Z0-9]*:' (not actually needed)
-	echo "$PKGS_SPECS_TABLE" | grep '^yes' | grep -v '|pet:' | cut -f 3,4 -d '|' > zz_fields34
-	#yes|alsa-lib|libasound2,libasound2-data,libasound2-dev,libasound2-plugins|exe,dev,doc,nls
-	#yes|advancecomp|advancecomp|exe>dev,dev,doc,nls
-	#yes|abiword||exe,dev,doc,nls
-	while read AFIELD34
-	do
-	 #              BINARYPARTNAMES  ASSIGNFIELD
-	 #yes|advancecomp|advancecomp|exe>dev,dev,doc,nls
-	 IFS="|" read -r FPARTNAMES ASSIGNFIELD <<< "$AFIELD34"
-	 [ ! "$FPARTNAMES" ] && continue
-	 BINARYPARTNAMES=""
-	 for I in ${FPARTNAMES//,/ } ; do
-	   case $I in -*) continue ;; esac #ignore -pkgs
-	   BINARYPARTNAMES+=" $I"
-	 done
-	 for ONEBINARYPARTNAME in $BINARYPARTNAMES
-	 do
-	  #ONEBINARYPARTNAME may match multiple pkgs...
-	  #echo -n " $ONEBINARYPARTNAME"
-	  multiPATTERN="${ONEBINARYPARTNAME//-/\\-}" #replace "-" with "\-"
-	  multiPATTERN="${multiPATTERN//\*/.*}"      #replace "*" with ".*"
-	  grep -m 1 -q "^${multiPATTERN}$" zz_pkgnames && continue #success.
-
-	  if [ "$ASSIGNFIELD" ];then #120804
-	   #this will find entry in PKGS_SPECS_TABLE like 'yes|apr|apr|exe>dev,dev,doc,nls', where pkg apr-123 does not exist, only apr_DEV-123...
-	   case "$ASSIGNFIELD" in *'exe>dev'*|*'exe>null'*)
-		grep -m 1 -q "^${ONEBINARYPARTNAME}_DEV" zz_pkgnames && continue #success.
-	   esac
-	   #this entry 'yes|perl-digest-sha1|perl-digest-sha1|exe,dev>null,doc>null,nls>null' also only has a _DEV pkg...
-	   case "$ASSIGNFIELD" in *'dev>exe'*) 
-		grep -m 1 -q "^${ONEBINARYPARTNAME}_DEV" zz_pkgnames && continue #success.
-	   esac
-	  fi
-	  case "$ONEBINARYPARTNAME" in *"*"*)
-	   grep -m 1 -q "^${multiPATTERN}" zz_pkgnames && continue #success.
-	  esac
-	  #failure...
-	  echo "FAIL: $ONEBINARYPARTNAME"
-	  echo "FAIL: $ONEBINARYPARTNAME" >> /var/woof/0setup_fail_report_$RUNNINGPUP
-	  FAILCHK="yes"
-	 done
-	done < zz_fields34
-
-	rm -f zz_fields34  #comment out to debug
-	rm -f zz_pkgnames* #--
-
-	if [ "$FAILCHK" = "yes" ];then
-	 echo "
-Finished, but some failures. You need to fix the above entries in variable
-PKGS_SPECS_TABLE in file ${DPSFILE}.
-Search for suitable packages in these files:
-`echo "$PKG_DOCS_DISTRO_COMPAT" | tr ' ' '\n' | cut -f 3 -d '|'`
-Or, search online. In the case of Debian or Ubuntu, you can search
-at packages.debian.org or packages.ubuntu.com.
-After you have fixed PKGS_SPECS_TABLE, run this script again." | tee -a /var/woof/0setup_fail_report_$RUNNINGPUP
-	else
-	 echo -e "\nFinished, successful." | tee -a /var/woof/0setup_fail_report_$RUNNINGPUP
-	fi
-
-	echo
-	echo "The log of '0setup', as reported above, is saved for future reference."
-	echo "(In file /var/woof/0setup_fail_report_${RUNNINGPUP})"
-	echo -e "\nScript finished."
-	[ "$WOOF_GUI" ] && { echo -n "Press ENTER key to exit: " ; read zzz ; }
-}
-
-case $1 in check|-check)
-	check_compat_distro_pkgs
-	exit
-esac
 
 #======================================================================
 
@@ -455,6 +352,9 @@ if [ "$RUNNINGPUP" = "yes" ];then
  exit
 fi
 
-check_compat_distro_pkgs
+echo -e "\nChecking pkgs"
+support/findpkgs >/dev/null
+grep 'was not found' FINDPKGS-NOT-FOUND.log  | sort -u
+echo
 
 ### END ###
