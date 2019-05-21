@@ -128,6 +128,7 @@ function fixdepends(s) {
                   PKG=""; PKGVER=""; PKGFILE=""; PKGPATH=""; PKGPRIO=""; PKGSECTION=""; PKGMD5="";  PKGDEP=""; }
 '
 			# remove duplicates, use the "later" version if duplicate packages are found
+			[ -z "$KEEP_DUPLICATES" ] &&			
 			< $REPO_DIR/$LOCAL_PKGDB > /tmp/t.$$ \
 			awk -F"|" '{if (!a[$1]) b[n++]=$1; a[$1]=$0} END {for (i=0;i<n;i++) {print a[b[i]]}}'
 			mv /tmp/t.$$ $REPO_DIR/$LOCAL_PKGDB
@@ -241,7 +242,7 @@ cutdown() {
 				done
 
 				# clean up empty dirs
-				find $DEVX_DIR -type d | sort -r | xargs rmdir 2>/dev/null ;;
+				find $DEVX_DIR -type d | sort -r | xargs -I '{}' rmdir '{}' 2>/dev/null ;;
 		esac
 	done
 }

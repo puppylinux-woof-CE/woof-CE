@@ -337,7 +337,7 @@ cutdown() {
 				done
 
 				# clean up empty dirs
-				find $DEVX_DIR -type d | sort -r | xargs rmdir 2>/dev/null ;;
+				find $DEVX_DIR -type d | sort -r | xargs -I '{}' rmdir '{}' 2>/dev/null ;;
 		esac
 	done
 }
