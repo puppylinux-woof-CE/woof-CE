@@ -220,14 +220,6 @@ pdebug=y
    If the boot succeeds to desktop this file is available as /initrd/tmp/bootinit.log
    update: this is always enabled by default.
 
-psavemenu=X
-   Shows menu with the first X pupsaves (X=valid number) (if there is more than 1).
-   Pupsave Backup creates snapshots for you to use later with this boot param.
-   By default the init script uses the first valid pupsave it finds. This overrides that behavior.
-   psavemenu=y|X only works when psave= has not been specified,
-       and it's only to choose from a list of pupsaves in alphabetic order...
-   see MORE TECHICAL NOTES
-
 underdog=<a partition name>
    Activates the underdog facility using the named partition as the Linux installation to load under Puppy.
  
