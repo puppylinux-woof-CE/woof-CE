@@ -217,12 +217,17 @@ cutdown() {
 			nls)
 				[ -d $CHROOT_DIR/usr/lib64/locale ] && LIBDIR=lib64
 				rm -rf $NLS_DIR; mkdir -p $NLS_DIR/usr/share/locale $NLS_DIR/usr/$LIBDIR/locale
+				[ -d $CHROOT_DIR/usr/share/locale ] &&
 				for p in $(ls $CHROOT_DIR/usr/share/locale); do
-					[ $p != en ] && mv $CHROOT_DIR/usr/share/locale/$p $NLS_DIR/usr/share/locale
+					case "$p" in
+						en|"") ;; # do nothing
+						*) mv $CHROOT_DIR/usr/share/locale/$p $NLS_DIR/usr/share/locale ;;
+					esac
 				done
+				[ -d $CHROOT_DIR/usr/$LIBDIR/locale ] &&
 				for p in $(ls $CHROOT_DIR/usr/$LIBDIR/locale); do
-					case $p in
-						en_US|en_AU|en_US.*|en_AU.*|C|C.*) ;; # skip
+					case "$p" in
+						en_US|en_AU|en_US.*|en_AU.*|C|C.*|"") ;; # skip
 						*) mv $CHROOT_DIR/usr/$LIBDIR/locale/$p $NLS_DIR/usr/$LIBDIR/locale
 					esac
 				done ;;
