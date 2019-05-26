@@ -163,9 +163,9 @@ OUTPUT_DIR=iso        # if you change this, change %makesfs params in basesfs to
 OUTPUT_ISO=puppy.iso
 ISO_ROOT=\$OUTPUT_DIR/iso-root
 
-ISOLINUX_BIN="\$WOOFCE/woof-arch/x86/build/boot/isolinux.bin"
+ISOLINUX_BIN="\$WOOFCE/woof-arch/$TARGET_ARCH/build/boot/isolinux.bin"
 ISOLINUX_CFG="\$WOOFCE/woof-code/boot/boot-dialog"
-INITRD_ARCH="\$WOOFCE/woof-arch/x86/target/boot/initrd-tree0"
+INITRD_ARCH="\$WOOFCE/woof-arch/$TARGET_ARCH/target/boot/initrd-tree0"
 INITRD_CODE="\$WOOFCE/woof-code/boot/initrd-tree0"
 
 KERNEL_URL="$KERNEL_URL"
