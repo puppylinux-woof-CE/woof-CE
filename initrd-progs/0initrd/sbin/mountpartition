@@ -1,58 +1,66 @@
-#!/bin/sh
+#!/bin/ash
 # mounts and returns mount point
 # return mount point if partition already mounted
 # any error: return -ne 0
 
-mntfunc() {
- MNT_T="$1"    #ex: vfat
- MNT_DEV="$2"  #ex: /dev/sda1
- MNT_DIR="$3"  #ex: /mnt/sda1
- case $MNT_T in
-  ntfs)
-   ntfs-3g $MNT_DEV $MNT_DIR -o umask=0,no_def_opts,noatime,rw,silent 2>/dev/null
-   ntfsRETVAL=$?
-   [ $ntfsRETVAL -eq 0 ] && return 0
-   if [ $ntfsRETVAL -eq 14 ];then
-    echo "ERROR: Windows NTFS hibernated partition, cannot mount" >&2
-    return 14
-   else
-    ntfs-3g $MNT_DEV $MNT_DIR -o umask=0,no_def_opts,noatime,rw,force,silent 2>/dev/null
-   fi
-  ;;
-  exfat) mount.exfat-fuse "$MNT_DEV" "$MNT_DIR" ;;
-  *) mount -t $MNT_T $MNT_DEV $MNT_DIR ;;
- esac
- return $?
-}
+MNT_DEV="$1"  #ex: /dev/sda1
+MNT_DIR="$2"  #ex: /mnt/sda1
+MNT_FS="$3"    #ex: vfat
+[ "$1" = "" ] && exit 1
 
 #-----------------------------------------------------
 
-[ "$1" = "" ] && exit 1
-
-xpart=$(echo "$1" | sed 's|/dev/||')
-
-if [ ! -b /dev/$xpart ] ; then
-  echo "$xpart: not a valid partition" &>2
+xdev=${MNT_DEV##*/} #basename
+if [ ! -b /dev/$xdev ] ; then
+  echo "$xdev: not a valid block device" 1>&2
   exit 1
 fi
+MNT_DEV=/dev/$xdev
 
-MP=$(mount | grep "^/dev/$xpart " | cut -f 3 -d ' ')
+IS_MOUNTED=$(mount | grep "^/dev/$xdev " | cut -f 3 -d ' ')
+if [ "$IS_MOUNTED" ] ; then
+  [ ! "$INIT_SCRIPT" ] && echo $IS_MOUNTED
+  exit
+fi
 
-if [ "$MP" = "" ] ; then
-  MP=/mnt/$xpart
-  echo "* Mounting $xpart" >&2
-  mkdir -p ${MP}
-  fs=$(blkid /dev/$xpart 2>/dev/null | grep -o ' TYPE=".*"' | cut -f 2 -d '"')
-  echo "fs=${fs}" >&2
-  mntfunc $fs /dev/$xpart ${MP}
-  if [ $? -ne 0 ] ; then
-    echo "Coult not mount $xpart... sorry" >&2
-    exit 1
+[ -z "$MNT_DIR" ] && MNT_DIR=/mnt/$xdev
+[ -z "$MNT_FS" ]  && MNT_FS=$(blkid /dev/$xdev 2>/dev/null | grep -o ' TYPE=".*"' | cut -f 2 -d '"')
+mkdir -p ${MNT_DIR}
+
+#-----------------------------------------------------
+
+. /etc/rc.d/functions_x
+MNT_O='noatime'
+MNT_DSK=$(fx_get_drvname $MNT_DEV)
+if [ "$MNT_FS" = "ext4" -o "$MNT_FS" = "f2fs" ] ; then
+  if [ "$(cat /sys/block/${MNT_DSK}/queue/rotational 2>/dev/null)" = "0" ] ; then
+    MNT_O="-o discard,noatime" # enable SSD TRIM
   fi
 fi
 
-[ "$MP" = "" ] && exit 1
+case $MNT_FS in
+  ntfs)
+    ntfs-3g $MNT_DEV $MNT_DIR -o umask=0,no_def_opts,noatime,rw,silent 2>/dev/null #default is rw. 130211 add silent.
+    case $? in
+      0)  RET=0 ;;
+      14) echo "\\033[1;31m_WINDOWS_HIBERNATED_\\033[0;39m" >/dev/console ;; #31=red
+      *)  ntfs-3g $MNT_DEV $MNT_DIR -o umask=0,no_def_opts,noatime,rw,force,silent 2>/dev/null ;; #130211 add silent.
+    esac
+    ;;
+  vfat)
+    VFAT_OUT_PARAM='noatime,shortname=mixed,quiet,utf8' 
+    if [ -f /tmp/vfatmount ] ; then
+      read VFAT_OUT_PARAM < /tmp/vfatmount #/sbin/set_plang
+    fi
+    mount -t $MNT_FS -o $VFAT_OUT_PARAM $MNT_DEV $MNT_DIR ;;
+  #exfat) mount.exfat-fuse -o $MNT_O $MNT_DEV $MNT_DIR ;;
+  *)
+     mount -t $MNT_FS -o $MNT_O $MNT_DEV $MNT_DIR
+     ;;
+esac
 
-echo $MP
+RET=$?
+[ "$RET" = "0" ] && [ ! "$INIT_SCRIPT" ] && echo $MNT_DIR
+exit $RET
 
 ### END ###

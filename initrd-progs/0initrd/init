@@ -69,9 +69,10 @@ done
 export TERM="xterm"
 export TERMINFO="/usr/share/terminfo"
 export LANG=C
+export INIT_SCRIPT=1
+
 PATH="/bin:/sbin"
 export KERNELVER="$(uname -r)"
-VFAT_OUT_PARAM='noatime,shortname=mixed,quiet,utf8' #see also /sbin/set_plang
 . /DISTRO_SPECS #v412 has DISTRO_VERSION, DISTRO_FILE_PREFIX
 . /etc/rc.d/functions_x
 export DISTRODESC="${DISTRO_NAME} ${DISTRO_VERSION} - Linux ${KERNELVER} - `uname -m`"
@@ -121,37 +122,6 @@ fsck_func() {
   ${fsck_app} ${fsck_OPT} ${1} > /dev/console 2>&1 || sleep 3 #so the user has time to read the error msg..
   FSCKDPARTS="${FSCKDPARTS}${1}|"
  fi
-}
-
-mntfunc() {
- MNT_T="$1"    #ex: vfat
- MNT_DEV="$2"  #ex: /dev/sda1
- MNT_DIR="$3"  #ex: /mnt/sda1
- MNT_O='noatime'
- MNT_DSK="${MNT_DEV:5:3}"
- if [ "$PTRIM" = "yes" -a "$MNT_DSK" != "" -a "$(cat /sys/block/$MNT_DSK/queue/rotational)" = "0" ];then
-  if [ "$MNT_T" = "ext4" -o "$MNT_T" = "f2fs" ];then
-    MNT_O="${MNT_O},discard"
-  fi
- fi
- [ "$PFSCKP" = "yes" ] && fsck_func "$MNT_DEV" "$MNT_T"
- case $MNT_T in
-  ntfs)
-   ntfs-3g $MNT_DEV $MNT_DIR -o umask=0,no_def_opts,noatime,rw,silent 2>/dev/null #default is rw. 130211 add silent.
-   ntfsRETVAL=$?
-   [ $ntfsRETVAL -eq 0 ] && return 0
-   if [ $ntfsRETVAL -eq 14 ];then
-    echo -e "\\033[1;31m${L_WINDOWS_HIBERNATED}\\033[0;39m" >/dev/console #31=red
-    return 14
-   else
-    ntfs-3g $MNT_DEV $MNT_DIR -o umask=0,no_def_opts,noatime,rw,force,silent 2>/dev/null #130211 add silent.
-   fi
-  ;;
-  vfat)  mount -t $MNT_T -o $VFAT_OUT_PARAM $MNT_DEV $MNT_DIR ;;
-  exfat) mount.exfat-fuse -o $MNT_O $MNT_DEV $MNT_DIR ;;
-  *) mount -t $MNT_T -o $MNT_O $MNT_DEV $MNT_DIR ;;
- esac
- return $?
 }
 
 check_status() #args: [-critical] $RET_VAL "$ERROR_MSG"
@@ -248,11 +218,13 @@ ensure_mounted() {
  [ "$ONE_MP" ] && return
  ONE_FS="$(echo "$HAVE_PARTS" | grep -m1 "${1}|" | cut -f 2 -d '|')"
  ONE_MP="${2}"
- [ -d "$ONE_MP" ] || mkdir -p $ONE_MP
- mntfunc $ONE_FS /dev/${1} $ONE_MP #-t $ONE_FS /dev/$ONE_PART $ONE_MP
+ if [ "$PFSCKP" = "yes" ] ; then # pfix=fsckp
+   fsck_func /dev/${1} $ONE_FS
+ fi
+ /sbin/mountpartition /dev/${1} $ONE_MP $ONE_FS #-t $ONE_FS /dev/$ONE_PART $ONE_MP
  if [ $? -ne 0 ] ; then
   sleep 3 # usb optical drive showing as /sys/block/sr0, but won't mount, needs more delay...
-  mntfunc $ONE_FS /dev/${1} $ONE_MP
+  /sbin/mountpartition /dev/${1} $ONE_MP $ONE_FS
   [ $? -ne 0 ] && { echo "${1} on $ONE_MP as $ONE_FS mount failed."; ONE_MP=""; return 1; }
  fi
  # fsckme.flg is created by rc.sysinit and deleted by rc.shutdown
