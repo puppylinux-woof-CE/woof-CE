@@ -423,8 +423,6 @@ function generate_initrd() {
 		fi
 	done
 
-	[ ! -f bin/nano -a ! -f bin/mp ] && rm -rf usr lib/terminfo
-
 	echo
 	if [ ! -f "$DISTRO_SPECS" -a -f ../DISTRO_SPECS ] ; then
 		DISTRO_SPECS='../DISTRO_SPECS'
