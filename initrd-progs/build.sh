@@ -147,6 +147,10 @@ while [ "$1" ] ; do
 	esac
 done
 
+if ! [ -d pkg ] ; then
+	USE_PREBUILT=yes
+fi
+
 #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
 function use_prebuilt_binaries() {
@@ -434,7 +438,7 @@ function generate_initrd() {
 
 	. ./DISTRO_SPECS
 
-	cp -f ${V} ../pkg/busybox_static/bb-*-symlinks bin # essential
+	cp ${MWD}/bb-create-symlinks ./bin
 	(  cd bin ; sh bb-create-symlinks 2>/dev/null )
 	sed -i 's|^PUPDESKFLG=.*|PUPDESKFLG=0|' init
 
