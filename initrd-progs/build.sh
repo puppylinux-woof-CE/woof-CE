@@ -439,21 +439,6 @@ function generate_initrd() {
 
 	. ./DISTRO_SPECS
 
-	cp ${MWD}/bb-create-symlinks ./bin
-	(  cd bin ; sh bb-create-symlinks 2>/dev/null )
-	sed -i 's|^PUPDESKFLG=.*|PUPDESKFLG=0|' init
-
-	if [ "$FULL_INSTALL" -o "$PUPMODE" = "2" ] ; then
-		rm -fv bin/cryptsetup
-		rm -fv bin/ntfs-3g
-		rm -fv bin/mount.exfat-fuse
-		rm -fv bin/fsck.fat
-		rm -fv bin/exfatfsck
-		rm -fv bin/resize2fs
-		mv init_full_install init
-		find -L bin -type l -delete
-	fi
-
 	find . | cpio -o -H newc > ../initrd 2>/dev/null
 	cd ..
 	gzip -f initrd
