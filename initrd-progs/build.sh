@@ -356,9 +356,10 @@ function build_pkgs() {
 		sleep 1
 	fi
 	#--
-	[ "$BUILD_PKG" != "" ] && PACKAGES="$BUILD_PKG"
 	if [ "$FORCE_BUILD_ALL" = "yes" ] ; then
 		PACKAGES=$(find pkg -maxdepth 1 -type d -name '*_static' | sed 's|.*/||' | sort)
+	elif [ "$BUILD_PKG" != "" ] ; then
+		PACKAGES="$BUILD_PKG"
 	else
 		PACKAGES=$(get_initrd_progs -pkg $ARCH)
 	fi
