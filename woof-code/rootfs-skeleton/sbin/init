@@ -16,10 +16,6 @@ fi
 
 INITEXE='/bin/busybox init'
 
-if [ "$1" = "initrd_full_install" ] ; then
-	exec ${INITEXE} #full install with initrd
-fi
-
 [ -f /etc/rc.d/PUPSTATE ] && . /etc/rc.d/PUPSTATE
 [ "$PUPMODE" = "" ] && PUPMODE=2
 
@@ -27,6 +23,23 @@ if [ $PUPMODE -ne 2 ] ; then
 	exec ${INITEXE} #not a full hd install.
 fi
 
+#==============================================================
+#             full install (initrd)
+#==============================================================
+
+print_distro_version() {
+	. /etc/DISTRO_SPECS
+	clear > /dev/console
+	echo -en "\\033[0;34m***\\033[0;37m ${DISTRO_NAME} ${DISTRO_VERSION}" >/dev/console
+	echo -en "\\033[0;34m -\\033[0;37m Linux `uname -r` " >/dev/console
+	echo -en "\\033[0;31m[\\033[0;37m`uname -m`\\033[0;31m]" >/dev/console
+	echo -e "\\033[0;34m ***\\033[0;39m" >/dev/console
+}
+
+if [ "$1" = "initrd_full_install" ] ; then
+	print_distro_version
+	exec ${INITEXE}
+fi
 
 #==============================================================
 #             full install (without initrd)
@@ -38,11 +51,8 @@ if [ "$1" = "ramdisk_done" ] ; then
 	exec ${INITEXE} >/dev/null 2>&1
 fi
 
-#--
-
 PATH='/bin:/sbin:/usr/bin:/usr/sbin'
 
-. /etc/DISTRO_SPECS
 . /etc/rc.d/BOOTCONSTRAINED # has BOOT_DISABLESWAP, BOOT_ATIME, BOOT_DIRTYWRITE.
 
 if [ -z "$BOOT_ATIME" ] ; then
@@ -64,31 +74,18 @@ remount_rootdev() { #${1}: rw/ro
 	fi
 }
 
-clear > /dev/console
-echo -en "\\033[0;34m***\\033[0;37m ${DISTRO_NAME} ${DISTRO_VERSION}" >/dev/console
-echo -en "\\033[0;34m -\\033[0;37m Linux `uname -r` " >/dev/console
-echo -en "\\033[0;31m[\\033[0;37m`uname -m`\\033[0;31m]" >/dev/console
-echo -e "\\033[0;34m ***\\033[0;39m" >/dev/console
+print_distro_version
 $BB mount -t proc none /proc
 remount_rootdev rw #remount rw
 $BB sync
 $BB ln -snf /proc/mounts /etc/mtab 2>/dev/null
 
 if [ "$pfix" ];then 
-	for ONEFIX in $(echo -n "$pfix" | tr ',' ' ')
-	do
-		case $ONEFIX in
-			xorgwizard) PXORGWIZARD="yes";;#force xorgwizard for this session
-			nox)     PNOX="yes";;          #do not start X.
-			fsck)    PFSCK="yes";;         #do a fsck of ${DISTRO_FILE_PREFIX}save file.
-			fsckp)   PFSCKP="yes";;        #do fsck before first mount of ext partitions
-		esac
+	for ONEFIX in ${pfix//,/ } ; do
+		case $ONEFIX in fsck|fsckp) PFSCK="yes";; esac
 	done
 fi
 [ $dshell ] && DSHELL="yes"
-
-[ "$PXORGWIZARD" = "yes" ] && echo > /xwin_xorgwizard_cli
-[ "$PNOX" = "yes" ] && echo > /bootcnt.txt
 
 
 #===================================================================
@@ -101,7 +98,7 @@ DEV1FS="$(grep '^/dev/root ' /proc/mounts | cut -f 3 -d ' ')"
 [ ! "$DEV1FS" ] && DEV1FS="$(grep ' / ' /proc/mounts | cut -f 3 -d ' ')"
 
 case $DEV1FS in
-	ext*) ok=1 ;;
+	ext*|reiserfs|minix|f2fs) ok=1 ;;
 	*)
 		echo "${DEV1FS}: Wrong filesystem!" >/dev/console
 		echo "You should reboot now" >/dev/console
@@ -118,7 +115,6 @@ if [ ! "$PDEV1" ] ; then # code from init_full_install
 	done
 	case $PDRV in
 		UUID=*) PDRV=${PDRV#UUID=} ;; #remove leading UUID=
-		#PARTUUID=*) fatal_error "Sorry PARTUUID= is not supported. Use root=UUID=<uuid> instead" ;;
 		*/*) PDRV=${PDRV##*/} ;; #$(basename $PDRV) 
 	esac
 	#${PDRV}=$(decode_id $PDRV) #decode UUID, LABEL
@@ -164,39 +160,19 @@ export LANG=C
 ### static executables
 STATIC_BB=/bin/busybox_static
 STATIC_E2FSCK=/sbin/e2fsck_static
-
-FS_CHECK=no
-RAMDISK=no
-
+RAMDISK=yes
 #----------------------------------------------
 
-if [ -x $STATIC_BB ] ; then
-	RAMDISK=yes
-else
-	case $(file $BB 2>/dev/null) in *ELF*statically*)
-		RAMDISK=yes ; STATIC_BB=$BB ;;
-	esac
-fi
-
-#----------------------------------------------
-
-if [ ! -x $STATIC_E2FSCK ] ; then
-	case $(file $E2FSCK 2>/dev/null) in *ELF*statically*)
-		STATIC_E2FSCK=$E2FSCK ;;
-	esac
-fi
+[ -x $STATIC_BB ] || STATIC_BB=/bin/busybox
+[ -x $STATIC_E2FSCK ] && FS_CHECK=yes
 
 if [ -e /fsckme.flg ] ; then
-	# flsckme.flg = improper shutdown or something wrong with fs (rc.sysinit)
-	IFS="," read PDEV DEVFS SAVEFILE < /fsckme.flg #ex: sdb1,ext3,
-	if [ "$PDEV" = "$PDEV1" ] && [ "$SAVEFILE" = "" ] ; then
-		[ -x $STATIC_E2FSCK ] && FS_CHECK=yes
-		rm -f /fsckme.flg
-	fi
-fi
-
-if [ "$PFSCK" = "yes" -o "$PFSCKP" = "yes" ] ; then #boot params
 	[ -x $STATIC_E2FSCK ] && FS_CHECK=yes
+	rm -f /fsckme.flg
+fi
+[ "$PFSCK" = "yes" ] && [ -x $STATIC_E2FSCK ] && FS_CHECK=yes # boot param
+if [ "$DEV1FS" != "ext3" -a "$DEV1FS" != "ext4" ] ; then
+	FS_CHECK=no
 fi
 
 #----------------------------------------------
