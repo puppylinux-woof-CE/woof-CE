@@ -83,11 +83,11 @@ clean_and_die () {
 install_path_check() {
   FILELIST="/root/.packages/${DLPKG_NAME}.files"
   [ -s "$FILELIST" ] || return 0 #120126 noryb009: typo
-  grep -q '^/mnt' "$FILELIST" || return 0
-  MNTDIRS=$(cat "$FILELIST" | grep '^/mnt/.*/$' | cut -d'/' -f1-3  | tail -n 1)
+  grep -qE '^\/mnt|^\/media' "$FILELIST" || return 0
+  MNTDIRS=$(cat "$FILELIST" | grep -E '^\/mnt\/.*\/$|^\/media\/.*\/$' | cut -d '/' -f 1-3  | tail -n 1)
   LANG=$LANG_USER
   MSG1=$(gettext "This package will install files under")
-  MSG2=$(gettext "It can be dangerous to install files under '/mnt' because it depends on the profile of installation.")
+  MSG2=$(gettext "It can be dangerous to install files under '/mnt' or '/media' because it depends on the profile of installation.")
   MSG3=""
   if grep -q '^/mnt/home' "$FILELIST"; then
     if [ $PUPMODE -eq 5 ]; then
