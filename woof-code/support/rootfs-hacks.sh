@@ -245,6 +245,12 @@ if [ -e ${SR}/bin/su-BB ] ; then
 	mv -fv ${SR}/bin/su-BB ${SR}/bin/su
 fi
 
+# need to enforce pterminfo: xterm -- see /etc/profile
+if [ -d ${SR}/usr/share/terminfox ] ; then
+	rm -rf ${SR}/usr/share/terminfo
+	mv -f ${SR}/usr/share/terminfox ${SR}/usr/share/terminfo
+fi
+
 echo ----
 
 ### END ###
