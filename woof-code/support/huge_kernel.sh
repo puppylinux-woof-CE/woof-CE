@@ -5,6 +5,7 @@
 # * we're in sandbox3
 
 . ../_00build.conf
+[ -f ../_00build_2.conf ] && . ../_00build_2.conf
 . ../DISTRO_SPECS
 
 if [ -L woof-code ] ; then # zwoof-next
