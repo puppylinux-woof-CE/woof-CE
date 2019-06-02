@@ -7,7 +7,7 @@ export TEXTDOMAIN=petget___versiondiffs
 export OUTPUT_CHARSET=UTF-8
 
 #created by findnames.sh...
-[ ! -s /tmp/petget/filterpkgs.results.installed ] && exit
+[ ! -s /tmp/petget_proc/petget/filterpkgs.results.installed ] && exit
 
 #120908 "ALREADY INSTALLED" may not be helpful, as the versions may differ. display these...
 DIFFVERITEMS=""
@@ -24,7 +24,7 @@ do
    DIFFVERITEMS="${DIFFVERITEMS}<item>${ONEPKG}|${AIPKG}</item>"
   fi
  done
-done < /tmp/petget/filterpkgs.results.installed
+done < /tmp/petget_proc/petget/filterpkgs.results.installed
 
 if [ "$DIFFVERITEMS" = "" ] ; then
 	exit
