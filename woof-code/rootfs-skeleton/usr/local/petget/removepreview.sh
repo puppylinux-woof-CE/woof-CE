@@ -21,8 +21,8 @@
 #120323 replace 'xmessage' with 'pupmessage'.
 
 [ "$(cat /var/local/petget/nt_category 2>/dev/null)" != "true" ] && \
- [ -f /tmp/remove_pets_quietly ] && set -x
- #; mkdir -p /tmp/PPM_LOGs ; NAME=$(basename "$0"); exec 1>> /tmp/PPM_LOGs/"$NAME".log 2>&1
+ [ -f /tmp/petget_proc/remove_pets_quietly ] && set -x
+ #; mkdir -p /tmp/petget_proc/PPM_LOGs ; NAME=$(basename "$0"); exec 1>> /tmp/petget_proc/PPM_LOGs/"$NAME".log 2>&1
 
 export TEXTDOMAIN=petget___removepreview.sh
 export OUTPUT_CHARSET=UTF-8
@@ -42,7 +42,7 @@ fi
 #exit 0                         #clicking an empty line in the gui would have
 #fi                             #thrown the above REM_DIALOG even if pkgs are installed
 
-if [ ! -f /tmp/remove_pets_quietly ] && [ "$DISPLAY" ]; then
+if [ ! -f /tmp/petget_proc/remove_pets_quietly ] && [ "$DISPLAY" ]; then
  . /usr/lib/gtkdialog/box_yesno "$(gettext 'Puppy Package Manager')" "$(gettext "Do you want to uninstall package")" "<b>${DB_pkgname}</b>"
  [ "$EXIT" != "yes" ] && exit 0
 elif [ ! "$DISPLAY" ]; then
@@ -133,19 +133,19 @@ remPATTERN='^'"$DB_pkgname"'|'
 DEP_PKGS="`grep "$remPATTERN" /root/.packages/user-installed-packages | cut -f 9 -d '|' | tr ',' '\n' | grep -v '^\\-' | sed -e 's%^+%%' |cut -f1 -d '&'`" #names-only, one each line. 
 
 #131222 do not uninstall if other-installed depend on it...
-echo -n '' > /tmp/petget/other-installed-deps
+echo -n '' > /tmp/petget_proc/petget/other-installed-deps
 for ADEP in $DEP_PKGS
 do
- if [ "$(grep ${ADEP} /tmp/pkgs_to_remove)" = "" ]; then
+ if [ "$(grep ${ADEP} /tmp/petget_proc/pkgs_to_remove)" = "" ]; then
   PTN2="|${ADEP}|"
   DEPPKG="$(grep "$PTN2" /root/.packages/user-installed-packages | cut -f 1 -d '|')"
-  [ "$DEPPKG" ] && echo "$DEPPKG" >> /tmp/petget/other-installed-deps
+  [ "$DEPPKG" ] && echo "$DEPPKG" >> /tmp/petget_proc/petget/other-installed-deps
  else
   echo "go on"
  fi
 done
-if [ -s /tmp/petget/other-installed-deps ];then
- OTHERDEPS="$(sort -u /tmp/petget/other-installed-deps | tr '\n' ' ')"
+if [ -s /tmp/petget_proc/petget/other-installed-deps ];then
+ OTHERDEPS="$(sort -u /tmp/petget_proc/petget/other-installed-deps | tr '\n' ' ')"
  /usr/lib/gtkdialog/box_ok "$(gettext 'Puppy Package Manager')" error "<b>$(gettext 'Cannot uninstall'): <i>${DB_pkgname}</i></b>" "$(gettext 'Sorry, but these other installed packages depend on the package that you want to uninstall'):" "<i>${OTHERDEPS}</i>" "$(gettext 'Aborting uninstall operation.')"
  exit 1
 fi
@@ -153,39 +153,39 @@ fi
 #131221 131222
 #check install history, so know if can safely uninstall...
 REMLIST="${DB_pkgname}"
-mkdir -p /tmp/petget
-echo -n "" > /tmp/petget/FILECLASHES
-echo -n "" > /tmp/petget/CLASHPKGS
-grep -v '/$' /root/.packages/${DB_pkgname}.files > /tmp/petget/${DB_pkgname}.filesFILESONLY #/ on end, it is a directory entry.
+mkdir -p /tmp/petget_proc/petget
+echo -n "" > /tmp/petget_proc/petget/FILECLASHES
+echo -n "" > /tmp/petget_proc/petget/CLASHPKGS
+grep -v '/$' /root/.packages/${DB_pkgname}.files > /tmp/petget_proc/petget/${DB_pkgname}.filesFILESONLY #/ on end, it is a directory entry.
 LATERINSTALLED="$(cat /root/.packages/user-installed-packages | cut -f 1 -d '|' | tr '\n' ' ' | grep -o " ${DB_pkgname} .*" | cut -f 3- -d ' ')"
 for ALATERPKG in $LATERINSTALLED
 do
  if [ -f /audit/${ALATERPKG}DEPOSED.sfs ];then
   mkdir /audit/${ALATERPKG}DEPOSED
   busybox mount -t squashfs -o loop,ro /audit/${ALATERPKG}DEPOSED.sfs /audit/${ALATERPKG}DEPOSED
-  FNDFILES="$(cat /tmp/petget/${DB_pkgname}.filesFILESONLY | xargs -I FULLPATHSPEC ls -1 /audit/${ALATERPKG}DEPOSEDFULLPATHSPEC 2>/dev/null | sed -e "s%^/audit/${ALATERPKG}%%")"
+  FNDFILES="$(cat /tmp/petget_proc/petget/${DB_pkgname}.filesFILESONLY | xargs -I FULLPATHSPEC ls -1 /audit/${ALATERPKG}DEPOSEDFULLPATHSPEC 2>/dev/null | sed -e "s%^/audit/${ALATERPKG}%%")"
   if [ "$FNDFILES" ];then
-   #echo "" >> /tmp/petget/FILECLASHES
-   #echo "PACKAGE: ${ALATERPKG}" >> /tmp/petget/FILECLASHES
-   echo "$FNDFILES" >> /tmp/petget/FILECLASHES
-   echo "${ALATERPKG}" >> /tmp/petget/CLASHPKGS
+   #echo "" >> /tmp/petget_proc/petget/FILECLASHES
+   #echo "PACKAGE: ${ALATERPKG}" >> /tmp/petget_proc/petget/FILECLASHES
+   echo "$FNDFILES" >> /tmp/petget_proc/petget/FILECLASHES
+   echo "${ALATERPKG}" >> /tmp/petget_proc/petget/CLASHPKGS
   fi
   busybox umount /audit/${ALATERPKG}DEPOSED
   rmdir /audit/${ALATERPKG}DEPOSED
  fi
 done
-if [ -s /tmp/petget/CLASHPKGS ];then
+if [ -s /tmp/petget_proc/petget/CLASHPKGS ];then
  #a later-installed package is going to be compromised if uninstall ${DB_pkgname}.
  #131222 much simpler...
- FILECLASHES="$(sort -u /tmp/petget/FILECLASHES | grep -v '^$')"
- rm -rf /tmp/petget/savedfiles 2>/dev/null
- mkdir /tmp/petget/savedfiles
+ FILECLASHES="$(sort -u /tmp/petget_proc/petget/FILECLASHES | grep -v '^$')"
+ rm -rf /tmp/petget_proc/petget/savedfiles 2>/dev/null
+ mkdir /tmp/petget_proc/petget/savedfiles
  echo "$FILECLASHES" |
  while read AFILE
  do
   APATH="$(dirname "$AFILE")"
-  mkdir -p /tmp/petget/savedfiles"${APATH}"
-  cp -a -f "${AFILE}" /tmp/petget/savedfiles"${APATH}"/
+  mkdir -p /tmp/petget_proc/petget/savedfiles"${APATH}"
+  cp -a -f "${AFILE}" /tmp/petget_proc/petget/savedfiles"${APATH}"/
  done
 fi
 #end 131221 131222
@@ -209,33 +209,33 @@ if [ -f /audit/${DB_pkgname}DEPOSED.sfs ];then
  busybox mount -t squashfs -o loop,ro /audit/${DB_pkgname}DEPOSED.sfs /audit/${DB_pkgname}DEPOSED
  DIRECTSAVEPATH="/audit/${DB_pkgname}DEPOSED"
  #same code as in installpkg.sh... 131230 cp is compiled statically, need full version...
- cp -a -f --remove-destination ${DIRECTSAVEPATH}/* /  2> /tmp/petget/install-cp-errlog
+ cp -a -f --remove-destination ${DIRECTSAVEPATH}/* /  2> /tmp/petget_proc/petget/install-cp-errlog
  busybox sync
  #can have a problem if want to replace a folder with a symlink. for example, got this error:
  # cp: cannot overwrite directory '/usr/share/mplayer/skins' with non-directory
  #3builddistro has this fix... which is a vice-versa situation...
  #firstly, the vice-versa, source is a directory, target is a symlink...
  CNT=0
- while [ -s /tmp/petget/install-cp-errlog ];do
-  echo -n "" > /tmp/petget/install-cp-errlog2
-  echo -n "" > /tmp/petget/install-cp-errlog3
-  busybox cat /tmp/petget/install-cp-errlog | busybox grep 'cannot overwrite non-directory' | busybox tr '[`‘’]' "'" | busybox cut -f 2 -d "'" |
+ while [ -s /tmp/petget_proc/petget/install-cp-errlog ];do
+  echo -n "" > /tmp/petget_proc/petget/install-cp-errlog2
+  echo -n "" > /tmp/petget_proc/petget/install-cp-errlog3
+  busybox cat /tmp/petget_proc/petget/install-cp-errlog | busybox grep 'cannot overwrite non-directory' | busybox tr '[`‘’]' "'" | busybox cut -f 2 -d "'" |
   while read ONEDIRSYMLINK #ex: /usr/share/mplayer/skins
   do
    #adding that extra trailing / does the trick... 131230 full cp...
-   cp -a -f --remove-destination ${DIRECTSAVEPATH}"${ONEDIRSYMLINK}"/* "${ONEDIRSYMLINK}"/ 2> /tmp/petget/install-cp-errlog2
+   cp -a -f --remove-destination ${DIRECTSAVEPATH}"${ONEDIRSYMLINK}"/* "${ONEDIRSYMLINK}"/ 2> /tmp/petget_proc/petget/install-cp-errlog2
   done
   #secondly, which is our mplayer example, source is a symlink, target is a folder...
-  busybox cat /tmp/petget/install-cp-errlog | busybox grep 'cannot overwrite directory' | busybox grep 'with non-directory' | busybox tr '[`‘’]' "'" | busybox cut -f 2 -d "'" |
+  busybox cat /tmp/petget_proc/petget/install-cp-errlog | busybox grep 'cannot overwrite directory' | busybox grep 'with non-directory' | busybox tr '[`‘’]' "'" | busybox cut -f 2 -d "'" |
   while read ONEDIRSYMLINK #ex: /usr/share/mplayer/skins
   do
    busybox mv -f "${ONEDIRSYMLINK}" "${ONEDIRSYMLINK}"TEMP
    busybox rm -rf "${ONEDIRSYMLINK}"TEMP
    DIRPATH="$(busybox dirname "${ONEDIRSYMLINK}")"
-   cp -a -f --remove-destination ${DIRECTSAVEPATH}"${ONEDIRSYMLINK}" "${DIRPATH}"/ 2> /tmp/petget/install-cp-errlog3
+   cp -a -f --remove-destination ${DIRECTSAVEPATH}"${ONEDIRSYMLINK}" "${DIRPATH}"/ 2> /tmp/petget_proc/petget/install-cp-errlog3
   done
-  busybox cat /tmp/petget/install-cp-errlog2 >> /tmp/petget/install-cp-errlog3
-  busybox cat /tmp/petget/install-cp-errlog3 > /tmp/petget/install-cp-errlog
+  busybox cat /tmp/petget_proc/petget/install-cp-errlog2 >> /tmp/petget_proc/petget/install-cp-errlog3
+  busybox cat /tmp/petget_proc/petget/install-cp-errlog3 > /tmp/petget_proc/petget/install-cp-errlog
   busybox sync
   CNT=$(( $CNT + 1 ))
   [ $CNT -gt 10 ] && break #something wrong, get out.
@@ -247,43 +247,43 @@ fi
 
 #131222 restore latest files, needed by later-installed packages...
 #note, manner in which old files got saved may result in wrong dirs instead of symlinks, hence need fixes below...
-if [ -s /tmp/petget/CLASHPKGS ];then
- DIRECTSAVEPATH="/tmp/petget/savedfiles"
+if [ -s /tmp/petget_proc/petget/CLASHPKGS ];then
+ DIRECTSAVEPATH="/tmp/petget_proc/petget/savedfiles"
  #same code as in installpkg.sh...
- cp -a -f --remove-destination ${DIRECTSAVEPATH}/* /  2> /tmp/petget/install-cp-errlog
+ cp -a -f --remove-destination ${DIRECTSAVEPATH}/* /  2> /tmp/petget_proc/petget/install-cp-errlog
  busybox sync
  #can have a problem if want to replace a folder with a symlink. for example, got this error:
  # cp: cannot overwrite directory '/usr/share/mplayer/skins' with non-directory
  #3builddistro has this fix... which is a vice-versa situation...
  #firstly, the vice-versa, source is a directory, target is a symlink...
  CNT=0
- while [ -s /tmp/petget/install-cp-errlog ];do
-  echo -n "" > /tmp/petget/install-cp-errlog2
-  echo -n "" > /tmp/petget/install-cp-errlog3
-  busybox cat /tmp/petget/install-cp-errlog | busybox grep 'cannot overwrite non-directory' | busybox tr '[`‘’]' "'" | busybox cut -f 2 -d "'" |
+ while [ -s /tmp/petget_proc/petget/install-cp-errlog ];do
+  echo -n "" > /tmp/petget_proc/petget/install-cp-errlog2
+  echo -n "" > /tmp/petget_proc/petget/install-cp-errlog3
+  busybox cat /tmp/petget_proc/petget/install-cp-errlog | busybox grep 'cannot overwrite non-directory' | busybox tr '[`‘’]' "'" | busybox cut -f 2 -d "'" |
   while read ONEDIRSYMLINK #ex: /usr/share/mplayer/skins
   do
    #adding that extra trailing / does the trick...
-   cp -a -f --remove-destination ${DIRECTSAVEPATH}"${ONEDIRSYMLINK}"/* "${ONEDIRSYMLINK}"/ 2> /tmp/petget/install-cp-errlog2
+   cp -a -f --remove-destination ${DIRECTSAVEPATH}"${ONEDIRSYMLINK}"/* "${ONEDIRSYMLINK}"/ 2> /tmp/petget_proc/petget/install-cp-errlog2
   done
   #secondly, which is our mplayer example, source is a symlink, target is a folder...
-  busybox cat /tmp/petget/install-cp-errlog | busybox grep 'cannot overwrite directory' | busybox grep 'with non-directory' | busybox tr '[`‘’]' "'" | busybox cut -f 2 -d "'" |
+  busybox cat /tmp/petget_proc/petget/install-cp-errlog | busybox grep 'cannot overwrite directory' | busybox grep 'with non-directory' | busybox tr '[`‘’]' "'" | busybox cut -f 2 -d "'" |
   while read ONEDIRSYMLINK #ex: /usr/share/mplayer/skins
   do
    busybox mv -f "${ONEDIRSYMLINK}" "${ONEDIRSYMLINK}"TEMP
    busybox rm -rf "${ONEDIRSYMLINK}"TEMP
    DIRPATH="$(dirname "${ONEDIRSYMLINK}")"
-   cp -a -f --remove-destination ${DIRECTSAVEPATH}"${ONEDIRSYMLINK}" "${DIRPATH}"/ 2> /tmp/petget/install-cp-errlog3
+   cp -a -f --remove-destination ${DIRECTSAVEPATH}"${ONEDIRSYMLINK}" "${DIRPATH}"/ 2> /tmp/petget_proc/petget/install-cp-errlog3
   done
-  busybox cat /tmp/petget/install-cp-errlog2 >> /tmp/petget/install-cp-errlog3
-  busybox cat /tmp/petget/install-cp-errlog3 > /tmp/petget/install-cp-errlog
+  busybox cat /tmp/petget_proc/petget/install-cp-errlog2 >> /tmp/petget_proc/petget/install-cp-errlog3
+  busybox cat /tmp/petget_proc/petget/install-cp-errlog3 > /tmp/petget_proc/petget/install-cp-errlog
   busybox sync
   CNT=$(( $CNT + 1 ))
   [ $CNT -gt 10 ] && break #something wrong, get out.
  done
- busybox rm -rf /tmp/petget/savedfiles
- busybox rm -f /tmp/petget/CLASHPKGS
- busybox rm -f /tmp/petget/FILECLASHES
+ busybox rm -rf /tmp/petget_proc/petget/savedfiles
+ busybox rm -f /tmp/petget_proc/petget/CLASHPKGS
+ busybox rm -f /tmp/petget_proc/petget/FILECLASHES
 fi
 #end 131220 131222
 export LANG="$ORIGLANG"
@@ -292,8 +292,8 @@ export LANG="$ORIGLANG"
 fi
 
 UPDATE_MENUS=''
-if [ -f /tmp/remove_pets_quietly ]; then
- LEFT=$(cat /tmp/pkgs_left_to_remove | wc -l)
+if [ -f /tmp/petget_proc/remove_pets_quietly ]; then
+ LEFT=$(cat /tmp/petget_proc/pkgs_left_to_remove | wc -l)
  [ "$LEFT" -le 1 ] && UPDATE_MENUS=yes
 else
   UPDATE_MENUS=yes
@@ -375,8 +375,8 @@ remPATTERN='^'"$DB_pkgname"'|'
 DEP_PKGS="`grep "$remPATTERN" /root/.packages/user-installed-packages | cut -f 9 -d '|' | tr ',' '\n' | grep -v '^\\-' | sed -e 's%^+%%' | cut -f1 -d '&'`"
 #remove records of pkg...
 rm -f /root/.packages/${DB_pkgname}.files
-grep -v "$remPATTERN" /root/.packages/user-installed-packages > /tmp/petget-user-installed-pkgs-rem
-cp -f /tmp/petget-user-installed-pkgs-rem /root/.packages/user-installed-packages
+grep -v "$remPATTERN" /root/.packages/user-installed-packages > /tmp/petget_proc/petget-user-installed-pkgs-rem
+cp -f /tmp/petget_proc/petget-user-installed-pkgs-rem /root/.packages/user-installed-packages
 
 #v424 .pet pckage may have post-uninstall script, which was originally named puninstall.sh
 #but /usr/local/petget/installpkg.sh moved it to /root/.packages/$DB_pkgname.remove
@@ -388,13 +388,13 @@ fi
 
 #remove temp file so main gui window will re-filter pkgs display...
 FIRSTCHAR="`echo -n "$DB_pkgname" | cut -c 1 | tr '[A-Z]' '[a-z]'`"
-rm -f /tmp/petget_fltrd_repo_${FIRSTCHAR}* 2>/dev/null
-rm -f /tmp/petget_fltrd_repo_?${FIRSTCHAR}* 2>/dev/null
-[ "`echo -n "$FIRSTCHAR" | grep '[0-9]'`" != "" ] && rm -f /tmp/petget_fltrd_repo_0* 2>/dev/null
+rm -f /tmp/petget_proc/petget_fltrd_repo_${FIRSTCHAR}* 2>/dev/null
+rm -f /tmp/petget_proc/petget_fltrd_repo_?${FIRSTCHAR}* 2>/dev/null
+[ "`echo -n "$FIRSTCHAR" | grep '[0-9]'`" != "" ] && rm -f /tmp/petget_proc/petget_fltrd_repo_0* 2>/dev/null
 
 #announce any deps that might be removable...
-echo -n "" > /tmp/petget-deps-maybe-rem
-echo -n "" > /tmp/petget-deps-maybe-remove
+echo -n "" > /tmp/petget_proc/petget-deps-maybe-rem
+echo -n "" > /tmp/petget_proc/petget-deps-maybe-remove
 cut -f 1,2,10 -d '|' /root/.packages/user-installed-packages |
 while read ONEDB
 do
@@ -402,17 +402,17 @@ do
  ONE_nameonly="`echo -n "$ONEDB" | cut -f 2 -d '|'`"
  ONE_description="`echo -n "$ONEDB" | cut -f 3 -d '|'`"
  opPATTERN='^'"$ONE_nameonly"'$'
- [ "`echo "$DEP_PKGS" | grep "$opPATTERN"`" != "" ] && echo "$ONE_pkgname DESCRIPTION: $ONE_description" >> /tmp/petget-deps-maybe-rem && echo "$ONE_pkgname" >> /tmp/petget-deps-maybe-remove
+ [ "`echo "$DEP_PKGS" | grep "$opPATTERN"`" != "" ] && echo "$ONE_pkgname DESCRIPTION: $ONE_description" >> /tmp/petget_proc/petget-deps-maybe-rem && echo "$ONE_pkgname" >> /tmp/petget_proc/petget-deps-maybe-remove
 done
 EXTRAMSG=""
-if [ -s /tmp/petget-deps-maybe-rem ];then
+if [ -s /tmp/petget_proc/petget-deps-maybe-rem ];then
  #nah, just list the names, not descriptions...
- MAYBEREM="`cat /tmp/petget-deps-maybe-rem | cut -f 1 -d ' ' | tr '\n' ' '` "
+ MAYBEREM="`cat /tmp/petget_proc/petget-deps-maybe-rem | cut -f 1 -d ' ' | tr '\n' ' '` "
  EXTRAMSG="<text><label>$(gettext 'Perhaps you do not need these dependencies that you had also installed:')</label></text> <text use-markup=\"true\"><label>\"<b>${MAYBEREM}</b>\"</label></text><text><label>$(gettext "...if you do want to remove them, you will have to do so back on the main window, after clicking the 'Ok' button below (perhaps make a note of the package names on a scrap of paper right now)")</label></text>"
 fi
 
 #announce success...
-if [ ! -f /tmp/remove_pets_quietly ]; then
+if [ ! -f /tmp/petget_proc/remove_pets_quietly ]; then
  export REM_DIALOG="<window title=\"$(gettext 'Puppy Package Manager')\" icon-name=\"gtk-about\">
   <vbox>
   <pixmap><input file>/usr/share/pixmaps/puppy/dialog-complete.svg</input></pixmap>
@@ -427,11 +427,11 @@ if [ ! -f /tmp/remove_pets_quietly ]; then
  if [ "$DISPLAY" != "" ];then
   gtkdialog -p REM_DIALOG
  fi
-elif [ -s /tmp/petget-deps-maybe-rem ];then
- for MAYBEREM in $(cat /tmp/petget-deps-maybe-remove)
+elif [ -s /tmp/petget_proc/petget-deps-maybe-rem ];then
+ for MAYBEREM in $(cat /tmp/petget_proc/petget-deps-maybe-remove)
  do
-   [ "$(grep $MAYBEREM /tmp/pkgs_to_remove)" = "" ] \
-    && echo $MAYBEREM >> /tmp/overall_petget-deps-maybe-rem
+   [ "$(grep $MAYBEREM /tmp/petget_proc/pkgs_to_remove)" = "" ] \
+    && echo $MAYBEREM >> /tmp/petget_proc/overall_petget-deps-maybe-rem
  done
 fi
 ###+++2011-12-27 KRG

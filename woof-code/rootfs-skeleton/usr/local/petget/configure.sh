@@ -291,8 +291,8 @@ do
   enabledrepos="${enabledrepos}${REPOBASE} "
  fi
 done
-grep -v '^PKG_REPOS_ENABLED' /root/.packages/PKGS_MANAGEMENT > /tmp/pkgs_management_tmp2
-mv -f /tmp/pkgs_management_tmp2 /root/.packages/PKGS_MANAGEMENT
+grep -v '^PKG_REPOS_ENABLED' /root/.packages/PKGS_MANAGEMENT > /tmp/petget_proc/pkgs_management_tmp2
+mv -f /tmp/petget_proc/pkgs_management_tmp2 /root/.packages/PKGS_MANAGEMENT
 echo "PKG_REPOS_ENABLED='${enabledrepos}'" >> /root/.packages/PKGS_MANAGEMENT
 
 for I in `grep -E "PPM_GUI|pkg_chooser|/usr/local/bin/ppm" <<< "$(ps -eo pid,command)" | awk '{print $1}' `; do kill -9 $I; done

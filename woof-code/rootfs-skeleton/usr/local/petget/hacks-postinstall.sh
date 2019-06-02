@@ -18,8 +18,8 @@ case $INSTALLEDPKG in
   #note, this code is also in FIXUPHACK in 'vlc' template.
   if [ -f /usr/bin/bbe ];then #bbe is a sed-like utility for binary files.
    if [ -f /usr/bin/vlc  ];then
-    bbe -e 's/geteuid/getppid/' /usr/bin/vlc > /tmp/vlc-temp1
-    mv -f /tmp/vlc-temp1 /usr/bin/vlc
+    bbe -e 's/geteuid/getppid/' /usr/bin/vlc > /tmp/petget_proc/vlc-temp1
+    mv -f /tmp/petget_proc/vlc-temp1 /usr/bin/vlc
     chmod 755 /usr/bin/vlc
    fi
   fi
@@ -27,8 +27,8 @@ case $INSTALLEDPKG in
  google-chrome-*) #130221 pemasu. 130224 pemasu: limit cache size...
   if [ -f /usr/bin/bbe ];then #bbe is a sed-like utility for binary files.
    if [ -f /opt/google/chrome/chrome  ];then
-    bbe -e 's/geteuid/getppid/' /opt/google/chrome/chrome > /tmp/chrome-temp1
-    mv -f /tmp/chrome-temp1 /opt/google/chrome/chrome
+    bbe -e 's/geteuid/getppid/' /opt/google/chrome/chrome > /tmp/petget_proc/chrome-temp1
+    mv -f /tmp/petget_proc/chrome-temp1 /opt/google/chrome/chrome
     chmod 755 /opt/google/chrome/chrome
     [ -e /usr/bin/google-chrome ] && rm -f /usr/bin/google-chrome
     echo '#!/bin/sh
@@ -125,8 +125,8 @@ Categories=WebBrowser;' > /usr/share/applications/google-chrome.desktop
   #WARNING: this may only work for x86 binary.
   if [ -f /usr/bin/bbe ];then #bbe is a sed-like utility for binary files.
    if [ -f /usr/bin/xsane  ];then
-    bbe -e 's/\x6b\x00getuid/\x6b\x00getpid/' /usr/bin/xsane > /tmp/xsane-temp1
-    mv -f /tmp/xsane-temp1 /usr/bin/xsane
+    bbe -e 's/\x6b\x00getuid/\x6b\x00getpid/' /usr/bin/xsane > /tmp/petget_proc/xsane-temp1
+    mv -f /tmp/petget_proc/xsane-temp1 /usr/bin/xsane
     chmod 755 /usr/bin/xsane
    fi
   fi
