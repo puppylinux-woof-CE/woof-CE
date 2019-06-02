@@ -18,6 +18,12 @@ if [ ! -f ./WOOFMERGEVARS ] ; then
 	exit 1
 fi
 
+for i in $@ ; do
+	case $i in
+		-release|release) RELEASE=release ; shift ;;
+	esac
+done
+
 # run helper scripts and log the output (script.log)
 
 case $1 in
@@ -25,18 +31,18 @@ case $1 in
 	./xlog 0setup a             #requires a param or ENTER the 2nd time you run it
 	./xlog 1download            #[pkg]
 	./xlog 2createpackages -all #or pkg
-	./xlog 3builddistro-Z
+	./xlog 3builddistro-Z ${RELEASE}
 	;;
 1)
 	./xlog 1download            #[pkg]
 	./xlog 2createpackages -all #or pkg
-	./xlog 3builddistro-Z
+	./xlog 3builddistro-Z ${RELEASE}
 	;;
 2)
 	./xlog 2createpackages -all #or pkg
-	./xlog 3builddistro-Z
+	./xlog 3builddistro-Z ${RELEASE}
 	;;
 3)
-	./xlog 3builddistro-Z
+	./xlog 3builddistro-Z ${RELEASE}
 	;;
 esac
