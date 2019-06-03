@@ -1026,7 +1026,15 @@ else
 	KERNEL_MODULES_SFS_NAME="kernel-modules.sfs-${kernel_version}-${package_name_suffix}"
 fi
 
+if [ "$(which strip)" != "" ] && [ "$(strip --help | grep "\-\-strip\-unneeded")" != "" ]; then
+ for mods1 in "$(find "$(pwd)/output/${linux_kernel_dir}" -type -f -name "*.ko")"
+  do
+   [ $(file "$mods1" | grep "unstripped") != "" ] && strip --strip-unneeded "$mods1"
+  done
+fi
+
 mksquashfs output/${linux_kernel_dir} output/${KERNEL_MODULES_SFS_NAME} $COMP
+
 [ $? = 0 ] || exit 1
 cd output/
 if [ "$kit_kernel" = "yes" ]; then
