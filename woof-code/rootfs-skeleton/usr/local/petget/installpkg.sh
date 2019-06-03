@@ -494,7 +494,7 @@ case $DLPKG_BASE in
    write_arch_specs
   elif [ -f ${DIRECTSAVEPATH}/install/slack-desc ]; then
    write_slack_specs
-  elif [ -f /.META ]; then
+  elif [ -f ${DIRECTSAVEPATH}/.META ]; then
    write_nutyx_specs
   fi
   
