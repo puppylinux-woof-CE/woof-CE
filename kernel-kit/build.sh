@@ -1033,7 +1033,7 @@ if [ "$(which strip)" != "" ] && [ "$(strip --help | grep "\-\-strip\-unneeded")
   done
 fi
 
-mksquashfs output/${linux_kernel_dir} output/${KERNEL_MODULES_SFS_NAME} $COMP
+mksquashfs output/${linux_kernel_dir} output/${KERNEL_MODULES_SFS_NAME} $COMP -b 1M
 
 [ $? = 0 ] || exit 1
 cd output/
