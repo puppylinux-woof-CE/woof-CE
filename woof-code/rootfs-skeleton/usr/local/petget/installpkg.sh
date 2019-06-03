@@ -3,8 +3,8 @@
 #2009 Lesser GPL licence v2 (http://www.fsf.org/licensing/licenses/lgpl.html).
 #called from /usr/local/petget/downloadpkgs.sh and petget.
 #passed param is the path and name of the downloaded package.
-#/tmp/petget_missing_dbentries-Packages-* has database entries for the set of pkgs being downloaded.
-#w456 warning: petget may write to /tmp/petget_missing_dbentries-Packages-alien with missing fields.
+#/tmp/petget_proc/petget_missing_dbentries-Packages-* has database entries for the set of pkgs being downloaded.
+#w456 warning: petget may write to /tmp/petget_proc/petget_missing_dbentries-Packages-alien with missing fields.
 #w478, w482 fix for pkg menu categories.
 #w482 detect zero-byte pet.specs, fix typo.
 #100110 add support for T2 .tar.bz2 binary packages.
@@ -52,8 +52,8 @@
 #131122 support xz compressed pets (see dir2pet, pet2tgz), changed file test
 
 [ "$(cat /var/local/petget/nt_category 2>/dev/null)" != "true" ] && \
- [ -f /tmp/install_quietly ] && set -x
- #; mkdir -p /tmp/PPM_LOGs ; NAME=$(basename "$0"); exec 1>> /tmp/PPM_LOGs/"$NAME".log 2>&1
+ [ -f /tmp/petget_proc/install_quietly ] && set -x
+ #; mkdir -p /tmp/petget_proc/PPM_LOGs ; NAME=$(basename "$0"); exec 1>> /tmp/petget_proc/PPM_LOGs/"$NAME".log 2>&1
 
 export TEXTDOMAIN=petget___installpkg.sh
 export OUTPUT_CHARSET=UTF-8
@@ -73,7 +73,6 @@ DLPKG="$1"
 DLPKG_BASE="`basename "$DLPKG"`" #ex: scite-1.77-i686-2as.tgz
 DLPKG_PATH="`dirname "$DLPKG"`"  #ex: /root
 DL_SAVE_FLAG=$(cat /var/local/petget/nd_category 2>/dev/null)
-
 
 write_deb_specs(){
 
@@ -199,7 +198,41 @@ rm -f /rpm-info
 	
 }
 
+write_nutyx_specs(){
 
+if [ -f /.META ]; then
+
+#pkgname|nameonly|version|pkgrelease|category|size|path|fullfilename|dependencies|description|
+
+pkgname="$DLPKG_BASE"
+nameonly=`cat /.META | grep -e "^N" | sed -e "s#^N##g"`
+version=`cat /.META | grep -e "^V" | sed -e "s#^V##g"`
+pkgrelease=`cat /.META | grep -e "^r" | sed -e "s#^r##g"`
+size=`cat /.META | grep -e "^S" | sed -e "s#^S##g"`
+fullfilename="$DLPKG_BASE"
+dependencies=""
+
+for dep1 in `cat /.META | grep -e "^b" | sed -e "s#^b##g"`
+do
+ if [ "$dependencies" == "" ]; then
+ dependencies="+$dep1"
+ else
+ dependencies="$dependencies,+$dep1"
+ fi
+done 
+
+description=`cat /.META | grep -e "^D" | sed -e "s#^D##g"`
+
+echo "$pkgname|$nameonly|$version|$pkgrelease|$category|$size|$path|$fullfilename|$dependencies|$description|" > /pet.specs
+
+rm -f /.META
+
+else
+ DLPKG_NAME1="$(echo "$DLPKG_BASE" | sed -e "s#\.cards\.tar\.gz\$##g" -e "s#\.cards\.tar\.xz\$##g")"
+ echo "${DLPKG_NAME1}|${DLPKG_NAME1}||||${SIZEK}K||${DLPKG_BASE}}|||" > /pet.specs
+fi
+
+}
 
 clean_and_die () {
   rm -f /root/.packages/${DLPKG_NAME}.files
@@ -248,26 +281,26 @@ install_path_check() {
 
 #get the pkg name ex: scite-1.77 ...
 dbPATTERN='|'"$DLPKG_BASE"'|'
-DLPKG_NAME="`cat /tmp/petget_missing_dbentries-Packages-* | grep "$dbPATTERN" | head -n 1 | cut -f 1 -d '|'`"
+DLPKG_NAME="`cat /tmp/petget_proc/petget_missing_dbentries-Packages-* | grep "$dbPATTERN" | head -n 1 | cut -f 1 -d '|'`"
 
 #131222 do not allow duplicate installs...
 PTN1='^'"$DLPKG_NAME"'|'
 if [ "`grep "$PTN1" /root/.packages/user-installed-packages`" != "" ];then
  if [ ! $DISPLAY ];then
-  [ -f /tmp/install_quietly ] && DISPTIME1="--timeout 3" || DISPTIME1=''
+  [ -f /tmp/petget_proc/install_quietly ] && DISPTIME1="--timeout 3" || DISPTIME1=''
   LANG=$LANG_USER
   dialog ${DISPTIME1} --msgbox "$(gettext 'This package is already installed. Cannot install it twice:') ${DLPKG_NAME}" 0 0
  else
   LANG=$LANG_USER
-  if [ "$(</var/local/petget/ui_choice)" = "Classic" -o -f /tmp/install_classic ]; then
+  if [ "$(</var/local/petget/ui_choice)" = "Classic" -o -f /tmp/petget_proc/install_classic ]; then
    /usr/lib/gtkdialog/box_ok "$(gettext 'Puppy package manager')" error "$(gettext 'This package is already installed. Cannot install it twice:')" "<i>${DLPKG_NAME}</i>"
-   [ -f /tmp/install_classic ] && echo ${DLPKG_NAME} >> /tmp/pgks_failed_to_install_forced
+   [ -f /tmp/petget_proc/install_classic ] && echo ${DLPKG_NAME} >> /tmp/petget_proc/pgks_failed_to_install_forced
   else
    /usr/lib/gtkdialog/box_ok "$(gettext 'Puppy package manager')" error "$(gettext 'This package is already installed. Cannot install it twice:')" "<i>${DLPKG_NAME}</i>" & 
    XPID=$!
    sleep 3
    pkill -P $XPID
-   echo ${DLPKG_NAME} >> /tmp/pgks_failed_to_install_forced
+   echo ${DLPKG_NAME} >> /tmp/petget_proc/pgks_failed_to_install_forced
   fi
  fi
  exit 1
@@ -280,7 +313,7 @@ SIZEK=$(( $SIZEB / 1024 ))
 EXPK=$(( $SIZEK * 5)) #estimated worst-case expanded size.
 if [ "$PUPMODE" = "2" ]; then # from BK's quirky6.1
 	#131220  131229 detect if not enough room in /tmp...
-	DIRECTSAVEPATH="/tmp/petget/directsavepath"
+	DIRECTSAVEPATH="/tmp/petget_proc/petget/directsavepath"
 	NEEDK=$EXPK
 	if [ $EXPK -ge $TMPK ];then
 	  DIRECTSAVEPATH="/audit/directsavepath"
@@ -367,7 +400,7 @@ elif [ $PUPMODE -eq 13 ];then
 	fi
 fi
 
-if [ $DISPLAY -a ! -f /tmp/install_quietly ];then #131222
+if [ $DISPLAY -a ! -f /tmp/petget_proc/install_quietly ];then #131222
  LANG=$LANG_USER
  . /usr/lib/gtkdialog/box_splash -close never -fontsize large -text "$(gettext 'Please wait, processing...')" &
  YAFPID1=$!
@@ -419,11 +452,11 @@ case $DLPKG_BASE in
   install_path_check
   # Workaround to avoid overwriting the $DISTRO_ARCHDIR symlink.  
   if [ "$DISTRO_ARCHDIR" != "" -a "$(echo "$PFILES" | grep "$DISTRO_ARCHDIR")" != "" ]; then
-	[ -d /tmp/pget$$ ] && rm -rf /tmp/pget$$
-	mkdir -p /tmp/pget$$/${DLPKG_BASE}/
-	dpkg-deb -x $DLPKG_BASE /tmp/pget$$/${DLPKG_BASE}/
+	[ -d /tmp/petget_proc/pget$$ ] && rm -rf /tmp/petget_proc/pget$$
+	mkdir -p /tmp/petget_proc/pget$$/${DLPKG_BASE}/
+	dpkg-deb -x $DLPKG_BASE /tmp/petget_proc/pget$$/${DLPKG_BASE}/
 	(
-	cd /tmp/pget$$/${DLPKG_BASE}/
+	cd /tmp/petget_proc/pget$$/${DLPKG_BASE}/
 	for BASEDIR in bin lib usr/bin usr/lib usr/include ; do
 		if [ -d ./${BASEDIR}/${DISTRO_ARCHDIR} ] ; then
 			[ ! -d ${DIRECTSAVEPATH}/${BASEDIR} ] && mkdir -p ${DIRECTSAVEPATH}/${BASEDIR}
@@ -436,9 +469,9 @@ case $DLPKG_BASE in
 		fi
 	done
 	)
-	cp -a -f --remove-destination /tmp/pget$$/${DLPKG_BASE}/* ${DIRECTSAVEPATH}/
+	cp -a -f --remove-destination /tmp/petget_proc/pget$$/${DLPKG_BASE}/* ${DIRECTSAVEPATH}/
 	sync
-	rm -rf /tmp/pget$$
+	rm -rf /tmp/petget_proc/pget$$
   else
 	dpkg-deb -x $DLPKG_BASE ${DIRECTSAVEPATH}/
   fi
@@ -457,10 +490,12 @@ case $DLPKG_BASE in
   tar -a -x --directory=${DIRECTSAVEPATH}/ -f $DLPKG_BASE #120102. 120107
   [ $? -ne 0 ] && clean_and_die
   
-  if [ -f /.PKGINFO ]; then
+  if [ -f ${DIRECTSAVEPATH}/.PKGINFO ]; then
    write_arch_specs
-  elif [ -f /install/slack-desc ]; then
+  elif [ -f ${DIRECTSAVEPATH}/install/slack-desc ]; then
    write_slack_specs
+  elif [ -f /.META ]; then
+   write_nutyx_specs
   fi
   
  ;;
@@ -477,7 +512,7 @@ case $DLPKG_BASE in
   [ $? -ne 0 ] && clean_and_die
   busybox rpm -qpi $DLPKG_BASE > /rpm-info
   write_rpm_specs
-;;
+ ;;
 esac
 
 multiarch_hack() {
@@ -497,7 +532,7 @@ multiarch_hack() {
 
 if [ "$PUPMODE" = "2" ]; then #from BK's quirky6.1
 	mkdir /audit/${DLPKG_NAME}DEPOSED
-	echo -n '' > /tmp/petget/FLAGFND
+	echo -n '' > /tmp/petget_proc/petget/FLAGFND
 	find ${DIRECTSAVEPATH}/ -mindepth 1 | sed -e "s%${DIRECTSAVEPATH}%%" |
 	while read AFILESPEC
 	do
@@ -505,41 +540,41 @@ if [ "$PUPMODE" = "2" ]; then #from BK's quirky6.1
 	   ADIR="$(dirname "$AFILESPEC")"
 	   mkdir -p /audit/${DLPKG_NAME}DEPOSED/${ADIR}
 	   cp -a -f "$AFILESPEC" /audit/${DLPKG_NAME}DEPOSED/${ADIR}/
-	   echo -n '1' > /tmp/petget/FLAGFND
+	   echo -n '1' > /tmp/petget_proc/petget/FLAGFND
 	  fi
 	done
 	sync
-	if [ -s /tmp/petget/FLAGFND ];then
+	if [ -s /tmp/petget_proc/petget/FLAGFND ];then
 	  [ -f /audit/${DLPKG_NAME}DEPOSED.sfs ] && rm -f /audit/${DLPKG_NAME}DEPOSED.sfs #precaution, should not happen, as not allowing duplicate installs of same pkg.
 	  mksquashfs /audit/${DLPKG_NAME}DEPOSED /audit/${DLPKG_NAME}DEPOSED.sfs
 	fi
 	sync
 	rm -rf /audit/${DLPKG_NAME}DEPOSED
 	#now write temp-location to final destination...
-	cp -a -f --remove-destination ${DIRECTSAVEPATH}/* /  2> /tmp/petget/install-cp-errlog
+	cp -a -f --remove-destination ${DIRECTSAVEPATH}/* /  2> /tmp/petget_proc/petget/install-cp-errlog
 	sync
 	#can have a problem if want to replace a folder with a symlink. for example, got this error:
 	# cp: cannot overwrite directory '/usr/share/mplayer/skins' with non-directory
 	#3builddistro has this fix... which is a vice-versa situation...
 	#firstly, the vice-versa, source is a directory, target is a symlink...
 	CNT=0
-	while [ -s /tmp/petget/install-cp-errlog ];do
-	  echo -n '' > /tmp/petget/install-cp-errlog2
-	  echo -n '' > /tmp/petget/install-cp-errlog3
-	  cat /tmp/petget/install-cp-errlog | grep 'cannot overwrite non-directory' | grep 'with directory' | tr '[`‘’]' "'" | cut -f 2 -d "'" |
+	while [ -s /tmp/petget_proc/petget/install-cp-errlog ];do
+	  echo -n '' > /tmp/petget_proc/petget/install-cp-errlog2
+	  echo -n '' > /tmp/petget_proc/petget/install-cp-errlog3
+	  cat /tmp/petget_proc/petget/install-cp-errlog | grep 'cannot overwrite non-directory' | grep 'with directory' | tr '[`‘’]' "'" | cut -f 2 -d "'" |
 	  while read ONEDIRSYMLINK #ex: /usr/share/mplayer/skins
 	  do
 	   if [ -h "${ONEDIRSYMLINK}" ];then #source is a directory, target is a symlink...
 	    #adding that extra trailing / does the trick...
-	    cp -a -f --remove-destination ${DIRECTSAVEPATH}"${ONEDIRSYMLINK}"/* "${ONEDIRSYMLINK}"/ 2>> /tmp/petget/install-cp-errlog2
+	    cp -a -f --remove-destination ${DIRECTSAVEPATH}"${ONEDIRSYMLINK}"/* "${ONEDIRSYMLINK}"/ 2>> /tmp/petget_proc/petget/install-cp-errlog2
 	   else #source is a directory, target is a file...
 	    rm -f "${ONEDIRSYMLINK}" #delete the file!
 	    DIRPATH="$(dirname "${ONEDIRSYMLINK}")"
-	    cp -a -f ${DIRECTSAVEPATH}"${ONEDIRSYMLINK}" "${DIRPATH}"/ 2>> /tmp/petget/install-cp-errlog2 #copy directory (and contents).
+	    cp -a -f ${DIRECTSAVEPATH}"${ONEDIRSYMLINK}" "${DIRPATH}"/ 2>> /tmp/petget_proc/petget/install-cp-errlog2 #copy directory (and contents).
 	   fi
 	  done
-	  cat /tmp/petget/install-cp-errlog2 >> /tmp/petget/install-cp-errlog3
-	  cat /tmp/petget/install-cp-errlog3 > /tmp/petget/install-cp-errlog
+	  cat /tmp/petget_proc/petget/install-cp-errlog2 >> /tmp/petget_proc/petget/install-cp-errlog3
+	  cat /tmp/petget_proc/petget/install-cp-errlog3 > /tmp/petget_proc/petget/install-cp-errlog
 	  sync
 	  CNT=$(($CNT + 1))
 	  [ $CNT -gt 10 ] && break #something wrong, get out.
@@ -657,7 +692,7 @@ if [ -f $DIRECTSAVEPATH/.INSTALL ];then #arch post-install script.
  if [ -f /usr/local/petget/ArchRunDotInstalls ];then #precaution. see 3builddistro, script created by noryb009.
   #this code is taken from below...
   dlPATTERN='|'"`echo -n "$DLPKG_BASE" | sed -e 's%\\-%\\\\-%'`"'|'
-  archVER="`cat /tmp/petget_missing_dbentries-Packages-* | grep "$dlPATTERN" | head -n 1 | cut -f 3 -d '|'`"
+  archVER="`cat /tmp/petget_proc/petget_missing_dbentries-Packages-* | grep "$dlPATTERN" | head -n 1 | cut -f 3 -d '|'`"
   if [ "$archVER" ];then #precaution.
    cd $DIRECTSAVEPATH/
    mv -f .INSTALL .INSTALL1-${archVER}
@@ -687,7 +722,7 @@ if [ -f $DIRECTSAVEPATH/pet.specs -a -s $DIRECTSAVEPATH/pet.specs ];then #w482 i
 else
  [ -f $DIRECTSAVEPATH/pet.specs ] && rm -f $DIRECTSAVEPATH/pet.specs #w482 remove zero-byte file.
  dlPATTERN='|'"`echo -n "$DLPKG_BASE" | sed -e 's%\\-%\\\\-%'`"'|'
- DB_ENTRY="`cat /tmp/petget_missing_dbentries-Packages-* | grep "$dlPATTERN" | head -n 1`"
+ DB_ENTRY="`cat /tmp/petget_proc/petget_missing_dbentries-Packages-* | grep "$dlPATTERN" | head -n 1`"
 fi
 ##+++2011-12-27 KRG check if $DLPKG_BASE matches DB_ENTRY 1 so uninstallation works :Ooops:
 db_pkg_name=`echo "$DB_ENTRY" |cut -f 1 -d '|'`
@@ -862,8 +897,8 @@ while read ONEFILE
 do
  if [ ! -e "$ONEFILE" ];then
   ofPATTERN='^'"$ONEFILE"'$'
-  grep -v "$ofPATTERN" /root/.packages/${DLPKG_NAME}.files > /tmp/petget_instfiles
-  mv -f /tmp/petget_instfiles /root/.packages/${DLPKG_NAME}.files
+  grep -v "$ofPATTERN" /root/.packages/${DLPKG_NAME}.files > /tmp/petget_proc/petget_instfiles
+  mv -f /tmp/petget_proc/petget_instfiles /root/.packages/${DLPKG_NAME}.files
  fi
 done
 
@@ -936,7 +971,7 @@ fi
 CATEGORY="`echo -n "$CATEGORY" | cut -f 1 -d ';'`"
 [ "$CATEGORY" = "" ] && CATEGORY="none"
 [ "$CATEGORY" = "BuildingBlock" ] && CATEGORY="none"
-echo "PACKAGE: $DLPKG_NAME CATEGORY: $CATEGORY" >> /tmp/petget-installed-pkgs-log
+echo "PACKAGE: $DLPKG_NAME CATEGORY: $CATEGORY" >> /tmp/petget_proc/petget-installed-pkgs-log
 
 #110503 change ownership of some files if non-root...
 #hmmm, i think this will only work if running this script as root...
