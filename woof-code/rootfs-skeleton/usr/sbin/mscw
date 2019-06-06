@@ -9,8 +9,6 @@
 [ ! -d /var/local/mscw ] && mkdir -p /var/local/mscw
 
 case $1 in
-	enable|-enable) touch /var/local/mscw/persistent ; exit ;;
-	disable|-disable) rm -f /var/local/mscw/persistent ; exit ;;
 	report|-report) REPORT=1 ;;
 	start|restart) START_PROC=1 ;; ## /usr/sbin/delayedrun
 	gui|-gui) CMD_GUI=1 ;;   ## force gui
@@ -42,27 +40,6 @@ tray_slider_width=22
 tray_slider_offset=-4' >> $HOME/.retrovolrc 
 }
 
-function write_retrovol_tray_slider() { #card ## currently not in use
-	local card=$1
-	local str='Master Playback Volume'
-	local id=$(< /sys/class/sound/card${card}/id)
-	## some cards are not handled properly, exception list
-	case $id in
-		V8235) str='PCM Playback Volume' ;; #Master control does not work
-	esac
-	local numid=$(amixer -c $card controls | grep "$str" | head -1 | sed -e 's|\,.*||' -e 's|.*=||')
-	[[ $numid != [0-9]* ]] && return 1
-	if [ -f $HOME/.retrovolrc ] ; then
-		if grep -q '#tray_control=' $HOME/.retrovolrc ; then
-			## a proper config file exists (retrovol has run before)
-			sed -i -e "/^tray_control=/d;/#tray_control=37/a tray_control=${numid}" $HOME/.retrovolrc
-			return
-		fi
-	fi
-	touch $HOME/.retrovolrc
-	echo "tray_control=${numid}" >> $HOME/.retrovolrc
-}
-
 function write_retrovol_card() { #card
 	if [ -f $HOME/.retrovolrc ] ; then
 		if grep -q '#card=hw' $HOME/.retrovolrc ; then
@@ -71,7 +48,6 @@ function write_retrovol_card() { #card
 			return
 		fi
 	else
-		#write_retrovol_tray_slider $1
 		write_retrovol_extra
 	fi
 	touch $HOME/.retrovolrc
@@ -85,35 +61,6 @@ function write_asound_card() { #card device cmixer
 		echo "defaults.pcm.device $2"
 		echo "defaults.ctl.card $1"
 	) > /etc/asound.conf
-	write_retrovol_card $card
-}
-
-# wary does not support arrays... bash v3.00
-function write_asound_card_2() { #card device cmixer
-	local card=$1 device=$2 cmixer=$3
-	local fields=('defaults.pcm.card' 'defaults.pcm.device' 'defaults.ctl.card')
-	local values=("$card" "$device" "$cmixer")
-	local xfiles="/etc/asound.conf"
-	for config_file in $xfiles ; do
-		if [ -f "$config_file" ] ; then
-			for x in 2 1 0 ; do
-				field="${fields[${x}]}"
-				value="${values[${x}]}"
-				if grep -q "$field" ${config_file} ; then
-					#field is already set, replace it
-					sed -i "s|${field}.*|${field} ${value}|" ${config_file}
-				else #it's not set, insert at the beginning
-					sed -i "1i $field $value" ${config_file}
-				fi
-			done
-		else #file does not exist, write a new config
-			(
-			echo "defaults.pcm.card $1"
-			echo "defaults.pcm.device $2"
-			echo "defaults.ctl.card $1"
-			) > ${config_file}
-		fi
-	done
 	write_retrovol_card $card
 }
 
@@ -227,42 +174,6 @@ function retrovol_restart() {
 	return 1
 }
 
-## this might be useful in some cases
-function check_hdmi_default() {
-	#https://bbs.archlinux.org/viewtopic.php?id=124380
-	#https://bbs.archlinux.org/viewtopic.php?id=194033
-	BLSTR='HDMI'
-	RPSTR='Analog'
-	echo ; echo "$BLSTR check for card 0 ..."
-	if [ -f /tmp/aplayl ] ; then # this file can be used to run tests
-		CARD_PBDEVS="$(cat /tmp/aplayl | grep card)"
-	else
-		CARD_PBDEVS="$(LANG=C aplay -l | grep card)"
-	fi
-	BLACKLISTED=$(echo "$CARD_PBDEVS" | grep 'card 0' | head -1 | grep "$BLSTR")
-	REPLACEMENT=$(echo "$CARD_PBDEVS" | grep "$RPSTR" | head -1)
-	if [ "$BLACKLISTED" -a "$REPLACEMENT" ] ; then
-		echo -e "\nFound a potentially improper default pcm device for card 0..."
-		echo -e "	$BLACKLISTED\n"
-		echo -e "Will replace it with:"
-		echo -e "	$REPLACEMENT \n"
-		read zcard zdev <<< "$(get_card_device "$REPLACEMENT")"
-		echo "Making <card ${zcard}:device ${zdev}> the active one"
-		write_asound_card $zcard $zdev $zcard
-		if [ -f /var/local/mscw/selected ] ; then
-			echo "$REPLACEMENT" > /var/local/mscw/selected
-		fi
-		#touch /tmp/services/mswc.auto.ignore.hdmi.flag
-	elif [ "$BLACKLISTED" ] ; then
-		echo -e "\nWarning: found a potentially improper active device for card 0 ..."
-		echo -e "	$BLACKLISTED\n"
-		return 1 #problem
-	else
-		echo "	Not found... OK"
-	fi
-}
-
-
 #####
 LOG=1 #1 = use logfile
 #####
@@ -284,7 +195,6 @@ function start_proc() {
 			if [ $PUPMODE -eq 5 ] ; then
 				echo '*** First Boot ***'
 				rm -f /var/local/mscw/selected
-				check_hdmi_default
 			fi
 			if [ -f /etc/asound.conf ] ; then
 				check_asound_card
@@ -293,84 +203,12 @@ function start_proc() {
 			check_for_new_hardware
 			#alsactl -f /etc/asound.state restore ##
 			cardinfo ; echo
-			start_proc_plus first
 		else
 			check_for_new_hardware
-			start_proc_plus
 		fi
 	) &> ${logfile}
 	exit
 }
-
-function start_proc_plus() {
-	[ ! -f /var/local/mscw/persistent ] && exit
-	if [ "$1" != "first" ] ; then
-		check_asound_card
-		print_asound_card
-	fi
-	scards=$(ncards)
-	if [ -f /var/local/mscw/selected ] ; then
-		## Multiple Sound Card Wizard
-		## Sometimes cards swap/change positions
-		## - A pci/usb card has been removed [Unable to open card hw:1, snd_hctl_open returned -2]
-		## - A card suddenly gets loaded first
-		## - Other reasons
-		## /etc/asound.conf may be wrong
-		## $HOME/.retrovolrc may be using the wrong device
-		## %% Logic to rewrite config for proper use
-		echo "Found: /var/local/mscw/selected" ; echo
-		[ "$(busybox pidof 10alsa)" ] && sleep 1
-		acard="$(< /var/local/mscw/selected)"
-		read -r z zz desc <<< "$acard"
-		read card device <<< "$(get_card_device "$acard")"
-		active_device=$(echo $desc | sed -e 's|\[||g' -e 's|\]||g' -e 's|\,||g' -e 's|\:||g' -e 's|\/||g' -e 's|\\||g' -e 's|\-||g')
-		device_list=$(LANG=C aplay -l | grep card | sed -e 's|\[||g' -e 's|\]||g' -e 's|\,||g' -e 's|\:||g' -e 's|\/||g' -e 's|\-||g')
-		echo "Active Card (from log):"
-		echo "	$acard" ; echo
-		SP="yes"
-		xcard=0
-		xdevice=0
-		zdevs=$(ndevs)
-		if [ $scards -eq 0 ] ; then
-			echo "No cards detected, safe to apply default 0"
-		elif [ $zdevs -eq 1 ] ; then
-			echo "Only one playback device, safe to apply default 0"
-		elif [ $zdevs -gt 1 ] ; then
-			## more than 1 device, this requires processing
-			results=$(echo "$device_list" | grep "$active_device")
-			if [ "$results" ] ; then
-				read card2 device2 <<< "$(get_card_device "$results")"
-				echo "Match:"
-				echo "	${results}" ; echo
-				xcard=$card2
-				xdevice=$device2
-				if [ "$card" = "$card2" -a "$device" = "$device2" ] ; then
-					echo "Same position (${card}:${device} = ${card2}:${device2})"
-				else
-					echo "Card has changed position (${card}:${device} != ${card2}:${device2})"
-					SP=""
-				fi
-			else ## no results ##
-				echo "No matches"
-				echo ; echo "*** not doing anything ***"
-				xcard=""
-			fi
-		fi
-		## apply changes
-		if [ "$xcard" ] ; then
-			echo ; echo "Applying default card: ${xcard}:${xdevice}"
-			write_asound_card $xcard $xdevice $xcard
-			retrovol_restart -hide
-			[ "$SP" = "yes" ] && exit
-		fi
-		if [ "$1" != "first" ] ; then
-			echo ; cardinfo
-		fi
-	else
-		echo ; echo "-- No selected card in log --"
-	fi
-	exit
-} ######
 
 function MSCW_REPORT() {
 	(
@@ -429,7 +267,6 @@ export -f MSCW_REPORT
 
 function FIX() {
 	check_asound_card
-	#check_hdmi_default
 	check_for_new_hardware
 	alsactl -f /etc/asound.state restore
 }
@@ -657,7 +494,6 @@ if ! is_valid_device $Device ; then
 fi
 
 write_asound_card $Card $Device $Card #-- write --#
-#write_retrovol_tray_slider $Card
 
 check_for_new_hardware &>/dev/null
 
