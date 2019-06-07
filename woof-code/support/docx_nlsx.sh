@@ -3,23 +3,20 @@
 # * we're in sandbox3
 
 if [ ! "$BUILDSYS" ] ; then
-	 #not being sourced - force build
+	 #not being sourced - force build - testing
 	. ../_00func
 	. ../_00build.conf
 	. ../DISTRO_SPECS
 	BUILD_DOCX=yes
 	BUILD_NLSX=yes
+	DOCXSFS="docx_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION}.sfs"
+	NLSXSFS="nlsx_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION}.sfs"
 fi
 
-DOCXSFS="docx_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION}.sfs"
-NLSXSFS="nlsx_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION}.sfs"
-
-if [ "$BUILD_DOCX" != "yes" -a "$BUILD_NLSX" != "yes" ] ; then
-	exit
-fi
-
-INSTALLED_PKGS=$(cat ../status/findpkgs_FINAL_PKGS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} | \
+if [ "$BUILD_DOCX" = "yes" -o "$BUILD_NLSX" = "yes" ] ; then
+	INSTALLED_PKGS=$(cat ../status/findpkgs_FINAL_PKGS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} | \
 cut -f 1 -d '|' | tr ':' '\n' | sed '/^$/d' | sort -u)
+fi
 
 if [ "$BUILD_DOCX" = "yes" ] ; then
 	echo
