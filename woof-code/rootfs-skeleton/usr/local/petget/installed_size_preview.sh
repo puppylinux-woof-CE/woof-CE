@@ -59,7 +59,7 @@ if [ "$MISSINGDEPS_PATTERNS" = "" -a "$(do_grep $DB_ENTRY /tmp/petget_proc/overa
   *M) SIZEVAL=$(($SIZEVAL * 1024 )) ;;
   *) SIZEVAL=$(($SIZEVAL / 1024 )) ;;
  esac
- echo $SIZEVAL >> /tmp/overall_pkg_size
+ echo $SIZEVAL >> /tmp/petget_proc/overall_pkg_size
  sync
  /usr/local/petget/installmodes.sh check_total_size &
  exit 0
@@ -87,7 +87,7 @@ FNDMISSINGDBENTRYFILE="`ls -1 /tmp/petget_proc/petget_missing_dbentries-* 2>/dev
  MAINPKG_NAME="`echo "$DB_ENTRY" | cut -f 1 -d '|'`"
  MAINPKG_SIZE="`echo "$DB_ENTRY" | cut -f 6 -d '|'`"
  INSTALLEDSIZEK=0
- if [ "$MAINPKG_SIZE" != "" -a "$(do_grep $MAINPKG_NAME /tmp/overall_dependencies)" = "" ]; then
+ if [ "$MAINPKG_SIZE" != "" -a "$(do_grep $MAINPKG_NAME /tmp/petget_proc/overall_dependencies)" = "" ]; then
    INSTALLEDSIZEKMAIN=${MAINPKG_SIZE%[A-Z]} #remove suffix: K M B .. etc
  fi
  echo -n "" > /tmp/petget_proc/petget_moreframes
@@ -106,8 +106,8 @@ FNDMISSINGDBENTRYFILE="`ls -1 /tmp/petget_proc/petget_missing_dbentries-* 2>/dev
    DEP_NAME="`echo "$ONELIST" | cut -f 1 -d '|'`"
    DEP_SIZE="`echo "$ONELIST" | cut -f 6 -d '|'`"
    ADDSIZEK=0
-   if [ "$(do_grep $DEP_NAME /tmp/overall_dependencies)" != "" ]; then
-    if [ "$(do_grep $DEP_NAME /tmp/overall_dependencies | wc -l)" -gt 1 ]; then
+   if [ "$(do_grep $DEP_NAME /tmp/petget_proc/overall_dependencies)" != "" ]; then
+    if [ "$(do_grep $DEP_NAME /tmp/petget_proc/overall_dependencies | wc -l)" -gt 1 ]; then
      echo done that
     fi
    else
@@ -122,14 +122,14 @@ FNDMISSINGDBENTRYFILE="`ls -1 /tmp/petget_proc/petget_missing_dbentries-* 2>/dev
    cat /tmp/petget_proc/petget_installedsizek_rep >> /tmp/petget_proc/petget_installedsizek
   fi
  done
-rm -f /tmp/petget_installedsizek_rep
-INSTALLEDSIZEK=`cat /tmp/petget_installedsizek`
-echo "$INSTALLEDSIZEK" >> /tmp/overall_pkg_size
-echo "$INSTALLEDSIZEKMAIN" >> /tmp/overall_pkg_size
-cat /tmp/petget_missing_dbentries-* | cut -f1 -d '|' >> /tmp/dependecies_list
+rm -f /tmp/petget_proc/petget_installedsizek_rep
+INSTALLEDSIZEK=`cat /tmp/petget_proc/petget_installedsizek`
+echo "$INSTALLEDSIZEK" >> /tmp/petget_proc/overall_pkg_size
+echo "$INSTALLEDSIZEKMAIN" >> /tmp/petget_proc/overall_pkg_size
+cat /tmp/petget_proc/petget_missing_dbentries-* | cut -f1 -d '|' >> /tmp/petget_proc/dependecies_list
 
-cat /tmp/dependecies_list | sort | uniq  >> /tmp/overall_dependencies
-rm -f /tmp/dependecies_list
+cat /tmp/petget_proc/dependecies_list | sort | uniq  >> /tmp/petget_proc/overall_dependencies
+rm -f /tmp/petget_proc/dependecies_list
 
 sync
 /usr/local/petget/installmodes.sh check_total_size &

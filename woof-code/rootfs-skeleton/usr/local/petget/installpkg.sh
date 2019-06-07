@@ -131,7 +131,7 @@ if [ "`grep "$PTN1" /root/.packages/user-installed-packages`" != "" ];then
   XPID=$!
   sleep 3
   pkill -P $XPID
-  echo ${DLPKG_NAME} >> /tmp/pgks_failed_to_install_forced
+  echo ${DLPKG_NAME} >> /tmp/petget_proc/pgks_failed_to_install_forced
  fi
  exit 1
 fi
@@ -277,7 +277,7 @@ case $DLPKG_BASE in
   DLPKG_MAIN="`basename $DLPKG_BASE`" #remove directory - filename only
   DLPKG_MAIN=${DLPKG_MAIN%*.tar.*}    #remove .tar.xx extension
   DLPKG_MAIN=${DLPKG_MAIN%.t[gx]z}    #remove .t[gx]z extension
-  PFILES="`tar --list -f $DLPKG_BASE`" || exit 1
+  PFILES="`tar --list -a -f $DLPKG_BASE`" || exit 1
   echo "$PFILES" | sed -e "s#^\.\/#\/#g" -e "s#^#\/#g" -e "s#^\/\/#\/#g" -e 's#^\/$##g' -e 's#^\/\.$##g' > /root/.packages/${DLPKG_NAME}.files
   install_path_check
   tar -x --directory=${DIRECTSAVEPATH}/ -f $DLPKG_BASE #120102. 120107

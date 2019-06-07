@@ -174,12 +174,12 @@ PKGS="$APKGNAME"
 [ $1 ] && PKGS="`echo -n "${1}" | tr '|' ' '`"
 
  RETPARAMS='EXIT="OK"'
- rm -f /tmp/petget_missing_dbentries-* 2>/dev/null
- cat /tmp/petget_missingpkgs_patterns_with_versioning >> \
-  /tmp/overall_petget_missingpkgs_patterns.txt
- rm -f /tmp/petget_missingpkgs_patterns* 2>/dev/null
- cat /tmp/missinglibs.txt >> /tmp/overall_missing_libs.txt
- cat /tmp/missinglibs_hidden.txt >> /tmp/overall_missing_libs_hidden.txt
- rm -f /tmp/missinglibs* 2>/dev/null
+ rm -f /tmp/petget_proc/petget_missing_dbentries-* 2>/dev/null
+ cat /tmp/petget_proc/petget_missingpkgs_patterns_with_versioning >> \
+  /tmp/petget_proc/overall_petget_missingpkgs_patterns.txt
+ rm -f /tmp/petget_proc/petget_missingpkgs_patterns* 2>/dev/null
+ cat /tmp/petget_proc/missinglibs.txt >> /tmp/petget_proc/overall_missing_libs.txt
+ cat /tmp/petget_proc/missinglibs_hidden.txt >> /tmp/petget_proc/overall_missing_libs_hidden.txt
+ rm -f /tmp/petget_proc/missinglibs* 2>/dev/null
 
 ###END###

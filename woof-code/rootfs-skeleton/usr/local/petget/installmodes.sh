@@ -129,7 +129,7 @@ $(gettext 'These needed libraries exist but are not in the library search path (
 <i><b>${NOT_IN_PATH_LIBS}</b></i>"
  fi
 
- if [ -s /tmp/petget-installed-pkgs-log ];then
+ if [ -s /tmp/petget_proc/petget-installed-pkgs-log ];then
   BUTTON_TRIM="<button><label>$(gettext 'Trim the fat')</label><action type=\"exit\">BUTTON_TRIM_FAT</action></button>"
  fi
 
@@ -185,11 +185,11 @@ $(gettext 'These needed libraries exist but are not in the library search path (
  </window>'
  RETPARAMS="`gtkdialog --center -p REPORT_DIALOG`"
  eval "$RETPARAMS"
- echo 100 > /tmp/petget/install_status_percent
+ echo 100 > /tmp/petget_proc/petget/install_status_percent
  
   #trim the fat...
  if [ "$EXIT" = "BUTTON_TRIM_FAT" ];then
-  INSTALLEDPKGNAMES="`cat /tmp/petget-installed-pkgs-log | cut -f 2 -d ' ' | tr '\n' ' '`"
+  INSTALLEDPKGNAMES="`cat /tmp/petget_proc/petget-installed-pkgs-log | cut -f 2 -d ' ' | tr '\n' ' '`"
   #101013 improvement suggested by L18L...
   CURRLOCALES="`locale -a | grep _ | cut -d '_' -f 1`"
   LISTLOCALES="`echo -e -n "en\n${CURRLOCALES}" | sort -u | tr -s '\n' | tr '\n' ',' | sed -e 's%,$%%'`"
@@ -219,7 +219,7 @@ $(gettext 'These needed libraries exist but are not in the library search path (
   RETPARAMS="`gtkdialog -p PPM_TRIM_DIALOG`"
   eval "$RETPARAMS"
   [ "$EXIT" != "OK" ] && exit $EXITVAL
-  if [ ! -f /tmp/install_quietly ]; then
+  if [ ! -f /tmp/petget_proc/install_quietly ]; then
    /usr/lib/gtkdialog/box_splash -text "$(gettext 'Please wait, trimming fat from packages...')" &
    X4PID=$!
   fi
@@ -260,8 +260,8 @@ $(gettext 'These needed libraries exist but are not in the library search path (
     fi
     echo "$ONEFILE"
    done
-   ) > /tmp/petget_pkgfiles_temp
-   mv -f /tmp/petget_pkgfiles_temp /root/.packages/${PKGNAME}.files
+   ) > /tmp/petget_proc/petget_pkgfiles_temp
+   mv -f /tmp/petget_proc/petget_pkgfiles_temp /root/.packages/${PKGNAME}.files
   done
   [ "$X4PID" ] && kill $X4PID
  fi
@@ -276,7 +276,7 @@ check_total_size () {
  rm -f /tmp/petget_proc/petget_tabs 2>/dev/null
  rm -f /tmp/petget_proc/pkgs_to_install_bar 2>/dev/null
  #required size
- NEEDEDK_PLUS=$(awk '{ sum += $1 } END { print sum }' /tmp/overall_pkg_size)
+ NEEDEDK_PLUS=$(awk '{ sum += $1 } END { print sum }' /tmp/petget_proc/overall_pkg_size)
  [ ! "$NEEDEDK_PLUS" ] && NEEDEDK_PLUS=0
  NEEDEDK=$(( $NEEDEDK_PLUS / 768 )) # 1.5x
  ACTION_MSG=$(gettext 'This is not enough space to download and install the packages (including dependencies) you have selected.')
@@ -405,11 +405,11 @@ export -f status_bar_func
  
 install_package () {
  #set -x
- [ "$(cat /tmp/pkgs_to_install)" = "" ] && exit 0
- cat /tmp/pkgs_to_install | tr ' ' '\n' > /tmp/pkgs_left_to_install
- rm -f /tmp/overall_package_status_log
- echo 0 > /tmp/petget/install_status_percent
- echo "$(gettext "Calculating total required space...")" > /tmp/petget/install_status
+ [ "$(cat /tmp/petget_proc/pkgs_to_install)" = "" ] && exit 0
+ cat /tmp/petget_proc/pkgs_to_install | tr ' ' '\n' > /tmp/petget_proc/pkgs_left_to_install
+ rm -f /tmp/petget_proc/overall_package_status_log
+ echo 0 > /tmp/petget_proc/petget/install_status_percent
+ echo "$(gettext "Calculating total required space...")" > /tmp/petget_proc/petget/install_status
  [ ! -f /root/.packages/skip_space_check ] && check_total_size
  #status_bar_func & #-----------
  while IFS="|" read TREE1 REPO zz #TREE1|REPO
@@ -501,14 +501,14 @@ case "$1" in
 		;;
 	'Download packages (no install)')
 		wait_func
-		rm -f /tmp/install_pets_quietly
-		rm -f /tmp/install_classic 2>/dev/null
-		rm -f /tmp/download_pets_quietly 2>/dev/null
-		rm -f /tmp/download_only_pet_quietly 2>/dev/null
-		touch /tmp/install_quietly
-		touch /tmp/install_pets_quietly
-		touch /tmp/download_only_pet_quietly 
-		cp -a /tmp/pkgs_to_install /tmp/pkgs_to_install_done
+		rm -f /tmp/petget_proc/install_pets_quietly
+		rm -f /tmp/petget_proc/install_classic 2>/dev/null
+		rm -f /tmp/petget_proc/download_pets_quietly 2>/dev/null
+		rm -f /tmp/petget_proc/download_only_pet_quietly 2>/dev/null
+		touch /tmp/petget_proc/install_quietly
+		touch /tmp/petget_proc/install_pets_quietly
+		touch /tmp/petget_proc/download_only_pet_quietly 
+		cp -a /tmp/petget_proc/pkgs_to_install /tmp/petget_proc/pkgs_to_install_done
 		VTTITLE=Downloading
 		export VTTITLE
 		install_package

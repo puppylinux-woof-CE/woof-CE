@@ -127,9 +127,9 @@ else
  fi 
 fi
 
-[ ! -f /tmp/install_quietly ] && kill $X1PID || echo
+[ ! -f /tmp/petget_proc/install_quietly ] && kill $X1PID || echo
 
-if [ ! -f /tmp/install_quietly ] ; then
+if [ ! -f /tmp/petget_proc/install_quietly ] ; then
  if [ "$EXAMDEPSFLAG" = "yes" ] ; then
    EXIT=BUTTON_EXAMINE_DEPS
  else
@@ -154,7 +154,7 @@ if [ ! -f /tmp/install_quietly ] ; then
   '${DEPBUTTON}'
   <button>
    <label>'$(gettext 'Install')' PKG '${ONLYMSG}'</label>
-   <action>echo "'${TREE1}'" > /tmp/petget_installpreview_pkgname</action>
+   <action>echo "'${TREE1}'" > /tmp/petget_proc/petget_installpreview_pkgname</action>
    <action type="exit">BUTTON_INSTALL</action>
   </button>
   <button>
@@ -236,7 +236,7 @@ $(gettext "Please cancel installation, close the Puppy Package Manager, then cli
  INSTALLEDSIZEK=0
  [ "$MAINPKG_SIZE" != "" ] && INSTALLEDSIZEK=${INSTALLEDSIZEK%[A-Z]} #remove suffix: K M B .. etc
  
- echo -n "" > /tmp/petget_moreframes
+ echo -n "" > /tmp/petget_proc/petget_moreframes
  DEP_CNT=0
  ONEREPO=""
  for ONEDEPSLIST in `ls -1 /tmp/petget_proc/petget_missing_dbentries-*`
@@ -251,19 +251,19 @@ $(gettext "Please cancel installation, close the Puppy Package Manager, then cli
    DEP_DESCR=$F10
    DEP_CNT=$(( $DEP_CNT + 1))
    if [ $DEP_CNT -gt 100 ] ; then
-      echo -n "<text use-markup=\"true\"><label>\"<b>$(gettext 'SORRY! Too many dependencies, list truncated. Suggest click Cancel button and install some deps first.')</b>\"</label></text>" >> /tmp/petget_moreframes #120907
+      echo -n "<text use-markup=\"true\"><label>\"<b>$(gettext 'SORRY! Too many dependencies, list truncated. Suggest click Cancel button and install some deps first.')</b>\"</label></text>" >> /tmp/petget_proc/petget_moreframes #120907
       break
    else
-      echo -n "<checkbox><default>true</default><label>${DEP_NAME} SIZE: ${DEP_SIZE}B  [${DEP_DESCR}]</label><variable>CHECK_PKG_${ONEREPO}_${DEP_NAME}</variable></checkbox>" >> /tmp/petget_moreframes
+      echo -n "<checkbox><default>true</default><label>${DEP_NAME} SIZE: ${DEP_SIZE}B  [${DEP_DESCR}]</label><variable>CHECK_PKG_${ONEREPO}_${DEP_NAME}</variable></checkbox>" >> /tmp/petget_proc/petget_moreframes
    fi
    ADDSIZEK=0
    [ "$DEP_SIZE" != "" ] && ADDSIZEK=${DEP_SIZE%[A-Z]} #remove suffix: K M B .. etc
    INSTALLEDSIZEK=$(( $INSTALLEDSIZEK + $ADDSIZEK ))
-   echo "$INSTALLEDSIZEK" > /tmp/petget_installedsizek
+   echo "$INSTALLEDSIZEK" > /tmp/petget_proc/petget_installedsizek
   done < $ONEDEPSLIST
-  INSTALLEDSIZEK=`cat /tmp/petget_installedsizek`
+  INSTALLEDSIZEK=`cat /tmp/petget_proc/petget_installedsizek`
  done
- MOREFRAMES="`cat /tmp/petget_moreframes`"
+ MOREFRAMES="`cat /tmp/petget_proc/petget_moreframes`"
  
  INSTALLEDSIZEM=$(( $INSTALLEDSIZEK / 1024))
  MSGWARN2="$(gettext "If that looks OK, click the 'Install' button...")"
@@ -290,7 +290,7 @@ if [ ! -f /tmp/petget_proc/install_quietly ]; then
    <text space-expand=\"true\" space-fill=\"true\"><label>Number of missing depedencies: $DEP_CNT</label></text>
    <button space-expand=\"true\" space-fill=\"false\">
     <label>$(gettext 'View hierarchy of dependencies')</label>
-    <action>/usr/local/bin/defaulttextviewer /tmp/petget_deps_visualtreelog & </action>
+    <action>/usr/local/bin/defaulttextviewer /tmp/petget_proc/petget_deps_visualtreelog & </action>
    </button>
  </hbox>
 
@@ -380,14 +380,14 @@ fi
 
 #now do the actual install...
 PASSEDPRM=""
-if [ -f /tmp/download_only_pet_quietly ]; then
+if [ -f /tmp/petget_proc/download_only_pet_quietly ]; then
   PASSEDPRM="DOWNLOADONLY"
-  touch /tmp/manual_pkg_download
+  touch /tmp/petget_proc/manual_pkg_download
 fi
 /usr/local/petget/downloadpkgs.sh $PASSEDPRM
 if [ $? -ne 0 ];then
- if [ -f /tmp/petget/current-repo-triad.previous ] ; then
-   mv -f /tmp/petget/current-repo-triad.previous /tmp/petget/current-repo-triad #120504
+ if [ -f /tmp/petget_proc/petget/current-repo-triad.previous ] ; then
+   mv -f /tmp/petget_proc/petget/current-repo-triad.previous /tmp/petget_proc/petget/current-repo-triad #120504
  fi
  exit 1
 fi
