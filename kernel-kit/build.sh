@@ -22,8 +22,6 @@ for i in $@ ; do
 		auto) AUTO=yes ; shift ;;
 		nopae) x86_disable_pae=yes ; shift ;; #funcs.sh
 		pae)   x86_enable_pae=yes  ; shift ;; #funcs.sh
-		i486)  x86_set_i486=yes    ; shift ;; #funcs.sh
-		i686)  x86_set_i686=yes    ; shift ;; #funcs.sh
 	esac
 	# if a filename is specified on the command line it is assumed to be
 	# an extra build config that will be used in addition to build.conf
@@ -673,7 +671,7 @@ if ! grep -q "CONFIG_AUFS_FS=y" .config ; then
 fi
 
 #----
-i386_specific_stuff #pae/nopae i486/i686 - funcs.sh
+i386_specific_stuff #pae/nopae- funcs.sh
 #----
 
 [ -f .config -a ! -f ../DOTconfig ] && cp .config ../DOTconfig
