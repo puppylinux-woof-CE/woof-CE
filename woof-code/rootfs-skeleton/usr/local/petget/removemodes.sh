@@ -35,6 +35,8 @@ report_window () {
  REMOVED_PGKS="$(</tmp/petget_proc/pgks_really_removed)"
  FAILED_TO_REMOVE="$(</tmp/petget_proc/pgks_failed_to_remove)"
  
+ PKGS_REMOVE=$(wc -l < /tmp/petget-proc/pgks_really_removed)
+ 
  if [ -s /tmp/petget_proc/overall_petget-deps-maybe-rem ];then
   MAYBEREM="`cat /tmp/petget_proc/overall_petget-deps-maybe-rem | cut -f 1 -d ' ' | tr '\n' ' '`"
   MAYBEREMMSG1="$(gettext 'The following package(s) are dependencies for the package(s) you just removed. You may want to remove them too or reinstall the package(s) you just removed'):
@@ -51,60 +53,100 @@ $FAILED_TO_REMOVE
 Installed packages that may not be needed after the removal of the above:
 $MAYBEREM 
 EOF
+ 
+ if [ -f /tmp/petget_proc/pgks_failed_to_remove ]; then
+  PKGS_FAILED=$(wc -l < /tmp/petget_proc/pgks_failed_to_remove)
+ else
+  PKGS_FAILED=0
+ fi
+ 
+ if [ -s /tmp/petget_proc/overall_petget-deps-maybe-rem ];then
+  PKGS_MAYBE=$(wc -l < /tmp/petget_proc/overall_petget-deps-maybe-rem)
+ else
+  PKGS_MAYBE=0
+ fi
 
  # Info window/dialogue (display and option to save "missing" info)
  export REPORT_DIALOG='
- <window title="'$(gettext 'Puppy Package Manager')'" icon-name="gtk-about" default_height="550">
+ <window title="'$(gettext 'Puppy Package Manager')'" icon-name="gtk-about" resizable="false">
  <vbox space-expand="true" space-fill="true">
+ <vbox>
    '"`/usr/lib/gtkdialog/xml_info fixed package_remove.svg 60 " " "$(gettext "Remove packages report")"`"'
-   <hbox space-expand="true" space-fill="true">
-     <hbox scrollable="true" hscrollbar-policy="2" vscrollbar-policy="2" space-expand="true" space-fill="true">
-       <hbox space-expand="false" space-fill="false">
-         <eventbox name="bg_report" space-expand="true" space-fill="true">
-           <vbox margin="5" hscrollbar-policy="2" vscrollbar-policy="2" space-expand="true" space-fill="true">
-             '"`/usr/lib/gtkdialog/xml_pixmap dialog-complete.svg 32`"'
-             <text angle="90" wrap="false" yalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"<big><b><span color='"'#15BC15'"'>'$(gettext 'Success')'</span></b></big> "</label></text>
-           </vbox>
-         </eventbox>
-       </hbox>
-       <vbox scrollable="true" shadow-type="0" hscrollbar-policy="2" vscrollbar-policy="1" space-expand="true" space-fill="true">
-         <text ypad="5" xpad="5" yalign="0" xalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"<i><b>'${REMOVED_PGKS}' </b></i>"</label></text>
-       </vbox>
-     </hbox>
-   </hbox>
+ </vbox>
+ 
+ <vbox>
+ <notebook labels="'$(gettext 'Success')' ('${PKGS_REMOVE}')|'$(gettext 'Failed')' ('${PKGS_FAILED}')|'$(gettext 'Depends')' ('${PKGS_MAYBE}')">
 
-   <hbox space-expand="true" space-fill="true">
-     <hbox scrollable="true" hscrollbar-policy="2" vscrollbar-policy="2" space-expand="true" space-fill="true">
-       <hbox space-expand="false" space-fill="false">
-         <eventbox name="bg_report" space-expand="true" space-fill="true">
-           <vbox margin="5" hscrollbar-policy="2" vscrollbar-policy="2" space-expand="true" space-fill="true">
-             '"`/usr/lib/gtkdialog/xml_pixmap dialog-error.svg 32`"'
-             <text angle="90" wrap="false" yalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"<big><b><span color='"'#DB1B1B'"'>'$(gettext 'Failed')'</span></b></big> "</label></text>
-           </vbox>
-         </eventbox>
-       </hbox>
-       <vbox scrollable="true" shadow-type="0" hscrollbar-policy="2" vscrollbar-policy="1" space-expand="true" space-fill="true">
-         <text ypad="5" xpad="5" yalign="0" xalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"<i><b>'${FAILED_TO_REMOVE}' </b></i>"</label></text>
-       </vbox>
-     </hbox>
-   </hbox>
+	<vbox height-request="250" width-request="450">
+		<frame>
+		   <vbox scrollable="true" shadow-type="0" hscrollbar-policy="2" vscrollbar-policy="1" space-expand="true" space-fill="true">
+			 <text ypad="5" xpad="5" yalign="0" xalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"'${REMOVED_PGKS}'"</label></text>
+		   </vbox>
+		</frame>
+	</vbox>
 
+	<vbox>
+		<frame>
+		   <vbox scrollable="true" shadow-type="0" hscrollbar-policy="2" vscrollbar-policy="1" space-expand="true" space-fill="true">
+			 <text ypad="5" xpad="5" yalign="0" xalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"'${FAILED_TO_REMOVE}'"</label></text>
+		   </vbox>
+		</frame>
+	</vbox>
+
+
+	<vbox>
+		<frame>
+		   <vbox scrollable="true" shadow-type="0" hscrollbar-policy="1" vscrollbar-policy="1" space-expand="true" space-fill="true">
+			 <text ypad="5" xpad="5" yalign="0" xalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"'${MAYBEREMMSG1}'"</label></text>
+		   </vbox>
+		</frame>
+    </vbox>
    
-   <hbox space-expand="true" space-fill="true">
-     <hbox scrollable="true" hscrollbar-policy="2" vscrollbar-policy="2" space-expand="true" space-fill="true">
-       <hbox space-expand="false" space-fill="false">
-         <eventbox name="bg_report" space-expand="true" space-fill="true">
-           <vbox margin="5" hscrollbar-policy="2" vscrollbar-policy="2" space-expand="true" space-fill="true">
-             '"`/usr/lib/gtkdialog/xml_pixmap building_block.svg 32`"'
-             <text angle="90" wrap="false" yalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"<big><b><span color='"'#bbb'"'>'$(gettext 'Depends')'</span></b></big> "</label></text>
-           </vbox>
-         </eventbox>
-       </hbox>
-       <vbox scrollable="true" shadow-type="0" hscrollbar-policy="1" vscrollbar-policy="1" space-expand="true" space-fill="true">
-         <text ypad="5" xpad="5" yalign="0" xalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"'${MAYBEREMMSG1}'"</label></text>
-       </vbox>
-     </hbox>
-   </hbox> 
+   </notebook>
+   </vbox>
+   
+   <hbox space-expand="false" space-fill="false">
+     <button>
+       <label>'$(gettext 'View details')'</label>
+       '"`/usr/lib/gtkdialog/xml_button-icon document_viewer`"'
+       <action>defaulttextviewer /tmp/
+ <window title="'$(gettext 'Puppy Package Manager')'" icon-name="gtk-about" resizable="false">
+ <vbox space-expand="true" space-fill="true">
+ <vbox>
+   '"`/usr/lib/gtkdialog/xml_info fixed package_remove.svg 60 " " "$(gettext "Remove packages report")"`"'
+ </vbox>
+ 
+ <vbox>
+ <notebook labels="'$(gettext 'Success')' ('${PKGS_REMOVE}')|'$(gettext 'Failed')' ('${PKGS_FAILED}')|'$(gettext 'Depends')' ('${PKGS_MAYBE}')">
+
+	<vbox height-request="250" width-request="450">
+		<frame>
+		   <vbox scrollable="true" shadow-type="0" hscrollbar-policy="2" vscrollbar-policy="1" space-expand="true" space-fill="true">
+			 <text ypad="5" xpad="5" yalign="0" xalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"'${REMOVED_PGKS}'"</label></text>
+		   </vbox>
+		</frame>
+	</vbox>
+
+	<vbox>
+		<frame>
+		   <vbox scrollable="true" shadow-type="0" hscrollbar-policy="2" vscrollbar-policy="1" space-expand="true" space-fill="true">
+			 <text ypad="5" xpad="5" yalign="0" xalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"'${FAILED_TO_REMOVE}'"</label></text>
+		   </vbox>
+		</frame>
+	</vbox>
+
+
+	<vbox>
+		<frame>
+		   <vbox scrollable="true" shadow-type="0" hscrollbar-policy="1" vscrollbar-policy="1" space-expand="true" space-fill="true">
+			 <text ypad="5" xpad="5" yalign="0" xalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"'${MAYBEREMMSG1}'"</label></text>
+		   </vbox>
+		</frame>
+    </vbox>
+   
+   </notebook>
+   </vbox>
+   
    <hbox space-expand="false" space-fill="false">
      <button>
        <label>'$(gettext 'View details')'</label>
@@ -115,7 +157,14 @@ EOF
      '"`/usr/lib/gtkdialog/xml_scalegrip`"'
    </hbox>
  </vbox>
+ </window>/overall_remove_deport &</action>
+     </button>
+     <button ok></button>
+     '"`/usr/lib/gtkdialog/xml_scalegrip`"'
+   </hbox>
+ </vbox>
  </window>'
+ 
  RETPARAMS="`gtkdialog --center -p REPORT_DIALOG`"
 
  rm -f /tmp/petget_proc/pgks_really_removed
