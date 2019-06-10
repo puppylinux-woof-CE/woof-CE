@@ -116,6 +116,163 @@ install_path_check() {
   exit 1
 }
 
+write_deb_spec(){
+
+if [ ! -f ${DIRECTSAVEPATH}/DEBIAN/control ]; then
+return
+fi
+
+#pkgname|nameonly|version|pkgrelease|category|size|path|fullfilename|dependencies|description|
+
+pkgname="${DLPKG_NAME}"
+nameonly=`cat ${DIRECTSAVEPATH}/DEBIAN/control | grep "Package:" | cut -f 2 -d ':' | sed -e "s#^ ##g"`
+version=`cat ${DIRECTSAVEPATH}/DEBIAN/control | grep "Version:" | cut -f 2 -d ':' | sed -e "s#^ ##g" | cut -f 1 -d '-'`
+pkgrelease=`cat ${DIRECTSAVEPATH}/DEBIAN/control | grep "Version:" | cut -f 2 -d ':' | sed -e "s#^ ##g" | cut -f 2 -d '-'`
+category=""
+size="${SIZEK}K"
+path=""	
+fullfilename=${DLPKG_BASE}
+description=`cat ${DIRECTSAVEPATH}/DEBIAN/control | grep "Description:" | cut -f 2 -d ':' | sed -e "s#^ ##g" | head -1`
+dependencies=""
+depends=`cat ${DIRECTSAVEPATH}/DEBIAN/control | grep "Depends:" | cut -f 2 -d ':' | sed -e "s#^ ##g" -e "s#, # #g" -e "s#(#|#g" -e "s# |#|#g" -e "s# [0-9]##g"` 
+
+for dep1 in $depends
+do
+depname=`echo $dep1 | cut -f 1 -d '|'`
+ if [ "$dependencies" == "" ]; then
+ dependencies="+$depname"
+ else
+ dependencies="$dependencies,+$depname"
+ fi
+done 
+
+echo "$pkgname|$nameonly|$version|$pkgrelease|$category|$size|$path|$fullfilename|$dependencies|$description|" > ${DIRECTSAVEPATH}/pet.specs	
+	
+}
+
+write_arch_spec(){
+
+if [ ! -f ${DIRECTSAVEPATH}/.PKGINFO ]; then
+return
+fi
+
+pkgname="${DLPKG_NAME}"
+nameonly=`cat ${DIRECTSAVEPATH}/.PKGINFO | grep "pkgname =" | cut -f 2 -d '=' | sed -e "s#^ ##g"`
+version=`cat ${DIRECTSAVEPATH}/.PKGINFO | grep "pkgver =" | cut -f 2 -d '=' | sed -e "s#^ ##g" | cut -f 1 -d '-'`
+pkgrelease=`cat ${DIRECTSAVEPATH}/.PKGINFO | grep "pkgver =" | cut -f 2 -d '=' | sed -e "s#^ ##g" | cut -f 2 -d '-'`
+category=""
+size="${SIZEK}K"
+path=""	
+fullfilename=${DLPKG_BASE}
+description=`cat ${DIRECTSAVEPATH}/.PKGINFO | grep "pkgdesc" | cut -f 2 -d '=' | sed -e "s#^ ##g"`
+dependencies=""
+
+for dep1 in `cat ${DIRECTSAVEPATH}/.PKGINFO | grep "depend =" | sed "s# = #=#g"`
+do
+depname=`echo $dep1 | cut -f 2 -d '=' | sed -e "s#^ ##g"`
+ if [ "$dependencies" == "" ]; then
+ dependencies="+$depname"
+ else
+ dependencies="$dependencies,+$depname"
+ fi
+done 
+
+echo "$pkgname|$nameonly|$version|$pkgrelease|$category|$size|$path|$fullfilename|$dependencies|$description|" > ${DIRECTSAVEPATH}/pet.specs	
+	
+}
+
+write_slack_spec(){
+	
+if [ ! -f ${DIRECTSAVEPATH}/install/slack-desc ]; then
+return
+fi
+
+pkgname="${DLPKG_NAME}"
+nameonly=`cat ${DIRECTSAVEPATH}/install/slack-desc | grep ": " | head -n 1 | cut -f 1 -d ":" | sed -e "s#^ ##g"`
+version="$DB_version"
+pkgrelease="$DB_pkgrelease"
+category=""
+size="${SIZEK}K"
+path=""	
+fullfilename=${DLPKG_BASE}
+description=`cat ${DIRECTSAVEPATH}/install/slack-desc | grep ": " | head -n 1 | cut -f 2 -d ":" | sed -e "s#^ ##g" | cut -f 2 -d '(' | sed -e "s#)##g"`
+
+dependencies=""
+
+if [ -f ${DIRECTSAVEPATH}/install/slack-required ]; then
+
+for dep1 in `cat ${DIRECTSAVEPATH}/install/slack-required | sed -e "s#| #\n##g" | cut -f 1 -d ' '`
+do
+ if [ "$dependencies" == "" ]; then
+ dependencies="+$dep1"
+ else
+ dependencies="$dependencies,+$dep1"
+ fi
+done 
+
+fi
+
+echo "$pkgname|$nameonly|$version|$pkgrelease|$category|$size|$path|$fullfilename|$dependencies|$description|" > ${DIRECTSAVEPATH}/pet.specs	
+	
+}
+
+write_rpm_spec(){
+	
+if [ ! -f /rpm-info ]; then
+return
+fi
+
+pkgname="${DLPKG_NAME}"
+nameonly=`cat /rpm-info | grep "Name" | grep ":" | cut -f 2 -d ':' | sed -e "s#^ ##g"`
+version=`cat /rpm-info | grep "Version" | grep ":" | cut -f 2 -d ':' | sed -e "s#^ ##g"`
+pkgrelease=`cat /rpm-info | grep "Release" | grep ":" | cut -f 2 -d ':' | sed -e "s#^ ##g"`
+category=`cat /rpm-info | grep "Group" | grep ":" | cut -f 2 -d ':' | sed -e "s#^ ##g"`
+size="${SIZEK}K"
+path=""	
+fullfilename=${DLPKG_BASE}
+description=`cat /rpm-info | grep "Summary" | grep ":" | cut -f 2 -d ':' | sed -e "s#^ ##g"`
+
+dependencies=""
+
+echo "$pkgname|$nameonly|$version|$pkgrelease|$category|$size|$path|$fullfilename|$dependencies|$description|" > /pet.specs	
+
+rm -f /rpm-info
+	
+}
+
+write_nutyx_spec(){
+
+if [ -f ${DIRECTSAVEPATH}/.META ]; then
+
+#pkgname|nameonly|version|pkgrelease|category|size|path|fullfilename|dependencies|description|
+
+pkgname="$FOLDR"
+nameonly=`cat ${DIRECTSAVEPATH}/.META | grep -e "^N" | sed -e "s#^N##g"`
+version=`cat ${DIRECTSAVEPATH}/.META | grep -e "^V" | sed -e "s#^V##g"`
+pkgrelease=`cat ${DIRECTSAVEPATH}/.META | grep -e "^r" | sed -e "s#^r##g"`
+size=`cat ${DIRECTSAVEPATH}/.META | grep -e "^S" | sed -e "s#^S##g"`
+fullfilename="${DLPKG_BASE}"
+dependencies=""
+
+for dep1 in `cat ${DIRECTSAVEPATH}/.META | grep -e "^b" | sed -e "s#^b##g"`
+do
+ if [ "$dependencies" == "" ]; then
+ dependencies="+$dep1"
+ else
+ dependencies="$dependencies,+$dep1"
+ fi
+done 
+
+description=`cat ${DIRECTSAVEPATH}/.META | grep -e "^D" | sed -e "s#^D##g"`
+
+echo "$pkgname|$nameonly|$version|$pkgrelease|$category|$size|$path|$fullfilename|$dependencies|$description|" > ${DIRECTSAVEPATH}/pet.specs
+
+rm -f ${DIRECTSAVEPATH}/.META
+
+fi
+
+}
+
 # 22sep10 shinobar clean up probable old files for precaution
  rm -f /pet.specs /pinstall.sh /puninstall.sh /install/doinst.sh
 
@@ -318,6 +475,7 @@ case $DLPKG_BASE in
   [ $? -ne 0 ] && clean_and_die
   [ -d /DEBIAN ] && rm -rf /DEBIAN #130112 precaution.
   dpkg-deb -e $DLPKG_BASE /DEBIAN #130112 extracts deb control files to dir /DEBIAN. may have a post-install script, see below.
+  write_deb_spec
  ;;
  *.tgz|*.txz|*.tar.gz|*.tar.xz|*.tar.bz2) #slackware, arch, etc..
   DLPKG_MAIN="`basename $DLPKG_BASE`" #remove directory - filename only
@@ -328,6 +486,15 @@ case $DLPKG_BASE in
   install_path_check
   tar -a -x --directory=${DIRECTSAVEPATH}/ -f $DLPKG_BASE #120102. 120107
   [ $? -ne 0 ] && clean_and_die
+  
+  if [ -e ${DIRECTSAVEPATH}/.PKGINFO ]; then
+   write_arch_spec
+  elif [ -e ${DIRECTSAVEPATH}/install/slack-desc ]; then
+   write_slack_spec
+  elif [ -e ${DIRECTSAVEPATH}/.META ]; then
+   write_nutyx_spec
+  fi 
+  
  ;;
  *.rpm) #110523
   DLPKG_MAIN="`basename $DLPKG_BASE .rpm`"
@@ -340,6 +507,8 @@ case $DLPKG_BASE in
   #110705 rpm -i does not work for mageia pkgs...
   exploderpm -i $DLPKG_BASE
   [ $? -ne 0 ] && clean_and_die
+  busybox rpm -qpi $DLPKG_BASE > /rpm-info
+  write_rpm_spec
  ;;
 esac
 
