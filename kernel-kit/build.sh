@@ -274,36 +274,11 @@ fi
 
 log_msg "Linux: ${kernel_major_version}${kmv}${kmr}" #${kernel_series}.
 
-if [ ! $aufsv ] ; then
-	AUFS_BRANCHES='aufs3.0 aufs3.1 aufs3.11 aufs3.13 aufs3.15 aufs3.16 aufs3.17 aufs3.19 aufs3.3 aufs3.4 aufs3.5 aufs3.6 aufs3.7 aufs3.8 aufs3.9 aufs4.0 aufs4.2 aufs4.3 aufs4.4 aufs4.5 aufs4.6 aufs4.7 aufs4.8 aufs4.9 aufs4.10'
-	if ( echo "$AUFS_BRANCHES" | tr ' ' '\n' | grep -q "^aufs${kernel_major_version}$" ) ; then
-		aufsv=${kernel_major_version}
-	### special cases ###
-	elif [ "${kernel_major_version}" = "3.2" ] ; then
-		aufsv='3.2'                #unknown actual value
-		vercmp ${kernel_version} ge 3.2.30 && aufsv='3.2.x'
-	elif [ "${kernel_major_version}" = "3.10" ] ; then
-		aufsv='3.10'
-		vercmp ${kernel_version} ge 3.10.26 && aufsv='3.10.x'
-	elif [ "${kernel_major_version}" = "3.12" ] ; then
-		aufsv='3.12'
-		vercmp ${kernel_version} ge 3.12.7 && aufsv='3.12.x'
-		vercmp ${kernel_version} ge 3.12.31 && aufsv='3.12.31+'
-	elif [ "${kernel_major_version}" = "3.14" ] ; then
-		aufsv='3.14'
-		vercmp ${kernel_version} ge 3.14.21 && aufsv='3.14.21+'
-		vercmp ${kernel_version} ge 3.14.40 && aufsv='3.14.40+'
-	elif [ "${kernel_major_version}" = "3.18" ] ; then
-		aufsv='3.18'
-		vercmp ${kernel_version} ge 3.18.1 && aufsv='3.18.1+'
-		vercmp ${kernel_version} ge 3.18.25 && aufsv='3.18.25+'
-	elif [ "${kernel_major_version}" = "4.1" ] ; then
-		aufsv='4.1'
-		vercmp ${kernel_version} ge 4.1.13 && aufsv='4.1.13+'
-	fi
+if [ ! "$aufsv" ] ; then #bashism
+	read aufsv aufs_util_branch <<< $(./git_aufs_branch.sh ${kernel_version})
 fi
 
-[ $aufsv ] || exit_error "You must specify 'aufsv=version' in build.conf"
+[ "$aufsv" ] || exit_error "You must specify 'aufsv=version' in build.conf"
 log_msg "aufs=$aufsv"
 
 #kernel mirror - Aufs series (must match the kernel version)
@@ -546,30 +521,17 @@ fi
 log_msg "Extracting the Aufs-util sources"
 rm -rf aufs-util
 cp -a sources/aufs-util_git aufs-util
-(
+if [ "$aufs_util_branch" ] ; then
 	cd aufs-util
-	branch=""
-	git branch -a | grep -v -E 'master|rcN|\)' | sed 's|.*/aufs||' | \
-		sort -n > /tmp/aufs-util-version #we go for stable only
-	while read line ; do 
-		[ -z "$line" ] && continue
-		if vercmp $line le ${kernel_major_version} ; then # less or equal than 3.14, 4.9, etc
-			branch=$line
-			#echo $line ##debug
-		else
-			break
-		fi
-	done < /tmp/aufs-util-version
-	if [ "$branch" ] ; then
-		echo "* aufs-util branch: $branch"
-		git checkout aufs${branch} #>> ${BUILD_LOG} 2>&1
-		cp Makefile Makefile-orig
-		sed -i -e 's/-static //' -e 's|ver_test ||' -e 's|BuildFHSM = .*||' Makefile
-		diff -ru Makefile-orig Makefile > ../output/patches-${kernel_version}-${HOST_ARCH}/aufs-util.patch
-	else
-		exit_error "aufs-util: cannot select git branch."
-	fi
-)
+	echo "* aufs-util branch: $aufs_util_branch"
+	git checkout aufs${aufs_util_branch} #>> ${BUILD_LOG} 2>&1
+	cp Makefile Makefile-orig
+	sed -i -e 's/-static //' -e 's|ver_test ||' -e 's|BuildFHSM = .*||' Makefile
+	diff -ru Makefile-orig Makefile > ../output/patches-${kernel_version}-${HOST_ARCH}/aufs-util.patch
+	cd ..
+else
+	exit_error "aufs-util: cannot select git branch."
+fi
 
 log_msg "Extracting the Aufs sources"
 rm -rf aufs_sources
