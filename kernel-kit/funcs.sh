@@ -189,6 +189,7 @@ function get_git_kernel() {
 	[ "$USE_GIT_KERNEL" == '' ] && exit_error "Error: USE_GIT_KERNEL must be specified before calling get_git_kernel()"
 
 	if [ ! -f /tmp/${kernel_git_dir}_done -o ! -d sources/${kernel_git_dir}/.git ] ; then
+		mkdir -p sources/kernels
 		cd sources
 		if [ ! -d ${kernel_git_dir}/.git ] ; then
 			git clone --depth=1 ${USE_GIT_KERNEL} ${kernel_git_dir}

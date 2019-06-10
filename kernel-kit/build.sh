@@ -40,6 +40,17 @@ if [ $DO_CLEAN ] ; then
 	exit 0
 fi
 
+#- ./sources is a symlink to $LOCAL_REPOSITORIES/kernel-kit/sources
+LOCAL_REPOSITORIES='../../local-repositories'
+[ -d ../local-repositories ] && LOCAL_REPOSITORIES='../local-repositories'
+LOCAL_REPOSITORIES=${LOCAL_REPOSITORIES}/kernel-kit
+mkdir -p ${LOCAL_REPOSITORIES}/sources ${LOCAL_REPOSITORIES}/tools
+[ -e sources ] || ln -sv ${LOCAL_REPOSITORIES}/sources sources
+[ -e tools ] || ln -sv ${LOCAL_REPOSITORIES}/tools tools
+LOCAL_REPOSITORIES=$(cd $LOCAL_REPOSITORIES ; pwd)
+export LOCAL_REPOSITORIES
+#-
+
 ## delete the previous log
 [ -f build.log ] && rm -f build.log
 [ -f build.log.tar.bz2 ] && mv -f build.log.${today}.tar.bz2
