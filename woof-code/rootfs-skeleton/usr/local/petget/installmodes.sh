@@ -81,10 +81,22 @@ report_results () {
  done
  rm -f /tmp/petget_proc/pgks_failed_to_install_forced
 
- [ -f /tmp/petget_proc/pgks_really_installed ] && INSTALLED_PGKS="$(</tmp/petget_proc/pgks_really_installed)" \
-  || INSTALLED_PGKS=''
- [ -f /tmp/petget_proc/pgks_failed_to_install ] && FAILED_TO_INSTALL="$(</tmp/petget_proc/pgks_failed_to_install)" \
-  || FAILED_TO_INSTALL=''
+ if [ -f /tmp/petget_proc/pgks_really_installed ]; then
+ INSTALLED_PGKS="$(</tmp/petget_proc/pgks_really_installed)"
+ PKGS_SUCCESS=$(wc -l < /tmp/petget_proc/pgks_really_installed)
+ else
+ INSTALLED_PGKS=''
+ PKGS_SUCCESS=0
+ fi
+ 
+ if [ -f /tmp/petget_proc/pgks_failed_to_install ]; then
+ FAILED_TO_INSTALL="$(</tmp/petget_proc/pgks_failed_to_install)"
+ PKGS_FAILED=$(wc -l < /tmp/petget_proc/pgks_failed_to_install)
+ else
+ FAILED_TO_INSTALL=''
+ PKGS_FAILED=0
+ fi
+  
  #MISSING_PKGS=$(cat /tmp/petget_proc/overall_petget_missingpkgs_patterns.txt |sort|uniq )
  MISSING_LIBS=$(cat /tmp/petget_proc/overall_missing_libs.txt 2>/dev/null | tr ' ' '\n' | sort | uniq )
  NOT_IN_PATH_LIBS=$(cat /tmp/petget_proc/overall_missing_libs_hidden.txt 2>/dev/null | tr ' ' '\n' | sort | uniq )
@@ -103,81 +115,68 @@ $NOT_IN_PATH_LIBS
 EOF
 
  # Info window/dialogue (display and option to save "missing" info)
- MISSINGMSG1="<i><b>$(gettext 'No missing shared libraries')</b></i>"
+ MISSINGMSG1="$(gettext 'No missing shared libraries')"
  if [ "$MISSING_LIBS" ];then
-  MISSINGMSG1="<i><b>$(gettext 'These libraries are missing:')
-${MISSING_LIBS}</b></i>"
+  MISSINGMSG1="$(gettext 'These libraries are missing:')
+${MISSING_LIBS}"
  fi
  if [ "$NOT_IN_PATH_LIBS" ];then #100830
-  MISSINGMSG1="<i><b>${MISSINGMSG1}</b></i>
- 
+  MISSINGMSG1="${MISSINGMSG1}
 $(gettext 'These needed libraries exist but are not in the library search path (it is assumed that a startup script in the package makes these libraries loadable by the application):')
-<i><b>${NOT_IN_PATH_LIBS}</b></i>"
+${NOT_IN_PATH_LIBS}"
  fi
 
- export REPORT_DIALOG='
- <window title="'$(gettext 'Package Manager')'" icon-name="gtk-about" default_height="550">
- <vbox>
+ PKGS_LIBS=0
+ TOTAL_LIBS=0
+
+ if [ "$MISSING_LIBS" ];then
+  PKGS_LIBS=$(wc -l < /tmp/petget_proc/overall_missing_libs.txt)
+   if [ -f /tmp/petget_proc/overall_missing_libs_hidden.txt ]; then
+    HIDDEN_LIBS=$(wc -l < /tmp/petget_proc/overall_missing_libs_hidden.txt)
+   else
+    HIDDEN_LIBS=0
+   fi
+  TOTAL_LIBS=$(expr $PKGS_LIBS + $HIDDEN_LIBS)
+ fi
+
+ export REPORT_DIALOG=' <window title="'$(gettext 'Puppy Package Manager')'" icon-name="gtk-about" resizable="false">
+ <vbox space-fill="true">
+  <vbox>
   '"`/usr/lib/gtkdialog/xml_info fixed package_add.svg 60 " " "$(gettext "Package install/download report")"`"'
-  <hbox space-expand="true" space-fill="true">
-    <hbox scrollable="true" hscrollbar-policy="2" vscrollbar-policy="2" space-expand="true" space-fill="true">
-      <hbox space-expand="false" space-fill="false">
-        <eventbox name="bg_report" space-expand="true" space-fill="true">
-          <vbox margin="5" hscrollbar-policy="2" vscrollbar-policy="2" space-expand="true" space-fill="true">
-            '"`/usr/lib/gtkdialog/xml_pixmap dialog-complete.svg 32`"'
-            <text angle="90" wrap="false" yalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"<big><b><span color='"'#15BC15'"'>'$(gettext 'Success')'</span></b></big> "</label></text>
-          </vbox>
-        </eventbox>
-      </hbox>
-      <vbox scrollable="true" shadow-type="0" hscrollbar-policy="2" vscrollbar-policy="1" space-expand="true" space-fill="true">
-        <text ypad="5" xpad="5" yalign="0" xalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"<i><b>'${INSTALLED_PGKS}' </b></i>"</label></text>
-      </vbox>
-    </hbox>
+  </vbox>
+  <vbox>
+	  <notebook labels="'$(gettext 'Success')' ('${PKGS_SUCCESS}')|'$(gettext 'Failed')' ('${PKGS_FAILED}')|'$(gettext 'Depends')' ('${TOTAL_LIBS}')">
+		  <vbox height-request="250" width-request="450" margin="8">
+			  <vbox scrollable="true" shadow-type="0" hscrollbar-policy="2" vscrollbar-policy="1" space-expand="true" space-fill="true">
+				<text ypad="5" xpad="5" yalign="0" xalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"'${INSTALLED_PGKS}'"</label></text>
+			  </vbox>
+		  </vbox>
+		  <vbox space-expand="true" space-fill="true" margin="8">
+			  <vbox scrollable="true" shadow-type="0" hscrollbar-policy="2" vscrollbar-policy="1" space-expand="true" space-fill="true">
+				<text ypad="5" xpad="5" yalign="0" xalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"'${FAILED_TO_INSTALL}'"</label></text>
+			  </vbox>
+		  </vbox>
+		  <vbox space-expand="true" space-fill="true" margin="8">
+			  <vbox scrollable="true" shadow-type="0" hscrollbar-policy="1" vscrollbar-policy="1" space-expand="true" space-fill="true">
+				<text ypad="5" xpad="5" yalign="0" xalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"'${MISSINGMSG1}'"</label></text>
+			  </vbox>
+		  </vbox>
+	  </notebook>
+  </vbox>
+  
+ <hbox space-expand="false" space-fill="false">
+	<button>
+	  <label>'$(gettext 'View details')'</label>
+	  '"`/usr/lib/gtkdialog/xml_button-icon document_viewer`"'
+	  <action>defaulttextviewer /tmp/petget_proc/overall_install_report &</action>
+	 </button>
+	 <button ok></button>
+	 '"`/usr/lib/gtkdialog/xml_scalegrip`"'
   </hbox>
-
-  <hbox space-expand="true" space-fill="true">
-    <hbox scrollable="true" hscrollbar-policy="2" vscrollbar-policy="2" space-expand="true" space-fill="true">
-      <hbox space-expand="false" space-fill="false">
-        <eventbox name="bg_report" space-expand="true" space-fill="true">
-          <vbox margin="5" hscrollbar-policy="2" vscrollbar-policy="2" space-expand="true" space-fill="true">
-            '"`/usr/lib/gtkdialog/xml_pixmap dialog-error.svg 32`"'
-            <text angle="90" wrap="false" yalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"<big><b><span color='"'#DB1B1B'"'>'$(gettext 'Failed')'</span></b></big> "</label></text>
-          </vbox>
-        </eventbox>
-      </hbox>
-      <vbox scrollable="true" shadow-type="0" hscrollbar-policy="2" vscrollbar-policy="1" space-expand="true" space-fill="true">
-        <text ypad="5" xpad="5" yalign="0" xalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"<i><b>'${FAILED_TO_INSTALL}' </b></i>"</label></text>
-      </vbox>
-    </hbox>
-  </hbox>
-
-  <hbox space-expand="true" space-fill="true">
-    <hbox scrollable="true" hscrollbar-policy="2" vscrollbar-policy="2" space-expand="true" space-fill="true">
-      <hbox space-expand="false" space-fill="false">
-        <eventbox name="bg_report" space-expand="true" space-fill="true">
-          <vbox margin="5" hscrollbar-policy="2" vscrollbar-policy="2" space-expand="true" space-fill="true">
-            '"`/usr/lib/gtkdialog/xml_pixmap building_block.svg 32`"'
-            <text angle="90" wrap="false" yalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"<big><b><span color='"'#bbb'"'>'$(gettext 'Libs')'</span></b></big> "</label></text>
-          </vbox>
-        </eventbox>
-      </hbox>
-      <vbox scrollable="true" shadow-type="0" hscrollbar-policy="1" vscrollbar-policy="1" space-expand="true" space-fill="true">
-        <text ypad="5" xpad="5" yalign="0" xalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"'${MISSINGMSG1}'"</label></text>
-      </vbox>
-    </hbox>
-  </hbox>
-
-  <hbox space-expand="false" space-fill="false">
-    <button>
-      <label>'$(gettext 'View details')'</label>
-      '"`/usr/lib/gtkdialog/xml_button-icon document_viewer`"'
-      <action>defaulttextviewer /tmp/petget_proc/overall_install_report &</action>
-     </button>
-     <button ok></button>
-     '"`/usr/lib/gtkdialog/xml_scalegrip`"'
-  </hbox>
- </vbox>
+</vbox>
+ 
  </window>'
+ 
  RETPARAMS="`gtkdialog --center -p REPORT_DIALOG`"
  echo 100 > /tmp/petget_proc/petget/install_status_percent
 }
