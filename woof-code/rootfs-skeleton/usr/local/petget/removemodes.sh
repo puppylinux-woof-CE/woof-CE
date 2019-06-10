@@ -39,8 +39,7 @@ report_window () {
  
  if [ -s /tmp/petget_proc/overall_petget-deps-maybe-rem ];then
   MAYBEREM="`cat /tmp/petget_proc/overall_petget-deps-maybe-rem | cut -f 1 -d ' ' | tr '\n' ' '`"
-  MAYBEREMMSG1="$(gettext 'The following package(s) are dependencies for the package(s) you just removed. You may want to remove them too or reinstall the package(s) you just removed'):
-<i><b>${MAYBEREM}</b></i>"
+  MAYBEREMMSG1="$(gettext 'The following package(s) are dependencies for the package(s) you just removed. You may want to remove them too or reinstall the package(s) you just removed'): ${MAYBEREM}"
  fi
 
  cat << EOF > /tmp/petget_proc/overall_remove_deport
