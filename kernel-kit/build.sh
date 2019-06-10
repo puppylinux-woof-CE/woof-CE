@@ -252,10 +252,7 @@ echo
 #------------------------------------------------------------------
 
 ## version info
-IFS=. read -r kernel_series \
-		kernel_major_version \
-		kernel_minor_version \
-		kernel_minor_revision <<< "${kernel_version}"
+IFS=. read -r kernel_series kernel_major_version kernel_minor_version <<< "${kernel_version}"
 
 kernel_branch=${kernel_major_version} #3.x 4.x kernels
 kernel_major_version=${kernel_series}.${kernel_major_version} #crazy!! 3.14 2.6 etc
@@ -274,12 +271,16 @@ fi
 
 log_msg "Linux: ${kernel_major_version}${kmv}${kmr}" #${kernel_series}.
 
-if [ ! "$aufsv" ] ; then #bashism
-	read aufsv aufs_util_branch <<< $(./git_aufs_branch.sh ${kernel_version})
+# ===============================
+if [ ! "$aufsv" ] ; then
+	git_aufs_branch ${kernel_version} # sets $aufsv
 fi
+git_aufs_util_branch # sets $aufs_util_branch
+# ===============================
 
 [ "$aufsv" ] || exit_error "You must specify 'aufsv=version' in build.conf"
 log_msg "aufs=$aufsv"
+log_msg "aufs_util=$aufs_util_branch"
 
 #kernel mirror - Aufs series (must match the kernel version)
 case $kernel_series in
