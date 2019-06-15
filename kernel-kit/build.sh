@@ -506,11 +506,11 @@ fi
 if [ "$HOST_ARCH" = "x86" -a "$USE_GIT_X86_TOOLS" ]; then
 	tools_git_dir="`expr match "$USE_GIT_X86_TOOLS" '.*/\([^/]*/[^/]*\)' | sed 's\/\_\'`"_git
 	get_git_cross_compiler "$USE_GIT_X86_TOOLS" # from funcs.sh
-	export PATH="$PATH:${MWD}/tools/${tools_git_dir}/bin"
+	export PATH="${MWD}/tools/${tools_git_dir}/bin:$PATH"
 elif [ "$HOST_ARCH" = "x86_64" -a "$USE_GIT_X86_64_TOOLS" ]; then
 	tools_git_dir="`expr match "$USE_GIT_X86_64_TOOLS" '.*/\([^/]*/[^/]*\)' | sed 's\/\_\'`"_git
 	get_git_cross_compiler "$USE_GIT_X86_64_TOOLS" # from funcs.sh
-	export PATH="$PATH:${MWD}/tools/${tools_git_dir}/bin"
+	export PATH="${MWD}/tools/${tools_git_dir}/bin:$PATH"
 fi
 
 #==============================================================
@@ -539,7 +539,6 @@ cp -a sources/${aufs_git_dir} aufs_sources
 	cd aufs_sources ; git checkout aufs${aufsv}
 	../patches/aufs_sources/apply ${kernel_version}
 )
-
 ## extract the kernel
 log_msg "Extracting the kernel sources"
 if [ "$USE_GIT_KERNEL" ] ; then
@@ -804,9 +803,19 @@ mv ${kheaders_dir} ../output
 	fi
 
 	export CPPFLAGS="-I $LinuxSrc/usr/include"
-	echo "export CPPFLAGS=\"-I $LinuxSrc/usr/include\"
+	
+	if [ -n "$SET_MAKE_COMMAND" ]; then
+		export CC="arm-linux-gnueabihf-gcc"
+		OLDPATH=$PATH
+		export PATH="${MWD}/tools/${tools_git_dir}/arm-linux-gnueabihf/bin:$PATH" # for strip
+		ECHO='CC=\"arm-linux-gnueabihf-gcc\"'
+	else
+		ECHO=''
+		OLDPATH=''
+	fi
+	echo "export CPPFLAGS=\"-I $LinuxSrc/usr/include\" $ECHO
 make clean
-$MAKE
+$MAKEroot, root
 make DESTDIR=$CWD/output/${AUFS_UTIL_DIR} install
 " > compile ## debug
 	make clean &>/dev/null
@@ -823,7 +832,9 @@ make DESTDIR=$CWD/output/${AUFS_UTIL_DIR} install
 	fi
 	log_msg "aufs-util-${kernel_version} is in output"
 	#---
+	[ -z "$OLDPATH" ] || export PATH=$OLDPATH
 	cd ..
+
 #------------------------------------------------------
 cd linux-${kernel_version}
 
