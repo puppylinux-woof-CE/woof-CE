@@ -1,9 +1,6 @@
 #!/bin/bash
 #(c) Copyright 2009 Barry Kauler.
 #110819 support/findpkgs is new script to find all pkgs to be used in Puppy build.
-#120501 support arm build.
-#120515 build from "gentoo" binary tarballs (refer support/gentoo).
-#120719 support raspbian.
 
 export LANG=C #faster.
 [ $1 ] && XPKG=$1 #download specific pkg
@@ -13,13 +10,10 @@ MWD=$PWD
 . ./_00func
 . ./DISTRO_SPECS
 source_compat_repos  # ./DISTRO_COMPAT_REPOS-
-source_pkgs_specs    # ./DISTRO_PKGS_SPECS-
 . ./DISTRO_PET_REPOS #has PACKAGELISTS_PET_ORDER
 set_binaries_var     #ex: BINARIES=tgz_txz-14.2 BINARIES=deb-xenial
 create_local_repos_dirs
-mkdir -p packages-${BINARIES}
-mkdir -p packages-pet
-rm -f DOWNLOAD-FAILS-* DOWNLOAD-ERRORS 2>/dev/null
+rm -f DOWNLOAD-FAILS-* 2>/dev/null
 wget --help | grep -q '\-\-show\-progress' && WGET_SHOW_PROGRESS='-q --show-progress'
 
 xabort() {
@@ -39,195 +33,105 @@ function do_exit() { #$1: msg
 
 trap "xabort" SIGINT SIGTERM
 
-##################################
-#120501 support arm build, download sd images...
-if [ "$DISTRO_TARGETARCH" = "arm" -a "$BUILD_ZIP" != "yes" ];then
- mkdir -p sd-skeleton-images
- echo
- echo 'Please wait, probing for online SD skeleton image files...'
- wget -4 -t 2 -T 20 --waitretry=20 --spider --recursive --level=1 --accept '*.xz' -S http://distro.ibiblio.org/puppylinux/arm/sd-skeleton-images/ 2>&1 | grep '\.xz$' | rev | cut -f 1 -d '/' | rev > /tmp/1download-sd-images-probe
- sync
- if [ ! -s /tmp/1download-sd-images-probe ];then
-  echo 'Sorry, could not access any SD images at http://distro.ibiblio.org/puppylinux/arm/sd-skeleton-images/'
-  echo 'Press ENTER to continue script regardless: '
-  read keepgoing
-  [ "$keepgoing" != "" ] && exit
- else
-  #ask which sd-image to download...
-  ALREADYDOWN="`ls -1 sd-skeleton-images | grep 'xz$'`"
-  [ "$ALREADYDOWN" = "" ] && ALREADYDOWN='none'
-  SDIMAGEBUTTONS=''
-  for ONESDIMAGE in `cat /tmp/1download-sd-images-probe | sort -u | tr '\n' ' '`
-  do
-   [ -f sd-skeleton-images/$ONESDIMAGE ] && continue #already downloaded.
-   SDIMAGEBUTTONS="${SDIMAGEBUTTONS}<radiobutton><label>${ONESDIMAGE}</label><variable>RADIO_URL_${ONESDIMAGE}</variable></radiobutton>"
-  done
-  if [ "$SDIMAGEBUTTONS" != "" ];then
-   export SDIMAGE_DIALOG="<window title=\"SD Image Downloader: choose file\" icon-name=\"gtk-about\" window_position=\"1\">
-   <vbox>
-    <text><label>These are already downloaded:</label></text>
-    <text><label>\"${ALREADYDOWN}\"</label></text>
-    <text><label>Please choose an SD-image file that you would like to download (Click Cancel button to not download any):</label></text>
-    <frame>
-     ${SDIMAGEBUTTONS}
-    </frame>
-    <hbox>
-     <button ok></button>
-     <button cancel></button>
-    </hbox>
-   </vbox>
-   </window>"
-   while [ 1 ];do
-    RETPARAMS="`gtkdialog3 --program=SDIMAGE_DIALOG`"
-    SDIMAGE_FILE=''
-    [ "`echo "$RETPARAMS" | grep '^EXIT' | grep 'OK'`" != "" ] && SDIMAGE_FILE="`echo "$RETPARAMS" | grep 'RADIO_URL_' | grep '"true"' | cut -f 1 -d '=' | cut -f 3-9 -d '_'`"
-    if [ "$SDIMAGE_FILE" ];then
-     cd sd-skeleton-images
-     wget -4 http://distro.ibiblio.org/puppylinux/arm/sd-skeleton-images/$SDIMAGE_FILE
-     wget -4 http://distro.ibiblio.org/puppylinux/arm/sd-skeleton-images/${SDIMAGE_FILE}.md5.txt
-     sync
-     cd ..
-     echo "...${SDIMAGE_FILE} downloaded to folder sd-skeleton-images"
-     if [ -s ${SDIMAGE_FILE}.md5.txt ];then
-      CORRECTMD5="`cat ${SDIMAGE_FILE}.md5.txt | cut -f 1 -d ' '`"
-      DLMD5="`md5sum ${SDIMAGE_FILE} | cut -f 1 -d ' '`"
-      if [ "$CORRECTMD5" != "$DLMD5" ];then
-       echo "...however, the md5sum is incorrect. Deleting downloaded file..."
-       rm -f $SDIMAGE_FILE
-       echo -n "Press ENTER only to continue script, any other key to try download again..."
-       read tryagain
-       [ "$tryagain" != "" ] && continue    
-      fi
-     fi
-    fi
-    break
-   done
-  fi
-  
- fi
-fi
-
 run_findpkgs #find all packages that will be used in the Puppy build...
 
 #==============================================================================
 
 REPOS_DISTRO_COMPAT=$(echo "$REPOS_DISTRO_COMPAT" | tr ' ' '\n')
 PET_REPOS=$(echo "$PET_REPOS" | tr ' ' '\n')
+XFILE=status/findpkgs_FINAL_PKGS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}
 
 echo -e "\nDownloading packages..."
 if [ $XPKG ] ; then
 	XFILE=/tmp/zz_downloadpkg
 	grep ":${XPKG}:" status/findpkgs_FINAL_PKGS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} | sort > /tmp/zz_downloadpkg
-else
-	#start the gui controlpanel...
-	echo 'Run' > /tmp/1download-status-request
-	download_controlpanel
-	XFILE=status/findpkgs_FINAL_PKGS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}
 fi
 
 echo "" > $MWD/status/download_list
-LINECNT=1
-cat $XFILE | while read ONEDBENTRY
+while read ONEDBENTRY
 do
- #120812 optional subcategory...
- #ONEDBENTRY=:GENERICNAME:|PETorCOMPAT|DBFILE|pkgname|nameonly|version|pkgrelease|category[;subcategory]|size|path|fullfilename|dependencies|description|compileddistro|compiledrelease|repo|
- #...pkgname onwards is the full db entry for a package.
- IFS="|" read -r F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 <<< "$ONEDBENTRY"
- LINECNT=$(($LINECNT + 1))
- PETorCOMPAT="$F2" #ex: compat
- if [ "$PETorCOMPAT" != "pet" -a "$PETorCOMPAT" != "compat" ];then
-  echo -e "\nSyntax ERROR in status/findpkgs_FINAL_PKGS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION},"
-  echo "line number ${LINECNT}:"
-  echo "$ONEDBENTRY"
-  echo -n "Ignoring this line, press ENTER to continue (CTRL-C to abort): "
-  read KEEPITGOING
-  continue
- fi
- DBFILE="$F3"           #ex: Packages-puppy-5-official
- DB_genericname="$F1"	#ex: abiword
- DB_pkgname="$F4"       #ex: abiword-2.3.4-w5
- DB_fullfilename="$F11" #ex: abiword-2.3.4-w5.pet
- DB_path="$F10"         #ex: pet_packages-5
- if [ ! "$DB_path" ];then
-  ONLINESUBDIR="`echo -n "$DBFILE" | cut -f 3 -d '-'`"   #ex: 5
-  if [ "$PETorCOMPAT" = "pet" ];then #120515
-   DB_path="pet_packages-${ONLINESUBDIR}"
-  else #compat binary tarballs
-   DB_path="compat_packages-${ONLINESUBDIR}"
-  fi
- fi
+	#ONEDBENTRY=:GENERICNAME:|PETorCOMPAT|DBFILE|pkgname|nameonly|version|pkgrelease|category[;subcategory]|size|path|fullfilename|dependencies|description|compileddistro|compiledrelease|repo|
+	#...pkgname onwards is the full db entry for a package.
+	IFS="|" read -r F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 <<< "$ONEDBENTRY"
+	PETorCOMPAT="$F2" #ex: compat
+	DBFILE="$F3"           #ex: Packages-puppy-5-official
+	DB_genericname="$F1"	#ex: abiword
+	DB_pkgname="$F4"       #ex: abiword-2.3.4-w5
+	DB_fullfilename="$F11" #ex: abiword-2.3.4-w5.pet
+	DB_path="$F10"         #ex: pet_packages-5
+	if [ ! "$DB_path" ];then
+		ONLINESUBDIR="`echo -n "$DBFILE" | cut -f 3 -d '-'`"   #ex: 5
+		if [ "$PETorCOMPAT" = "pet" ];then #120515
+			DB_path="pet_packages-${ONLINESUBDIR}"
+		else #compat binary tarballs
+			DB_path="compat_packages-${ONLINESUBDIR}"
+		fi
+	fi
  
- SUCCESS='no'
+	if [ "$PETorCOMPAT" = "pet" ];then
+		LFILE=${MWD}/DOWNLOAD-FAILS-PET
+		FILE_DIR=${MWD}/packages-pet
+	else #-- compat
+		LFILE=${MWD}/DOWNLOAD-FAILS-${BINARIES}
+		FILE_DIR=${MWD}/packages-${BINARIES}
+	fi
+	FILE_PATH=${FILE_DIR}/${DB_fullfilename}
 
- if [ "$PETorCOMPAT" = "pet" ];then
-  LFILE=DOWNLOAD-FAILS-PET
-  FILE_DIR=packages-pet
- else #-- compat
-  LFILE=DOWNLOAD-FAILS-${BINARIES}
-  FILE_DIR=packages-${BINARIES}
- fi
+	if [ -f "$FILE_PATH" ] ; then
+		echo -n " ${DB_fullfilename}"
+		continue
+	fi
+	echo -e "\n* Downloading ${DB_fullfilename}"
 
- cd ${MWD}
+	if [ "$PETorCOMPAT" = "pet" ];then
+		XREPOS="$PET_REPOS"
+	else #-- compat
+		XREPOS="$REPOS_DISTRO_COMPAT"
+	fi
 
- if [ -f "${FILE_DIR}/${DB_fullfilename}" ] ; then
-   echo -n " ${DB_fullfilename}"
-   SUCCESS='yes'
-   continue
- fi
- echo -e "\n* Downloading ${DB_fullfilename}"
+	SUCCESS='no'
 
- cd ${FILE_DIR}
-
- if [ "$PETorCOMPAT" = "pet" ];then
-  XREPOS="$PET_REPOS"
- else #-- compat
-  XREPOS="$REPOS_DISTRO_COMPAT"
- fi
-
- # have to give priority to the repo $DBFILE is in
- # $DBFILE ex: Packages-slackware-14.2-official
- # z|http://mirror.aarnet.edu.au/pub/slackware/slackware-14.2|Packages-slackware-14.2-official
- REPOS="$(echo "$XREPOS" | grep "|${DBFILE}$")
+	# have to give priority to the repo $DBFILE is in
+	# $DBFILE ex: Packages-slackware-14.2-official
+	# z|http://mirror.aarnet.edu.au/pub/slackware/slackware-14.2|Packages-slackware-14.2-official
+	REPOS="$(echo "$XREPOS" | grep "|${DBFILE}$")
 $(echo "$XREPOS" | grep -v "|${DBFILE}$")"
- URLS="$(echo "$REPOS" | cut -f 2 -d '|')"
+	URLS="$(echo "$REPOS" | cut -f 2 -d '|')"
 
- for ONE_URL in ${URLS}
- do
-    if [ -f "$DB_fullfilename" ] ; then
-      SUCCESS='yes'
-      break
-    fi
-    REMOTE_PATH=${ONE_URL}/${DB_path}/${DB_fullfilename}
-    echo "  - from ${REMOTE_PATH%/*}"
-    echo -n "$PWD/${DB_fullfilename}" > /tmp/1dl_busy
-    wget -c ${WGET_SHOW_PROGRESS} --timeout=15 ${REMOTE_PATH} || {
-       echo "  failed (file not found on server or could not finish download)"
-       rm -f ${DB_fullfilename}
-       continue
-    }
-    #-
-    ${MWD}/rootfs-skeleton/usr/local/petget/verifypkg.sh ${DB_fullfilename}
-    [ $? -eq 0 ] && SUCCESS='yes'
-    #-
-    if [ "$SUCCESS" = "no" ] ; then
-       echo "  failed (file not found or corrupted file)"
-       rm -f ${DB_fullfilename} 2>/dev/null
-    fi
-    rm -f /tmp/1dl_busy
-    #--
-    if [ "$SUCCESS" = "yes" ] ; then
-      echo "  success"
-      echo "${DB_genericname}" >> $MWD/status/download_list
-      break
-    fi
- done
+	for ONE_URL in ${URLS}
+	do
+		REMOTE_PATH=${ONE_URL}/${DB_path}/${DB_fullfilename}
+		echo "  - from ${REMOTE_PATH%/*}"
+		echo -n "$PWD/${DB_fullfilename}" > /tmp/1dl_busy
+		wget --no-check-certificate -c ${WGET_SHOW_PROGRESS} \
+		 -O ${FILE_PATH} --timeout=15 ${REMOTE_PATH} || {
+			echo "  failed (file not found on server or could not finish download)"
+			rm -f ${FILE_PATH}
+			continue
+		}
+		#-
+		${MWD}/rootfs-skeleton/usr/local/petget/verifypkg.sh ${FILE_PATH}
+		[ $? -eq 0 ] && SUCCESS='yes'
+		#-
+		if [ "$SUCCESS" = "no" ] ; then
+			echo "  failed (file not found or corrupted file)"
+			rm -f ${FILE_PATH} 2>/dev/null
+		fi
+		rm -f /tmp/1dl_busy
+		#--
+		if [ "$SUCCESS" = "yes" ] ; then
+			echo "  success"
+			echo "${DB_genericname}" >> $MWD/status/download_list
+			break
+		fi
+	done
 
- cd ${MWD}
+	if [ "$SUCCESS" = "no" ] ; then
+		echo "DOWNLOAD FAIL: ${DB_fullfilename}"
+		echo "$DB_fullfilename" >> ${LFILE}
+	fi
 
- [ "$SUCCESS" = "no" ] && echo "DOWNLOAD FAIL: ${DB_fullfilename}"
- [ "$SUCCESS" = "no" ] && echo "$DB_fullfilename" >> ${LFILE}
-
-done
+done < $XFILE
 
 [ $XPKG ] && echo && exit
 do_exit ""

@@ -23,53 +23,22 @@ done
 #the PTHEME variable con be specified in build.conf
 if [ "$PTHEME" != "" ] ; then
 	theme="$PTHEME"
-else
-	echo
-	[ -f /tmp/ptheme_choose ] && rm /tmp/ptheme_choose
-	echo "You can choose from the following global themes"
-	echo
-	num=1
-	while read i; do
-		echo "$num $i"
-		echo "$num $i" >> /tmp/ptheme_choose
-		num=$(($num + 1))
-	done <<< "`ls usr/share/ptheme/globals`"
-	echo
-	echo "Type the number of the theme you want"
-
-	xnum=1
-	theme=""
-	while [ $xnum -lt 4 ];do
-		read ptheme_num
-		echo "$ptheme_num" | grep -qv '[0-9]' && echo "A number is needed" && continue
-		if grep -q ${ptheme_num} /tmp/ptheme_choose;then
-			theme=`grep -w "${ptheme_num}" /tmp/ptheme_choose|cut -d ' ' -f2,3,4`
-			echo "You chose ${theme}. Excellent choice."
-			break
-		else
-			if [ $xnum -lt 3 ];then
-				echo "Sorry, that didn't work, try another number"
-			else
-				echo "Last chance..."
-			fi
-			xnum=$(($xnum + 1))
-		fi
-	done
 fi
 
 if [ ! -f usr/share/ptheme/globals/"${theme}" ];then
-    theme="Original Pup"
-    echo "Invalid theme, defaulting to $theme"
+	echo "Invalid theme: $theme - defaulting to Original Pup"
+	theme="Original Pup"
 fi
 echo "Setting $theme to default"
+echo
+echo "see $PWD/usr/share/ptheme/globals for available themes"
+echo "that you can specify in build.conf: PTHEME=<theme>"
 
 . usr/share/ptheme/globals/"${theme}"
-
 
 ##### JWM
 [ ! -d root/.jwm ] && mkdir -p root/.jwm
 cp -af usr/share/jwm/themes/"${PTHEME_JWM_COLOR}-jwmrc" root/.jwm/jwmrc-theme
-#cp -af usr/share/jwm/themes/"${PTHEME_JWM_COLOR}-colors" root/.jwm/jwm_colors
 echo "jwm colors: ${PTHEME_JWM_COLOR}"
 
 cp -f usr/share/jwm/tray_templates/"$PTHEME_JWM_TRAY"/jwmrc-tray* root/.jwm/
@@ -111,9 +80,6 @@ for icon in $Dir/*; do
     fi
 done
 echo "jwm buttons: ${PTHEME_JWM_BUTTONS}"
-sleep 1 # reading time
-
-
 
 ##### GTK
 cat > root/.gtkrc-2.0 << _EOF
@@ -151,15 +117,10 @@ if [ -d "usr/share/icons/$USE_ICON_THEME" ];then
 	echo "icon theme: $USE_ICON_THEME"
 fi
 
-sleep 1 # reading time
-
 ##### WALLPAPER #copy it as mv messes the themes
 ext="${PTHEME_WALL##*.}"
 cp -af usr/share/backgrounds/"${PTHEME_WALL}" usr/share/backgrounds/default.${ext}
 echo "wallpaper: ${PTHEME_WALL}"
-sleep 1 # reading time
-
-
 
 ##### ROX
 BACKDROP="  <backdrop style=\"Stretched\">/usr/share/backgrounds/default.${ext}</backdrop>"
@@ -169,7 +130,6 @@ cat usr/share/ptheme/rox_pinboard/"${PTHEME_ROX_PIN}" >> /tmp/newpin
 echo '</pinboard>' >> /tmp/newpin
 cp -a /tmp/newpin root/Choices/ROX-Filer/PuppyPin
 echo "rox icons arrangement (apps): ${PTHEME_ROX_PIN}"
-sleep 1 # reading time
 
 #drive icons
 if [ "$PTHEME_ROX_DRIVEICONS" ]; then
@@ -182,12 +142,10 @@ if [ "$PTHEME_ROX_DRIVEICONS" ]; then
 fi
 
 echo "rox icons arrangement (drives): ${PTHEME_ROX_DRIVEICONS}"
-sleep 1 # reading time
 
 ##### ICONS
 echo -n "${PTHEME_ICONS}" > etc/desktop_icon_theme
 echo "icons: ${PTHEME_ICONS}"
-sleep 1 # reading time
 
 ##### CURSOR
 if [ -d root/.icons/ ];then
@@ -195,14 +153,12 @@ if [ -d root/.icons/ ];then
 		ln -snf $PTHEME_MOUSE root/.icons/default
 	fi
 	echo "cursor: ${PTHEME_MOUSE}"
-	sleep 1 # reading time
 fi
 
 ##### GTKDIALOG
 [ -d root/.config/ptheme/ ] || mkdir -p root/.config/ptheme/
 cp -f "usr/share/ptheme/gtkdialog/$PTHEME_GTKDIALOG" root/.config/ptheme/gtkdialog_active
 echo "gtkdialog: ${PTHEME_GTKDIALOG}"
-sleep 1 # reading time
 
 #### update JWMRC
 JWMRCVER=$(grep JWMRC_VERSION etc/xdg/templates/_root_.jwmrc | cut -f 4 -d '_' | cut -f 1 -d ' ')
@@ -214,7 +170,6 @@ UPDATEVER=$(grep JWMRC_VERSION etc/rc.d/rc.update | cut -f 3 -d '_' | cut -f 1 -
 BUN=buntoo.svg
 (
 cd usr/share/backgrounds
-
 if [ -f "${DISTRO_FILE_PREFIX}-wall2.svg" ];then
 	mv -f $BUN obuntoo.svg
 	cp -af "${DISTRO_FILE_PREFIX}-wall2.svg" $BUN
@@ -222,11 +177,9 @@ fi
 )
 
 # pt_faux_xfwm
-[ -f etc/DISTRO_SPECS ] && . etc/DISTRO_SPECS
 XF=xfwallpaper.svg
 (
 cd usr/share/backgrounds
-
 if [ -f "${DISTRO_FILE_PREFIX}-wall1.svg" ];then
 	mv -f $XF oxfwallpaper.svg
 	cp -af "${DISTRO_FILE_PREFIX}-wall1.svg" $XF

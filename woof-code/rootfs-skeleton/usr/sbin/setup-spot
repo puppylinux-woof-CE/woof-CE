@@ -1,0 +1,89 @@
+#!/bin/bash
+#call from 3builddistro, current dir is inside 'sandbox3'.
+#also want to call from LoginManager (/usr/sbin/loginmanager) from running puppy
+# (3buildistro will copy this script to sandbox3/rootfs-complete/usr/sbin).
+#pass in space-delimited names of apps to run as spot, each with false or true.
+#ex: 'seamonkey=true' 'sylpheed=false'
+#...=true means turn on spot, =false turn off. no parameter then do nothing.
+#130601 first version, seamonkey only.
+#130604 use code from /usr/sbin/run-as-spot, created by jamesbond (James Budiono).
+#130604 passed-in params to have actual names of executables.
+
+SPOTAPPS="$@"
+RUNNINGPUP=0
+echo "$0" | grep -q 'support' && RUNNINGPUP=1 #running in woof.
+PREFIXDIR=''
+[ $RUNNINGPUP -eq 1 ] && PREFIXDIR='rootfs-complete'
+
+SPOT_HOME=$(awk -F: '$1=="spot" {print $6}' ${PREFIXDIR}/etc/passwd)
+
+touch ${PREFIXDIR}/root/.spot-status
+
+run_as_spot() { #$1:app  $2:filename
+	cp ${PREFIXDIR}/usr/sbin/run-as-spot "$2"
+	sed -i "s%CMD=''%CMD=${1}%" "$2"
+}
+
+run_as_spot_2() { #$1:app  $2:filename
+   echo '#!/bin/sh
+exec /usr/sbin/run-as-spot "'${1}'" "$@"
+' > "$2"
+	chmod 755 "$2"
+}
+
+generic_func() {
+ #setup the app to run as spot or root...
+ case $ONEAPPvalue in
+  true)
+   [ ! -e ${ONEAPPpath}/${ONEAPPname}.bin ] && cp -a -f ${ONEAPPpath}/${ONEAPPname} ${ONEAPPpath}/${ONEAPPname}.bin
+   rm -f ${ONEAPPpath}/${ONEAPPname} #in case it is a symlink.
+   case $RUNNINGPUP in
+    0)APPpath=${ONEAPPpath};;
+    1)APPpath=`echo ${ONEAPPpath}|sed "s%$PREFIXDIR%%"`;;
+   esac
+   run_as_spot ${APPpath}/${ONEAPPname}.bin ${ONEAPPpath}/${ONEAPPname}
+  ;;
+  false)
+   if [ -e ${ONEAPPpath}/${ONEAPPname}.bin ];then
+    cp -a -f --remove-destination ${ONEAPPpath}/${ONEAPPname}.bin ${ONEAPPpath}/${ONEAPPname} #restore original.
+    rm -f ${ONEAPPpath}/${ONEAPPname}.bin
+   fi
+  ;;
+ esac
+ return 0
+}
+
+for ONEAPP in $SPOTAPPS
+do
+
+ ONEAPPname="`echo -n "$ONEAPP" | cut -f 1 -d '='`"  #ex: seamonkey
+ ONEAPPvalue="`echo -n "$ONEAPP" | cut -f 2 -d '='`" #ex: true
+ ONEAPPspec="`find ${PREFIXDIR}/bin ${PREFIXDIR}/sbin ${PREFIXDIR}/usr/bin ${PREFIXDIR}/usr/sbin ${PREFIXDIR}/usr/local/bin -mindepth 1 -maxdepth 1 -name ${ONEAPPname} | head -n 1`"
+ if [ ! "$ONEAPPspec" ];then
+  #executable does not exist, so remove from list, if there...
+  sed -i -e "/^${ONEAPPname}=/d" ${PREFIXDIR}/root/.spot-status
+  continue
+ fi
+ ONEAPPpath="$(dirname "$ONEAPPspec")"
+
+ generic_func
+
+ if [ $? -ne 0 ];then
+  sed -i -e "/^${ONEAPPname}=/d" ${PREFIXDIR}/root/.spot-status #remove.
+  continue
+ fi
+
+ #record choice, for future runs of Login&Security Manager...
+ if [ "$(grep "^${ONEAPPname}=" ${PREFIXDIR}/root/.spot-status)" != "" ];then
+  sed -i -e "s%^${ONEAPPname}=.*%${ONEAPPname}=${ONEAPPvalue}%" ${PREFIXDIR}/root/.spot-status
+ else
+  echo "${ONEAPPname}=${ONEAPPvalue}" >> ${PREFIXDIR}/root/.spot-status
+ fi
+ 
+ case ${ONEAPPvalue} in true|TRUE|yes|YES|on|ON)
+   chown -R spot:spot ${PREFIXDIR}${SPOT_HOME} ;;
+ esac
+
+done
+
+###END###
