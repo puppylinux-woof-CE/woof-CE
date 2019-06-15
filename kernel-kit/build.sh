@@ -357,17 +357,6 @@ if [ -f linux-${kernel_version}/include/linux/compiler-gcc4.h ] ; then
 	fi
 fi
 
-## download Linux-libre scripts
-if [ $LIBRE -eq 1 ] ; then
-	minor_version=${kernel_version##*.}
-	for i in deblob-${kernel_major_version} deblob-check; do
-		if [ ! -f sources/kernels/$i ] ; then
-			wget ${WGET_OPT} -O sources/kernels/$i http://linux-libre.fsfla.org/pub/linux-libre/releases/LATEST-${kernel_major_version}.N/$i
-			[ $? -ne 0 ] && exit_error "Error: failed to download $i."
-		fi
-	done
-fi
-
 ## download Aufs
 if [ ! -f /tmp/${aufs_git_dir}_done -o ! -d sources/${aufs_git_dir}/.git ] ; then
 	cd sources
@@ -593,18 +582,6 @@ cp ../aufs_sources/include/uapi/linux/aufs_type.h include/linux 2>/dev/null
 cp -r ../aufs_sources/include/uapi/linux/aufs_type.h include/uapi/linux
 ################################################################################
 
-## deblob the kernel
-if [ $LIBRE -eq 1 ] ; then
-	cd ..
-	cp -r linux-${kernel_version} linux-${kernel_version}-orig
-	cd linux-${kernel_version}
-	sh ../sources/kernels/deblob-${kernel_major_version} 2>&1 | tee -a ${BUILD_LOG}
-	cd ..
-	diff -rupN linux-${kernel_version}-orig linux-${kernel_version} > output/patches-${kernel_version}-${HOST_ARCH}/deblob.patch
-	rm -rf linux-${kernel_version}-orig
-	cd linux-${kernel_version}
-fi
-
 ## reset sublevel
 cp Makefile Makefile-orig
 if [ "$remove_sublevel" = "yes" ] ; then
@@ -612,7 +589,7 @@ if [ "$remove_sublevel" = "yes" ] ; then
 	sed -i "s/^SUBLEVEL =.*/SUBLEVEL = 0/" Makefile
 fi
 ## custom suffix
-if [ -n "${custom_suffix}" ] || [ $LIBRE -eq 1 ] ; then
+if [ -n "${custom_suffix}" ] ; then
 	sed -i "s/^EXTRAVERSION =.*/EXTRAVERSION = ${custom_suffix}/" Makefile
 elif [ "$kernel_is_plus_version" = "yes" ]; then
 	CONFIG_LOCALVERSION="`grep -F 'CONFIG_LOCALVERSION=' ../DOTconfig`"
@@ -963,9 +940,8 @@ sha256sum output/${KERNEL_SOURCES_DIR}.sfs > output/${KERNEL_SOURCES_DIR}.sfs.sh
 
 #==============================================================
 
-if [ $LIBRE -eq 0 ] ; then
- #firmware pkg/fdrv (*)
- if [ "$FW_PKG_URL" ] ; then
+#firmware pkg/fdrv (*)
+if [ "$FW_PKG_URL" ] ; then
 	fw_pkg=${FW_PKG_URL##*/} #basename
 	case $fw_pkg in
 		*.sfs)
@@ -979,7 +955,7 @@ if [ $LIBRE -eq 0 ] ; then
 			[ $? -ne 0 ] && exit_error "failed to unpack ${fw_pkg}"
 			;;
 	esac
- else
+else
 	log_msg "Pausing here to add extra firmware."
 	case ${FIRMWARE_OPT} in
 	manual)
@@ -1000,7 +976,6 @@ if [ $LIBRE -eq 0 ] ; then
 		fi
 	;;
 	esac
- fi
 fi
 
 if [ "$kit_kernel" = "yes" ]; then
