@@ -1,0 +1,309 @@
+#!/bin/bash
+# a simple image viewer using gtkdialog and bash
+# (c) Mick Amadio. 01micko@gmail.com, 2019, GPLv2 (/usr/share/doc/legal)
+
+set -e
+###### initiate some vars
+VER=0.1
+TMR=${TMR:-3000} # slideshow interval
+SLIDE=${SLIDE:-false}
+SCALE=${SCALE:-2} # half screen x * y .. see XTRA var
+DECO=true
+HINT=
+export PROG="$0"
+export TMP=`mktemp -d /tmp/imgXXXXXX`
+if [ -d "$1" ];then
+	CWD="$1"
+elif [ -f "$1" ];then
+	if [ "`pwd`" != "$HOME" ];then
+		CWD="`pwd`"
+	else
+		echo "$1" | grep -q '^/' && CWD="${1%/*}"
+	fi
+elif [ -z "$1" ];then
+	CWD="`pwd`"
+fi
+CONF="$HOME/.imgview.cfg"
+export CWD TMR SCALE CONF SLIDE VER
+
+MANUAL=true
+[ "$SLIDE" == 'true' ] && MANUAL=false
+
+cd "$CWD"
+
+read DIMS SCRX SCRY ROOTVERT << EOF
+`xwininfo -root | grep ' \-geometry ' | cut -f 1 -d '+' | tr 'x' ' '`
+EOF
+[ -f "$CONF" ] && . $CONF
+if [ $SCALE -ge 4 ];then
+	XTRA="- 125" # used if pseudo fullscreen
+	DECO=false
+	HINT=
+	GEO="-G +1+1"
+fi
+VBOXX=$(($SCALE * $SCRX / 4))
+VBOXY=$(($SCALE * $SCRY / 4 $XTRA))
+PIXX=$(($VBOXX - 20))
+PIXY=$(($VBOXY - 20))
+
+###### functions
+trap_exit() { # cleanup on exit or abort
+	rm -rf "$TMP"
+	cd - 2>&1 >/dev/null
+}
+
+splash() {
+	echo "<window title=\"Image Viewer\">
+		<vbox><hbox>
+			<text use-markup=\"true\">
+				<label>\"<span fgcolor='darkgreen'><big><big><b>$1</b></big></big></span>\"</label>
+			</text>
+		</hbox><button ok></button></vbox>
+	</window>" | gtkdialog -c -s
+}
+export -f splash
+
+_help() {
+	echo "<window title=\"Image Viewer - Help\" icon-name=\"gtk-help\">
+		<vbox><hbox homogeneous=\"true\">
+			<text use-markup=\"true\">
+				<label>\"<span fgcolor='darkgreen'><big><big><b>Help for imgview $VER</b></big></big></span>\"</label>
+			</text>
+			</hbox><hbox>
+			<text><label>$(gettext 'Invoke "imgview" from the commandline inside a directory with images, or set as your default application for image viewing. Press Forward or Back to cycle through images. Press Play to start a slide show or Stop to stop the slide show. When there are many images in a directory start up may be slow. Slide show speed and window size can be set in "File > Preferences"')</label></text>
+		</hbox><hbox><button cancel></button></hbox></vbox>
+	</window>" | gtkdialog -c -s
+}
+export -f _help
+
+_prefs() {
+	export CFG="<window title=\"Image Viewer - preferences\" icon-name=\"gtk-preferences\">
+		<vbox><hbox>
+			<text use-markup=\"true\">
+				<label>\"<span fgcolor='darkblue'><big><big><b>Preferences for 'imgview'</b></big></big></span>\"</label>
+			</text>
+			</hbox>
+			<hbox space-expand=\"true\" space-fill=\"false\">
+			<vbox>
+				<text><label>Image Scale</label></text>
+				<spinbutton space-expand=\"true\" space-fill=\"false\" range-min=\"1\" range-max=\"4\" range-step=\"1\" xalign=\"1\" primary-icon-name=\"gtk-fullscreen\"
+				tooltip-text=\"'2' is the default, about half-screen size. '4' is pseudo fullscreen and 1 is small\">
+					<variable>scaling</variable>
+					<default>$SCALE</default>
+				</spinbutton>
+				<text><label>Slide Show Speed</label></text>
+				<spinbutton space-expand=\"true\" space-fill=\"false\" range-min=\"1000\" range-max=\"5000\" range-step=\"500\" xalign=\"1\" primary-icon-name=\"gtk-refresh\">
+					<variable>speed</variable>
+					<default>$TMR</default>
+				</spinbutton>
+				<checkbox tooltip-text=\"Start out with the Slide Show\">
+					<label>Start with Slide Show</label>
+					<variable>slideshow</variable>
+					<default>$SLIDE</default>
+				</checkbox>
+			</vbox>
+			</hbox>
+			<hbox>
+				<button><input file stock=\"gtk-cancel\"></input></button>
+				<button tooltip-text=\"$(gettext 'Save configuration')\">
+					<input file stock=\"gtk-save\"></input>
+					<action>exit:config</action>
+				</button>
+			</hbox>
+		</vbox>
+	</window>" 
+	eval $(gtkdialog -c -p CFG)
+	if [ "$EXIT" = 'config' ];then
+		echo SCALE=$scaling > $CONF
+		echo TMR=$speed >> $CONF
+		echo SLIDE=$slideshow >> $CONF
+		splash "$(gettext 'The program will restart when you press OK for settings to take effect')"
+		GUIPID=$(while read a;do [ "${a##* }" = 'IMGGUI' ] && echo ${a%% *};done <<<$(ps|grep IMGGUI))
+		kill -9 $GUIPID 2>&1 >/dev/null && exec ${PROG##*/}
+	fi
+}
+export -f _prefs
+
+copy_image() { # hacky way to support webp
+	OUT=$TMP/img
+	IN="$1"
+	case "$IN" in
+		*.webp|*.WEBP|*.WebP)
+			if ! which ffmpeg 2>&1 >/dev/null ;then
+				echo -n "${IN##*/}" > $TMP/current.txt && return 1
+			fi
+			ffmpeg -hide_banner -loglevel panic -i "$IN" $TMP/img.jpg
+			mv -f $TMP/img.jpg $OUT ;;
+		*.svgz)zcat -c "$IN" > $OUT ;; #compressed svg
+		*)
+			cp "$IN" $OUT ;;
+	esac
+	echo -n "${IN##*/}" > $TMP/current.txt
+	return 0
+}
+export -f copy_image
+
+image_next() { # next image in queue, can be reversed
+	x=$1
+	y=1
+	while true;do
+		CUR=`cat $TMP/current.txt`
+		CUR=${CUR##*/}
+		z=0
+		NUM=$(while read -r c;do z=$(($z+1));[ "$CUR" = "$c" ] && echo $z && break;done < $TMP/list.txt)
+		case $x in
+			0)NUM=$(($NUM - 1));;
+			1)NUM=$(($NUM + 1));;
+		esac
+		if [ $NUM -le 0 ];then NUM=$TOT
+		elif [ $NUM -gt $TOT ];then NUM=1
+		fi
+		NEW=`head -${NUM} $TMP/list.txt|tail -1`
+		TYPE=`file -b "${CWD}/$NEW"`
+		case $TYPE in
+			*image*|*bitmap*)copy_image "$CWD/$NEW" || y=$(($y + 1)) # no ffmpeg
+			break;;
+			symbolic*)
+			if file -b $(readlink "${CWD}/$NEW") | grep -qE 'image|bitmap' ;then
+				copy_image "$CWD/$NEW" || y=$(($y + 1)) # no ffmpeg
+				break
+			fi;;
+			*)case "$NEW" in 
+				*.svgz)copy_image "$CWD/$NEW" || y=$(($y + 1)) # compressed svg
+				break;;
+			  esac
+			y=$(($y + 1))
+			echo -n "$NEW" > $TMP/current.txt
+			if [ $y -ge 300 ];then
+				splash "$(gettext "No supported file types found in a timely manner. Press OK to exit.")"
+				exit
+			else
+				continue
+			fi;;
+		esac
+	done
+}
+export -f image_next
+
+edit_image() {
+	defaultimageeditor $CWD/`cat $TMP/current.txt`
+}
+export -f edit_image
+
+###### set up some stuff
+trap trap_exit EXIT
+
+for i in *;do [ ! -d "$i" ] && echo "$i" >> $TMP/list.txt;done
+sed -i 's/^ //g' $TMP/list.txt #leading space?
+cat $TMP/list.txt | wc -l > $TMP/total.txt
+read TOT <$TMP/total.txt
+export TOT
+
+if [ -z "$1" -o -d "$1" ];then
+	IMG0=`head -1 $TMP/list.txt`
+else
+	IMG0="${1##*/}"
+fi
+echo -n "$IMG0" > $TMP/current.txt
+if [ -h "$IMG0" ];then
+	file -b `readlink "$IMG0"` | grep -qE 'image|bitmap' || image_next 1
+	copy_image "$IMG0"
+elif file -b "$IMG0" | grep -qE 'image|bitmap';then
+	copy_image "$IMG0"
+elif echo "$IMG0" | grep -q '\.svgz$';then
+	copy_image "$IMG0"
+else
+	image_next 1
+fi
+
+###### main dialog
+export IMGGUI='<window title="Image Viewer" icon-name="imageview" decorated="'$DECO'" type-hint="'$HINT'">
+	<vbox>
+		<menubar>
+			<menu>
+				<menuitem stock-id="gtk-preferences">
+					<action>_prefs</action>
+				</menuitem>
+				<menuitem auto-refresh="true" stock-id="gtk-edit">
+					<action>edit_image &</action>
+				</menuitem>
+				<menuitem stock-id="gtk-quit">
+					<action>exit:Quit</action>
+				</menuitem>
+				<label>'$(gettext "File")'</label>
+			</menu>    
+			<menu>
+				<menuitem stock-id="gtk-help">
+					<action>_help &</action>
+				</menuitem>
+				<menuitem label="_Legal" use-underline="true" icon="gtk-file">
+					<action>defaultbrowser /usr/share/doc/legal/gpl-2.0.txt &</action>
+				</menuitem>
+				<label>'$(gettext "Help")'</label>
+			</menu>    
+		</menubar> 
+		<vbox height-request="'$VBOXY'" width-request="'$VBOXX'">
+			<pixmap>
+				<height>'$PIXY'</height>
+				<width>'$PIXX'</width>
+				<variable>PIXMAP</variable>
+				<input file>'$TMP'/img</input>
+			</pixmap>
+		</vbox>
+		<hbox homogeneous="true">
+			<text auto-refresh="true" tooltip-text="filename"><input file>'$TMP'/current.txt</input></text>
+		</hbox>
+		<hbox homogeneous="true">
+			<hbox>
+				<button tooltip-text="back or Back key on keyboard">
+					<input file stock="gtk-go-back"></input>
+					<variable>back</variable>
+					<action>image_next 0</action>
+					<action>refresh:PIXMAP</action>
+					<sensitive>'$MANUAL'</sensitive>
+				</button>
+				<button tooltip-text="forward or Forward key on keyboard">
+					<input file stock="gtk-go-forward"></input>
+					<variable>forward</variable>
+					<action>image_next 1</action>
+					<action>refresh:PIXMAP</action>
+					<sensitive>'$MANUAL'</sensitive>
+				</button>
+				<timer milliseconds="true" interval="'$TMR'" visible="false">
+					<variable>tmr</variable>
+					<action>image_next 1</action>
+					<action>refresh:PIXMAP</action>
+					<sensitive>'$SLIDE'</sensitive>
+				</timer>
+				<button tooltip-text="start slideshow or P key on keyboard">
+					<input file stock="gtk-media-play"></input>
+					<action>enable:tmr</action>
+					<action>disable:back</action>
+					<action>disable:forward</action>
+				</button>
+				<button tooltip-text="stop slideshow or S key on keyboard">
+					<input file stock="gtk-media-stop"></input>
+					<action>disable:tmr</action>
+					<action>enable:back</action>
+					<action>enable:forward</action>
+				</button>
+				<button cancel></button>
+			</hbox>
+		</hbox>
+	</vbox>
+	<action signal="key-press-event" condition="command_is_true([ $KEY_SYM = Left ] && echo true)">image_next 0</action>
+	<action signal="key-press-event" condition="command_is_true([ $KEY_SYM = Left ] && echo true)">refresh:PIXMAP</action>
+	<action signal="key-press-event" condition="command_is_true([ $KEY_SYM = Right ] && echo true)">image_next 1</action>
+	<action signal="key-press-event" condition="command_is_true([ $KEY_SYM = Right ] && echo true)">refresh:PIXMAP</action>
+	<action signal="key-press-event" condition="command_is_true([ $KEY_SYM = q ] && echo true)">exit:QUIT</action>
+	<action signal="key-press-event" condition="command_is_true([ $KEY_SYM = p ] && echo true)">enable:tmr</action>
+	<action signal="key-press-event" condition="command_is_true([ $KEY_SYM = p ] && echo true)">disable:back</action>
+	<action signal="key-press-event" condition="command_is_true([ $KEY_SYM = p ] && echo true)">disable:forward</action>
+	<action signal="key-press-event" condition="command_is_true([ $KEY_SYM = s ] && echo true)">disable:tmr</action>
+	<action signal="key-press-event" condition="command_is_true([ $KEY_SYM = s ] && echo true)">enable:back</action>
+	<action signal="key-press-event" condition="command_is_true([ $KEY_SYM = s ] && echo true)">enable:forward</action>
+</window>'
+
+gtkdialog -p IMGGUI $GEO 2>&1 >/dev/null
+
+###### end
