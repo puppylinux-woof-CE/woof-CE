@@ -54,6 +54,25 @@ cleanup() {
 	rm -f $TRACKER $FLATTEN
 }
 
+add_specs() {
+		> $CHROOT_DIR/etc/DISTRO_SPECS cat << EOF
+DISTRO_NAME='$DISTRO_PREFIX Puppy'
+DISTRO_VERSION='$DISTRO_VERSION'
+DISTRO_BINARY_COMPAT='$SOURCE'
+DISTRO_FILE_PREFIX='${DISTRO_PREFIX}pup'
+DISTRO_COMPAT_VERSION='$VERSION'
+DISTRO_XORG_AUTO='yes'
+DISTRO_TARGETARCH='$TARGET_ARCH'
+DISTRO_DB_SUBNAME='$SOURCE'
+DISTRO_PUPPYSFS=$PUPPY_SFS
+DISTRO_ZDRVSFS=kernel-modules.sfs
+DISTRO_FDRVSFS=fdrv.sfs
+DISTRO_ADRVSFS=adrv.sfs
+DISTRO_YDRVSFS=ydrv.sfs
+EOF
+
+}
+
 ### prepare critical dirs
 prepare_dirs() {
 	rm -rf $CHROOT_DIR
@@ -323,6 +342,8 @@ install_from_dir() {
 import_dir() {
 	while [ "$1" ]; do
 		[ -d "$1" ] && echo "Importing $1 ..." && cp -a "$1"/* $CHROOT_DIR
+		[ -f "$CHROOT_DIR"/pinstall.sh ] && ( cd "$CHROOT_DIR"; sh pinstall.sh )
+		rm -f "$CHROOT_DIR"/pinstall.sh
 		shift
 	done
 }
@@ -619,6 +640,7 @@ params() {
 params "$@"
 sanity_check
 prepare_dirs
+add_specs
 add_multiple_repos $DEFAULT_REPOS
 echo Flattening $PKGLIST ...
 flatten_pkglist $PKGLIST > $FLATTEN

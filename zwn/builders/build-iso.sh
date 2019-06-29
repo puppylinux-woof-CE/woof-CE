@@ -26,7 +26,7 @@ WOOFCE=${WOOFCE:-..}
 ###
 BUILD_CONFIG=${BUILD_CONFIG:-./build.conf}
 [ -e $BUILD_CONFIG ] && . $BUILD_CONFIG
-
+[ -z "$NAME" ] && NAME=$SOURCE
 
 ### helpers
 install_kernel() {
@@ -60,11 +60,11 @@ install_initrd() {
 
 	# create minimal distro specs, read woof's docs to get the meaning
 	> initrd-progs/DISTRO_SPECS cat << EOF
-DISTRO_NAME='$SOURCE Puppy'
+DISTRO_NAME='$DISTRO_PREFIX Puppy'
 DISTRO_VERSION='$DISTRO_VERSION'
 DISTRO_BINARY_COMPAT='$SOURCE'
-DISTRO_FILE_PREFIX='$SOURCE'
-DISTRO_COMPAT_VERSION='$SOURCE'
+DISTRO_FILE_PREFIX='${DISTRO_PREFIX}pup'
+DISTRO_COMPAT_VERSION='$VERSION'
 DISTRO_XORG_AUTO='yes'
 DISTRO_TARGETARCH='$TARGET_ARCH'
 DISTRO_DB_SUBNAME='$SOURCE'
