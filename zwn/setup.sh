@@ -8,21 +8,14 @@
 MWD=$(pwd)
 WORK_DIR=${WORK_DIR:-./workdir}
 HOST_ARCH=${HOST_ARCH:-$(uname -m)}
+NAME=${NAME:-puppy}
+DISTRO_VER=${DISTRO_VER:-899}
 #TARGET_ARCH= # inherit or ask
 #SOURCE=      # source distro - inherit or ask
 #VERSION=     # distro version - inherit or ask
 #CROSS=       # automatically set - currently cross-build is not supported yet
 KERNEL_URL=${KERNEL_URL:-http://distro.ibiblio.org/puppylinux/huge_kernels}
 #KERNEL_TARBALL # inherit or ask
-
-if [ -f ./merge2out ] ; then
-	LOCAL_REPOSITORIES=$(realpath ../local-repositories)
-else
-	LOCAL_REPOSITORIES=$(realpath ../../local-repositories)
-fi
-WOOF_ARCH_REPO='http://01micko.com/wdlkmpx/woof-CE'
-WOOF_ARCH_FILE='woof-arch-2019-05-08.tar.xz'
-WOOF_ARCH_MD5='789311995bd9b2ba740da305a71e9e37'
 
 ### helpers
 
@@ -90,12 +83,13 @@ get_kernel() {
 	# prepare filters
 	case $TARGET_ARCH in
 		x86) filter="grep -v 64" ;;
+		arm*) filter="grep ^kit" ;;
 		*)   filter="grep 64" ;;
 	esac
 	p=${KERNEL_URL##*//}; p=${p%%/*}
 	echo Getting list of available kernels from $p ...
 	kernels=$(wget -q -O - $KERNEL_URL | 
-	          sed '/href/!d; /\.tar\./!d; /md5\.txt/d; s/.*href="//; s/".*//' |
+	          sed '/href/!d; /\.tar\./!d; /md5\.txt/d; /sha256\.txt/d; s/.*href="//; s/".*//' |
 	          $filter)
 	get_selection "Please select kernel" KERNEL_TARBALL "$kernels $(printf "\nI will build my own later.")"
 	
@@ -105,12 +99,25 @@ get_kernel() {
 	esac
 }
 
+choose_prefix() { # DISTRO_FILE_PREFIX
+	echo "Choose a distro name or leave blank (no spaces)"
+	read name
+	[ -n "$name" ] && NAME=$name
+}
+
+choose_version() { # DISTRO_VERSION
+	echo "Choose a distro version or leave blank (3 or 4 digits)"
+	read ver
+	[ -n "$ver" ] && DISTRO_VER=$ver
+}
+
 map_target_arch() { # as needed to meet source distro name
 	case $SOURCE in
-		ubuntu|debian)
+		ubuntu|debian|devuan)
 			case $TARGET_ARCH in
 				x86)    MAPPED_ARCH=i386 ;;
 				x86_64) MAPPED_ARCH=amd64 ;;
+				arm*) MAPPED_ARCH=armhf ;;
 			esac ;;
 		*)
 			MAPPED_ARCH=$TARGET_ARCH ;;
@@ -134,7 +141,7 @@ prepare_work_dir() {
 	cat > $WORK_DIR/build.conf << EOF
 ### For SFS builders ###
 HOST_ARCH='$HOST_ARCH'
-TARGET_ARCH='$TARGET_ARCH'
+TARGET_ARCH='$MAPPED_ARCH'
 SOURCE='$SOURCE'
 CROSS='$CROSS'
 WOOFCE='$(pwd)'
@@ -143,8 +150,8 @@ WOOFCE='$(pwd)'
 ARCH='$MAPPED_ARCH'
 PKGLIST=basesfs # or devx
 VERSION='$MAPPED_VERSION'
-#DISTRO_PREFIX=puppy
-#DISTRO_VERSION=700
+DISTRO_PREFIX='$NAME'
+DISTRO_VERSION='$DISTRO_VER'
 
 REPO_DIR=repo-\$VERSION-\$ARCH
 CHROOT_DIR=chroot-\$VERSION-\$ARCH
@@ -171,6 +178,7 @@ EOF
 
 	ln -snfv $(pwd)/builders/$SOURCE-build.sh $WORK_DIR/build-sfs.sh
 	ln -snfv $(pwd)/builders/build-iso.sh $WORK_DIR/build-iso.sh
+	ln -snfv $(pwd)/builders/build-tar.sh $WORK_DIR/build-tar.sh
 	ln -snfv $(pwd)/builders/runqemu.sh $WORK_DIR/runqemu.sh
 	ln -snfv $(pwd)/builders/xlog $WORK_DIR/xlog
 
@@ -179,7 +187,7 @@ EOF
 	#============================================
 	WOOF_OUT=$WORK_DIR
 	
-	sdirs='initrd-progs kernel-kit woof-code'
+	sdirs='initrd-progs kernel-kit woof-arch woof-code'
 
 	# as files/dirs could be removed in future woofs, need to wipe entire target dirs first...
 	for d in $sdirs
@@ -197,6 +205,48 @@ EOF
 	sync
 	(
 	cd ${WOOF_OUT}
+	mkdir -p z_doc/usr/share/
+	cp -ar woof-code/rootfs-skeleton/usr/share/doc z_doc/usr/share/
+	)
+	cat > ${WOOF_OUT}/z_doc/pinstall.sh << _EOF
+#!/bin/sh
+	. etc/DISTRO_SPECS
+
+echo "Configuring Puppy Help page..."
+
+cutDISTRONAME="\$(echo -n "$DISTRO_NAME" | cut -f 1 -d ' ')"
+cPATTERN="s/cutDISTRONAME/\${cutDISTRONAME}/g"
+PUPPYDATE="\$(date | tr -s " " | cut -f 2,6 -d " ")"
+RELEASE_DATE="\$(date "+%B, %Y")"
+dPATTERN="s/PUPPYDATE/\${PUPPYDATE}/g"
+rPATTERN="s/RELEASE_DATE/\${RELEASE_DATE}/g"
+PATTERN2="s/DISTRO_VERSION/\${DISTRO_VERSION}/g"
+nPATTERN="s/DISTRO_NAME/\${DISTRO_NAME}/g"
+sed -i -e "\$PATTERN2" -e "\$nPATTERN" -e "\$dPATTERN" -e "\$cPATTERN" usr/share/doc/index.html.top
+sed -i -e "\$PATTERN2" -e "\$nPATTERN" -e "\$dPATTERN" usr/share/doc/index.html.bottom
+
+(
+	cat usr/share/doc/index.html.top
+	cat usr/share/doc/index.html.bottom
+) > usr/share/doc/index.html
+
+sed -i -e "\$nPATTERN" usr/share/doc/home.htm
+
+if [ -f usr/share/doc/release-skeleton.top.htm ] ; then
+	(
+		sed -e "\$PATTERN2" -e "\$nPATTERN" -e "\$rPATTERN" usr/share/doc/release-skeleton.top.htm
+		sed -e "\$PATTERN2" -e "\$nPATTERN" -e "\$rPATTERN" usr/share/doc/release-skeleton.bottom.htm
+	) > usr/share/doc/release-\${cutDISTRONAME}-\${DISTRO_VERSION}.htm
+fi
+
+rm -f usr/share/doc/release-skeleton.*
+
+
+_EOF
+	chmod 755 ${WOOF_OUT}/z_doc/pinstall.sh
+	sync
+	(
+	cd ${WOOF_OUT}
 	for d in $sdirs huge_kernel
 	do
 		[ -d "${d}" ] && find $d -type f -name EMPTYDIRMARKER -delete
@@ -209,29 +259,6 @@ EOF
 	do
 		rm -fv ${WOOF_OUT}/woof-code/rootfs-skeleton/${i}
 	done
-
-	#============================================
-
-	mkdir -p $LOCAL_REPOSITORIES
-	(
-		cd $LOCAL_REPOSITORIES
-		if [ ! -f ${WOOF_ARCH_FILE} ] ; then
-			wget --no-check-certificate ${WOOF_ARCH_REPO}/${WOOF_ARCH_FILE}
-		fi
-		echo "$WOOF_ARCH_MD5 $WOOF_ARCH_FILE" | md5sum -c
-	) || exit 1
-
-	rm -rf ${WOOF_OUT}/woof-arch
-	tar --directory=${WOOF_OUT} -xaf ${LOCAL_REPOSITORIES}/${WOOF_ARCH_FILE} || {
-		rm -rf ${WOOF_OUT}/woof-arch
-	}
-
-	if ! [ -d ${WOOF_OUT}/woof-arch ] ; then
-		echo "ERROR: need ${WOOF_OUT}/woof-arch"
-		exit 1
-	fi
-
-	#============================================
 
 	# distro-specific tools
 	case $SOURCE in
@@ -248,9 +275,11 @@ Directory '$WORK_DIR' has been prepare for your build.
 Your configuration is as follows:
 ---
 Host arch:      $HOST_ARCH
-Target arch:    $TARGET_ARCH
+Target arch:    $MAPPED_ARCH
 Source distro:  $SOURCE
 Source version: $VERSION
+Distro name:    $NAME
+Distro version: $DISTRO_VER
 Cross-build:    $([ $CROSS ] && echo yes || echo no)
 ---
 The default pkglist and repo-url has been copied to '$WORK_DIR'. 
@@ -267,6 +296,8 @@ sanity_check "$@"
 get_target_arch
 get_source_distro
 get_kernel
+choose_prefix
+choose_version
 map_target_arch
 map_version
 prepare_work_dir
