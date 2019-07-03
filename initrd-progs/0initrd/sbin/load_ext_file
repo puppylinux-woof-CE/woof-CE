@@ -23,6 +23,8 @@ SAVE_SZ_FN=""
 
 rm -f /tmp/savefile_loop
 
+#===================================================================
+
 #-- resize savefile?.. see /usr/sbin/resizepfile.sh
 # resizepfile.sh creates pupsaveresizenew.txt with 2 variables
 #    KILOBIG=32768
@@ -53,23 +55,72 @@ if [ -f "$RESIZE_FN" ] ; then
   fi
 fi
 
+#===================================================================
+
 # is the ${DISTRO_FILE_PREFIX}save encrypted?...
 SFFS=$(blkid "$SAVE_FN" | grep -o ' TYPE=".*' | cut -f 2 -d '"')
 
+ENCRYPTION=''
 if [ "$SFFS" = "crypto_LUKS" ] ; then
-  ln -sv /pup_new/lib/modules/${KERNELVER} /lib/modules/${KERNELVER}
-  if [ ! -e /bin/cryptsetup ] ; then
-    if [ -e /pup_new/sbin/cryptsetup-static ] ; then
-      ln -sv /pup_new/sbin/cryptsetup-static /bin/cryptsetup
-    elif [ -e /pup_new/sbin/cryptsetup ] ; then
-      ln -sv /pup_new/sbin/cryptsetup /bin/cryptsetup
+  ENCRYPTION='luks'
+else
+  case $SAVE_FN in 
+    *_cryptx*) ENCRYPTION='cryptoloop' ;; #old cryptoloop light encryption
+    *_crypta*) ENCRYPTION='luks' ; LOOPAES=1 ;; #old cryptoloop aes
+  esac
+fi
+
+#===================================================================
+
+check_bin() {
+  app=$1
+  if [ ! -e /bin/${app} ] ; then
+    if [ -e /pup_new/sbin/${app}-static ] ; then
+      ln -sv /pup_new/sbin/${app}-static /bin/${app}
+    elif [ -e /pup_new/sbin/${app} ] ; then
+      ln -sv /pup_new/sbin/${app} /bin/${app}
     fi
   fi
+  if [ ! -e /bin/${app} ] ; then
+    (
+    echo -e "\\033[1;31m" #31=red
+    echo "Cannot load savefile - ${app} is not available"
+    echo "Please include a static /sbin/${app} in the main sfs"
+    echo -e "\\033[0;39m"
+    echo -n "Press enter to continue booting in RAM only..."
+    ) > /dev/console
+    read zzz
+    exit
+  fi
+}
+
+if [ "$ENCRYPTION" = "luks" ] ; then
+  ln -sv /pup_new/lib/modules/${KERNELVER} /lib/modules/${KERNELVER}
+  check_bin cryptsetup
   modprobe dm-crypt || ERROR_M_DESC="\nOr maybe the kernel doesn't properly support dm-crypt"
   modprobe xts || ERROR_M_DESC="\nOr maybe the kernel doesn't properly support dm-crypt"
+  SAVEFILE_LOOP='/dev/mapper/savefile'
+  if [ "$LOOPAES" ] ; then # old cryptoloop aes (heavy encryption)
+    CS_OPTS='-M plain -c aes-cbc-plain -h plain open'
+  else
+    CS_OPTS='luksOpen -v'
+  fi
+elif [ "$ENCRYPTION" = "cryptoloop" ] ; then
+  ln -sv /pup_new/lib/modules/${KERNELVER} /lib/modules/${KERNELVER}
+  check_bin losetup-222
+  modprobe cryptoloop || ERROR_M_DESC="\nOr maybe the kernel doesn't properly support cryptoloop"
+  SAVEFILE_LOOP="$(losetup -f)"
+fi
+
+#===================================================================
+
+if [ "$ENCRYPTION" = "" ] ; then
+  SAVEFILE_LOOP="$(losetup -f)"
+  losetup $SAVEFILE_LOOP $SAVE_FN
+
+else
   while [ 1 ]
   do
-    SAVEFILE_LOOP="$(losetup -f)"
     #mount encrypted savefile
     echo -e "\n${L_PASSWORD_MSG_1}\n${L_PASSWORD_MSG_2}"  >/dev/console
     echo "Special passwords: r = reboot / c = console"  >/dev/console
@@ -79,41 +130,40 @@ if [ "$SFFS" = "crypto_LUKS" ] ; then
        r|R) reboot ;;
        c|C) exec /bin/sh >/dev/console 2>&1 ;;
     esac
-    losetup $SAVEFILE_LOOP $SAVE_FN
-    echo -n "$MYPASS" | cryptsetup luksOpen -v $SAVEFILE_LOOP savefile -
-    if [ $? -ne 0 ] ; then
-      cryptsetup luksClose savefile
-      losetup -d $SAVEFILE_LOOP
-      echo -e "\\033[1;31m\nYou entered a wrong password (most likely). $ERROR_M_DESC \\033[0;39m" >/dev/console
-      continue
+    # exit code is not reliable, SAVEFILE_LOOP must be recognized by blkid
+    if [ "$ENCRYPTION" = "luks" ] ; then
+      echo "++ cryptsetup ${CS_OPTS} $SAVE_FN savefile -" #debug
+      echo -n "$MYPASS" | cryptsetup ${CS_OPTS} "$SAVE_FN" savefile -
+      SFFS=$(blkid $SAVEFILE_LOOP | grep -o ' TYPE=".*' | cut -f 2 -d '"')
+      if ! [ "$SFFS" ] ; then
+        # cryptsetup loads the cryptoloop aes savefile even when
+        # the provided password is wrong, have to close it
+        [ -e /dev/mapper/savefile ] && cryptsetup close savefile
+        echo -e "\\033[1;31m\nYou probably entered a wrong password. $ERROR_M_DESC \\033[0;39m" >/dev/console
+        continue
+      fi
+    else # old light cryptoloop encryption
+      echo "++ losetup-222 -p 0 -e 1 $SAVEFILE_LOOP $SAVE_FN" #debug
+      echo "$MYPASS" | losetup-222 -p 0 -e 1 $SAVEFILE_LOOP "$SAVE_FN"
+      # losetup-222 mounts the loop file even when the provided password is wrong
+      # and blkid misdetects the filesystem (ext2->ext4)
+      SFFS=$(blkid $SAVEFILE_LOOP | grep -o ' TYPE=".*' | cut -f 2 -d '"')
+      if [ "$SFFS" != "ext2" ] ; then
+        losetup -d $SAVEFILE_LOOP 2>/dev/null
+        echo -e "\\033[1;31m\nYou probably entered a wrong password. $ERROR_M_DESC \\033[0;39m" >/dev/console
+        continue
+      fi
     fi
-    SAVEFILE_LOOP_PREV=$SAVEFILE_LOOP
-    SAVEFILE_LOOP=/dev/mapper/savefile #hack
-    SFFS=ext4
-    break
+    sync
+    break #password ok
   done
-else # unencrypted savefile
-  if echo "$SAVE_FN" | grep -q '_crypt' ; then
-    (
-    echo -e "\\033[1;31m" #31=red
-    echo "- ${SAVE_FN##*/} -"
-    echo "Your savefile name contains: *_crypt*"
-    echo "It's probably an old cryptoloop savefile. No longer supported.. will not use it."
-    echo "However you can open it to see its contents by clicking on it (filemnt)"
-    echo -e "\\033[0;39m"
-    echo -n "Press enter to continue... "
-    ) > /dev/console
-    read zzz
-    echo 'Warning: old cryptoloop savefile... setting PUPSAVE=""' #debug
-    exit
-  fi
-  SAVEFILE_LOOP="$(losetup -f)"
-  losetup $SAVEFILE_LOOP $SAVE_FN
 fi
+
+#===================================================================
 
 if [ "$PFSCK" = "yes" ] ; then # $PFSCK - exported by init
   echo "" > /dev/console
-  e2fsck -y "$SAVEFILE_LOOP"
+  e2fsck -y "$SAVEFILE_LOOP" &>/dev/console
 fi
 
 if [ "$SAVE_SZ_FN" ] ; then
