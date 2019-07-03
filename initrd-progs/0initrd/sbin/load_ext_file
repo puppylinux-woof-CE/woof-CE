@@ -1,0 +1,132 @@
+#!/bin/sh
+# called by init
+#
+# params: 
+#   $1: /path/to/savefile.4fs
+#   $2: $SAVE_MP
+#
+# creates /tmp/savefile_loop with the following variables
+#   $SAVEFILE_LOOP $SFFS (it must be sourced)
+#
+
+L_CANNOT_RESIZE_PUPSAVE="SORRY, cannot resize %s" #printf
+L_INCREASING_PUPSAVE='Increasing %s by %s Kbytes, please wait...' #printf
+L_PASSWORD="Password:"
+L_PASSWORD_MSG_1="NOTICE: As you type your password nothing will be displayed on the screen."
+L_PASSWORD_MSG_2="This is a security measure. Just type it in then press ENTER key..."
+L_CONTINUING_LOADING="...continuing with loading %s..." #printf
+
+SAVE_FN="$1" # ex: /mnt/dev_save/PLINUX/32bit/stretchsave_luks.4fs
+SAVE_MP="$2" #
+SAVE_SZ_FN=""
+[ -z "$KERNELVER" ] && KERNELVER="$(uname -r)"
+
+rm -f /tmp/savefile_loop
+
+#-- resize savefile?.. see /usr/sbin/resizepfile.sh
+# resizepfile.sh creates pupsaveresizenew.txt with 2 variables
+#    KILOBIG=32768
+#    PUPSAVEFILEX=/PLINUX/32bit/stretchsave_luks.4fs
+RESIZE_FN="$(dirname $SAVE_FN)/pupsaveresizenew.txt"
+#delete following line when resize file location is fixed
+if ! [ -f "$RESIZE_FN" ] ; then
+  RESIZE_FN="${SAVE_MP}/pupsaveresizenew.txt"
+fi
+if [ -f "$RESIZE_FN" ] ; then
+  #(1) resize extX file. see below (2)
+  . $RESIZE_FN #$PUPSAVEFILEX $KILOBIG
+  if echo "$SAVE_FN" | grep "$PUPSAVEFILEX" ; then
+    echo "* Will attempt to resize savefile" #debug
+    if [ ! -e /bin/resize2fs ];then
+      echo -en "\\033[1;31m" > /dev/console
+      echo -n "$(printf "${L_CANNOT_RESIZE_PUPSAVE}" "$PUPSAVEFILEX")" > /dev/console #31=red
+      echo -en "\\033[0;39m" > /dev/console
+      rm -f $RESIZE_FN
+    else
+      SAVE_SZ_FN="$SAVE_FN"
+      rm -f $RESIZE_FN
+      echo > /dev/console
+      echo -n "$(printf "${L_INCREASING_PUPSAVE}" "$PUPSAVEFILEX" "$KILOBIG")" >/dev/console
+      dd if=/dev/zero bs=1024 count=$KILOBIG >> $SAVE_SZ_FN
+      sync
+    fi
+  fi
+fi
+
+# is the ${DISTRO_FILE_PREFIX}save encrypted?...
+SFFS=$(blkid "$SAVE_FN" | grep -o ' TYPE=".*' | cut -f 2 -d '"')
+
+if [ "$SFFS" = "crypto_LUKS" ] ; then
+  ln -sv /pup_new/lib/modules/${KERNELVER} /lib/modules/${KERNELVER}
+  if [ ! -e /bin/cryptsetup ] ; then
+    if [ -e /pup_new/sbin/cryptsetup-static ] ; then
+      ln -sv /pup_new/sbin/cryptsetup-static /bin/cryptsetup
+    elif [ -e /pup_new/sbin/cryptsetup ] ; then
+      ln -sv /pup_new/sbin/cryptsetup /bin/cryptsetup
+    fi
+  fi
+  modprobe dm-crypt || ERROR_M_DESC="\nOr maybe the kernel doesn't properly support dm-crypt"
+  modprobe xts || ERROR_M_DESC="\nOr maybe the kernel doesn't properly support dm-crypt"
+  while [ 1 ]
+  do
+    SAVEFILE_LOOP="$(losetup -f)"
+    #mount encrypted savefile
+    echo -e "\n${L_PASSWORD_MSG_1}\n${L_PASSWORD_MSG_2}"  >/dev/console
+    echo "Special passwords: r = reboot / c = console"  >/dev/console
+    echo -en "\\033[1;36m${L_PASSWORD} \\033[0;39m" >/dev/console #aqua-blue
+    read -s MYPASS
+    case $MYPASS in
+       r|R) reboot ;;
+       c|C) exec /bin/sh >/dev/console 2>&1 ;;
+    esac
+    losetup $SAVEFILE_LOOP $SAVE_FN
+    echo -n "$MYPASS" | cryptsetup luksOpen -v $SAVEFILE_LOOP savefile -
+    if [ $? -ne 0 ] ; then
+      cryptsetup luksClose savefile
+      losetup -d $SAVEFILE_LOOP
+      echo -e "\\033[1;31m\nYou entered a wrong password (most likely). $ERROR_M_DESC \\033[0;39m" >/dev/console
+      continue
+    fi
+    SAVEFILE_LOOP_PREV=$SAVEFILE_LOOP
+    SAVEFILE_LOOP=/dev/mapper/savefile #hack
+    SFFS=ext4
+    break
+  done
+else # unencrypted savefile
+  if echo "$SAVE_FN" | grep -q '_crypt' ; then
+    (
+    echo -e "\\033[1;31m" #31=red
+    echo "- ${SAVE_FN##*/} -"
+    echo "Your savefile name contains: *_crypt*"
+    echo "It's probably an old cryptoloop savefile. No longer supported.. will not use it."
+    echo "However you can open it to see its contents by clicking on it (filemnt)"
+    echo -e "\\033[0;39m"
+    echo -n "Press enter to continue... "
+    ) > /dev/console
+    read zzz
+    echo 'Warning: old cryptoloop savefile... setting PUPSAVE=""' #debug
+    exit
+  fi
+  SAVEFILE_LOOP="$(losetup -f)"
+  losetup $SAVEFILE_LOOP $SAVE_FN
+fi
+
+if [ "$PFSCK" = "yes" ] ; then # $PFSCK - exported by init
+  echo "" > /dev/console
+  e2fsck -y "$SAVEFILE_LOOP"
+fi
+
+if [ "$SAVE_SZ_FN" ] ; then
+  #(2) resize extX filesystem - fill extX file. see above (1)
+  [ "$PFSCK" != "yes" ] && e2fsck -y "$SAVEFILE_LOOP"
+  resize2fs -pf "$SAVEFILE_LOOP" #no size, will fill all of file.
+  echo -n "$(printf "${L_CONTINUING_LOADING}" "$PUPSAVEFILE")" > /dev/console
+  sync
+fi
+
+(
+  echo "SAVEFILE_LOOP=$SAVEFILE_LOOP"
+  echo "SFFS=$SFFS"
+) > /tmp/savefile_loop
+
+### END ###
