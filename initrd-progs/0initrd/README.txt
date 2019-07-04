@@ -215,21 +215,13 @@ pimod=<, separated list of kernel module names>
    But sometimes init needs to request input from the user via the keyboard.
    Specifying kernel modules in this parameter will cause init to load them before any possible keyboard interaction.
 
-pdebug=y
-   Turns on the writing of debug messages to /tmp/bootinit.log to help fixing bugs.
-   If the boot succeeds to desktop this file is available as /initrd/tmp/bootinit.log
-   update: this is always enabled by default.
-
-underdog=<a partition name>
-   Activates the underdog facility using the named partition as the Linux installation to load under Puppy.
- 
 pfix=<ram, nox, trim, nocopy, fsck, fsckp, rdsh, <number>>
    The pfix parameter is a ',' separated list of 1 or more of the above sub-parameters.
    ram:      run in ram only (do not load ${DISTRO_FILE_PREFIX}save).
    nox:      do not start X.
-   xorgwizard: force xorgwizard-cli for the current session
    trim:     add "discard" to mount options if SSD.
-   nocopy:   do not copy .sfs files into ram (default is copy if enough ram).
+   copy:     copy .sfs files into ram
+   nocopy:   do not copy .sfs files into ram (default is copy if ram <= 1024 MB).
    fsck:     do fsck of ${DISTRO_FILE_PREFIX}save.?fs file.
    fsckp:    do fsck before first mount of supported partitions.
    rdsh:     exit to shell in initial ramdisk.
@@ -250,14 +242,11 @@ initmodules.txt
    Contains a list of kernel modules that init loads before any keyboard interaction.
    Usually these are modules needed for the keyboard to work.
 
-underdog.lnx
-   Contains the name of the partition containing the Linux installation to be used under Puppy.
-
 BOOT_SPECS
    This is a file that sets variables, like DISTRO_SPECS. But it is meant to be for the user to override the variables normally set by boot parameters.
    It can also be used to set other variables in init, e.g. "TZ='XXX-10'" sets the timezone in init to Queensland, Australia.
    The idea is that there is a copy of this file in user space, the user edits this file and then stores a copy of it in initrd.gz.
-   This file could also be used instead of specific parameter files like underdog.lnx and initmodules.txt and even SAVEMARK.
+   This file could also be used instead of specific parameter files like initmodules.txt and even SAVEMARK.
    Part of this concept is to move the complication out of init into the running system.
 
 
@@ -276,6 +265,3 @@ for a file with this base name:
  ${DISTRO_FILE_PREFIX}save - is the fixed base name for all pupsave folders
  ${DISTRO_FILE_PREFIX}save.?fs - is the fixed base name for all pupsave files
 
-Any file having that base name is identified as a pupsave.
-If the pupsave happens to be fake or corrupted, the script will show an error message
-and will continue with the boot process in PUPMODE 5 (first boot).
