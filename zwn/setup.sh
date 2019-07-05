@@ -89,7 +89,7 @@ get_kernel() {
 	p=${KERNEL_URL##*//}; p=${p%%/*}
 	echo Getting list of available kernels from $p ...
 	kernels=$(wget -q -O - $KERNEL_URL | 
-	          sed '/href/!d; /\.tar\./!d; /md5\.txt/d; /sha256\.txt/d; s/.*href="//; s/".*//' |
+	          sed '/href/!d; /\.tar\./!d; /md5\.txt/d; /sha256\.txt/d; s/.*href="//; s/".*//; s/%2B/+/;' |
 	          $filter)
 	get_selection "Please select kernel" KERNEL_TARBALL "$kernels $(printf "\nI will build my own later.")"
 	
@@ -207,6 +207,7 @@ EOF
 	cd ${WOOF_OUT}
 	mkdir -p z_doc/usr/share/
 	cp -ar woof-code/rootfs-skeleton/usr/share/doc z_doc/usr/share/
+	cp -arf woof-arch/${TARGET_ARCH}/target/rootfs-skeleton/* woof-code/rootfs-skeleton
 	)
 	cat > ${WOOF_OUT}/z_doc/pinstall.sh << _EOF
 #!/bin/sh
