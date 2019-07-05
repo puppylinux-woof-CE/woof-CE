@@ -89,7 +89,7 @@ get_kernel() {
 	p=${KERNEL_URL##*//}; p=${p%%/*}
 	echo Getting list of available kernels from $p ...
 	kernels=$(wget -q -O - $KERNEL_URL | 
-	          sed '/href/!d; /\.tar\./!d; /md5\.txt/d; /sha256\.txt/d; s/.*href="//; s/".*//; s/%2B/+/;' |
+	          sed '/href/!d; /\.tar\./!d; /md5\.txt/d; /sha256\.txt/d; s/.*href="//; s/".*//; s/%2b/+/;' |
 	          $filter)
 	get_selection "Please select kernel" KERNEL_TARBALL "$kernels $(printf "\nI will build my own later.")"
 	
