@@ -1,7 +1,7 @@
 #!/bin/sh
 
 #Remove dynamically created files...
-if ! which frisbee &>/dev/null;then
+if ! which frisbee >/dev/null 2>&1;then
  rm -f /etc/ppp/chatscripts/gprs-*_command
  rm -f /etc/ppp/peers/gprs-generated 2>/dev/null
  rm -f /etc/ppp/peers/gprs-auth 2>/dev/null

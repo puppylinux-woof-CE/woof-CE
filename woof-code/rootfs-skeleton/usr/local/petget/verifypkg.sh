@@ -14,8 +14,8 @@ case $DLPKG in
 		rm -rf tempfileonly.*
 		exit $RETVAL
 		;;
-	*.deb) dpkg-deb --contents "$DLPKG" &>/dev/null ; exit $? ;;
-	*.t[gx]z|*.tar.*) tar -tf "$DLPKG" &>/dev/null ; exit $? ;;
+	*.deb) dpkg-deb --contents "$DLPKG" >/dev/null 2>&1 ; exit $? ;;
+	*.t[gx]z|*.tar.*) tar -tf "$DLPKG" >/dev/null 2>&1 ; exit $? ;;
 esac
 
 ### END ###

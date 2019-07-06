@@ -67,7 +67,7 @@ function use_prebuilt_binaries() {
 	zfile=0sources/${PREBUILT_BINARIES##*/}
 	if [ -f "$zfile" ] ; then
 		#verify file integrity
-		tar -tf "$zfile" &>/dev/null || rm -f "$zfile"
+		tar -tf "$zfile" >/dev/null 2>&1 || rm -f "$zfile"
 	fi
 	if [ ! -f "$zfile" ] ; then
 		mkdir -p 0sources

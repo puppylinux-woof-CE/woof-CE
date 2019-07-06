@@ -11,7 +11,7 @@ mkdir -p /tmp/services
 	echo "PATH='${PATH}'"
 ) > /tmp/services/user_info
 
-if which Xorg &>/dev/null ; then
+if which Xorg >/dev/null 2>&1 ; then
    #want to go straight into X on bootup only...
    if [ ! -f /tmp/bootcnt.txt ] ; then
       touch /tmp/bootcnt.txt

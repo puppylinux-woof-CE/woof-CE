@@ -55,11 +55,11 @@ export LOCAL_REPOSITORIES
 
 ## Dependency check...
 for app in git gcc make ; do
-	$app --version &>/dev/null || exit_error "\033[1;31m""$app is not installed""\033[0m"
+	$app --version >/dev/null 2>&1 || exit_error "\033[1;31m""$app is not installed""\033[0m"
 done
-which mksquashfs &>/dev/null || exit_error "\033[1;30m""mksquashfs is not installed""\033[0m"
+which mksquashfs >/dev/null 2>&1 || exit_error "\033[1;30m""mksquashfs is not installed""\033[0m"
 log_ver #funcs.sh
-which cc &>/dev/null || ln -sv $(which gcc) /usr/bin/cc
+which cc >/dev/null 2>&1 || ln -sv $(which gcc) /usr/bin/cc
 
 if [ "$AUTO" = "yes" ] ; then
 	[ ! "$DOTconfig_file" -a ! "$USE_GIT_KERNEL_CONFIG" ] && exit_error "Must specify DOTconfig_file=<file> in build.conf"
@@ -479,7 +479,7 @@ else
 		fw_pkg=${fw_pkg##* }
 		if [ -f sources/${fw_pkg} ] ; then
 			log_msg "Verifying sources/${fw_pkg}"
-			tar -tf sources/${fw_pkg} &>/dev/null
+			tar -tf sources/${fw_pkg} >/dev/null 2>&1
 			[ $? -ne 0 ] && exit_error "failed verify ${fw_pkg##* }"
 		else
 			log_msg "You chose ${fw_pkg}. If that isn't correct change it manually later."
@@ -612,7 +612,7 @@ do
 	sed -i 's|#define CONSOLE_LOGLEVEL_DEFAULT .*|#define CONSOLE_LOGLEVEL_DEFAULT 3|' $i
 	sed -i 's|#define DEFAULT_CONSOLE_LOGLEVEL .*|#define DEFAULT_CONSOLE_LOGLEVEL 3|' $i
 	sed -i 's|#define MAX_CMDLINECONSOLES .*|#define MAX_CMDLINECONSOLES 5|' $i
-	diff -q ${i}.orig ${i} &>/dev/null || diff -up ${i}.orig ${i} > ../output/patches-${kernel_version}-${HOST_ARCH}/${z}.patch
+	diff -q ${i}.orig ${i} >/dev/null 2>&1 || diff -up ${i}.orig ${i} > ../output/patches-${kernel_version}-${HOST_ARCH}/${z}.patch
 done
 
 for patch in ../patches/*.patch ../patches/${kernel_major_version}/*.patch ; do
@@ -795,7 +795,7 @@ make clean
 $MAKEroot, root
 make DESTDIR=$CWD/output/${AUFS_UTIL_DIR} install
 " > compile ## debug
-	make clean &>/dev/null
+	make clean >/dev/null 2>&1
 	$MAKE >> ${BUILD_LOG} 2>&1 || exit_error "Failed to compile aufs-util"
 	make DESTDIR=$CWD/output/${AUFS_UTIL_DIR} install >> ${BUILD_LOG} 2>&1 #needs absolute path
 	make clean >> ${BUILD_LOG} 2>&1

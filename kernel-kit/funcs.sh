@@ -227,7 +227,7 @@ function get_git_kernel() {
 			if [ $? -ne 0 ] ; then
 				log_msg "WARNING: 'git fetch --depth=1 origin' command failed" && sleep 5
 			else
-				git checkout origin &>/dev/null
+				git checkout origin >/dev/null 2>&1
 				[ $? -ne 0 ] && exit_error "Error: unable to checkout ${kernel_git_dir}"
 
 				touch /tmp/${kernel_git_dir}_done
@@ -298,7 +298,7 @@ function get_git_cross_compiler() {
 			if [ $? -ne 0 ] ; then
 				log_msg "WARNING: 'git fetch --depth=1 origin' command failed" && sleep 5
 			else
-				git checkout origin &>/dev/null
+				git checkout origin >/dev/null 2>&1
 				[ $? -ne 0 ] && exit_error "Error: unable to checkout ${tools_git_dir}"
 
 				touch /tmp/${tools_git_dir}_done

@@ -206,7 +206,7 @@ showMainWindow()
 			17) saveNewModule ;;
 			18) unloadNewModule ;;
 			19) break ;;
-			13) which connectwizard_exec &>/dev/null \
+			13) which connectwizard_exec >/dev/null 2>&1 \
 				  && connectwizard_exec net-setup.sh #190217
 				local HWADDRESS=$(ifconfig "$INTERFACE" | grep "^$INTERFACE" | tr -s ' ' | cut -d' ' -f5) #190217
 				ln -snf $HWADDRESS.conf ${NETWORK_INTERFACES_DIR}/selected_conf #190217

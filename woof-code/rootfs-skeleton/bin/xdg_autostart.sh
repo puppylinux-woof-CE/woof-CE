@@ -16,7 +16,7 @@ verify_not_running() {
 				return 0
 				break
 			esac
-			if pidof "$name" &>/dev/null ; then
+			if pidof "$name" >/dev/null 2>&1 ; then
 				return 1
 				break
 			fi
