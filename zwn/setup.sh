@@ -163,7 +163,7 @@ BOOT_FILES_PATH="woof-arch/\$TARGET_ARCH/build/boot"
 EXTRAPKG_PATH="woof-code/rootfs-packages"
 
 # loads DEFAULT_REPOS, WITH_APT_DB and other repository options
-. ./repo-url 
+. $(pwd)/${WORK_DIR:2}/repo-url 
 
 ### for ISO builder ###
 PUPPY_SFS=puppy.sfs   # if you change this, change %makesfs params in basesfs too
