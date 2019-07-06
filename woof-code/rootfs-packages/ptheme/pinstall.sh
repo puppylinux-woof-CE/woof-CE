@@ -3,7 +3,8 @@
 echo
 
 #--- test
-#[ -f ../../_00build.conf ] && . ../../_00build.conf
+[ -f ../../_00build.conf ] && . ../../_00build.conf # main woof - pwd -> sandbox3/rootfs-complete
+[ -f ../build.conf ] && . ../build.conf # zwn - pwd -> $CHROOT_DIR
 #--
 
 for dtop in switch2 GTK-Chtheme icon_switcher Desktop-drive-icons; do
