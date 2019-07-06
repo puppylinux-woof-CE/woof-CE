@@ -6,7 +6,7 @@
 ### configuration
 #DONT_ASK=    # if set to 1, don't ask questions
 MWD=$(pwd)
-WORK_DIR=${WORK_DIR:-./workdir}
+WORK_DIR=${WORK_DIR:-workdir}
 HOST_ARCH=${HOST_ARCH:-$(uname -m)}
 NAME=${NAME:-puppy}
 DISTRO_VER=${DISTRO_VER:-899}
@@ -163,7 +163,7 @@ BOOT_FILES_PATH="woof-arch/\$TARGET_ARCH/build/boot"
 EXTRAPKG_PATH="woof-code/rootfs-packages"
 
 # loads DEFAULT_REPOS, WITH_APT_DB and other repository options
-. $(pwd)/${WORK_DIR:2}/repo-url 
+. $(pwd)/${WORK_DIR}/repo-url 
 
 ### for ISO builder ###
 PUPPY_SFS=puppy.sfs   # if you change this, change %makesfs params in basesfs too
