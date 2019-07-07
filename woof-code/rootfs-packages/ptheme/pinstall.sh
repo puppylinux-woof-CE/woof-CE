@@ -127,8 +127,8 @@ echo "wallpaper: ${PTHEME_WALL}"
 WDIR=root/.config/wallpaper
 mkdir -p $WDIR
 echo "Stretch" > ${WDIR}/backgroundmode
-echo "/usr/share/backgrounds" > ${WDIR}/bg_img
-echo "/usr/share/backgrounds/default.${ext}" > ${WDIR}/
+echo "/usr/share/backgrounds" > ${WDIR}/bgdir
+echo "/usr/share/backgrounds/default.${ext}" > ${WDIR}/bg_img
 echo "defaultpaint" > ${WDIR}/EDITOR
 echo "rox" > ${WDIR}/FILER
 echo "FILER="rox"
