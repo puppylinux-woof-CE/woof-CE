@@ -4,6 +4,7 @@ echo
 
 #--- test
 [ -f ../../_00build.conf ] && . ../../_00build.conf # main woof - pwd -> sandbox3/rootfs-complete
+[ -f ../../_00build_2.conf ] && . ../../_00build_2.conf # main woof - pwd -> sandbox3/rootfs-complete - override main settings
 [ -f ../build.conf ] && . ../build.conf # zwn - pwd -> $CHROOT_DIR
 #--
 
@@ -122,6 +123,22 @@ fi
 ext="${PTHEME_WALL##*.}"
 cp -af usr/share/backgrounds/"${PTHEME_WALL}" usr/share/backgrounds/default.${ext}
 echo "wallpaper: ${PTHEME_WALL}"
+# record the changes
+WDIR=root/.config/wallpaper
+mkdir -p $WDIR
+echo "Stretch" > ${WDIR}/backgroundmode
+echo "/usr/share/backgrounds" > ${WDIR}/bg_img
+echo "/usr/share/backgrounds/default.${ext}" > ${WDIR}/
+echo "defaultpaint" > ${WDIR}/EDITOR
+echo "rox" > ${WDIR}/FILER
+echo "FILER="rox"
+IMGEDITOR="defaultpaint"
+INT="5"
+SLIDEDIR="/usr/share/backgrounds"
+VIEWER="defaultimageviewer"
+EXIT="Close"
+" > ${WDIR}/preferences
+echo "defaultimageviewer" > ${WDIR}/VIEWER
 
 ##### ROX
 BACKDROP="  <backdrop style=\"Stretched\">/usr/share/backgrounds/default.${ext}</backdrop>"
