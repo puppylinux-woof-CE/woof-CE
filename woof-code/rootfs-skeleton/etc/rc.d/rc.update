@@ -14,10 +14,33 @@ status_func() {
 }
 
 #=============================================================
+# automatically update some stuff
+
+#set -x
+
+. /etc/DISTRO_SPECS
+if [ "$DISTRO_ARCHDIR" ] ; then
+	ARCHDIR="/$DISTRO_ARCHDIR"
+fi
 
 if [ ! -f /etc/ld.so.cache ] ; then
-	ldconfig -v &>/tmp/ldconfig
-	UPDATE_LDCONFIG_DONE=1
+	ldconfig 2>/dev/null
+fi
+
+if [ ! -f /usr/lib${ARCHDIR}/gconv/gconv-modules.cache ] ; then
+	iconvconfig 2>/dev/null # creates /usr/lib/gconv/gconv-modules.cache
+fi
+
+if [ -e /usr/bin/update-pango-querymodules ] ; then
+	update-pango-querymodules
+elif [ -e /usr/bin/pango-querymodules ] ; then
+	pango-querymodules --update-cache
+fi
+
+if [ -e /usr/bin/update-gdk-pixbuf-loaders ] ; then
+	update-gdk-pixbuf-loaders
+elif [ -e /usr/bin/gdk-pixbuf-query-loaders ] ; then
+	gdk-pixbuf-query-loaders --update-cache
 fi
 
 if [ ! -f /usr/share/mime/mime.cache ] && [ -e /usr/bin/update-mime-database -a -d /usr/share/mime ] ; then
@@ -27,22 +50,8 @@ if [ ! -f /usr/share/mime/mime.cache ] && [ -e /usr/bin/update-mime-database -a 
 	UPDATE_MIME_DATABASE_DONE=1
 fi
 
-if [ ! -f /usr/lib/gconv/gconv-modules.cache ] ; then
-	iconvconfig 2>/dev/null # creates /usr/lib/gconv/gconv-modules.cache
-fi
-
-# slacko 14.0
-PANGO_MODULES="$(echo /etc/pango/*/pango.modules)"
-if [ -f "$PANGO_MODULES" ] ; then
-	if [ ! -s "$PANGO_MODULES" ] ; then # empty
-		pango-querymodules > "$PANGO_MODULES"
-	fi
-fi
-
-gdk-pixbuf-query-loaders --update-cache 2>/dev/null
-pango-querymodules --update-cache 2>/dev/null # slacko14.1, tahrpup
-
 #=============================================================
+# main
 
 PUPMODE="$1"
 
@@ -58,7 +67,9 @@ depmod_func() { #then run depmod to overwrite any depmod files on OLD layer...
 }
 
 basic_update() {
-	if which gtk-update-icon-cache >/dev/null 2>&1 ; then
+	if [ -e /usr/bin/gtk-update-icon-cache ] ; then
+		#gtk-update-icon-cache /usr/share/icons/hicolor
+		#gtk-update-icon-cache /usr/local/share/icons/hicolor 2>/dev/null
 		echo -n " gtk-icon-cache" >/dev/console
 		find /usr/share/icons -maxdepth 1 -mindepth 1 -type d | \
 		while read dir ; do
@@ -71,44 +82,42 @@ basic_update() {
 
 extended_update() {
 	#these are normally done in 3builddistro.
-	[ ! "$UPDATE_LDCONFIG_DONE" ] && ldconfig
+	ldconfig 2>/dev/null
+	iconvconfig 2>/dev/null # creates /usr/lib/gconv/gconv-modules.cache
+
 	if [ -e /usr/sbin/fixmenus ] && [ -e /usr/bin/jwm-xdgmenu -o -e /usr/bin/icewm-xdgmenu ] ; then
-		fixmenus      #Reconstruct configuration files for JWM,  IceWM. note: fixmenus corrects $LANG.
+		fixmenus #Reconstruct configuration files for JWM, IceWM...
 	fi
-	if which fc-cache >/dev/null 2>&1 ; then
-		fc-cache -s -v #fontconfig cache
+
+	if [ -e /usr/bin/fc-cache ] ; then
+		fc-cache -f 2>/dev/null # some sfs files may have fonts
 	fi
-	iconvconfig 2>/dev/null
-	if [ "$UPDATE_MIME_DATABASE_DONE" != "1" ] && [ -d /usr/share/mime ] ; then
-		[ -e /usr/bin/update-mime-database ] && update-mime-database /usr/share/mime
+
+	if [ -e /usr/bin/update-mime-database -a "$UPDATE_MIME_DATABASE_DONE" != "1" ] ; then
+		[ -d /usr/share/mime ] && update-mime-database /usr/share/mime
+		[ -d /usr/local/share/mime ] && update-mime-database /usr/local/share/mime
 	fi
-	if [ -d /usr/share/glib-2.0/schemas ] ; then
-		glib-compile-schemas /usr/share/glib-2.0/schemas 2>/dev/null
+
+	if [ -e /usr/bin/glib-compile-schemas ] ; then
+		[ -d /usr/share/glib-2.0/schemas ] && glib-compile-schemas /usr/share/glib-2.0/schemas 2>/dev/null
+		[ -d /usr/local/share/glib-2.0/schemas ] && glib-compile-schemas /usr/local/share/glib-2.0/schemas 2>/dev/null
 	fi
-	if [ -d /usr/lib/gio/modules ] ; then
-		gio-querymodules /usr/lib/gio/modules 2>/dev/null
+
+	if [ -e /usr/bin/gio-querymodules ] ; then
+		[ -d /usr/lib/gio/modules ] && gio-querymodules /usr/lib/gio/modules
+		[ -d /usr/lib64/gio/modules ] && gio-querymodules /usr/lib64/gio/modules
 	fi
-	if [ -d /usr/lib64/gio/modules ] ; then
-		gio-querymodules /usr/lib64/gio/modules 2>/dev/null
-	fi
-	if [ -e /usr/bin/gtk-query-immodules-2.0 ] ; then
+
+	if [ -e /usr/bin/update-gtk-immodules-2.0 ] ; then
+		update-gtk-immodules-2.0
+	elif [ -e /usr/bin/gtk-query-immodules-2.0 ] ; then
 		gtk-query-immodules-2.0 --update-cache
 	fi
-	if [ -e /usr/bin/gtk-query-immodules-3.0 ] ; then
+
+	if [ -e /usr/bin/update-gtk-immodules-3.0 ] ; then
+		update-gtk-immodules-3.0
+	elif [ -e /usr/bin/gtk-query-immodules-3.0 ] ; then
 		gtk-query-immodules-3.0 --update-cache
-	fi
-}
-
-update_cache_files(){
-
-	echo -en " layered-filesystem \\033[1;35mnext boot will be faster!\\033[0;39m" > /dev/console
-	echo "Aufs layers have changed since previous boot, updating menus..."
-	if [ -e /usr/sbin/fixmenus ] && [ -e /usr/bin/jwm-xdgmenu -o -e /usr/bin/icewm-xdgmenu ] ; then
-		/usr/sbin/fixmenus #Reconstruct configuration files for JWM, IceWM...
-	fi
-
-	if [ -f /usr/bin/fc-cache ] ; then
-		fc-cache -f 2>/dev/null # some sfs files may have fonts
 	fi
 
 	if [ -f /usr/bin/update-desktop-database ] ; then
@@ -117,37 +126,18 @@ update_cache_files(){
 		rm -f /usr/local/share/applications/mimeinfo.cache 2>/dev/null
 		[ -d /usr/local/share/applications ] && update-desktop-database /usr/local/share/applications
 	fi
+}
 
-	if [ -f /usr/bin/update-mime-database -a "$UPDATE_MIME_DATABASE_DONE" != "1" ] ; then
-		update-mime-database /usr/share/mime
-		[ -d /usr/local/share/mime ] && update-mime-database /usr/local/share/mime
-	fi
-
-	if [ -f /usr/bin/gtk-update-icon-cache ] ; then
-		gtk-update-icon-cache /usr/share/icons/hicolor
-		gtk-update-icon-cache /usr/local/share/icons/hicolor 2>/dev/null
-	fi
-  
-	gtk-query-immodules-2.0 --update-cache 2>/dev/null
-	gtk-query-immodules-3.0 --update-cache 2>/dev/null
-  
-	[ -d /usr/lib/gio/modules ] && gio-querymodules /usr/lib/gio/modules
-	[ -d /usr/lib64/gio/modules ] && gio-querymodules /usr/lib64/gio/modules
-  
-	glib-compile-schemas /usr/share/glib-2.0/schemas 2>/dev/null
-	glib-compile-schemas /usr/local/share/glib-2.0/schemas 2>/dev/null
-  
-	iconvconfig
-  
-	depmod_func -a # some sfs may have kernel modules
-
+update_cache_files() {
+	basic_update
+	extended_update
+	depmod_func -a 2>/dev/null # some sfs may have kernel modules
 }
 
 #===========================================================================
 
 if [ "$PUPMODE" = "w" ] ; then #chroot from woof
-	basic_update
-	extended_update
+	update_cache_files
 	exit
 fi
 
@@ -324,18 +314,18 @@ xLANG="`grep '^LANG=' /etc/profile | cut -f 2 -d '=' | cut -f 1 -d ' '`"
 cp -af ${NEWFILESMNTPT}/etc/DISTRO_SPECS /etc/
 touch /etc/DISTRO_SPECS #important, as snapmergepuppy uses '-u' cp option. ...huh, why?
 
-#v2.16 if aufs layers have changed, may need to fix menu (etc)...
+# if aufs layers have changed, may need to fix menu (etc)...
 if [ "$PUNIONFS" = "aufs" ];then
- . /etc/rc.d/BOOTCONFIG
- #v2.16.1 bug with multisession-cd, different folder at each startup, so screen out...
- xLASTUNIONRECORD="`echo -n "$LASTUNIONRECORD" | sed -e 's/^20[0-9][0-9][-0123456789]* //'`"
- xPREVUNIONRECORD="`echo -n "$PREVUNIONRECORD" | sed -e 's/^20[0-9][0-9][-0123456789]* //'`"
- #-
- 
- if [ "$xLASTUNIONRECORD" != "$xPREVUNIONRECORD" ];then
-  update_cache_files
- fi
- 
+	. /etc/rc.d/BOOTCONFIG
+	# multisession-cd, different folder at each startup, so screen out...
+	xLASTUNIONRECORD="`echo -n "$LASTUNIONRECORD" | sed -e 's/^20[0-9][0-9][-0123456789]* //'`"
+	xPREVUNIONRECORD="`echo -n "$PREVUNIONRECORD" | sed -e 's/^20[0-9][0-9][-0123456789]* //'`"
+	#-
+	if [ "$xLASTUNIONRECORD" != "$xPREVUNIONRECORD" ];then
+		echo -en " layered-filesystem \\033[1;35mnext boot will be faster!\\033[0;39m" > /dev/console
+		echo "Aufs layers have changed since previous boot, updating menus..."
+		update_cache_files
+	fi
 fi
 
 ### END ###
