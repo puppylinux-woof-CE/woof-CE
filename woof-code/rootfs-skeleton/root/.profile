@@ -17,9 +17,11 @@ if which Xorg >/dev/null 2>&1 ; then
 		touch /tmp/bootcnt.txt
 		dmesg > /tmp/bootkernel.log
 		xwin
+	else
+		/usr/sbin/pm13 cli
 	fi
+else
+	/usr/sbin/pm13 cli
 fi
-
-/usr/sbin/pm13trayicon cli
 
 ### END ###
