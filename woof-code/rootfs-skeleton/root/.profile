@@ -20,4 +20,6 @@ if which Xorg >/dev/null 2>&1 ; then
 	fi
 fi
 
+/usr/sbin/pm13trayicon cli
+
 ### END ###
