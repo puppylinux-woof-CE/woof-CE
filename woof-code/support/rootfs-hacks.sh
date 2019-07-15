@@ -251,6 +251,14 @@ if [ -d ${SR}/usr/share/terminfox ] ; then
 	mv -f ${SR}/usr/share/terminfox ${SR}/usr/share/terminfo
 fi
 
+# slackware doesn't have libtinfo.so.5
+if [ -e ${SR}/usr/lib/libncurses.so.5 ] && [ ! -e ${SR}/usr/lib/libtinfo.so.5 ] ; then
+	ln -sv /usr/lib/libncurses.so.5 ${SR}/usr/lib/libtinfo.so.5
+fi
+if [ -e ${SR}/lib/libncurses.so.5 ] && [ ! -e ${SR}/lib/libtinfo.so.5 ] ; then
+	ln -sv /lib/libncurses.so.5 ${SR}/lib/libtinfo.so.5
+fi
+
 echo ----
 
 ### END ###
