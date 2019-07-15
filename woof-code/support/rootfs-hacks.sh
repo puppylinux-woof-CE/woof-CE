@@ -121,11 +121,11 @@ done
 [ -f ${SR}/etc/samba/smb.conf ] && chmod 755 ${SR}/etc/samba/smb.conf #need world-readable.
 
 # fix permissions
-chmod 600 ${SR}/etc/gshadow
-chmod 600 ${SR}/etc/shadow
-chmod 640 ${SR}/etc/sudoers
-chmod 1777 ${SR}/tmp
-chmod 777 ${SR}/var
+[ -e ${SR}/etc/gshadow ] && chmod 600 ${SR}/etc/gshadow
+[ -e ${SR}/etc/shadow ]  && chmod 600 ${SR}/etc/shadow
+[ -e ${SR}/etc/sudoers ] && chmod 640 ${SR}/etc/sudoers
+[ -e ${SR}/tmp ] && chmod 1777 ${SR}/tmp
+[ -e ${SR}/var ] && chmod 777 ${SR}/var
 
 # ensure application_x-bittorrent is assigned to defaulttorrent..
 if [ -f ${SR}/etc/xdg/rox.sourceforge.net/MIME-types/application_x-bittorrent ] ; then
@@ -183,11 +183,11 @@ do
 done
 
 # delete files
-rm -f ${SR}/etc/profile.d/*.csh* 2>/dev/null # slackware: just in case any got through, remove c-shell scripts...
-rm -rf ${SR}/install 2>/dev/null #maybe stray /install dir from slackware pkgs...
-rm -f ${SR}/etc/cron.daily 2>/dev/null #slackware pkg may create this...
-rm -f ${SR}/puninstall.sh
-rm -f ${SR}/pet.specs
+[ -e ${SR}/etc/profile.d ] && rm -f ${SR}/etc/profile.d/*.csh* # slackware: just in case any got through, remove c-shell scripts...
+[ -e ${SR}/install ] && rm -rf ${SR}/install #maybe stray /install dir from slackware pkgs...
+[ -e ${SR}/etc/cron.daily ] && rm -rf ${SR}/etc/cron.daily #slackware pkg may create this...
+[ -e ${SR}/puninstall.sh ] && rm -f ${SR}/puninstall.sh
+[ -e ${SR}/pet.specs ] && rm -f ${SR}/pet.specs
 [ -d ${SR}/usr/share/xine/libxine1/fonts ] && rm -rf ${SR}/usr/share/xine/libxine1/fonts
 [ -f ${SR}/usr/share/applications/qv4l2.desktop ] && rm ${SR}/usr/share/applications/qv4l2.desktop #slackware
 
