@@ -668,7 +668,11 @@ if [ "`grep '/usr/share/icons/hicolor/' $PKGFILES`" != "" ];then
 fi
 
 if [ "`grep '/usr/lib/gdk-pixbuf' $PKGFILES`" != "" ];then
- gdk-pixbuf-query-loaders --update-cache
+ if [ "$(which update-gdk-pixbuf-loaders)" != "" ]; then
+  update-gdk-pixbuf-loaders
+ else
+  gdk-pixbuf-query-loaders --update-cache 
+ fi
 fi
 
 if [ "`grep '/usr/lib/gconv/' $PKGFILES`" != "" ];then
@@ -676,13 +680,31 @@ if [ "`grep '/usr/lib/gconv/' $PKGFILES`" != "" ];then
 fi
 
 if [ "`grep '/usr/lib/pango/' $PKGFILES`" != "" ];then
- pango-querymodules --update-cache
+ if [ "$(which update-pango-querymodules)" != "" ]; then
+  update-pango-querymodules
+ else
+  pango-querymodules --update-cache
+ fi
 fi
 
 for gtkver in '1.0' '2.0' '3.0'
 do
  if [ "`grep "/usr/lib/gtk-$gtkver" $PKGFILES | grep "/immodules"`" != "" ];then
-  [ -e /usr/bin/gtk-query-immodules-$gtkver ] && gtk-query-immodules-$gtkver --update-cache
+  if [ "$gtkver" == "1.0" ]; then
+   if [ "$(which update-gtk-immodules)" != "" ]; then
+    update-gtk-immodules
+   elif [ "$(which update-gtk-immodules-$gtkver)" != "" ]; then
+    update-gtk-immodules-$gtkver
+   else
+    gtk-query-immodules-$gtkver --update-cache
+   fi
+  else
+   if  [ "$(which update-gtk-immodules-$gtkver)" != "" ]; then
+    update-gtk-immodules-$gtkver
+   else
+    [ -e /usr/bin/gtk-query-immodules-$gtkver ] && gtk-query-immodules-$gtkver --update-cache
+   fi
+  fi
  fi
 done
 
