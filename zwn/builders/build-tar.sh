@@ -105,16 +105,8 @@ make_tar() {
 initramfs initrd.gz followkernel
 ramfsfile=initrd.gz
 ramfsaddr=-1
-dtparam=audio=on
-#disable_overscan=1
-overscan_left=40
-overscan_right=40
-overscan_top=10
-overscan_bottom=5
-	
+dtparam=audio=on	
 EOF
-	echo 'psave=mmcblk0p2' > cmdline.txt
-	echo '02' > SAVEMARK
 	tar -cvf ../${DISTRO_PREFIX}-${DISTRO_VERSION}.tar *
 	)
 }
