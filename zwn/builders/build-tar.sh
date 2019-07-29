@@ -47,8 +47,7 @@ install_kernel() {
 	done
 }
 install_boot_code() {
-	[ -d ${CHROOT_DIR}/boot ] && mv ${CHROOT_DIR}/boot/* $ISO_ROOT/
-	rm -r ${CHROOT_DIR}/boot
+	[ -d ${CHROOT_DIR}/boot ] && cp -arf ${CHROOT_DIR}/boot/* $ISO_ROOT/
 }
 install_extract_kernel() {
 	if md5sum -c ${KERNEL_TARBALL}.md5.txt 2>/dev/null; then
@@ -107,6 +106,27 @@ ramfsfile=initrd.gz
 ramfsaddr=-1
 dtparam=audio=on	
 EOF
+	cat > bootmenu.txt << EOL
+# Timeout is in tenths of a second, 0 disables it.
+TIMEOUT 100
+
+DEFAULT ${DISTRO_PREFIX}pup
+
+LABEL ${DISTRO_PREFIX}pup
+	PMEDIA usbflash
+
+LABEL "${DISTRO_PREFIX}pup pfix-ram"
+	PFIX ram
+
+LABEL "${DISTRO_PREFIX}pup pfix-nox"
+	PFIX nox
+
+LABEL search
+	SEARCH_DRIVE all
+
+LABEL "ram disk shell"
+	PFIX rdsh	
+EOL
 	tar -cvf ../${DISTRO_PREFIX}-${DISTRO_VERSION}.tar *
 	)
 }
@@ -117,5 +137,4 @@ mkdir -p $ISO_ROOT
 install_kernel
 install_boot_code
 install_initrd
-#make_iso
 make_tar
