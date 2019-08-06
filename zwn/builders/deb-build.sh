@@ -406,26 +406,13 @@ install_dummy() {
 }
 
 ###
-# $1-if "nousr", then don't use /usr
 # note: busybox must be static and compiled with applet list
 install_bb_links() {
 	is_already_installed bblink && return
-	local nousr=""
-	case $1 in nousr|nouser) nousr=usr/ ;; esac
 	
 	echo "/." > "$CHROOT_DIR/$ADMIN_DIR/info/bblinks.list"
-	if [ -e $CHROOT_DIR/bin/busybox ] && $CHROOT_DIR/bin/busybox > /dev/null; then
-		$CHROOT_DIR/bin/busybox --list-full | while read -r p; do
-			pp=${p#$nousr}
-			[ -e $CHROOT_DIR/$pp ] && continue # don't override existing binaries
-			echo /$pp >> "$CHROOT_DIR/$ADMIN_DIR/info/bblinks.list"
-			case $pp in 
-				usr*) ln -s ../../bin/busybox $CHROOT_DIR/$pp 2>/dev/null ;; 
-				*)    ln -s ../bin/busybox $CHROOT_DIR/$pp 2>/dev/null ;; 
-			esac
-		done
-	fi
-	update_pkg_status "bblinks" "required" "core" "1.0" ""	
+	../woof-code/support/busybox_symlinks.sh ${CHROOT_DIR}
+	update_pkg_status "bblinks" "required" "core" "1.0" ""
 }
 
 ###
@@ -534,7 +521,6 @@ process_pkglist() {
 				echo Switching to bootstrap
 				do_install() { bootstrap_install; } ;;
 			%bblinks)
-				shift # $1-nousr
 				echo Installing busybox symlinks ...
 				install_bb_links "$@" ;;
 			%makesfs)
