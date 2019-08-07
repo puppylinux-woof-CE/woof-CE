@@ -226,6 +226,41 @@ download_pkg() {
 	return $retval
 }
 
+###
+# $1-URL, $2-retry
+download_pet_pkg() {
+	local retval=0 local
+	local PKGPATH=$1
+	local PKGFILE=${PKGPATH##*/} #basename
+	[ "$2" ] && echo "Bad md5sum $PKGFILE, attempting to re-download ..."
+	if ! [ -e "$REPO_DIR/$PKGFILE" ] ; then
+		echo Downloading "$PKGFILE" ...
+		wget -q --no-check-certificate -O $REPO_DIR/$PKGFILE "$PKGPATH"
+		if [ $? -eq 0 ] ; then
+			( cd $REPO_DIR ; md5sum $PKGFILE > ${PKGFILE}.md5 )
+		fi
+	fi
+	( cd $REPO_DIR ; md5sum -c ${PKGFILE}.md5 >/dev/null )
+	[ $? -ne 0 -a -z "$2" ] && rm -f "$REPO_DIR/$PKGFILE" && download_pet_pkg "$1" retry && retval=0
+	return $retval
+}
+# $1-URL
+install_pet_pkg() {
+	local retval=0 PKGFILE=${1##*/} #basename
+	head -c -32 "$REPO_DIR/$PKGFILE" > "$REPO_DIR/$PKGFILE".tar
+	PETPREFIX=$(tar -tf "$REPO_DIR/$PKGFILE".tar | head -1)
+	case "$PETPREFIX" in
+		"./"*) tar --strip=2 --directory=${CHROOT_DIR} -xf "$REPO_DIR/$PKGFILE".tar ;;
+		*) tar --strip=1 --directory=${CHROOT_DIR} -xf "$REPO_DIR/$PKGFILE".tar ;;
+	esac
+	retval=$?
+	if [ $retval -eq 0 ] && [ -f ${CHROOT_DIR}/pinstall.sh ] ; then
+		( cd ${CHROOT_DIR} ; sh pinstall.sh )
+	fi
+	rm -f "$REPO_DIR/$PKGFILE".tar
+	rm -f ${CHROOT_DIR}/pet.specs ${CHROOT_DIR}/pinstall.sh ${CHROOT_DIR}/puninstall.sh
+	return $retval
+}
 
 ######## commands handler ########
 
@@ -395,7 +430,7 @@ flatten_pkglist() {
 			%exit) break ;;
 			%include)
 				[ "$2" ] && flatten_pkglist "$2" ;;
-			%bblinks|%makesfs|%remove|%addbase|%addpkg|%dummy|%cutdown|%import)
+			%pet|%bblinks|%makesfs|%remove|%addbase|%addpkg|%dummy|%cutdown|%import)
 				echo "$pp" ;;
 			%symlink|%rm|%mkdir|%touch|%chroot)
 				echo "$pp" ;;
@@ -508,6 +543,12 @@ process_pkglist() {
 			%chroot)
 				shift # $@ commands
 				chroot $CHROOT_DIR "$@"
+				;;
+			%pet)
+				shift
+				download_pet_pkg "$1"
+				[ "$DOWNLOAD_ONLY" ] && continue
+				install_pet_pkg "$1" || { echo Installation of ${1##*/} failed. && exit 1; }
 				;;
 
 			# anything else - install package
