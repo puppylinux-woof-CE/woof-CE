@@ -1,3 +1,6 @@
+PLEASE NOTE: the version of upupbb currently in woof-ce is NOT the same as the released BionicPup32 build.
+==========================================================================================================
+
 Other items to build BionicPup32 can be found at: http://www.smokey01.com/peebee/upupbb/
 
 The following items are needed:
