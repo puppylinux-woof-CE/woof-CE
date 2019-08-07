@@ -351,7 +351,7 @@ fs_symlink() {
 # $1-output $2 onwards - squashfs_param
 make_sfs() {
 	# w
-	./woof-code/support/rootfs-hacks.sh $CHROOT_DIR
+	../woof-code/support/rootfs-hacks.sh $CHROOT_DIR
 	chroot $CHROOT_DIR /etc/rc.d/rc.update w
 	# -
 	local output="$1" dir=${1%/*}

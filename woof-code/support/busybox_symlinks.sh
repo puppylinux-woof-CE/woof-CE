@@ -8,7 +8,7 @@
 RFS="$1"
 
 if [ ! -d "$RFS" ] ; then
-	echo "Needs a directory. Busybox must be in <directory>/bin/busybox"
+	echo "Need a directory. Busybox must be in <directory>/bin/busybox"
 	exit 1
 fi
 if [ ! -f "$RFS/bin/busybox" ] ; then
@@ -99,17 +99,11 @@ do
 	esac
 	#-
 
-	OPT_V='-v'
 	if [ -f bin/$N -o -f sbin/$N -o -f usr/bin/$N -o -f usr/sbin/$N ] ;then
-		N=${N}-BB
-		OPT_V=''
-	fi
-
-	if [ -e ${ONEPATH}/${N} ] ; then
 		continue
 	fi
 
-	ln -s ${OPT_V} /bin/busybox ${ONEPATH}/${N}
+	ln -sv /bin/busybox ${ONEPATH}/${N}
 
 done < /tmp/busybox.lst
 
