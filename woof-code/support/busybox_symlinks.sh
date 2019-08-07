@@ -57,6 +57,7 @@ do
 		# klibc-utils
 
 		# Editors
+		vi|ed)    continue ;;
 		patch)    continue ;; # too primitive
 
 		# Finding Utilities
@@ -66,11 +67,21 @@ do
 
 		# Init Utilities
 		# Login/Password Management Utilities
+
 		# Linux Ext2 FS Progs
+		chattr)  continue ;;
+		fsck)    continue ;;
+		lsattr)  continue ;;
+		tune2fs) continue ;;
+
 		# Linux Module Utilities
 
 		# Linux System Utilities
-		taskset)  continue ;; # breaks winetricks
+		mkdosfs)   continue ;;
+		mkfs.vfat) continue ;;
+		mke2fs)    continue ;;
+		mkfs.ext2) continue ;;
+		taskset)   continue ;; # breaks winetricks
 
 		# Miscellaneous Utilities
 		strings)  continue ;; # devx
