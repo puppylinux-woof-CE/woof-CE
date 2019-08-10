@@ -23,6 +23,8 @@ case $REALKERNAME in
 		[ -f build/vmlinuz ] && cp -f build/vmlinuz build/boot/kernel.img
 		# kernel for pi2 and 3
 		[ -f build/vmlinuz7 ] && cp -f build/vmlinuz7 build/boot/kernel7.img
+		# kernel for pi4
+		[ -f build/vmlinuz7l ] && cp -f build/vmlinuz7l build/boot/kernel7l.img
 		;;
 esac
 

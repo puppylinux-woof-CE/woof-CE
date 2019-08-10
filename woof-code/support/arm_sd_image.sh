@@ -98,6 +98,7 @@ case $REALKERNAME in
 		mv -f rootfs-complete/boot/* /mnt/sdimagep1/ #move firmware to first partition, /boot should be empty in second partition.
 		[ -f build/vmlinuz ] && cp -f build/vmlinuz /mnt/sdimagep1/kernel.img #kernel for original pi.
 		[ -f build/vmlinuz7 ] && cp -f build/vmlinuz7 /mnt/sdimagep1/kernel7.img #kernel for pi2.
+		[ -f build/vmlinuz7l ] && cp -f build/vmlinuz7l /mnt/sdimagep1/kernel7l.img #kernel for pi4.
 		;;
 	*)
 		cp -f build/vmlinuz /mnt/sdimagep1/ ;;

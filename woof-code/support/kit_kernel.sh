@@ -4,6 +4,8 @@
 # * can be run independently
 # * we're in sandbox3
 
+KIT_KERNEL_REPO_URL=${KIT_KERNEL_REPO_URL:-http://distro.ibiblio.org/puppylinux/huge_kernels}
+
 . ../_00build.conf
 . ../DISTRO_SPECS
 
@@ -61,7 +63,18 @@ choose_kernel_to_download() {
 
 #------------------------------------------------------------------------------
 
-	if [ "$KIT_KERNEL_REPO_URL" != "${KIT_KERNEL_REPO_URL/github.com/}" ]; then
+	if [ "$KIT_KERNEL_REPO_URL" = "http://distro.ibiblio.org/puppylinux/huge_kernels" ]; then
+		local TEMP_KIT_KERNEL_FILES="`grep -o '>kit.*\.xz' $TMP | sed 's%^>%%g' | sort -u`"
+		local I=1
+		for ONE_FILE in $TEMP_KIT_KERNEL_FILES
+		do
+			if [ ! -f "../../local-repositories/${DISTRO_TARGETARCH}/kernels/${ONE_FILE}" ]; then
+				KIT_KERNEL_FILES_ARRAY[$I]="$ONE_FILE $KIT_KERNEL_REPO_URL/$ONE_FILE"
+				let "I += 1"
+			fi
+		done
+
+	elif [ "$KIT_KERNEL_REPO_URL" != "${KIT_KERNEL_REPO_URL/github.com/}" ]; then
 		local REPO_NAME="${KIT_KERNEL_REPO_URL##*github.com/}"
 		local USERNAME="${KIT_KERNEL_REPO_URL##*github.com/}"
 		USERNAME="${USERNAME%%/*}"
@@ -130,7 +143,9 @@ choose_kernel_to_download() {
 	download_kernel "${KIT_KERNEL_FILES_ARRAY[$kernel_nr]##* }"
 
 	local THIS_KERNEL="${KIT_KERNEL_FILES_ARRAY[$kernel_nr]%% *}"
-	if [ "$THIS_KERNEL" != "${THIS_KERNEL/-v7/}" ]; then
+	if [ "$THIS_KERNEL" != "${THIS_KERNEL/-v7l/}" ]; then
+		CHOSEN_KERNEL7L="$THIS_KERNEL"
+	elif [ "$THIS_KERNEL" != "${THIS_KERNEL/-v7+/}" ]; then
 		CHOSEN_KERNEL7="$THIS_KERNEL"
 	else
 		CHOSEN_KERNEL="$THIS_KERNEL"
@@ -138,88 +153,78 @@ choose_kernel_to_download() {
 }
 
 choose_kernel() {
-	local MENU="$(cd "../../local-repositories/${DISTRO_TARGETARCH}/kernels/"
-	I=1
-	for ONE_KERNEL in kit-kernel-*.tar.xz
-	do
-		echo "$I $ONE_KERNEL"
-		let "I += 1"
-	done
-	)"
-	while [ 1 ]
-	do
-		echo
-		echo "Please choose the number of the kernel you wish to use"
-		echo "$MENU"
-		read kernel_nr
-		menu_item="`echo "$MENU" | grep ^$kernel_nr -`"
-		[ ! "$menu_item" ] && echo "invalid choice" && continue
-		CHOSEN_KERNEL="${menu_item##* }"
-		echo "You chose $CHOSEN_KERNEL"
-		break
-	done
 	if [ "${DISTRO_TARGETARCH}" = "arm" ]; then
+		# pi 2,3
 		local MENU7="$(cd "../../local-repositories/${DISTRO_TARGETARCH}/kernels/"
 		I=1
-		for ONE_KERNEL in kit-kernel-*-v7*.tar.xz
+		for ONE_KERNEL in kit-kernel-*-v7+*.tar.xz
 		do
 			echo "$I $ONE_KERNEL"
 			let "I += 1"
 		done
 		)"
-		local MENU_NOT_7="$(cd "../../local-repositories/${DISTRO_TARGETARCH}/kernels/"
+		# pi 4
+		local MENU7l="$(cd "../../local-repositories/${DISTRO_TARGETARCH}/kernels/"
 		I=1
-		for ONE_KERNEL in kit-kernel-*.tar.xz
+		for ONE_KERNEL in kit-kernel-*-v7l*.tar.xz
 		do
-			if [ "`echo "$MENU7" | grep "$ONE_KERNEL" -`" = "" ]; then
-				echo "$I $ONE_KERNEL"
-				let "I += 1"
-			fi
+			echo "$I $ONE_KERNEL"
+			let "I += 1"
 		done
 		)"
-		if [ "$CHOSEN_KERNEL" != "${CHOSEN_KERNEL/-v7/}" ]; then
-			CHOSEN_KERNEL7="$CHOSEN_KERNEL"
-			CHOSEN_KERNEL=""
-
-			if [ "$MENU_NOT_7" != "" ]; then
-				echo "Do you want to choose a second kernel?"
-				read yesno
-				if [ "$yesno" = "yes" -o "$yesno" =  "y" ]; then
-					while [ 1 ]
-					do
-						echo
-						echo "Please choose the number of the kernel you wish to use"
-						echo "$MENU_NOT_7"
-						read kernel_nr
-						menu_item="`echo "$MENU_NOT_7" | grep ^$kernel_nr -`"
-						[ ! "$menu_item" ] && echo "invalid choice" && continue
-						CHOSEN_KERNEL="${menu_item##* }"
-						echo "You chose $CHOSEN_KERNEL"
-						break
-					done
-				fi
-			fi
-		else
-			if [ "$MENU7" != "" ]; then
-				echo "Do you want to choose a second kernel?"
-				read yesno
-				if [ "$yesno" = "yes" -o "$yesno" =  "y" ]; then
-					while [ 1 ]
-					do
-						echo
-						echo "Please choose the number of the kernel you wish to use"
-						echo "$MENU7"
-						read kernel_nr
-						menu_item="`echo "$MENU7" | grep ^$kernel_nr -`"
-						[ ! "$menu_item" ] && echo "invalid choice" && continue
-						CHOSEN_KERNEL7="${menu_item##* }"
-						echo "You chose $CHOSEN_KERNEL7"
-						break
-					done
-				fi
-			fi
-		fi
-
+		# pi 0,1
+		local MENU_NOT_7="$(cd "../../local-repositories/${DISTRO_TARGETARCH}/kernels/"
+		I=1
+		for ONE_KERNEL in kit-kernel-*\.*[!v][0-9]+*.tar.xz
+		do
+			echo "$I $ONE_KERNEL"
+			let "I += 1"
+		done
+		)"
+		CHOSEN_KERNEL=''
+		CHOSEN_KERNEL7=''
+		CHOSEN_KERNEL7L=''
+		
+		local kver
+		local e=1
+		echo "You can choose up to 3 Pi kernels for Pi 0 and 1; Pi 2 and 3; Pi 4 
+series. The kernel for the appropriate board will be loaded.
+All kernels must be the same version, so choices may be limited."
+		echo
+		while [ 1 ]
+		do
+			case "$e" in
+				1)PI="zero, 1"
+				menu="$MENU_NOT_7";;
+				2)PI="2, 3, 3+"
+				[ -n "$kver" ] && menu=`echo "$MENU7"|grep $kver` || menu="$MENU7";;
+				3)PI="4, 4+"
+				[ -n "$kver" ] && menu=`echo "$MENU7l"|grep $kver` || menu="$MENU7l";;
+			esac
+			[ -z "$menu" ] && continue
+			echo "Do you want to choose a Raspberry Pi $PI kernel? (y/n)"
+			read yesno
+			case $yesno in
+				y*|Y)echo "Please choose the number of the Raspberry Pi $PI kernel you wish to use";;
+				*)let "e += 1"; [ $e -eq 4 ] && break || continue;;
+			esac
+			echo "$menu"
+			read kernel_nr
+			menu_item="`echo "$menu" | grep ^$kernel_nr -`"
+			[ ! "$menu_item" ] && echo "invalid choice" && continue
+			chosen="${menu_item##* }"
+			kver=${chosen:11}
+			kver=${kver%%[-+]*}
+			echo "You chose $chosen which is Linux version $kver"
+			case $e in 
+				1)CHOSEN_KERNEL="$chosen";;
+				2)CHOSEN_KERNEL7="$chosen";;
+				3)CHOSEN_KERNEL7L="$chosen";;
+			esac
+			echo
+			let "e += 1"
+			[ $e -eq 4 ] && break
+		done
 	fi
 }
 
@@ -276,18 +281,44 @@ if [ "$KERNEL7_TARBALL_URL" != "" ]; then
 	fi
 fi
 
-if  [ "$KERNEL_TARBALL_URL" = "" -a "$KERNEL7_TARBALL_URL" = "" ]; then
+if [ "$KERNEL7L_TARBALL_URL" != "" ]; then
+	TARBALL_NAME="`name_of "$KERNEL7L_TARBALL_URL"`"
+	if [ -f "../../local-repositories/${DISTRO_TARGETARCH}/kernels/${TARBALL_NAME}" ]; then
+		if [ -f "../../local-repositories/${DISTRO_TARGETARCH}/kernels/${TARBALL_NAME}.sha256.txt" ]; then
+			( cd "../../local-repositories/${DISTRO_TARGETARCH}/kernels/"
+			sha256sum -c "${TARBALL_NAME}.sha256.txt") &> /dev/null
+			if [ "$?" != "0" ]; then
+				download_kernel "$KERNEL7L_TARBALL_URL"
+			fi
+		fi
+	else
+		download_kernel "$KERNEL7L_TARBALL_URL"
+	fi
+fi
+
+if  [ "$KERNEL_TARBALL_URL" = "" -a "$KERNEL7_TARBALL_URL" = "" -a "$KERNEL7L_TARBALL_URL" = "" ]; then
 	echo "Do you want to download a kernel?"
 	read yesno
 	if [ "$yesno" = "yes" -o "$yesno" =  "y" ]; then
 		choose_kernel_to_download
 
 		if [ "${DISTRO_TARGETARCH}" = "arm" ]; then
-			echo "Do you want to download a second kernel?"
-			read yesno
-			if [ "$yesno" = "yes" -o "$yesno" =  "y" ]; then
-				choose_kernel_to_download
-			fi
+			d=0
+			while [ $d -lt 2 ]
+			do
+				case $d in 
+					0) nmbr="second";;
+					1) nmbr="third";;
+				esac
+				echo "Do you want to download a $nmbr kernel?"
+				read yesno
+				if [ "$yesno" = "yes" -o "$yesno" =  "y" ]; then
+					choose_kernel_to_download
+				else
+					break # no second so don't offer third
+				fi
+				let "d += 1"
+			done
 		fi
 		# file at $TMP created by choose_kernel_to_download
 		rm $TMP
@@ -307,16 +338,19 @@ if [ "$NR_OF_KERNELS" = "0" ]; then
 elif [ "$NR_OF_KERNELS" = "1" ]; then
 	CHOSEN_KERNEL="$(cd ../../local-repositories/${DISTRO_TARGETARCH}/kernels/
 	ls *.tar.xz)"
-elif [ "$KERNEL_TARBALL_URL" != "" -o "$KERNEL7_TARBALL_URL" != "" ]; then
+elif [ "$KERNEL_TARBALL_URL" != "" -o "$KERNEL7_TARBALL_URL" != "" -o "$KERNEL7L_TARBALL_URL" != "" ]; then
 	[ "$KERNEL_TARBALL_URL" != "" ] && CHOSEN_KERNEL="`name_of "$KERNEL_TARBALL_URL"`"
 	[ "$KERNEL7_TARBALL_URL" != "" ] && CHOSEN_KERNEL7="`name_of "$KERNEL7_TARBALL_URL"`"
-elif [ "$CHOSEN_KERNEL" = "" -a "$CHOSEN_KERNEL7" = "" ]; then
+	[ "$KERNEL7L_TARBALL_URL" != "" ] && CHOSEN_KERNEL7L="`name_of "$KERNEL7L_TARBALL_URL"`"
+elif [ "$CHOSEN_KERNEL" = "" -a "$CHOSEN_KERNEL7" = "" -a "$CHOSEN_KERNEL7L" = "" ]; then
 	choose_kernel
 fi
 
 
+[ -n "$CHOSEN_KERNEL" ] && echo "Pi 0,1 kernel: $CHOSEN_KERNEL"
+[ -n "$CHOSEN_KERNEL7" ] && echo "Pi 2,3 kernel: $CHOSEN_KERNEL7"
+[ -n "$CHOSEN_KERNEL7L" ] && echo "Pi 4 kernel: $CHOSEN_KERNEL7L"
 cd build
-
 if [ "$CHOSEN_KERNEL" != "" ]; then
 	echo "Installing $CHOSEN_KERNEL to build/"
 	sleep 1
@@ -325,7 +359,7 @@ if [ "$CHOSEN_KERNEL" != "" ]; then
 	[ "$?" = 0 ] || exit 1
 
 	if [ "${DISTRO_TARGETARCH}" = "arm" ]; then
-		[ -f vmlinuz-*-v7* ] && mv -f vmlinuz-*-v7* vmlinuz7
+		[ -f vmlinuz-*-v7+* ] && mv -f vmlinuz-*-v7* vmlinuz7
 		[ -f vmlinuz-* ] && mv -f vmlinuz-* vmlinuz
 	else
 		[ -f vmlinuz-* ] && mv -f vmlinuz-* vmlinuz
@@ -339,7 +373,18 @@ if [ "${DISTRO_TARGETARCH}" = "arm" -a "$CHOSEN_KERNEL7" != "" ]; then
 	tar -xvf "../../../local-repositories/${DISTRO_TARGETARCH}/kernels/${CHOSEN_KERNEL7}"
 	[ "$?" = 0 ] || exit 1
 
-	[ -f vmlinuz-*-v7* ] && mv -f vmlinuz-*-v7* vmlinuz7
+	[ -f vmlinuz-*-v7+* ] && mv -f vmlinuz-*-v7+* vmlinuz7
+	[ -f vmlinuz-* ] && mv -f vmlinuz-* vmlinuz
+fi
+
+if [ "${DISTRO_TARGETARCH}" = "arm" -a "$CHOSEN_KERNEL7L" != "" ]; then
+	echo "Installing $CHOSEN_KERNEL7L to build/"
+	sleep 1
+
+	tar -xvf "../../../local-repositories/${DISTRO_TARGETARCH}/kernels/${CHOSEN_KERNEL7L}"
+	[ "$?" = 0 ] || exit 1
+
+	[ -f vmlinuz-*-v7l+* ] && mv -f vmlinuz-*-v7l+* vmlinuz7l
 	[ -f vmlinuz-* ] && mv -f vmlinuz-* vmlinuz
 fi
 
