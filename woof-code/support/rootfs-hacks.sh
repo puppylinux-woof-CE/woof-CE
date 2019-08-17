@@ -261,4 +261,8 @@ fi
 
 echo ----
 
+if [ -f ${0}_libs ] ; then
+	exec ${0}_libs $@
+fi
+
 ### END ###
