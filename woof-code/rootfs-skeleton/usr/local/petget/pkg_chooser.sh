@@ -128,7 +128,6 @@ pkg_info() {
 do_install() {
 	# Exit if called spuriously
 	[ "$TREE1" = "" ] && exit 0
-	progressbar_info
 	pkg_info
 	#-- Make sure that we have atleast one mode flag
 	if [ ! -f /tmp/petget_proc/install_pets_quietly \
@@ -157,45 +156,6 @@ do_install() {
 		#/usr/local/petget/installed_size_preview.sh "$NEWPACKAGE" ADD
 		/usr/local/petget/installmodes.sh "$INSTALL_MODE"
 	fi
-	#if [ -f /tmp/petget_proc/force_install -a -f /tmp/petget_proc/install_pets_quietly ]; then
-	#	installed_warning &
-	#fi
-}
-
-add_item (){
-	# Exit if called spuriously
-	[ "$TREE1" = "" ] && exit 0
-	# Make sure that we have atleast one mode flag
-	[ ! -f /tmp/petget_proc/install_pets_quietly -a ! -f  /tmp/petget_proc/download_only_pet_quietly \
-	 -a ! -f /tmp/petget_proc/download_pets_quietly -a ! -f /tmp/petget_proc/install_classic ] \
-	 && touch /tmp/petget_proc/install_pets_quietly
-	if [ "$(grep $TREE1 /root/.packages/user-installed-packages)" != "" -a \
-	 -f /tmp/petget_proc/install_pets_quietly ]; then
-		. /usr/lib/gtkdialog/box_yesno "$(gettext 'Package is already installed')" "$(gettext 'This package is already installed! ')" "$(gettext 'If you want to re-install it, first remove it and then install it again. To download only or use the step-by-step classic mode, select No and then change the Auto Install to another option.')" "$(gettext 'To Abort the process now select Yes.')"
-		if [ "$EXIT" = "yes" ]; then
-			exit 0
-		else
-			echo $TREE1 >> /tmp/petget_proc/forced_install
-		fi
-	fi
-	if [ "$TREE1" ] && [ ! "$(grep -F $TREE1 /tmp/petget_proc/pkgs_to_install)" ]; then
-		if [ ! -f /root/.packages/skip_space_check ]; then
-			echo 0 > /tmp/petget_proc/petget/install_status_percent
-			echo "$(gettext "Calculating...")" > /tmp/petget_proc/petget/install_status
-		fi
-		NEWPACKAGE="$(grep ^$TREE1 /tmp/petget_proc/petget/filterpkgs.results.post)"
-		echo "$NEWPACKAGE" >> /tmp/petget_proc/pkgs_to_install
-		add_item2 &
-	fi
-}
-
-add_item2(){
-	while true; do
-		sleep 0.3
-		[ ! "$(grep installed_size_preview <<< "$(ps -eo pid,command)")" ] && break
-	done
-	touch /tmp/petget_proc/install_quietly
-	/usr/local/petget/installed_size_preview.sh "$NEWPACKAGE" ADD
 }
 
 change_mode () {
@@ -255,12 +215,7 @@ case $ppm_mode in
 		;;
 esac
 
-installed_warning () {
-	FORCEDPKGS=$(cat /tmp/petget_proc/forced_install 2>/dev/null)
-	. /usr/lib/gtkdialog/box_splash -timeout 10 -bg orange -fontsize large -text "$FORCEDPKGS $(gettext ' packages are already installed! Should be remove from the list. If you want to re-install, uninstall first and then install.')"
-}
-export -f pkg_info do_install add_item add_item2 change_mode installed_warning
-
+export -f pkg_info do_install change_mode
 
 
 
@@ -330,6 +285,7 @@ if [ ! -f /tmp/petget_proc/petget_installed_patterns_system ];then
  sort -u /tmp/petget_proc/petget_installed_patterns_system > /tmp/petget_proc/petget_installed_patterns_systemx
  mv -f /tmp/petget_proc/petget_installed_patterns_systemx /tmp/petget_proc/petget_installed_patterns_system
 fi
+
 #100711 this code repeated in findmissingpkgs.sh...
 cp -f /tmp/petget_proc/petget_installed_patterns_system /tmp/petget_proc/petget_installed_patterns_all
 if [ -s /root/.packages/user-installed-packages ];then
@@ -432,46 +388,6 @@ echo '#!/bin/sh
 echo $1 > /tmp/petget_proc/petget/current-repo-triad
 ' > /tmp/petget_proc/filterversion.sh
 chmod 777 /tmp/petget_proc/filterversion.sh
-
-progressbar_info () {
-	if [ "$(cat /tmp/petget_proc/overall_dependencies | wc -l)" -ge 1 ];then
-		NEEDED_PGKS="$(</tmp/petget_proc/overall_dependencies)"
-		# Info window/dialogue (display and option to save "missing" info)
-		export NEEDED_DIALOG='
-		<window title="'$(gettext 'Package Manager')'" icon-name="gtk-about" default_height="350">
-		<vbox space-expand="true" space-fill="true">
-		  '"`/usr/lib/gtkdialog/xml_info fixed package_add.svg 60 " " "$(gettext "Dependencies needed")"`"'
-		  <hbox space-expand="true" space-fill="true">
-		    <hbox scrollable="true" hscrollbar-policy="2" vscrollbar-policy="2" space-expand="true" space-fill="true">
-		      <hbox space-expand="false" space-fill="false">
-		        <eventbox name="bg_report" space-expand="true" space-fill="true">
-		          <vbox margin="5" hscrollbar-policy="2" vscrollbar-policy="2" space-expand="true" space-fill="true">
-		            '"`/usr/lib/gtkdialog/xml_pixmap dialog-info.svg 32`"'
-		            <text angle="90" wrap="false" yalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"<big><b><span color='"'#15BC15'"'>'$(gettext 'Needed')'</span></b></big> "</label></text>
-		          </vbox>
-		        </eventbox>
-		      </hbox>
-		      <vbox scrollable="true" shadow-type="0" hscrollbar-policy="2" vscrollbar-policy="1" space-expand="true" space-fill="true">
-		        <text ypad="5" xpad="5" yalign="0" xalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"<i><b>'${NEEDED_PGKS}' </b></i>"</label></text>
-		      </vbox>
-		    </hbox>
-		  </hbox>
-
-		  <hbox space-expand="false" space-fill="false">
-		    <button>
-		      <label>'$(gettext 'View details')'</label>
-		      '"`/usr/lib/gtkdialog/xml_button-icon document_viewer`"'
-		      <action>defaulttextviewer /tmp/petget_proc/overall_dependencies &</action>
-		    </button>
-		    <button ok></button>
-		    '"`/usr/lib/gtkdialog/xml_scalegrip`"'
-		  </hbox>
-		</vbox>
-		</window>'
-	RETPARAMS="`gtkdialog --center -p NEEDED_DIALOG`"
-	fi
-}
-export -f progressbar_info
 
 # icon switching
 ICONDIR="/tmp/petget_proc/petget/icons"
