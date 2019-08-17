@@ -238,14 +238,19 @@ if [ -f /var/local/petget/ppm_mode ] ; then
 	read ppm_mode < /var/local/petget/ppm_mode
 fi
 case $ppm_mode in
-	auto)
-		PPM_MODES='<item>Auto install</item>
-<item>Step by step installation (classic mode)</item>
-<item>Download packages (no install)</item>'
-		;;
-	*)
+	wizard)
 		PPM_MODES='<item>Step by step installation (classic mode)</item>
 <item>Auto install</item>
+<item>Download packages (no install)</item>'
+		;;
+	download)
+		PPM_MODES='<item>Download packages (no install)</item>
+<item>Auto install</item>
+<item>Step by step installation (classic mode)</item>'
+		;;
+	*)
+		PPM_MODES='<item>Auto install</item>
+<item>Step by step installation (classic mode)</item>
 <item>Download packages (no install)</item>'
 		;;
 esac
