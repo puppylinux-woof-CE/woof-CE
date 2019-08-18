@@ -1,7 +1,7 @@
 #!/bin/bash
 # efi.img/grub2 is thanks to jamesbond
 # basic CD structure is the same as Fatdog64
-# called from 3builddistro-Z (or build-iso.sh)
+# called from 3builddistro (or build-iso.sh)
 
 #set -x
 

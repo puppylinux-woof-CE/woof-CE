@@ -10,7 +10,7 @@
 #   n=0: start from 0setup
 #   n=1: start from 1download
 #   n=2: start from 2createpackages
-#   n=3: start from 3buildistro-Z
+#   n=3: start from 3buildistro
 #
 
 if [ ! -f ./WOOFMERGEVARS ] ; then
@@ -31,18 +31,18 @@ case $1 in
 	./xlog 0setup a             #requires a param or ENTER the 2nd time you run it
 	./xlog 1download            #[pkg]
 	./xlog 2createpackages -all #or pkg
-	./xlog 3builddistro-Z ${RELEASE}
+	./xlog 3builddistro ${RELEASE}
 	;;
 1)
 	./xlog 1download            #[pkg]
 	./xlog 2createpackages -all #or pkg
-	./xlog 3builddistro-Z ${RELEASE}
+	./xlog 3builddistro ${RELEASE}
 	;;
 2)
 	./xlog 2createpackages -all #or pkg
-	./xlog 3builddistro-Z ${RELEASE}
+	./xlog 3builddistro ${RELEASE}
 	;;
 3)
-	./xlog 3builddistro-Z ${RELEASE}
+	./xlog 3builddistro ${RELEASE}
 	;;
 esac
