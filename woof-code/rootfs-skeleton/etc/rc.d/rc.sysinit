@@ -389,36 +389,25 @@ zcat /proc/config.gz | grep -q '^CONFIG_INPUT_LEDS=m' && modprobe input-leds #fo
 ### - a touchscreen has been detected
 ### - missing xorg input-kbd and input-mouse drivers [ex: ubuntu xenial]
 TOUCHMOD=`lsmod|grep touch`
-#mavrothal: Check if it is an OLPC XO and add the devices...
-ISITANXO=`cat /sys/class/dmi/id/product_name`
+ISITANXO=`cat /sys/class/dmi/id/product_name` #mavrothal: Check if it is an OLPC XO
 ISITAMAC=`grep -i '^Apple' /sys/class/dmi/id/board_vendor`
 [ -f /lib64/libc.so.6 ] && lsuffix=64 || lsuffix= #slackware64
 if [ ! -f /usr/lib${lsuffix}/xorg/modules/input/kbd_drv.so -a ! -f /usr/lib${lsuffix}/xorg/modules/input/mouse_drv.so ] ; then
-  echo "Warning: Xorg kbd_drv.so and mouse_drv.so are missing"
+  echo "XORG_UDEV=1: Xorg kbd_drv.so and mouse_drv.so are missing"
   XORG_UDEV=1
-fi
-
-# this might cause side effects.. only use with xorg udev stuff
-# see http://murga-linux.com/puppy/viewtopic.php?t=108017&start=345
-if [ -n "$TOUCHMOD" -o -n "$ISITAMAC" -o "$ISITANXO" = "XO" -o "$XORG_UDEV" = '1' ] ; then
-	udevadm trigger --action=add --subsystem-match="input" --subsystem-match="sound"
-	udevadm settle
 fi
 
 TOUCHSCREEN="$(udevadm info --export-db | grep ID_INPUT_TOUCHSCREEN=1)"
 if [ -n "$TOUCHSCREEN" ] ; then
   echo "Touchscreen detected: $TOUCHSCREEN"
   XORG_UDEV=1
-else
-  echo "No touchscreens detected"
 fi
 if [ -n "$ISITAMAC" ] ; then
   echo "MAC detected: $ISITAMAC"
-  udevadm trigger --action=add --subsystem-match="power_supply"
-  udevadm settle
   XORG_UDEV=1
 fi
-[ "$DISTRO_BINARY_COMPAT" = 'raspbian' ] && XORG_UDEV=1
+case $(uname -m) in arm*|aarch*) XORG_UDEV=1 ;; esac
+
 if [ "$XORG_UDEV" = '1' ] ; then
   echo "Activating Xorg Evdev"
   [ ! -f /var/local/xorg_udev ] && rm -fv /etc/X11/xorg.conf #force xorgwizard-automatic
@@ -428,7 +417,6 @@ else
   [ -f /var/local/xorg_udev ] && rm -fv /etc/X11/xorg.conf #force xorgwizard-automatic
   rm -fv /var/local/xorg_udev
 fi
-
 
 status_func 0
 
@@ -493,20 +481,6 @@ else
  fi
 fi
 
-#110511 now using udevadm for usb, ssb and pcmcia... 110513 keep ssb as before...
-#v424 try it a different way, this also fixes ssb devices (such as b43.ko)...
-[ -e /sys/bus/ssb/devices ] && NEWSSB="`ls /sys/bus/ssb/devices/*/uevent 2>/dev/null | tr '\n' ' '`"
-for ONEUEVENT in ${NEWSSB} #${NEWPCMCIA}${NEWUSB}${NEWSSB} #110511
-do
-  ONEPATH="`dirname $ONEUEVENT`"
-  #the check for 'modalias' file is maybe needed for old kernel?...
-  [ ! -e ${ONEPATH}/modalias ] && [ "`grep 'MODALIAS' $ONEUEVENT`" = "" ] && continue
-  echo add > $ONEUEVENT
-  sleep 0.02
-done
-#wasn't getting the right uevents for my 3g modem... i think need this:
-udevadm trigger --action=add --subsystem-match="pcmcia*" --subsystem-match="usb*"
-
 if [ "$USBBUILTIN" = "no" ];then #110712
  #wait for usb-storage drives to become available...(already done if initrd)
  #note, udevd logs to this file when load modules
@@ -535,26 +509,28 @@ if [ "$USBBUILTIN" = "no" ];then #110712
          #(delay before usb mouse info appears in /proc/bus/input/devices)
 fi
 
-status_func 0
+udevadm trigger #--action=add --subsystem-match="input" --subsystem-match="sound" --subsystem-match="power_supply"
+udevadm settle -t 20
 
-# -- from slackware's /etc/rc.d/rc.udev -- modded
-# echo "Creating static nodes in /dev."
-kmod_ver=$(kmod --version | cut -f 3 -d ' ' | head -n 1)
-if [ "$kmod_ver" ] && [ $kmod_ver -ge 14 ] ; then #since v14
-	kmod static-nodes -f tmpfiles | \
-	while read F1 F2 F3 F4 F5 F6 F7 F8 ETC
-	do
-		[ -z "$F7" ] && continue #precaution
-		# mknod: /dev/net/tun: No such file or directory
-		[ ! -d ${F2%/*} ] && mkdir -p -m $F3 ${F2%/*}
-		# c! /dev/cuse 0600 - - - 10:203
-		mknod -m $F3 $F2 ${F1:0:1} ${F7%:*} ${F7#*:} 2>/dev/null #mknod -m 0600 /dev/cuse c 10 203
-	done
-fi
+# -- from slackware's /etc/rc.d/rc.udev -- modded. kmod 14+
+kmod static-nodes -f tmpfiles | \
+while read F1 F2 F3 F4 F5 F6 F7 F8 ETC ; do
+	case $F1 in
+		"c!"*|"b!"*|"u!"*|"p!"*) ok=1 ;;
+		*) continue ;;
+	esac
+	[ -z "$F7" ] && continue #precaution
+	# mknod: /dev/net/tun: No such file or directory
+	[ ! -d ${F2%/*} ] && mkdir -p -m $F3 ${F2%/*}
+	# c! /dev/cuse 0600 - - - 10:203
+	mknod -m $F3 $F2 ${F1:0:1} ${F7%:*} ${F7#*:} 2>/dev/null #mknod -m 0600 /dev/cuse c 10 203
+done
 # Add any system/locally defined additional device nodes:
 cp --preserve=all --recursive --update /lib/udev/devices/* /dev 2> /dev/null
 cp --preserve=all --recursive --update /etc/udev/devices/* /dev 2> /dev/null
 # --
+
+status_func 0
 
 ##############USER SELECTED MODULES##################
 echo "USER SELECTED MODULES"
