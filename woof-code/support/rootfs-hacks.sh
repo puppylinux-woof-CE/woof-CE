@@ -266,7 +266,7 @@ echo '<?xml version="1.0" encoding="UTF-8"?>
   <path style="fill:#4CAF50;stroke:#545454;stroke-width:6" d="m 172,10 c -162,8 -162,148 -112,148 q -6,-24 2,-48 q -8,24 -2,48 c 4,20 32,32 48,18 q -8,-27 2,-54 q -10,27 -2,54 c 40,24 64,-20, 64,-128 c -100,80 -120,0 0,-38 z"/>
 </svg>'| rsvg-convert > ${SR}/usr/share/pixmaps/midori.png
 (cd ${SR}
-rm -f usr/share/applications/midori-private.desktop
+rm -f usr/share/applications/*midori*.desktop # remove everything
 mkdir -p usr/share/doc/midori
 ln -sfv ../../doc usr/share/doc/midori/user
 ln -sv home.htm usr/share/doc/midori.html
@@ -274,7 +274,7 @@ ln -sv home.htm usr/share/doc/midori.html
 echo '[Desktop Entry]
 Version=1.0
 Type=Application
-Name=Midori web bdrowser
+Name=Midori web browser
 GenericName=web browser
 Comment=Midori web browser
 Categories=WebBrowser
