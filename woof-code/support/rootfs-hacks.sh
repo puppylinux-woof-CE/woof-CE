@@ -259,6 +259,34 @@ if [ -e ${SR}/lib64/libncurses.so.5 ] && [ ! -e ${SR}/lib64/libtinfo.so.5 ] ; th
 	ln -sv /lib64/libncurses.so.5 ${SR}/lib64/libtinfo.so.5
 fi
 
+# midori
+[ -e ${SR}/usr/share/pixmaps/midori.png ] && rm -f ${SR}/usr/share/pixmaps/midori.png # maybe symlink
+echo '<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1" height="48px" width="48px" viewBox="0 0 192 192">
+  <path style="fill:#4CAF50;stroke:#545454;stroke-width:6" d="m 172,10 c -162,8 -162,148 -112,148 q -6,-24 2,-48 q -8,24 -2,48 c 4,20 32,32 48,18 q -8,-27 2,-54 q -10,27 -2,54 c 40,24 64,-20, 64,-128 c -100,80 -120,0 0,-38 z"/>
+</svg>'| rsvg-convert > ${SR}/usr/share/pixmaps/midori.png
+(cd ${SR}
+rm -f usr/share/applications/midori-private.desktop
+mkdir -p usr/share/doc/midori
+ln -sfv ../../doc usr/share/doc/midori/user
+ln -sv home.htm usr/share/doc/midori.html
+)
+echo '[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Midori web bdrowser
+GenericName=web browser
+Comment=Midori web browser
+Categories=WebBrowser
+MimeType=text/html;text/xml;application/xhtml+xml;application/xml;
+Exec=midori
+Icon=midori.png
+Terminal=false
+StartupNotify=true
+X-Osso-Type=application/x-executable
+X-Osso-Service=midori' > ${SR}/usr/share/applications/midori.desktop
+
+
 echo ----
 
 if [ -f ${0}_libs ] ; then
