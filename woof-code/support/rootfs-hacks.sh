@@ -259,6 +259,11 @@ if [ -e ${SR}/lib64/libncurses.so.5 ] && [ ! -e ${SR}/lib64/libtinfo.so.5 ] ; th
 	ln -sv /lib64/libncurses.so.5 ${SR}/lib64/libtinfo.so.5
 fi
 
+# iptables symlink
+if [ -h ${SR}/usr/sbin/iptables-legacy ] ; then
+	ln -sv /usr/sbin/iptables-legacy ${SR}/usr/sbin/iptables
+fi
+
 echo ----
 
 for i in ${0}_*
