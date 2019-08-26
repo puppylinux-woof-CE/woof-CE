@@ -17,27 +17,26 @@ DEF_CHK_EXE='true'
 DEF_CHK_DEV='false'
 DEF_CHK_DOC='false'
 DEF_CHK_NLS='false'
-[ -e /var/local/petget/postfilter_EXE ] && DEF_CHK_EXE="`cat /var/local/petget/postfilter_EXE`"
-[ -e /var/local/petget/postfilter_DEV ] && DEF_CHK_DEV="`cat /var/local/petget/postfilter_DEV`"
-[ -e /var/local/petget/postfilter_DOC ] && DEF_CHK_DOC="`cat /var/local/petget/postfilter_DOC`"
-[ -e /var/local/petget/postfilter_NLS ] && DEF_CHK_NLS="`cat /var/local/petget/postfilter_NLS`"
-cp -f /tmp/petget/filterpkgs.results /tmp/petget/filterpkgs.results.post
+[ -e /var/local/petget/postfilter_EXE ] && read DEF_CHK_EXE < /var/local/petget/postfilter_EXE
+[ -e /var/local/petget/postfilter_DEV ] && read DEF_CHK_DEV < /var/local/petget/postfilter_DEV
+[ -e /var/local/petget/postfilter_DOC ] && read DEF_CHK_DOC < /var/local/petget/postfilter_DOC
+[ -e /var/local/petget/postfilter_NLS ] && read DEF_CHK_NLS < /var/local/petget/postfilter_NLS
+cp -f /tmp/petget_proc/petget/filterpkgs.results /tmp/petget_proc/petget/filterpkgs.results.post
 
 #120525 quick filtering but not perfect...
 #PETs: _DEV _DOC _NLS  
 #Ubuntu,Debian DEBs: -dev_ -doc_ -docs_ -langpack -lang-
 #Mageia RPMs: -devel- -doc-
-sed -i -e '/-dbg_/d' /tmp/petget/filterpkgs.results.post #120525 always take out the debug pkgs.
-[ "$DEF_CHK_DEV" = "false" ] && sed -i -e '/_DEV/d' -e '/-dev_/d' -e '/-devel-/d' /tmp/petget/filterpkgs.results.post
-[ "$DEF_CHK_DOC" = "false" ] && sed -i -e '/_DOC/d' -e '/-doc_/d' -e '/-docs_/d' -e '/-doc-/d' /tmp/petget/filterpkgs.results.post
-[ "$DEF_CHK_NLS" = "false" ] && sed -i -e '/_NLS/d' -e '/-langpack/d' -e '/-lang-/d' /tmp/petget/filterpkgs.results.post
+sed -i -e '/-dbg_/d' /tmp/petget_proc/petget/filterpkgs.results.post #120525 always take out the debug pkgs.
+[ "$DEF_CHK_DEV" = "false" ] && sed -i -e '/_DEV/d' -e '/-dev_/d' -e '/-devel-/d' /tmp/petget_proc/petget/filterpkgs.results.post
+[ "$DEF_CHK_DOC" = "false" ] && sed -i -e '/_DOC/d' -e '/-doc_/d' -e '/-docs_/d' -e '/-doc-/d' /tmp/petget_proc/petget/filterpkgs.results.post
+[ "$DEF_CHK_NLS" = "false" ] && sed -i -e '/_NLS/d' -e '/-langpack/d' -e '/-lang-/d' /tmp/petget_proc/petget/filterpkgs.results.post
 #120504b fix filtering out _EXE... 120515 must escape the dashes...
 if [ "$DEF_CHK_EXE" = "false" ];then
- grep -E '_DEV|_DOC|_NLS|\-dev_|\-doc_|\-docs_|\-langpack|\-lang\-|\-devel\-|\-doc\-' /tmp/petget/filterpkgs.results.post > /tmp/petget/filterpkgs.results.post.tmp
- mv -f /tmp/petget/filterpkgs.results.post.tmp /tmp/petget/filterpkgs.results.post
+ grep -E '_DEV|_DOC|_NLS|\-dev_|\-doc_|\-docs_|\-langpack|\-lang\-|\-devel\-|\-doc\-' /tmp/petget_proc/petget/filterpkgs.results.post > /tmp/petget_proc/petget/filterpkgs.results.post.tmp
+ mv -f /tmp/petget_proc/petget/filterpkgs.results.post.tmp /tmp/petget_proc/petget/filterpkgs.results.post
 fi
 
-#120817 category field: Document;edit becomes mini-Document-edit...
-sed -i -e 's%|%|mini-%' -e 's%;%-%' /tmp/petget/filterpkgs.results.post
+sed -i 's%;%-%' /tmp/petget_proc/petget/filterpkgs.results.post #make names correspond to /usr/share/icons/hicolor/scalable/categogies/
 
 ###END###

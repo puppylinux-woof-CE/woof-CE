@@ -1,0 +1,370 @@
+#!/bin/ash
+# - this is cli/gui script
+# - run "pupswap" to create a swap file on a given partition
+# - it's called by shutdownconfig on shutdown if there are no swaps loaded
+# - then rc.sysinit will load the swap file on next boot
+#
+# On boot only swap files properly validated are loaded, see:
+# validate_drive() -- add rules there if it's not recognized (run probedisk)
+
+. /etc/rc.d/PUPSTATE #variables
+
+#===============================================================
+#                  FUNCTIONS
+#===============================================================
+
+create_swapfile() {
+	local outfile="$1" size=$2 #MB
+	dd if=/dev/zero of=${outfile} bs=1M count=$size
+	if [ $? -eq 0 ];then
+		sync
+		mkswap ${outfile}
+	fi
+	if [ $? -ne 0 ];then
+		rm -f ${outfile} 2>/dev/null
+		return 1
+	fi
+}
+
+validate_drive() { #ex: sda
+	[ -b /dev/$1 ] || return 1
+	drive=${1:0:3}
+	D_INFO="$(probedisk $drive)"
+	# add rules here
+	case "$D_INFO" in
+		*"|ATA "*) return 0 ;; #HDDs have this
+	esac
+	return 1
+}
+
+free_mb() {
+	FREEK=$(df | grep "${1}$" | tr -s " " | head -n 1 | cut -f 4 -d " ")
+	FREEM=$(($FREEK / 1024)) #MB
+}
+
+#===============================================================
+#                      MAIN
+#===============================================================
+
+case $1 in
+	validate_drive)
+		shift
+		validate_drive $1
+		exit $?
+		;;
+	set_dir)
+		shift
+		if [ "$1" ] ; then
+			MOUNTED_PARTITIONS="$1"
+			free_mb "$1"
+			SWAP_SIZE_LIMIT=${FREEM} #MB
+			shift
+		fi
+		;;
+	guihelp)
+		PUPSWAP_HELP_1="$(gettext "As well as the swap partition, Linux also supports a swap file that you can create, prepare, and mount in a fashion similar to that of a swap partition. The advantage of swap files is that you don't need to find an empty partition or repartition a disk to add additional swap space.")"
+		PUPSWAP_HELP_2="$(gettext "It is possible to run a Linux system without a swap space, and the system will run well if you have a large amount of memory -- but if you run out of physical memory then the system will crash, as it has nothing else it can do, so it is advisable to have a swap space, especially since disk space is relatively cheap")"
+		echo -e "${PUPSWAP_HELP_1}\n\n${PUPSWAP_HELP_2}" > /tmp/box_help
+		/usr/lib/gtkdialog/box_help
+		;;
+esac
+
+#===============================================================
+
+if [ $PUPMODE -eq 5 -a "$BOOTMANAGER" != "" ] ; then
+	/usr/lib/gtkdialog/box_ok "pupswap" info "$(gettext "It's not advised to use this tool on first boot but you can play with it nonetheless...")"
+fi
+
+#===============================================================
+
+CLI=1
+[ "$DISPLAY" ] && GUI=1
+case $1 in
+	cli) CLI=1 ; GUI= ; shift ;;
+	gui) GUI=1 ; CLI= ; shift ;;
+esac
+
+[ "$1" ] && exit
+
+export TEXTDOMAIN=pupswap
+export OUTPUT_CHARSET=UTF-8
+
+if [ $ONLY_IF_NO_SWAP ] ; then #exported by calling app
+	TOTALSWAP=`free | grep -o 'Swap: .*' | tr -s ' ' | cut -f 2 -d ' '`
+	[ $TOTALSWAP -gt 0 ] && exit #swap file(s)/partition(s) are loaded
+fi
+
+if [ "$SWAP_SIZES" = "" ] ; then #SWAP_SIZES can be exported
+	SWAP_SIZES='64 128 256 512 768 1024 1536 2048 4096 8192'
+fi
+if [ "$SWAP_SIZE_LIMIT" ] ; then #MB - SWAP_SIZE_LIMIT can be exported
+	for i in $SWAP_SIZES ; do
+		[ $i -gt $SWAP_SIZE_LIMIT ] && break
+		SWAP_SIZES2="$SWAP_SIZES2 $i"
+	done
+	SWAP_SIZES=$SWAP_SIZES2
+fi
+X=0
+for i in $SWAP_SIZES ; do
+	X=$(($X+1))
+	SIZE_LIST_CLI=''${SIZE_LIST_CLI}' "'${X}'" "'${i}'"'
+	SIZE_LIST_GUI="$SIZE_LIST_GUI<item>${i}MB</item>"
+done
+[ $X -lt 2 ] && DISABLE_SIZE_COMBO='<sensitive>"false"</sensitive>'
+TOTAL_SWAP_SIZES=$X
+
+if [ "$MOUNTED_PARTITIONS" = "" ] ; then #MOUNTED_PARTITIONS can be exported
+	MOUNTED_PARTITIONS="`mount | grep -E "/(s|h)d[a-z][0-9]" | awk '{print $3}' | sort -u`"
+fi
+if [ $PUPMODE -eq 2 ] ; then #full install
+	MOUNTED_PARTITIONS="/
+$MOUNTED_PARTITIONS"
+fi
+MOUNTED_PARTITIONS="$(echo "$MOUNTED_PARTITIONS" | sort -u)"
+X=0
+for drv in $MOUNTED_PARTITIONS ; do
+	X=$(($X+1))
+	DIR_LIST_CLI=''${DIR_LIST_CLI}' "'${X}'" "'${drv}'"'
+	DIR_LIST_GUI="$DIR_LIST_GUI<item>${drv}</item>"
+done
+[ $X -lt 2 ] && DISABLE_DRV_COMBO='<sensitive>"false"</sensitive>'
+TOTAL_MOUNTED_PARTITIONS=$X
+
+FREEE="$(free)"
+TOTALRAM=`echo "$FREEE" | grep -o 'Mem: .*' | tr -s ' ' | cut -f 2 -d ' '`
+USEDRAM=`echo "$FREEE" | grep -o 'Mem: .*' | tr -s ' ' | cut -f 3 -d ' '`
+TOTALSWAP=`echo "$FREEE" | grep -o 'Swap: .*' | tr -s ' ' | cut -f 2 -d ' '`
+
+TOTALRAM="$(($TOTALRAM / 1024))MB"
+USEDRAM="$(($USEDRAM / 1024))MB"
+TOTALSWAP="$(($TOTALSWAP / 1024))MB"
+
+#----------------------------------------
+FST_DESC="$(gettext 'This tool allows you to create a swap file.')"
+#EXT_DESC="$(gettext "By default Puppy will only load swap files if no swap partitions are found.")"
+MAIN_DESC="$FST_DESC $EXT_DESC"
+
+if [ $GUI ] ; then
+	WINDOW_MSG="$(/usr/lib/gtkdialog/xml_info 0 execute_add.svg 32 "$MAIN_DESC")"
+	export SWAPFILE_DIALOG='
+<window title="pupswap" image-name="/usr/share/pixmaps/puppy/preferences.svg">
+<vbox>
+  '${WINDOW_MSG}'
+  <frame '$(gettext 'Select partition and swap size')'>
+  <hbox>
+    <text space-expand="true" space-fill="false"><label>"Total RAM: '${TOTALRAM}'"</label></text>
+    <text space-expand="true" space-fill="true"><label>"Total SWAP: '${TOTALSWAP}'"</label></text>
+  </hbox>
+  <hbox>
+    <text><label>'$(gettext 'Destination:')'</label></text>
+    <combobox>
+      <variable>SWAP_PART</variable>
+      '${DISABLE_DRV_COMBO}'
+      '${DIR_LIST_GUI}'
+    </combobox>
+  </hbox>
+
+  <hbox>
+    <text><label>'$(gettext 'Swap size:')'</label></text>
+    <combobox>
+      <variable>SWAP_SIZE_MB</variable>
+      '${DISABLE_SIZE_COMBO}'
+      '${SIZE_LIST_GUI}'
+    </combobox>
+  </hbox>
+  </frame>
+  <hbox space-expand="false" space-fill="false">
+    <button space-expand="false" space-fill="false">
+      '"`/usr/lib/gtkdialog/xml_button-icon help`"'
+      <label>"'$(gettext 'Help')'"</label>
+      <action>'${0}' guihelp &</action>
+    </button>
+    <text space-expand="true" space-fill="false"><label>" "</label></text>
+   <button space-expand="false" space-fill="false">
+     <label>'$(gettext 'Create pupswap.swp')'</label>
+     '$(/usr/lib/gtkdialog/xml_button-icon dialog-complete.svg)'
+     <action>exit:OK</action>
+   </button>
+   <button space-expand="false" space-fill="false">
+      '$(/usr/lib/gtkdialog/xml_button-icon quit.svg)'
+      <label>Swap not required</label>
+      <action type="exit">Cancel</action>
+   </button>
+  </hbox>
+</vbox>
+</window>
+'
+	. /usr/lib/gtkdialog/xml_info gtk #build bg_pixmap for gtk-theme
+	retvals=$(gtkdialog --center --program=SWAPFILE_DIALOG)
+	eval "$retvals"
+	[ "$EXIT" = "OK" ] || exit
+else
+	# -- cli --
+	DIR_LIST=$(echo "$DIR_LIST_GUI" | sed -e 's|<item>||g' -e 's|</item>|\n|g')
+	SIZE_LIST=$(echo "$SIZE_LIST_GUI" | sed -e 's|<item>||g' -e 's|</item>|\n|g')
+	for i in 1 2 ; do #1=partition 2=swap_size
+		if [ $i -eq 1 ] ; then
+			ITEMCOUNT=${TOTAL_MOUNTED_PARTITIONS}
+			LIST=${DIR_LIST}
+			LIST_CLI=${DIR_LIST_CLI}
+			MSG=$(gettext 'Select mounted partition')
+			OK_LABEL=$(gettext 'OK')
+		else
+			ITEMCOUNT=${TOTAL_SWAP_SIZES}
+			LIST=${SIZE_LIST}
+			LIST_CLI=${SIZE_LIST_CLI}
+			MSG=$(gettext 'Select swap size')
+			OK_LABEL=$(gettext 'Create pupswap.swp')
+		fi
+		x=1
+		(
+		echo 'dialog --title "pupswap" --ok-label "'${OK_LABEL}'" --cancel-label "'$(gettext 'Cancel')'" \
+--menu "'${MAIN_DESC}'
+
+Total RAM: '${TOTALRAM}' / Total SWAP: '${TOTALSWAP}'
+
+'${MSG}':" 0 0 0 \'
+		echo -n ${LIST_CLI}' '
+		echo '>/dev/tty 2>/tmp/pupswap.cli.res'
+		echo 'exit $?'
+		) > /tmp/pupswap.cli
+		sh /tmp/pupswap.cli
+		if [ $? -eq 0 ] ; then
+			[ $ITEMCOUNT -eq 0 ] && continue
+			choice=$(< /tmp/pupswap.cli.res)
+			choice=${choice%\)}
+			[ "$choice" ] && RES=$(echo "$LIST" | sed -n "${choice}p")
+		else
+			exit
+		fi
+		if [ $i -eq 1 ] ; then
+			SWAP_PART=${RES}
+		else
+			SWAP_SIZE_MB=${RES}
+		fi
+		rm -f /tmp/pupswap.cli /tmp/pupswap.cli.res
+	done
+fi
+#----------------------------------------
+
+if [ ! -d "$SWAP_PART" ] ; then
+	msg="$(gettext 'Invalid directory...')"
+	if [ $GUI ] ; then
+		exec /usr/lib/gtkdialog/box_ok "pupswap" error "$msg"
+	else
+		exec dialog --title "pupswap" --msgbox "$msg" 7 40
+	fi
+fi
+
+SWAP_SIZE_MB=${SWAP_SIZE_MB%MB}
+if [ ! "$SWAP_SIZE_MB" ] ; then
+	msg="$(gettext 'Now swap size specificied...')"
+	if [ $GUI ] ; then
+		exec /usr/lib/gtkdialog/box_ok "pupswap" error "$msg"
+	else
+		exec dialog --title "pupswap" --msgbox "$msg" 7 40
+	fi
+fi
+
+IS_LOADED=$(grep "^${SWAP_PART}/pupswap.swp" /proc/swaps)
+
+if [ "$IS_LOADED" ] ; then
+	msg="$(printf "$(gettext '%s/pupswap.swp is already loaded')" "${SWAP_PART}")
+
+$(gettext 'Do you want to 1) unload and 2) replace the file?')
+
+$(gettext '(will delete the file before attempting to create the new one)')"
+	if [ $GUI ] ; then
+		/usr/lib/gtkdialog/box_yesno "pupswap" "$msg"
+	else
+		dialog --title "pupswap" --yes-label $(gettext 'Yes') \
+			--no-label $(gettext 'No') --yesno "$msg" 0 0
+	fi
+	[ $? -ne 0 ] && exit
+	swapoff ${SWAP_PART}/pupswap.swp
+	rm -f ${SWAP_PART}/pupswap.swp
+elif [ -f ${SWAP_PART}/pupswap.swp ] ; then
+	msg="$(printf "$(gettext '%s/pupswap.swp already exists')" "${SWAP_PART}")
+
+$(gettext 'Do you want to replace it?')
+
+$(gettext '(will delete the file before attempting to create the new one)')"
+	if [ $GUI ] ; then
+		/usr/lib/gtkdialog/box_yesno "pupswap" "$msg"
+	else
+		dialog --title "pupswap" --yes-label $(gettext 'Yes') \
+			--no-label $(gettext 'No') --yesno "$msg" 0 0
+	fi
+	[ $? -ne 0 ] && exit
+	rm -f ${SWAP_PART}/pupswap.swp
+fi
+
+# check free space
+free_mb ${SWAP_PART}
+if [[ $FREEM -lt $SWAP_SIZE_MB ]] ; then
+	msg0="$(gettext 'Not enough space...')"
+	msg1="$(printf "$(gettext '%s has %sMB of free space')" "$SWAP_PART" "$FREEM")
+
+$(printf "$(gettext 'But you chose to create a swap file of %sMB')" "$SWAP_SIZE_MB")"
+	if [ $GUI ] ; then
+		exec /usr/lib/gtkdialog/box_ok "$msg0" error "$msg1"
+	else
+		exec dialog --title "$msg0" --msgbox "$msg1" 0 0
+	fi
+fi
+
+msg="$(printf "$(gettext 'Creating %s/pupswap.swp...')" "${SWAP_PART}")"
+if [ $GUI ] ; then
+	gtkdialog-splash -close never -text "$msg" &
+	pid=$!
+else
+	echo -e "\n\n$msg"
+fi
+
+#-------------------------------------------------------
+create_swapfile ${SWAP_PART}/pupswap.swp ${SWAP_SIZE_MB}
+#-------------------------------------------------------
+if [ $? -eq 0 ] ; then
+	msg="$(gettext 'pupswap.swp successfully created')"
+	if [ $GUI ] ; then
+		kill -9 $pid
+		/usr/lib/gtkdialog/box_splash -close never -bg green -timeout 3 -text "$msg"
+	else
+		echo -e "\n$msg" && sleep 3
+	fi
+else
+	msg="$(gettext 'Error(s) creating pupswap.swp')"
+	if [ $GUI ] ; then
+		kill -9 $pid
+		/usr/lib/gtkdialog/box_splash -close never -bg red -timeout 3 -text "$msg"
+	else
+		echo -e "\n$msg" && sleep 3
+	fi
+fi
+
+[ $SHUTDOWNCONFIG ] && exit #exported in /usr/sbin/shutdownconfig
+
+#------------------
+
+TOTALSWAP=`free | grep -o 'Swap: .*' | tr -s ' ' | cut -f 2 -d ' '`
+if [ $TOTALSWAP -eq 0 ] ; then
+	msg="$(printf "$(gettext 'Do you want to load %s?')" "${SWAP_PART}/pupswap.swp")"
+	if [ $GUI ] ; then
+		/usr/lib/gtkdialog/box_yesno --yes-first "pupswap" "$msg"
+	else
+		dialog --title "pupswap" --yes-label $(gettext 'Yes') --no-label $(gettext 'No') --yesno "$msg" 0 0
+	fi
+	[ $? -ne 0 ] && exit
+	swapon "${SWAP_PART}/pupswap.swp"
+	if [ $? -eq 0 ] ; then
+		msg="$(printf "$(gettext "'%s' successfully loaded!")" "${SWAP_PART}/pupswap.swp")"
+		echo -e "\n$msg"
+		[ $GUI ] && /usr/lib/gtkdialog/box_splash -close never -bg green -timeout 3 -text "$msg"
+	else
+		msg="$(printf "$(gettext "ERROR loading '%s'")" "${SWAP_PART}/pupswap.swp")"
+		echo -e "\n$msg"
+		[ $GUI ] && /usr/lib/gtkdialog/box_splash -close never -bg red -timeout 3 -text "$msg"
+	fi
+fi
+
+### END ###

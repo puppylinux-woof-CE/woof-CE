@@ -4,109 +4,212 @@
 #121128 BK complete rewrite.
 #130127 internationalised.
 #130207 don570: a translation was missing.
-#130214 remove scanpci. add "vga" test.
 #130215 a module may get loaded, then attempted loaded again, then unloaded, 1st load still there.
 
 export TEXTDOMAIN=report-video
 export OUTPUT_CHARSET=UTF-8
 
-. /etc/DISTRO_SPECS
+function help() {
+  echo
+  echo " Syntax: "
+  echo "   ${0##*/} [option]"
+  echo
+  echo "[option] can be:"
+  echo "   driver  - get Xorg video driver (from /var/log/Xorg.0.log)"
+  echo "   modules - get xorg loaded modules (from /var/log/Xorg.0.log)"
+  echo "   chip    - get graphics chip description"
+  echo "   res     - get actual resolution"
+  echo "   depth   - get actual bit depth"
+  echo
+  echo "   xorgconf <opt>  - query /etc/X11/xorg.conf"
+  echo "        videodepth - requested depth (bits or planes)"
+  echo "        videores   - requested resolution"
+  echo "        reqmods    - modules requested to be loaded"
+  echo "        disabledmods - modules requested to not be loaded"
+  echo "        reqdriver    - drivers requested to be loaded"
+  echo
+  echo " If no option is given then a full report is printed"
+  echo
+}
 
-GRAPHICSCHIP="`lspci | grep -i -E 'graphic|video|display|vga' | cut -f 2- -d ' '`" #130214
-if [ "$GRAPHICSCHIP" = "" ];then
- if [ -f /tmp/ddcprobe.txt ];then
-  GRAPHICSCHIP="`cat /tmp/ddcprobe.txt | grep -E '^oem: |^product: '`"
- else
-  GRAPHICSCHIP="`ddcprobe | grep -E '^oem: |^product: '`"
- fi
-fi
-[ -z "$GRAPHICSCHIP" ] && GRAPHICSCHIP=" unknown"
+function XorgVideoDriver() {
+    LOADED=$(grep 'Loading .*/xorg/modules/drivers/.*_drv.so' /var/log/Xorg.0.log | sed -e 's/.*\///' -e 's/_.*//')
+    for ALOADED in $LOADED
+    do
+      bPTN="LoadModule: \"$ALOADED\""
+      aPTN="UnloadModule: \"$ALOADED\""
+      CNTload=`grep "$bPTN" /var/log/Xorg.0.log | wc -l`
+      CNTunload=`grep "$aPTN" /var/log/Xorg.0.log | wc -l`
+      [ $CNTload -eq 0 ] && continue #not loaded
+      VIDEODRIVER="$ALOADED" #times loaded greater than unloaded
+      break
+    done
+    [ ! "$VIDEODRIVER" ] && exit 1
+    echo -n ${VIDEODRIVER} > /tmp/xorg_video_driver
+    echo ${VIDEODRIVER}
+}
+
+function XorgLoadedModules() {
+  if [ "$video_driver" ] ; then
+    VIDEODRIVER=${video_driver}
+  else
+    VIDEODRIVER=$(XorgVideoDriver)
+  fi
+  ALLLOADED="$(grep 'LoadModule: ' /var/log/Xorg.0.log | rev | cut -f 1 -d '/' | rev | cut -f 2 -d '"' | sort -u | tr '\n' ' ')" #'geany
+  for ALOADED in $ALLLOADED
+  do
+    [ "$ALOADED" = "$VIDEODRIVER" ] && continue
+    aPTN="UnloadModule: \"$ALOADED\""
+    bPTN="LoadModule: \"$ALOADED\""
+    #130215 Xorg loaded noauveau, then tried to load it again, failed, then unloaded, so count them...
+    CNTload=`grep "$bPTN" /var/log/Xorg.0.log | wc -l`
+    CNTunload=`grep "$aPTN" /var/log/Xorg.0.log | wc -l`
+    [ $CNTload -eq 0 ] && continue
+    [ $CNTunload -ge $CNTload ] && continue
+    ALLMODS="${ALLMODS} ${ALOADED}"
+  done
+  echo "$ALLMODS"
+}
+
+function VideoChip() {
+  local GRAPHICSCHIP
+  CHIPID="`lspci -v | grep -i -E 'graphic|video|display|vga' | cut -f 1 -d ' '`" #130214
+  if [ "$CHIPID" ] ; then
+    GRAPHICSCHIP="$( lspci -nnk -s $CHIPID)"
+  fi
+  [ -z "$GRAPHICSCHIP" ] && GRAPHICSCHIP=" unknown"
+  echo "$GRAPHICSCHIP"
+}
+
+function XorgConf() {
+  [ ! -f /etc/X11/xorg.conf ] && return 1
+  local sPTN='/^Section "Screen"/,/^$/p' #this is a multi-line block find expression.
+  case $1 in
+    videodepth)
+      echo "$(sed -n "$sPTN" /etc/X11/xorg.conf | tr '\t' ' ' | tr -s ' ' | grep '^[^#][ \t]*Depth ' | cut -f 3 -d ' ')"
+      ;;
+    videores)
+      echo "$(sed -n "$sPTN" /etc/X11/xorg.conf | tr '\t' ' ' | tr -s ' ' | grep '^[^#][ \t]*Modes .*#screen0modes' | cut -f 2 -d '"')"
+      ;;
+    reqmods)
+      echo "$(grep '^[^#][ \t]*Load ' /etc/X11/xorg.conf | cut -f 2 -d '"' | tr '\n' ' ')"
+      ;;
+    disabledmods)
+      echo "$(grep '^[^#][ \t]*Disable ' /etc/X11/xorg.conf | cut -f 2 -d '"' | tr '\n' ' ')"
+      ;;
+    reqdriver)
+      sPTN='/^Section "Device"/,/^$/p' #this is a multi-line block find expression.
+      echo "$(sed -n "$sPTN" /etc/X11/xorg.conf | tr '\t' ' ' | tr -s ' ' | grep '^[^#][ \t]*Driver ' | cut -f 2 -d '"' | tr '\n' ' ')"
+      ;;
+    *) echo "Valid parameters for xorgconf: videodepth videores reqmods disabledmods reqdriver" >&2 ; return 1 ;;
+  esac
+}
+
+function ScreenResolution() {
+  if which xdpyinfo &>/dev/null ; then
+    VIDEORES="$(LANG=C xdpyinfo | grep ' dimensions: ')"
+    read -r ZZ VIDEORES <<< $VIDEORES
+  elif which xrandr &>/dev/null ; then
+    VIDEORES=$(xrandr 2>/dev/null | grep '\*' | awk '{print $1 $2}' | head -1)
+  else
+    VIDEORES=$(gettext 'unknown')
+  fi
+  echo $VIDEORES
+}
+
+function ScreenColorDepth() {
+  VIDEODEPTH="$(LANG=C xdpyinfo | grep 'depth of root window:')"
+  VIDEODEPTH="${VIDEODEPTH##*: }"
+  [ "$VIDEODEPTH" = "" ] && VIDEODEPTH=$(gettext 'unknown')
+  echo $VIDEODEPTH
+}
+
+function get_glxinfo() {
+	if [ `which glxinfo` ]; then 
+		glxinfo 2>/dev/null | grep -E -A2 "direct rendering|OpenGL vendor" | grep -v '\-\-'
+	elif [ `which fglrxinfo` ]; then #120807 ATI proprietary driver info
+		fglrxinfo
+	elif [ `which nvidia-xconfig` ]; then #120807 NVIDIA proprietary driver info
+		nvidia-xconfig --query-gpu-info
+	fi
+}
+
+case $1 in
+  driver)   XorgVideoDriver   ; exit $? ;;
+  modules)  XorgLoadedModules ; exit $? ;;
+  chip)     VideoChip         ; exit $? ;;
+  res)      res=$(ScreenResolution) ; echo ${res%% *} ; exit ;;
+  depth)    depth=$(ScreenColorDepth) ; echo ${depth%% *} ; exit ;;
+  xorgconf) XorgConf $2       ; exit $? ;;
+  -h|--help|-help) help ; exit ;;
+  ""|-q) continue=1 ;;
+  *) echo "Invalid option: $1" >&2 ; exit 1 ;;
+esac
+
+##############################################
+#                 REPORT
+##############################################
 
 XSERVER="$(readlink /usr/bin/X)"
+. /etc/DISTRO_SPECS
 
-echo "$(gettext 'VIDEO REPORT:') ${DISTRO_NAME}, $(gettext 'version') ${DISTRO_VERSION}" > /tmp/report-video
-
-echo "
-$(gettext 'Chip description:')
-$GRAPHICSCHIP" >> /tmp/report-video
-
-if [ "$XSERVER" = "Xorg" ];then
- if [ -f /etc/X11/xorg.conf ];then
-  sPTN='/^Section "Screen"/,/^$/p' #this is a multi-line block find expression.
-  reqVIDEODEPTH="$(sed -n "$sPTN" /etc/X11/xorg.conf | tr '\t' ' ' | tr -s ' ' | grep '^[^#][ \t]*Depth ' | cut -f 3 -d ' ')"
-  reqVIDEORES="$(sed -n "$sPTN" /etc/X11/xorg.conf | tr '\t' ' ' | tr -s ' ' | grep '^[^#][ \t]*Modes .*#screen0modes' | cut -f 2 -d '"')" #'geany.
-  echo "
-Requested by /etc/X11/xorg.conf:" >> /tmp/report-video
-  [ "$reqVIDEORES" ] && echo "  $(gettext 'Resolution (widthxheight, in pixels): ')${reqVIDEORES}" >> /tmp/report-video
-  [ "$reqVIDEODEPTH" ] && echo "  $(gettext 'Depth (bits, or planes):              ')${reqVIDEODEPTH}"  >> /tmp/report-video
-  REQMODS="$(grep '^[^#][ \t]*Load ' /etc/X11/xorg.conf | cut -f 2 -d '"' | tr '\n' ' ')" #'geany
-  [ "$REQMODS" ] &&   echo "  $(gettext 'Modules requested to be loaded:       ')${REQMODS}" >> /tmp/report-video
-  DISABLEMODS="$(grep '^[^#][ \t]*Disable ' /etc/X11/xorg.conf | cut -f 2 -d '"' | tr '\n' ' ')" #'geany
-  [ "$DISABLEMODS" ] &&   echo "  $(gettext 'Modules requested to not be loaded:   ')${DISABLEMODS}" >> /tmp/report-video
-  #this section is normally commented out...
-  sPTN='/^Section "Device"/,/^$/p' #this is a multi-line block find expression.
-  reqDRIVER="$(sed -n "$sPTN" /etc/X11/xorg.conf | tr '\t' ' ' | tr -s ' ' | grep '^[^#][ \t]*Driver ' | cut -f 2 -d '"' | tr '\n' ' ')" #'geany
-  [ "$reqDRIVER" ] && echo "  $(gettext 'Drivers requested to be loaded:       ')${reqDRIVER}" >> /tmp/report-video
- else
-  echo "
-$(gettext 'NOTE: there is no /etc/X11/xorg.conf configuration file.')" >> /tmp/report-video
- fi
-fi
-
-VIDEODRIVER=""; ALLMODS=""
-if [ "$XSERVER" = "Xorg" ];then
- echo "
-$(gettext 'Probing Xorg startup log file (/var/log/Xorg.0.log):')" >> /tmp/report-video
- LOADED="$(grep 'Loading .*/xorg/modules/drivers/.*_drv.so' /var/log/Xorg.0.log | rev | cut -f 1 -d '/' | rev | cut -f 1 -d '_' | tr '\n' ' ')"
- for ALOADED in $LOADED
- do
-  aPTN="UnloadModule: \"$ALOADED\""
-  bPTN="LoadModule: \"$ALOADED\""
-  #130215 Xorg loaded noauveau, then tried to load it again, failed, then unloaded, so count them...
-  CNTload=`grep "$bPTN" /var/log/Xorg.0.log | wc -l`
-  CNTunload=`grep "$aPTN" /var/log/Xorg.0.log | wc -l`
-  [ $CNTload -eq 0 ] && continue
-  [ $CNTunload -ge $CNTload ] && continue
-  VIDEODRIVER="$ALOADED"
-  break
- done
- [ "$VIDEODRIVER" ] && echo "  $(gettext 'Driver loaded (and currently in use):') ${VIDEODRIVER}" >> /tmp/report-video
- ALLLOADED="$(grep 'LoadModule: ' /var/log/Xorg.0.log | rev | cut -f 1 -d '/' | rev | cut -f 2 -d '"' | sort -u | tr '\n' ' ')" #'geany
- for ALOADED in $ALLLOADED
- do
-  [ "$ALOADED" = "$VIDEODRIVER" ] && continue
-  aPTN="UnloadModule: \"$ALOADED\""
-  bPTN="LoadModule: \"$ALOADED\""
-  #130215 Xorg loaded noauveau, then tried to load it again, failed, then unloaded, so count them...
-  CNTload=`grep "$bPTN" /var/log/Xorg.0.log | wc -l`
-  CNTunload=`grep "$aPTN" /var/log/Xorg.0.log | wc -l`
-  [ $CNTload -eq 0 ] && continue
-  [ $CNTunload -ge $CNTload ] && continue
-  ALLMODS="${ALLMODS} ${ALOADED}"
- done
- echo "  $(gettext 'Loaded modules:')${ALLMODS}" >> /tmp/report-video
-fi
+(
+echo "$(gettext 'VIDEO REPORT:') ${DISTRO_NAME}, $(gettext 'version') ${DISTRO_VERSION}"
+processor=`cat /proc/cpuinfo | grep "model name" | head -1`
+echo "Processor: ${processor##*:}"
+Xorg -version 2>&1 | head -n 3
+echo -e "\n$(gettext 'Chip description:')\n$(VideoChip)"
 
 if [ "$XSERVER" = "Xorg" ];then
- echo "
-$(gettext 'Actual rendering on monitor:')" >> /tmp/report-video
- if [ "`which xdpyinfo`" ]; then
-  XDPYINFO="$(xdpyinfo)"
-  VIDEORES="$(echo "$XDPYINFO" | grep ' dimensions: ' | sed -e 's%dimensions: %%' | tr -s ' ' | head -n 1)"
-  echo "  $(gettext 'Resolution: ')$VIDEORES" >> /tmp/report-video
-  VIDEODEPTH="$(echo "$XDPYINFO" | grep 'depth of root window:' | sed -e 's%depth of root window:%%' | tr -s ' ' | head -n 1)"
-  echo "  $(gettext 'Depth:      ')$VIDEODEPTH" >> /tmp/report-video
- else
-  if [ "`which xrandr`" ]; then
-   XRANDR="$(xrandr | grep '*' | head -n 1)"
-   echo "  $(gettext 'Resolution:') $(echo "$XRANDR" | tr -s ' ' | cut -f 2 -d ' ')" >> /tmp/report-video
+  if [ -f /etc/X11/xorg.conf ];then
+    sPTN='/^Section "Screen"/,/^$/p' #this is a multi-line block find expression.
+    reqVIDEODEPTH=$(XorgConf videodepth)
+    reqVIDEORES=$(XorgConf videores)
+    echo -e "\nRequested by /etc/X11/xorg.conf:"
+    [ "$reqVIDEORES" ] && echo "  $(gettext 'Resolution (widthxheight, in pixels): ')${reqVIDEORES}"
+    [ "$reqVIDEODEPTH" ] && echo "  $(gettext 'Depth (bits, or planes):              ')${reqVIDEODEPTH}"
+    REQMODS=$(XorgConf reqmods)
+    [ "$REQMODS" ] && echo "  $(gettext 'Modules requested to be loaded:       ')${REQMODS}"
+    DISABLEMODS=$(XorgConf disabledmods)
+    [ "$DISABLEMODS" ] && echo "  $(gettext 'Modules requested to not be loaded:   ')${DISABLEMODS}"
+    #this section is normally commented out...
+    reqDRIVER=$(XorgConf reqdriver)
+    [ "$reqDRIVER" ] && echo "  $(gettext 'Drivers requested to be loaded:       ')${reqDRIVER}"
   else
-   echo "  $(gettext 'unknown')" >> /tmp/report-video
+    echo -e "\n$(gettext 'NOTE: there is no /etc/X11/xorg.conf configuration file.')"
   fi
- fi
+
+  echo -e "\n$(gettext 'Probing Xorg startup log file (/var/log/Xorg.0.log):')"
+  video_driver=$(XorgVideoDriver)
+  [ "$video_driver" ] && echo "  $(gettext 'Driver loaded (and currently in use):') ${video_driver}"
+  loaded_modules=$(XorgLoadedModules)
+  echo "  $(gettext 'Loaded modules:')${loaded_modules}"
+
+  echo -e "\n$(gettext 'Actual rendering on monitor:')"
+  actual_res=$(ScreenResolution)
+  echo "  $(gettext 'Resolution:  ')${actual_res}"
+  actual_depth=$(ScreenColorDepth)
+  echo "  $(gettext 'Depth:       ')${actual_depth}"
 fi
+
+echo
+get_glxinfo
+echo
+
+while IFS=":" read MON NAME WH
+do
+	case "$MON" in '#'*|"") continue ;; esac
+	[ -z "$NAME" ] && continue
+	echo
+	echo "Monitor  :" $MON
+	echo "Model    :" $NAME
+	echo "WxH (cm) :" $WH
+done <<< "$(get-monitor-names)"
+
+) > /tmp/report-video
 
 cat /tmp/report-video
 echo
 echo "$(gettext '...the above also recorded in /tmp/report-video')" #130207
 
+### END ###

@@ -11,7 +11,6 @@
 #Note, petget also get called from /etc/rc.d/rc.update to remove packages. ex:
 # petget -xbubble-0.2.4
 # ...when X not running, removal will not put up any DLG windows, will remove without question.
-#w482 restart jwm immediately to update menu.
 #v424 fix .pet in path with space chars.
 #100616 add support for .txz slackware pkgs.
 #101116 call download_file to download pkg, instead of direct run of wget.
@@ -22,10 +21,10 @@
 #120116 rev. 514 introduced icon rendering method which broke -reload at 547. fixed at rev. 574.
 #120203 BK: internationalized.
 #120323 replace 'xmessage' with 'pupmessage'.
-#120504 now have /tmp/petget folder.
+#120504 now have /tmp/petget_proc/petget folder.
 #120719 support raspbian.
 #120819 having a category does not mean there will also be a menu entry.
-#120927 want to translate "CATEGORY:" and "PACKAGE:" that are in /tmp/petget-installed-pkgs-log (see installpkg.sh).
+#120927 want to translate "CATEGORY:" and "PACKAGE:" that are in /tmp/petget_proc/petget-installed-pkgs-log (see installpkg.sh).
 #121011 L18L reported problem, category names also need translating.
 
 export TEXTDOMAIN=petget___petget
@@ -39,63 +38,41 @@ export OUTPUT_CHARSET=UTF-8
 . /etc/DISTRO_SPECS #has DISTRO_BINARY_COMPAT, DISTRO_COMPAT_VERSION
 
 PASSEDPARAM="$1"
-mkdir -p /tmp/petget #120504
+mkdir -p /tmp/petget_proc/petget #120504
 
-if [ "`echo -n "$PASSEDPARAM" | grep '^\\-'`" != "" ];then
- #remove a package...
- PKGNAME="`echo -n "$PASSEDPARAM" | cut -c 2-99`"
- TREE2="$PKGNAME"
- export TREE2
+rm -f /tmp/petget_proc/{remove,install}_{,pets_}quietly 2>/dev/null
+
+[ ! "$DISPLAY" ] && touch /tmp/petget_proc/install_quietly
+
+#remove a package...
+case "$PASSEDPARAM" in -*) #EX: -read-edid_3.0.1-2_i386.deb
+ PKGNAME=${PASSEDPARAM#-} #remove leading '-'
+ PKGNAME="$(basename $PKGNAME)"
+ [ ! "$DISPLAY" ] && touch /tmp/petget_proc/remove_pets_quietly
+ TREE2=${PKGNAME%.*} #remove extension
+ export TREE2        #this is used by removepreview.sh
  /usr/local/petget/removepreview.sh
  exit
-fi
-
-#want to install a pkg...
-
-COMPAT_EXT=""
-case $DISTRO_BINARY_COMPAT in
- slackware)
-  COMPAT_EXT=".tgz"
- ;;
- debian|ubuntu|raspbian)
-  COMPAT_EXT=".deb"
- ;;
- arch)
-  COMPAT_EXT=".tar.gz"
- ;;
- scientific|redhat|mandriva|mageia) #110523
-  COMPAT_EXT=".rpm"
- ;;
 esac
+
+#-------- want to install a pkg...
 
 #what type is it...
 PASSEDBASE="`basename "$PASSEDPARAM"`"
 case $PASSEDBASE in
- *.pet)
-  EXT=".pet"
- ;;
- *.deb)
-  EXT=".deb"
- ;;
- *.tgz)
-  EXT=".tgz"
- ;;
- *.txz)
-  EXT=".txz"
- ;;
- *.tar.gz)
-  EXT=".tar.gz"
- ;;
- *.rpm) #110523
-  EXT=".rpm"
- ;;
- *)
-  EXT=""
- ;;
+ *.pet) EXT=".pet" ;;
+ *.deb) EXT=".deb" ;;
+ *.tgz) EXT=".tgz" ;;
+ *.txz) EXT=".txz" ;;
+ *.rpm) EXT=".rpm" ;;
+ *.tar.gz) EXT=".tar.gz" ;;
+ *.tar.xz) EXT=".tar.xz" ;;
+ *) EXT="" ;;
 esac
 
 #download if required...
 PKGNAME=""
+DOWNLOADED=""
 if [ "`echo -n "$PASSEDPARAM" | grep -E '^ftp|^http'`" != "" ];then
  cd /root
  #101116 use download_file utility...
@@ -104,9 +81,15 @@ if [ "`echo -n "$PASSEDPARAM" | grep -E '^ftp|^http'`" != "" ];then
  FULLPKGNAME="`basename "$PASSEDPARAM"`"
  PKGMAIN="`basename "$PASSEDPARAM" ${EXT}`"
  if [ ! -f "$FULLPKGNAME" ];then
-  pupmessage -bg red "$(gettext 'Sorry, failed to download') $FULLPKGNAME"
-  exit
+  if [ "$DISPLAY"  ]; then
+   /usr/lib/gtkdialog/box_ok "$(gettext 'Puppy package manager')" error "$(gettext 'Sorry, failed to download') $FULLPKGNAME"
+   exit
+  else
+   dialog --msgbox "$(gettext 'Sorry, failed to download') $FULLPKGNAME" 0 0
+   exit
+  fi
  fi
+ DOWNLOADED="yes"
 else
  #get rid of any leading '+'...
  PASSEDPARAM="`echo -n "$PASSEDPARAM" | sed -e 's%^+%%'`"
@@ -132,7 +115,7 @@ originPKGPATH="$PKGPATH" #w482
 PKGPATH=/root
 
 #split PKGMAIN, ex: FULLPKGNAME=xvidtune-1.0.1-i486-1.tgz has PKGNAME=xvidtune-1.0.1
- case $EXT in
+case $EXT in
   .deb)
    #deb ex: xsltproc_1.1.24-1ubuntu2_i386.deb  xserver-common_1.5.2-2ubuntu3_all.deb
    DB_nameonly="`echo -n "$PKGMAIN" | cut -f 1 -d '_'`"
@@ -176,25 +159,23 @@ PKGPATH=/root
    DB_nameonly="`echo -n "$PKGNAME" | sed -e "$xPATTERN" -e 's%\\-$%%'`"
    DB_pkgrelease=""
   ;;
- esac
+esac
 
 cd "$PKGPATH" #well, this is /root
 
 #confirm want to install...
-export INSTALL_DIALOG="<window title=\"$(gettext 'Puppy Package Manager')\" icon-name=\"gtk-about\">
-  <vbox>
-  <pixmap><input file>/usr/local/lib/X11/pixmaps/question.xpm</input></pixmap>
-   <text><label>$(gettext "Click 'OK' button to confirm that you wish to install this package:")</label></text>
-   <text use-markup=\"true\"><label>\"<b>${FULLPKGNAME}</b>\"</label></text>
-   <hbox>
-    <button ok></button>
-    <button cancel></button>
-   </hbox>
-  </vbox>
- </window>" 
-RETPARAMS="`gtkdialog3 --program=INSTALL_DIALOG`"
-eval "$RETPARAMS"
-[ "$EXIT" != "OK" ] && exit
+if [ "$DISPLAY" ]; then
+  . /usr/lib/gtkdialog/box_yesno "$(gettext 'Puppy Package Manager')" "$(gettext 'Do you want to install this package:')" "<b>${FULLPKGNAME}</b>"
+  [ "$EXIT" = "yes" ] && RETVAL=0 || RETVAL=1
+else
+  dialog --yesno "$(gettext 'Do you want to install this package:') $FULLPKGNAME" 0 0
+  RETVAL=$?
+fi
+if [ $RETVAL -ne 0 ] ; then #DON'T WANT TO INSTALL..
+  [ "$DOWNLOADED" = "yes" -o "$originPKGPATH" = "/root" ] && exit 0
+  rm -f /root/${FULLPKGNAME}
+  exit 0
+fi
 
 #find entry in databases...
 #pkgname|nameonly|version|pkgrelease|category|size|path|fullfilename|dependencies|description|
@@ -216,9 +197,9 @@ fi
 [ "$originPKGPATH" = "$PKGPATH" ] && cp -f ${PKGPATH}/${FULLPKGNAME} ${PKGPATH}/${FULLPKGNAME}-TEMPBACKUP
 
 #install pkg...
-rm -f /tmp/petget_missing_dbentries-Packages-* 2>/dev/null
-rm -f /tmp/petget-installed-pkgs-log 2>/dev/null
-echo "$DB_ENTRY" > /tmp/petget_missing_dbentries-Packages-alien
+rm -f /tmp/petget_proc/petget_missing_dbentries-Packages-* 2>/dev/null
+rm -f /tmp/petget_proc/petget-installed-pkgs-log 2>/dev/null
+echo "$DB_ENTRY" > /tmp/petget_proc/petget_missing_dbentries-Packages-alien
 /usr/local/petget/installpkg.sh $PKGPATH/$FULLPKGNAME
 RETVAL=$?
 
@@ -230,21 +211,18 @@ rm -f $PKGPATH/${PKGNAME}.tar.gz 2>/dev/null
 [ "$originPKGPATH" = "$PKGPATH" ] && mv -f ${PKGPATH}/${FULLPKGNAME}-TEMPBACKUP ${PKGPATH}/${FULLPKGNAME}
 
 #announce result...
-if [ $RETVAL -ne 0 -o ! -s /tmp/petget-installed-pkgs-log ];then
- export FAIL_DIALOG="<window title=\"$(gettext 'Puppy Package Manager')\" icon-name=\"gtk-about\">
-  <vbox>
-  <pixmap><input file>/usr/local/lib/X11/pixmaps/error.xpm</input></pixmap>
-   <text use-markup=\"true\"><label>\"<b>$(gettext 'Error, package') ${FULLPKGNAME} $(gettext 'failed to install.')</b>\"</label></text>
-   <hbox>
-    <button ok></button>
-   </hbox>
-  </vbox>
- </window>" 
- gtkdialog3 --program=FAIL_DIALOG
- exit
+if [ $RETVAL -ne 0 -o ! -s /tmp/petget_proc/petget-installed-pkgs-log ];then
+ ISTHERE="$(grep ${FULLPKGNAME} /root/.packages/user-installed-packages)"
+ if [ "$DISPLAY" ]; then
+  [ "$ISTHERE" = "" ] && . /usr/lib/gtkdialog/box_ok "$(gettext 'Puppy Package Manager')" error "<b>${FULLPKGNAME} $(gettext 'failed to install')</b>"
+  exit
+ else
+  [ "$ISTHERE" = "" ] && dialog --msgbox "$FULLPKGNAME $(gettext ' failed to install') " 0 0
+  exit
+ fi
 fi
 
-INSTALLEDMSG="`cat /tmp/petget-installed-pkgs-log`"
+INSTALLEDMSG="`cat /tmp/petget_proc/petget-installed-pkgs-log`"
 #121011 L18L reported problem, category names also need translating...
 ZDesktop="$(gettext 'Desktop')"
 ZSystem="$(gettext 'System')"
@@ -276,52 +254,42 @@ ZPTNMultimedia="s%CATEGORY: Multimedia%CATEGORY: ${ZMultimedia}%"
 ZPTNFun="s%CATEGORY: Fun%CATEGORY: ${ZFun}%"
 ZPTNHelp="s%CATEGORY: Help%CATEGORY: ${ZHelp}%"
 ZPTNnone="s%CATEGORY: none%CATEGORY: ${Znone}%"
-#120927 want to translate "CATEGORY:" and "PACKAGE:" that are in /tmp/petget-installed-pkgs-log (see installpkg.sh)...
+#120927 want to translate "CATEGORY:" and "PACKAGE:" that are in /tmp/petget_proc/petget-installed-pkgs-log (see installpkg.sh)...
 #note, same code in downloadpkgs.sh...
 ZCATEGORY="$(gettext 'CATEGORY:')"
 ZPACKAGE="$(gettext 'PACKAGE:')"
 ZPTN1="s%CATEGORY:%${ZCATEGORY}%"
 ZPTN2="s%PACKAGE:%${ZPACKAGE}%"
-ZINSTALLEDMSG="$(sed -e "$ZPTNDesktop" -e "$ZPTNSystem" -e "$ZPTNSetup" -e "$ZPTNUtility" -e "$ZPTNFilesystem" -e "$ZPTNGraphic" -e "$ZPTNDocument" -e "$ZPTNBusiness" -e "$ZPTNPersonal" -e "$ZPTNNetwork" -e "$ZPTNInternet" -e "$ZPTNMultimedia" -e "$ZPTNFun" -e "$ZPTNHelp" -e "$ZPTNnone" -e "$ZPTN1" -e "$ZPTN2" /tmp/petget-installed-pkgs-log)" #121011 more ptns.
+ZINSTALLEDMSG="$(sed -e "$ZPTNDesktop" -e "$ZPTNSystem" -e "$ZPTNSetup" -e "$ZPTNUtility" -e "$ZPTNFilesystem" -e "$ZPTNGraphic" -e "$ZPTNDocument" -e "$ZPTNBusiness" -e "$ZPTNPersonal" -e "$ZPTNNetwork" -e "$ZPTNInternet" -e "$ZPTNMultimedia" -e "$ZPTNFun" -e "$ZPTNHelp" -e "$ZPTNnone" -e "$ZPTN1" -e "$ZPTN2" /tmp/petget_proc/petget-installed-pkgs-log)" #121011 more ptns.
 MENUMSG=""
 INSTALLEDCAT="`echo -n "$INSTALLEDMSG" | rev | cut -f 1 -d ' ' | rev`"
 ZINSTALLEDCAT="`echo -n "$ZINSTALLEDMSG" | rev | cut -f 1 -d ' ' | rev`" #121011
 if [ "$INSTALLEDCAT" = "none" ];then
- MENUMSG="<text><label>$(gettext '...note, this package does not have a menu entry.')</label></text>"
+ MENUMSG="$(gettext '...note, this package does not have a menu entry.')"
 else
- MENUMSG="<text><label>$(gettext '...look in') '${ZINSTALLEDCAT}' $(gettext 'in the menu (bottom-left of screen) to run the application.')</label></text>" #121011
+ MENUMSG="$(gettext '...look in') '${ZINSTALLEDCAT}' $(gettext 'in the menu (bottom-left of screen) to run the application.')" #121011
 fi
 
 #120819 having a category does not mean there will also be a menu entry...
 if [ "`grep '/usr/.*share/applications/.*\.desktop$' /root/.packages/${PKGNAME}.files`" = "" ];then
- MENUMSG="<text><label>$(gettext '...note, this package does not have a menu entry.')</label></text>"
+ MENUMSG="$(gettext '...note, this package does not have a menu entry.')"
 fi
 
-#installpkg.sh will have logged to /tmp/petget-installed-pkgs-log
-export INSTALL_DIALOG="<window title=\"$(gettext 'Puppy Package Manager')\" icon-name=\"gtk-about\">
- <vbox>
- <pixmap><input file>/usr/local/lib/X11/pixmaps/ok.xpm</input></pixmap>
-  <text><label>$(gettext 'The following package has been successfully installed:')</label></text>
-  <text use-markup=\"true\"><label>\"<b>${ZINSTALLEDMSG}</b>\"</label></text>
-  ${MENUMSG}
-  <hbox>
-   <button ok></button>
-  </hbox>
- </vbox>
-</window>
-"
-gtkdialog3 --program=INSTALL_DIALOG
+#installpkg.sh will have logged to /tmp/petget_proc/petget-installed-pkgs-log
+if [ "$DISPLAY" ]; then
+ . /usr/lib/gtkdialog/box_ok "$(gettext 'Puppy Package Manager')" complete "$(gettext 'The following package has been successfully installed:')" "<b>${ZINSTALLEDMSG}</b>" "${MENUMSG}"
+else
+  dialog --msgbox "$(gettext 'The following package has been successfully installed:') ${ZINSTALLEDMSG} ${MENUMSG}" 0 0
+fi
 
 RESTARTMSG="$(gettext 'Please wait, updating help page and menu...')"
-if [ "`pidof jwm`" != "" ];then #120101
- JWMVER=`jwm -v|head -n1|cut -d ' ' -f2|cut -d - -f2`
- if vercmp $JWMVER lt 574;then #120116 547 to 574.
-  RESTARTMSG="$(gettext 'Please wait, updating help page and menu (the screen will flicker!)...')"
- fi
-fi
 [ "$INSTALLEDCAT" = "none" ] && RESTARTMSG="$(gettext 'Please wait, updating help page...')"
-yaf-splash -bg orange -text "${RESTARTMSG}" &
-X3PID=$!
+if [ "$DISPLAY"  ]; then
+ . /usr/lib/gtkdialog/box_splash -text "${RESTARTMSG}" &
+ X3PID=$!
+else
+ dialog --timeout 3 --msgbox "$(gettext 'Done. Updating menus and help pages')" 0 0
+fi
 
 #w0910 update image cache...
 if [ -f /root/.packages/${PKGNAME}.files ];then
@@ -331,19 +299,13 @@ if [ -f /root/.packages/${PKGNAME}.files ];then
 fi
 
 #master help index has to be updated...
-/usr/sbin/indexgen.sh
 #Reconstruct configuration files for JWM, Fvwm95, IceWM...
 if [ "$INSTALLEDCAT" != "none" ];then
  /usr/sbin/fixmenus
- if [ "`pidof jwm`" != "" ];then #120101
-  if vercmp $JWMVER lt 574;then #120116 547 to 574.
-   jwm -restart #w482
-  else
-   jwm -reload
-  fi
- fi
+ [ "`pidof jwm`" != "" ] && { jwm -reload || jwm -restart ; }
 fi
 
-kill $X3PID
+kill $X3PID 2>/dev/null
+[ ! "$DISPLAY" ] && rm -r /tmp/petget_proc/{remove_pets,install}_quietly 2>/dev/null
 
 ###END###

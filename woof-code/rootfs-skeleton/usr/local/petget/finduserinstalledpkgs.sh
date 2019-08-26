@@ -8,13 +8,14 @@
 
 #/root/.packages/usr-installed-packages has the list of installed pkgs...
 touch /root/.packages/user-installed-packages
-cut -f 1,5,10 -d '|' /root/.packages/user-installed-packages > /tmp/petget/installedpkgs.results
+cut -f 1,5,10 -d '|' /root/.packages/user-installed-packages > /tmp/petget_proc/petget/installedpkgs.results
 
 #120529 may have app icons displayed in main window...
-cut -f 1,3 -d '|' /tmp/petget/installedpkgs.results > /tmp/petget/installedpkgs.results.post-noicons #120908
-#120908 category field: Document;edit becomes mini-Document-edit... (see also postfilterpkgs.sh)
-sed -e 's%|%|mini-%' -e 's%;%-%' /tmp/petget/installedpkgs.results > /tmp/petget/installedpkgs.results.post
+cut -f 1,3 -d '|' /tmp/petget_proc/petget/installedpkgs.results > /tmp/petget_proc/petget/installedpkgs.results.post-noicons #120908
+#120908 category field: Document;edit becomes Document-edit... (see also postfilterpkgs.sh)
+sed 's%;%-%' /tmp/petget_proc/petget/installedpkgs.results > /tmp/petget_proc/petget/installedpkgs.results.post
 #120908 probably doesn't matter, but take icon out for prior compatibility...
-cp -f /tmp/petget/installedpkgs.results.post-noicons /tmp/petget/installedpkgs.results
+cp -f /tmp/petget_proc/petget/installedpkgs.results.post-noicons /tmp/petget_proc/petget/installedpkgs.results
+grep logo /tmp/petget_proc/petget/installedpkgs.results
 
 ###END###

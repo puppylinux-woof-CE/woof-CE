@@ -1,0 +1,727 @@
+#!/bin/sh
+#pClock
+#Copyright 2011,2012,2014,2015,2016,2017
+#Sigmund Berglund - Valåmoen, Norway.
+
+#------------------------------
+#This program is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation version 2.
+
+#This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details. <http://www.gnu.org/licenses/>.
+#------------------------------
+
+
+export TEXTDOMAIN=pclock #for gettext
+
+export APPDIR=`dirname $0`
+[ $APPDIR = '.' ] && export APPDIR=`pwd`
+export WORKDIR=$HOME/.pclock/tmp
+if [ ! -d $WORKDIR ]; then
+	mkdir -p $WORKDIR
+	echo true > $WORKDIR/HUNDREDTHS
+	echo '/usr/share/audio/beep_high.wav' > $WORKDIR/COUNTDOWN_ACTION
+	echo '/usr/share/audio/2barks.wav' > $WORKDIR/ALARM
+fi
+
+#configs
+TMP=`grep VERSION $HOME/.pclock/pclockrc 2> /dev/null` #check current version
+if [ ! -f $HOME/.pclock/pclockrc ] || [ `echo $TMP | sed -e s/^.*\=//g | tr -d "."` != 082 > /dev/null 2>&1 ]; then
+	#guess correct fontsize
+	TMP=`xrdb -query | grep dpi | awk '{print $2}'` #check global fontsize
+	FONTSIZE=$((4100/$TMP))
+	#---
+	echo 'export VERSION=0.8.2
+export FONTSIZE='$FONTSIZE'
+export COLOR1="black"
+export COLOR2="gold"' > $HOME/.pclock/pclockrc
+	chmod 722 $HOME/.pclock/pclockrc
+fi
+. $HOME/.pclock/pclockrc
+
+#initials
+rm -f $WORKDIR/end_while #start progessbar loop
+echo -n > $WORKDIR/end_while_fullscreen #stop fullscreen loop
+date +%s%N > $WORKDIR/seconds_start #save the time in nanoseconds (from 1970) to tempfile
+echo -n > $WORKDIR/resultlist
+echo analog > $WORKDIR/clock_mode
+echo "
+$(gettext 'pClock uses the program pSchedule 
+to keep track of alarming. Click the 
+Define-Alarm button and you will 
+get new options to define time and 
+action. By default, the audioplayer plays 
+the defined audio track.')" > $WORKDIR/alarm_txt
+export MYGMT="`readlink /etc/localtime | cut -d/ -f6 | sed -e 's,^GMT-,GMTx,' -e 's,^GMT+,GMT-,' -e 's,^GMTx,GMT+,'`"
+NOTEBOOK_TAB=0
+echo 0 > $WORKDIR/pclock-tab
+NOTEBOOK_TOOLS_TAB=0
+echo 0 > $WORKDIR/pclock-tools_tab
+echo 0 > $WORKDIR/COUNTDOWN
+echo '' > $WORKDIR/COUNTDOWN_LOOPS
+echo -n > $WORKDIR/timer
+
+#gtk-theme
+echo 'style "monoBig" { font_name="Mono bold '$FONTSIZE'" base[NORMAL]="'$COLOR1'" text[NORMAL]="'$COLOR2'" }
+widget "*timer" style "monoBig"' > $WORKDIR/gtkrc
+export GTK2_RC_FILES=$WORKDIR/gtkrc:~/.gtkrc-2.0 #include theme stuff with system themes
+
+
+
+###############################################
+#                                             #
+#              F U N C T I O N S              #
+#                                             #
+###############################################
+
+
+analogclock(){
+	#clock size
+	if [ ! -f $WORKDIR/end_while_fullscreen ]; then
+		SCREEN_HEIGHT=`xwininfo -root | grep -m 1 '\geometry' | cut -f4 -d ' ' | cut -f2 -d 'x' | cut -f1 -d '+'`
+		SIZE=$(($SCREEN_HEIGHT-100))
+		OUTFILE=$WORKDIR/pclock-analog_big.svg
+	else
+		SIZE=300
+		OUTFILE=$WORKDIR/pclock-analog.svg
+	fi
+	/usr/lib/gtkdialog/svg_analogclock "$SIZE" "$1" > $OUTFILE
+}
+
+
+func_time(){ #called as input for the entry
+	export GTK2_RC_FILES=/root/.gtkrc-2.0 #reset gtk
+	case "`cat $WORKDIR/clock_mode`" in
+	null)
+		echo '00:00:00' > $WORKDIR/timer
+		echo; echo 100 #update clock
+		sleep 1
+		;;
+	analog)
+		echo; echo 100 #update clock
+		sleep 0.95
+		;;
+	clock12)
+		NANOSEC=`date +%N | head -c 2`
+		echo $NANOSEC > $WORKDIR/NANOSEC #for fullscreen
+		if [ $NANOSEC -lt 25 ]; then
+			date +%I:%M:%S > $WORKDIR/timer
+			echo; echo 100 #update clock
+			sleep 0.6 #no use in looping until we are closer to whole second
+		fi
+		;;
+	clock24)
+		NANOSEC=`date +%N | head -c 2`
+		echo $NANOSEC > $WORKDIR/NANOSEC #for fullscreen
+		if [ $NANOSEC -lt 25 ]; then
+			date +%H:%M:%S > $WORKDIR/timer
+			echo; echo 100 #update clock
+			sleep 0.6 #no use in looping until we are closer to whole second
+		fi
+		;;
+	stopwatch)
+		date +%s%N > $WORKDIR/seconds_now
+		SEC_START=$(<$WORKDIR/seconds_start)
+		echo "$(($(<$WORKDIR/seconds_now)-$SEC_START))" | tail -c 10 | head -c 2 > $WORKDIR/NANOSEC #this file is used by fullscreen
+		NANOSEC=($(<$WORKDIR/NANOSEC))
+		if [ $NANOSEC -lt 25 ]; then
+			TIME_SEC=`echo "($(<$WORKDIR/seconds_now) - $SEC_START) / 1000000000" | bc 2> /dev/null`
+			printf "%02d:%02d:%02d" $((TIME_SEC/3600)) $((TIME_SEC%3600/60)) $((TIME_SEC%60)) > $WORKDIR/timer
+			echo; echo 100 #update clock
+			sleep 0.6 #no use in looping until we are closer to whole second
+		fi
+		;;
+	countdown_start)
+		COUNTDOWN_SEC="`cat $WORKDIR/COUNTDOWN`"
+		printf "%02d:%02d:%02d" $((COUNTDOWN_SEC/3600)) $((COUNTDOWN_SEC%3600/60)) $((COUNTDOWN_SEC%60)) > $WORKDIR/timer
+		echo; echo 100 #update clock
+		sleep 1
+		;;
+	countdown)
+		date +%s%N > $WORKDIR/seconds_now
+		SEC_NOW=$(($(<$WORKDIR/seconds_now)-1000000000))
+		SEC_START=$(<$WORKDIR/seconds_start)
+		NANOSEC=`echo "$(($SEC_START-$SEC_NOW))" | tail -c 10 | head -c 2`
+		if [ $NANOSEC -gt 75 ]; then
+			TIME_SEC=`echo "($SEC_NOW - $SEC_START) / 1000000000" | bc 2> /dev/null`
+			COUNTDOWN_SEC="$((($SEC_START-$SEC_NOW)/1000000000))"
+			printf "%02d:%02d:%02d" $((COUNTDOWN_SEC/3600)) $((COUNTDOWN_SEC%3600/60)) $((COUNTDOWN_SEC%60)) > $WORKDIR/timer
+			echo; echo 100 #update clock
+			echo $COUNTDOWN_SEC > $WORKDIR/COUNTDOWN
+			if [ $COUNTDOWN_SEC = 0 ]; then
+				TMP="$(<$WORKDIR/COUNTDOWN_ACTION)"
+				if [ -f "$TMP" ]; then #file is defined --> try to play it 
+					if [ "`echo "$TMP" | grep -E "\.wav$|\.au$"`" ]; then
+						aplay "$TMP" &
+					else
+						ffmpeg -i "$TMP" -f au - | aplay &
+					fi
+				else
+					chmod 722 $WORKDIR/COUNTDOWN_ACTION
+					$WORKDIR/COUNTDOWN_ACTION &
+				fi
+				TMP="$(<$WORKDIR/COUNTDOWN_START)"
+				echo $(($(date +%s)+$TMP))$(date +%N) > $WORKDIR/seconds_start
+				#---
+				TMP="$(<$WORKDIR/COUNTDOWN_LOOPS)"
+				echo $(($TMP+1)) > $WORKDIR/COUNTDOWN_LOOPS
+
+			fi
+			sleep 0.6 #no use in looping until we are closer to whole second
+		fi
+		;;
+	esac
+}
+
+timestamp(){
+	date +%s%N > $WORKDIR/seconds_now
+	SEC_SINCE_START="$((($(<$WORKDIR/seconds_now)-$(<$WORKDIR/seconds_start))/1000000000))"
+	NANOSEC=`echo "$(($(<$WORKDIR/seconds_now)-$(<$WORKDIR/seconds_start)))" | tail -c 10 | head -c 2`
+	TIME=`printf "%02d:%02d:%02d" $((SEC_SINCE_START/3600)) $((SEC_SINCE_START%3600/60)) $((SEC_SINCE_START%60))`
+	[ -f $WORKDIR/HUNDREDTHS ] && TIME=${TIME}.$NANOSEC
+	#laptime
+	TIME_PREV=`tail -n1 $WORKDIR/resultlist | cut -d'|' -f3` #previous timestamp
+	if [ $TIME_PREV = 00:00:00 ]; then
+		LAPTIME=$TIME
+	else
+		HOUR=`echo $TIME_PREV | cut -d: -f1`
+		MIN=`echo $TIME_PREV | cut -d: -f2`
+		SEC=`echo $TIME_PREV | cut -d: -f3 | cut -d. -f1`
+		NSEC=`echo $TIME_PREV | cut -d. -f2`
+		if [ ! -f $WORKDIR/HUNDREDTHS ]; then NSEC=0; NANOSEC=0; fi
+		LAPTIME_PREV_SEC=`echo "($HOUR*3600)+($MIN*60)+($SEC)" | bc`
+		LAPTIME_SEC=`echo ${SEC_SINCE_START}.${NANOSEC} - ${LAPTIME_PREV_SEC}.${NSEC} | bc | cut -d. -f1`
+		LAPTIME_NSEC=`echo ${SEC_SINCE_START}.${NANOSEC} - ${LAPTIME_PREV_SEC}.${NSEC} | bc | cut -d. -f2`
+		LAPTIME=`printf "%02d:%02d:%02d" $((LAPTIME_SEC/3600)) $((LAPTIME_SEC%3600/60)) $((LAPTIME_SEC%60))`
+		[ -f $WORKDIR/HUNDREDTHS ] && LAPTIME=${LAPTIME}.$LAPTIME_NSEC
+	fi
+	#---
+	TMP=`tail -n1 $WORKDIR/resultlist | cut -d'|' -f1`
+	if [ ! "$TMP" ]; then LAPNR=1; else LAPNR=$((($TMP)+1)); fi
+	echo "$LAPNR|$LAPTIME|$TIME" >> $WORKDIR/resultlist
+}
+
+fullscreen (){
+	rm -f $WORKDIR/end_while_fullscreen #activate loop
+	#geometry
+	HEIGHT=`xwininfo -root | grep -m 1 '\geometry' | cut -f4 -d ' ' | cut -f2 -d 'x' | cut -f1 -d '+'`
+	WIDTH=`xwininfo -root | grep -m 1 '\geometry' | cut -f4 -d ' ' | cut -f1 -d 'x'`
+	#gtk-theme
+	echo 'style "monohuge" { font_name="Mono bold '`echo "( $WIDTH * $FONTSIZE ) / 280" | bc`'" bg[NORMAL]="'$COLOR1'" base[NORMAL]="'$COLOR1'" fg[NORMAL]="'$COLOR2'" text[NORMAL]="'$COLOR2'" }
+	widget "*" style "monohuge"' > $WORKDIR/gtkrc2
+	export GTK2_RC_FILES=$WORKDIR/gtkrc2:/root/.gtkrc-2.0 #include theme stuff with system themes
+	#gui  	
+	if [ "$RADIOBUTTON_ANALOG_CLOCK" = "true" ]; then
+		export curtain='<window title="pClock '$LOC_FULLSCREEN'" width-request="'$WIDTH'" height-request="'$HEIGHT'" decorated="false">
+		<vbox>
+		 <hbox width-request="1">
+		  <button relief="2" can-focus="no"><input file stock="gtk-close"></input><action>exit:EXIT</action></button>
+		  <timer visible="false">
+	       <action>analogclock $GMT</action>
+		   <action>refresh:PIX_ANALOG_CLOCK</action>
+		  </timer>
+		 </hbox>
+		 <pixmap space-expand="false" space-fill="false"><variable>PIX_ANALOG_CLOCK</variable><input file>'$WORKDIR'/pclock-analog_big.svg</input></pixmap>
+		</vbox>
+		<action signal="hide">exit:EXIT</action>
+		</window>'
+	else
+		export curtain='<window title="pClock '$LOC_FULLSCREEN'" width-request="'$WIDTH'" height-request="'$HEIGHT'" decorated="false">
+		<vbox>
+		 <hbox width-request="1">
+		  <button relief="2" can-focus="no"><input file stock="gtk-close"></input><action>exit:EXIT</action></button>
+		  <vbox height-request="1">
+		   <progressbar width-request="1" height-request="1" >
+		    <input>while [ ! -f '$WORKDIR'/end_while_fullscreen ]; do if [ `cat '$WORKDIR'/NANOSEC` -lt 25 ]; then echo; echo 100; sleep 0.4; fi; sleep 0.05; done</input>
+		    <action>refresh:TIMER</action>
+		   </progressbar>
+		  </vbox>
+		 </hbox>
+		 <entry can-focus="no" width-request="'$WIDTH'" height-request="'$((HEIGHT/3))'">
+		  <variable>TIMER</variable>
+		  <input>cat '$WORKDIR'/timer</input>
+		  <action signal="button-press-event">exit:EXIT</action>
+		 </entry>
+		</vbox>
+		<action signal="hide">exit:EXIT</action>
+		</window>'
+	fi
+	gtkdialog -p curtain --center
+	echo end > $WORKDIR/end_while_fullscreen
+	export GTK2_RC_FILES=$WORKDIR/gtkrc:/root/.gtkrc-2.0 #reset gtk-theme
+}
+
+preferences(){
+	export GTK2_RC_FILES=/root/.gtkrc-2.0 #reset gtk
+	export pClock_pref='
+	<window title="pClock - '$(gettext "Preferences")'">
+	 <vbox>
+	  <hbox>
+	   <text><label>'$(gettext "Font size")'</label></text>
+	   <entry><variable>FONTSIZE</variable><default>'$FONTSIZE'</default></entry>
+	  </hbox>
+	  <hbox>
+	   <text><label>'$(gettext "Background Colour")'</label></text>
+	   <entry><variable>COLOR1</variable><default>'$COLOR1'</default></entry>
+	  </hbox>
+	  <hbox>
+	   <text><label>'$(gettext "Foreground Colour")'</label></text>
+	   <entry><variable>COLOR2</variable><default>'$COLOR2'</default></entry>
+	  </hbox>
+	  <hbox>
+	   <text use-markup="true"><label>"<b>'$(gettext "Restart pClock to activate changes")'</b>    "</label></text>
+	   <button cancel></button>
+	   <button ok>
+	    <action>echo -e "export VERSION=$VERSION\nexport FONTSIZE=$FONTSIZE\nexport COLOR1=\"$COLOR1\"\nexport COLOR2=\"$COLOR2\"" > '$HOME'/.pclock/pclockrc</action>
+	    <action>EXIT:exit</action>
+	    </button>
+	  </hbox>
+	 </vbox>
+	</window>'
+	gtkdialog -p pClock_pref
+}
+
+system_time (){
+	export GTK2_RC_FILES=/root/.gtkrc-2.0 #reset gtk
+	set-time-for-puppy &
+}
+
+alarm(){
+	export GTK2_RC_FILES=/root/.gtkrc-2.0 #reset gtk
+#	pschedule -s -e "pmusic -B '$ALARM'" "pClock Alarm" &
+	if type pmusic > /dev/null 2>&1; then
+		pschedule -s "pmusic -B '$ALARM'" "pClock Alarm" &
+	else
+		pschedule -s "defaultaudioplayer '$ALARM'" "pClock Alarm" &
+	fi
+}
+
+export -f analogclock func_time timestamp fullscreen preferences system_time alarm
+
+
+###############################################
+#                                             #
+#                  A B O U T                  #
+#                                             #
+###############################################
+
+export about="
+<window title=\"pClock - about\">
+ <notebook labels=\"About|License\">
+  <frame>
+   <text><label>\"\"</label></text>
+   <progressbar>
+    <input>echo 0; echo \"pClock $VERSION\"</input>
+   </progressbar>
+   <text use-markup=\"true\"><label>\"<b>Sigmund Berglund, Copyright 2011-2017</b>\"</label></text>
+   <text height-request=\"30\"><label>\"\"</label></text>
+   <button>
+    <label>\"http://www.murga-linux.com/puppy/viewtopic.php?p=493137\"</label>
+    <action>defaulthtmlviewer http://www.murga-linux.com/puppy/viewtopic.php?p=493137#493137 &</action>
+   </button>
+  </frame>
+  <frame>
+   <text use-markup=\"true\"><label>\"pClock is released under the <b>GNU General Public License</b> (GPL). You have the right to use and modify this software in any way you like, so long as any derivative works remain under a GPL license.\"</label></text>
+   <text use-markup=\"true\"><label>\"This program is distributed in the hope that it will be useful, but <b><span color='"'red'"'>WITHOUT ANY WARRANTY</span></b>. See the GNU General Public License homepage for more details.\"</label></text>
+   <hbox>
+    <button>
+     <label>\"http://www.gnu.org/licenses/\"</label>
+     <action>defaulthtmlviewer http:\/\/www.gnu.org\/licenses\/</action>
+    </button>
+   </hbox>
+  </frame>
+ </notebook>
+</window>"
+
+
+
+###############################################
+#                                             #
+#               M A I N   G U I               #
+#                                             #
+###############################################
+
+export pClock='
+<window title="pClock">
+<vbox>
+  <menubar>
+   <menu>
+    <menuitem stock="gtk-preferences">
+     <action>preferences</action>
+    </menuitem>
+    <menuitem label="'$(gettext "Set system time")'">
+     <action>system_time &</action>
+    </menuitem>
+    <menuitem label="'$(gettext "Set system time zone")'">
+     <action>countrywizard &</action>
+    </menuitem>
+    <menuitemseparator></menuitemseparator>
+    <menuitem  stock="gtk-quit" >
+     <action>exit:EXIT</action>
+    </menuitem>
+    <label>'$(gettext "File")'</label>
+   </menu>
+
+   <menu>
+    <menuitem  stock="gtk-fullscreen">
+     <action>fullscreen &</action>
+    </menuitem>
+    <label>'$(gettext "View")'</label>
+   </menu>
+   <menu>
+    <menuitem  stock="gtk-about">
+     <action>launch:about</action>
+    </menuitem>
+    <label>'$(gettext "Help")'</label>
+   </menu>
+  </menubar>
+  
+  <hbox homogeneous="true">
+   <hbox>
+    <radiobutton label=" '$(gettext "Clock")' " draw_indicator="false">
+     <action>echo analog > '$WORKDIR'/clock_mode</action>
+     <variable>RADIOBUTTON_ANALOG_CLOCK</variable>
+     <action>echo 0 > '$WORKDIR'/pclock-tab</action>
+     <action>refresh:NOTEBOOK</action>
+     <action>refresh:NOTEBOOK_TOOLS</action>
+    </radiobutton>
+    <radiobutton label=" '$(gettext "Stopwatch")' " draw_indicator="false">
+     <action>echo null > '$WORKDIR'/clock_mode</action>
+     <action>echo 1 > '$WORKDIR'/pclock-tools_tab</action>
+     <action>echo 1 > '$WORKDIR'/pclock-tab</action>
+     <action>refresh:NOTEBOOK</action>
+     <action>refresh:NOTEBOOK_TOOLS</action>
+    </radiobutton>
+    <radiobutton label=" '$(gettext "Countdown")' " draw_indicator="false">
+     <action>echo countdown_start > '$WORKDIR'/clock_mode</action>
+     <action>echo 2 > '$WORKDIR'/pclock-tools_tab</action>
+     <action>echo 1 > '$WORKDIR'/pclock-tab</action>
+     <action>disable:BUTTON_COUNTDOWN_START</action>
+     <action>disable:BUTTON_COUNTDOWN_STOP</action>
+     <action>disable:BUTTON_COUNTDOWN_PAUSE</action>
+     <action>refresh:NOTEBOOK</action>
+     <action>refresh:NOTEBOOK_TOOLS</action>
+    </radiobutton>
+    <radiobutton label=" '$(gettext "Alarm")' " draw_indicator="false">
+     <action>echo clock24 > '$WORKDIR'/clock_mode</action>
+     <action>echo 3 > '$WORKDIR'/pclock-tools_tab</action>
+     <action>echo 1 > '$WORKDIR'/pclock-tab</action>
+     <action>refresh:NOTEBOOK</action>
+     <action>refresh:NOTEBOOK_TOOLS</action>
+    </radiobutton>
+##    <radiobutton label=" '$(gettext "System")' " draw_indicator="false">
+##     <action>echo 0 > '$WORKDIR'/pclock-tools_tab</action>
+##     <action>echo 1 > '$WORKDIR'/pclock-tab</action>
+##     <action>refresh:NOTEBOOK</action>
+##     <action>refresh:NOTEBOOK_TOOLS</action>
+##    </radiobutton>
+   </hbox>
+  </hbox>
+  <hseparator></hseparator>
+  <hbox width-request="1">
+   <progressbar width-request="1" height-request="1" >
+    <input>while [ ! -f '$WORKDIR'/end_while ]; do func_time; sleep 0.05; done</input>
+    <action>refresh:TIMER</action>
+    <action>analogclock $GMT</action>
+    <action>refresh:PIX_ANALOG_CLOCK</action>
+   </progressbar>
+  </hbox>
+  <notebook show-tabs="false" show-border="false" page="'$NOTEBOOK_TAB'" space-expand="true" space-fill="true">
+   <vbox>
+    <combobox>
+     <variable>GMT</variable>
+     <item>'$MYGMT'</item>
+     <item>GMT-12 Eniwetok</item>
+     <item>GMT-11 Samoa</item>
+     <item>GMT-10 Alaska,Hawaii</item>
+     <item>GMT-9 Alaska</item>
+     <item>GMT-8 Los_Angeles</item>
+     <item>GMT-7 Alberta,Montana,Arizona</item>
+     <item>GMT-6 Mexico_City,Saskatchewan</item>
+     <item>GMT-5 Bogota,Lima,New_York</item>
+     <item>GMT-4 Caracas,La_Paz,Canada</item>
+     <item>GMT-3 Brasilia,Buenos_Aires,Georgetown</item>
+     <item>GMT-2 mid-Atlantic</item>
+     <item>GMT-1 Azores,CapeVerdes</item>
+     <item>GMT+0 London,Dublin,Edinburgh,Lisbon,Reykjavik,Casablanca</item>
+     <item>GMT+1 Paris,Berlin,Amsterdam,Brussels,Madrid,Stockholm,Oslo</item>
+     <item>GMT+2 Athens,Helsinki,Istanbul,Jerusalem,Harare</item>
+     <item>GMT+3 Kuwait,Nairobi,Riyadh,Moscow</item>
+     <item>GMT+4 Abu_Dhabi,Muscat,Tblisi,Volgograd,Kabul</item>
+     <item>GMT+5 Islamabad,Karachi</item>
+     <item>GMT+6 Almaty,Dhaka</item>
+     <item>GMT+7 Bangkok,Jakarta</item>
+     <item>GMT+8 Perth,Singapore,Hongkong</item>
+     <item>GMT+9 Tokyo</item>
+     <item>GMT+10 Guam</item>
+     <item>GMT+11 Magadan,Soloman_Is.</item>
+     <item>GMT+12 Wellington,Fiji,Marshall_Islands</item>
+     <item>GMT+13 Rawaki_Islands</item>
+     <item>GMT+14 Line_Islands</item>
+    </combobox>
+    <text><label>""</label></text>
+    <pixmap space-expand="false" space-fill="false"><variable>PIX_ANALOG_CLOCK</variable><input file>'$WORKDIR'/pclock-analog.svg</input></pixmap>
+   </vbox>
+
+   <vbox>
+    <hbox homogeneous="true">
+     <hbox>
+      <entry name="timer" width-request="300" height-request="60" editable="false" xalign="0">
+       <variable>TIMER</variable>
+       <input>cat '$WORKDIR'/timer</input>
+      </entry>
+     </hbox>
+    </hbox>
+
+    <notebook  show-tabs="false" show-border="false" page="'$NOTEBOOK_TOOLS_TAB'" space-expand="true" space-fill="true">
+     <frame>
+      <hbox>
+       <button>
+        <label>12 '$(gettext "Hours")'</label>
+        <action>echo clock12 > '$WORKDIR'/clock_mode</action>
+       </button>
+       <button>
+        <label>24 '$(gettext "Hours")'</label>
+        <action>echo clock24 > '$WORKDIR'/clock_mode</action>
+       </button>
+      </hbox>
+      <hbox>
+       <button>
+        <label>'$(gettext "Set system time")'</label>
+        <action>system_time &</action>
+       </button>
+       <button>
+        <label>'$(gettext "Set time zone")'</label>
+        <action>countrywizard &</action>
+       </button> 
+      </hbox>
+     </frame>
+
+     <vbox>
+      <hbox>
+       <button space-expand="false" space-fill="false">
+        <label>" '$(gettext "Start")' "</label>
+        <action>date +%s%N > '$WORKDIR'/seconds_start</action>
+        <action>echo "||00:00:00" > '$WORKDIR'/resultlist</action>
+        <action>echo stopwatch > '$WORKDIR'/clock_mode</action>
+        <action>echo 00:00:00 > '$WORKDIR'/timer</action>
+        <action>refresh:TIMER</action>
+        <action>refresh:RESULTLIST</action>
+        <action>enable:BUTTON_LAP</action>
+        <action>enable:BUTTON_SPLIT</action>
+       </button>
+       <text space-expand="true" space-fill="true"><label>""</label></text>
+       <checkbox>
+        <label>'$(gettext "Count hundredths")'</label>
+        <default>true</default>
+        <action>if true echo true > '$WORKDIR'/HUNDREDTHS</action>
+        <action>if false rm '$WORKDIR'/HUNDREDTHS</action>
+       </checkbox>
+       <button>
+        <variable>BUTTON_SPLIT</variable>
+        <label>" '$(gettext "Split")' "</label>
+        <visible>disabled</visible>
+        <action>timestamp</action>
+        <action>date +%s%N > '$WORKDIR'/seconds_start</action>
+        <action>echo "||00:00:00" >> '$WORKDIR'/resultlist</action>
+        <action>echo 00:00:00 > '$WORKDIR'/timer</action>
+        <action>refresh:RESULTLIST</action>
+        <action>refresh:TIMER</action>
+       </button>
+       <button>
+        <variable>BUTTON_LAP</variable>
+        <label>" '$(gettext "Lap")' "</label>
+        <visible>disabled</visible>
+        <action>timestamp</action>
+        <action>refresh:RESULTLIST</action>
+       </button>
+      </hbox>
+      <tree>
+       <variable>RESULTLIST</variable>
+       <height>250</height><width>100</width>
+       <label>"'$(gettext "Lap")'|'$(gettext "Laptime")'     |'$(gettext "Time")'"</label>
+       <input>tac '$WORKDIR'/resultlist</input>
+      </tree>
+     </vbox>
+   
+     <vbox>
+      <text height-request="10"><label>""</label></text>
+      <hbox homogeneous="true">
+      <hbox>
+      <text width-request="50"><label>""</label></text>
+      <button height-request="50">
+       <label>"  '$(gettext "Start")'  "</label>
+       <variable>BUTTON_COUNTDOWN_START</variable>
+       <action>echo countdown > '$WORKDIR'/clock_mode</action>
+       <action>echo "" > '$WORKDIR'/COUNTDOWN_LOOPS</action>
+       <action>TMP="`cat '$WORKDIR'/COUNTDOWN`"; echo $(($(date +%s)+$TMP))$(date +%N) > '$WORKDIR'/seconds_start; echo $TMP > '$WORKDIR'/COUNTDOWN_START</action>
+       <action>echo $COUNTDOWN_ACTION > /'$WORKDIR'/COUNTDOWN_ACTION</action>
+       <action>enable:BUTTON_COUNTDOWN_STOP</action>
+       <action>enable:BUTTON_COUNTDOWN_PAUSE</action>
+       <action>disable:BUTTON_COUNTDOWN_START</action>
+       <action>refresh:COUNTDOWN_LOOPS</action>
+      </button>
+      <checkbox label="  '$(gettext "Pause")'  " draw_indicator="false" height-request="50">
+       <variable>BUTTON_COUNTDOWN_PAUSE</variable>
+       <action>if true echo countdown_start > '$WORKDIR'/clock_mode</action>
+       <action>if false echo countdown > '$WORKDIR'/clock_mode</action>
+       <action>TMP="`cat '$WORKDIR'/COUNTDOWN`"; echo $(($(date +%s)+$TMP))$(date +%N) > '$WORKDIR'/seconds_start</action>
+       <action>if true disable:BUTTON_COUNTDOWN_STOP</action>
+       <action>if false enable:BUTTON_COUNTDOWN_STOP</action>
+      </checkbox>
+      <button label="  '$(gettext "Stop")'  " height-request="50">
+       <variable>BUTTON_COUNTDOWN_STOP</variable>
+       <action>echo 0 > '$WORKDIR'/COUNTDOWN</action>
+       <action>echo countdown_start > '$WORKDIR'/clock_mode</action>
+       <action>disable:BUTTON_COUNTDOWN_START</action>
+       <action>disable:BUTTON_COUNTDOWN_PAUSE</action>
+       <action>disable:BUTTON_COUNTDOWN_STOP</action>
+      </button>
+      <text width-request="50"><variable>COUNTDOWN_LOOPS</variable><input>cat '$WORKDIR'/COUNTDOWN_LOOPS</input></text>
+      </hbox>
+      </hbox>
+      <text height-request="30"><label>""</label></text>
+
+
+
+
+
+
+
+
+      <hbox homogeneous="true">
+      <hbox>
+       <vbox>
+        <button label="+10">
+         <action>TMP="`cat '$WORKDIR'/COUNTDOWN`"; echo $TMP + 36000 | bc > '$WORKDIR'/COUNTDOWN</action>
+         <action>COUNTDOWN_SEC="`cat '$WORKDIR'/COUNTDOWN`"; printf "%02d:%02d:%02d" $((COUNTDOWN_SEC/3600)) $((COUNTDOWN_SEC%3600/60)) $((COUNTDOWN_SEC%60)) > '$WORKDIR'/timer</action>
+         <action>enable:BUTTON_COUNTDOWN_START</action>
+         <action>refresh:TIMER</action>
+        </button>
+        <button label="+1">
+         <action>TMP="`cat '$WORKDIR'/COUNTDOWN`"; echo $TMP + 3600 | bc > '$WORKDIR'/COUNTDOWN</action>
+         <action>COUNTDOWN_SEC="`cat '$WORKDIR'/COUNTDOWN`"; printf "%02d:%02d:%02d" $((COUNTDOWN_SEC/3600)) $((COUNTDOWN_SEC%3600/60)) $((COUNTDOWN_SEC%60)) > '$WORKDIR'/timer</action>
+         <action>enable:BUTTON_COUNTDOWN_START</action>
+         <action>refresh:TIMER</action>
+        </button>
+        <text use-markup="true"><label>"<b>'$(gettext "Hour")'</b>"</label></text>
+        <button label="-1">
+         <action>TMP="`cat '$WORKDIR'/COUNTDOWN`"; if [ $TMP -ge 3600 ]; then echo $TMP - 3600 | bc > '$WORKDIR'/COUNTDOWN; fi</action>
+         <action>COUNTDOWN_SEC="`cat '$WORKDIR'/COUNTDOWN`"; printf "%02d:%02d:%02d" $((COUNTDOWN_SEC/3600)) $((COUNTDOWN_SEC%3600/60)) $((COUNTDOWN_SEC%60)) > '$WORKDIR'/timer</action>
+         <action>refresh:TIMER</action>
+        </button>
+        <button label="-10">
+         <action>TMP="`cat '$WORKDIR'/COUNTDOWN`"; if [ $TMP -ge 36000 ]; then echo $TMP - 36000 | bc > '$WORKDIR'/COUNTDOWN; fi</action>
+         <action>COUNTDOWN_SEC="`cat '$WORKDIR'/COUNTDOWN`"; printf "%02d:%02d:%02d" $((COUNTDOWN_SEC/3600)) $((COUNTDOWN_SEC%3600/60)) $((COUNTDOWN_SEC%60)) > '$WORKDIR'/timer</action>
+         <action>refresh:TIMER</action>
+        </button>
+       </vbox>
+       <vbox>
+        <button label="+10">
+         <action>TMP="`cat '$WORKDIR'/COUNTDOWN`"; echo $TMP + 600 | bc > '$WORKDIR'/COUNTDOWN</action>
+         <action>COUNTDOWN_SEC="`cat '$WORKDIR'/COUNTDOWN`"; printf "%02d:%02d:%02d" $((COUNTDOWN_SEC/3600)) $((COUNTDOWN_SEC%3600/60)) $((COUNTDOWN_SEC%60)) > '$WORKDIR'/timer</action>
+         <action>enable:BUTTON_COUNTDOWN_START</action>
+         <action>refresh:TIMER</action>
+        </button>
+        <button label="+1">
+         <action>TMP="`cat '$WORKDIR'/COUNTDOWN`"; echo $TMP + 60 | bc > '$WORKDIR'/COUNTDOWN</action>
+         <action>COUNTDOWN_SEC="`cat '$WORKDIR'/COUNTDOWN`"; printf "%02d:%02d:%02d" $((COUNTDOWN_SEC/3600)) $((COUNTDOWN_SEC%3600/60)) $((COUNTDOWN_SEC%60)) > '$WORKDIR'/timer</action>
+         <action>enable:BUTTON_COUNTDOWN_START</action>
+         <action>refresh:TIMER</action>
+        </button>
+        <text use-markup="true"><label>"<b>'$(gettext "Min")'</b>"</label></text>
+        <button label="-1">
+         <action>TMP="`cat '$WORKDIR'/COUNTDOWN`"; if [ $TMP -ge 60 ]; then echo $TMP - 60 | bc > '$WORKDIR'/COUNTDOWN; fi</action>
+         <action>COUNTDOWN_SEC="`cat '$WORKDIR'/COUNTDOWN`"; printf "%02d:%02d:%02d" $((COUNTDOWN_SEC/3600)) $((COUNTDOWN_SEC%3600/60)) $((COUNTDOWN_SEC%60)) > '$WORKDIR'/timer</action>
+         <action>refresh:TIMER</action>
+        </button>
+        <button label="-10">
+         <action>TMP="`cat '$WORKDIR'/COUNTDOWN`"; if [ $TMP -ge 600 ]; then echo $TMP - 600 | bc > '$WORKDIR'/COUNTDOWN; fi</action>
+         <action>COUNTDOWN_SEC="`cat '$WORKDIR'/COUNTDOWN`"; printf "%02d:%02d:%02d" $((COUNTDOWN_SEC/3600)) $((COUNTDOWN_SEC%3600/60)) $((COUNTDOWN_SEC%60)) > '$WORKDIR'/timer</action>
+         <action>refresh:TIMER</action>
+        </button>
+       </vbox>
+       <vbox>
+        <button label="+10">
+         <action>TMP="`cat '$WORKDIR'/COUNTDOWN`"; echo $TMP + 10 | bc > '$WORKDIR'/COUNTDOWN</action>
+         <action>COUNTDOWN_SEC="`cat '$WORKDIR'/COUNTDOWN`"; printf "%02d:%02d:%02d" $((COUNTDOWN_SEC/3600)) $((COUNTDOWN_SEC%3600/60)) $((COUNTDOWN_SEC%60)) > '$WORKDIR'/timer</action>
+         <action>enable:BUTTON_COUNTDOWN_START</action>
+         <action>refresh:TIMER</action>
+        </button>
+        <button label="+1">
+         <action>TMP="`cat '$WORKDIR'/COUNTDOWN`"; echo $TMP + 1 | bc > '$WORKDIR'/COUNTDOWN</action>
+         <action>COUNTDOWN_SEC="`cat '$WORKDIR'/COUNTDOWN`"; printf "%02d:%02d:%02d" $((COUNTDOWN_SEC/3600)) $((COUNTDOWN_SEC%3600/60)) $((COUNTDOWN_SEC%60)) > '$WORKDIR'/timer</action>
+         <action>enable:BUTTON_COUNTDOWN_START</action>
+         <action>refresh:TIMER</action>
+        </button>
+        <text use-markup="true"><label>"<b>'$(gettext "Sec")'</b>"</label></text>
+        <button label="-1">
+         <action>TMP="`cat '$WORKDIR'/COUNTDOWN`"; if [ $TMP -ge 1 ]; then echo $TMP - 1 | bc > '$WORKDIR'/COUNTDOWN; fi</action>
+         <action>COUNTDOWN_SEC="`cat '$WORKDIR'/COUNTDOWN`"; printf "%02d:%02d:%02d" $((COUNTDOWN_SEC/3600)) $((COUNTDOWN_SEC%3600/60)) $((COUNTDOWN_SEC%60)) > '$WORKDIR'/timer</action>
+         <action>refresh:TIMER</action>
+        </button>
+        <button label="-10">
+         <action>TMP="`cat '$WORKDIR'/COUNTDOWN`"; if [ $TMP -ge 10 ]; then echo $TMP - 10 | bc > '$WORKDIR'/COUNTDOWN; fi</action>
+         <action>COUNTDOWN_SEC="`cat '$WORKDIR'/COUNTDOWN`"; printf "%02d:%02d:%02d" $((COUNTDOWN_SEC/3600)) $((COUNTDOWN_SEC%3600/60)) $((COUNTDOWN_SEC%60)) > '$WORKDIR'/timer</action>
+         <action>refresh:TIMER</action>
+        </button>
+       </vbox>
+      </hbox>
+      </hbox>
+
+
+
+
+
+
+
+
+
+      <vbox space-expand="true" space-fill="true"><text><label>""</label></text></vbox>
+      <vbox space-expand="false" space-fill="false" tooltip-text="'$(gettext "You can either play an audio-file
+or execute a defined command.")'">
+       <text><label>'$(gettext "Sound/Action at zero")'</label></text>
+       <hbox>
+        <entry accept="file" fs-title="pClock">
+         <variable>COUNTDOWN_ACTION</variable>
+         <input>cat '$WORKDIR'/COUNTDOWN_ACTION</input>
+        </entry>
+        <button>
+         <input file stock="gtk-open"></input>
+         <action type="fileselect">COUNTDOWN_ACTION</action>
+        </button>
+       </hbox>
+      </vbox>
+     </vbox>
+     <vbox>
+      <edit editable="false" left-margin="20"><input file>'$WORKDIR'/alarm_txt</input></edit>
+      <button height-request="50">
+       <label>'$(gettext "Define Alarm")'</label>
+       <action>alarm</action>
+       <action>echo $ALARM > '$WORKDIR'/ALARM</action>
+      </button>
+      <hbox>
+       <text><label>'$(gettext "Audio")'</label></text>
+       <entry accept="file">
+        <variable>ALARM</variable>
+        <input>cat '$WORKDIR'/ALARM</input>
+       </entry>
+       <button>
+        <input file stock="gtk-open"></input>
+        <action type="fileselect">ALARM</action>
+       </button>
+      </hbox>
+     </vbox>
+     <input file>'$WORKDIR'/pclock-tools_tab</input>
+     <variable>NOTEBOOK_TOOLS</variable>
+    </notebook>
+   </vbox>
+   <input file>'$WORKDIR'/pclock-tab</input>
+   <variable>NOTEBOOK</variable>
+  </notebook>
+ </vbox>
+ <action signal="hide">echo end > '$WORKDIR'/end_while</action>
+</window>'
+
+echo "$pClock" | sed 's/##.*//' > $WORKDIR/pclock_xml #I use double hash (##) for comments. --> as #FF0000 is valid xml-code
+
+gtkdialog -f $WORKDIR/pclock_xml
+echo end > $WORKDIR/end_while

@@ -1,0 +1,378 @@
+#!/bin/bash
+#
+# pupsave-backup 1.2.1
+#
+
+#set -x
+
+help_box() {
+	echo "$ERRORMSG
+<b>Pupsave Backup</b> for frugal Puppy installations makes a backup copy of the live pupsave file/folder.
+
+<b>1)</b> For best results, shut down all applications and servers before backing up.
+
+<b>2)</b> The date and time is automatically appended to the backup file name.
+
+<b>3)</b> Pupsave Backup backs up your system configuration as it exists in the pupsave. <span foreground='"'red'"'>It will not backup data stored outside the pupsave.</span>
+
+To restore a backup, rename the file by removing the 
+<b>.BKP-xxxx.xx.xx-xx.xx</b> file extension.
+
+You can force the init script to not ignore pupsaves created by this script by adding a boot parameter: pfix=psavebkp
+
+You must be running a frugal install with a pupsave otherwise PB will not run." > /tmp/box_help
+	/usr/lib/gtkdialog/box_help "Pupsave Backup Help"
+}
+export -f help_box
+
+#---------------------------------
+if [ -f /tmp/pupsave-backup-lock ];then
+	/usr/lib/gtkdialog/box_ok "Pupsave Backup" error "Pupsave Backup is already running."
+	exit 1
+fi
+touch /tmp/pupsave-backup-lock
+#---------------------------------
+
+function cleanup() {
+	rm -rf /tmp/pupsave-backup-lock
+	busybox ps | grep 'PBKP_PUPSAVE_HOT_BKP' | grep -v grep | awk '{print $1}' | \
+	while read pid ; do kill $pid ; done
+}
+export -f cleanup
+trap cleanup SIGHUP SIGINT SIGTERM
+
+# Verify frugal type installation.
+. /etc/rc.d/PUPSTATE
+export PUPMODE
+case $PUPMODE in
+	12|13) ok=1 ;;
+	*) ERRORMSG="Hot Backup can only be used if there is an active pupsave..." ;;
+esac
+
+
+if [ "$ERRORMSG" ] ; then
+	cleanup
+	echo "$ERRORMSG"
+	ERRORMSG="<b><span foreground='"'red'"'>${ERRORMSG}</span></b>
+"
+	[ $DISPLAY ] && help_box
+	cleanup
+	exit 1
+fi
+
+#==========================================================================
+
+function ERROR_RESTART() {
+	/usr/lib/gtkdialog/box_ok "Pupsave Backup" error "$@"
+	cleanup
+	pupsave-backup &
+}
+
+#---
+
+function PBKP_MBrequired() { # $PBKP_PUPSAVE_PATH
+	a=$(du -c -m -s "$1") #-c = --total, -m = --block-size=1m, -s = --summarize
+	read -r aa bb <<< "$a"
+	echo -n "MB required: $aa  [might need even more]"
+}
+
+#---
+
+function PBKP_MBavailable() { # $PBKP_BACKUP_PATH $PBKP_PUPSAVE_PATH
+	bkp="${1}"
+	case "$bkp" in
+		"/mnt/home"*|"/initrd/mnt/dev_save"*) drv="dev_save" ;;
+		"/mnt/"*) drv="`echo "$bkp" | cut -f 3 -d '/'`";;
+		*) ERROR_RESTART "You can only back up a pupsave to a device mounted on /mnt ..." ; return 1 ;;
+	esac
+	a="`df -k | grep "$drv" | awk '{ print $4 }'`"
+	if [ "$a" = "" ] ; then
+		a=0
+	else
+		a=$((a/1024)) #mb
+	fi
+	[ "$drv" = "dev_save" ] && drv="/initrd/mnt/dev_save"
+	lbldrv="/mnt/$drv"
+	[ "$drv" = "/initrd/mnt/dev_save" ] && lbldrv=$drv
+	#-
+	fs=$(grep "${drv} " /proc/mounts | cut -f 3 -d ' ')
+	if [ "$fs" = "" ] ; then
+		ERROR_RESTART "$drv: STORAGE DEVICE NOT MOUNTED... You can only back up a pupsave to a device mounted on /mnt"
+		return 1
+	fi
+	if [ "$SAVEFOLDER" ] ; then
+		case $fs in ext[2-4]) ok=1 ;;
+			*) ERROR_RESTART "$drv has a invalid filesystem: $fs ... You can only back up savefolders to a ext2/ext3/ext4 partition..." ; return 1 ;;
+		esac
+	fi
+	aa="$(du -c -m -s "$2")" #-c = --total, -m = --block-size=1m, -s = --summarize
+	read -r b ccc <<< "$aa"
+	#-
+	echo -n "MB available on ${lbldrv}: $a"
+	if [ $((a-b)) -le 100 ]; then # not enough space
+		/usr/lib/gtkdialog/box_ok "Pupsave Backup" error "NOT ENOUGH FREE DISK SPACE on $drv..."
+		return 1
+	fi
+}
+
+#---
+
+function PBKP_Bkpfilename() { # $PBKP_PUPSAVE_PATH
+	echo -n "Backup file name: ${PBKP_PUPSAVE_NAME}.BKP-`date +%Y.%m.%d-%H.%M`"
+}
+
+#---
+
+function PBKP_validate_BACKUP_location() { # $PBKP_BACKUP_PATH
+	if [ "${1}" != "" ]; then 
+		IFS="/" read -r a direntry level2 level3 level4 <<< "${1}"
+		#                /mnt     /home  /psubidir                /mnt/sda2/etc
+		if [ "$direntry" = "mnt" ] && [ "$level2" != "" ] ; then
+			echo -n "${1}"
+		elif [ "$direntry"/"$level2" = "initrd/mnt" ] && [ "$level3" != "" ] ; then
+			echo -n "${1}"
+		fi
+    else
+		echo -n "$PBKP_LOCDEFAULT"
+	fi
+}
+
+#---
+
+function compression_dialog() {
+	/usr/lib/gtkdialog/box_yesno "Pupsave Backup-Compress" "Do you want to compress the backup ${destfile} ?
+
+May take a bit longer but save some space."
+	if [ $? -eq 0 ] ; then
+		/usr/lib/gtkdialog/box_yesno --yes-label "gzip" --no-label "xz" --yes-icon "gtk-execute" --no-icon "gtk-execute" \
+		"Pupsave Backup-Compress" "Select compression type: 'gzip' or 'xz'"
+		if [ $? -eq 0 ] ; then
+			TAROPT="-z"
+			TAREXT='tar.gz'
+		else
+			TAROPT="-J"
+			TAREXT='tar.xz'
+		fi
+	fi
+}
+
+function show_splash() {
+	/usr/lib/gtkdialog/box_splash -close never -text "$@" &
+	pidx=$!
+}
+#---
+
+function PBKP_Backup() { #$PBKP_PUPSAVE_PATH $PBKP_BACKUP_PATH
+	destfile="${2}"/"`expr "${1}" | awk -F / '{print $NF}'`".BKP-`date +%Y.%m.%d-%H.%M`
+
+	if [ -e "${destfile}" -o -e "${destfile}.tar.gz" -o -e "${destfile}.tar.xz" ]; then
+		/usr/lib/gtkdialog/box_ok "Pupsave Backup" error "This Pupsave file already exists.  Wait one minute and the file name will change."
+		return 1
+	fi
+
+	if [ $PUPMODE -eq 13 ] ; then #flash
+		/usr/lib/gtkdialog/box_yesno --ok-cancel "Pupsave Backup" "Running in PUPMODE 13 - flash media
+
+Click 'OK' to save session to save${type} and proceed with the backup...
+
+Backup file name: ${destfile}"
+		if [ $? -eq 0 ] ; then
+			show_splash "Saving session to save${type} ..." &
+			snapmergepuppy
+			kill $pidx
+		else
+			return 1
+		fi
+	fi
+
+	mv /root/.XLOADED /etc/xloadedx
+	sync
+	sleep 0.5
+	CWDIR=$PWD
+   
+	if [ "$SAVEFOLDER" ] ; then
+		compression_dialog #set TAROPT TAREXT
+		[ "$TAROPT" ] && destfile=${destfile}.${TAREXT}
+		show_splash "Creating ${destfile##*/} ..."
+		if [ "$TAROPT" ] ; then
+			cd ${1%/*} # dirname $PBKP_PUPSAVE_PATH
+			#basename destifile / basename $PBKP_PUPSAVE_PATH
+			echo ; echo "tar -c ${TAROPT} -f ${destfile##*/} ${1##*/}/" #debug
+			tar -c ${TAROPT} -f ${destfile##*/} ${1##*/}/
+			RETVAL=$?
+			cd "$CWDIR"
+			sync
+			kill $pidx
+		else
+			mkdir -p ${destfile}
+			if which rsync ; then
+				rsync -aX ${1}/ ${destfile}/
+				RETVAL=$?
+			else
+				find "${1}" -mindepth 1 -maxdepth 1 | while read i ; do
+					cp -a --remove-destination ${i} ${destfile}/
+					RETVAL=$?
+					sync
+				done
+			fi
+			sync
+			kill $pidx
+		fi
+	else #savefile
+		compression_dialog #set TAROPT TAREXT
+		show_splash "Creating ${destfile##*/} ..."
+		cp -f -v "${1}" "${destfile}" 2> /dev/null
+		RETVAL=$?
+		sync
+		kill $pidx
+		show_splash "Running e2fsck on backup -- please wait"
+		e2fsck -y "${destfile}" 2> /dev/null
+		kill $pidx
+		if [ "$TAROPT" ] ; then
+			prevdfile=${destfile}
+			destfile=${destfile}.${TAREXT}
+			show_splash "Creating ${destfile##*/} ..."
+			cd ${1%/*} # dirname $PBKP_PUPSAVE_PATH
+			tar -c ${TAROPT} -f ${destfile##*/} ${prevdfile##*/} #basename $destfile
+			RETVAL=$?
+			rm -f $prevdfile
+			kill $pidx
+		fi
+	fi
+
+	mv /etc/xloadedx /root/.XLOADED
+	sync
+	if [ $RETVAL -eq 0 ] ; then
+		/usr/lib/gtkdialog/box_ok "Pupsave Backup" complete "Save${type} Backup Completed:
+
+${destfile}"
+	else
+		rm -rf $destfile
+		/usr/lib/gtkdialog/box_ok "Pupsave Backup" error "Error(s) creating $destfile"
+		return 1
+	fi
+}
+
+##################################### Execution #######################################
+
+#Find and verify path of currently mounted save file.
+SF="`echo $PUPSAVE | cut -f 3 -d ","`" # /savefilename or /xxx/savefilename
+
+if [ ! "$SF" ] ; then
+	/usr/lib/gtkdialog/box_ok "Pupsave Backup" error "Currently using a full partition..."
+	cleanup
+	exit
+fi
+
+#SF=${SF#/}
+if [ ! -e "/mnt/home${SF}" ]; then
+	/usr/lib/gtkdialog/box_ok "Pupsave Backup" error "'/mnt/home${SF}' does not exist!"
+	cleanup
+	exit 1
+elif [ -d "/mnt/home${SF}" ]; then
+	export SAVEFOLDER=1
+	export REFRESH_INTERVAL=10000 #10 seconds
+	export type=folder
+else #savefile
+	export REFRESH_INTERVAL=5000 #5 seconds
+	export type=file
+fi
+
+# Export variables
+export PBKP_PUPSAVE_PATH="/mnt/home${SF}"
+export PBKP_PUPSAVE_NAME="${SF##*/}" #${SF##*/} = basename $SF
+export PBKP_LOCDEFAULT="/mnt/home${PSUBDIR}"
+export PBKP_BACKUP_PATH=$(PBKP_validate_BACKUP_location)
+case "$PBKP_PUPSAVE_NAME" in *".BKP-"*)
+	/usr/lib/gtkdialog/box_ok "Pupsave Backup" warning "'${PBKP_PUPSAVE_NAME}' seems to be a file produced by this script. It's not advised to use it, the file name might become too large..."
+esac
+# Exported functions
+export -f compression_dialog ERROR_RESTART PBKP_MBrequired PBKP_MBavailable PBKP_Bkpfilename PBKP_Backup PBKP_validate_BACKUP_location
+
+# For fileselect dialog default directory
+cd /mnt
+
+# Some escapement is necessary when this sed is used to allow comments in gui.
+export PBKP_PUPSAVE_HOT_BKP='
+<window title="Pupsave Backup for Frugal Pups" icon-name="gtk-convert" default_width="400">
+   <vbox>
+      <frame>
+         <text editable="false" use-markup="true" xalign="0.001">
+            <label>"<span color='"'blue'"'>Pupsave '${type}' to backup</span>"</label>
+         </text>
+         <hbox>
+            <entry editable="false">
+               <variable>PBKP_PUPSAVE_PATH</variable>
+               <sensitive>"false"</sensitive>
+               <input>echo -n "'\$PBKP_PUPSAVE_PATH'"</input>
+            </entry>
+         </hbox>
+         <text editable="false" use-markup="true" xalign="0.001">
+            <label>"<span color='"'blue'"'>Save backup to /mnt/??</span>"</label>
+         </text>
+         <hbox>
+            <entry editable="false" accept="directory">
+               <variable>PBKP_BACKUP_PATH</variable>
+               <input>PBKP_validate_BACKUP_location "'\$PBKP_BACKUP_PATH'"</input>
+            </entry>
+            <button>
+               <input file stock="gtk-open"></input>
+               <action type="fileselect">PBKP_BACKUP_PATH</action>
+               <action>refresh:TEXT2</action>
+            </button>
+         </hbox>
+      </frame>
+      <frame Information>
+         <text height-request="" xalign="0">
+            <variable>TEXT1</variable>
+            <input>PBKP_MBrequired "'\$PBKP_PUPSAVE_PATH'"</input>
+         </text>
+         <text height-request="20" xalign="0">
+            <variable>TEXT2</variable>
+            <input>PBKP_MBavailable "'\$PBKP_BACKUP_PATH'" "'\$PBKP_PUPSAVE_PATH'"</input>
+         </text>
+         <text height-request="20" xalign="0">
+            <variable>BKPFILE</variable>
+            <input>PBKP_Bkpfilename "'\$PBKP_PUPSAVE_PATH'"</input>
+         </text>
+         <timer milliseconds="true" interval="'${REFRESH_INTERVAL}'" visible="false"> 
+           <action>refresh:TEXT1</action>
+           <action>refresh:TEXT2</action>
+           <action>refresh:BKPFILE</action>
+           <action>refresh:PBKP_BACKUP_PATH</action>
+         </timer>
+      </frame>
+      <hbox>
+         <button help><action>help_box &</action></button>
+         <button>
+            <input file icon="gtk-save"></input>
+            <label>Backup</label>
+            <action>EXIT:BACKUP</action>
+            <action>PBKP_Backup "'\$PBKP_PUPSAVE_PATH'" "'\$PBKP_BACKUP_PATH'" &</action>
+         </button>
+         <button use-stock="true" label="gtk-quit" has-focus="true">
+            <action>EXIT:Exit</action>
+         </button>
+      </hbox>
+   </vbox>
+</window>
+'
+eval "`gtkdialog --center -p PBKP_PUPSAVE_HOT_BKP`"
+
+if [ "$EXIT" = "BACKUP" ] ; then
+	if PBKP_MBavailable "$PBKP_BACKUP_PATH" ; then
+		if PBKP_Backup "$PBKP_PUPSAVE_PATH" "$PBKP_BACKUP_PATH" ; then
+			cleanup
+			exit 0 #success
+		fi
+	fi
+	#error
+	cleanup
+	cd -
+	$0 & #reenter
+	exit 1
+fi
+
+cleanup
+
+### END ###

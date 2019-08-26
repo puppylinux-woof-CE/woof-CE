@@ -1,0 +1,169 @@
+#!/bin/bash
+#pMusic - progress slider / statusbar daemon
+#GPL - Copyright Sigmund Berglund
+
+WORKDIR=$HOME/.pmusic/tmp
+read PLAYLIST_LENGTH < $WORKDIR/statusbar_playlist
+
+#play info
+if [ "$(LC_ALL=C grep -F 'kbits' $WORKDIR/ffmpeg_output)" ]; then
+	export LC_ALL=C
+	#if new song differs from last played, then read song info
+	IFS='|' read TMP1 TMP2 < $HOME/.pmusic/nowplaying
+	if [ ! "$TMP1" ]; then
+		IFS='|' read -r COL1 LENGTH NAME ADR ID_ADR < $WORKDIR/PLAYLIST_ALL
+		echo "$ADR" > $WORKDIR/nowplaying_statusbar
+		echo "$NAME|$ADR" > $HOME/.pmusic/nowplaying
+		echo "$NAME" > $WORKDIR/window_title
+		SEC=$(((10#${LENGTH%:*} * 60) + 10#${LENGTH#*:}))
+		echo $SEC > $WORKDIR/ffmpeg_length
+		#make svg
+		case $ADR in
+			*cdda:*)	IFS='|' read C1 C2 C3 ALBUM C5 YEAR C <<< "$(grep -F "${ADR}" $WORKDIR/cddb)";;
+			/*)			. $APPDIR/func_id3io "$ADR" -read_quick;;
+			*)			ALBUM=""; YEAR="";;
+		esac
+		$APPDIR/func_svg -nowplaying "$NAME" "$ALBUM $YEAR"
+		read TMP < $WORKDIR/maingui_notebook_page
+		[[ $DB_INFO = true && $TMP = 1 ]] && echo 0 > $WORKDIR/maingui_notebook_page #hide scan msg 1 (2 is global scan at first run) if exist. $DB_INFO is set by func_id3io
+		echo true > $WORKDIR/UPDATE_GUI
+		#update trackinfo
+		if [ $USE_META = true ]; then
+			$APPDIR/func_kill -trackinfo
+			$APPDIR/func_trackinfo -quiet &
+		fi
+		#clear error-flag
+		echo 0 > $WORKDIR/statusbar_error
+	else
+		#if playing radio we might want to show meta info
+		if [ $USE_META = true ]; then
+			read TMP < $WORKDIR/input_type
+			if [ "$TMP" = "radio_streamripper" ]; then
+				IFS="\]\[" read C1 C2 TMP C <<< "$(tail -n 1 $WORKDIR/streamripper_output)"
+				echo "$TMP" > $WORKDIR/nowplaying_statusbar
+			fi
+		fi
+		read SEC < $WORKDIR/ffmpeg_length
+	fi
+	#find played seconds
+	IFS=: read C1 M S C <<< "`tail -c 120 $WORKDIR/ffmpeg_output`"
+	S=${S%%.*}
+	read SS < $WORKDIR/SS
+	SEC_PLAYED=$(((10#${M} * 60) + 10#${S} + $SS))
+	#calculate time of seconds played
+	TIME_MIN=$(($SEC_PLAYED/60))
+	TIME_SEC=$(($SEC_PLAYED-($TIME_MIN*60)))
+	if [[ "$SEC" -gt "0" && "$SEC_PLAYED" -gt "0" ]]; then #skip this if playing a radio stream ($SEC) and to avoid slider first goes to 0 when user moves it
+		echo $((($SEC_PLAYED*100/$SEC)+1)) > $WORKDIR/PERCENT_BAR #percent for progress slider
+		#calculate time of seconds remaining if not playing a radio stream
+		SEC_PLAYED=$(($SEC-$SEC_PLAYED))
+#		TIME_REMAINING=" / $($APPDIR/func_C -sec2time $SEC_PLAYED)"
+		TIME_MIN2=$(($SEC_PLAYED/60))
+		TIME_SEC2=$(($SEC_PLAYED-($TIME_MIN2*60)))
+		TIME_REMAINING=" / ${TIME_MIN2}:$(printf "%02d" ${TIME_SEC2})"
+	fi
+	#output
+	read TMP < $WORKDIR/nowplaying_statusbar
+	echo "$PLAYLIST_LENGTH   (${TIME_MIN}:$(printf "%02d" ${TIME_SEC})$TIME_REMAINING) $TMP" > $WORKDIR/statusbar
+#output when no tracks playing
+else
+	export TEXTDOMAIN=pmusic
+	TEXT=' '
+	FF_OUT="$(<$WORKDIR/ffmpeg_output)"
+	read ERR_COUNT < $WORKDIR/statusbar_error
+	case $FF_OUT in
+		'')
+			if grep -F 'Unable to install hw params:' $WORKDIR/aplay_error; then
+				gettext 'Playback error: Device troubles with samplerate - Set sound card manually in the preferences' > $WORKDIR/statusbar
+				echo "$(($ERR_COUNT+1))" > $WORKDIR/statusbar_error
+			else
+				echo " $PLAYLIST_LENGTH" > $WORKDIR/statusbar
+			fi
+			;;
+		*youtube\ error*)
+			gettext 'No connection to Youtube... Missing dependency: youtube-dl' > $WORKDIR/statusbar
+			;;
+		*I/O\ error*|*Connection\ refused*)
+			if grep -F '://' $WORKDIR/PLAYLIST_ALL; then #no connection
+				gettext 'No connection' > $WORKDIR/statusbar
+				echo "$(($ERR_COUNT+1))" > $WORKDIR/statusbar_error
+				#try alternative url in radio index
+				IFS='|' read -r COL1 LENGTH NAME ADR ID_ADR < $WORKDIR/PLAYLIST_ALL
+				GREP="$(grep -F "$ADR" "$STORAGE_DIR"/index_radio)"
+				if [ "$GREP" ]; then
+					IFS='|' read C1 C2 C3 C4 C5 C6 C7 ADRS C <<< "$GREP"
+					NEW_ADR=$(echo "$ADRS" | awk -F ',' -v COUNT=$(($ERR_COUNT+1)) '{print $COUNT}')  
+					#test alterantive url
+					if [ "$NEW_ADR" = "$ADR" ]; then #$ADR is alreay tested
+						echo "$(($ERR_COUNT+1))" > $WORKDIR/statusbar_error
+					elif [ "$NEW_ADR" != '-' ]; then
+						#check connection to radio channel
+						LC_ALL=C wget --spider --tries 1 -T 3 -F --max-redirect 0 $NEW_ADR 2> $WORKDIR/tmpinfo
+						if [ "`LC_ALL=C grep -F connected $WORKDIR/tmpinfo`" ]; then
+							( flock -e 201
+								sed -i "s%|${ADR//&/\\&}|%|${NEW_ADR//&/\\&}|%g" $WORKDIR/playlist $WORKDIR/PLAYLIST_ALL
+							) 201>$WORKDIR/playlist.lockfile 
+							$APPDIR/func_player -playing "$NEW_ADR" &
+#							echo 0 > $WORKDIR/statusbar_error
+						fi
+					else
+						echo 5 > $WORKDIR/statusbar_error #go to next
+					fi
+				fi
+				
+			else #corrupted file
+				gettext 'Corrupted file' > $WORKDIR/statusbar
+				echo "$((ERR_COUNT+1))" > $WORKDIR/statusbar_error
+			fi
+			;;
+		*Unknown\ format*|*could\ not\ find\ codec\ parameters*)
+			gettext 'Unknown format' > $WORKDIR/statusbar
+			echo "$((ERR_COUNT+1))" > $WORKDIR/statusbar_error
+			;;
+		*)
+			#When adding a file, the source is checked, but when adding from ie. a m3u there is still a chance that source is not there.
+			if [[ "${FF_OUT}" = *'no such file or directory'* || "${FF_OUT}" != *'Input #0'* ]]; then
+				IFS='|' read -r COL1 LENGTH NAME ADR ID_ADR < $WORKDIR/PLAYLIST_ALL
+				case $ADR in
+					*://*)	gettext 'Connecting...' > $WORKDIR/statusbar;;
+					cdda:*)	gettext 'Reading CD...' > $WORKDIR/statusbar;;
+					*)
+						gettext 'Source not detected - Searching db for alternative...' > $WORKDIR/statusbar
+						echo "$(($ERR_COUNT+1))" > $WORKDIR/statusbar_error
+						if [ "$ERR_COUNT" -ge 3 ]; then
+							#search for alternative source in db. File has probably been moved.
+							A=${NAME%%\ -\ *}; A=${A%%\ (*}; A=${A%%(*}; A=${A%%\ feat*}; A=${A%%\ &\ *}; ARTIST=${A%%\ /\ *}
+							T=${NAME#*\ -\ }; T=${T%.*}; T=${T%%\ (*}; TITLE=${T%%(*}
+							NEW_ADR="`cut -d'|' -f1-3 "$STORAGE_DIR/index_mymusic" | grep -iF "|${TITLE}" | grep -Fi "|${ARTIST}|" | cut -d'|' -f1 | grep -vF "$ADR" |grep -iEm1 "$AUDIO_FORMATS"`"
+							[ ! "$NEW_ADR" ] && NEW_ADR="`cut -d'|' -f1-3 "$STORAGE_DIR/index_mymusic" | grep -iwF "${TITLE}" | grep -Fwi "${ARTIST}" | cut -d'|' -f1 | grep -vF "$ADR" | grep -iEm1 "$AUDIO_FORMATS"`"
+							#alternative is found - let's play
+							if [ -s "$NEW_ADR" ]; then
+								( flock -e 201
+									sed -i "s%|${ADR//&/\\&}|%|${NEW_ADR//&/\\&}|%g" $WORKDIR/playlist $WORKDIR/PLAYLIST_ALL
+								) 201>$WORKDIR/playlist.lockfile 
+								$APPDIR/func_player -playing "$NEW_ADR" &
+								echo 0 > $WORKDIR/statusbar_error
+							else
+								echo 5 > $WORKDIR/statusbar_error #this is last attempt before playing next track
+							fi
+						fi
+						;;
+				esac
+			elif grep -F error $WORKDIR/aplay_error; then
+				#Playback error might come from rtp server used for visualization. If so, we skip this
+				if [ "$ERR_COUNT" = 1 ]; then
+					sed -i "s# -ss .* -ss# -ss#" $WORKDIR/exec
+					$WORKDIR/exec &
+				fi
+				#---
+				[ "$ERR_COUNT" -ge 2 ] && gettext 'Playback error' > $WORKDIR/statusbar
+				echo "$(($ERR_COUNT+1))" > $WORKDIR/statusbar_error
+			fi
+			;;
+	esac
+	#if error more than 5 loops (in most cases 5 sec), skip to next track.
+	if [ "$ERR_COUNT" -ge 5 ]; then
+		$APPDIR/func_player -next
+		echo 0 > $WORKDIR/statusbar_error
+	fi
+fi

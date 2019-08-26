@@ -1,0 +1,133 @@
+#!/bin/bash
+#pMusic - Read Audio-CD
+#GPL - Copyright Sigmund Berglund
+
+MYPID=$$
+export TEXTDOMAIN=pmusic
+export OUTPUT_CHARSET=UTF-8
+. $CONFIG #in case user has changed settings in preferences
+
+case "$1" in
+-play_cd)
+	$APPDIR/func_kill
+	$APPDIR/func_store_playlist
+	$APPDIR/func -new
+	$APPDIR/func_cd -read_cd
+	cp -f $WORKDIR/playlist_read_cd $WORKDIR/playlist
+	[ -s $WORKDIR/playlist ] && $APPDIR/func_player -play 'cdda:1:' -autoplay &
+	echo true > $WORKDIR/UPDATE_GUI #update playlist when probing with the -c switch
+	$APPDIR/func -statusbar_playlist & #update statusbar
+	;;
+-read_cd)
+	#libcddb is much faster than using cdda2wav, so if available we use this
+	if type cddb_query > /dev/null 2>&1 && [ $CDDB = true ]; then
+		$APPDIR/func_cd -read_cd_libcddb
+	else
+		$APPDIR/func_cd -read_cd_cdrtools
+	fi
+	;;
+-read_cd_libcddb)
+	gettext 'Probing disc' > $WORKDIR/splashtext
+	$APPDIR/box_splash &
+	CD_DEVICES=$(ls -1 /sys/block 2>> $STDERR | grep -cE '^scd|^sr')
+	#do not use the -i switch if not required - older versions of libcddb does not support it
+	[[ $CD_DEVICE != /dev/cdrom && $CD_DEVICES -gt 1 ]] && TMP="-i $CD_DEVICE" || TMP=''
+	echo "LC_ALL=C cddb_query $TMP read > $WORKDIR/tmp_cd 2>&1" > $WORKDIR/exec_cd
+	chmod 722 $WORKDIR/exec_cd
+	$WORKDIR/exec_cd
+	if [[ "$(<$WORKDIR/tmp_cd)" = *'error:'* ]]; then
+		echo 100 > $WORKDIR/splash
+		$APPDIR/func_cd -read_cd_cdrtools
+	else
+		ARTIST="`grep -F 'Artist:' $WORKDIR/tmp_cd | cut -d: -f2 | cut -c 4-`"
+		ALBUM="`grep -F 'Title:' $WORKDIR/tmp_cd | cut -d: -f2 | cut -c 5-`"
+		YEAR="`grep -F 'Year:' $WORKDIR/tmp_cd | cut -d: -f2 | cut -c 6-`"
+		NR=1
+		GENRE="`grep -F 'Genre:' $WORKDIR/tmp_cd | cut -d: -f2 | cut -c 5-`"
+		echo -n > $WORKDIR/sourcelist
+		echo -n > $WORKDIR/playlist_read_cd
+		while read I; do
+			[[ "$I" !=  *'['* ]] && continue #not track information
+#			TITLE=${I#*'}; TITLE=${TITLE%%' by *}
+			TITLE="`cut -d"'" -f2- <<< "$I" | awk -F "' by " '{print $1}'`"
+			MIN="$(tail -c7 <<< "$I" | cut -d')' -f1 | cut -d'(' -f2 | cut -d: -f1)"
+			SEC="$(tail -c7 <<< "$I" | cut -d')' -f1 | cut -d'(' -f2 | cut -d: -f2)"
+			LENGTH="`echo $(printf "%02d" $MIN):$(printf "%02d" $SEC)`"
+			echo "cdda:${NR}: ${LENGTH}:${ARTIST} - ${TITLE}|${ARTIST}|${TITLE}|${ALBUM}|${NR}|${YEAR}|${GENRE}|||wav|1411kb|${LENGTH}|||gtk-audio_cd" >> $WORKDIR/sourcelist
+			echo "|${LENGTH}|${ARTIST} - ${TITLE}|cdda:${NR}:|00000000000000000$(printf "%02d" ${NR}) cdda:${NR}: ${LENGTH}:${ARTIST} - ${TITLE}" >> $WORKDIR/playlist_read_cd
+			NR=$(($NR+1))
+		done < $WORKDIR/tmp_cd
+		cp -f $WORKDIR/sourcelist $WORKDIR/cddb
+		$APPDIR/func -add_to_history "pMusic: $(gettext 'CD audio')" & #update history
+		echo true > $WORKDIR/UPDATE_SOURCELIST #update source-list
+		echo 100 > $WORKDIR/splash
+	fi
+	;;
+-read_cd_cdrtools)
+	killall cdda2wav 2>> $STDERR #in case playing from CD
+	gettext 'Probing disc' > $WORKDIR/splashtext
+	echo "kill -9 $MYPID" > $WORKDIR/splash_cancelcode
+	$APPDIR/box_splash &
+	echo -n > $WORKDIR/playlist_read_cd #-play_cd can skip -add_all
+	#read internal cd-text info
+	LC_ALL=C cdda2wav dev=$CD_DEVICE -info-only -no-infofile > $WORKDIR/cd-cddb 2>&1 &
+	while [ "$BREAK" != "true" ]; do
+		sleep 0.2 #wait for disc to spin
+		#is disc an audio-CD
+		if [ "`grep -E "no audio|Cannot stat device|Read TOC size failed|load cdrom" $WORKDIR/cd-cddb`" ]; then
+			ERROR="$(gettext 'No valid audio-CD inserted')"
+			echo -n > $WORKDIR/cd-cddb
+			BREAK=true
+		fi
+		#don't run complete cdda2wav check. kill it when we got enough
+		if [[ "$(<$WORKDIR/cd-cddb)" = *'ISRC'* || "$(<$WORKDIR/cd-cddb)" = *'load cdrom'* ]]; then
+			BREAK=true
+			for I in `LC_ALL=C ps -eo pid,command | grep -F cdda2wav | awk '{print $1}'`; do kill -9 $I 2>> $STDERR; done
+		fi
+	done
+	[[ "$(<$WORKDIR/cd-cddb)" = *'load cdrom'* ]] && ERROR="$(gettext 'No disc inserted')"
+	#if no internal cd-text, try www
+	if [[ $CDDB = true && "$(<$WORKDIR/cd-cddb)" = *'CD-Text: not detected'* ]]; then
+		LC_ALL=C wget --spider --tries 1 -T 1 $PING_SERVER 2> $WORKDIR/cd-tmp #check internet connection
+		if [[ "$(<$WORKDIR/cd-tmp)" = *'connected'* ]]; then
+			LC_ALL=C cdda2wav dev=$CD_DEVICE -cddb=1 -info-only -no-infofile > $WORKDIR/cd-cddb 2>&1 &
+			while [ ! "$BREAK2" ]; do
+				sleep 0.2
+				#don't run complete cdda2wav check. kill it when we got enough
+				[[ "$(<$WORKDIR/cd-cddb)" = *'ISRC'* || "$(<$WORKDIR/cd-cddb)" = *'load cdrom'* ]] && BREAK2=true
+			done
+			for I in `LC_ALL=C ps -eo pid,command | grep cdda2wav | awk '{print $1}'`; do kill -9 $I 2>> $STDERR; done
+		fi
+	fi
+	#build cdda-list
+	grep 'Track ' $WORKDIR/cd-cddb | grep \' | cut -d ':' -f 2- | cut -d '[' -f 1 | cut -c 3- | sed -e "s/.$//" > $WORKDIR/tmp_cd_tracks
+	grep -F '.(' $WORKDIR/cd-cddb | grep -F ':' | tr '.' '\n' | tr ' ' '\n' | grep -F ':' > $WORKDIR/tmp_cd_length
+	paste -d'|' $WORKDIR/tmp_cd_tracks $WORKDIR/tmp_cd_length > $WORKDIR/tmp_cd
+	ALBUM=`grep 'Album title' $WORKDIR/cd-cddb | cut -d "'" -f 2`
+	ARTIST=`grep 'Album title' $WORKDIR/cd-cddb | cut -d '[' -f 2 | cut -d ']' -f 1 | cut -d ' ' -f 2-`
+	#add length
+	echo -n > $WORKDIR/sourcelist
+	NR=1
+	while read I; do
+		TITLE=${I%|*}
+		LENGTH=${I#*|}
+		[ "$LENGTH" = "0:00" ] && continue
+		[ ${#LENGTH} = "4" ] && LENGTH=0$LENGTH #ensure 5digits
+		if [ "$TITLE" ]; then
+			echo "cdda:$NR: $LENGTH:$ARTIST - $TITLE|$ARTIST|$TITLE|$ALBUM|$NR|||||wav|1411kb|$LENGTH|||gtk-audio_cd" >> $WORKDIR/sourcelist
+			echo "|$LENGTH|$ARTIST - $TITLE|cdda:$NR:|$(printf "%05d" $NR) cdda:$NR: $LENGTH:$ARTIST - $TITLE" >> $WORKDIR/playlist_read_cd #-play_cd can skip -add_all
+		else
+			#no cd-text/web-info available
+			echo "cdda:$NR: $LENGTH:TITLE ${NR}|TITLE ${NR}||||||||wav|1411kb|$LENGTH|||gtk-audio_cd" >> $WORKDIR/sourcelist
+			echo "|$LENGTH|TITLE ${NR} |cdda:$NR: $LENGTH:TITLE $NR|$(printf "%05d" $NR) cdda:$NR: $LENGTH:TITLE $NR" >> $WORKDIR/playlist_read_cd
+		fi
+		NR=$(($NR+1))
+	done < $WORKDIR/tmp_cd
+	[ ! -s $WORKDIR/sourcelist ] && echo "|$(gettext 'No tracks detected')" > $WORKDIR/sourcelist #no tracks detected
+	cp -f $WORKDIR/sourcelist $WORKDIR/cddb
+	$APPDIR/func -add_to_history "pMusic: $(gettext 'CD audio')" & #update history
+	echo true > $WORKDIR/UPDATE_SOURCELIST #update source-list
+	echo 100 > $WORKDIR/splash
+	;;
+esac
+	

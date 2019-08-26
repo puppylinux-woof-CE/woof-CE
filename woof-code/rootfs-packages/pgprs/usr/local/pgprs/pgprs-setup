@@ -1,0 +1,229 @@
+#! /bin/bash
+# PGPRS SETUP: Puppy Generic GPRS Modem Setup Utility
+#(c) Copyright Aug. 2008 Lloyd Standish www.voluntary-simplicity.org/linux                         
+#2007 Lesser GPL licence v2 (http://www.fsf.org/licensing/licenses/lgpl.html)
+# version 1.3 Aug. 16, 2008  
+#101204 Dejan: if there's no pin gtkdialog has errors, put 1234 instead blank.
+#120131 rodin.s: i18n
+#120228 fix errors in gettext.
+#130812 Modification as version 1.5 by Richard Erwin for Puppy integration, to use a configuration file, move 'user' and 'noauth' statements to a separate file in peers directory, place provider-specific chat commands in separate files accessed by the connect chat and use generic APN default.
+#140129 Rework gtkdialog result evaluation to avoid syntax error from space character in EXIT variable.
+#150214 Allow absence of user and password, to indicate 'no authentication'.
+#160101 (v2.0) Change device & number fields to comboboxes, with lists in configuration file; rewrite modem-re-probe to avoid restarting the dialog; reorganize window layout; move "connect" message into window to eliminate separate dialog; move initialization logic to new pgprs interface script; add chat_with_modem function to protect from modem-stats hanging for some devices; separate config files for state data (/root/.config/gprs.conf) and constants (/etc/ppp/gprs.conf); add 'Connect' button; add locks to avoid duplicate instances and conflicts with frisbee gprs.
+#180721 Replace modem-stats with corrected use of microcom.
+
+export TEXTDOMAIN=pgprs #160101
+export OUTPUT_CHARSET=UTF-8
+. gettext.sh
+
+#set -x; test -f /tmp/xerrs.log && exec 1>&2 || exec &>/tmp/debug.log #send feedback and trace to xerrs.log or debug.log
+
+#130812 The following values are maintained in /root/.config/gprs.conf and copied to operational locations at time of connection....
+# device file: argument to pppd invocation, not copied
+# user: /etc/ppp/peers/pgprs_auth (also pap-secrets)
+#       (If no user specified, pgprs_auth contains 'noauth'.)
+# password: etc/ppp/pap-secrets
+# phone: /etc/ppp/chatscripts/gprs-dial_command
+# APN /etc/ppp/chatscripts/gprs-cgdcont_command
+# PIN /etc/ppp/chatscripts/gprs-cpin_command
+
+#160220 talk to modem, allow time for response... 180721
+chat_with_modem() { #device passed in.
+ local ANSWERFILE=/tmp/.pgprs/answer.txt
+ rm -f $ANSWERFILE
+ [ -f "/var/lock/LCK..${1##*/}" ] && rm "/var/lock/LCK..${1##*/}"
+ echo -e "ATZ\r" | microcom -t 1000 $1 > $ANSWERFILE 2>/dev/null #180721
+ [ -s $ANSWERFILE ] && grep -q '^OK' $ANSWERFILE #180721
+ return $?
+}
+export -f chat_with_modem
+
+function build_device_list {
+	local DETECTED=''
+	if grep -q 'ALL' $(which get_modem_alternate_device 2>/dev/null);then
+		DETECTED="$(get_modem_alternate_device ALL | sed -e '/^$/ d' -e 's%^%/dev/%')"
+	else
+		#Compensate for get_modem_alternate_device w/o ALL option
+		for MAINDEV in $(ls /dev/ttyACM* /dev/ttyHS* /dev/ttyUSB* /dev/rfcomm* 2>/dev/null); do
+			[ -c $MAINDEV ] \
+			 && chat_with_modem $MAINDEV \
+			 && DETECTED="$DETECTED $MAINDEV"
+		done
+	fi
+	local GPRS_OTHER_DEVICES=$(grep '^GPRS_OTHER_DEVICES=' /etc/ppp/gprs.conf | grep -o '=.*' | tr -d = | tr -d \')
+	for OTHERDEV in $(ls $GPRS_OTHER_DEVICES 2>/dev/null); do
+		[ -c $OTHERDEV ] \
+		 && chat_with_modem $OTHERDEV \
+		 && DETECTED="$DETECTED $OTHERDEV"
+	done
+	if [ "$DETECTED" = "" ]; then
+		echo -n "--$(gettext 'None detected')--" > /tmp/.pgprs/devlist
+	else
+		echo "$DETECTED" | sed -e 's/^ //' -e 's/ /\n/g' > /tmp/.pgprs/devlist
+	fi
+}
+export -f build_device_list
+
+. /root/.config/gprs.conf
+
+while true; do
+	#160101 end
+	[ "$GPRSUSER" ] \
+	 && GPRSPSWD="$(cat /etc/ppp/*secrets | grep "^\"$GPRSUSER\"" | tail -n 1 | tr '\t' ' ' | tr -s ' ' | cut -f 3 -d ' ' | tr -d \" | tr -d '\n')" \
+	 || GPRSPSWD="" #130812
+
+	export PGPRS_MAIN_DIALOG="
+ <window title=\"Pgprs $VERSION - $(gettext 'GPRS Configure')\" image-name=\"$PGPRSICON\">
+ <vbox>
+ <text use-markup=\"true\"> <label>\"<b>$(gettext 'GPRS Connection Settings')</b>\"</label></text>
+ <frame>
+  <hbox space-expand=\"false\" space-fill=\"false\">
+    <text wrap=\"false\" xalign=\"0\" space-expand=\"true\" space-fill=\"true\" tooltip-text=\"$(gettext 'If your modem needs a device file not found automatically, you can add it to GPRS_OTHER_DEVICES in file /etc/ppp/gprs.conf.')\">
+      <label>$(gettext 'Modem Device File:')</label>
+    </text>
+    <comboboxtext>
+      <input>build_device_list</input>
+      <default>$(echo -n \"$GPRSDEV\" | grep '..*' || echo \"--Error--\")</default>
+      <input file>/tmp/.pgprs/devlist</input>
+      <variable>GPRSDEV</variable>
+    </comboboxtext>
+  </hbox>
+  <hbox>
+    <text tooltip-text=\"$(gettext "If you plug in or remove a modem, use 'Refresh' to re-probe for available devices.")\">
+      <label>$(gettext 'After modem change:')</label>
+    </text>
+    <button>
+   	  <input file stock=\"gtk-refresh\"></input>
+   	  <label>$(gettext 'Refresh')</label>
+   	  <action>refresh:GPRSDEV</action>
+   	</button>
+  </hbox>
+  <hbox space-expand=\"false\" space-fill=\"false\">
+    <text wrap=\"false\" xalign=\"0\" space-expand=\"true\" space-fill=\"true\" tooltip-text=\"$(gettext 'Required')\">
+      <label>APN:</label>
+    </text>
+    <entry>
+      <input>echo -n $GPRSAPN</input>
+      <variable>GPRSAPN</variable>
+    </entry>
+  </hbox>
+  
+  <hbox space-expand=\"false\" space-fill=\"false\">
+    <text wrap=\"false\" xalign=\"0\" space-expand=\"true\" space-fill=\"true\">
+      <label>$(gettext 'Access number:')</label>
+    </text>
+    <comboboxtext>
+      <input>grep '^GPRS_ACCESS_NUMBERS=' /etc/ppp/gprs.conf | grep -o '=.*' | tr -d = | tr -d \' | tr ' ' '\n' > /tmp/.pgprs/numberlist</input>
+      <default>$(echo -n \"$GPRSNBR\" | grep '..*' || echo \"--Error--\")</default>
+      <input file>/tmp/.pgprs/numberlist</input>
+      <variable>GPRSNBR</variable>
+    </comboboxtext>
+  </hbox>
+
+  <hbox space-expand=\"false\" space-fill=\"false\">
+    <text wrap=\"false\" xalign=\"0\" space-expand=\"true\" space-fill=\"true\" tooltip-text=\"$(gettext 'Some ISPs require a PIN, even if your device does not.')\">
+      <label>$(gettext 'Phone PIN:')</label>
+    </text>
+    <entry>
+      <input>echo -n $GPRSPIN</input>
+      <variable>GPRSPIN</variable>
+    </entry>
+  </hbox>
+ </frame>
+
+ <frame $(gettext 'Authentication (optional)')>
+  <hbox space-expand=\"false\" space-fill=\"false\">
+    <text wrap=\"false\" xalign=\"0\" space-expand=\"true\" space-fill=\"true\" tooltip-text=\"$(gettext 'If your GPRS or 3G ISP does not require a username/password, leave those fields empty.')\">
+      <label>$(gettext 'Username:')</label>
+    </text>
+    <entry>
+      <input>echo -n $GPRSUSER</input>
+      <variable>GPRSUSER</variable>
+    </entry>
+  </hbox>
+  
+  <hbox space-expand=\"false\" space-fill=\"false\">
+    <text wrap=\"false\" xalign=\"0\" space-expand=\"true\" space-fill=\"true\">
+      <label>$(gettext 'Password:')</label>
+    </text>
+    <entry>
+      <visible>password</visible>
+      <input>echo -n $GPRSPSWD</input>
+      <variable>GPRSPSWD</variable>
+    </entry>
+  </hbox>
+  
+   <checkbox tooltip-text=\"$(gettext 'If internet service provider requires PAP authenticatiion, check this box.')\">
+    <variable>GPRSPAPONLY</variable>
+    <input>echo -n $GPRSPAPONLY</input>
+    <label>$(gettext 'Use only PAP authorization')</label>
+   </checkbox>
+ </frame>
+  
+  <hbox space-expand=\"false\" space-fill=\"false\">
+   <button ok></button>
+   <button cancel></button>
+   <button>
+     <input file stock=\"gtk-connect\"></input>
+     <label>$(gettext 'Connect')</label>
+   </button>
+  </hbox>
+
+  <hbox  space-expand=\"false\" space-fill=\"false\">
+    <text><label>$(gettext "You can also connect to the Internet using 'PGPRS Connect' in the 'Network' menu.")  $(gettext "If a connection is active, 'Connect' will display its log and a 'disconnect' button.")</label></text> 
+  </hbox>
+ </vbox>
+ </window>
+" #130812 160101
+	gtkdialog --program=PGPRS_MAIN_DIALOG > /tmp/.pgprs/setup_gtkdialog_out #140129
+	[ -s /tmp/.pgprs/setup_gtkdialog_out ] && . /tmp/.pgprs/setup_gtkdialog_out #140129
+	rm -f /tmp/.pgprs/setup_gtkdialog_out #140129
+
+	[ "$EXIT" != "OK" -a "$EXIT" != "Connect" ] && exit 1
+
+	LACK=""
+	if [ "${GPRSDEV:0:1}" != "/" ]; then
+		LACK="$LACK
+		$(gettext 'Modem device file')" #130812
+	fi
+	if [ "${GPRSAPN}" = "" ]; then
+		LACK="$LACK
+		APN" #130812
+	fi
+	if [ "$GPRSNBR" = "" ]; then
+		LACK="$LACK
+		$(gettext 'Telephone')" #130812
+	fi
+	if [ "$GPRSUSER" = "" -a "$GPRSPSWD" ]; then #150214
+		LACK="$LACK
+		$(gettext 'Username')" #130812
+	fi
+	if [ "$GPRSPSWD" = "" -a "$GPRSUSER" ]; then #150214
+		LACK="$LACK
+		$(gettext 'Password')" #130812
+	fi
+	[ "$LACK" = "" ] && break #160101
+	Xdialog --center --wmclass pgprs --title "Pgprs $(gettext 'GPRS Configure')" --icon /usr/local/lib/X11/pixmaps/error.xpm --msgbox "$(gettext 'The following must not be left blank:')\n$LACK" 0 0 #130812 151222
+done #160101
+
+[ "${GPRSDEV:0:2}" = "--" ] && GPRSDEV=$(grep '^GPRSDEV=' /root/.config/gprs.conf | grep -o '[^= ]*$') #160101...
+for ONEGPRS in GPRSDEV GPRSAPN GPRSNBR GPRSPIN GPRSUSER GPRSPAPONLY; do
+	if [ "$(grep "^${ONEGPRS}=" /root/.config/gprs.conf | cut -f 2 -d =)" != "${!ONEGPRS}" ]; then
+		SEDSCRIPT="s%\(${ONEGPRS}=\).*%\1${!ONEGPRS}%"
+		sed -i "$SEDSCRIPT" /root/.config/gprs.conf
+	fi
+done
+sync #160101 end
+if [ "$GPRSUSER" ] \
+ && ! grep -q -s "^\"$GPRSUSER\".\*.\"$GPRSPSWD\"" /etc/ppp/pap-secrets; then
+	sed -i -e "/^\"$GPRSUSER\"\t/d" /etc/ppp/pap-secrets
+	echo "\"$GPRSUSER\"	*	\"$GPRSPSWD\"" >> /etc/ppp/pap-secrets
+	chmod 600 /etc/ppp/pap-secrets
+fi #130812 end
+
+case "$EXIT" in
+ OK) exit 0 ;;
+ Connect) exit 2 ;;
+ Cancel|abort) exit 1 ;; #Performed by gtkdialog - aborts script too.
+*) exit 255 ;;
+esac

@@ -5,12 +5,11 @@
 #  ENTRY1 is a string, to search for a package.
 #101129 checkboxes for show EXE DEV DOC NLS. fixed some search bugs.
 #110223 run message as separate process.
-#110530 ignore packages with different kernel version number, format -k2.6.32.28- in pkg name (also filterpkgs.sh)...
 #120203 BK: internationalized.
 #120323 replace 'xmessage' with 'pupmessage'.
 #120410 Mavrothal: fix "getext" typo.
 #120504 Mavrothal: search with multiple keywords, both pkg name and description.
-#120504 some files moved into /tmp/petget
+#120504 some files moved into /tmp/petget_proc/petget
 #120515 common code from pkg_chooser.sh, findnames.sh, filterpkgs.sh, extracted to /usr/local/petget/postfilterpkgs.sh.
 #120529 fix if icon name appended each line.
 #120811 category field now supports sub-category |category;subcategory|, use as icon in ppm main window.
@@ -38,12 +37,14 @@ entryPATTERN2="`echo -n "$ENTRY1" | sed -e 's%\\-%\\\\-%g' -e 's%\\.%\\\\.%g' -e
 entryPATTERN3="`echo -n "$ENTRY1" | sed -e 's%\\-%\\\\-%g' -e 's%\\.%\\\\.%g' -e 's%\\*%.*%g' | awk '{print $3}'`"
 entryPATTERN4="`echo -n "$ENTRY1" | sed -e 's%\\-%\\\\-%g' -e 's%\\.%\\\\.%g' -e 's%\\*%.*%g' | awk '{print $4}'`"
 
-CURRENTREPO="`cat /tmp/petget/current-repo-triad`" #search here first.
-ALLACTIVEREPOS="`cat /tmp/petget_active_repo_list`"
+CURRENTREPO="`cat /tmp/petget_proc/petget/current-repo-triad`" #search here first.
+ALLACTIVEREPOS="`cat /tmp/petget_proc/petget_active_repo_list`"
+SEARCH_REPOS_FLAG=$1
 
-#120504 ask which repos...
-export ASKREPO_DIALOG="<window title=\"$(gettext 'PPM: search')\" icon-name=\"gtk-about\">
-<vbox>
+if [ "$(cat /var/local/petget/ui_choice 2>/dev/null)" = "Classic" ]; then
+ #120504 ask which repos...
+ export ASKREPO_DIALOG="<window title=\"$(gettext 'PPM: search')\" icon-name=\"gtk-about\">
+ <vbox>
  <frame $(gettext 'Search only current repository')>
   <hbox>
    <text><label>\"${CURRENTREPO}\"</label></text>
@@ -60,14 +61,15 @@ export ASKREPO_DIALOG="<window title=\"$(gettext 'PPM: search')\" icon-name=\"gt
    </vbox>
   </hbox>
  </frame>
-</vbox>
-</window>
+ </vbox>
+ </window>
 "
-RETPARAMS="`gtkdialog4 --center --program=ASKREPO_DIALOG`"
-eval "$RETPARAMS"
-[ "$EXIT" != "BUTTON_SEARCH_CURRENT" -a "$EXIT" != "BUTTON_SEARCH_ALL" ] && exit
-SEARCH_REPOS_FLAG="current"
-[ "$EXIT" = "BUTTON_SEARCH_ALL" ] && SEARCH_REPOS_FLAG="all"
+ RETPARAMS="`gtkdialog --center --program=ASKREPO_DIALOG`"
+ eval "$RETPARAMS"
+ [ "$EXIT" != "BUTTON_SEARCH_CURRENT" -a "$EXIT" != "BUTTON_SEARCH_ALL" ] && exit
+ SEARCH_REPOS_FLAG="current"
+ [ "$EXIT" = "BUTTON_SEARCH_ALL" ] && SEARCH_REPOS_FLAG="all"
+fi
 
 if [ "$SEARCH_REPOS_FLAG" = "current" ];then #120504
  REPOLIST="$CURRENTREPO"
@@ -76,7 +78,7 @@ else
 fi
 
 FNDIT=no
-echo -n "" > /tmp/petget/filterpkgs.results
+echo -n "" > /tmp/petget_proc/petget/filterpkgs.results
 for ONEREPO in $REPOLIST
 do
  #120908 need version field (#3)...
@@ -93,61 +95,44 @@ do
   FNDENTRIES="`cat /root/.packages/Packages-${ONEREPO} | cut -f1,2,3,5,10 -d \| | grep -i "$entryPATTERN1"`" #120827
  fi
 
- if [ "$FNDENTRIES" != "" ];then
-  FIRSTCHAR="`echo "$FNDENTRIES" | cut -c 1 | tr '\n' ' ' | sed -e 's% %%g'`"
-  #write these just in case needed...
-  ALPHAPRE="`cat /tmp/petget_pkg_first_char`"
-  #this is read when update TREE1 in pkg_chooser.sh...
-  #echo "$FNDENTRIES" | cut -f 1,10 -d '|' > /tmp/petget/filterpkgs.results
-  repoPTN="s%$%|${ONEREPO}|%" #note, '|' on the end also, needed below by printcols.
+ if [ "$FNDENTRIES" ];then
+  repoPTN="s%$%|${ONEREPO}|%"
   FPR="`echo "$FNDENTRIES" | sed "$repoPTN"`"
   if  [ "$FPR" = "|${ONEREPO}" ];then
-   echo -n "" > /tmp/petget/filterpkgs.results #nothing.
+   echo -n "" > /tmp/petget_proc/petget/filterpkgs.results #nothing.
   else
-   echo "$FPR" >> /tmp/petget/filterpkgs.results #120504 append repo-triad each line.
+   echo "$FPR" >> /tmp/petget_proc/petget/filterpkgs.results #120504 append repo-triad each line.
   fi
   FNDIT=yes
-#120504  break
  fi
 done
 
-#110530 ignore packages with different kernel version number, format -k2.6.32.28- in pkg name...
-if [ "$FNDIT" = "yes" ];then
- GOODKERNPTN="`uname -r | sed -e 's%\.%\\\.%g' -e 's%^%\\\-k%' -e 's%$%$%'`" #ex: \-k2.6.32$
- BADKERNPTNS="`grep -o '\-k2\.6\.[^-|a-zA-Z]*' /tmp/petget/filterpkgs.results | cut -f 1 -d '|' | grep -v "$GOODKERNPTN" | sed -e 's%$%-%' -e 's%\.%\\\.%g' -e 's%\-%\\\-%g'`" #ex: \-k2\.6\.32\.28\-
- if [ "$BADKERNPTNS" ];then
-  echo "$BADKERNPTNS" >> /tmp/petget_badkernptns
-  grep -v -f /tmp/petget_badkernptns /tmp/petget/filterpkgs.results > /tmp/petget/filterpkgs.resultsxxx
-  mv -f /tmp/petget/filterpkgs.resultsxxx /tmp/petget/filterpkgs.results
- fi
-fi
-
 if [ "$FNDIT" = "no" ];then
  #120909 these files may have been created at previous search, it will upset show_installed_version_diffs.sh if still exist...
- [ -f /tmp/petget/filterpkgs.results.installed ] && rm -f /tmp/petget/filterpkgs.results.installed
- [ -f /tmp/petget/filterpkgs.results.notinstalled ] && rm -f /tmp/petget/filterpkgs.results.notinstalled
- pupmessage -bg red -center -title "$(gettext 'PPM find')" "$(gettext 'Sorry, no matching package name')" & #110223 run as separate process.
+ [ -f /tmp/petget_proc/petget/filterpkgs.results.installed ] && rm -f /tmp/petget_proc/petget/filterpkgs.results.installed
+ [ -f /tmp/petget_proc/petget/filterpkgs.results.notinstalled ] && rm -f /tmp/petget_proc/petget/filterpkgs.results.notinstalled
+ /usr/lib/gtkdialog/box_ok "$(gettext 'PPM package search')" error "$(gettext 'Sorry, no matching package name')"
 else
  
  #120827 search may find pkgs that are already installed...
- if [ -f /tmp/petget_installed_patterns_all ];then #precaution.
-  grep -f /tmp/petget_installed_patterns_all -v /tmp/petget/filterpkgs.results > /tmp/petget/filterpkgs.results.notinstalled
-  grep -f /tmp/petget_installed_patterns_all /tmp/petget/filterpkgs.results > /tmp/petget/filterpkgs.results.installed
-  cp -f /tmp/petget/filterpkgs.results.notinstalled /tmp/petget/filterpkgs.results
-  if [ -s /tmp/petget/filterpkgs.results.installed ];then
-   #change category field to "tick" (postfilerpkgs.sh converts this to "mini-tick", which will display /usr/local/lib/X11/mini-icons/mini-tick.xpm)...
+ if [ -f /tmp/petget_proc/petget_installed_patterns_all ];then #precaution.
+  grep -f /tmp/petget_proc/petget_installed_patterns_all -v /tmp/petget_proc/petget/filterpkgs.results > /tmp/petget_proc/petget/filterpkgs.results.notinstalled
+  grep -f /tmp/petget_proc/petget_installed_patterns_all /tmp/petget_proc/petget/filterpkgs.results > /tmp/petget_proc/petget/filterpkgs.results.installed
+  cp -f /tmp/petget_proc/petget/filterpkgs.results.notinstalled /tmp/petget_proc/petget/filterpkgs.results
+  if [ -s /tmp/petget_proc/petget/filterpkgs.results.installed ];then
+   #change category field to "complete" (display /usr/share/icons/hicolor/scalable/status/complete.svg)...
    #120908 now have version field (in field #3), ex: xserver-xorg-video-radeon_6.14.99|xserver-xorg-video-radeon|6.14.99|BuildingBlock|X.Org X server -- AMD/ATI Radeon display driver|puppy-noarch-official|
-    sed -e 's%|%ONEPIPECHAR%' -e 's%|%ONEPIPECHAR%' -e 's%|[^|]*%|tick%' -e 's%|tick|%|tick|(ALREADY INSTALLED) %' -e 's%ONEPIPECHAR%|%g' /tmp/petget/filterpkgs.results.installed >> /tmp/petget/filterpkgs.results
-   #ex: xserver-xorg-video-radeon_6.14.99|xserver-xorg-video-radeon|6.14.99|tick|(ALREADY INSTALLED) X.Org X server -- AMD/ATI Radeon display driver|puppy-noarch-official|
+    sed -e 's%|%ONEPIPECHAR%' -e 's%|%ONEPIPECHAR%' -e 's%|[^|]*%|complete%' -e 's%|complete|%|complete|(ALREADY INSTALLED) %' -e 's%ONEPIPECHAR%|%g' /tmp/petget_proc/petget/filterpkgs.results.installed >> /tmp/petget_proc/petget/filterpkgs.results
+   #ex: xserver-xorg-video-radeon_6.14.99|xserver-xorg-video-radeon|6.14.99|complete|(ALREADY INSTALLED) X.Org X server -- AMD/ATI Radeon display driver|puppy-noarch-official|
   fi
  fi
  #remove field #2, so file is same as generated by filterpkgs.sh, and as expected by postfilterpkgs.sh... 120908 remove #3...
- cut -f 1,4,5,6,7 -d '|' /tmp/petget/filterpkgs.results > /tmp/petget/filterpkgs.results1 #note, retain | on end.
- mv -f /tmp/petget/filterpkgs.results1 /tmp/petget/filterpkgs.results
+ cut -f 1,4,5,6,7 -d '|' /tmp/petget_proc/petget/filterpkgs.results > /tmp/petget_proc/petget/filterpkgs.results1 #note, retain | on end.
+ mv -f /tmp/petget_proc/petget/filterpkgs.results1 /tmp/petget_proc/petget/filterpkgs.results
  
- #120515 post-filter /tmp/petget/filterpkgs.results.post according to EXE,DEV,DOC,NLS checkboxes...
+ #120515 post-filter /tmp/petget_proc/petget/filterpkgs.results.post according to EXE,DEV,DOC,NLS checkboxes...
  /usr/local/petget/postfilterpkgs.sh
- #...main gui will read /tmp/petget/filterpkgs.results.post (actually that happens in ui_Classic or ui_Ziggy, which is included in pkg_chooser.sh).
+ #...main gui will read /tmp/petget_proc/petget/filterpkgs.results.post (actually that happens in ui_Classic or ui_Ziggy, which is included in pkg_chooser.sh).
 
  #120529 hiccup, filterpkgs.results.post may now have icon name appended each line, but filterpkgs.results.post-noicons is backup (created by postfilterpkgs.sh)
  #120504 post-process presentation to show which repo...
@@ -155,12 +140,17 @@ else
  #when we have searched multiple repos, move repo-triad into description field, so that it will show up on main window...
  if [ "$SEARCH_REPOS_FLAG" = "all" ];then
   #creates descript field like: "[puppy-4-official] Abiword word processor"
-  #note, printcols (see support/printcols.c in Woof) needs a '|' on the end to work.
-  #120811 format in /tmp/petget/filterpkgs.results.post now: pkgname|subcategory|description|dbfile, 
+  #120811 format in /tmp/petget_proc/petget/filterpkgs.results.post now: pkgname|subcategory|description|dbfile, 
   # ex: htop-0.9-i486|System|View Running Processes|puppy-wary5-official (previously was: pkgname|description|dbfile)
-  POSTPROCLIST="`printcols /tmp/petget/filterpkgs.results.post 1 2 4 3 4 | sed -e 's%|%FIRSTBARCHAR%' -e 's%|%SECBARCHAR[%' -e 's%|%] %' -e 's%FIRSTBARCHAR%|%' -e 's%SECBARCHAR%|%'`"
-  echo "$POSTPROCLIST" > /tmp/petget/filterpkgs.results.post
-  #ex line: abiword-1.2.3|[puppy-4-official] Abiword word processor|puppy-4-official|
+  #cut -f 1,2,3,4 -d '|' /tmp/petget_proc/petget/filterpkgs.results.post > /tmp/petget_proc/petget/filterpkgs.results.post2
+  (
+    while IFS="|" read F1 F2 F3 F4 ETC
+    do
+      echo "${F1}|${F2}|[${F4}] ${F3}|${F4}|"
+    done < /tmp/petget_proc/petget/filterpkgs.results.post
+  ) > /tmp/petget_proc/petget/filterpkgs.results.post2
+  mv -f /tmp/petget_proc/petget/filterpkgs.results.post2 /tmp/petget_proc/petget/filterpkgs.results.post
+  ## ex line: abiword-1.2.3|[puppy-4-official] Abiword word processor|puppy-4-official|
  fi
  
 fi

@@ -1,37 +1,15 @@
-#!/bin/sh
+#!/bin/ash
 #Barry Kauler april 2009, puppylinux.com
 #called from /etc/rc.d/rc.services at bootup, with 'start' param.
 #called from /etc/rc.d/rc.shutdown at shutdown, with 'stop' param.
-#101120, 101121 simplification.
-#110111 shinobar: for reliable sound detection on HP Compac nc4010.
-#110113 tweak delay. 110216 tweak delay.
-#110506 /usr/sbin/alsaconf has 'restart' option, might need to reprobe modules. for now, just 'start|restart'.
-#111229 add test file /etc/asound.state exists.
-#120103 karl godt: fix unloading modules. refer: http://www.murga-linux.com/puppy/viewtopic.php?t=71767&start=390
-#120222 revert 111229. 120223 shinobar: better fix.
-#120226 01micko: added 'Master Front' entries. 120318 bumped it up, 75% to 100%.
 
-case "$1" in
- start|restart)
-  #110217 remove this test, seems to be a problem some people report file not created but snd ok...
-  #if [ -f /tmp/rc_d_rc_services_alsa_ok ];then #101121 see rc.services.
-   #if [ "`lsmod | grep '^snd_'`" != "" ];then
-   rm -f /var/lock/subsys/alsasound 2> /dev/null #or alsa will not start.
-   #sometimes these don't all load...
-   modprobe snd-mixer-oss
-   modprobe snd-seq-oss
-   modprobe snd-pcm-oss
-   for I in $(seq 4); do #110111 shinobar: for reliable sound detection on HP Compac nc4010.
-    sleep 0.5 #110113 reduce 1 to 0.5. 110216 move up.
-    [ -c /dev/mixer ] && break #note, /dev/mixer is deleted in /etc/rc.d/rc.sysinit.
-   done 
-   if [ ! -f /etc/asound.state ];then
-    #try and set all levels workable...
-    #set_mixers #in functions4puppy4
-    #101015 BK had to add ,0 after Front...
-    #110823 pemasu: add this set Speaker 75 % unmute
-    #120226 01micko: added 'Master Front' entries...
-	amixer -s -q <<EOF
+set_volume_levels() { #card
+	[ $1 ] || return
+	local card="$1"
+	echo -e "\nFor card $1"
+	#try and set all levels workable...
+	#BK: had to add ,0 after Front...
+	amixer -c $card -d -s <<EOF
 set Master 75% unmute
 set Master -12dB
 set 'Master Mono' 75% unmute
@@ -66,40 +44,130 @@ set "SB Live Analog/Digital Output Jack" off
 set "Audigy Analog/Digital Output Jack" off
 set Speaker 75% unmute
 EOF
-	[ $? -eq 0 ] && alsactl -f /etc/asound.state store #120223 shinobar
-   else
-    alsactl -f /etc/asound.state restore #from /etc/asound.state.
-   fi
-  #fi
- ;;
+	if [ $? -eq 0 ] ; then
+		echo "Successfully set volume levels"
+		echo "# alsactl -d -f /etc/asound.state store $card"
+		alsactl -d -f /etc/asound.state store $card #shinobar
+		echo "alsactl: exit code $?"
+	else
+		echo "Failed to set volume levels"
+	fi
+}
+
+###################################################################
+
+logfile='/dev/null'
+LOG=1 #1 = log to file, 0 = /dev/null
+
+case "$1" in
+
+ start|restart)
+	if [ "$LOG" = "1" ] ; then
+		mkdir -p /tmp/services
+		logfile='/tmp/services/10alsa.start.log'
+		[ "$1" = "restart" ] && logfile='/tmp/services/10alsa.restart.log'
+	fi
+	(
+	rm -f /var/lock/subsys/alsasound 2> /dev/null #or alsa will not start.
+	#sometimes these don't all load... oss-compat
+	modprobe snd-mixer-oss #/dev/mixer http://alsa.opensrc.org/Snd-mixer-oss
+	modprobe snd-seq-oss   #oss midi   http://alsa.opensrc.org/Snd-seq-oss
+	modprobe snd-pcm-oss   #/dev/dsp /dev/audio http://alsa.opensrc.org/Snd-pcm-oss
+
+	if [ "$LOG" = "1" ] ; then
+		. /etc/DISTRO_SPECS && echo "$DISTRO_NAME $DISTRO_VERSION"
+		uname -a ; echo
+	fi
+
+	if [ "$1" = "start" ] ; then #only done at boot
+		for I in $(seq 10); do # shinobar: for reliable sound detection
+			[ -c /dev/mixer ] && break #note, /dev/mixer is deleted in /etc/rc.d/rc.sysinit.
+			echo "Waiting 0.5 seconds"
+			sleep 0.5
+			WAITING=1
+		done
+		[ "$WAITING" ] && echo
+	fi
+
+	#https://forum.openwrt.org/viewtopic.php?id=10132
+	if [ -c /dev/controlC0 ] ; then #controlC0 in /dev like the one found in puppy431
+		cd /dev ; mkdir -p /dev/snd #/dev/snd/* is deleted in /etc/rc.d/rc.sysinit
+		#place symlinks in /dev/snd, the alsa tools want file(s) from there..
+		for f in controlC* pcmC* ; do ln -sv /dev/$f /dev/snd/$f ; done
+		echo
+	fi
+
+	if [ "$LOG" = "1" ] ; then
+		#/dev/snd/controlC0 [ /dev/mixer associates with this ]
+		#/dev/snd/pcmC0D0p is a play back device
+		#/dev/snd/pcmC0D0c is a recording device
+		[ -c /dev/mixer ] || { echo "Warning: /dev/mixer is missing"; echo; }
+		[ -c /dev/snd/controlC0 ] || { echo "ERROR: /dev/snd/controlC0 is missing"; echo; }
+		cat /proc/asound/modules
+		echo -e "\n###################################################"
+		cat /proc/asound/cards
+		echo -e "###################################################\n"
+		echo "###################################################"
+		lsmod | grep snd
+		echo -e "###################################################\n"
+	fi
+
+	if [ ! -f /etc/asound.state ];then
+		echo "=================================="
+		echo "/etc/asound.state: not found"
+		echo "Try and set all levels workable..."
+		x=0
+		while [ -e /sys/class/sound/card${x} ] ; do
+			set_volume_levels $x
+			let x++
+		done
+		echo "=================================="
+	else
+		#this restores settings based on soundcard ID I suppose
+		echo "# alsactl -d -f /etc/asound.state restore"
+		alsactl -d -f /etc/asound.state restore #from /etc/asound.state.
+		echo "alsactl: exit code $?"
+	fi
+
+	if [ "$(busybox pidof retrovol)" ] ; then
+		killall -9 retrovol
+		retrovol -hide &
+	fi
+	) &> ${logfile}
+	;;
+
  stop)
-  [ -f /etc/asound.state ] && alsactl -f /etc/asound.state store #saves to /etc/asound.state. 111229 add test file exists. 120222 revert. 120223 restore.
-  # Kill processes holding open sound devices...
-  fuser -k /dev/admmidi? /dev/adsp? /dev/amidi? /dev/audio* /dev/dmfm* /dev/dmmidi? /dev/dsp* /dev/dspW* /dev/midi0? /dev/mixer? /dev/music /dev/patmgr? /dev/sequencer* /dev/sndstat >/dev/null 2>&1
-  [ -d /proc/asound/dev ] && fuser -k /proc/asound/dev/* >/dev/null 2>&1
-  [ -d /dev/snd ] && fuser -k /dev/snd/* >/dev/null 2>&1
-  # remove all sequencer connections if any
-  [ -f /proc/asound/seq/clients -a -x aconnect ] && aconnect --removeall
-  # mute master to avoid clicks at unload
-  amixer set Master mute >/dev/null 2>&1
-  # remove all sound modules... 120103...
-  #lsmod | grep "^snd" | grep -Ev "(snd-page-alloc|snd_page_alloc)" |
-  c=0
-  while [ "`lsmod | grep 'snd_'`" ];do
-   lsmod | grep "^snd" | grep '0 $' | grep -Ev "(snd-page-alloc|snd_page_alloc)" |
-   while read line
-   do
-    #rmmod `echo $line | cut -d ' ' -f 1`
-    modprobe -rv `echo $line | cut -d ' ' -f 1`
-   done
-   c=$((c+1));[ "$c" = '6' ] && break #precaution if neverending loop
-  done
-  # remove the 2.2 soundcore module (if possible)
-  rmmod soundcore 2> /dev/null
-  rmmod gameport 2> /dev/null
-  # remove lockfile if lockdir exists
-  [ -d /var/lock/subsys ] && rm -f /var/lock/subsys/alsasound
- ;;
+	if [ "$LOG" = "1" ] ; then
+		mkdir -p /tmp/services
+		logfile=/tmp/services/10alsa.stop.log
+	fi
+	(
+	[ -f /etc/asound.state ] && alsactl -d -f /etc/asound.state store #saves to /etc/asound.state
+	# Kill processes holding open sound devices...
+	fuser -kv /dev/admmidi? /dev/adsp? /dev/amidi? /dev/audio* /dev/dmfm* /dev/dmmidi? /dev/dsp* /dev/dspW* /dev/midi0? /dev/mixer? /dev/music /dev/patmgr? /dev/sequencer* /dev/sndstat >/dev/null 2>&1
+	[ -d /proc/asound/dev ] && fuser -kv /proc/asound/dev/*
+	[ -d /dev/snd ] && fuser -kv /dev/snd/*
+	# remove all sequencer connections if any
+	[ -f /proc/asound/seq/clients -a -x aconnect ] && aconnect --removeall
+	# mute master to avoid clicks at unload
+	amixer set Master mute
+	# remove all sound modules...
+	# karl godt: refer: http://www.murga-linux.com/puppy/viewtopic.php?t=71767&start=390
+	c=0
+	while [ "`lsmod | grep 'snd_'`" ];do
+		lsmod | grep "^snd" | grep -E '0 $|0$' | grep -Ev "(snd-page-alloc|snd_page_alloc)" |
+		while read line ;do
+			modprobe -rv `echo $line | cut -d ' ' -f 1`
+		done
+		c=$((c+1));[ "$c" = '6' ] && break #precaution if neverending loop
+	done
+	# remove the 2.2 soundcore module (if possible)
+	rmmod soundcore
+	rmmod gameport
+	# remove lockfile if lockdir exists
+	[ -d /var/lock/subsys ] && rm -fv /var/lock/subsys/alsasound
+	) &> ${logfile}
+	;;
 esac
 
-###END###
+### END ###

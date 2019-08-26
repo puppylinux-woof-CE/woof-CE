@@ -2,16 +2,9 @@
 #(c) Copyright 2006, 2007 Barry Kauler.
 #Lesser GPL licence v2 (/usr/share/doc/legal). 2007 www.puppylinux.com
 #simple script to burn an iso file to cd, using cdrecord.
-#7Sept2007: cdecord -scanbus bugfix, plus overall improvements.
-#v3.02 2Nov2007 BK: bugfix. v3.94 24dec2007: no /dev/hd*
 #w482 change -pad to padsize=300k, recommended by xorriso developer.
 #w482 migrate to using xorriso.
 #v431 rerwin: Add wait for drive lights to stop flashing before verifying and log the verify dd messages.
-#110205 previous probedisk script removed.
-#120201 rodin.s: internationalized.
-#120323 replace 'xmessage' with 'pupmessage'.
-#120329 Xdialog bug --yesno supposed to "yes" "No" buttons, but they are "OK" "Cancel".
-#130203 change probedisk2 to probedisk.
 
 export TEXTDOMAIN=burniso2cd
 export TEXTDOMAINDIR=/usr/share/locale
@@ -21,9 +14,6 @@ eval_gettext () {
   eval echo \"$myMESSAGE\"
 }
 export LANGORG=$LANG
-
-Yes_lbl="$(gettext 'Yes')"
-No_lbl="$(gettext 'No')"
 
 CDRECORD='cdrecord'
 if [ "`which xorriso`" != "" ];then
@@ -37,15 +27,21 @@ MEDIATYPE="`Xdialog --wmclass "mini-cd" --title "Burniso2cd" --stdout --menubox 
 SELECTIONS="`probedisk | grep '|optical|' | grep '/dev/' | cut -f 1,3 -d '|' | tr " " '_' | tr -s '_'`" #110205
 SELECTIONX="`echo "$SELECTIONS" | tr '|' " " | tr "\n" " "`"
 
-if [ "$SELECTIONX" = "" ];then
- pupmessage -bg '#FF8080' "$(gettext 'Sorry, no CD/DVD drive detected')"
+if [ "$(echo $SELECTIONX)" = "" ];then
+ /usr/lib/gtkdialog/box_ok "$(gettext 'Burn iso')" error "$(gettext 'No CD/DVD drive detected')"
  exit
 fi
 
 BURNERDRIVE="`Xdialog --wmclass "mini-cd" --title "$(gettext 'Burniso2cd: Choose burner drive')" --stdout --menubox "$(gettext 'Choose the CD/DVD drive to burn to')" 400x200 5 $SELECTIONX 2> /dev/null`"
 [ ! $? -eq 0 ] && exit
 
-[ ! -f /etc/cdburnerdevice ] && echo -n "$BURNERDRIVE" | sed -e 's/\/dev\///g' > /etc/cdburnerdevice
+if [ -x /lib/udev/cdrom_id ] ; then
+	if [ ! "`/lib/udev/cdrom_id $BURNERDRIVE | grep 'ID_CDROM_.*_R'`" ] ; then
+		/usr/lib/gtkdialog/box_yesno --yes-label Continue --no-label Cancel "$(gettext 'Burn iso')" Error \
+		"$(gettext 'The chosen drive does not seem to be a burner drive')"
+		[ $? -ne 0 ] && exit
+	fi
+fi
 
 ISOFILE="`Xdialog --wmclass "mini-cd" --backtitle "$(gettext 'Please choose the iso file...')" --title "$(gettext 'Burniso2cd: Choose iso file')" --stdout --no-buttons --fselect "*.iso" 0 0`"
 if [ ! $? -eq 0 ];then
@@ -56,55 +52,14 @@ CDR="$BURNERDRIVE"
 CDDESCR="`echo "$SELECTIONS" | grep "$CDR" | cut -f 2 -d '|'`"
 
 while [ ! "`mount | grep "$CDR"`" = "" ];do
- pupmessage -bg "#ff8080" -center -name "burniso2cd" -title "Burniso2cd: ERROR" "The $CDR CD/DVD drive, described as:
- $CDDESCR
-is currently mounted.
-Use MUT or Pmount to unmount it.
-
-Please unmount CD drive, then click OK button..."
+ /usr/lib/gtkdialog/box_ok "$(gettext 'Burn iso')" error "$(gettext 'The CD/DVD drive is currently mounted.')" "$CDR - $CDDESCR" " " "$(gettext 'Please unmount CD drive (use ie. Pmount), then click OK button...')"
 done
 
 if [ "$MEDIATYPE" = "CD" ];then
- Xdialog --wmclass "mini-cd" --title "Burniso2cd" --stdout --ok-label "$(gettext 'NORMAL')" --cancel-label "$(gettext 'MULTI')"  --yesno "$(gettext 'You have selected iso file:')
- $ISOFILE
-
-$(gettext 'Do you want to burn a multi-session CD?
-A multi-session CD is one that is left "open" so that further
-tracks may be burnt later. The iso file that you have selected
-will be burnt now as the first track.
-Note, this is an experimental option for the Puppy live-CD, to
-allow burning of sessions back to CD, thus personal data is saved
-to CD and a hard drive or usb stick is not required.')
-
-$(gettext "Please choose 'NORMAL' unless you have some special reason to burn
-the CD multi-session (such as the iso is specifically for multisession).
-
-Click 'NORMAL' button for normal burn...
-Click 'MULTI' button for multi-session...")" 0 0
-
- RETVAL=$?
+  BURNMSG=""
 else
- RETVAL=12
-fi
-
-case $RETVAL in
- 0) #normal cd
-  BURNMULTI="-dao" #v2.02 added -dao
-  BURNMSG=""
-  ;;
- 1) #multi cd
-  #BURNMULTI="-multi -tao -pad" #v2.02 added -tao -pad
-  BURNMULTI="-multi -tao padsize=300k" #w482
-  BURNMSG=""
-  ;;
- 12) #multi dvd
-  BURNMULTI="yes"
   BURNMSG="$(gettext '(blank DVD-R. A DVD+/-RW will be fast-wiped if it has data)')"
-  ;;
- *)
-  exit
-  ;;
-esac
+fi
 
 RECHECK="yes"
 BURNSPEED="10"
@@ -120,10 +75,10 @@ $(gettext 'Then click 'OK' button...')" 0 0 4 32 $BURNSPEED "$(gettext 'Set burn
 
  sync
  if [ "$MEDIATYPE" = "CD" ];then
-  DEVDEV="$CDR" #w482
   echo "$(gettext 'Now executing:')"
-  echo " $CDRECORD $BURNMULTI -data -eject -v speed=$BURNSPEED dev=$DEVDEV $ISOFILE"
-  rxvt -name burniso2cd -bg orange -geometry 80x10 -e $CDRECORD $BURNMULTI -data -eject -v speed=$BURNSPEED dev=$DEVDEV "$ISOFILE"
+  BURNMULTI="-multi -tao padsize=300k"
+  echo " $CDRECORD $BURNMULTI -data -eject -v speed=$BURNSPEED dev=$CDR $ISOFILE"
+  rxvt -name burniso2cd -bg orange -geometry 80x10 -e $CDRECORD $BURNMULTI -data -eject -v speed=$BURNSPEED dev=$CDR "$ISOFILE"
  else #dvd
   echo "$(gettext 'Now executing:')"
   echo " growisofs -speed=$BURNSPEED -Z $CDR=$ISOFILE"
@@ -136,17 +91,16 @@ $(gettext 'Then click 'OK' button...')" 0 0 4 32 $BURNSPEED "$(gettext 'Set burn
  # ******Verify burn******
  DEVNAME="`echo -n "$CDR" | grep '/dev' | cut -f 3 -d '/'`"
  if [ ! "$DEVNAME" = "" -a "$RECHECK" = "yes" ];then
-  Xdialog --wmclass "mini-cd" --title "$(gettext 'Burniso2cd: Finished')" --stdout --ok-label "$Yes_lbl" --cancel-label "$No_lbl" --yesno "$(gettext 'Would you like to verify that the burn was successful? 
+  Xdialog --wmclass "mini-cd" --title "$(gettext 'Burniso2cd: Finished')" --stdout --ok-label "$(gettext 'Yes')" --cancel-label "$(gettext 'No')" --yesno "$(gettext 'Would you like to verify that the burn was successful? 
 This may take a while depending on the size of the iso file.')" 0 0
   if  [ "$?" = "0" ] ;then  
-   pupmessage -bg "#80ff80" -center -name "burniso2cd" -title "$(gettext 'Burniso2cd: Burn Verify')" "$(gettext 'Make sure the CD/DVD drive is closed,
-then click OK')"
+   /usr/lib/gtkdialog/box_ok "$(gettext 'Burn verify')" cd_yes "$(gettext 'Make sure the CD/DVD drive is closed, then click OK')"
    echo "Waiting 15 seconds to allow drive lights to finish blinking" > /tmp/burniso2cd.log #v431
    sleep 15 #v431
-   if [ "$( md5sum $ISOFILE | cut -f 1 -d " " )" = "$(dd if=$CDR 2>> /tmp/burniso2cd.log | head -c `stat --format=%s $ISOFILE` | md5sum | cut -f 1 -d " " )" ] ;then #v431
-    pupmessage -bg "#80ff80" -center -name "burniso2cd" -title "$(gettext 'Burniso2cd: Burn Verify')" "$(gettext 'The burn has been verified as good!')"
+   if [ "$( md5sum $ISOFILE | cut -f 1 -d " " )" = "$(dd if=$CDR 2>> /tmp/burniso2cd.log | head -c `stat -c %s $ISOFILE` | md5sum | cut -f 1 -d " " )" ] ;then #v431
+    /usr/lib/gtkdialog/box_ok "$(gettext 'Burn verify')" complete "$(gettext 'The burn has been verified as good')"
    else
-    pupmessage -bg "#ffc0c0" -center -name "burniso2cd" -title "$(gettext 'Burniso2cd: Burn Verify')" "$(gettext 'The burn was not verified. See details in /tmp/burniso2cd.log. You should start over.')"
+    /usr/lib/gtkdialog/box_ok "$(gettext 'Burn verify')" error "$(gettext 'The burn was not verified. See details in /tmp/burniso2cd.log. You should start over.')"
    fi
   else
    RECHECK="no" #do not check if doing repeat burns.

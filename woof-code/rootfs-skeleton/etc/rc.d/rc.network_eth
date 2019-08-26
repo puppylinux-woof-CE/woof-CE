@@ -1,0 +1,86 @@
+#!/bin/sh
+#(c) Copyright Dec. 2016, Barry Kauler, www.barryk.org
+#license: gpl v3 (ref: /usr/share/doc/legal)
+#want to test if an active ethernet cable plugged in at first bootup.
+#previously, /etc/rc.d/rc.sysinit called /etc/rc.d/rc.network to
+#do this, ehich is gross overkill. now rc.sysinit calls this script.
+#161215 first release.
+#170730 add conditional later attempt to detect interfaces.
+#171226 use lspci to detect ethernet hardware, replacing 170730.
+#180104 check for ethernet bridge hardware if controller not detected; increase wait for detection; move sleep to after test; change report of wait time.
+#180624 add check for predictable network interface device names (e.g. enp0s25).
+#190209 increase wait for ethtool link detected, to 7.5 secs total).
+
+export LANG='C'
+
+# $1: interface
+interface_is_wireless() {
+	if [ ! "$1" ] ; then
+		return 1 #error
+	fi
+	if grep -q "${1}:" /proc/net/wireless ; then
+		return 0 #yes
+	fi
+	if [ -d /sys/class/net/${1}/wireless ] ; then
+		return 0 #yes
+	fi
+	# k3.2.x: my problematic wireless pci adapter is only recognized by iwconfig..
+	# hmm with 2 pci wireless adapters only iwconfig does the trick
+	if iwconfig ${1} 2>&1 | grep -q 'no wireless' ; then
+		return 1 #no
+	fi
+	return 0 #yes
+}
+
+#171226 improved wait for eth...
+ifCNT=0; loopCNT=0
+ethCNT=$(lspci -n | grep ' 0200: ' | wc -l)
+if [ $ethCNT -eq 0 ] ; then
+	ethCNT=$(lspci -nn | grep ' \[0680\]: .* Ethernet ' | wc -l) #180104
+fi
+while [ $ifCNT -lt $ethCNT ];do
+ ifCNT=$(ifconfig -a | grep -E '^eth[0-9] |^en[oPps][0-9]|^enx[0-9a-f]' | wc -l) #180624
+ [ $ifCNT -gt 0 -o $loopCNT -ge 30 ] && break #finding one i/f is enough, other may not have a driver. 180104
+ sleep 1 #180104
+ loopCNT=$(($loopCNT+1))
+done
+[ $loopCNT -gt 0 ] && echo "rc.network_eth: waited for ethernet interfaces: seconds = ${loopCNT}" >&2 #180104
+
+#code adapted from /usr/local/simple_network_setup/rc.network...
+INTERFACES="`ifconfig -a | grep -F 'Link encap:Ethernet' | cut -f1 -d' ' | tr '\n' ' '`"
+for INTERFACE in $INTERFACES #exs: wlan0 eth0
+do
+ if interface_is_wireless ${INTERFACE} ; then
+   continue #only want wired.
+ fi
+
+ ifconfig $INTERFACE up
+ [ $? -ne 0 ] && continue
+
+ LINK_DETECTED=no
+ for i in 1 2 3 4 5 ; do
+   if ethtool "$INTERFACE" | grep -Fq 'Link detected: yes' ; then
+     LINK_DETECTED="yes"
+     break
+   fi
+   sleep 1.5 #190209
+ done
+ if [ "$LINK_DETECTED" = "no" ] ; then
+   ifconfig $INTERFACE down
+   continue #no network.
+ fi
+
+ DHCPCDFIX="-I ''"
+ dhcpcd $DHCPCDFIX $INTERFACE
+ sleep 0.1 #180110
+ 
+ if grep '^nameserver' /etc/resolv.conf >/dev/null; then
+  which sns &>/dev/null && echo "$INTERFACE" > /tmp/sns_interface_success
+  exit #success.
+ else
+  ifconfig $INTERFACE down
+  dhcpcd --release $INTERFACE 2>/dev/null
+  ip route flush dev $INTERFACE
+ fi
+done
+

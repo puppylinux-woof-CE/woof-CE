@@ -1,0 +1,158 @@
+#!/bin/sh
+# extrasfsfind 1 Mar 2012 by shinobar
+# listing up loadable sfs files and load the ones user selected.
+
+. /etc/DISTRO_SPECS
+. /etc/rc.d/PUPSTATE
+if [ "$PUNIONFS" = "overlay" ] ; then
+	exit
+fi
+
+VERSION=2.0
+MYNAME=$(basename "$0")
+DEFAULTCHECK="true"	# true or false
+DEBUGFLAG="y"
+echo $MYNAME| grep -q 'debug' && DEBUGFLAG="y"
+case "$1" in
+	*-d*) DEBUGFLAG="y";;
+	*-v*|*-h*) echo "$MYNAME $VERSION"; exit 0;;
+esac
+
+export TEXTDOMAIN=sfs_load
+export OUTPUT_CHARSET=UTF-8
+
+debug() {
+	[ "$DEBUGFLAG" = "" ] && return
+	echo "$MYNAME: $*" >&2
+}
+debug "$0 $@"
+
+UNMOUNTME=""
+unmountme() {
+	[ "$UNMOUNTME" ] && umount "$UNMOUNTME" && UNMOUNTME=""
+}
+
+skipinstalled() {
+	FOUND=$(echo "$FOUND"| grep '.')	# renove blank line
+	if [ ! -f $HOME/.packages/user-installed-packages ] ; then
+		return
+	fi
+	[ "$FOUND" ] || return
+	[ "$HOME" ] || HOME=/root
+	NEWLIST=""
+	for F in $FOUND; do
+		ONEBASE=$(basename $F | rev | cut -f2- -d'.' | rev)
+		grep -qw "$ONEBASE" $HOME/.packages/user-installed-packages && continue
+		NEWLIST="$NEWLIST
+$F"
+	done
+	FOUND=$(echo "$NEWLIST"| grep '.')	# renove blank line
+}
+
+list_on_subdir() {
+	local DIR=$1 DIR2=$2
+	debug $DIR $DIR2
+	FOUND=""
+	FOUND="$(find -L "$DIR" -mindepth 1 -maxdepth 2 -name '*.sfs' -type f)"
+	if [ "$DIR2" ] ; then
+		FOUND="$FOUND
+$(find -L "$DIR2" -mindepth 1 -maxdepth 1 -name '*.sfs' -type f)"
+	fi
+	FOUND="$(echo "$FOUND"| grep -vE "$SFS_TO_SKIP")" #skip loaded
+	skipinstalled
+	[ "$FOUND" ] && return
+	unmountme
+	return 1
+}
+
+#=========================================================================
+
+EXTRASTATUS=/tmp/extrastate
+. /etc/rc.d/BOOTCONFIG
+
+SFSBASE=${PUPSFS##*/} #basename $PUPSFS
+ZDRBASE=${ZDRV##*/}
+FDRBASE=${FDRV##*/}
+ADRBASE=${ADRV##*/}
+YDRBASE=${YDRV##*/}
+
+#LOSETUPS=$(losetup -a | tr -d '()' | sed -e 's|.*/||')
+SFS_TO_SKIP="$SFSBASE $ZDRBASE $FDRBASE $ADRBASE $YDRBASE $LASTUNIONRECORD $DISTRO_PUPPYSFS $DISTRO_ZDRVSFS $DISTRO_FDRVSFS $DISTRO_ADRVSFS $DISTRO_YDRVSFS $(echo $LOSETUPS)"
+SFS_TO_SKIP=$(echo $SFS_TO_SKIP | tr ' ' '\n' | sort -u)
+SFS_TO_SKIP=$(echo $SFS_TO_SKIP | tr ' ' '|')
+
+# home path
+SRCPATH=""
+
+if [ $PUPMODE -eq 2 ] ; then #full install
+	SRCPATH='/'
+else
+	PDEV1_MP=$(LANG=C mount | grep "^/dev/${PDEV1} " | cut -f 3 -d ' ')
+	if [ -z "$PDEV1_MP" ] ; then
+		mkdir -p /mnt/$PDEV1
+		mount -t $DEV1FS /dev/$PDEV1 /mnt/$PDEV1
+		if [ $? -eq 0 -a -f /mnt/${PDEV1}${PSUBDIR}/${SFSBASE} ] ; then
+			SRCPATH=/mnt/${PDEV1}
+			UNMOUNTME=/mnt/${PDEV1}
+		else
+			umount /mnt/$PDEV1 2>/dev/null
+		fi
+	else #already mounted
+		if [ -f ${PDEV1_MP}${PSUBDIR}/${SFSBASE} ] ; then
+			SRCPATH=${PDEV1_MP}
+		fi
+	fi
+fi
+
+if [ "$SRCPATH" ] ; then
+	if [ "$PSUBDIR" ] ; then
+		list_on_subdir ${SRCPATH}${PSUBDIR} ${SRCPATH}
+	else
+		list_on_subdir ${SRCPATH}
+	fi
+fi
+debug "FOUND: $FOUND"
+
+#=========================================================================
+
+# make dialog
+TITLE="Extra SFS"
+SFSLIST=$(echo "$FOUND"| rev | cut -f1 -d'/' | rev)
+N=0
+CHECKLIST=""
+for P in $FOUND; do
+	N=$(($N + 1))
+	B=$(basename $P)
+	S=$(du -h -L "$P"| cut -f1)
+	CHECKLIST="$CHECKLIST
+  <checkbox><label>$B (${S}B)</label><variable>${N}_$B</variable><default>$DEFAULTCHECK</default></checkbox>"
+done
+
+export MAIN_DIALOG='<window title="'$TITLE'" icon-name="gtk-dialog-question">
+<vbox>
+<text><input>echo -en "'"$(gettext "Do you want to load/install these packages?")"'"</input></text>
+'$CHECKLIST'
+<hbox><button ok></button><button cancel></button></hbox>
+</vbox>
+</window>'
+REP=$(gtkdialog -c -p MAIN_DIALOG || echo "$MAIN_DIALOG" >&2)
+debug "$REP"
+if echo "$REP"| grep -q 'EXIT=.*OK' ; then
+	LOADLIST=$(echo "$REP"| grep '=.*true'| cut -f1 -d'='  | sort -nu| cut -f2- -d'_')
+	#echo "$LOADLIST"
+	# load sfs
+	for F in $LOADLIST; do
+		P=$(echo "$FOUND"| grep -w "$F$")
+		EXT=$(echo $F | rev | cut -f1 -d'.'| rev)
+		case "$EXT" in
+			sfs) sfs_load +"$P";;
+		esac
+	done
+	echo "done" > $EXTRASTATUS
+else
+	echo "canceled" > $EXTRASTATUS
+fi
+unmountme
+exit 0
+
+### END ###

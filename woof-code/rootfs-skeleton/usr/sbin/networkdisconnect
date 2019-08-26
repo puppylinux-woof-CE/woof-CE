@@ -4,8 +4,40 @@
 #got code out of rc.shutdown.
 #shutdown network interfaces, except for ppp
 
+# Disconnect ethernet/wifi connection using previous exec (default),
+# because usually called by new current network exec.
+# Optional single argument:
+#  --current-exec       disconnect with current exec (for hostname-set)
+
 #100814 log the cumulative bytes transmitted on network...
 # (see also /etc/rc.d/rc.sysinit and network_tray)
+#170329 use network choice instead of default, in case multiple setups tried.
+#170412 Deactivate frisbee; convert to case structure. 
+#170724 accommodate absence of a current exec, for default eth0.
+#180214 stop all ethernet interfaces after current connection terminated.
+#180919 add peasywifi support.
+#180923 move network wizard.
+#181209 add argument for use by rc.shutdown, for treatment of frisbee.
+
+CURRENT_EXEC='' #170724
+if [ -f /root/.connectwizardrc ];then #170724
+ . /root/.connectwizardrc #sets CURRENT_EXEC 170329...
+fi #170724
+
+ARGUMENT="$1"
+case "$ARGUMENT" in
+ --current-exec|--shutdown) #181209
+  DISCONNECTEXEC="$CURRENT_EXEC"
+  ;;
+ *)
+  DISCONNECTEXEC="`cat /tmp/.connectwizard_previous_exec 2> /dev/null`"
+  [ -z "$DISCONNECTEXEC" ] && DISCONNECTEXEC="$CURRENT_EXEC"
+  [ -z "$DISCONNECTEXEC" ] \
+   && DISCONNECTEXEC="`cat /usr/local/bin/defaultconnect | tail -n 1 | tr -s " " | cut -f 2 -d " "`"
+  ;;
+ esac #170329 end
+
+ETHERNETDIR=network_ethernet
 ACTIVE_INTERFACE=""
 [ -f /tmp/sns_interface_success ] && ACTIVE_INTERFACE="`cat /tmp/sns_interface_success`" #SNS
 [ ! "$ACTIVE_INTERFACE" ] && ACTIVE_INTERFACE="`ifconfig | grep '^[a-z]' | grep -v '^lo' | grep -v '^ppp' | grep 'Link encap:Ethernet' | cut -f 1 -d ' ' | head -n 1`"
@@ -13,27 +45,45 @@ if [ "$ACTIVE_INTERFACE" ];then
  if [ -d /sys/class/net/${ACTIVE_INTERFACE}/statistics ];then
   RX_BYTES="`cat /sys/class/net/${ACTIVE_INTERFACE}/statistics/rx_bytes`"
   TX_BYTES="`cat /sys/class/net/${ACTIVE_INTERFACE}/statistics/tx_bytes`"
-  echo -n "$RX_BYTES" > /var/local/sns/rx_bytes_session
-  echo -n "$TX_BYTES" > /var/local/sns/tx_bytes_session
-  RX_BYTES_MONTH=`cat /var/local/sns/rx_bytes_month`
+  echo -n "$RX_BYTES" > /var/local/$ETHERNETDIR/rx_bytes_session
+  echo -n "$TX_BYTES" > /var/local/$ETHERNETDIR/tx_bytes_session
+  RX_BYTES_MONTH=`cat /var/local/$ETHERNETDIR/rx_bytes_month`
   RX_BYTES_MONTH=`expr $RX_BYTES_MONTH + $RX_BYTES`
-  echo -n "$RX_BYTES_MONTH" > /var/local/sns/rx_bytes_month
-  TX_BYTES_MONTH=`cat /var/local/sns/tx_bytes_month`
+  echo -n "$RX_BYTES_MONTH" > /var/local/$ETHERNETDIR/rx_bytes_month
+  TX_BYTES_MONTH=`cat /var/local/$ETHERNETDIR/tx_bytes_month`
   TX_BYTES_MONTH=`expr $TX_BYTES_MONTH + $TX_BYTES`
-  echo -n "$TX_BYTES_MONTH" > /var/local/sns/tx_bytes_month
+  echo -n "$TX_BYTES_MONTH" > /var/local/$ETHERNETDIR/tx_bytes_month
  fi
 fi
+unset ETHERNETDIR
 
-[ "`pidof wpa_supplicant`" != "" ] && wpa_cli terminate #100309 kills any running wpa_supplicant.
-if [ "`grep 'net-setup.sh' /usr/local/bin/defaultconnect`" = "" ];then #see connectwizard and connectwizard_2nd.
- for ONENETIF in `ifconfig | grep -E '^wifi[0-9]|^wlan[0-9]|^eth[0-9]' | cut -f 1 -d ' ' | tr '\n' ' '`
- do
-  ifconfig $ONENETIF down 2> /dev/null
-  [ "`iwconfig | grep "^${ONENETIF}" | grep "ESSID"`" != "" ] && iwconfig $ONENETIF essid off #100309
-  dhcpcd --release $ONENETIF 2>/dev/null #100309
- done
-else
- /etc/rc.d/rc.network stop
-fi
+[ "`pidof wpa_supplicant`" != "" ] \
+ && wpa_cli terminate #100309 kills any running wpa_supplicant.
+case "$DISCONNECTEXEC" in #170412...
+ peasywifi) #180919...
+  /usr/local/peasywifi/rc.network stop
+  sleep 0.1
+  if [ -n "$(ps --no-headers -fC udhcpc,wpa_supplicant)" ];then
+    # 'stop' option ignored in peasywifi rc.network - workaround:
+    /etc/rc.d/rc.network_peasywifi_stop
+  fi
+  ;;
+ net-setup.sh)
+  /usr/local/network-wizard/rc.network stop #180923
+  ;;
+ frisbee) #180214...
+  if frisbee --test_active; then
+   frisbee --disconnect
+   [ "$ARGUMENT" != '--shutdown' ] && frisbee --deactivate #181209
+  fi
+  ;;
+esac #170309
+
+for ONENETIF in `ifconfig | grep '^[^ ].*Ethernet' | cut -f 1 -d ' ' | tr '\n' ' '`; do #170412 end
+ ifconfig $ONENETIF down 2> /dev/null
+ [ "`iwconfig | grep "^${ONENETIF}" | grep "ESSID"`" != "" ] \
+  && iwconfig $ONENETIF essid off #100309
+ dhcpcd --release $ONENETIF 2>/dev/null #100309
+done #180214 end
 
 ###END###

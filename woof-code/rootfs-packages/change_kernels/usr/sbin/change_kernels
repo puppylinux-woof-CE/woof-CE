@@ -1,0 +1,414 @@
+#!/bin/bash
+
+# this script changes a kernel in woof-ce based puppy linux
+# 3rd revision. GPL v2,(c)Michael Amadio, 01micko@gmail.com, 2015
+
+set -e
+
+# error codes
+# 65 - no /etc/DISTRO_SPECS file
+# 66 - no /etc/rc.d/PUPSTATE file
+# 7 - booted off optical media
+# 255 - no 'Huge Kernel' or pup is too old
+# 1 - error from external program
+# 2 - full install to fast media
+# 3 - full install to slow media
+# 77 - save back to optical media install
+# 21 - no valid kernel image (vmlinuz)
+# 22 - no valid kernel modules sfs (zdrv_xxx_xxx.sfs)
+# 100 - backup on same date found - technically not an error
+# 23 - failed to backup vmlinuz
+# 24 - failed to backup zdrv_xxx_xxx.sfs
+# 25 - failed to copy new vmlinuz
+# 26 - failed to copy new zdrv_xxx_xxx.sfs
+# 123 - failed to restore vmlinuz backup
+# 124 - failed to restore zdr_xxx_xx.sfs backup
+
+export TEXTDOMAIN=change_kernels
+export OUTPUT_CHARSET=UTF-8
+
+# current running kernel - throw away appendages
+CURK=`uname -r`
+CURK=${CURK%%-*}
+
+# Translations
+# buttons
+OKE=$(gettext "OK")
+CAN=$(gettext "Cancel")
+YEP=$(gettext "Yes")
+NOPE=$(gettext "No")
+HELP=$(gettext "Help")
+ROLLBTN=$(gettext "Rollback")
+KDATE=$(gettext "kernel from date")
+BUTTONY="<button>
+		<input file stock=\"gtk-yes\"></input>
+		<label>$YEP</label>
+		<action type=\"exit\">Yes</action>
+	</button>"
+BUTTONN="<button>
+		<input file stock=\"gtk-no\"></input>
+		<label>$NOPE</label>
+		<action type=\"exit\">No</action>
+	</button>"
+BUTTONO="<button>
+		<input file stock=\"gtk-ok\"></input>
+		<label>$OKE</label>
+		<action type=\"exit\">OK</action>
+	</button>"
+BUTTONC="<button>
+		<input file stock=\"gtk-cancel\"></input>
+		<label>$CAN</label>
+		<action type=\"exit\">Cancel</action>
+	</button>"
+
+
+# dialogs
+BMSG=$(gettext "Your puppy is too old or broken")
+CMSG=$(gettext "Unfortunately this doesn't work in CD/DVD installs")
+FMSG=$(gettext "Unfortunately this doesn't work in full installs")
+LMSG=$(gettext "Unfortunately this doesn't work with live CD installs")
+OMSG=$(gettext "Unfortunately this doesn't work with older puppy installs")
+KMSG=$(gettext "Not a valid kernel file")
+MMSG=$(gettext "Not a valid module file")
+FMMSG=$(gettext "Failed to move")
+WARN=$(gettext "WARNING:")
+READ_HELP=$(gettext "Please read the Help")
+CHOOSE_LOC=$(gettext "Choose the location of kernel file named")
+FIND_MOD=$(gettext "Find the module file named")
+FND_KRN=$(gettext "We have found that your kernel is located at:")
+VMSG=$(gettext "Failed to copy vmlinuz: restoring original")
+FSMSG1=$(gettext "Failed to copy")
+FSMSG2=$(gettext "restoring original")
+RMSG=$(gettext "Now reboot to test your new kernel.")
+ERR=$(gettext "Error")
+SUCC=$(gettext "Success")
+MSG=$(gettext "message")
+CTITLE=$(gettext "Confirmation")
+CONFMSG1=$(gettext "You have chosen the following kernel files to install")
+CONFMSG2=$(gettext "Are you sure?")
+KERNMSG=$(gettext "or 'kernel-modules.sfs-XXXXX' if built with kernel-kit. You can try other kernels built in other Puppies")
+TT=$(gettext "Drag and drop is supported from Rox Filer")
+ROLLTT=$(gettext "Roll back to a previous kernel.")
+ROLL1=$(gettext "Choose an earlier kernel to roll back to...")
+KRRERR=$(gettext "There are no kernels to roll back to.")
+EXISTS=$(gettext "Overwrite")
+OVERMSG=$(gettext "backup from today with kernel version")
+OVERMSG1=$(gettext "already exists. Press 'Yes' to overwrite, 'No' to continue without overwriting or 'Cancel' to exit")
+INF=$(gettext "Info")
+FMNT=$(gettext "Failed to mount")
+
+# help
+HHELP=HELP
+HWARN=$(gettext "WARNING!")
+HSYS=$(gettext "You may render your system unbootable!")
+HVMLINUZ=$(gettext "Find a vmlinuz file for the first entry box.")
+HMODULES1=$(gettext "Find a zdrive file (which may have an obscure name like")
+HMODULES2=$(gettext "'kernel-modules.sfs-XXXXX'if it was built it in kernel-kit)")
+HMODULES3=$(gettext "for the second entry box.")
+HMATCH=$(gettext "These files MUST match!")
+HROX=$(gettext "If you use Rox Filer you can drag and drop to the entry boxes.")
+HOK=$(gettext "Hit OK.")
+HID1=$(gettext "The distro ID string is appended to the vmlinuz and zdrive.")
+HID2=$(gettext "Hopefully you can reboot.")
+HFAIL=$(gettext "IF IT FAILS")
+HBACK1=$(gettext "There are backups of the old vmlinuz and zdrive in place appended")
+HBACK2=$(gettext "with the today's date. Hit the Rollback button to restore a backup.")
+HGOOD=$(gettext "GOOD LUCK")
+HBUG=$(gettext "Bugs to 01micko @ murga forum")
+HGPL=GPL2
+HCARE=$(gettext "While all care is taken, no responsibility accepted.")
+export HHELP HWARN HSYS HVMLINUZ HMODULES1 HMODULES2 HMODULES3 HMATCH HROX HOK HID1 HID2 HFAIL HBACK1 HBACK2 HGOOD HBUG HGPL HCARE
+
+EXITVAL=""
+
+# generic message tool
+_msg() {
+	if [ "$4" = "cancel" ];then
+		CANCEL="$BUTTONC" 
+		BUTTONZO="${BUTTONY}${BUTTONN}"
+	elif [ "$4" = "not" ];then
+		CANCEL=''
+		unset BUTTONZO 
+	fi
+	export SPLMSG="<window title=\"$1\">
+		<vbox>
+			<frame>
+				<hbox space-expand=\"true\" space-fill=\"true\">
+					<text>
+						<label>\"$1 $MSG:\"</label>
+					</text>
+				</hbox>
+				<hbox space-expand=\"true\" space-fill=\"true\">			
+					<text>
+						<label>\"$2\"</label>
+					</text>
+				</hbox>
+			</frame>
+			
+			<hbox>${CANCEL}${BUTTONO}${BUTTONZO}</hbox>
+		</vbox>
+	</window>"
+	eval $(gtkdialog -p SPLMSG -c)
+	[ "$3" !=  "100" ] && exit $3 || EXITVAL=$EXIT
+}
+
+[ -f /etc/DISTRO_SPECS ] && . /etc/DISTRO_SPECS || _msg $ERR "$BMSG" 65
+
+[ -f /etc/rc.d/PUPSTATE ] && . /etc/rc.d/PUPSTATE || _msg $ERR "$BMSG" 66
+
+# test we can do this
+case $PUPMODE in
+	2|3)_msg $ERR "$FMSG" $PUPMODE;;
+	77)_msg $ERR "$CMSG" $PUPMODE;;
+esac
+
+[ "$PMEDIA" = "cd" ] && _msg $ERR "$LMSG" 7
+[ "$DISTRO_KERNEL_PET" = "Huge_Kernel" ] || _msg $ERR "$OMSG" 255
+
+# find where kernel and modules live
+MODULES_HOME=/initrd${PUP_HOME}${PSUBDIR}
+VHOME=$PDEV1
+MHOME=${PUPSFS%%,*}
+if [ "$VHOME" = "$MHOME" ];then
+	KERNEL_HOME=/initrd${PUP_HOME}${PSUBDIR}
+else
+	KERNEL_HOME=/mnt/$VHOME
+	if mount | grep -q "${VHOME}" ;then
+		echo "${KERNEL_HOME} is mounted"
+		if ls ${KERNEL_HOME} | grep -q 'vmlinuz' ;then
+			echo "This is where the kernel lives: ${KERNEL_HOME}"
+		else
+			echo "This is NOT where the kernel lives: ${KERNEL_HOME}"
+			KERNEL_HOME=/initrd${PUP_HOME}${PSUBDIR}
+			echo "We'll try $KERNEL_HOME"
+		fi
+	else
+		UMT=1 # in case kernel lives elsewhere
+		[ -f "${KERNEL_HOME}" ] || mkdir -p ${KERNEL_HOME}
+		mount /dev/${VHOME} ${KERNEL_HOME}
+		ret=$?
+		[ $ret -ne 0 ] && $ERR "$FMNT" $ret
+		if ls ${KERNEL_HOME} | grep -q 'vmlinuz'  ;then
+			echo "This is where the kernel lives: ${KERNEL_HOME}"
+		else
+			echo "This is NOT where the kernel lives: ${KERNEL_HOME} .. unmounting"
+			umount /dev/${VHOME}
+			KERNEL_HOME=/initrd${PUP_HOME}${PSUBDIR}
+			echo "We'll try $KERNEL_HOME"
+		fi
+	fi
+fi
+DATE=`date +%y%m%d`
+
+# the main operation
+change() {
+	echo "$1" | grep -q 'vmlinuz' || _msg $ERR "$KMSG" 21
+	echo "$2" | grep 'sfs' | egrep -q 'zdrv|kernel\-modules' || _msg $ERR "$MMSG" 22
+	export SURE="<window title=\"$CTITLE\">
+		<vbox>
+			<frame>
+				<hbox space-expand=\"true\" space-fill=\"true\">
+					<text>
+						<label>\"${CONFMSG1}:\"</label>
+					</text>
+				</hbox>
+				<hbox space-expand=\"true\" space-fill=\"true\">
+					<text use-markup=\"true\">
+						<label>\"<b>${1##*/}</b>\"</label>
+					</text>
+				</hbox>
+				<hbox space-expand=\"true\" space-fill=\"true\">
+					<text use-markup=\"true\">
+						<label>\"<b>${2##*/}</b>\"</label>
+					</text>
+				</hbox>
+				<hseparator></hseparator>
+				<hbox space-expand=\"true\" space-fill=\"true\">
+					<text use-markup=\"true\">
+						<label>\"<big>${CONFMSG2}</big>\"</label>
+					</text>
+				</hbox>
+			</frame>
+			<hbox>
+				$BUTTONY
+				$BUTTONN
+			</hbox>
+		</vbox>
+	</window>"
+	eval $(gtkdialog -p SURE -c)
+	case $EXIT in
+		No|abort)echo "abort"; exit 0;;
+	esac
+	# move it
+	OV=yes
+	if [ -f "$KERNEL_HOME/vmlinuz.${DATE}-${CURK}" ];then
+		_msg "$EXISTS" "vmlinuz.${DATE}-${CURK} $OVERMSG $CURK $OVERMSG1" 100 cancel
+		case $EXITVAL in
+			Cancel|abort)echo "aborting"; exit 0;;
+			No)echo "no overwrite"; OV=no ;;
+		esac
+	fi
+	if [ "$OV" != "no" ];then
+		mv $KERNEL_HOME/vmlinuz $KERNEL_HOME/vmlinuz.${DATE}-${CURK}
+		[ $? -ne 0 ] && _msg $ERR "$FMMSG ${1##*/}" 23
+		mv $MODULES_HOME/$DISTRO_ZDRVSFS $MODULES_HOME/$DISTRO_ZDRVSFS.${DATE}-${CURK}
+		[ $? -ne 0 ] && _msg $ERR "$FMMSG ${2##*/}" 24
+	fi
+	cp -a "$1" $KERNEL_HOME/vmlinuz
+	[ $? -ne 0 ] && mv -f $KERNEL_HOME/vmlinuz.${DATE}-${CURK} $KERNEL_HOME/vmlinuz \
+	&& _msg $ERR "$VMSG" 25
+	cp -a "$2" $MODULES_HOME/$DISTRO_ZDRVSFS
+	[ $? -ne 0 ] && mv -f $MODULES_HOME/${DISTRO_ZDRVSFS}.${DATE}-${CURK} $MODULES_HOME/$DISTRO_ZDRVSFS \
+	&& _msg $ERR "$FSMSG1 $DISTRO_ZDRVSFS: $FSMSG2" 26
+	[ "$UMT" = "1" ] && umount $KERNEL_HOME
+	_msg $SUCC "$RMSG" 0 not
+}
+
+# rollback to a backup
+rollback() {
+	VTRUE=`ls $KERNEL_HOME|grep 'vmlinuz'|cut -d '.' -f2,3,4,5|grep -E '^1|^2'`
+	[ -z "$VTRUE" ] && _msg $ERR $KRRERR 42
+	ls $MODULES_HOME|grep "$DISTRO_ZDRVSFS"|grep -q "$VTRUE" || _msg $ERR "$KRRERR" 43
+	for i in `echo $VTRUE`; do
+		BTNS="$BTNS""<hbox space-expand=\"true\" space-fill=\"true\">
+			<button>
+				<label>$KDATE : $i</label>
+				<action type=\"exit\">$i</action>
+			</button>
+		</hbox>"
+	done
+	export RROLL="<window title=\"$ROLLBTN\">
+		<vbox>
+			<frame>
+				<hbox space-expand=\"true\" space-fill=\"true\">
+					<text>
+						<label>\"${ROLL1}:\"</label>
+					</text>
+				</hbox>
+				$BTNS
+			</frame>
+			<hbox>
+				$BUTTONC
+			</hbox>
+		</vbox>
+	</window>"
+	eval $(gtkdialog -p RROLL -c)
+	case $EXIT in
+		Cancel|abort)echo "abort"; exit 0;;
+		[1-2][0-9][0-1][0-9][0-3][0-9]-[3-4].[0-9]*) #any yymmdd date between 2010 and 2029
+			KIMAGE=vmlinuz.${EXIT}
+			KMODULES=${DISTRO_ZDRVSFS}.${EXIT};;
+		*)echo bad; exit 99;;
+	esac
+	#copy - retain the backup
+	cp -af $KERNEL_HOME/${KIMAGE} $KERNEL_HOME/vmlinuz
+	[ $? -ne 0 ] && _msg $ERR "$FMMSG ${KIMAGE}" 123
+	cp -af $MODULES_HOME/${KMODULES} $MODULES_HOME/${DISTRO_ZDRVSFS}
+	[ $? -ne 0 ] && _msg $ERR "$FMMSG ${DISTRO_ZDRVSFS}" 124
+	[ "$UMT" = "1" ] && umount $KERNEL_HOME
+	_msg $SUCC "$RMSG" 0
+}
+
+help_me() {
+	cat > /tmp/kernelhelp.txt << _EOF
+${HHELP}
+=========================== $HWARN =====================================
+
+		${HSYS}
+
+=========================== $HWARN =====================================
+${HVMLINUZ}
+${HMODULES1}
+${HMODULES2}
+${HMODULES3}
+${HMATCH}
+${HROX}
+${HOK}
+${HID1}
+${HID2}
+${HFAIL}
+${HBACK1}
+${HBACK2}
+${HGOOD}
+${HBUG}
+${HGPL}
+${HCARE} 
+_EOF
+	defaulttextviewer /tmp/kernelhelp.txt
+	rm /tmp/kernelhelp.txt
+}
+export -f help_me
+
+# main
+export GUI="<window title=\"Change Kernels\">
+		<vbox>
+			<frame>
+				<hbox space-expand=\"true\" space-fill=\"true\">			
+					<text use-markup=\"true\">
+						<label>\"<big>$WARN</big> $READ_HELP\"</label>
+					</text>
+				</hbox>
+				<hbox space-expand=\"true\" space-fill=\"true\">
+					<text><label>$CHOOSE_LOC vmlinuz</label></text>
+				</hbox>	
+				<hbox space-expand=\"true\" space-fill=\"true\">
+					<entry accept=\"file\"  tooltip-text=\"$TT\" space-expand=\"true\" space-fill=\"true\">
+						<variable>VMLINUZ</variable>
+					</entry>
+					<button space-fill=\"false\">
+						<input file stock=\"gtk-open\"></input>
+						<action type=\"fileselect\">VMLINUZ</action>
+					</button>
+				</hbox>
+				<hbox space-expand=\"true\" space-fill=\"true\">
+					<text><label>$FIND_MOD $DISTRO_ZDRVSFS $KERNMSG</label></text>
+				</hbox>	
+				<hbox space-expand=\"true\" space-fill=\"true\">
+					<entry accept=\"file\" tooltip-text=\"$TT\" space-expand=\"true\" space-fill=\"true\">
+						<variable>MODULES</variable>
+					</entry>
+					<button space-fill=\"false\">
+						<input file stock=\"gtk-open\"></input>
+						<action type=\"fileselect\">MODULES</action>
+					</button>
+				</hbox>
+				<frame $INF>
+					<hbox space-expand=\"true\" space-fill=\"true\">			
+						<text>
+							<label>$FND_KRN</label>
+						</text>
+					</hbox>
+					<hbox space-expand=\"true\" space-fill=\"true\">			
+						<text use-markup=\"true\">
+							<label>\"<b>$MODULES_HOME</b>\"</label>
+						</text>
+					</hbox>
+				</frame>
+			</frame>
+			<hbox>
+				<button>
+					<label>$HELP</label>
+					<input file stock=\"gtk-help\"></input>
+					<action>help_me</action>
+				</button>
+				<button tooltip-text=\"'"$(gettext "download a kernel from the repository")"'\">
+					<label>kernels</label>
+					<input file stock=\"gtk-add\"></input>
+					<action>defaultbrowser https://ftp.nluug.nl/os/Linux/distr/puppylinux/huge_kernels/</action>
+				</button>
+				<button tooltip-text=\"$ROLLTT\">
+					<label>$ROLLBTN</label>
+					<input file stock=\"gtk-refresh\"></input>
+					<action type=\"exit\">roll</action>
+				</button>
+				$BUTTONO
+				$BUTTONC
+			</hbox>
+		</vbox>
+	</window>"
+eval $(gtkdialog -p GUI -c)
+case $EXIT in
+	OK) change $VMLINUZ $MODULES;;
+	roll) rollback;;
+	*)exit 0;;
+esac

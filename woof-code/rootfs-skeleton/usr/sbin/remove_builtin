@@ -1,35 +1,169 @@
 #!/bin/sh
 #Barry Kauler Dec. 2010, license GPL v3 /usr/share/doc/legal.
 #based on a script by technosaurus, Dec. 2010.
-#101222 fix menu.
-#101227 technosaurus: fixed reverse dependency check.
-#110505 support sudo for non-root user.
-#120202 rodin.s: internationalized.
-#120329 Xdialog bug --yesno supposed to "yes" "No" buttons, but they are "OK" "Cancel".
+
+#set -x
 
 [ "`whoami`" != "root" ] && exec sudo -A ${0} ${@} #110505
 
 export TEXTDOMAIN=remove_builtin
-export TEXTDOMAINDIR=/usr/share/locale
 export OUTPUT_CHARSET=UTF-8
 eval_gettext () {
   local myMESSAGE=$(gettext "$1")
   eval echo \"$myMESSAGE\"
 }
-export LANGORG=$LANG
 
 Yes_lbl="$(gettext 'Yes')"
 No_lbl="$(gettext 'No')"
 
 MSG1="`gettext \"Simple utility to 'delete' packages that are builtin\nto the read-only .sfs file (Squashfs filesystem)\"`"
+FIXMENU='no'
 
-#!/bin/sh
-D=$HOME/.packages/builtin_files
+D=/root/.packages/builtin_files
 
-while [ 1 ];do
- FIXMENU='no' #101222
- PKGS=`ls -1 $D`
- PKG=`Xdialog --left --screen-center --backtitle "${MSG1}" --title "$(gettext 'Remove builtin packages')" --stdout --help "$(gettext "In all modes of running Puppy, other than a full hard-drive installation,\n
+#===========================================================
+
+remove_builtin_pkg() {
+	PKG=$1
+	if [ -z "$PKG" ] ; then
+		return 1
+	fi
+	if [ ! -f $D/$PKG ] ; then
+		echo "$PKG does not exist.."
+		return 1
+	fi
+	echo "Removing $PKG"
+	if grep -q '\.desktop$' ${D}/${PKG} ; then
+		FIXMENU='yes' #101222
+	fi
+	(
+		while read file
+		do
+			rm "$file" 1>&2
+			echo "${file%/*}" #get dir
+		done < $D/$PKG
+	) > /tmp/remove_builtin_dirs$$
+	#-- remove empty directories
+	sort -ur /tmp/remove_builtin_dirs$$ | \
+	while read dir
+	do
+		while [ 1 ] ; do
+			rmdir "$dir" 2>/dev/null
+			dir=${dir%/*} #dirname $dir
+			if [ -z "$dir" ] ; then
+				break
+			fi
+		done
+	done
+	#-- 
+
+PKGFILES="$D/$PKG"
+
+if [ "`grep '/usr/share/glib-2.0/schemas' $PKGFILES`" != "" ];then
+ [ -e /usr/bin/glib-compile-schemas ] && glib-compile-schemas /usr/share/glib-2.0/schemas
+fi
+
+if [ "`grep '/usr/lib/gio/modules' $PKGFILES`" != "" ];then
+ [ -e /usr/bin/gio-querymodules ] && gio-querymodules /usr/lib/gio/modules
+fi
+
+if [ "`grep ''\.desktop$'' $PKGFILES`" != "" ];then
+ rm -f /usr/share/applications/mimeinfo.cache
+ [ -e /usr/bin/update-desktop-database ] && update-desktop-database /usr/share/applications
+fi
+
+if [ "`grep '/usr/share/mime' $PKGFILES`" != "" ];then
+ [ -e /usr/bin/update-mime-database ] && update-mime-database /usr/share/mime
+fi
+
+if [ "`grep '/usr/share/icons/hicolor' $PKGFILES`" != "" ];then
+ [ -e /usr/bin/gtk-update-icon-cache ] && gtk-update-icon-cache /usr/share/icons/hicolor
+fi
+
+if [ "`grep '/usr/lib/gdk-pixbuf' $PKGFILES`" != "" ];then
+ gdk-pixbuf-query-loaders --update-cache
+fi
+
+if [ "`grep '/usr/lib/gconv' $PKGFILES`" != "" ];then
+ iconvconfig
+fi
+
+if [ "`grep '/usr/lib/pango' $PKGFILES`" != "" ];then
+ pango-querymodules --update-cache
+fi
+
+for gtkver in '1.0' '2.0' '3.0'
+do
+ if [ "`grep "/usr/lib/gtk-$gtkver" $PKGFILES | grep "/immodules"`" != "" ];then
+  [ -e /usr/bin/gtk-query-immodules-$gtkver ] && gtk-query-immodules-$gtkver --update-cache
+ fi
+done
+
+if [ "`grep '/usr/share/fonts' $PKGFILES`" != "" ];then
+ fc-cache -f
+fi
+
+KERNVER="$(uname -r)"
+
+if [ "`grep "/lib/modules/$KERNVER" $PKGFILES`" != "" ];then
+ depmod -a
+fi
+	
+	
+	rm $D/$PKG
+	rm /tmp/remove_builtin_dirs$$
+	sed -i "\%|${PKG}|%d" /root/.packages/*-installed-packages
+	return 0
+}
+
+fix_menus() {
+	if [ "$FIXMENU" = "yes" ];then #101222
+		fixmenus
+		if [ "$DISPLAY" ] ; then
+			if [ "`pidof jwm`" != "" ] ; then
+				jwm -reload || jwm -restart
+				sleep 1
+			fi
+		fi
+	fi
+}
+
+#===========================================================
+#                   COMMAND LINE
+#============================================================
+
+case $1 in -l|-list|--list)
+	ls -1 $D
+	exit ;;
+esac
+
+if [ "$1" ] ; then
+	for i in $@
+	do
+		remove_builtin_pkg $i
+	done
+	fix_menus
+	exit $?
+fi
+
+#===========================================================
+#                    GUI
+#============================================================
+
+PKGS=`ls -1 $D`
+DIALOG="dialog --aspect 10"
+MENUOPT="--checklist"
+REP=/tmp/$(basename $0).txt
+
+if [ "$DISPLAY" ] ; then
+	DIALOG=Xdialog
+fi
+
+for i in $PKGS ; do
+	CHOICES="$CHOICES $i . off"
+done
+
+PKG=`$DIALOG --stdout --backtitle "${MSG1}" --title "$(gettext 'Remove builtin packages')" --help "$(gettext "In all modes of running Puppy, other than a full hard-drive installation,\n
 all of the Puppy files are in a compressed read-only file named 'puppy.sfs'\n
 or 'wary_500.sfs' (or some similar name). So you can't actually delete these\n
 files. However, if you want to remaster the live-CD to create your own custom\n
@@ -38,36 +172,50 @@ them -- and they will really be gone in the remastered CD. So, for example if\n
 you remove SeaMonkey, it will be gone in the remastered CD thus reducing the\n
 size of the .iso live-CD file.\n\n
 Technical note: the lists of builtin files is at /root/.packages/builtin_files,\n
-        the list of builtin pkgs is in /root/.packages/woof-installed-packages.")" --combobox "$(gettext 'Select package to remove:')" 0 0 $PKGS`
- if [ "$PKG" ];then
-  aREGEX="|${PKG}|"
-  DESCR="`grep "$aREGEX" /root/.packages/woof-installed-packages |cut -d "|" -f 10`"
-  Xdialog --left --screen-center --backtitle "$(gettext 'Confirm that you want to delete') '${PKG}'" --title "$(gettext 'Remove builtin packages')" --ok-label "$Yes_lbl" --cancel-label "$No_lbl" --yesno "$(gettext 'Description of package:')\n
-${DESCR}\n\n
-$(gettext 'For information only, these are dependencies of') '${PKG}':\n
-`grep "$aREGEX" /root/.packages/woof-installed-packages |cut -d "|" -f 9 | sed -e 's%^+%%' -e 's%,+% %g'`
+the list of builtin pkgs is in /root/.packages/woof-installed-packages.")" \
+$MENUOPT "$(gettext 'Select packages to remove (be careful):')" 0 0 0 $CHOICES`
+if [ ! "$PKG" ];then
+	exit
+fi
+
+PKG=$(echo "$PKG" | sed 's%/% %g')
+/usr/lib/gtkdialog/box_yesno --warning "Remove builtin pkg(s)" \
+	"Please confirm that you want to delete the following pkg(s):" "" \
+	"<b>$PKG</b>" "" "This can be a dangerous operation if you don't know what you're doing. However some more confirmation dialogs may appear..."
+if [ $? -ne 0 ] ; then
+	exit
+fi
+
+#--
+REMOVED_PKGS=''
+#--
+
+for i in $PKG
+do
+	DEP_OF=`grep "+${i}" /root/.packages/woof-installed-packages |cut -d "|" -f 2 |tr "\n" " "`
+	if [ "$DEP_OF" ] ; then
+		DESCR="`grep "|${i}|" /root/.packages/woof-installed-packages |cut -d "|" -f 10`"
+		Xdialog --left --screen-center --backtitle "$(gettext 'Confirm that you want to delete') '${i}'" --title "$(gettext 'Remove builtin packages')" --ok-label "$Yes_lbl" --cancel-label "$No_lbl" --yesno "$(gettext 'Description of package:')\n
+${DESCR}\n
+$(gettext 'For information only, these are dependencies of') '${i}':\n
+`grep "|${i}|" /root/.packages/woof-installed-packages |cut -d "|" -f 9 | sed -e 's%^+%%' -e 's%,+% %g'`
 \n
-`eval_gettext \"Warning, removing '\\\${PKG}' _may_ break the following packages:\"`\n
-`grep +${PKG} /root/.packages/woof-installed-packages |cut -d "|" -f 2 |tr "\n" " "`
+`eval_gettext \"Warning, removing '\\\${i}' _may_ break the following packages:\"`
+$DEP_OF
 \n
 $(gettext 'Continue?')" 0 0
-  if [ $? -eq 0 ];then
-   [ "`grep '\.desktop$' ${D}/${PKG}`" != "" ] && FIXMENU='yes' #101222
-   for x in `cat $D/$PKG`; do [ -d $x ] && cd $x || rm $x; done
-   for x in `tac $D/$PKG`; do [ -d $x ] && [ ! "`ls $x`" ] && rmdir $x; done
-   rm $D/$PKG
-   grep -v "$aREGEX" /root/.packages/woof-installed-packages > /tmp/woof-installed-packages-cut2
-   mv -f /tmp/woof-installed-packages-cut2 /root/.packages/woof-installed-packages
-   MSG1="`eval_gettext \"Package '\\\${PKG}' was removed. Choose another...\"`"
-   if [ "$FIXMENU" = "yes" ];then #101222
-    fixmenus
-    [ "`pidof jwm`" != "" ] && jwm -restart
-    sleep 1
-   fi
-  else
-   MSG1="`eval_gettext \"Package '\\\${PKG}' was not removed. Choose another...\"`"
-  fi
-  continue
- fi
- break
+		if ! [ $? -eq 0 ];then
+			continue
+		fi
+	fi
+	remove_builtin_pkg $i || continue
+	REMOVED_PKGS="$REMOVED_PKGS $i"
 done
+fix_menus
+
+if [ "${REMOVED_PKGS}" ] ; then
+	/usr/lib/gtkdialog/box_ok "Remove builtin pkg(s)" info  \
+		"The following packages were removed:" "" "<b>${REMOVED_PKGS}</b>"
+fi
+
+### END ###

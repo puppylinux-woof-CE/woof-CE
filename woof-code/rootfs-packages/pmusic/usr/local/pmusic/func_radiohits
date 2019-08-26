@@ -1,0 +1,281 @@
+#!/bin/bash
+#pMusic - streamripper frontend
+#GPL - Copyright Sigmund Berglund
+
+export TEXTDOMAIN=pmusic
+export OUTPUT_CHARSET=UTF-8
+[ ! -d "$STORAGE_DIR/radio-hits preset" ] && mkdir "$STORAGE_DIR/radio-hits preset"
+
+#default radio station
+IFS='|' read NAME ADR < $HOME/.pmusic/nowplaying
+if [ ! "`grep -F "$ADR" "$STORAGE_DIR"/index_radio`" ]; then
+	NAME='RadioCrazy'
+	ADR='http://www.swissradio.ch/streams/6034.m3u'
+fi
+echo "$NAME" > $WORKDIR/RADIOHITS_NAME
+echo "$ADR" > $WORKDIR/RADIOHITS_URL
+echo | tee $WORKDIR/RADIOHITS_PATH $WORKDIR/RADIOHITS_OPTIONS
+echo $RADIOHITS_DEL_ADDS > $WORKDIR/radiohits_RADIOHITS_DEL_ADDS
+
+update_index (){
+	gettext 'Updating database' > $WORKDIR/splashtext
+	$APPDIR/box_splash &
+	#include radio-hits in MyMusic index
+	find "$STORAGE_DIR/radio-hits preset/" -exec cut -d'|' -f2 {} \; | sort -u > $WORKDIR/tmp_radiohits
+	while read I; do
+		rm -fr "$I/incomplete"
+		$APPDIR/func_index -quick_update "$I"
+	done < $WORKDIR/tmp_radiohits
+	echo 100 > $WORKDIR/splash
+}
+export -f update_index
+
+grab (){
+	. $CONFIG
+	find "$STORAGE_DIR/radio-hits preset/" -exec cut -d'|' -f2 {} \; | sort -u > $WORKDIR/tmp_radiohits
+	if [!  -s $WORKDIR/tmp_radiohits ]; then
+		TXT1="<b>$(gettext 'No preset is defined')</b>"
+		. $APPDIR/box_ok
+		exit
+	fi
+	#kill process
+	PS="`LC_ALL=C ps -eo pid,command`"
+	while read I; do
+		for I in `LC_ALL=C grep -F "$I" <<< "$PS" | grep -F streamripper | awk '{print $1}'`; do kill -9 $I 2> /dev/null; done
+	done < $WORKDIR/tmp_radiohits
+	#---
+	while read I; do
+		IFS='|' read NAME RADIOHITS_PATH ADR RADIOHITS_OPTIONS < "$STORAGE_DIR/radio-hits preset/$I"
+		echo "connecting... $ADR" > "$WORKDIR/output_streamripper$NAME"
+		streamripper "$ADR" -d "$RADIOHITS_PATH" -s -o never -k 1 --with-id3v1 -u WinampMPEG/5.0 ${RADIOHITS_OPTIONS} > "$WORKDIR/output_streamripper$NAME" 2>&1 &
+	done < $WORKDIR/radiohits_presets
+}
+
+save_preset (){
+	#check if all info is on place
+	if [ ! "$NAME" ] || [ ! "$ADR" ] || [ ! "$RADIOHITS_PATH" ]; then
+		TXT1="$(gettext 'Missing info. Name, URL and download directory must all be defined before saving')"
+		. $APPDIR/box_ok
+		exit
+	fi
+	#missing download path
+	if [ ! -d "$RADIOHITS_PATH" ]; then
+		TXT1="$(gettext 'Download directory is missing. Do you want to create it?')"
+		. $APPDIR/box_yesno
+		[ $EXIT != "yes" ] && exit
+		mkdir -p "$RADIOHITS_PATH"
+	fi
+	#check if exist
+	if [ -f "$STORAGE_DIR/radio-hits preset/$NAME" ]; then
+		TXT1="<b>${NAME}</b> $(gettext 'already exists')"; TXT2="$(gettext 'Do you want to overwrite existing file?')"
+		. $APPDIR/box_yesno
+		[ $EXIT != "yes" ] && exit
+	fi
+	#save
+	echo "$NAME|$RADIOHITS_PATH|$ADR|$RADIOHITS_OPTIONS" > "$STORAGE_DIR/radio-hits preset/$NAME"
+	#add to favorites
+	if [ ! "`grep -F "${RADIOHITS_PATH}|" "$STORAGE_DIR/favorites"`" ]; then
+		[ -d "$RADIOHITS_PATH" ] && echo "$RADIOHITS_PATH|${RADIOHITS_PATH##*/}||||||||||||$RADIOHITS_PATH|gtk-directory" >> "$STORAGE_DIR/favorites"
+	fi
+	#update list
+	ls -1 "$STORAGE_DIR/radio-hits preset" | sort > $WORKDIR/radiohits_presets
+	cp $WORKDIR/radiohits_presets $WORKDIR/radiohits_output
+	rm $WORKDIR/xml_pmusic #make sure gui updates at next run to show this new menuitem
+}
+
+fetch_playing (){
+	IFS='|' read C1 C2 C3 ADR C < $WORKDIR/PLAYLIST_ALL
+	echo "$ADR" > $WORKDIR/RADIOHITS_URL
+	echo | tee $WORKDIR/RADIOHITS_NAME $WORKDIR/RADIOHITS_PATH $WORKDIR/RADIOHITS_OPTIONS
+}
+
+output (){
+	echo -n > $WORKDIR/radiohits_output
+	while read NAME; do
+		echo -n "${NAME}|" >> $WORKDIR/radiohits_output
+		tail -c 1000 "$WORKDIR/output_streamripper$NAME" | tr "\r" "\n" | tail -n1 >> $WORKDIR/radiohits_output
+	done < $WORKDIR/radiohits_presets
+}
+
+build_info_radiohits (){
+	gettext 'Radio Grabber is a tool to split up radio-streams to music tracks - based on meta-information. This means you will get one mp3/ogg file, with correct naming, for each of the songs the radio station plays.
+
+Grab a top-40 station over-night once a week, and you will always have the latest hits available. Or choose a radio station playing your preferred genre and let it grab a week or so. - You will then have the most popular songs on your harddrive.
+
+Be aware that this will require a lot of free space on your harddisk.
+
+Correct splitting and naming depends on the meta-information. Not all radio-stations provide useful meta-info. You might need to test some of your favorite stations to build a local hit-db without too much manual work. Both 1.FM and 181.fm (USA) provides a variety of good-quality-channels for many genres.
+
+If a track starts badly or contains a piece of commercials, you can just delete the file and wait for next play. Or, you can edit the track manually in programs like MhWaveEdit or Audacity... The fader effect is very useful to fade in/out the song.' > $WORKDIR/box_ok_txt1
+}
+
+export -f grab save_preset fetch_playing output delete_preset build_info_radiohits
+
+find "$STORAGE_DIR/radio-hits preset/" -type f -printf "%f\n" | sort > $WORKDIR/radiohits_presets
+cp $WORKDIR/radiohits_presets $WORKDIR/radiohits_output #for <tree>
+$APPDIR/func_svg -heading "$(gettext 'Radio Grabber')" > /dev/null #we don't use the standard xml code here
+
+S='
+<window title="pMusic - '$(gettext 'Radio Hits')'" icon-name="pmusic" default_height="500" default_width="500">
+<vbox>
+ <vbox '$SF'>
+  <hbox spacing="0" height="80" scrollable="true" '$ST' vscrollbar-policy="2" hscrollbar-policy="2">
+   <eventbox name="svgheading">
+    <hbox '$ST'>
+     <text width-request="20" '$SF'><label>""</label></text>
+     <text ypad="40" use-markup="true" '$SF'><label>"<i>'$(gettext 'Split up radio-streams to mp3/ogg files...
+...with correct naming.')'</i>"</label></text>
+     <text '$ST'><label>""</label></text>
+     <hbox spacing="0" '$SF'>
+      <vbox '$SF'>
+       <button relief="2" can-focus="false" '$SF'>
+        <input file stock="gtk-preferences"></input>
+        <action>'$APPDIR'/func_config -preferences -radiohits</action>
+       </button>
+       <text '$ST'><label>""</label></text>
+      </vbox>
+      <vbox '$SF'>
+       <button relief="2" can-focus="false" '$SF'>
+        <input file stock="gtk-dialog-warning"></input>
+        <action>'$APPDIR'/func -about -disclaimer &</action>
+       </button>
+       <text '$ST'><label>""</label></text>
+      </vbox>
+      <vbox '$SF'>
+       <button relief="2" can-focus="false" '$SF'>
+        <input file stock="gtk-help"></input>
+        <action>build_info_radiohits; IMG=info; FRAME='$(gettext 'Info')'; HEADING="'$(gettext 'Radio Grabber')'"; . '$APPDIR'/box_ok -txt1_file &</action>
+       </button>
+       <text '$ST'><label>""</label></text>
+      </vbox>
+     </hbox>
+    </hbox>
+   </eventbox>
+  </hbox>
+ <frame '$(gettext 'Preset')'>
+  <hbox>
+   <text use-markup="true" width-request="120" '$SF'><label>"<b>'$(gettext 'Name')'</b>"</label></text>
+   <entry '$ST'>
+    <variable>NAME</variable>
+    <default>"'$NAME'"</default>
+    <input file>'$WORKDIR'/RADIOHITS_NAME</input>
+   </entry>
+   <text width-request="30"><label>""</label></text>
+  </hbox>
+  <hbox>
+   <text use-markup="true" width-request="120"><label>"<b>URL</b>"</label></text>
+   <entry><variable>ADR</variable><input file>'$WORKDIR'/RADIOHITS_URL</input></entry>
+   <button tooltip-text="'$(gettext 'Fetch playing stream')'">
+    <input file stock="gtk-go-back"></input>
+    <action>fetch_playing</action>
+    <action>refresh:ADR</action>
+    <action>refresh:NAME</action>
+    <action>refresh:RADIOHITS_PATH</action>
+    <action>refresh:RADIOHITS_OPTIONS</action>
+   </button>
+  </hbox>
+  <hbox>
+   <text use-markup="true" width-request="120"><label>"<b>'$(gettext 'Download to')'</b>"</label></text>
+   <entry accept="directory"><variable>RADIOHITS_PATH</variable><input file>'$WORKDIR'/RADIOHITS_PATH</input></entry>
+   <button><input file stock="gtk-open"></input><action type="fileselect">RADIOHITS_PATH</action></button>
+  </hbox>
+  <expander>
+   <vbox '$SF'>
+    <hbox tooltip-text="'$(gettext 'Here you can define advanced options to the executing streamripper command')'">
+     <text use-markup="true" width-request="120" '$SF'><label>"<b>'$(gettext 'Extra options')'</b>"</label></text>
+     <entry '$ST'><variable>RADIOHITS_OPTIONS</variable><input file>'$WORKDIR'/RADIOHITS_OPTIONS</input></entry>
+     <button tooltip-text="'$(gettext 'Show available Streamripper options in texteditor')'" '$SF'><input file stock="gtk-info"></input><action>streamripper -h > '$WORKDIR'/radiohits_tmp; '$TEXT_EDITOR' '$WORKDIR'/radiohits_tmp</action></button>
+    </hbox>
+    <hbox>
+     <text use-markup="true" width-request="120" '$SF'><label>"<b>'$(gettext 'Command')'</b>"</label></text>
+     <statusbar has-resize-grip="false" '$ST'>
+      <variable>RADIOHITS_COMMAND</variable>
+      <default>""</default>
+      <input>echo "streamripper \"$ADR\" -d \"$RADIOHITS_PATH\" -s -o never -k 1 --with-id3v1 -u WinampMPEG/5.0 $RADIOHITS_OPTIONS"</input> 
+     </statusbar>
+     <button '$SF'><input file stock="gtk-refresh"></input><action>refresh:RADIOHITS_COMMAND</action></button>
+    </hbox>
+   </vbox>
+   <label>'$(gettext 'Advanced')'</label>
+  </expander>
+  <hbox>
+   <button tooltip-text="'$(gettext 'Save preset to add it to the grabbing list.')'">
+    <input file stock="gtk-save"></input>
+    <label>"'$(gettext 'Save preset')'"</label>
+    <action>save_preset</action>
+    <action>refresh:OUTPUT</action>
+   </button>
+  </hbox>
+ </frame>
+</vbox>
+<vbox '$ST'>
+ <timer visible="false" '$SF'>
+  <variable>TIMER</variable>
+  <sensitive>false</sensitive>
+  <action>output</action>
+  <action>refresh:OUTPUT</action>
+ </timer>
+ <vbox '$ST'>
+  <tree stock-id="gtk-audio_url" headers-visible="false" hover-selection="true" '$ST'>
+   <variable>OUTPUT</variable>
+   <label>a|b</label>
+   <input file>'$WORKDIR'/radiohits_output</input>
+   <action signal="button-press-event">if [[ $PTR_BTN -eq 3 && "$OUTPUT" ]]; then echo "$OUTPUT" > '$WORKDIR'/RADIOHITS_PRESS_EVENT; . '$APPDIR'/menu_radiohits; fi</action>
+   <action signal="button-release-event">cut -d"|" -f1 "'$STORAGE_DIR'/radio-hits preset/$OUTPUT" > '$WORKDIR'/RADIOHITS_NAME</action>
+   <action signal="button-release-event">cut -d"|" -f2 "'$STORAGE_DIR'/radio-hits preset/$OUTPUT" > '$WORKDIR'/RADIOHITS_PATH</action>
+   <action signal="button-release-event">cut -d"|" -f3 "'$STORAGE_DIR'/radio-hits preset/$OUTPUT" > '$WORKDIR'/RADIOHITS_URL</action>
+   <action signal="button-release-event">cut -d"|" -f4 "'$STORAGE_DIR'/radio-hits preset/$OUTPUT" > '$WORKDIR'/RADIOHITS_OPTIONS</action>
+   <action signal="button-release-event">refresh:NAME</action>
+   <action signal="button-release-event">refresh:ADR</action>
+   <action signal="button-release-event">refresh:RADIOHITS_PATH</action>
+   <action signal="button-release-event">refresh:RADIOHITS_OPTIONS</action>
+   <action signal="button-release-event">refresh:OUTPUT</action>
+  </tree>
+  <hbox '$SF'>
+   <vbox '$SF'>
+    <hbox '$SF'>
+     <button tooltip-text="'$(gettext 'Quit and Update db')'" '$SF'>
+      <input file stock="gtk-quit"></input>
+      <action>update_index</action>
+      <action>exit:EXIT</action>
+     </button>
+     <button tooltip-text="'$(gettext 'Add new tracks to database, and make them searchable')'" '$SF'>
+      <label>'$(gettext 'Update db')'</label>
+      <action>update_index</action>
+     </button>
+     <text '$ST'><label>""</label></text>
+    </hbox>
+   </vbox>
+   <text '$ST'><label>""</label></text>
+   <hbox spacing="0">
+    <button name="highlight" '$SF'>
+     <input file stock="gtk-go-down"></input>
+     <label>"'$(gettext 'Start grabbing tracks')'"</label>
+     <action>enable:TIMER</action>
+     <action>grab &</action>
+    </button>
+    <statusbar width-request="22"></statusbar>
+   </hbox>
+  </hbox>
+ </vbox>
+</vbox>
+</vbox>
+</window>'
+[ $TOOLTIPS = false ] && S="`echo "$S" | sed 's%tooltip-%tooltipXXX%g'`" #deactivate tooltips
+. $APPDIR/func -reset_gtk
+export pmusic_radiohits="`echo "$S" | sed 's/##.*//'`" #I use double hash (##) for comments. --> as #FF0000
+I=$IFS; IFS=""
+for STATEMENTS in $($GTKDIALOG -p pmusic_radiohits); do
+	eval $STATEMENTS
+done
+IFS=$I
+
+find "$STORAGE_DIR/radio-hits preset/" -exec cut -d'|' -f2 {} \; | sort -u > $WORKDIR/tmp_radiohits
+#kill and cleanup
+PS="`LC_ALL=C ps -eo pid,command`"
+while read RADIOHITS_PATH; do
+	for I in `LC_ALL=C grep -F "$RADIOHITS_PATH" <<< "$PS" | grep -F streamripper | awk '{print $1}'`; do kill -9 $I 2> /dev/null; done
+	rm -f $WORKDIR/output_streamripper*
+	[ "$RADIOHITS_DEL_ADDS" = true ] && find "$RADIOHITS_PATH" -maxdepth 1 -mindepth 1 -type f -size 1M \( -iname "*.mp3" -o -iname "*.ogg" \) -exec rm {} \;
+done < $WORKDIR/tmp_radiohits
+

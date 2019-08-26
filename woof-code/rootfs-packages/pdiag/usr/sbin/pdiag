@@ -1,0 +1,117 @@
+#!/bin/bash
+#Barry Kauler, LGPL 2012
+
+export TEXTDOMAIN=pdiag
+export OUTPUT_CHARSET=UTF-8
+. gettext.sh
+
+OPTION="$1"
+TITLE="$(gettext 'Pdiag Diagnostic Information Capture')"
+NAMEDATE="$(date -u +%Y%m%d)"
+ARCHIVE_FILE_NAME="pdiag-$NAMEDATE.tar.gz"
+if [ "$OPTION" = "--help" ];then
+	echo -e "`eval_gettext \"\nUsage:  pdiag [option]\n\n  --help                   This small usage guide\n  --wpa                    Include WPA encryption data if user allows\n\nDefault action is to collect configuration, status and log files into a\ncompressed archive (tarball) named such as \\\$ARCHIVE_FILE_NAME\nin your root or home directory.\nThat file can be submitted to Puppy developers for analysis and possible problem\nresolution.\"`"
+	echo -e "\n$(gettext 'Additional diagnostic data can be collected by a script segment (no #!/bin/sh)\nnamed beginning with "pdiag-" in /usr/lib/pdiag/, using $DIAGSUBDIR as the\noutput directory.\nTo facilitate debugging and troubleshooting, anything logged to /tmp/debug.log\nwill be included in the tarball.')"
+ exit
+fi
+
+[ "$1" = "--wpa"  ] && INCLUDEWPA="yes"
+
+MSG1A="$(gettext 'System status, configuration, log and some generated files will now be collected into a compressed archive (tarball) file in your home directory.  That file can be submitted to Puppy developers for  analysis and possible problem resolution.')"
+if [ -e ~/pdiag-$NAMEDATE.tar.gz ];then
+ MSG1B="`eval_gettext \"The proposed archive file, \\\$ARCHIVE_FILE_NAME, already exists in your home directory.\n\nPlease modify the archive name unless you want to replace that archive file.  Click OK to continue.\"`"
+else
+ MSG1B="`eval_gettext \"The archive file will be named \\\$ARCHIVE_FILE_NAME unless you change it.\n\nPlease modify the archive name now or keep the proposed name.  Click OK to continue.\"`"
+fi
+ARCHIVE_NAME=$(pupdialog --title "$TITLE" --background yellow --stdout --inputbox "$MSG1A\n\n$MSG1B" 0 0 "pdiag-$NAMEDATE")
+[ $? -ne 0 ] && exit
+ARCHIVE_FILE_NAME="$ARCHIVE_NAME.tar.gz"
+DIAGDIR="/tmp/$ARCHIVE_NAME"
+
+if [ "$INCLUDEWPA" = "yes" ];then
+ pupdialog --title "$TITLE" --background pink --yesno "$(gettext 'The WPA configuration and log files might contain passkeys or passwords.\n\nIf the WPA... files are not necessary to troubleshoot your problem, click "Yes", to omit them.  Do you want to EXCLUDE those WPA files from the archive file?')" 0 0
+ EXIT_CODE="$?"
+ [ $EXIT_CODE -eq 255 ] && exit
+ [ $EXIT_CODE -eq 0 ] && INCLUDEWPA="no"
+fi
+
+MSG2="`eval_gettext \"Collecting files into archive file:  \\\$ARCHIVE_FILE_NAME.\"`"
+gtkdialog-splash -placement center -bg orange -text "$MSG2" &
+SPLASHPID=$!
+
+lspci -nn -k > /tmp/chipnummod.txt
+[ ! -s /tmp/chipnummod.txt ] && echo "No PCI interfaces" > /tmp/chipnummod.txt
+lsusb -v > /tmp/usbchipnummod.txt
+[ ! -s /tmp/usbchipnummod.txt ] && echo "No plugged-in USB devices" > /tmp/usbchipnummod.txt
+
+cd /
+rm -f -r $DIAGDIR
+mkdir -p $DIAGDIR
+
+cp -f /tmp/chipnummod.txt $DIAGDIR/ 2> /dev/null
+cp -f /tmp/usbchipnummod.txt $DIAGDIR/ 2> /dev/null
+cp -f /tmp/udevtrace.log $DIAGDIR/ 2> /dev/null
+cp -f /tmp/bootsysinit.log $DIAGDIR/ 2> /dev/null
+cp -f /var/log/messages $DIAGDIR/ 2> /dev/null
+cp -f /etc/rc.d/MODULESCONFIG $DIAGDIR/ 2> /dev/null
+lsmod > $DIAGDIR/lsmod.txt
+dmesg > $DIAGDIR/dmesg.txt
+ls -l /etc/init.d &> $DIAGDIR/ls-etc-init.d.txt
+ls -l -R -A /dev &> $DIAGDIR/ls-dev.txt
+cp -f /tmp/usb_modeswitch.log $DIAGDIR/ 2> /dev/null
+cp -f /tmp/usb_modeswitch.temp.log $DIAGDIR/ 2> /dev/null
+cp -f /tmp/usb_modeswitch.active $DIAGDIR/ 2> /dev/null
+[ "`which pup_event_backend_modprobe_protect`" != "" ] \
+ && /sbin/pup_event_backend_modprobe_protect --dump 2> /dev/null
+sleep 1
+cp -f /tmp/pup_event_backend_modprobe_protect.log $DIAGDIR/ 2> /dev/null
+cp -f /etc/modules.conf $DIAGDIR/ 2> /dev/null
+cat /proc/devices > $DIAGDIR/proc_devices.txt 2> /dev/null
+cp -f /tmp/usb_modeswitch_scsi-info.log $DIAGDIR/ 2> /dev/null
+cp -f /etc/rc.d/rc.local $DIAGDIR/ 2> /dev/null
+ifconfig > $DIAGDIR/ifconfig.txt 2> /dev/null
+cp -f /root/.packages/user-installed-packages $DIAGDIR/ 2> /dev/null
+cp -f /etc/rc.d/pupstate $DIAGDIR/ 2> /dev/null
+cp -f /tmp/xerrs.log $DIAGDIR/ 2> /dev/null
+cp -f /tmp/.usbserial_dependents $DIAGDIR/ 2> /dev/null
+ls -1 /etc/modprobe.d/* > $DIAGDIR/ls-grep-etc-modprobe.d.txt 2> /dev/null; echo >> $DIAGDIR/ls-grep-etc-modprobe.d.txt 2> /dev/null; grep -H '' /etc/modprobe.d/* 2> /dev/null | sed -e 's%/etc/modprobe.d/%%' -e 's/:/: /' >> $DIAGDIR/ls-grep-etc-modprobe.d.txt
+cp -f /var/log/usb_modeswitch_* $DIAGDIR/ 2> /dev/null
+if [ -d /tmp/pup_event_backend ];then
+ grep -H '' /tmp/pup_event_backend/pup_event_module_devpath_log* 2> /dev/null | sed -e 's%/tmp/pup_event_backend/pup_event_module_%%' -e 's/:/: /' > $DIAGDIR/grep-tmp-module_devpath_log.txt
+ cat /tmp/pup_event_backend/exceptions.log /tmp/pup_event_backend/preferences.log /tmp/pup_event_backend/delay.log > $DIAGDIR/modprobe_exceptions.tmp 2> /dev/null
+ sort -k 1 $DIAGDIR/modprobe_exceptions.tmp > $DIAGDIR/modprobe_exceptions.log
+ rm $DIAGDIR/modprobe_exceptions.tmp
+fi
+[ -d /tmp/rc_sysinit ] \
+ && grep -H '' /tmp/rc_sysinit/* 2> /dev/null | sed -e 's%/tmp/rc_sysinit/%%' -e 's/:/: /' >> $DIAGDIR/grep-tmp-rc_sysinit.txt
+
+cat /tmp/usb_modeswitch*/usb_modeswitch* > $DIAGDIR/usb_modeswitch_logs 2> /dev/null
+cat /var/lib/usb_modeswitch/* > $DIAGDIR/var_lib_usb_modeswitch_lists 2> /dev/null
+
+cat /proc/asound/cards /proc/asound/modules > $DIAGDIR/proc_asound.txt 2> /dev/null
+[ -e /initrd/pup_ro1/root ] \
+ && ls -l -R -A /initrd/pup_ro1/dev &> $DIAGDIR/ls_pup_ro1_dev.txt 2> /dev/null
+cp -f /etc/modules/firmware.dep.inst.* $DIAGDIR/ 2> /dev/null
+cp -f /tmp/debug.log $DIAGDIR/ 2> /dev/null
+cp -f /lib/modules/*/modules.alias $DIAGDIR/ 2> /dev/null
+cp -f /lib/modules/*/modules.dep $DIAGDIR/ 2> /dev/null
+ls -R /lib/firmware > $DIAGDIR/ls-lib-firmware.txt 2> /dev/null
+cp -f /etc/DISTRO_SPECS $DIAGDIR/ 2> /dev/null
+cp -f /var/log/Xorg.0.log $DIAGDIR/ 2> /dev/null
+ddcprobe > $DIAGDIR/ddcprobe.txt 2> /dev/null
+
+for ONESUBDIR in $(ls -1 /usr/lib/pdiag/pdiag-* 2>/dev/null); do
+ DIAGSUBDIR="$DIAGDIR/$(echo $ONESUBDIR | grep -o 'pdiag-[a-zA-Z][a-zA-Z0-9_]*$' | sed 's/^pdiag-//')"
+ mkdir $DIAGSUBDIR
+ . $ONESUBDIR
+done
+
+cd /tmp
+tar -czf ~/$ARCHIVE_FILE_NAME $ARCHIVE_NAME 2> /dev/null
+cd
+
+kill $SPLASHPID
+
+MSG3="`eval_gettext \"Diagnostic files are now copied into an archive file:\n  \\\$ARCHIVE_FILE_NAME\n\nDialup logon IDs and passwords and WiFi passwords, passkeys and passphrases are omitted.\n\nThe file, in your home directory, can be attached to a posting or personal message (PM) in the Puppy forum for analysis of dialup-modem, broadband networking or other issues.\n\nThe content can be viewed in directory:\n  \\\$DIAGDIR.\"`"
+pupdialog --title "$TITLE" --background lightgreen --msgbox "$MSG3" 
+

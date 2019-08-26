@@ -1,0 +1,276 @@
+#!/bin/bash
+#
+# This script lets you setup a local woofce repo just to get started.
+# You have to learn to manage, synchronize and troubleshoot git/github repos.
+#
+# It can also be used for other repos, by adding a repo URL as an argument
+# or by exporting REPO_URL=<target_repo>.
+#
+# links:
+#   https://git-scm.com/docs/user-manual.html
+#   https://help.github.com/articles/fork-a-repo/
+#   https://help.github.com/articles/about-pull-requests/
+#   https://help.github.com/articles/creating-a-pull-request/
+#   http://stackoverflow.com/questions/5480069/autosetuprebase-vs-autosetupmerge
+
+  ## Export these variables and run the script
+  ## to create the repo dir automatically. Ex:
+#export GITHUB_USER=wdlkmpx
+#export USER_NAME=wdlkmpx
+#export USER_EMAIL=zzzzzz@yourmail.com
+#export REPO_TYPE=fork #main = you have write access to upstream
+#export REPO_URL=https://github.com/puppylinux-woof-CE/woof-CE
+#export DEFAULT_BRANCH=testing
+
+case $1 in woof|woofce)
+	REPO_URL=https://github.com/puppylinux-woof-CE/woof-CE ;;
+esac
+
+if ! which git &>/dev/null ; then
+	echo "ERROR: Install Git"
+	exit 1
+fi
+
+#-----------------------------------------------------------
+
+# send patches to mailing lists
+# this requires a special setup.. and has several dependencies
+# only gmail is supported
+function set_email() {
+
+	if [ ! -d .git ] ; then
+		echo "No .git directory found"
+		exit 1
+	fi
+
+	echo -n "Enter gmail user: "; read guser
+	[ ! "$guser" ] && exit 1
+	git config --global sendemail.smtpuser ${guser}@gmail.com
+	git config --global sendemail.smtpserver smtp.gmail.com
+	git config --global sendemail.smtpencryption tls
+	git config --global sendemail.smtpserverport 587
+	git config --global sendemail.confirm
+	#git config --global sendemail.smtppass <your passwd>
+	git config --global sendemail.smtpsslcertpath /etc/ssl/certs/ca-bundle.crt
+	echo "Ok, git is ready to send emails through ${guser}@gmail.com"
+}
+
+#-----------------------------------------------------------
+
+function get_repo() {
+	if [ ! "$REPO_URL" ] ; then
+		echo -e "\nEnter the full git repo http REPO_URL:"
+		read REPO_URL ; echo
+		[ ! "$REPO_URL" ] && echo 'No URL, exiting...' && exit 1
+	fi
+	REPO_NAME=${REPO_URL##*/}
+	REPO_NAME=${REPO_NAME%.git}
+}
+
+function get_variables() {
+
+	get_repo
+
+	if [ ! "$REPO_TYPE" ] ; then
+		echo
+		echo "Is this a fork or the main repo?"
+		echo "1. Fork [default]   (origin=fork upstream=main) " 
+		echo "2. Main Repo        (origin=upstream)"
+		echo -n "Enter option: "
+		read REPO_TYPE
+		case $REPO_TYPE in
+			2) REPO_TYPE=main  ;;
+			*) REPO_TYPE=fork ;;
+		esac
+		echo "Repo Type = $REPO_TYPE"; echo
+	fi
+
+	if [ ! "$GITHUB_USER" ] ; then
+		echo -n 'Enter github user: ' ; read GITHUB_USER
+		[ ! "$GITHUB_USER" ] && echo 'No user, exiting...' && exit 1
+	fi
+
+	if [ ! "$USER_NAME" ] ; then
+		echo -n 'Enter name [optional]: ' ; read USER_NAME
+		[ ! "$USER_NAME" ] && USER_NAME="${GITHUB_USER}"
+	fi
+
+	if [ ! "$USER_EMAIL" ] ; then
+		echo -n 'Enter github email: ' ; read USER_EMAIL
+		[ ! "$USER_EMAIL" ] && echo 'No email, exiting...' && exit 1
+		[ "$USER_EMAIL" = "user" ] && USER_EMAIL="${GITHUB_USER}@gmail.com" #for me
+	fi
+
+	if [ ! "$CORE_EDITOR" ] ; then
+		which mp &>/dev/null && CORE_EDITOR=mp
+		which nano &>/dev/null && CORE_EDITOR=nano
+	fi
+
+	if [ ! "$DEFAULT_BRANCH" ] ; then
+		DEFAULT_BRANCH=master
+		[ "$REPO_NAME" = "woof-CE" ] && DEFAULT_BRANCH=testing
+		echo -n "Enter default branch [leave empty for ${DEFAULT_BRANCH}]: "
+		read branch
+		[ "$branch" = "" ] && branch=${DEFAULT_BRANCH}
+		echo "Branch = $branch"
+		echo
+	fi
+}
+
+function basic_settings() {
+
+	if [ ! -d .git ] ; then
+		echo "No .git directory found"
+		exit 1
+	fi
+
+	get_variables
+
+	git config --global branch.autosetupmerge always
+	git config --global color.diff auto
+	git config --global color.grep auto
+	git config --global color.interactive auto
+	git config --global color.ui true
+	git config --global http.sslverify false
+	git config --global core.pager less
+	git config --global core.editor "${CORE_EDITOR}"
+	git config --global user.name "${USER_NAME}"
+	git config --global user.email "${USER_EMAIL}"
+	git config --global push.default simple
+
+	#-------
+	git remote remove upstream 2>/dev/null
+	git remote remove origin 2>/dev/null
+	if [ "$REPO_TYPE" = "main" ] ; then
+		# if Repo Type "main": origin (fork) = upstream (main)
+		git remote add upstream ${REPO_URL}
+		git remote add origin ${REPO_URL}
+	else
+		echo "-----------------------------------------"
+		echo "Your fork must be accesible through"
+		echo "  https://github.com/${GITHUB_USER}/${REPO_NAME}"
+		echo "Otherwise you should albort now"
+		echo "-----------------------------------------"
+		git remote add upstream ${REPO_URL}
+		git remote add origin https://github.com/${GITHUB_USER}/${REPO_NAME}
+	fi
+	#-------
+	dbranch=$(git branch -a | grep '\* ' | sed 's|* ||' | sort -u)
+
+	git fetch upstream
+	git fetch origin
+	for i in $(git branch -a | grep remote | sed 's|.*/||' | sort -u)
+	do
+		echo "Branch '$i'"
+		git branch --track ${i} upstream/${i} || {
+			git checkout ${i} || continue
+			git branch --set-upstream-to=upstream/${i}
+		}
+	done
+	if [ "$dbranch" ] ; then
+		git checkout ${dbranch}
+	else
+		git checkout ${branch}
+	fi
+	git status
+
+}
+
+function report() {
+	echo
+	echo "GITHUB_USER   : $GITHUB_USER"
+	echo "USER_NAME     : $USER_NAME"
+	echo "USER_EMAIL    : $USER_EMAIL"
+	echo "REPO_TYPE     : $REPO_TYPE"
+	echo "REPO_URL      : $REPO_URL"
+	echo "DEFAULT_BRANCH: $DEFAULT_BRANCH"
+	echo
+}
+
+#-----------------------------------------------------------
+
+script=${0##*/}
+
+case $1 in
+	email) set_email; exit     ;; #inside git dir
+	basic) basic_settings; report ; exit;; #inside git dir
+	https*) REPO_URL="$1"          ;;
+esac
+
+#-----------------------------------------------------------
+
+get_repo
+
+if [ -d ${REPO_NAME}-git ] ; then
+	echo
+	echo "*** '${REPO_NAME}-git' already exists"
+	echo "If you want to setup that existing dir:"
+	echo " - cd ${REPO_NAME}-git"
+	echo " - $script basic"
+	echo "Press CTRL-C to cancel or Enter to continue"
+	read zzz
+fi
+
+case "$PWD" in *"/${REPO_NAME}-git")
+	if [ -d .git ] ; then
+		echo
+		echo "*** It looks like we're inside ${REPO_NAME}"
+		echo "If you want to setup this dir, REPO_TYPE:"
+		echo " - $script basic"
+		exit
+	fi
+	;;
+esac
+
+if [ -d .git ] ; then
+	echo "There is a .git directory in this location"
+	echo "It's not recommended to continue. Remove that directory first.."
+	echo "Press CTRL-C to cancel or Enter to continue.."
+fi
+
+if [ ! "$REPO_TYPE" ] ; then
+	echo
+	echo "We're going to create a local ${REPO_NAME^^} repo"
+	echo
+	echo "Is this a fork or the main repo?"
+	echo
+	echo "Fork: you already forked the repo through the github web interface"
+	echo "      you push to your fork and open a pull request afterwards.."
+	echo "Main: you own/have write access to the main repo"
+	echo "      you intend to push commits directly to the main repo"
+	echo ""
+	echo " ***** Read github/git tutorials *****"
+	echo
+	echo "1. Fork [default]   (origin=fork upstream=main) " 
+	echo "2. Main Repo        (origin=upstream)"
+	echo
+	echo -n "Enter option: "
+	read REPO_TYPE
+	case $REPO_TYPE in
+		2) REPO_TYPE=main  ;;
+		*) REPO_TYPE=fork ;;
+	esac
+fi
+echo "Repo Type = $REPO_TYPE"
+echo
+
+#-----------------------------------------------------------
+
+gitdir=${REPO_NAME}-git
+get_variables
+if [ "$REPO_TYPE" = "main" ] ; then
+	git clone ${REPO_URL} ${gitdir} 
+else
+	git clone https://github.com/${GITHUB_USER}/${REPO_NAME} ${gitdir}
+fi
+cd ${gitdir}
+basic_settings
+report
+
+echo
+echo " ***** Read github/git tutorials *****"
+echo
+echo "Ok, you can now start/continue your work"
+echo "- cd $gitdir"
+
+### END ###

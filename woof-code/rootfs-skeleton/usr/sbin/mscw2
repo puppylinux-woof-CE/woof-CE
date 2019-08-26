@@ -1,0 +1,427 @@
+#!/bin/dash
+# set default soundcard for user
+#
+# Copyright (C) James Budiono 2013, 2016, 2018, 2019
+# License: GPL Version 3 or later
+#
+# Version 2 (Jan 2016): re-written. Supports mix-out.
+# Version 3 (Jul 2016): supports stereo swap
+# Version 4 (Oct 2018): support bluez-alsa
+# Modified for Puppy - jamesbond
+#
+# $1-special command
+
+### configuration
+APPTITLE="Set Default Soundcard"
+ALSADEV_PREFIX=${ALSADEV_PREFIX:-fd}
+ASOUNDRC=${ASOUNDRC:-/etc/asound.conf}	# This is for Puppy
+SPOT_HOME=$(awk -F: '$1=="spot" {print $6}' /etc/passwd)
+
+### run-time variables
+SOUNDCARDS=
+BT_DEVICES=
+DMIX_IPC_KEY=
+DSNOOP_IPC_KEY=
+MIXLOOP_IPC_KEY=
+
+### output: SOUNDCARDS, BT_DEVICES, DMIX_IPC_KEY, DSNOOP_IPC_KEY
+detect_hardware() {
+	SOUNDCARDS=$(aplay -l | awk '$1~/card/ { print "\"" $0 "\" " "\"" $0 "\"" }')
+	BT_DEVICES=$(ls -d /var/lib/bluetooth/*/* | sed 's|/var/lib/bluetooth/.*/||; /:/!d')
+	BT_DEVICES=$(for p in $BT_DEVICES; do
+	awk -v mac=$p -F= '/^Name=/ { print "\""mac"\"", "\""$2, "(" mac ")\"" }' /var/lib/bluetooth/*/$p/info
+	done)
+	DMIX_IPC_KEY=$(od -An -tu4 -N3 /dev/urandom)
+	DSNOOP_IPC_KEY=$(od -An -tu4 -N3 /dev/urandom)
+	MIXLOOP_IPC_KEY=$(od -An -tu4 -N3 /dev/urandom)
+	
+	if pidof bluetoothd > /dev/null; then
+		SOUNDCARDS="$SOUNDCARDS bluetooth \"Bluetooth devices\""
+	fi
+}
+
+########## UI helpers #########
+
+# $1-info
+infobox() {
+	if [ $DISPLAY ]; then
+		Xdialog --title "$APPTITLE" --infobox "$1" 0 0 10000
+	else
+		dialog --backtitle "$APPTITLE" --infobox "$1" 5 50
+	fi
+}
+
+# $1-text, $2-choices, output: stdout
+choices() {
+	if [ $DISPLAY ]; then
+		eval Xdialog --title \"$APPTITLE\" --stdout --no-tags --menubox \""$1"\" 20 100 5 $2
+	else 
+		eval dialog --backtitle \"$APPTITLE\" --stdout --no-tags --menu \""$1"\" 0 0 0 $2
+	fi
+}
+
+# $1-text, $2-choices, output: stdout
+multi_choices() {
+	if [ $DISPLAY ]; then
+		eval Xdialog --title \"$APPTITLE\" --stdout --no-tags --separator \" \" --checklist \""$1"\" 20 100 5 $2
+	else
+		eval dialog --title \"$APPTITLE\" --stdout --no-tags --separator \" \" --checklist \""$1"\" 0 0 0 $2
+	fi
+}
+
+# $1-text
+yesno() {
+	if [ $DISPLAY ]; then
+		Xdialog --title "$APPTITLE" --yesno "$1" 0 0
+	else
+		dialog --title "$APPTITLE" --yesno "$1" 0 0
+	fi
+}
+
+# $1-text
+die() {
+	infobox "$1"
+	exit
+}
+
+die_unchanged() {
+	die "Operation cancelled. Nothing was changed."
+}
+
+
+############## UI #############
+
+### output: CARD
+choose_card() {
+	CARD=$(choices "Choose card to be made as default" "$SOUNDCARDS")
+}
+
+### input: CARD, output: HW, HWMIXER (asoundrc hardware device for HW/HWMIXER)
+get_card_hardware() {
+	case "$CARD" in
+		cancel) ;; # do nothing if cancelled
+		bluetooth) 
+			if BT_DEV=$(choices "Choose bluetooth devices" "$BT_DEVICES"); then
+				#HW="{ type bluetooth device ${BT_DEV%% *} profile \"auto\" }" ;;
+				HW="bluealsa"
+				HWMIXER="bluealsa"
+				HWDEFAULTS="
+defaults.bluealsa.device $BT_DEV
+defaults.bluealsa.delay 10000
+"
+			else
+				return 1
+			fi
+			;;
+		*)	HW=$(echo $CARD | sed 's/card \([0-9]*\):.*device \([0-9]*\):.*/{ type hw card \1 device \2  }/')
+			HWMIXER=$(echo $CARD | sed 's/card \([0-9]*\):.*/{ type hw card \1 }/')
+			;;
+	esac	
+}
+
+### input: CARD, output: OPTIONS
+# options are: plug equal softvol preamp dmix dsnoop force48k force44k vdownmix
+choose_card_option() {
+	# prepare available options
+	AVAIL_OPTIONS="plug     \"Sample rate converter\" on \
+				   equal    \"Equaliser\" off \
+				   softvol  \"Software volume control\" off \
+				   preamp   \"Software volume control with 20dB preamp\" off"
+	if [ "$CARD" != bluetooth ]; then
+		AVAIL_OPTIONS="$AVAIL_OPTIONS \
+					   dmix     \"Multiple applications can output at the same time\" on \
+					   dsnoop   \"Multiple applications can record at the same time\" off \
+					   force48k \"Force hardware output rate at 48 kHz\" off \
+					   force44k \"Force hardware output rate at 44.1 kHz\" off"
+	fi
+	AVAIL_OPTIONS="$AVAIL_OPTIONS \
+				   stereoswap \"Swap stereo channel\" off \
+				   vdownmix \"Downmix multi-channel to stereo (incompatible with equaliser)\" off \
+				   mixout \"Enable mixout (pcm.looprec)\" off"
+	
+	# choose options
+	OPTIONS=$(multi_choices "Use the following plugins" "$AVAIL_OPTIONS")
+}
+
+############## Process #############
+
+# input: OPTIONS, output: updated HW
+update_hw() {
+	for p in $OPTIONS; do
+		case $p in
+			force48k) HW="${HW% \}} rate 48000 }" ;; #$(echo "$HW" | sed 's/}/ rate 48000 }/') ;;
+			force44k) HW="${HW% \}} rate 44100 }" ;; #$(echo "$HW" | sed 's/}/ rate 44100 }/') ;;
+		esac	
+	done	
+}
+
+# input: HW, OPTIONS output=PIPELINE
+build_pipeline() {
+	# pipeline can't be built arbitrarily, some devices must be used before others
+	# scan options to determine pipeline to build
+	PIPELINE=$(awk -v v="$OPTIONS" 'BEGIN {
+		split(v,o)
+		for (p in o) opt[o[p]]=1
+
+		# preamp and softvol is mutually exclusive
+		if (opt["preamp"]) opt["softvol"]=0
+		
+		# these are listed in the order the must be chained.
+		pipeline=""
+		if (opt["plug"])    pipeline = pipeline " plug"
+		if (opt["stereoswap"]) {
+			if (pipeline) pipeline = " plugswap"
+			else pipeline = pipeline " stereoswap"
+		}
+		if (opt["mixout"])  pipeline = pipeline " mixout"
+		if (opt["equal"])   pipeline = pipeline " equal"
+		if (opt["softvol"]) pipeline = pipeline " softvol"
+		if (opt["preamp"])  pipeline = pipeline " preamp"
+		if (opt["vdownmix"] && !opt["equal"]) pipeline = pipeline " vdownmix"
+		if (opt["dmix"] || opt["dsnoop"]) pipeline = pipeline " asym"
+		if (opt["dmix"])    pipeline = pipeline " dmix"
+		if (opt["dsnoop"])  pipeline = pipeline " dsnoop"
+		print pipeline " hw" # lastly do hw
+	}')
+}
+
+# input: PIPELINE, HW, HWMIXER, HWDEFAULTS
+output_conf() {
+	# firstly - output HW & HWMIXER
+	{		
+		set -- $PIPELINE
+		echo "pcm.!default" $ALSADEV_PREFIX$1
+		[ "$HWDEFAULTS" ] && echo "$HWDEFAULTS"
+		[ "$HWMIXER" ] && echo "ctl.!default $HWMIXER"
+		while [ $1 ]; do
+			case $1 in
+				hw)		echo "pcm.$ALSADEV_PREFIX$1 $HW" ;;		
+				plug)	echo "pcm.$ALSADEV_PREFIX$1 plug:$ALSADEV_PREFIX$2" ;;
+				plugswap)
+cat << EOF
+pcm.$ALSADEV_PREFIX$1 {
+	type plug
+	slave.pcm $ALSADEV_PREFIX$2
+    ttable.0.1   1
+    ttable.1.0   1		
+}
+EOF
+						;;
+				stereoswap)
+cat << EOF
+pcm.$ALSADEV_PREFIX$1 {
+	type route
+	slave.pcm $ALSADEV_PREFIX$2
+    ttable.0.1   1
+    ttable.1.0   1		
+}
+EOF
+						;;
+				equal)	echo "pcm.$ALSADEV_PREFIX$1 { type equal slave.pcm plug:$ALSADEV_PREFIX$2 } " 
+						echo "ctl.equal { type equal }"
+						;;
+
+				softvol|preamp)
+cat << EOF
+pcm.$ALSADEV_PREFIX$1 {
+    type            softvol
+    slave.pcm       $ALSADEV_PREFIX$2
+    control.name    "SoftPCM"
+    control.card    0
+EOF
+						if [ $1 = preamp ]; then
+cat << EOF
+	min_dB -5.0
+	max_dB 20.0
+	resolution 6
+EOF
+						fi
+						echo "}"
+						;;
+
+				vdownmix)
+				        playback_pcm=${ALSADEV_PREFIX}hw
+						case "$DEVICES" in
+							*dmix*) playback_pcm=${ALSADEV_PREFIX}dmix
+						esac
+						echo "pcm.$ALSADEV_PREFIX$1 { type vdownmix slave.pcm $playback_pcm }"
+						;;
+
+				asym)	playback_pcm=${ALSADEV_PREFIX}hw
+						capture_pcm=${ALSADEV_PREFIX}hw
+						case "$PIPELINE" in
+							*dmix*)   playback_pcm=${ALSADEV_PREFIX}dmix  ;;
+						esac
+						case "$PIPELINE" in
+							*vdownmix*) playback_pcm=${ALSADEV_PREFIX}vdownmix  ;;						
+						esac
+						case "$PIPELINE" in
+							*dsnoop*) capture_pcm=${ALSADEV_PREFIX}dsnoop ;;
+						esac
+cat << EOF
+pcm.$ALSADEV_PREFIX$1 { 
+		type asym 
+		playback.pcm {
+			@func getenv
+			vars [ ALSA_PCMOUT ]
+			default "$playback_pcm"
+		}
+		capture.pcm {
+			@func getenv
+			vars [ ALSA_PCMIN ]
+			default "$capture_pcm"
+		}
+}
+EOF
+						;;
+						
+				dsnoop)
+cat << EOF
+pcm.$ALSADEV_PREFIX$1 {
+	type dsnoop
+	ipc_key $DSNOOP_IPC_KEY
+	ipc_gid audio
+	ipc_perm 0660
+	slave.pcm ${ALSADEV_PREFIX}hw
+}
+EOF
+;;
+				dmix)
+cat << EOF
+pcm.$ALSADEV_PREFIX$1 { 
+	type dmix 
+	ipc_key $DMIX_IPC_KEY
+	ipc_gid audio
+	ipc_perm 0660 
+	slave {
+		pcm ${ALSADEV_PREFIX}hw
+		period_time 0
+		period_size 2048
+		buffer_size 32768		
+	}
+}
+EOF
+;;
+				mixout)
+cat << EOF
+pcm.$ALSADEV_PREFIX$1 {
+	type asym
+	playback.pcm {
+		type plug
+		route_policy "duplicate"
+		slave.pcm {
+			type multi
+			slaves.a.pcm $ALSADEV_PREFIX$2
+			slaves.a.channels 2
+			slaves.b.pcm "hw:Loopback,0,0"
+			slaves.b.channels 2
+			bindings.0.slave a
+			bindings.0.channel 0
+			bindings.1.slave a
+			bindings.1.channel 1
+			bindings.2.slave b
+			bindings.2.channel 0
+			bindings.3.slave b
+			bindings.3.channel 1
+		}
+	}
+	capture.pcm "looprec"		
+	#capture.pcm ${ALSADEV_PREFIX}hw
+}
+pcm.looprec {
+    type hw
+    card "Loopback"
+    device 1
+    subdevice 0
+}
+EOF
+			esac
+			shift
+		done
+cat << "EOF"
+
+# for use plug/plughw overrides
+pcm.vdownmix 
+{
+	@args [ SLAVE ]
+	@args.SLAVE {
+		type string
+	}
+	type vdownmix
+	slave.pcm $SLAVE
+}
+# for a2dp-alsa
+pcm.a2dpfifo {
+	type rate
+	slave {
+		pcm {
+			type file
+			slave.pcm "null"
+			file "/tmp/a2dp.fifo"		
+		}
+		rate 44100
+	}
+}
+EOF
+	} > $ASOUNDRC
+
+	# update spot too
+	if [ $(id -u) -eq 0 ]; then
+		case $ASOUNDRC in
+			*/.asoundrc) # if per-user settings
+				cp $ASOUNDRC $SPOT_HOME # whatever we do for root we also do for spot
+				chown spot:spot $SPOT_HOME/${ASOUNDRC##*/}
+		esac
+	fi
+}
+
+# other final stuff todo
+any_other_business() {
+	# offer to enable radeon hdmi if output is via HDMI and card is radeon
+	if lsmod | grep -q radeon && echo "$CARD" | grep -q HDMI; then
+		[ $(id -u) -ne 0 ] && gtksu "Enable radeon audio over HDMI" "$0" enable-radeon-audio ||
+		"$0" enable-radeon-audio
+	fi
+
+	# ask if want to re-map OSS if it is currently loaded
+	case $CARD in
+		bluetooth) bt-device -c $BT_DEV ;; # connect to device
+		*)  if lsmod | grep -q snd_pcm_oss &&
+				yesno "Do you want to remap OSS emulation too?"; then
+				set -- $HW
+				[ $(id -u) -ne 0 ] && gtksu "Remap OSS emulation" "$0" remap-oss $5,$7 ||
+				"$0" remap-oss $5,$7
+			fi ;;
+	esac
+}
+
+### must run as root, $1-special command, $2-more params for special commands
+special_command() {
+	case $1 in
+		enable-radeon-audio)
+			if yesno "Enable sound over Radeon HDMI?"; then
+				echo "options radeon audio=1" > /etc/modprobe.d/radeon-audio.conf
+			else
+				rm /etc/modprobe.d/radeon-audio.conf
+			fi
+			exit
+			;;
+		remap-oss)
+			rmmod snd-pcm-oss 
+			modprobe snd-pcm-oss dsp_map=$2
+			echo "options snd-pcm-oss dsp_map=$2" > /etc/modprobe.d/pcm-oss-remap.conf
+			exit
+			;;
+	esac
+}
+
+########### main ############
+special_command "$@" # check for special commands first
+detect_hardware      # various run-time vars
+choose_card || die_unchanged         # returns CARD
+get_card_hardware || die_unchanged   # returns HW, HWMIXER
+choose_card_option || die_unchanged  # returns OPTIONS
+update_hw       # based on OPTIONS, returns updated HW
+build_pipeline  # HW, HWMIXER, OPTIONS
+output_conf     # PIPELINE, HW, HWMIXER
+any_other_business # CARD, HW

@@ -1,37 +1,81 @@
 #!/bin/sh
-#Exit from X, will cause return to xwin.
+# called from shutdown menu
+# config files: ~/.jwmrc, etc
+# script: wmexit -- symlinks: wmreboot wmpoweroff restartwm
+
+export TEXTDOMAIN=wmexit
+export OUTPUT_CHARSET=UTF-8
+
+script=${0##*/}
+script2=$1
+
+case $script in wmexit|wmreboot|wmpoweroff|restartwm) OK=1 ;; esac
+case $script2 in wmexit|wmreboot|wmpoweroff|restartwm) script=$script2 ; shift ; OK=1 ;; esac
+[ ! "$OK" ] && echo "ERROR: $script is not valid" && exit 1
+echo $script
+
+[ -f /etc/wmexit.conf ] && . /etc/wmexit.conf
+if [ "$WMEXIT_SPLASH" = "yes" ] ; then
+	[ $WMEXIT_SPLASH_BG ] && BG="-bg $WMEXIT_SPLASH_BG"
+	[ $WMEXIT_SPLASH_FG ] && FG="-fg $WMEXIT_SPLASH_FG"
+	case $script in
+		restartwm)  SMSG="$(gettext 'Restarting window manager....')" ;;
+		wmexit)     SMSG="$(gettext 'Exiting to console....')" ;;
+		wmreboot)   SMSG="$(gettext 'Rebooting....')" ;;
+		wmpoweroff) SMSG="$(gettext 'Powering down....')" ;;
+	esac
+	yaf-splash -placement top $BG $FG -timeout 10 -text "$SMSG" &
+fi
+
+if pidof lxpanel &>/dev/null ; then #probably running LXDE
+	#http://wiki.lxde.org/en/LXPanel#Fix_empty_menu_in_LXPanel
+	find ~/.cache/menus -name '*' -type f -delete
+fi
+
+#--------------
+case $script in
+   restartwm)
+      ## Exit from window manager ##
+      # will cause return to xwin, which reads
+      # /tmp/wmexitmode.txt and will relaunch w.m.
+      NEXTWM="$1"
+      [ $NEXTWM ] || NEXTWM="`cat /etc/windowmanager`" #precaution.
+      echo -n "$NEXTWM" > /etc/windowmanager #this makes change permanent.
+      EXITMODE="$NEXTWM"
+      ;;
+   wmexit)
+      ## Exit from X, will cause return to xwin ##
+      EXITMODE="exit"
+      ;;
+   wmreboot|wmpoweroff)
+      ## reboot/shutdown ##
+      . /etc/rc.d/PUPSTATE
+      if [ $PUPMODE -eq 5 ] && [ $DISPLAY ] ; then #first shutdown.
+         shutdownconfig #dlgs for creating save-file.
+         #...writes results to /tmp/shutdownconfig_results, which /etc/rc.d/rc.shutdown reads.
+         [ $? -eq 255 ] && exit #abort shutdown.
+      fi
+      [ "$script" = 'wmreboot' ] && EXITMODE="reboot"
+      [ "$script" = 'wmpoweroff' ] && EXITMODE="poweroff"
+      ;;
+esac
 
 #/sbin/pup_event_frontend_d will quit if this file exists...
-echo -n "exit" > /tmp/wmexitmode.txt
+echo -n "$EXITMODE" > /tmp/wmexitmode.txt
 
-#give time for /sbin/pup_event_frontend_d to quit.
-#w478 testing 2.6.18.1 kernel, pup_event_frontend_d did not exit when it
-#detected /tmp/wmeximode.txt, but became 'defunct'...
-KCNT=0
-PSPEFD="`ps -C pup_event_frontend_d | grep 'pup_event_front' | grep -v 'defunct'`"
-#while [ "`pidof pup_event_frontend_d`" != "" ];do
-while [ "$PSPEFD" != "" ];do
- sleep 0.5
- KCNT=`expr $KCNT + 1`
- [ $KCNT -gt 60 ] && break #30 secs.
- PSPEFD="`ps -C pup_event_frontend_d | grep 'pup_event_front' | grep -v 'defunct'`"
-done
+###########################################################
+
+while [ "`pidof snapmergepuppy`" ] ; do sleep 1 ; done
 sleep 0.2
 
 sync
 
-if [ "`pidof xfce4-panel`" != "" ];then
- #killall xfce4-panel
- kill `pidof xfce4-panel`
- exit
-fi
+         #xfce       #lxde     #LXQt        #window managers
+for i in xfce4-panel lxsession lxqt-session `cat /etc/windowmanager` jwm icewm openbox X Xorg
+do
+	for pid in `pidof $i` ; do
+		kill $pid || kill -9 $pid
+	done
+done
 
-#w003
-CURRENTWM="`cat /etc/windowmanager`"
-kill -9 `pidof $CURRENTWM`
-
-##exec killall $PREVIOUSWM
-##exec killall X
-#killall X #default is SIGTERM.
-#sleep 1
-#exec killall -9 X #make sure X is killed.
+### END ###

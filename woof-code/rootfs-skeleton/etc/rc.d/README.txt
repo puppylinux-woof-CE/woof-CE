@@ -11,7 +11,7 @@ have an entry to start it.
 Startup:
 
 When Puppy boots, the order of execution of the
-scripts is (except for a full-hd installation and UniPup):
+scripts is (except for a full-hd installation):
 
   /init (in the initial ramdisk)
 
@@ -41,16 +41,5 @@ In that case, initrd.gz is not used, and there is no pivot_root and no
 The above sequence is still correct, except that the Busybox /sbin/init
 is the first thing that executes, then rc.sysinit, etc.
 
-UniPup
-------
-UniPup is a variant of Puppy that runs totally in the initramfs.
-The execution sequence is essentially the same as for the full-hd
-installation.
-In this case, the first script that executes is /init but this is just
-a symlink to /bin/busybox. Then it is rc.sysinit and as shown above.
-
-
 Note1: /etc/rc.d/functions is from Slackware. Some service scripts in /etc/init.d/
       may use it.
-Note2: /etc/rc.d/functions4puppy4 are various functions needed by Puppy boot
-       scripts, pup_event_backend* and pup_event_frontend* scripts.

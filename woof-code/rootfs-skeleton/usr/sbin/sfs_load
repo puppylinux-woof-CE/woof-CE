@@ -1,0 +1,2414 @@
+#!/bin/sh
+# sfs_load 28 Jan 2011 by shinobar
+# always assume squashfs 4.0
+# some code from the otf_sfs_loader by goingnuts, the sfs_installation.sh by 01micko and scrips by Barry
+# 29 Jan 2011 v0.2: fix under RAM mode (PUPSAVE=5), multisession CD support (PUPMODE=77)
+# 30 Jan 2011 v0.3: unionfs mount option, fix menu update after unload
+#  4 Feb 2011 v0.4: fix was pulldown failed, confirm before move, do not support unionfs other than aufs
+#  5 Feb 2011 v0.5: fix was sfs removed from the list even unload failed, search smaller number if pup_roN is not available, fix typo ZDRBASE
+#  9 Feb 2011 v0.6: fix was moved remote files, restart X info, launcher (thanks to seaside)
+# 14 Feb 2011 v0.8: warning excessive extra files, restart main dialog, cleanup whiteout at unload(thanks to jpeps and jemimah), mkfontscale, mkfontdir
+# 23 Feb 2011 v0.9: improve compatibility under PUPMODE=6 (thanks to mavrothal) and PUPMODE=77
+# 23 Feb 2011 v0.9: persistent loading excessive sfs after reboot(idea from jamesbond), main dialog layout(thanks to jamesbond)
+# 23 Feb 2011 v0.9: glob pattern file neme, puppypin
+# 15 Mar 2011 v1.0: again PUPMODE=5/6/77
+# 17 Mar 2011 v1.1: load/unload under PUPMODE=5, launcher
+# 22 Sep 2011 v1.1.1: free(busybox) version compatible
+# 26 Sep 2011 v1.2: fix was undesired mount (thanks to mories), fix was fleezed input in combobox, fix ramsize
+# v1.3.9: fix was not perform Startup scripts at load
+# v1.3.9: HAS_ICONS, HAS_GLIB_SCHEMA (jemimah)
+# v1.3.9: wipe out the masking files in save layers at load
+# v1.3.9: another tmpfs (/mnt/tmp) for live CD and etc.
+# v1.3.9: PUPHOME without pupsave (PUPMODE=5), look up live CD, PUPMODE=77
+# v1.3.9: messages - not to delete loaded sfs, retry unload, experimental, unsupport versions
+# 8 Mar 2012 v1.4: extrasfsfind, upadate nls
+# 9 Apr 2012 v1.9.1: clean up whiteout once for load, busybox umount and do not 'losetup -d'(jemimah), where to mount(pup_ro?), always register EXTRASFSLIST, no wide search for full path
+#1 Mar 2012 v1.9.3: fix was clean up whiteout do not see pup_z, incleased RESERVHDD/RAM, version info, jwm -reload without flicker
+#6 Mar 2012 v1.9.4: fix excess(>6) load was messing up with some version of busybox(lupu), fix was menu dissappeared for eccess sfs, fix was error but already mounted, avoid 'losetup -d' for some kernel
+#6 Mar 2012 v1.9.4: fix 'restart X' warning, never use external download_file, 'Back to sfs_load' button, gtkdialog4
+#19 May 2012 v1.9.5: fix was no move but always copy
+#31 May 2012 v1.9.6: fix was everytime rc.update run when the number of additional sfs > 3, also when >6
+#            v1.9.6-2: 'losetup -d' is disabled for kernel-3.x #2.0.8 do not automatic
+#14 May 2013 v1.9.7: fix was faild more than 7 after reboot (thanks to nonki3476), fix was failed cleanwhite on flash, support util-linux-2.23 (thanks to simargl) , debugging log
+#31 May 2013 v1.9.8: again fix was failed cleanwhite on flash with RAM mode (PUPMODE=5)
+#18 Dec 2013 v2.0: '--info' shows installed sfs list, fix was always copy in cli(thanks to R-S-H), fix launcher was missing some desktop application name, fix menu icons for excess sfs
+#09 Jun 2014 v2.0.8: ydrv, save-to-directory(gyro), DISSOSIATE option to be set by hardcode (thanks to R-S-H), remove find -mount option(Karl Godt) 
+#26 Jun 2014 v2.0.9: init script in initramfs may not handle extra sfs
+#27 Jun 2014 v2.0.10: afterwork at boot
+#3 Jul 2014 v2.0.11: fix save-to-directry(gyro), fix was ydrv on loadable list
+#8 Jul 2014 v2.0.12: no extra sfs but layers can be changed, rewrite cleanwhite, WIPEWHITEONINIT
+#12 Jul 2014 v2.0.13: cleanwhite fix(SFR)
+#v2.1.8: all extra sfs by sfs_load not by initramfs
+#v2.1.9: fix loop device conflict with irregular initramfs
+#2014-08-10 v2.2: fix was removed all sfs after abnormal shutdown
+#2014-09-06 v2.3: fix again save-to-directry, avoid always mounted puppy sfs partition under PUPMODE=5  
+#20150706 v2.3.0 by ASRI: Increase the size of main GUI # Add info "number of sfs mounted" # For the list of mounted sfs, use a "table" (instead of "list") to sort the list alphabetically # Add button refresh
+#20151004 v2.3.3 by ASRI: improve kernel detection KERNVER (Iguleder), add support of pupmode 6 (mavrothal v2.3.2)
+#20151028 v2.3.7: Warning SFS in /tmp at pupmod 5 and unloading fdrv sfs (mavrothal), desktops under /usr/local (shinobar) 
+
+#exec &>/tmp/sfsl.log ; set -x
+
+. /etc/rc.d/PUPSTATE
+if [ "$PUNIONFS" = "overlay" ] ; then
+	exit
+fi
+
+for i in $@ ; do
+	if [ "$i" = "stop" ] ; then #simple thing to do, do it as fast as possible
+		[ "`whoami`" != "root" ] && exec sudo -A ${0} ${@}
+		. /etc/rc.d/BOOTCONFIG
+		echo "PREVEXTRASFSLIST='$EXTRASFSLIST'"
+		echo "PREVEXTRASFSLIST='$EXTRASFSLIST'" > /etc/rc.d/BOOTCONFIG.save
+		exit
+	fi
+done
+
+[ -s /etc/rc.d/BOOTCONFIG.save ] && . /etc/rc.d/BOOTCONFIG.save
+
+MYPATH=$0
+MYNAME=$(basename "$0")
+VERSION=3.0
+ORGOPT="$@"
+#some options the puplet builder can choose
+WIPEWHITEONINIT="true"	# true/false
+WIPEWHITEONLOAD="true"	# true/false
+WIPEWHITEUNLOAD="true"	# recommend 'true'
+RESERVHDD=131072 # kb rest #v1.9.3: increased to 128MB
+RESERVRAM=131072 # kB rest #v1.9.3: increased to 96MB, v2.0: 128MB
+
+MYTMPDIR="/tmp/sfs_load"
+LOGFILE="$MYTMPDIR/${MYNAME}.log"
+TMPFILE="$MYTMPDIR/${MYNAME}_tmp.txt"
+ICONS="/usr/share/pixmaps/puppy/clock.svg"
+MYICON="/usr/share/pixmaps/squashfs-image.png"
+MYSMALLICON="/usr/share/pixmaps/sfs.xpm"
+PUPSTATE=/etc/rc.d/PUPSTATE
+BOOTCONFIG=/etc/rc.d/BOOTCONFIG
+PUPSAVECONFIG=$(which pupsaveconfig)
+PUPSAVECONF=/etc/rc.d/pupsave.conf
+SHUTDOWNCONF=/tmp/shoudownconfig_results
+DISTRO_SPECS=/etc/DISTRO_SPECS
+PKGDIR="/var/packages"
+INSTALLEDLIST="$PKGDIR/user-installed-packages"
+WOOFLIST="$PKGDIR/woof-installed-packages"
+[ "$HOME" ] || HOME=/root
+JWMRC="$HOME/.jwmrc"
+
+#fixme: avoid multiple run
+# restart log
+[ -f  "$LOGFILE" ] && ALREADYRUN="y"
+mkdir -p "$MYTMPDIR"
+
+export DEBUGFLAG=""
+tty | grep -q '^/dev/[^c]' && DEBUGFLAG="y"
+case "$1" in
+	-d|--debug) DEBUGFLAG="y";;
+esac
+
+[ "$DISPLAY" ] || LANG=C  # no nls as for console, without X
+export TEXTDOMAIN=sfs_load
+export OUTPUT_CHARSET=UTF-8
+eval_gettext() {
+	local myMESSAGE=$(gettext "$1")
+	eval echo \"$myMESSAGE\"
+}
+TITLE="SFS-Load"
+DESCRIPTION=$(gettext "on-the-fly")
+LONG_TITLE="$TITLE $DESCRIPTION v.$VERSION"
+
+usage() {
+	echo "$LONG_TITLE" >&2
+	echo $(gettext "Load or unload extra sfs files on-the-fly.") >&2
+	echo "usage: $MYNAME [OPTION] [OPTION2 ...] [+|-][FILE_NAME] [+|-][FILE_NAME2] ...
+      +FILE_NAME: load, same as FILE_NAME without '+'.
+      -FILE_NAME: unload, same as --unload FILE_NAME.
+  Options (short, or long):
+    -u, --unload: unload the extra sfs files.
+    -c, --cli: commandline interface, without dialog.
+    -d, --debug: verbose output for debugging information.
+    -h, --help: print this help and exit.
+    -i, --info: print the base names of installed sfs files.
+    -l, --list=FILE_LIST : read file names from the list file FILE_LIST.
+    -q, --quiet: skip the 1st confirmation dialog.
+    -v, --version: print version and exit.
+    - (without file name): read file names from standard input. Imply '--cli'.
+  Examples:
+        ls -1 DIR_NAME | $MYNAME -
+        $MYNAME - < FILE_LIST
+        $MYNAME --list=FILE_LIST
+      Note that FILE_LIST contains each filename per a line.
+  Other options(sfs_load internal use):
+    -n, --no-afterwork: suspend fixmenus and etc. after (un)loading.
+    -a, --afterwork (without file name): only do suspended afterwork.
+    -s, --skip-fixmenus: skip fixmenus (but do startup scripts and etc.).
+    start: auto load at boot
+    stop: clean up at shutdown" >&2
+}
+
+log() {
+	echo -e "$MYNAME: $*"
+	echo -e "$MYNAME: $*"  >> "$LOGFILE"
+}
+
+info() {
+	log "$*"
+	[ "$GUI" = "" ] && return
+	local OPT="--info"
+	case "$1" in -*) OPT=$1; shift ;; esac
+	errmsg $OPT "$@"
+}
+
+splash() {
+	[ "$1" = "--stop" -a "$GUI" = "" ] && return
+	log "$*"
+	[ "$GUI" = "" ] && return
+	errmsg --splash "$@"
+}
+
+confirm() {
+	[ "$GUI" = "" ] && debug "$*" && return
+	local OPT="--ok-cancel"
+	case "$1" in -*) OPT=$1; shift ;; esac
+	errmsg $OPT "$@"
+}
+
+debug() {
+	[ "$DEBUGFLAG" ] && log "debug: $*"
+}
+
+error() {
+	log "ERROR: $*"
+	echo -e "$MYNAME: $*" >&2
+	[ "$GUI" = "" ] && return
+	errmsg --error "$@"
+}
+
+fatal() {
+	case "$1" in --usage)
+		shift
+		[ "$@" ] && error "$@"
+		usage; exit 1;;
+	esac
+	error "fatal:$*"
+	[ "$UNMOUNTME" ] && umount "$UNMOUNTME" && UNMOUNTME=""
+	[ "$REENT" ] && [ -x "$MYPATH" ] && exec "$MYPATH" $ORGOPT --quiet
+	exit 1
+}
+
+finish() {
+	splash --stop
+	[ "$UNMOUNTME" ] && umount "$UNMOUNTME" && UNMOUNTME=""
+	[ "$REENT" = "" ] && exit 0
+	[ -x "$MYPATH" ] && exec "$MYPATH" $ORGOPT --quiet
+	exit
+}
+
+GTKDIALOG=gtkdialog
+UNMOUNTME=""
+export XPID=""
+export DIALOG=""
+waitsplash() {
+	[ "$1" = "--stop" -a "$GUI" = "" ] && return
+	[ "$XPID" != "" ] && [ $XPID -ne 0 ] && kill $XPID && XPID=""
+	if [ "$GUI" = "" ]; then
+		[ "$*" ] && echo "$MYNAME: $*"
+		return
+	fi
+	case "$1" in
+		*stop) return;;
+		*start|-*) shift;;
+	esac
+	/usr/lib/gtkdialog/box_splash -text "$* $(gettext "Wait a moment ...")" &
+	XPID=$!
+}
+
+processing() {
+	[ "$GUI" != "" ] && [ "$XPID" = "" ] && waitsplash --start $(gettext "Processing...")
+}
+
+errmsg () {
+	#echo $0 $@ >&2
+	[ "$XPID" != "" ] && [ $XPID -ne 0 ] && kill $XPID && XPID=""
+	TIMEOUT=0
+	SPLASH=""
+	BUTTONS="<hbox><button ok></button></hbox>"
+	while [ "$1" != "" ]; do
+		case "$1" in
+			-*mark=*) MARK=$(echo $1| cut -d'=' -f2); shift;;
+			-*mark) shift: MARK=$1; shift;;
+			-*error)  MARK="error";shift;;
+			-*warn*) MARK="warning";shift;;
+			-*info) MARK="info"; shift;;
+			-*yes*no*cancel) M="question"; shift
+				BUTTONS="<hbox><button yes></button><button no></button><button cancel></button></hbox>"
+				;;  
+			-*yes*no)
+				M="question"
+				shift
+				BUTTONS="<hbox><button yes></button><button no></button></hbox>"
+				;;
+			-*ok*cancel) M="question"; shift
+				BUTTONS="<hbox><button ok></button><button cancel></button></hbox>"
+				;;
+			-*custom) BUTTONS=""; shift;;
+			-*button*=*) BUTTONS=$(echo $1| cut -d'=' -f2-); shift;;
+			-*button*) shift: BUTTONS=$1; shift;;
+			-*splash) M="info"; BUTTONS=""; SPLASH="y"; shift;;
+			-*timeout) M="info";shift
+				if echo "$1" | grep -q '^[0-9][0-9]*$'; then
+					TIMEOUT=$1; shift
+				else
+					TIMEOUT=10
+				fi
+				[ $TIMEOUT -lt 5 ] && BUTTONS=""
+				;;
+			-*stop) return;;
+			*) break;
+		esac
+	done
+	[ "$MARK" != "" ] && M="$MARK"
+	case "$M" in
+		info|warning|error|question) MARK="dialog-$M";;
+		*) MARK="$M";;
+	esac
+	ERRMSG="$@"
+	[ "$ERRMSG" = "" ] && ERRMSG=$(gettext "An error occured")
+	if [ "$GUI" = "" ]; then
+		if [ "$M" = "error" -o "$M" = "warning" ]; then
+			echo "$ERRMSG" >&2
+		else
+			echo "$ERRMSG"
+		fi
+		return
+	else
+		debug "$ERRMSG"
+	fi
+	[ "$TITLEICON" ] || TITLEICON="icon-name=\"gtk-$MARK\""
+	export ERRMSG
+	export DIALOG="<window title=\"$TITLE\" $TITLEICON><vbox>
+    <hbox>
+    <pixmap  icon_size=\"5\"><input file stock=\"gtk-$MARK\"></input></pixmap>
+    <text><input>echo -en \"\$ERRMSG\"</input></text>
+    </hbox>
+    $CUSTOM
+	$BUTTONS
+	</vbox></window>"
+	TITLEICON=""
+	MARK=""
+	CUSTOM=""
+	if [ $TIMEOUT -eq 0 -a "$SPLASH" = "" ]; then
+		RET=$($GTKDIALOG -p DIALOG -c || echo "$DIALOG" >&2)
+		EXIT=abort
+		eval "$RET"
+		debug "EXIT=$EXIT"
+		case $EXIT in Yes|yes|OK|Ok|ok) return 0 ;; esac
+		return 1
+	elif [ "$SPLASH" != "" ]; then
+		rm -f $TMPFILE
+		$GTKDIALOG -p DIALOG -c >$TMPFILE &
+		XPID=$!
+	else
+		rm -f $TMPFILE
+		$GTKDIALOG -p DIALOG -c >$TMPFILE &
+		XPID=$!
+		for I in $(seq 1 $TIMEOUT);do
+			# 28feb10 to see exact PID
+			busybox ps | grep -qw "^[[:blank:]]*$XPID" || break
+			sleep 1
+		done
+		[ "$XPID" != "" ] && [ $XPID -ne 0 ] && kill $XPID && XPID=""
+		RET=$(cat $TMPFILE)
+		rm -f $TMPFILE
+	fi
+}
+
+kbyte2() {
+	KB=$(echo $1|tr -dc '0123456789')
+	[ "$KB" = "" ] && KB=0 
+	if [ $KB -lt 1024 ]
+	then echo ${KB}kB; return
+	fi
+	MB=$(expr $KB / 1024) # mega bytes
+	[ $MB -lt 1024 ] && echo "${MB}MB" || echo "$(dc $MB 51.2 + 1024 \/ p|sed -e 's/\(^.*\..\).*/\1/')GB"
+}
+
+remove_item() {
+	# remove_item VARIABLE ITEM
+	local VARIABLE=$1 ITEM=$2 S="" D="" W=""
+	eval S=\$$VARIABLE
+	echo $S| grep -q "$ITEM" || return 1
+	for W in $S; do
+		echo "$W" | grep -q "$ITEM" || D="$D $W"
+	done
+	D=$(echo $D)
+	eval $VARIABLE=\$D
+}
+
+HAS_MODULES=""
+HAS_FONTS=""
+HAS_PINS=""
+HAS_DESKTOPS=""
+HAS_SCRIPTS=""
+HAS_STARTUPS=""
+HAS_PROFILE=""
+HAS_ICONS=""
+HAS_GLIB_SCHEMA=""
+HAS_32BIT=""
+
+HAS_GDK=""
+HAS_MIME=""
+HAS_GTKIM=""
+HAS_PANGO=""
+HAS_GCONV=""
+
+SKIP_AFTERWORK=""	#v2.0.9
+
+has_afterwork() {
+	[ "$SKIP_HAS_AFTERWORK" ] && return	#v2.0.9
+	HAS_GDK=$(ls $MNTPNT/usr/lib/gdk-pixbuf-*/*/* 2>/dev/null)
+	HAS_MIME=$(ls $MNTPNT/usr/share/mime 2>/dev/null)
+	HAS_GTKIM=$(ls $MNTPNT/usr/lib/gtk-*/*/* | grep "gtk.immodules" 2>/dev/null)
+	HAS_PANGO=$(ls $MNTPNT/usr/lib/pango/*/* 2>/dev/null)
+	HAS_GCONV=$(ls $MNTPNT/usr/lib/gconv 2>/dev/null)
+	
+	HAS_MODULES=$(ls $MNTPNT/lib/modules 2>/dev/null)
+	HAS_FONTS=$(find -L $MNTPNT/usr/share/fonts -mindepth 1 -not -type d -printf '/%P\n' 2>/dev/null)
+	HAS_DESKTOPS=$(ls $MNTPNT/usr/share/applications $MNTPNT/usr/local/share/applications 2>/dev/null)
+	HAS_SCRIPTS=$(ls $MNTPNT/etc/init.d 2>/dev/null)
+	HAS_STARTUPS=$(ls $MNTPNT/root/Startup 2>/dev/null)
+	HAS_PROFILE=$(ls $MNTPNT/etc/profile.d 2>/dev/null) # 28 Oct 2011
+	HAS_ICONS=$(find -L $MNTPNT/usr/share/icons/hicolor -not -type d -printf '/%P\n' 2>/dev/null)
+	HAS_GLIB_SCHEMA=$(ls $MNTPNT/usr/share/glib-2.0/schemas/ 2>/dev/null)
+	if [ "$DISTRO_ARCHDIR" = "x86_64-linux-gnu" ] ; then
+		HAS_32BIT=$(ls $MNTPNT/usr/lib/i386-linux-gnu/ 2>/dev/null)
+	fi
+	if [ -s "$MNTPNT/root/Choices/ROX-Filer/PuppyPin" ]; then
+		mkdir -p "$MYTMPDIR"
+		cp -f "$MNTPNT/root/Choices/ROX-Filer/PuppyPin" "$MYTMPDIR/PuppyPin-$ROOTNAME"
+		[ -s "$MNTPNT/root/Choices/ROX-Filer/globicons" ] && cp -f  "$MNTPNT/root/Choices/ROX-Filer/globicons" "$MYTMPDIR/globicons-$ROOTNAME"
+		HAS_PINS="PuppyPin-$ROOTNAME"
+	fi
+	# save to files
+	echo $HAS_MODULES >> "$MYTMPDIR/has_modules"
+	echo $HAS_FONTS >> "$MYTMPDIR/has_fonts"
+	if [ "$ACTION" = 'load' ]; then
+		echo $HAS_PINS >> "$MYTMPDIR/has_pins"
+	else
+		echo $HAS_PINS >> "$MYTMPDIR/has_pins_removed"
+	fi
+	echo $HAS_DESKTOPS  >> "$MYTMPDIR/has_desktops"
+	echo $HAS_SCRIPTS >> "$MYTMPDIR/has_scripts"
+	echo $HAS_STARTUPS >> "$MYTMPDIR/has_startups"
+	echo $HAS_PROFILE >> "$MYTMPDIR/has_profiles"
+	echo $HAS_ICONS >> "$MYTMPDIR/has_icons"
+	echo $HAS_GLIB_SCHEMA >> "$MYTMPDIR/has_glib_schema"
+	echo $HAS_32BIT >> "$MYTMPDIR/has_32bit"
+	
+	echo $HAS_GDK >> "$MYTMPDIR/has_gdk"
+	echo $HAS_MIME >> "$MYTMPDIR/has_mime"
+	echo $HAS_GTKIM >> "$MYTMPDIR/has_gtkim"
+	echo $HAS_PANGO >> "$MYTMPDIR/has_pango"
+	echo $HAS_GCONV >> "$MYTMPDIR/has_gconv"
+
+}
+
+afterwork() {
+	[ "$NO_AFTERWORK" ] && return
+	###FIXME###[ "$ACTION" = "unload" ]
+	# recall has_...
+	HAS_MODULES=$(cat "$MYTMPDIR/has_modules" 2>/dev/null | grep '.')
+	HAS_FONTS=$(cat "$MYTMPDIR/has_fonts" 2>/dev/null | grep '.')
+	HAS_PINS=$(cat "$MYTMPDIR/has_pins" 2>/dev/null | grep '.')
+	HAS_PINS_REMOVED=$(cat "$MYTMPDIR/has_pins_removed" 2>/dev/null | grep '.')
+	HAS_DESKTOPS=$(cat "$MYTMPDIR/has_desktops" 2>/dev/null | grep '.')
+	HAS_SCRIPTS=$(cat "$MYTMPDIR/has_scripts" 2>/dev/null | sort -u | grep '.')
+	HAS_STARTUPS=$(cat "$MYTMPDIR/has_startups" 2>/dev/null | sort -u | grep '.')
+	HAS_PROFILE=$(cat "$MYTMPDIR/has_profiles" 2>/dev/null | sort -u | grep '.') 
+	HAS_GLIB_SCHEMA=$(cat "$MYTMPDIR/has_glib_schema" 2>/dev/null | grep '.')
+	HAS_32BIT=$(cat "$MYTMPDIR/has_32bit" 2>/dev/null | grep '.')
+	
+	HAS_GDK=$(cat "$MYTMPDIR/has_gdk")
+	HAS_MIME=$(cat "$MYTMPDIR/has_mime")
+	HAS_GTKIM=$(cat "$MYTMPDIR/has_gtkim")
+	HAS_PANGO=$(cat "$MYTMPDIR/has_pango")
+	HAS_GCONV=$(cat "$MYTMPDIR/has_gconv")
+	
+	rm -f "$MYTMPDIR"/has_*	# clean up has_... files
+	[ "$HAS_MODULES" ] && waitsplash $(gettext "Depmod...") && depmod -a
+	if [ "$HAS_FONTS" ]; then
+		waitsplash $(gettext "Updating font cache...")
+		HASFONTDIRS=$(echo "$HAS_FONTS"| sed -e 's,/[^/]*$,,'| uniq)
+		if which mkfontscale &>/dev/null && which mkfontdir &>/dev/null ; then
+			for D in $(find -L /usr/share/fonts -type d -printf '/%P ') ; do
+				echo "$HASFONTDIRS" | grep -qw $D || continue
+				mkfontscale "/usr/share/fonts$D"
+				if [ "$(head -n 1 "/usr/share/fonts$D/fonts.scale")" = "0" ]; then
+					rm -f "/usr/share/fonts$D/fonts.scale"
+				else
+					mkfontdir "/usr/share/fonts$D"
+				fi
+			done
+		fi
+		fc-cache -f
+	fi
+	
+	if [ "$HAS_DESKTOPS" ] && [ -e /usr/bin/update-desktop-database ] ; then
+		update-desktop-database /usr/share/applications
+		update-desktop-database /usr/local/share/applications
+	fi
+	
+	[ "$HAS_ICONS" ] && gtk-update-icon-cache -f /usr/share/icons/hicolor/
+	[ "$HAS_GLIB_SCHEMA" ] && /usr/bin/glib-compile-schemas /usr/share/glib-2.0/schemas/ 
+	
+	HAS_GDK=$(cat "$MYTMPDIR/has_gdk")
+	HAS_MIME=$(cat "$MYTMPDIR/has_mime")
+	HAS_GTKIM=$(cat "$MYTMPDIR/has_gtkim")
+	HAS_PANGO=$(cat "$MYTMPDIR/has_pango")
+	HAS_GCONV=$(cat "$MYTMPDIR/has_gconv")
+	
+	[ "$HAS_GDK" ] && gdk-pixbuf-query-loaders --update-cache
+	[ "$HAS_MIME" ] && update-mime-database /usr/share/mime
+	
+	  if [ "$HAS_GTKIM" != "" ]; then
+	   for gtkver in '1.0' '2.0' '3.0'
+	   do
+	    [ "$(which gtk-query-immodules-$gtkver)" != "" ] && gtk-query-immodules-$gtkver --update-cache 2>/dev/null
+	   done
+	  fi
+  	
+	  [ "$HAS_PANGO" ] && pango-querymodules --update-cache
+	  [ "$HAS_GCONV" ] && iconvconfig 2>/dev/null
+	
+	
+	[ "$HAS_32BIT" ] && /sbin/ldconfig && gdk-pixbuf-query-loaders32 > /usr/lib/i386-linux-gnu/gdk-pixbuf-2.0/2.10.0/loaders.cache
+	[ "$HAS_PINS" ] && mergepin
+	[ "$HAS_PINS_REMOVED" ] && removepin
+	[ "$HAS_PINS" -o "$HAS_PINS_REMOVED" ] && restart_rox
+	if [ "$HAS_DESKTOPS" -a -z "$SKIP_FIXMENUS" ]; then
+		waitsplash $(gettext "Updating menu...")
+		#v2.0: refresh default applications
+		if [ "$ACTION" != "load" ] && which defaults-chooser &>/dev/null; then
+			for F in $(ls /usr/local/bin/default* | grep -v 'defaults-changer') ; do
+				P=$(head "$F" | grep '^[^#]*exec '| grep -vw 'defaults-chooser' | head -n 1 | sed -e 's/^.*exec[ ]//' -e 's/.\$@.*$//')
+				[ "$P" ] || continue
+				X=$(echo $P| sed -e 's/rxvt [ ]*-e //'| cut -d' ' -f1)
+				[ "$X" ] && [ "$(echo $X| cut -c1)" != "/" ] && X=$(which "$X")
+				[ -x "$X" ] && continue
+				echo '#!/bin/sh
+defaults-chooser' > $F
+				chmod +x $F
+				log "'$(basename $F)' is reset."
+			done
+		fi
+		fixmenus
+		if [ "$DISPLAY" ] && pidof jwm &>/dev/null; then
+			#v1.9.3: jwm -reload without flicker (01mico)
+			jwm -reload &>/dev/null || jwm -restart
+		fi
+		waitsplash --stop
+	fi
+	if [ "$ACTION" = "load" ]; then
+		if [ "$HAS_PROFILE" != "" ]; then # 28 Oct 2011
+			for S in $HAS_PROFILE; do
+				[ -s /etc/profile.d/$S ] && source /etc/profile.d/$S
+			done
+		fi
+		[ "$HAS_SCRIPTS" = "" -a "$HAS_STARTUPS" = "" ] && return
+		splash $(gettext "Running script background...")
+		if [ "$HAS_SCRIPTS" != "" ]; then
+			for S in $HAS_SCRIPTS; do
+				[ -x /etc/init.d/$S ] && /etc/init.d/$S start &
+				sleep 0.2
+			done
+		fi
+		if [ "$HAS_STARTUPS" != "" -a "$DISPLAY" ]; then	#v1.9.2
+			for S in $HAS_STARTUPS; do
+				[ -x /root/Startup/$S ] && /root/Startup/$S &
+				sleep 0.2
+			done
+		fi
+		[ "$GUI" ] && sleep 2
+	fi
+}
+
+mergepin() {
+	log "mergepin: $HAS_PINS"
+	PUPPYPIN="$HOME/Choices/ROX-Filer/PuppyPin"
+	MASTERGLOB="$HOME/Choices/ROX-Filer/globicons"
+	GLOBICONS="$HOME/.config/rox.sourceforge.net/ROX-Filer/globicons"
+	[ -f "$PUPPYPIN" ] || return
+	[ "$HAS_PINS" ] || return
+	[ -s "$GLOBICONS" ] || cp "$MASTERGLOB" "$GLOBICONS"
+	grep -v '</pinboard>' "$PUPPYPIN" > "$MYTMPDIR/PuppyPin"
+	grep -v '</special-files>' "$GLOBICONS" > "$MYTMPDIR/globicons"
+	PINUP=""
+	GLOBUP=""
+	for F in $HAS_PINS; do
+	# PuppyPin
+	P=$(grep '<icon ' "$MYTMPDIR/$F"| head -n 1| cut -s -d'>' -f2 | cut -s -d'<' -f1 | tr -d ' ')
+	if ! grep -qw "$P" "$PUPPYPIN" ; then
+		grep '<icon ' "$MYTMPDIR/$F" >> "$MYTMPDIR/PuppyPin" && PINUP="y"
+	fi
+	# globicons
+	G="$MYTMPDIR/globicons-"$(echo $F| cut -s -d'-' -f2-)
+	P=$(grep '<rule[ ]match=' "$G"| head -n 1| cut -s -d'"' -f2 | tr -d ' ')
+	if ! grep -qw "$P" "$GLOBICONS"; then
+		grep -E '<([/]*rule|icon)' "$G" >> "$MYTMPDIR/globicons" && GLOBUP="y"
+	fi
+	done
+	echo '</pinboard>' >> "$MYTMPDIR/PuppyPin"
+	echo '</special-files>' >> "$MYTMPDIR/globicons"
+	[ "$PINUP" != "" -a -s "$MYTMPDIR/PuppyPin" ] && cp -f "$MYTMPDIR/PuppyPin" "$PUPPYPIN"
+	[ -f "$GLOBICONS" ] || return
+	[ "$GLOBUP" != "" -a -s "$MYTMPDIR/globicons" ] && cp -f "$MYTMPDIR/globicons" "$GLOBICONS"
+}
+
+removepin() {
+	log "removepin: $HAS_PINS_REMOVED"
+	PUPPYPIN="$HOME/Choices/ROX-Filer/PuppyPin"
+	[ -f "$PUPPYPIN" ] || return
+	[ "$HAS_PINS_REMOVED" ] || return
+	PLIST=""
+	for F in $HAS_PINS_REMOVED; do
+		PLIST="$PLIST
+"$(grep '<icon ' "$MYTMPDIR/$F"| cut -s -d'>' -f2 | cut -s -d'<' -f1 | tr -d ' ')
+	done
+	PLIST=$(echo $PLIST| tr ' ' '|')
+	debug "PLIST=$PLIST"
+	grep -v -E "$PLIST" "$PUPPYPIN" >  "$MYTMPDIR/PuppyPin"
+	[ -s "$MYTMPDIR/PuppyPin" ] && cp -f "$MYTMPDIR/PuppyPin" "$PUPPYPIN"
+}
+
+restart_rox() {
+	[ "$DISPLAY" ] || return  #v1.9.2
+	roxpids=`pidof ROX-Filer` || return
+	for PID in ${roxpids}; do kill $PID ; done
+	roxfiler -p "$HOME/Choices/ROX-Filer/PuppyPin" && log "ROX-Filer restarted." || log "ROX-Filer restart failed." 
+}
+
+keyword() { # 13 Nov 2011
+	echo "$1"| head -n 1| tr '|@' '  '| sed -e 's/ ([^ ]*)$//'
+}
+
+make_combo() {
+	NODUP=""
+	[ "$1" = '-' ] && NODUP="y" && shift
+	LIST="$@"
+	if [ -z "$NODUPE" ]; then
+		echo "$LIST"| sed -e 's!\([^ ][^ ]*\)!<item>\1</item>!g' |tr '@' ' ' 
+		return
+	fi
+	CHOICE=""
+	for ONEITEM in $LIST;do
+		echo "$CHOICE" | grep -q ">$(keyword $ONEITEM)[ |]" && continue
+		CHOICE="$CHOICE
+		<item>$(echo $ONEITEM|tr '@' ' ')</item>"
+	done
+	echo "$CHOICE"
+}
+
+LOADEDLIST=""
+QUEUED=$(gettext "queue"| tr ' ' '%')
+
+add_new_sfs_list() {
+	[ $1 ] || return 1
+	local F=$(basename "$1")
+	local Q=$2
+	[ "$Q" ] && Q="@($QUEUED)"
+	case "$F" in
+		$SFSBASE|$ZDRBASE|$ADRBASE|$YDRBASE|$FDRBASE) return 1 ;;
+		*.sfs) ok=1 ;;
+		*) return 1 ;; #only allow sfs files
+	esac
+	echo "$LOADEDLIST" | grep -qw "$F" && return 1  # already listed
+	if [ "$STARTSCRIPT" = "start" ] ; then
+		echo "$LOSETUP_A" | grep "/${F}$" || return 1 # not mounted
+	fi
+	if [ "$LOADEDLIST" = "" ]; then
+		LOADEDLIST="$F$Q"
+	else
+		LOADEDLIST="$LOADEDLIST
+$F$Q"
+	fi
+	return 0 
+}
+
+loaded_sfs_list() {
+	[ "$SFSMODE" != "" ] || return
+	LOADEDLIST=""
+	# looking up BOOTCONFIG
+	for F in $LASTUNIONRECORD; do
+		add_new_sfs_list $F
+	done
+	# looking up losetup
+	USEDLIST=$(losetup -a)
+	LOOPDEVS=$(echo "$USEDLIST"| cut -d':' -f1)
+	if [ "$LOOPDEVS" ]; then
+		PUP_ROS=$(LANG=C df | grep ' /initrd/pup_ro')
+		for LOOPDEV in $LOOPDEVS; do
+			if echo "$PUP_ROS" | grep -qw "^$LOOPDEV"; then
+				F=$(echo "$USEDLIST"| grep -w "$LOOPDEV"| tr -s ' ' | cut -d' ' -f3 | sed -e 's/^(//' -e 's/)$//')
+				add_new_sfs_list $F
+			fi
+		done
+	fi
+}
+
+QUEUELIST=""
+
+queued_sfs_list() {
+	# looking up queue
+	for F in $EXTRASFSLIST; do
+		echo "$LOADEDLIST" | grep -qw $F && continue
+		QUEUELIST="$QUEUELIST
+ $F"
+	done
+	QUEUELIST=$(echo "$QUEUELIST"| grep '.')  # remove blank line
+	#echo "$QUEUELIST" #debug
+}
+
+ALLSFSLIST=""
+BASELIST=""
+
+loadable_sfs_list() {
+	debug "loadable_sfs_list $@"
+	# puppy system file names
+	[ "$MYTMPDIR" != "" ] && mkdir -p "$MYTMPDIR"
+	[ "$DISTRO_PUPPYSFS" = "" ] && DISTRO_PUPPYSFS=$SFSBASE
+	[ "$DISTRO_VERSION" = "" ] && DISTRO_VERSION=$(basename $DISTRO_PUPPYSFS .sfs| tr '_' '-'| cut -s -d'-' -f2)
+	[ "$DISTRO_FILE_PREFIX" = "" ] && DISTRO_FILE_PREFIX=$(echo $DISTRO_PUPPYSFS| tr '_' '-'| cut -d'-' -f1)
+	ALLSFSLIST=""
+	#if [ "$PUPHOME" != "" -a  "$PUPHOME" != "/" ]; then
+	if [ "$PUPHOME" != "" ]; then
+		ALLSFSLIST=$(find -L "$PUPHOME" -mindepth 1 -maxdepth 1 -name '[^.]*.sfs' -type f )
+		if [ "$PSUBDIR" != "" ]; then	# v1.9
+			ALLSFSLIST="$(find -L "$PUPHOME/$PSUBDIR" -maxdepth 1 -name '[^.]*.sfs' -type f)
+$ALLSFSLIST"
+		fi
+		if [ "$SFSMODE" = "cd" ]; then	# v1.3.9
+			FOUND=""
+			if is_on_cd; then
+				ALLSFSLIST="$FOUND
+$ALLSFSLIST"
+			fi
+		fi
+	elif [  "$SFSTYPE" = "iso9660"  ]; then	# v1.3.9
+		is_on_cd
+		ALLSFSLIST="$FOUND"
+	fi
+	#debug "$ALLSFSLIST"
+	#debug "${DISTRO_FILE_PREFIX};$DISTRO_VERSION;${DISTRO_PUPPYSFS};${DISTRO_ZDRVSFS};"
+	[ "$ALLSFSLIST" ] || return	# v1.3.9
+	BASEFIXEDSFSLIST=""
+	for ONESFS in $ALLSFSLIST
+	do
+		BASEONESFS="`basename $ONESFS`" #100711
+		[ "`echo "$BASEONESFS" | grep -E '^adrv_|^fdrv_|^ydrv_|^zdrv_|^pup_'`" != "" ] && continue
+		[ "`echo "$BASEONESFS" | grep "^${DISTRO_PUPPYSFS}"`" != "" ] && continue #100913
+		[ "${DISTRO_ZDRVSFS}" ] && [ "`echo "$BASEONESFS" | grep "^${DISTRO_ZDRVSFS}"`" != "" ] && continue #100913
+		[ "${DISTRO_ADRVSFS}" ] && [ "`echo "$BASEONESFS" | grep "^${DISTRO_ADRVSFS}"`" != "" ] && continue #v1.9.2: saluki
+		[ "${DISTRO_YDRVSFS}" ] && [ "`echo "$BASEONESFS" | grep "^${DISTRO_YDRVSFS}"`" != "" ] && continue #v2.0.11
+		[ "${DISTRO_FDRVSFS}" ] && [ "`echo "$BASEONESFS" | grep "^${DISTRO_FDRVSFS}"`" != "" ] && continue #v1.9.2: saluki
+		[ "`echo "$BASEONESFS" | grep "^${SFSBASE}"`" != "" ] && continue #100913
+		[ "${ZDRBASE}" ] && [ "`echo "$BASEONESFS" | grep "^${ZDRBASE}"`" != "" ] && continue #100913
+		[ "${ADRBASE}" ] && [ "`echo "$BASEONESFS" | grep "^${ADRBASE}"`" != "" ] && continue #v1.9.2: saluki
+		[ "${YDRBASE}" ] && [ "`echo "$BASEONESFS" | grep "^${YDRBASE}"`" != "" ] && continue #v2.0.11
+		[ "${FDRBASE}" ] && [ "`echo "$BASEONESFS" | grep "^${FDRBASE}"`" != "" ] && continue #v1.9.2: saluki
+		BASEFIXEDSFSLIST="$BASEFIXEDSFSLIST
+$BASEONESFS"
+	done
+	BASELIST=$( echo "$BASEFIXEDSFSLIST" | sort -u) # 1feb11
+	#echo "$BASEFIXEDSFSLIST" | sort | uniq
+}
+
+main_dialog() {
+	waitsplash $(gettext "Probing...")
+	BOXHEIGHT1=300
+	BOXWIDTH=650
+	TEXTWIDTH=580
+	TEXTWIDTHCHARS=30
+	cntsfsloaded=$(echo $LOADEDLIST|wc -w)
+	LOADVISIBLE="enabled"
+	UNLOADVISIBLE="eabled"
+	if [ "$ACTION" = "unload" ]; then
+		LOADVISIBLE="disabled"
+		UNLOADVISIBLE="enabled"
+	fi
+	[ "$BASELIST" = "" ] && loadable_sfs_list # 1feb11 # 21feb11
+	#BASELIST=$(loadable_sfs_list)
+	if [ "$BASELIST" != "" ]; then
+		LOADCOMBO='<combobox tooltip-text="'$(gettext "Choose from the pulldown or drag a sfs file here. Or, you can copy and paste a weblink here.")'">
+	 <variable>FILE1</variable><item>""</item>'$(make_combo $BASELIST)'<visible>'$LOADVISIBLE'</visible></combobox>'
+	else
+		LOADCOMBO='<hbox><entry tooltip-text="'$(gettext "Type the path or drag a sfs file here. Or, you can copy and paste a weblink here.")'">
+     <variable>FILE1</variable><visible>'$LOADVISIBLE'</visible></entry>
+     <button tooltip-text="'$(gettext "Browse and select a sfs file.")'">
+        <input file stock="gtk-open"></input>
+        <variable>FILE_BROWSE</variable>
+		<action type="fileselect">FILE1</action>
+		<visible>'$LOADVISIBLE'</visible>
+      </button></hbox>'
+		ENABLEBROWS='<action>enable:FILE_BROWSE</action>'
+	fi
+	UNLOADCOMBO=""
+	if [ "$ALREADY_SFS_LIST" != "" ]; then
+		UNLOADABLE="enabled"
+		UNLOADCOMBO='<table tooltip-text="'$(gettext "Select the sfs file you want to unload.")'">
+  <label>'$(gettext 'Total of mounted SFS =')' '$cntsfsloaded'</label>
+  <variable>UNLOADSFS</variable>'$(make_combo $ALREADY_SFS_LIST)'<visible>'$UNLOADVISIBLE'</visible></table>'
+		[ "$QUEUELIST" ] && UNLOADCOMBO="$UNLOADCOMBO
+  "'<text><input>echo -en "'$(gettext "Some are not loaded but in the queue.")'"</input></text>'
+	else
+		UNLOADABLE="disabled"
+		UNLOADCOMBO='<text><label>('$(gettext "Nothing loaded.")')</label></text>'
+	fi
+	DIALOG='<window title="'$LONG_TITLE'"><vbox>
+    <hbox>
+    <pixmap><input file>'$MYICON'</input></pixmap>
+	<text width-chars="'$TEXTWIDTHCHARS'" width-request="'$TEXTWIDTH'"><input>echo -en "'$(gettext "You can load or unload extra SFS files on-the-fly.")'"</input></text>
+   </hbox>
+	<hbox width-request="'$BOXWIDTH'"><frame '$(gettext "Load SFS")'>
+	<vbox height-request="'$BOXHEIGHT1'">
+   '"$LOADCOMBO"'
+	</vbox>
+	<button tooltip-text="'$(gettext "Which SFS do you want to load?")' '$(gettext "Click here after you choose the extra sfs file.")'">
+	<input file stock="gtk-add"></input><label>'$(gettext 'Load')'</label>
+	<action>EXIT:Load</action><visible>'$LOADVISIBLE'</visible></button>
+	</frame>
+	<frame '$(gettext "Unload SFS")'>
+	<vbox height-request="'$BOXHEIGHT1'">
+   '$UNLOADCOMBO'
+    </vbox>
+     <button tooltip-text="'$(gettext "Which SFS do you want to unload?")' '$(gettext "Click here after you choose the extra sfs file.")'">
+	<input file stock="gtk-remove"></input><label>'$(gettext 'Unload')'</label>
+	<action>EXIT:Unload</action><visible>'$UNLOADVISIBLE'</visible></button>
+
+    </frame></hbox>
+    <hbox>
+     <button tooltip-text="'$(gettext "Refresh list of loaded sfs.")'"><input file stock="gtk-refresh"></input><action>sfs_load &</action><action>EXIT:Abort</action></button>
+     <button tooltip-text="'$(gettext "$(printf "Quit %s v%s." "$TITLE" "$VERSION")")'"><input file stock="gtk-quit"></input><action>EXIT:Abort</action></button>
+    </hbox>
+	</vbox></window>'
+	waitsplash --stop
+	RET=$($GTKDIALOG -c -p DIALOG || echo "$DIALOG" >&2)
+	debug "$RET"
+	eval "$RET"
+	if [ "$EXIT" = "Unload" ]; then
+		ACTION="unload"
+		EXTRASFS=$(keyword "$UNLOADSFS")
+		debug "EXTRASFS=$EXTRASFS"
+		return 0
+	elif [ "$EXIT" = "Load" ]; then
+		ACTION="load"
+		F=""
+		[ "$FILE1" != "" ] && FILE1=$(keyword "$FILE1")
+		[ "$FILE1" != "" ] && F=$(echo "$ALLSFSLIST" | grep -w "$FILE1"| head -n 1)
+		[ "$F" != "" ] && EXTRASFS="$F" || EXTRASFS="$FILE1"
+		debug "EXTRASFS=$EXTRASFS"
+		return 0
+	fi
+	[ "$EXIT" = "OK" ]   #|| finish
+}
+
+choosepart() {	# v1.3.9
+	case "$FILEISAT" in
+		cd)	WHERE=$(gettext "CD");;
+		url)	WHERE=$(gettext "internet");;
+		remote)	WHERE=$(gettext "network");;
+		tmpfs)	WHERE=$(gettext "RAM");;
+		unionfs)	WHERE=$(gettext "Puppy space(RAM but need to copy)");;
+		loop)	WHERE=$(gettext "loop device");;
+		ata)	WHERE=$($gettext "internal strage");;
+		mnt)	WHERE="";;
+		*) WHERE=$FILEISAT;;
+	esac
+	[ "$WHERE" ] || WHERE=$(gettext "external storage")
+	MSG1=$(gettext "Select the partition to save the SFS file, preferably to be the same place you will save your session as a 'pupsave'.")
+	MSG2=$(printf "$(gettext "The SFS file is now at %s.")" "$WHERE")
+	_RAM=$(gettext  "You can select 'RAM' if you don't like to touch your Hard Disk, only if you have enough RAM(+swap).")
+	_NORAM=$(gettext "Or, select 'NOCOPY' if you do not like to make a copy of the SFS file.")
+	_CD=$(gettext "Select 'CD' if you are going to save the session back to the live CD.")
+	PCPARTS="$(probepart | grep -E 'f2fs|ext2|ext3|ext4|reiserfs|btrfs|minix|msdos|vfat|exfat|ntfs')"
+	local TOPPART="$1"
+	# Offer RAM only if enough
+	RAMPART=""
+	if [ "$FILEISAT" != "tmpfs" -a "$FILEISAT" != "ata" -a "$PUPMODE" != "5" ]; then
+		RAMPART=$(echo "RAM|($(gettext "Available"):$(kbyte2 $RFREE))"|tr ' ' '_')
+		REST=$(($RFREE - $FILESIZE))
+		if [ $REST -gt $RESERVRAM ]; then
+			MSG2="$MSG2 $_RAM"
+			if [ "$PCPARTS" = "" ]; then
+				PCPARTS=$RAMPART
+			else
+				PCPARTS="$PCPARTS
+$RAMPART"
+			fi
+		fi
+	fi
+	if [ "$TOPPART" = "CD" ]; then
+		MSG2="$MSG2 $_CD"
+		PCPARTS="$PCPARTS
+CD|($(gettext "multisession"))"
+		[ "$DESTDIR" ] || TOPPART=""   # normally, cd is not the default
+	fi
+	if [ $FILESIZE -gt 0 -a -z "$NEEDTOMOVE" ]; then  # already somewhere local, not need to download
+		MSG2="$MSG2 $_NORAM"
+		PCPARTS="$PCPARTS
+NOCOPY"
+	fi
+	PCPARTS=$(echo "$PCPARTS" | grep '[a-zA-Z]')  # remove blank line
+	if [ $(echo "$PCPARTS" | wc -l) -le 1 ]; then
+		PARTSPEC=$PCPARTS
+		PART=$(echo $PARTSPEC| cut -d'|' -f1)
+		PART=$(echo $PART| cut -d '/' -f3)
+		return 0
+	fi
+	[ "$TOPPART" ] && TOPPART=$(echo "$PCPARTS" | grep -w "$TOPPART")  # precaution
+	[ "$TOPPART" ] && TOPPART=$TOPPART" ($(gettext "Recommended"))"
+	DIALOG='<window title="'$MYNAME'"><vbox>
+    <hbox>
+    <pixmap  icon_size="5"><input file stock="gtk-dialog-question"></input></pixmap>
+    <text><input>echo -e -n "'$MSG'"</input></text>
+    </hbox>
+  <frame '$(gettext "Where to save?")'>
+  <text><input>echo -en "'"$MSG1\n\n$MSG2"'"</input></text>
+  <combobox><variable>PARTSPEC</variable>'$(make_combo - $TOPPART $PCPARTS)'</combobox>
+  </frame>
+  <hbox><button ok></button><button cancel></button></hbox>
+  </vbox></window>'
+	waitsplash --stop
+	RET=$($GTKDIALOG -c -p DIALOG || echo "$DIALOG" >&2)
+	eval "$RET"
+	PART=$(echo $PARTSPEC| cut -d'|' -f1)
+	PART=$(echo $PART| cut -d '/' -f3)
+	[ "$EXIT" = "OK" ]
+}
+
+mountpart(){
+	# except cd(iso9660)
+	[ $1 ] || return
+	local PART=$1
+	case "$1" in
+		/dev/*|/mnt/*) PART=$(echo $1 | cut -d'/' -f3);;
+		/*) PART=$(echo $1 | cut -d'/' -f2);;
+	esac
+	MNTPNT=$(mount | grep -m1 "^/dev/$PART " | cut -f3 -d ' ') #v2.0.11
+	MNTPNT=$(echo $MNTPNT)  # remove blank
+	[ "$MNTPNT" != "" ] && return #partition is already mounted
+	mkdir -p /mnt/$PART || return
+	mount $OPT /dev/$PART /mnt/$PART || return
+	UNMOUNTME=/dev/$PART
+	MNTPNT=/mnt/$PART
+}
+
+download_file() {
+	URLSPEC="$1"
+	for P in urxvt rxvt xterm; do
+		which $P &>/dev/null && RXVT="$P" && break
+	done
+	[ "$RXVT" != "" ] || fatal "Terminal program 'rxvt' not found." 
+	waitsplash $(gettext "Downloading...")
+	local myLOG="/tmp/${MYNAME}_download.log"
+	FILENAME=$(basename "${URLSPEC}")
+	# check the source size
+	wget -t 2 -T 20 --waitretry=20 --spider -S "${URLSPEC}" >"$myLOG" 2>&1
+	grep -q '200 OK' "$myLOG" || return 1
+	SIZEB_ONLINE=$(grep 'Content-Length: ' "$myLOG"| cut -d':' -f2| tr -dc '0-9')
+	[ $SIZEB_ONLINE ] || SIZEB_ONLINE=0
+	SIZEK_ONLINE=$(($SIZEB_ONLINE / 1024))
+	debug "SIZEK_ONLINE=$SIZEK_ONLINE;"
+	# enough space?
+	SSIZE=$SIZEK_ONLINE
+	REST=$(($DFREE - $SSIZE))
+	[ $REST -gt $RESERVHDD ] || fatal "$(gettext "There is not enough space to download.")\n$(gettext "Source"): $(kbyte2 $SSIZE) --> $(gettext "Free"): $(kbyte2 $DFREE)"
+	# now download
+	rm -f "$FILENAME"
+	$RXVT -geometry 80x10+0+0 -bg orange -fg black -title "$(gettext 'Downloading...')" -e  wget -t 3 -T 20 --waitretry=20 "${URLSPEC}"
+	STATUS=$?
+	waitsplash --stop
+	return $STATUS
+}
+
+CONTINUE_BUTTON='<button tooltip-text="'$(gettext "Back to SFS_Load")'"><input file stock="gtk-apply"></input><label>'$(gettext "Continue")'</label><action>EXIT:OK</action></button>'
+QUIT_BUTTON='<button><input file stock="gtk-quit"></input><label>'$(gettext "Quit")'</label><action>EXIT:Quit</action></button>'
+
+launcher() {
+	#v2.0
+	#debug "$@"
+	[ $# -gt 0 ] || return
+	CONTINUE_BUTTON='<button tooltip-text="'$(gettext "Back to SFS_Load")'"><input file stock="gtk-apply"></input><label>'$(gettext "Skip")'</label><action>EXIT:OK</action></button>'
+	# language
+	for lng in C $(echo $LANGUAGE|cut -d':' -f1) $LC_ALL $LANG;do :;done   # ex.    ja_JP.UTF-8
+	lng1=$(echo $lng|cut -d'.' -f1)      # ex.   ja_JP
+	lng2=$(echo $lng|cut -d'_' -f1)   # ex.   ja
+	lngs="$lng $lng1 $lng2"
+	# listing up
+	APPLIST=""
+	ID=0
+	for P in $@; do
+		[ "${P##*.}" = "desktop" ] || continue
+		F="$P"
+		if [ "$echo $P| cut -b1)" = "/" ]; then
+			F="$P"
+		else
+			F="/usr/share/applications/$P"
+			[ -f "$F" ] || F="/usr/local/share/applications/$P"
+		fi
+		[ -f "$F" ] || continue
+		CMD=$(grep '^[[:blank:]]*Exec=' "$F"| head -n1 | cut -s -d'=' -f2)  #v2.0
+		[ "$CMD" ] || continue
+		LABEL=$(grep '^[[:blank:]]*Name=' "$F"| head -n1 | cut -s -d'=' -f2)  #v2.0
+		for L in $lngs; do
+			T=$(grep "^[[:blank:]]*Name\[$L\]=" "$F"| head -n1 | cut -s -d'=' -f2)  #v2.0
+			[ "$T" ] && LABEL=$T && break
+		done
+		ID=$(($ID + 1))
+		APPLIST="$APPLIST
+P$ID|$CMD|$LABEL"
+	done
+	APPLIST=$(echo "$APPLIST"| grep '^P'| tr ' ' '@') # remove blank 
+	[ "$APPLIST" ] || return
+	#debug "$APPLIST"
+	CHOICES=""
+	N=$(echo "$APPLIST"| wc -l)
+	if [ $N -eq 1 ]; then
+		ICON=$(grep "^[[:blank:]]*Icon=" "$F"| head -n1 | cut -s -d'=' -f2) #v2.0
+		#debug "ICON=$ICON"
+		if [ "$ICON" ]; then
+			if [ ! -s "$ICON" ]; then
+				ICONPATH=""
+				[ -s "$JWMRC" ] && ICONPATH=$(grep '^[^-]*<IconPath' "$JWMRC" | sed -e 's/<[^<]*>//g')
+				#debug "ICONPATH=$ICONPATH"
+				if [ "$ICONPATH" ]; then
+					ICON=$(find -L $ICONPATH -maxdepth 1 -not -type d -name $ICON* | head -n 1) #v2.0
+				fi
+			fi
+		fi
+		#debug "ICON=$ICON"
+		CHOICES='<text width-request="240"><label>"'$(echo $APPLIST| cut -d'|' -f3| tr '@' ' ')'"</label></text>'
+		[ -s "$ICON" ] && CHOICES='<hbox><pixmap><input file>'$ICON'</input></pixmap>
+		'$CHOICES'</hbox>'
+		P1="true"
+	else
+		DEF="true"
+		for ALINE in $APPLIST; do
+			CHOICES="$CHOICES
+<radiobutton><variable>$(echo $ALINE|cut -d'|' -f1)</variable><label>\"$(echo $ALINE|cut -d'|' -f3|tr '@' ' ')\"</label><default>$DEF</default></radiobutton>"
+			DEF="false"
+		done
+	fi
+	MSGBOX=""
+	[ "$MSG" ] && MSGBOX='<text><input>echo -en "'$MSG'"</input></text>'
+	M='info'
+	[ "$OPT" = "--warning" ] && M='warning'
+	MSGBOX='<hbox><pixmap  icon_size="5"><input file stock="gtk-dialog-'$M'"></input></pixmap>
+	'$MSGBOX'</hbox>'
+	EXTRABUTTON=""
+	[ "$REENT" ] && EXTRABUTTON=$CONTINUE_BUTTON
+	TITLEICON='icon-name="gtk-dialog-question"'
+	export DIALOG='<window title="'$TITLE'" '$TITLEICON'><vbox>
+   '$MSGBOX'
+   <hbox>
+   <pixmap  icon_size="5"><input file stock="gtk-dialog-question"></input></pixmap>
+   <text><label>"'$(gettext "Do you want to run the application right now?")'"</label></text>
+  </hbox>
+  <frame>'$CHOICES'</frame>
+  <hbox>
+  <button><input file stock="gtk-execute"></input><label>'$(gettext "Run")'</label><action>EXIT:Execute</action></button> 
+  '$EXTRABUTTON'
+  '$QUIT_BUTTON'
+  </hbox>
+  </vbox></window>'
+	waitsplash --stop
+	RET=$($GTKDIALOG -c -p DIALOG || echo "$DIALOG" >&2)
+	eval "$RET"
+	[ "$EXIT" = "OK" ] ||  REENT=""	#v1.9.4
+	[ "$EXIT" = "Execute" ] || return
+	for ALINE in $APPLIST;do
+		P=$(echo $ALINE| cut -d'|' -f1)
+		eval T=\${$P}
+		[ "$T" = "true" ] || continue
+		CMD=$(echo $ALINE| cut -s -d'|' -f2| tr '@' ' ')
+		[ "$CMD" ] || return
+		[ -f /etc/profile ] && source /etc/profile
+		$CMD &
+		finish
+	done
+}
+
+# v1.9
+make_petget_script() {
+	#v1.9.8: fix path
+	#v2.0.12: ydrv, see whiteout only on pup_rw
+	# make a script named 'petget'
+	# a trick to suppress snapmergepuppy (pup_event_frontend_d does not issue snapmergepuppyrequest if petget is running.)
+	[ -s $MYTMPDIR/petget -a -x $MYTMPDIR/petget ] && return	# created before
+	echo '#!/bin/sh
+PARAM=$1
+LANG=C
+SNAP="/initrd/pup_rw/"
+BASE="/initrd/pup_ro1/"
+# pup_rw
+cd $SNAP || exit 0
+# .wh..wh..opq 
+find . -mindepth 2 -type f -name ".wh..wh..opq" |
+while read W; do
+	D=$(dirname "$W")
+	rm -fr "$BASE$D"
+	rm -f "$BASE$W"
+	rm -f "$SNAP$W"
+	F=$(find /initrd/pup_ro{?,??}/"$D" /initrd/pup_[ayzf]/"$D" -maxdepth 1 2>/dev/null| grep -vw "^$PARAM"| head -n 1)
+	[ "$F" ] && touch "$BASE$W"
+done
+# normal whiteout
+find . -mindepth 2 -type f -name ".wh.*" -not -name ".wh..wh.*" |
+while read W; do
+	D=$(dirname "$W")
+	B=$(basename "$W"|cut -b5-)
+	rm -fr "$BASE$D/$B"
+	rm -f "$BASE$W"
+	rm -f "$SNAP$W"
+	F=$(find /initrd/pup_ro{?,??}/"$D" /initrd/pup_[ayzf]/"$D" -maxdepth 1 -name "$B" 2>/dev/null| grep -vw "^$PARAM"| head -n 1)
+	[ "$F" ] && touch "$BASE$W"
+done
+exit 0' > $MYTMPDIR/petget
+	chmod +x $MYTMPDIR/petget
+}
+
+make_cleanup_script() {
+	#v1.9.8: fix path
+	#v2.0.12: ydrv, pop_ro1 for init script
+	#make ash script for speed up #v2.0.12: no ash cannot interprete the glob expression
+	[ -s $MYTMPDIR/cleanup -a -x $MYTMPDIR/cleanup ] && return	# created before
+	echo '#!/bin/sh
+PARAM=$1
+LANG=C
+BASE="/initrd/pup_rw/"
+if [ "$PARAM" = "/initrd/pup_ro1" ]; then
+	BASE="/initrd/pup_ro1/"
+	shift
+	PARAM=$1
+fi
+cd $BASE || exit	# precaution
+# .wh..wh..opq 
+find . -mindepth 2 -type f -name ".wh..wh..opq" |
+while read W; do
+	D=$(dirname "$W")
+	F=$(find /initrd/pup_ro{?,??}/"$D" /initrd/pup_[ayzf]/"$D" -maxdepth 1 2>/dev/null | grep -vw "^$PARAM"| head -n 1)
+	[ "$F" ] || rm -f "$BASE$W"
+done
+# normal whiteout
+find . -mindepth 2 -type f -name ".wh.*" -not -name ".wh..wh.*" |
+while read W; do
+	D=$(dirname "$W")
+	B=$(basename "$W"|cut -b5-)
+	F=$(find /initrd/pup_ro{?,??}/"$D" /initrd/pup_[ayzf]/"$D" -maxdepth 1 -name "$B" 2>/dev/null| grep -vw "^$PARAM"| head -n 1)
+	[ "$F" ] || rm -f "$BASE$W"
+done
+exit 0' >$MYTMPDIR/cleanup
+	chmod +x $MYTMPDIR/cleanup
+}
+
+# v1.9: rewrite, v1.9.7: fix was failed for flash, v1.9.8: fix was skipped PUPMODE=5
+cleanwhite() {
+	PARAM=$1  # layer path to be removed, example: '/initrd/pup_ro4'
+	log cleanwhite $@
+	SLAYER=""
+	RAMSAVEINTERVAL=0
+	case "$PUPMODE" in
+		5|12) SLAYER="/pup_rw"
+			RAMSAVEINTERVAL=-1;;
+		13)	# ataflash/usbflash
+			# periodical save may be disabled
+			[ -s /etc/eventmanager ] && source /etc/eventmanager
+			[ "$RAMSAVEINTERVAL" ] || RAMSAVEINTERVAL=-1 # ignore if not available
+			[ $RAMSAVEINTERVAL -ne 0  ] && SLAYER="/pup_ro1"
+			;;
+		*)
+			return;;
+	esac
+	make_cleanup_script
+	[ -x $MYTMPDIR/cleanup ] || return	# precaution
+	if [ "$STARTSCRIPT" ]; then
+		[ $RAMSAVEINTERVAL -ne 0  ] && $MYTMPDIR/cleanup $SLAYER
+		return 0
+	fi
+	if [ "$SLAYER" = "/pup_ro1"  ]; then
+		# make a script named 'petget'
+		# a trick to suppress snapmergepuppy (pup_event_frontend_d does not issue snapmergepuppyrequest if petget is running.)
+		make_petget_script
+		[ -x $MYTMPDIR/petget ] || return	# precaution
+		# wait snapmergepuppy finishes if it is already running
+		if [ "`pidof snapmergepuppy`" != "" ]; then
+			while [ "`pidof snapmergepuppy`" != "" ];do sleep 1; done
+		else
+			$MYTMPDIR/petget $PARAM
+		fi
+		$MYTMPDIR/cleanup /initrd$SLAYER $PARAM #v2.0.13: SFR fix
+		return
+	fi
+	$MYTMPDIR/cleanup $PARAM
+}
+
+another_tmpfs() {
+	DESTDIR="/mnt/tmp" #DESTDIR=/initrd/pup_rw/tmp
+	ERRMSG=""
+	df "$DESTDIR" 2>/dev/null | grep -qw 'tmpfs' && return 0 
+	umount "$DESTDIR" &>/dev/null
+	ERRMSG=$(gettext "Failed to unmount '/mnt/tmp'.")
+	mount| grep -q -w 'on /mnt/tmp' && return 1
+	[ $RFREE -gt $RESERVRAM ] || return 1  #v2.0
+	mkdir -p "$DESTDIR"
+	ALLOCK=$(($RFREE - $RESERVRAM))
+	mount -t tmpfs -o size=${ALLOCK}k tmpfs "$DESTDIR"
+	ERRMSG=$(gettext "Failed to create tmpfs '/mnt/tmp'.")
+	RESULT=$(mount| grep -w 'on /mnt/tmp') || return 1
+	ERRMSG=""
+	debug "Created $RESULT"
+	return 0
+}
+
+#v1.9.4
+free_loopdev() {
+	LD="$1"
+	if [ -z "$LD" ]; then
+		log "free_loopdev: no loop device specified."
+		return 1
+	fi
+	if mount | grep -qw "^$LD" ; then
+		busybox umount  "$LD" #|| log "Failed to unmount $LD."
+	fi
+	if mount | grep -qw "^$LD"; then
+		log "Failed to unmount $LD."
+		return 0
+	fi
+	losetup -a | grep -qw "^${LD}:" || return 0
+	debug "losetup -d $LD"
+	losetup -d "$LD" ; S=$?
+	[ $S -ne 0 ] && log "Failed to dissosiate $LD."
+	return $S
+}
+
+append_sfs() {
+	# filename, etc.
+	DIRNAME=$(dirname "$EXTRASFS")
+	[ "$DIRNAME" = "." ] && DIRNAME=$PWD
+	FILENAME=$(basename "$EXTRASFS")
+	ROOTNAME=$(basename "$FILENAME" .sfs)
+	EXT=$(echo "$FILENAME" | sed -e 's/^.*\.//')
+	[ "$EXT" = "sfs" ] || FILENAME="$FILENAME.sfs"
+	EXTRASFS="$DIRNAME/$FILENAME"
+	#v1.9.7: fix was faild more than 7 after reboot
+	EXTRASFSSAFE=$(echo "$EXTRASFS"| tr ' ,;[]{}' '?')
+	[ "$EXTRASFS" = "$EXTRASFSSAFE" ] || log "'$EXTRASFS' has special charactors or blanks in its path name. '$EXTRASFSSAFE' is used for safety."
+	#debug "EXTRASFS=$EXTRASFS
+	#EXTRASFSSAFE=$EXTRASFSSAFE"
+ 
+	# where to mount
+	NUMS=$(LANG=C df | grep '/initrd/pup_ro'| cut -d'%' -f2 | tr -dc '0-9\n'| sort -n)
+	N=$(echo "$NUMS" | tail -n 1)
+	[ $N ] || N=2	# precaution
+	[ $N -ge 2 ] || N=2 # pup_ro1 and pup_ro2 reserved
+	NEW=$(($N + 1))
+	#v1.9.1: search lower
+	if [ $NEW -gt 3 ]; then
+		for I in $(seq 3 $N); do
+			! (echo "$NUMS" | grep -qw "$I") && NEW=$I && break
+		done
+	fi
+	MNTPNT=/initrd/pup_ro$NEW
+	if [ ! -d "$MNTPNT" ]; then
+		# exceeds the number the Puppy supports
+		# search free number from the smaller
+		S=$(seq 3 $N) # skip 1-2
+		if [ $N -lt 100 ]; then
+			for I in $S; do
+				[ "$(echo "$NUMS" | grep -w "$I")" = "" ] && NEW=$I && break
+			done
+		fi
+	fi
+	MNTPNT=/initrd/pup_ro$NEW
+	mkdir -p "$MNTPNT"
+	# loop device number is prefered to be the same number
+	#v1.9.1: but can be already assosiated
+	#v1.9.4: can be already mounted
+	#v1.9.4: not same number for some kernel
+	LOOPDEV=""
+	STATUS=-1
+	LOOPDEVS=$(losetup -a | grep -w "$EXTRASFS" | cut -sd ':' -f1)
+	if [ "$LOOPDEVS" ]; then
+		for D in $LOOPDEVS; do
+			busybox umount "$D"
+		done
+		LOOPDEV=$(losetup -a | grep -w "$EXTRASFS" | head -n 1|cut -sd ':' -f1)
+	fi
+	[ "$LOOPDEV" ] && STATUS=0
+	if [ -z "$LOOPDEV" ]; then
+		LOOPDEV="/dev/loop$NEW"
+		[ -b "$LOOPDEV" ] || mknod -m664 $LOOPDEV b 7 $NEW
+		LOOPDEV=$(losetup -f)
+		STATUS=-1
+	fi
+	if [ $STATUS -eq 0 ]; then
+		mount -r -t squashfs -o noatime "$LOOPDEV" "$MNTPNT" # v1.3.9
+		STATUS=$?
+	else
+		mount -r -t squashfs -o loop,noatime "$EXTRASFSSAFE" "$MNTPNT"
+		STATUS=$?
+		[ $STATUS -eq 0 ] ||  LOOPDEV=""
+	fi
+	[ "$LOOPDEV" ] || STATUS=-1
+	# v1.9: permission check
+	# v1.9.9: unmount on error
+	PERMINFO=""
+	if [ $STATUS -eq 0 ]; then
+		PERM=$(ls -dl "$MNTPNT"| cut -f1 -d' ')
+		echo $PERM| grep -qw 'drwxr.xr.x' || STATUS=888
+		if [ $STATUS -ne 0 ]; then
+			debug "PERMISSION: $PERM"
+			PERMINFO=$(gettext "$(printf "%s has wrong permissions." "$EXTRASFS")")"\n'$PERM'"
+			busybox unmount "$MNTPNT"
+			free_loopdev "$LOOPDEV"
+		fi
+	fi
+	if [ $STATUS -eq 0 ]; then
+		echo "$LOOPDEV: 0 $EXTRASFS" >> "$LOOPLIST"
+	else
+		[ "$LOOPDEV"  != "" ] && 
+		fatal "$(eval_gettext "Failed to mount '\$EXTRASFS' on '\$MNTPNT'.") $PERMINFO\n$MOVEDLOG"
+	fi
+	has_afterwork
+	debug "'$EXTRASFS'($LOOPDEV) is mounted on '$MNTPNT'."
+	# v1.9: wipe out masking files in save layers # 1.9.1: do once
+	# v1.9.8: fix was skipped PUPMODE=5
+	[ "$WIPEWHITEONLOAD"  = "true" ] && [ -z "$SKIP_HAS_AFTERWORK" ] && cleanwhite "$MNTPNT" #v2.0.12
+	# remount aufs
+	busybox mount -t aufs -o remount,append:$MNTPNT=rr /
+	STATUS=$?
+	if [ $STATUS -ne 0 ];then
+		umount "$MNTPNT"
+		[ "$LOOPDEV"  != "" ] && free_loopdev "$LOOPDEV" 	#v1.9.4
+		fatal "$(printf "$(gettext "Failed to append '%s' to unionfs.")" "$MNTPNT")\n$MOVEDLOG"
+	fi
+	sync
+	# add to BOOTCONFIG
+	#v1.9.1, #v2.0: do not register zdrv #v2.0.11: ditto adrv and ydrv
+	#v2.1.8: avoid dup. in EXTRASFSLIST
+	case "$FILENAME" in
+		$DISTRO_PUPPYSFS|$DISTRO_ZDRVSFS|$DISTRO_ADRVSFS|$DISTRO_YDRVSFS|$DISTRO_FDRVSFS) :;;
+		$SFSBASE|$ZDRBASE|$ADRBASE|$YDRBASE|$FDRBASE) :;;
+		*) echo $EXTRASFSLIST | grep -qw "$FILENAME" || EXTRASFSLIST="$EXTRASFSLIST $FILENAME";;
+	esac
+	save_bootconfig
+}
+
+save_bootconfig() {
+	EXTRASFSLIST=$(echo $EXTRASFSLIST)  # trim blanks
+	echo "EXTRASFSLIST='$EXTRASFSLIST'" > $BOOTCONFIG
+	echo "PREVUNIONRECORD='$PREVUNIONRECORD'" >> $BOOTCONFIG
+	echo "LASTUNIONRECORD='$LASTUNIONRECORD'" >> $BOOTCONFIG
+}
+
+is_at_home() {
+	FOUND=""
+	[ "$1" ] || return
+	local F=$(basename "$1")
+	# already at the destination?
+	SUB=""
+	[ "$PSUBDIR" != "" ]  && SUB="$DESTDIR/$PSUBDIR" || SUB=""
+	for D in $DESTDIR $SUB; do
+		[ -s "$D/$F" ] && FOUND="$D/$F" && break
+	done
+	echo "$FOUND"
+	[ "$FOUND" ]
+}
+
+# v1.3.9 is_on_cd without parameter
+is_on_cd() {
+	debug "is_on_cd $@"
+	FOUND=""
+	local F=$(basename "$1")
+	CDDEVS=$(probedisk | grep -Ew 'optical|cdrom'| cut -d'|' -f1| cut -s -d'/' -f3)
+	[ "$CDDEVS" ] || return
+	for D in $CDDEVS; do
+		debug "CD drive:$D"
+		MNTPNT=$(df | grep -w "^/dev/$D" | cut -d'%' -f2 | tr -d ' ')
+		if [ "$MNTPNT" = "" ]; then
+			cddetect_quick -d/dev/$D || continue # abort if the madia not inserted
+			MNTPNT="/mnt/$D"
+			if df | grep -qw "$MNTPNT"; then # seems different device is already mounted
+				umount "$MNTPNT" || continue
+			fi
+			mkdir -p "$MNTPNT"
+			mount -t iso9660 -o iocharset=utf8 "/dev/$D" "$MNTPNT" && UNMOUNTME="/dev/$D" || continue #v2.0: UNMOUNTME to be device node
+		fi
+		if [ "$F" ]; then
+			FOUND=$(find -L "$MNTPNT" -mindepth 1 -maxdepth 3 -name "$F" -type f| head -n 1)
+		else
+			FOUND=$(find -L "$MNTPNT" -mindepth 1 -maxdepth 3 -name '[^.]*.sfs' -type f)	# v1.3.9
+		fi
+		FOUND=$(echo "$FOUND"| grep -v "$MNTPNT"'/[0-9][0-9-]*/')	# v1.3.9
+		[ "$FOUND" ] && break
+		[ "$UNMOUNTME" ] && umount "$UNMOUNTME" && UNMOUNTME=""
+	done
+	debug "$FOUND"
+	[ "$FOUND" ]
+}
+
+# how much free RAM?  - 22Sep2011 free version compatible
+ram_free() {
+	ALINE=$(LANG=C free | grep -w 'Mem:')
+	RAMSIZE=$(echo $ALINE | tr -s ' ' | cut -f2 -d' ')
+	#debug "RAMSIZE=$RAMSIZE"
+	[ $RAMSIZE ] || RAMSIZE=0
+	TMPFUSED=$(LANG=C df -k | grep -E '^(tmpfs|shms)'| tr -s ' ' | cut -d' ' -f3)
+	RFREE=$RAMSIZE
+	if [ "$TMPFUSED" ]; then
+		for S in $TMPFUSED; do
+			#debug "USED=$S"
+			RFREE=$(($RFREE - $S))
+		done
+	fi
+	# swap space
+	ALINE=$(LANG=C free | grep -w 'Swap:')
+	SFREE=$(echo $ALINE | tr -s ' '| cut -f4  -d' ')
+	[ $SFREE ] ||  SFREE=0
+	#debug "SFREE=$SFREE" 
+	# tmpfs
+	TFREE=0
+	DF=$(LANG=C df -k /tmp | tail -n 1)
+	if echo $DF | grep -qw '^tmpfs' ; then
+		TFREE=$(echo $DF| tr -s ' ' | cut -d' ' -f4)
+	elif echo $DF | grep -qw '^unionfs' ; then
+		DF=$(LANG=C df -k /initrd/pup_rw/tmp | tail -n 1)
+		echo $DF | grep -qw '^tmpfs' && TFREE=$(echo $DF| tr -s ' ' | cut -d' ' -f4)
+	fi
+	RFREE=$(($RFREE + $SFREE))
+	debug "TFREE=$TFREE"
+	debug "RFREE=$RFREE"
+}
+
+# free space in the destination
+dest_free() {
+	DFREE=0
+	[ "$DESTDIR" ] || return
+	DF=$(LANG=C df -k "$DESTDIR" 2>/dev/null) || DF=""
+	DFREE=$(echo "$DF" | tail -n 1 | tr -s ' ' |cut -d ' ' -f4)
+	TORAM=""
+	if echo "$DF" | grep -qw '^tmpfs'; then
+		[ "$RFREE" ] || ram_free
+		TORAM="y"
+		[ $DFREE -gt $RFREE ] && DFREE=$RFREE
+	fi
+	[ $DFREE ] || DFREE=0
+}
+
+reform_filename() {
+	EXTRASFS=$1
+	DIRNAME=$(dirname "$EXTRASFS")
+	[ "$DIRNAME" = "." ] && DIRNAME=$PWD
+	FILENAME=$(basename "$EXTRASFS")
+	ROOTNAME=$(basename "$FILENAME" .sfs)
+	EXT=$(echo "$FILENAME" | sed -e 's/^.*\.//')
+	[ "$EXT" = "sfs" ] || FILENAME="$FILENAME.sfs"
+	# /mnt/home?
+	if [ "$PUP_HOME" != "" -a "$DIRNAME" != "" ]; then
+		DIRNAME=$(echo $DIRNAME| sed -e "s,$INITRDHOME,$MNTHOME,") #20151004
+	fi
+	EXTRASFS="$DIRNAME/$FILENAME"
+}
+
+unload() {
+	FILENAME=$1
+	#mkdir -p $MYTMPDIR
+	#TMPFILE=$MYTMPDIR/${MYNAME}_tmp.txt
+	# remove from EXTRASFSLIST (in BOOTCONFIG)
+	cp -pf $BOOTCONFIG $MYTMPDIR/BOOTCONFIG.bak
+	REGISTERED=""
+	remove_item EXTRASFSLIST "$FILENAME" && REGISTERED="y" || log "'$FILENAME' seems not registered."
+	save_bootconfig
+	# remove from unionfs
+	LOSETUPS=$(losetup -a | sort -r)
+	LOOP=$(echo "$LOSETUPS"| grep -w "$FILENAME" | head -n 1)
+	if [ "$LOOP" = "" ] ;then
+		# 13 Nov 2011: cn be on LOOPLIST
+		LOOP=$(grep -w "$FILENAME" "$LOOPLIST" | head -n 1)
+	fi   
+	debug "LOOP=$LOOP"
+	if [ "$LOOP" = "" ] ;then
+		[ "$REGISTERED" ] || debug $(printf "'%s' seems not registered as loaded." "$FILENAME")
+		# losetup does not show full file name but must be somewhere
+		rm -f "$TMPFILE"
+		echo "$LOSETUPS"| while read L
+		do
+			F=$(echo "$L"| cut -d' ' -f3 | tr -d '()')
+			[ "$F" ] || continue
+			F=$(basename "$F")
+			echo "$FILENAME" | grep -q "$F" && echo $L >> "$TMPFILE" && break
+		done
+		[ -s "$TMPFILE" ] && LOOP=$(cat "$TMPFILE")
+	fi
+	LOOPDEV=$(echo "$LOOP"| cut -d':' -f1)
+	if [ "$LOOPDEV" = "" ]; then
+		save_bootconfig
+		error --info "$(gettext "Could not find the loaded point.")$(gettext "Maybe already unloaded.")"
+		return 1 #finish
+	fi
+	F=$(echo "$LOOP"| cut -d' ' -f3| tr -d '()')
+	[ -s "$F" ] && EXTRASFS="$F"
+	[ -s "/initrd$F" ] && EXTRASFS="/initrd$F"
+	[ ! -s "$EXTRASFS" ] && F=$(is_at_home "$FILENAME") && EXTRASFS="$F"
+	debug "$LOOPDEV;$EXTRASFS;"
+	MNTPNT=""
+	[ "$LOOPDEV" != "" ] && MNTPNT=$(LANG=C df | grep -w "^$LOOPDEV"| tail -n 1 | cut -d'%' -f2| tr -d ' ')
+	debug "mount point is $MNTPNT;"
+	if [ -d "$MNTPNT" ]; then
+		has_afterwork
+		#debug "HAS_FONTS:HAS_STARTUPS=$HAS_FONTS:$HAS_STARTUPS:"
+		if [ "$HAS_SCRIPTS" != "" ]; then
+			log "Stopping script..."
+			for S in $HAS_SCRIPTS; do
+				[ -x /etc/init.d/$S ] && /etc/init.d/$S stop
+			done
+			#HAS_SCRIPTS=""
+		fi
+		# clean up whiteout in save layer
+		[ -z "$NO_AFTERWORK" ]  && [ "$WIPEWHITEUNLOAD"  = "true" ] && cleanwhite $MNTPNT
+		sleep 0.2  # 13 Nov 2011
+		# remount aufs
+		debug "busybox mount -t aufs -o remount,del:$MNTPNT unionfs /"
+		busybox mount -t aufs -o remount,del:$MNTPNT unionfs /
+		STATUS=$?
+		if [ $STATUS -eq 0 ]; then
+			busybox umount "$LOOPDEV"	#v1.9.1
+			if [ $? -ne 0 ]; then
+				log "Failed to unmount $LOOPDEV."
+				STATUS=2
+			fi
+		fi
+		if [ $STATUS -ne 0 ];then
+			MSG1=$(printf "$(gettext "Failed to unload '%s'.")" "$FILENAME")
+			MSG2=$(gettext "Some files may be in use. You can try this again after you restart X (From the main menu> Shutdown> Restart X). Click 'No' here.")
+			MSG3=$(gettext "Or, do you want to remove it from the queue list right now?")
+			MSG4=$(gettext "Then it will be unloaded at next boot.")
+			if ! confirm --yes-no "$MSG1 $MSG2\n\n$MSG3 $MSG4"; then
+				# recover BOOTCONFIG
+				[ -s "$MYTMPDIR/BOOTCONFIG.bak" ] && mv -f "$MYTMPDIR/BOOTCONFIG.bak" "$BOOTCONFIG"
+			fi
+			rm -f "$MYTMPDIR"/has_*	# clean up has_... files
+			return 1 #finish
+		fi
+	fi
+	[ "$LOOPDEV"  != "" ] && free_loopdev "$LOOPDEV"	#v1.9.4
+	# 13 Nov 2011: remove from LOOPLIST
+	if [ "$LOOPDEV"  != "" ] ; then
+		grep -v "^$LOOPDEV:" "$LOOPLIST" > "$LOOPLIST.new"
+		mv -f "$LOOPLIST.new" "$LOOPLIST"
+	fi
+	#true  # unless fatal error
+	save_bootconfig
+	# delete file
+	RMLOG=""
+	if [ -f "$EXTRASFS" ]; then
+		DIRNAME=$(dirname "$EXTRASFS")
+		FILENAME=$(basename "$EXTRASFS")
+		if [ "$(df "$DIRNAME" | tail -n 1 | cut -d ' ' -f1)" = "tmpfs" -a "$PUPMODE" != "5" ]; then
+			rm -f "$EXTRASFS"
+			RMLOG=$(printf "$(gettext "The temporary file '%s' is deleted.")" "$EXTRASFS")
+			FOUND=""
+			for D in / /root/; do
+				[ -e "$D$FILENAME" ] && FOUND="$D$FILENAME" && break
+			done
+			if [ "$FOUND" ]; then
+				RMLOG="$RMLOG $(printf "$(gettext "You can also delete '%s' if you want to.")" "$FOUND")"
+			fi
+		fi
+	fi
+	ADDINFO=""
+	[ "$HAS_FONTS" -o "$HAS_STARTUPS" ] && ADDINFO="\\n$_Restart_X"
+	[ "$RMLOG" ] && ADDINFO="$ADDINFO\\n$RMLOG"
+	HAS_STARTUPS=""
+	afterwork
+	return 0
+}
+
+# how i called?
+EXTRASFS=""
+ACTION="load"
+GUI=""
+QUIET=""
+READLISTFILE=""
+READSTDIN=""
+REENT=""
+STARTSCRIPT=""
+NO_AFTERWORK=""
+DO_AFTERWORK=""
+SKIP_FIXMENUS=""
+GLOBAL_PARMS=""
+basename "$0" | grep -q '^un' && ACTION="unload"
+[ "$DISPLAY" != "" ] && GUI="y"
+basename "$0" | grep -q 'debug' && DEBUGFLAG="y"	# v1.3.9
+
+# Temp work around. Do not mount SFS from /tmp when running in pupmode 5
+. /etc/rc.d/PUPSTATE 
+if [ "$(echo $ORGOPT | cut -f2 -d/)" = "tmp" -a "$PUPMODE" = "5" ]; then
+	Xdialog --title "$(gettext 'Error')" --msgbox \
+   "$(gettext 'You can not install an SFS saved in the /tmp directory \nwhen running in PUPMODE=5')" 0 0
+	exit 0
+fi
+
+#v1.9.2: allow --skip-fixmenus with multiple files
+while [ "$1" ]
+do
+	case "$1" in
+		-u|--un*) ACTION="unload"; GLOBAL_PARMS="$GLOBAL_PARMS $1";;
+		-c|--cli) GUI=""; GLOBAL_PARMS="$GLOBAL_PARMS $1";;
+		-q|--quiet) QUIET="y"; GLOBAL_PARMS="$GLOBAL_PARMS $1";;
+		-d|--debug) DEBUGFLAG="y"; GLOBAL_PARMS="$GLOBAL_PARMS $1";;
+		-h|-help|--help) usage; exit 0;;
+		-i|--info) SHOW_INFO="y";;
+		-n|--no-afterwork) NO_AFTERWORK="y";;
+		-a|--do-afterwork|--afterwork) DO_AFTERWORK="y";;
+		-s|--skip-*menu*|--no-*menu*) SKIP_FIXMENUS="y"; GLOBAL_PARMS="$GLOBAL_PARMS $1";;
+		-l|-l=|--list*)  READLISTFILE=$(echo $1| cut -s -f2- -d'=')
+			[ -z "$READLISTFILE" ] && shift && READLISTFILE="$1"
+			;;
+		-v|-version|--version) echo "$MYNAME $VERSION"; exit 0;;
+		--*) usage; exit 0;;
+		-)
+			if [ "$2" = "" ]; then
+				READSTDIN="y"; GUI=""; shift; break
+			fi
+			;;
+		*=*) GLOBAL_PARMS="$GLOBAL_PARMS $1"; [ "$DEBUGFLAG" ] && eval $1 || break;;
+		*) break;;
+	esac
+	shift
+done
+ 
+[ "`whoami`" != "root" ] && exec sudo -A ${0} ${@}
+
+date >> "$LOGFILE"
+echo $0 $@ >> "$LOGFILE"
+echo "$MYNAME-$VERSION" >> "$LOGFILE"
+
+GLOBAL_PARMS=$(echo $GLOBAL_PARMS)	# remove blanks
+MULTIPLE=""
+
+if [ "$READSTDIN" ]; then
+	# read from standard input
+	GLOBAL_PARMS="$GLOBAL_PARMS --cli"
+	MULTIPLE=""
+	while true; do
+		read ONEEXTRASFS
+		[ "$ONEEXTRASFS" ] || break
+		[ "$(echo $ONEEXTRASFS| cut -b1)" = '#' ] && continue	# skip comment
+		MULTIPLE="$MULTIPLE
+$ONEEXTRASFS"
+	done
+	# note that the first line of $MULTIPLE is blank
+	#debug "$MULTIPLE"
+fi
+
+if [ "$READLISTFILE" ]; then
+	# multiple files from list
+	[ -s "$READLISTFILE" ] || fatal $(printf "List file '%s' not found." "$READLISTFILE")
+	MULTIPLE=$(cat "$READLISTFILE")
+fi
+
+if [ "$2" ]; then
+	IFSSAVE=$IFS
+	IFS='
+ '	# set line-feed (and space) as the separater
+	MULTIPLE="$*"
+	IFS=$IFSSAVE
+fi
+
+if [ "$MULTIPLE" ]; then
+	# multiple files
+	echo "$MULTIPLE" | while read ONEEXTRASFS
+	do
+		[ "$ONEEXTRASFS" ] || continue
+		[ "$(echo $ONEEXTRASFS| cut -b1)" = '#' ] && continue	# skip comment
+		"$MYPATH" $GLOBAL_PARMS --no-afterwork "$ONEEXTRASFS"
+   done
+	"$MYPATH" $GLOBAL_PARMS --afterwork
+	finish
+	exit
+fi
+
+if [ "$DO_AFTERWORK" ]; then
+	NO_AFTERWORK=""
+	if  [ "$1" = "" ]; then
+		# do afterwork only
+		[ "$WIPEWHITEONLOAD" = "true" -o "$WIPEWHITEUNLOAD" = "true" ] && cleanwhite
+		afterwork
+		finish
+		exit
+	fi
+fi
+
+[ "$1" = "" -a "$DISPLAY" != "" ] && GUI="y"
+
+case "$1" in
+	-*) EXTRASFS=$(echo $1| cut -b2-); ACTION="unload";;
+	+*) EXTRASFS=$(echo $1| cut -b2-);;
+	start) STARTSCRIPT="start";;
+	*) EXTRASFS=$1;;
+esac
+
+[ -d "$MYTMPDIR" ] || mkdir -p "$MYTMPDIR"
+LOOPLIST="$MYTMPDIR/loop_device_list"
+PUPMODE_dummy=$PUPMODE                          ############ for debugging
+#savefile_dummy=savefile
+DISTRO_NAME="Puppy"
+for F in $PUPSTATE $BOOTCONFIG $DISTRO_SPECS; do
+	[ -s $F ] && source $F
+done
+
+DISTRO_VERSION=$(echo $DISTRO_VERSION | tr -dc '0-9')
+[ "$DISTRO_VERSION" ] || DISTRO_VERSION=0
+
+if [ "$PUPMODE_dummy" ] ; then ############ for debugging
+	[ "$PUPMODE_dummy" = "CD" ] && PUPMODE_dummy=5 && PUPSFS="sr0,iso9660,$SFSBASE"
+	[ "$PUPMODE_dummy" ] && PUPMODE=$PUPMODE_dummy
+	case "$PUPMODE_dummy" in
+		2) SAVE_LAYER=''; PUP_HOME='/'; PUPSAVE="";;
+		5) SAVE_LAYER=''; PUP_HOME=''; PUPSAVE="";;
+		12) SAVE_LAYER='/pup_rw'; PUP_HOME='/mnt/dev_save';;
+		13) SAVE_LAYER='/pup_ro1'; PUP_HOME='/mnt/dev_save';;
+		77) SAVE_LAYER='/pup_ro1'; PUP_HOME=''; PUPSAVE='sr0,iso9660,/2011-01-27-20-26';;
+	esac
+fi ############ for debugging end
+
+INITRDHOME=/initrd$PUP_HOME
+MNTHOME=/mnt/home
+
+# see what pup_*.sfs file is used
+SFSPART=$(echo $PUPSFS|cut -d',' -f1)
+SFSTYPE=$(echo $PUPSFS|cut -s -d',' -f2)
+SFSFILE=$(echo $PUPSFS|cut -s -d',' -f3)
+SFSBASE=$(basename "$SFSFILE")
+ZDRBASE=${ZDRV##*/}
+ADRBASE=${ADRV##*/}
+YDRBASE=${YDRV##*/}
+FDRBASE=${FDRV##*/}
+
+KERNVER="`uname -r | cut -f 1 -d \-`" #20151004
+
+[ "$HOME" = "/" ] && HOME=/root
+[ "$HOME" ] || HOME=/root
+
+# home path
+PUPHOME=""
+PSUBDIR=""
+SAVEFILE=""
+SAVEPART=""
+DESTPART=""
+DESTDIR=""
+
+if [ "$PUPSAVE" != "" ]; then
+	SAVEPART=$(echo $PUPSAVE| cut -d',' -f1)
+	DESTPART=$SAVEPART
+	#v2.0.8: save-to-directory (gyro)
+	case $PUPMODE in
+		12|13) SAVEFILE=$(echo $PUPSAVE| cut -sd',' -f3);;
+		*) SAVEFILE="";;
+	esac
+	[ "$PUP_HOME" != "" ] && PUPHOME=$INITRDHOME #20151004
+	[ "$PUPHOME" = "$INITRDHOME" ] && PUPHOME=$MNTHOME && DESTDIR=$PUPHOME
+else
+	# PUPMODE=2 or 5
+	if [ "$PUPMODE" = "2" ]; then
+		DESTDIR="/root"; PUPHOME="/"
+	else
+		# PUPMODE=5
+		[  -s "$PUPSAVECONF" ] && source "$PUPSAVECONF" && PUPSAVE="$SAVEPART,,$SAVEFILE"
+		[ -s "$SHUTDOWNCONF" ] && PUPMODE_SAVE=$PUPMODE && source "$SHUTDOWNCONF" && PUPMODE=$PUPMODE_SAVE
+		if [ "$PUPSAVE" != "" ]; then
+			SAVEPART=$(echo $PUPSAVE| cut -d',' -f1)
+			DESTPART=$SAVEPART
+		fi
+		if [ -z "$SAVEPART" ]; then
+			# nowhere to save the session
+			[ "$SFSFILE" != "" ] && PSUBDIR=$(dirname "$SFSFILE"| cut -b2-)
+			if [ "$SFSPART" != "" -a "$SFSTYPE" != "iso9660" ]; then	# v1.3.9
+				# internal or external HDD or FLASH
+				DESTPART=$SFSPART
+			fi
+		fi
+	fi
+fi
+
+[ "$SAVEFILE" != "" ] && PSUBDIR=$(dirname "$SAVEFILE"| cut -b2-)  # remove '/' at head
+[ "$DESTDIR" -a "$PSUBDIR" -a ! -d "$DESTDIR/$PSUBDIR" ] && PSUBDIR=""  # may not yet be created
+
+case "$PUPMODE" in
+	5)
+		if [ "$SAVEFILE" != "" ]; then SFSMODE="y"
+		elif [ "$SAVEPART" != "" ]; then SFSMODE="cd"
+		else SFSMODE="tmp"
+		fi
+		;;
+	12|13) SFSMODE="y";;
+	77) SFSMODE="cd";;
+	*) SFSMODE="";;
+esac
+
+if [ "$SFSMODE" = "cd" ]; then
+	PUPHOME="/"	#; DESTDIR="/initrd/pup_rw"
+	DESTDIR=$PUPHOME
+fi
+debug "PUPHOME=$PUPHOME;"
+debug "SFSMODE=$SFSMODE, DESTPART=$DESTPART, DESTDIR=$DESTDIR;"
+
+if [ "$SFSMODE" != "" ]; then
+	LOSETUP_A="$(losetup -a)"
+	loaded_sfs_list
+	queued_sfs_list
+fi
+
+# startup script called with a parameter 'start/stop'
+if [ "$STARTSCRIPT" ]; then
+	[ "$SFSMODE" ] || exit 0
+	[ "$STARTSCRIPT" != "start" ] && echo "usage: $0 start/stop" && exit
+	#v2.0.9: initramfs may not hadle any extra SFS
+	#v2.2: fix was removed all sfs after abnormal shutdown
+	if [ "$ALREADYRUN" ]; then
+		#skip because already called from rc.sysinit
+		log "sfs_load already run."
+		LOCKFILE=$MYTMPDIR/$APPNAME.lock
+		PIDS=$(busybox ps)
+		PIDS=$(echo "$PIDS"| grep 'sh.*sfs_load' | grep -vw "$$")
+		[ -z "$PIDS" -o -f "$LOCKFILE" ] && exit 0
+		touch "$LOCKFILLE"
+		T=0
+		TLIMIT=10
+		while [ "$PIDS" ]; do
+			T=$(($T + 1))
+			[ $T -gt $TLIMIT ] && log "Timeout." && break
+			sleep 1
+			PIDS=$(busybox ps)
+			PIDS=$(echo "$PIDS"| grep 'sh.*sfs_load' | grep -vw "$$")
+		done
+		rm -f "$LOCKFILE"
+		log "Finished."
+		exit 0
+	fi
+	MNTPNT=""
+	COPIED=""
+	NEED_FIXMENUS=""	#v2.0
+	CHANGED_DRIVE=""	#v2.0
+	SKIP_HAS_AFTERWORK="y" #v2.1.8
+	if [ "$QUEUELIST" ]; then
+		[ "$DESTPART" ] && mountpart "$DESTPART" && PUPHOME=$MNTPNT && DESTDIR=$PUPHOME
+		DESTDIRSAVE=$DESTDIR
+		echo -n "Loading extra SFS..." >/dev/console
+		for F in $QUEUELIST
+		do
+			EXTRASFS="$F"
+			DESTDIR=$DESTDIRSAVE
+			[ ! -s "$EXTRASFS" ] && EXTRASFS=$(is_at_home "$F")
+			FILEISAT=""
+			if [ ! -s "$EXTRASFS" ] && is_on_cd "$F" ; then
+				EXTRASFS="$FOUND"
+				FILEISAT="cd"
+			fi
+			if [ ! -s "$EXTRASFS" ] ; then
+				log "'$F' not found."
+				remove_item EXTRASFSLIST "$F"
+				save_bootconfig
+				continue
+			fi
+			# copy to ram?
+			#2.0: see if the main sfs in RAM?
+			[ "$PUPMODE" = "5" ] && ! df /initrd/mnt/dev_ro2 | grep -q  '^/dev/' && SFSINRAM="y" || SFSINRAM=""
+			if [ "$SFSINRAM" != "" -o "$FILISAT" = "cd" ] ; then
+				FILESIZE=$(du -k -L "$EXTRASFS"| cut -f1)
+				# need another tmpfs
+				DESTDIR="/mnt/tmp"
+				ERRMSG=""
+				ram_free
+				REST=$(($RFREE - $FILESIZE))
+				[ $REST -gt $RESERVRAM ] && another_tmpfs #|| continue
+				DESTISAT="tmp"
+				dest_free
+				if [ $DFREE -gt $FILESIZE ] && cp "$EXTRASFS" "$DESTDIR"; then
+					info "$EXTRASFS is copied to $DESTDIR."
+					EXTRASFS="$DESTDIR/"$(basename "$EXTRASFS")
+					COPIED="yes"
+				fi
+			fi
+			log "Loading '$EXTRASFS'..."
+			append_sfs #"$EXTRASFS" #|| log "Loading faild."
+			if [ $? -eq 0 -a -n "$HAS_DESKTOPS" ]; then
+				echo "$PREVUNIONRECORD" | grep -qw "$F" || NEED_FIXMENUS="y"
+			fi
+			PRINTDONE=1
+		done
+	fi
+	# BOOTCONFIG vs BOOTCONFIG.save
+	if [ "$EXTRASFSLIST" != "$PREVEXTRASFSLIST" -a $PUPMODE -ne 5 ]; then
+		echo -n "layers have changed, fixing menu..." >/dev/console
+		echo "layers have changed, fixing menu..."
+		[ "$WIPEWHITEONINIT"  = "true" ] && cleanwhite
+		[ "$NEED_FIXMENUS" ] || SKIP_FIXMENUS="y"
+		if [ "SKIP_HAS_FIXMENUS" ]; then 
+			#not checked, force all on
+			SKIP_FIXMENUS=""
+			HAS_DESKTOPS="y"
+			echo "y" > "$MYTMPDIR/has_modules"
+			echo "y" > "$MYTMPDIR/has_desktops"
+			echo "y" > "$MYTMPDIR/has_icons"
+			echo "y" > "$MYTMPDIR/has_glib_schema"
+			echo "y" > "$MYTMPDIR/has_mime"
+			echo "y" > "$MYTMPDIR/has_gdk"
+			echo "y" > "$MYTMPDIR/has_gtkim"
+			echo "y" > "$MYTMPDIR/has_pango"
+			echo "y" > "$MYTMPDIR/has_gconv"
+						
+			echo "/usr/sharefonts" > "$MYTMPDIR/has_fonts"	###FIXME subdirs ###
+			#puppy pins
+			if [ -s "/root/Choices/ROX-Filer/PuppyPin" ]; then
+				cp -f "/root/Choices/ROX-Filer/globicons" "$MYTMPDIR/globicons-sfs_load"
+				cp -f "/root/Choices/ROX-Filer/PuppyPin" "$MYTMPDIR/PuppyPin-sfs_load"
+				echo "PuppyPin-sfs_load" >  "$MYTMPDIR/has_pins"
+			fi
+		fi
+		afterwork
+		#v2.0: fix menu icons
+		if [ "$HAS_DESKTOPS" ] && pidof jwm &>/dev/null; then
+			[ "$NEED_FIXMENUS" ] && { jwm -reload || jwm -restart ; }
+			log "jwm restarted."
+		fi
+		PRINTDONE=1
+	fi
+	if [ $PRINTDONE ] ; then
+		echo -n -e "\\033[74G\\033[1;32m" >/dev/console #green [done] msg. 110426: change 72 to 74.
+		echo -n "done" >/dev/console #done
+		echo -e "\\033[0;39m" >/dev/console
+	fi
+	finish
+	exit
+fi
+
+# list up sfs already loaded or installed
+if [ "$SFSMODE" != "" ]; then
+	if [ "$QUEUELIST" ]; then
+		for F in $QUEUELIST; do
+			add_new_sfs_list $F queue
+		done
+	fi
+	ALREADY_SFS_LIST=$LOADEDLIST
+fi
+
+#v2.0: show installed sfs
+if [ "$SHOW_INFO" ];then
+	echo "$ALREADY_SFS_LIST"
+	exit 0
+fi
+
+# ensure mounted
+[ "$DESTPART" ] && mountpart "$DESTPART" && PUPHOME=$MNTPNT && DESTDIR=$PUPHOME
+
+# waring
+WARNMSG=""
+WARNSHORT=""
+WARNMODE=$PUPMODE
+[ "$SFSMODE" = "cd" ] && WARNMODE=77
+WARNEXPERIMENTAL=$(printf "$(gettext "WARNING: Using this under 'PUPMODE=%s' is EXPERIMENTAL.")" "$WARNMODE")
+if [ "$SFSMODE" = "" ]; then
+	WARNSHORT=$WARNEXPERIMENTAL
+	WARNMSG=$(gettext "Your Puppy is running under the mode without extra SFS support. But this program can install them using pseudo-PET. It is not exactly the same as loading SFS but may work well in most of case.")'\n'$WARNEXPERIMENTAL
+else
+	if [ "$SFSMODE" = "tmp" ]; then
+		WARNMSG=$(gettext "You seem running Puppy without 'pupsave'. Recommended to click 'Cancel' here and reboot PC after making 'pupsave'.")
+		[ "$PUPMODE" = "5" ] && [ "$PUPSAVECONFIG" != "" ] && \
+		WARNMSG="$WARNMSG $(gettext "Or, you need not reboot PC if you use this program after setting it up using the 'pupsaveconfig'. Follow MENU >> Utility >> PupSaveConfig")"
+		WARNMSG="$WARNMSG\n\n$(gettext "But you can load extra SFS files for temporary use(may disappear at the next boot). Click 'OK' if you want to continue.")"
+		WARNSHORT=$(gettext "You can load extra SFS files for temporary use.")
+	elif [ "$SFSMODE" = "cd" ]; then
+		WARNSHORT=$WARNEXPERIMENTAL
+		WARNMSG=$(printf "$(gettext "You seem going to save the session back to the live CD. You can place the extra SFS at '%s' if you want the SFS to persist even after the next boot. Note that the RAM should be large enough.")"  "$PUPHOME")'\n'$WARNEXPERIMENTAL
+	fi
+fi
+
+[ "$WARNSHORT" ] || WARNSHORT=$WARNMSG
+_Restart_X=$(gettext "You may need to restart X to reflect changes.")
+
+if [ "$WARNMSG" != "" -a "$EXTRASFS" = "" -a "$GUI" != "" -a "$QUIET" = "" ]; then
+	log "$WARNMSG"
+	errmsg --warning --ok-cancel "$WARNMSG" || exit 1
+fi
+
+while [ "$EXTRASFS" = "" -a "$GUI" != "" ] ; do
+	REENT="y"
+	main_dialog || REENT=""	# v1.3.9
+	[ "$REENT" ] || finish
+done
+[ "$EXTRASFS" != "" ] || fatal --usage
+
+#v1.9.1: full path?
+D=$(dirname "$EXTRASFS")
+case "$D" in
+	*://*) FULLPATH='url';;
+	/*) FULLPATH="y";;
+	*) FULLPATH="";;
+esac
+
+reform_filename "$EXTRASFS"
+
+# system file? #v2.0
+[ "$FILENAME" != "$SFSBASE" ] || fatal $(printf "$(gettext "'%s' is the system file and cannot be removed.")" "$FILENAME")
+
+# convert glob pattern to grep
+PATTERN=$(echo "$FILENAME" | sed -e 's/[.]/\\./g' -e 's/*/.*/g' -e 's/?/./g')
+#debug "Seach pattern:$PATTERN;"
+#v2.0
+ALINE=$(echo $LASTUNIONRECORD | grep -o -w "$PATTERN")
+[ "$ALINE" ] || ALINE=$(echo "$ALREADY_SFS_LIST" | grep -w "$PATTERN"| tail -n 1)
+#debug "Found:$ALINE"
+
+if [ "$ALINE" ]; then
+	#v2.0: fix zdrv, adrv #2.0.8 ydrv
+	case "$FILENAME" in
+		$SFSBASE|$ZDRBASE|$ADRBASE|$YDRBASE|$FDRBASE) fatal $(printf "$(gettext "'%s' is the system file and cannot be removed.")" "$FILENAME");;
+	esac
+	FILENAME=$(keyword $ALINE)
+	EXTRASFS="$DIRNAME/$FILENAME"
+	if [ "$SFSMODE" != "" ]; then
+		if echo "$QUEUELIST"| grep -qw "$FILENAME"; then
+			ALREADY=$(printf "$(gettext "'%s' seems not currently loaded but in the queue.")" "$FILENAME")
+			[ "$GUI" ] && ALREADY=$ALREADY'\n'$(gettext "Do you want to remove it from the queue list?")
+		else 
+			ALREADY=$(printf "$(gettext "'%s' seems already loaded.")" "$FILENAME")
+			[ "$GUI" ] && ALREADY=$ALREADY'\n'$(gettext "Do you want to unload?")
+		fi
+	fi
+	[ "$ACTION" = "unload" -o "$GUI" != "" ] || fatal $ALREADY
+	ACTION="unload"
+elif [ ! -s "$EXTRASFS" ]; then
+	# 21feb11
+	[ "$BASELIST" = "" ] && loadable_sfs_list
+	FOUND=$(echo "$BASELIST" | grep -w "$PATTERN"| tail -n 1)
+	if [ "$FOUND" ]; then
+		EXTRASFS=$(echo "$ALLSFSLIST" | grep -w "$FOUND" | head -n 1)
+	else
+		[ "$FULLPATH" = 'url' ] || fatal $(printf "$(gettext "'%s' not found.")" "$EXTRASFS")
+	fi
+fi
+
+reform_filename "$EXTRASFS"
+# 28 Oct 2011, 13 Nov 2011: special characters
+DIRNAMESAFE=$(echo "$DIRNAME"| tr ' ,;[]{}' '?')
+EXTRASFSSAFE=$(echo "$EXTRASFS"| tr ' ,;[]{}' '?')
+if [ "$EXTRASFS" != "$EXTRASFSSAFE" ] ; then
+	WARNSHORT="$WARNSHORT\n"$(gettext "'$EXTRASFS' has special charactors or blanks in its path name. It may FAIL loading.")
+fi
+
+# unload # 30 Jan 2011 v0.3: fix menu update after unload # 4 Feb 2011 v0.4: fatal check
+if [ "$ACTION" = "unload" ]; then
+	# confirmation
+	[ "$ALREADY" = "" ] && ALREADY=$(printf "$(gettext "'%s' does not seem loaded or installed.")" "$FILENAME")
+	[ "$SFSMODE" = "tmp" ] && WARNSHORT=""
+	if [ "$QUIET" = "" ]; then
+		MSG=$ALREADY
+		[ "$WARNMSG" != "" ] && MSG="$MSG\\n$WARNSHORT"
+		confirm "$MSG" || finish
+	fi
+	if [ "$SFSMODE" != "" ]; then
+		if [ "$FILENAME" = "$DISTRO_FDRVSFS" ]; then
+			confirm --ok-cancel "$(gettext "'$FILENAME' contains additional firmware that maybe needed. Are you sure you want to remove it?")" || finish
+		fi
+		processing
+		unload "$FILENAME" || finish
+		MSG="$(printf "$(gettext "'%s' is unloaded.")" "$FILENAME")$ADDINFO"
+		BUTTONS=$QUIT_BUTTON
+		[ "$REENT" ] && BUTTONS="$CONTINUE_BUTTON $BUTTONS"
+		CUSTOM="<hbox>$BUTTONS</hbox>"
+		info $OPT --custom $MSG || REENT=""
+		finish
+	fi
+	exit
+fi
+
+### load ###
+[ "$EXT" = "sfs" ] || fatal $(printf "$(gettext "'%s' does not seem sfs files.")" "$FILENAME")
+TEMPORARYUSE=""
+[ "$DESTDIR" = "" ] && [ "$DESTPART" ] && mountpart "$DESTPART" && DESTDIR="$MNTPNT"
+DESTISAT=$(df "$DESTDIR"| tail -n 1| cut -d' ' -f1| cut -d'/' -f3| tr -d '0-9')
+probedisk "$DESTISAT" | grep -q 'drive|' && DESTISAT="ata"
+KEEPMOUNT=""
+
+# where is the sfs file?
+FILEISAT=""
+
+if [ "$PUPHOME" != "" ]; then
+	case "$DIRNAME" in
+		$PUPHOME/$PSUBDIR) FILEISAT="home";;
+		$PUPHOME) FILEISAT="home";;
+	esac
+fi
+
+if [ "$FILEISAT" = "" ];then
+	case "$DIRNAME" in
+		http://*|ftp://*) FILEISAT="url" ;;
+		/mnt/cdrom*|/mnt/dvd*|/mnt/sr*) FILEISAT="cd";;
+		$MNTHOME/$PSUBDIR) FILEISAT="home";; #20151004
+		$MNTHOME) FILEISAT="home";;
+		/tmp*) FILEISAT="tmpfs";;
+		$DESTDIR|$DESTDIR/$PSUBDIR) FILEISAT="home";;
+		/mnt/network/*) FILEISAT="remote";;
+		/mnt/+*) FILEISAT="loop";;
+		/mnt/*|/initrd/mnt/*)
+			FILEISAT="mnt"
+			DEVPART=$(df "$DIRNAMESAFE"| tail -n 1| cut -d ' ' -f1)
+			DRV=$(echo $DEVPART| cut -s -d'/' -f3|tr -d '0-9')
+			if [ "$DRV" ] ; then
+				probedisk $DRV | grep -q 'drive|' && DESTISAT="ata"
+			fi
+			[ "$DEVPART" != "" ] && mount -t iso9660| grep -q "^$DEVPART " && FILEISAT="cd"
+			;; 
+	esac
+fi
+
+if [ "$FILEISAT" = "" ]; then	# v1.3.9
+	DFRESULT=$(df "$DIRNAME" 2>/dev/null)
+	echo "$DFRESULT" | grep -qw '^unionfs' && FILEISAT="unionfs"
+fi
+
+[ "$FILESAT" = "" ] && echo "$DFRESULT" | grep -qw '^tmpfs' && FILEISAT="tmpfs"
+FILEWASAT="$FILEISAT"
+EXTRASFSORG="$EXTRASFS"
+# file size
+FILESIZE=0
+if [ "$FILEISAT" != "url" ]; then
+	[ -s "$EXTRASFS" ] || fatal $(printf "$(gettext "'%s' not found.")" "$EXTRASFS")
+	FILESIZE=$(du -k -L "$EXTRASFS"| cut -f1)
+fi
+[ $FILESIZE ] || FILESIZE=0  # precaution
+
+# how much free RAM?
+ram_free
+#debug "RFREE=$RFREE;"
+
+PART=""
+MNTPNT=""
+#[ "$PUPMODE_dummy" ] && FILEISAT="cd"  ############ for debugging
+debug "FILEISAT=$FILEISAT;"
+# confirmation
+if [ $FILESIZE -ne 0 ] ; then
+	SIZE="$(gettext "filesize"): $(kbyte2 "$FILESIZE")"
+else
+	SIZE=$(gettext "needs download")
+fi
+
+MSG=$(printf "$(gettext "Do you want to load '%s'?")" "$FILENAME($SIZE)")
+NEEDTOMOVE=""
+if [ "$SFSMODE" = "tmp" -a "$FILEISAT" != "home" -a  "$FILEISAT" != "ata" ]; then
+	WARNMSG=$WARNSHORT
+	MSG="$MSG\n$WARNSHORT"
+	TOPART=$DESTPART
+	if [ "$TOPART" = "" ]; then
+		TOPART=$SFSPART
+		[ "$SFSTYPE" = "iso9660"  -a "$FILEISAT" != 'unionfs' ] && TOPART="CD"
+	fi
+	choosepart $TOPART || finish
+	[ "$UNMOUNTME" ] && [ "$FILEISAT" != "cd" -a "$UNMOUNTME" != "/dev/$PART" ] && umount "$UNMOUNTME" && UNMOUNTME=""  
+	case "$PART" in
+		NOCOPY)
+			DESTDIR=
+			DESTISAT=$FILEISAT
+			;;
+		RAM) DESTDIR="/tmp"
+			DESTISAT="tmp"
+			;;
+		CD)
+			DESTDIR=/	#DESTDIR="/initrd/pup_rw"
+			DESTISAT="tmpfs"
+			SFSMODE="cd"
+			;;
+		*)
+			mountpart $PART || fatal $(printf "$(gettext "Failed to mount '/dev/%s'.")" "$PART")
+			DESTDIR="$MNTPNT";
+			DESTISAT=$(df "$DESTDIR"| tail -n 1| cut -d' ' -f1| cut -d'/' -f3| tr -d '0-9')
+			probedisk "$DESTISAT" | grep -q 'drive|' && DESTISAT="ata"
+			;;
+	esac
+elif [ "$QUIET" = "" ]; then
+	confirm "$MSG\n$WARNSHORT" || finish
+fi
+[ "$(readlink $MNTHOME)" = "$DESTDIR" ] && DESTDIR=$MNTHOME #20151004
+
+# free space in the destination
+dest_free
+#debug "DFREE=$DFREE"
+
+# needs to download
+if [ "$FILEISAT" = "url" ]; then
+	_Failed=$(eval_gettext "Failed to download '\$EXTRASFS' to '\$DESTDIR'.")
+	(
+		cd "$DESTDIR"
+		download_file "$EXTRASFS"
+	) || fatal "$_Failed"
+	[ -s "$DESTDIR/$FILENAME" ] || fatal "$_Failed"
+	log "'$FILENAME' is downloaded at '$DESTDIR'"
+	DIRNAME="$DESTDIR"
+	EXTRASFS="$DIRNAME/$FILENAME"
+	[ "$DIRNAME" = "$PUPHOME" ] && FILEISAT="home"
+fi
+[ -s "$EXTRASFS" ] || fatal $(printf "$(gettext "'%s' not found.")" "$EXTRASFS")
+
+processing
+FILESIZE=$(du -k -L "$EXTRASFS"| cut -f1)
+COPIED=""
+MOVEDLOG=""
+TEMPORARYUSE=""
+if [ "$SFSMODE" != "" ]; then
+	# unmount if already mounted
+	LOOPDEVS=$(losetup -a | grep -w "$EXTRASFS" | cut -sd ':' -f1)
+	if [ "$LOOPDEVS" != "" ]; then
+		for LOOPDEV in $LOOPDEVS; do
+			free_loopdev "$LOOPDEV" 	#v1.9.4
+		done
+	fi
+	# needs to move?
+	NEEDTOMOVE=""
+	CANMOVE=""
+	while [ "$DESTDIR" ] && [ "$FILEISAT" != "home" ]
+	do
+		# already at the destination?
+		SUB=""
+		[ "$PSUBDIR" != "" ]  && SUB="$DESTDIR/$PSUBDIR" || SUB=""
+		FOUND=""
+		for D in $DESTDIR $SUB; do
+			[ -s "$D/$FILENAME" ] && FOUND="$D/$FILENAME" && break
+		done
+		if [ "$FOUND" != "" ]; then
+			debug "FOUND=$FOUND;"
+			[ "$(readlink $MNTHOME)" = "$D" ] && FOUND="$MNTHOME/$FILENAME"
+			MSG=$(printf "$(gettext "%s is found. Do you use it?")" $FOUND)
+			confirm $MSG || finish
+			EXTRASFS="$FOUND"
+			[ "$DESTISAT" = "tmp" ]  && FILEISAT="tmp" || FILEISAT="home"
+			break
+		fi
+		NEEDTOMOVE=""; CANMOVE=""; NEEDNOTCOPY=""
+		[ "$FILEISAT" = 'ata' -o "$FILEISAT" = 'unionfs' ] && [ "$DESTISAT" = 'ata' ] && CANMOVE="y"
+		[ "$FILEISAT" = 'cd' -a "$SFSMODE" = 'cd' ] && COPYTORAM="y"
+		# enough space?
+		REST=$(($DFREE - $FILESIZE))
+		[ $REST -gt $RESERVHDD ] && SPACEOK="y" || SPACEOK=""
+		if [ -z "$SPACEOK" ]; then	# not enough space
+			[ "$NEEDTOMOVE" ] && fatal "$(printf "$(gettext "Could not copy or move. Maybe there is not enough space at '%s'.")" "$DESTDIR")\n$(gettext "Source"): $(kbyte2 $FILESIZE) --> $(gettext "Availble"): $(kbyte2 $DFREE)"
+			break
+		fi
+		if [ "$NEEDTOMOVE" ]; then
+			cp "$EXTRASFS" "$DESTDIR" || fatal $(eval_gettext "Failed to copy '\$EXTRASFS' to '\$DESTDIR'.")
+			COPIED="y"
+			MOVEDLOG=$(eval_gettext "'\$EXTRASFS' is copied to '\$DESTDIR'.")
+			EXTRASFS="$DESTDIR/$FILENAME"
+			[ "$DESTISAT" = "tmp" ]  && FILEISAT="tmp" || FILEISAT="home"
+			break
+		fi
+		BUTTONS="<hbox><button yes></button><button no></button><button cancel></button></hbox>"
+		MSG=$(gettext "The SFS file is preferably to be at the same place you will save your session as a 'pupsave'.")
+		EXIT="Copy" #v2.0
+		#19 May 2012 v1.9.5: fix was no move but always copy
+		if [ "$CANMOVE" ]; then
+			MSG="$MSG\n$(eval_gettext "Do you want to move '\$EXTRASFS' to '\$DESTDIR'(recommended)?")"
+			BUTTONS='<button><input file stock="gtk-yes"></input><label>'$(gettext "Move")'</label><action>EXIT:Move</action></button>
+        <button><input file stock="gtk-copy"></input><label>'$(gettext "Copy")'</label><action>EXIT:Copy</action></button>
+        <button><input file stock="gtk-no"></input><label>'$(gettext "No Copy")'</label><action>EXIT:No</action></button>' 
+			EXIT="No" #v2.0
+		else
+			if [ "$COPYTORAM" ]; then
+				MSG="$(eval_gettext "Do you want to copy '\$EXTRASFS' to '\$DESTDIR'?")\n\n$(gettext "You need not copy if the SFS file is on the live CD(from which you booted off your Puppy)")"
+			else
+				MSG="$MSG\n$(eval_gettext "Do you want to copy '\$EXTRASFS' to '\$DESTDIR'(recommended)?")"
+			fi
+			BUTTONS='<button><input file stock="gtk-copy"></input><label>'$(gettext "Copy")'</label><action>EXIT:Copy</action></button>
+        <button><input file stock="gtk-no"></input><label>'$(gettext "No")'</label><action>EXIT:No</action></button>'
+		fi
+		BUTTONS='<hbox>'$BUTTONS'<button cancel></button></hbox>'
+		#debug "$BUTTONS"
+		CUSTOM=$BUTTONS
+		confirm --custom "$MSG"  
+		case "$EXIT" in
+			Yes|yes|OK|ok) :;;
+			Move)	COPYTORAM=""; MOVE="y";;
+			Copy)	COPYTORAM=""; MOVE="";;
+			No|no) [ "$COPYTORAM" ] || break;;
+			*) finish;;
+		esac
+		processing
+		if [ "$MOVE" ]; then
+			mv "$EXTRASFS" "$DESTDIR" || fatal $(eval_gettext "Failed to move '\$EXTRASFS' to '\$DESTDIR'.")
+			MOVEDLOG=$(eval_gettext "'\$EXTRASFS' is moved to '\$DESTDIR'.")
+		else
+			if [ "$COPYTORAM" ]; then
+				# another tmpfs
+				DESTDIR="/mnt/tmp"
+				ERRMSG=""
+				ram_free
+				another_tmpfs
+				DESTISAT="livecd"
+			fi
+			cp "$EXTRASFS" "$DESTDIR" || fatal $(eval_gettext "Failed to copy '\$EXTRASFS' to '\$DESTDIR'.")
+			COPIED="y"
+			MOVEDLOG=$(eval_gettext "'\$EXTRASFS' is copied to '\$DESTDIR'.")
+		fi
+		log "$MOVELOG"
+		EXTRASFS="$DESTDIR/$FILENAME"
+		[ "$DESTISAT" = "tmp" ]  && FILEISAT="tmp" || FILEISAT="home"
+		break
+	done
+	processing
+	_FAILED="$(printf "$(gettext "Failed to load '%s'.")" "$EXTRASFS")"
+	if [ "$FILEISAT" = "unionfs" ]; then
+		# which layer?
+		TEMPORARYUSE="y"
+		F=$(ls /initrd/*/"$EXTRASFS" 2>/dev/null | head -n 1)
+		if [ ! -s "$F" ]; then
+			[ "$DESTDIR" ] && fatal "$(printf "$(gettext "Could not copy or move. Maybe there is not enough space at '%s'.")" "$DESTDIR")\n$(gettext "Source"): $(kbyte2 $FILESIZE) --> $(gettext "Availble"): $(kbyte2 $DFREE)"
+			fatal "$_FAILED"
+		fi
+		EXTRASFS="$F"
+	fi
+	# append
+	[ "$FILEISAT" = "home" -o "$FILEISAT" = "livecd" ] || TEMPORARYUSE="y"  # do not regist
+	append_sfs || fatal "$_FAILED"
+	[ "$UNMOUNTME" ] && umount "$UNMOUNTME" && UNMOUNTME="" && DESTDIR=""
+	save_bootconfig
+	afterwork
+	# final report
+	[ "$MOVEDLOG" != "" ] && MOVEDLOG="\\n$MOVEDLOG"
+	OPT=""
+	[ "$PUPHOME" ] || TEMPORARYUSE="y"  # for message
+	if [ "$TEMPORARYUSE" != "" ]; then
+		OPT="--warning"
+		MOVEDLOG="$MOVEDLOG\n$(gettext "NOTE: Loading the SFS is temporary. It may be unloaded at the next boot.")"
+	fi
+	ADDINFO=$(gettext "Do not remove or move the file unless you unload it.")	# v1.3.9
+	[ "$COPIED" ] && ADDINFO="$ADDINFO $(gettext "But you can remove or move the original if you want to.")"
+	[ "$HAS_FONTS" -o "$HAS_STARTUPS" ] && ADDINFO="$ADDINFO\\n$_Restart_X"
+	MSG="$(printf "$(gettext "'%s' is successfully loaded.")" "$FILENAME")$MOVEDLOG\\n$ADDINFO"
+	if [ "$HAS_DESKTOPS" -a "$GUI" ]; then
+		launcher $HAS_DESKTOPS
+	else
+		BUTTONS=$QUIT_BUTTON
+		[ "$REENT" ] && BUTTONS="$CONTINUE_BUTTON $BUTTONS"
+		CUSTOM="<hbox>$BUTTONS</hbox>"
+		info $OPT --custom $MSG || REENT=""
+	fi
+	finish
+	exit
+fi ### SFSMODE != "" ### end
+
+### SFSMODE = "" ### start   [FULL INSTALL]
+# already mounted?
+MNTPNT=""
+LOOPDEV=$(losetup -a | grep -w "$EXTRASFS" | cut -sd ':' -f1)
+if [ "$LOOPDEV" != "" ]; then
+	MNTPNT=$(df | grep -w "$LOOPDEV" | cut -sd'%' -f2)
+	MNTPNT=$(echo $MNTPNT) # remove blank
+fi
+
+if [ "$MNTPNT" = "" ]; then
+	MNTPNT=/mnt/$(echo "$EXTRASFS"| tr '/ ' '+_')
+	mkdir -p "$MNTPNT"
+	STATUS=0
+	if [ "$LOOPDEV" != "" ]; then
+		mount -r -t squashfs "$LOOPDEV" "$MNTPNT" # v1.3.9
+		STATUS=$?
+	else
+		mount -r -t squashfs -o loop "$EXTRASFS" "$MNTPNT" # v1.3.9
+		STATUS=$?
+	fi
+	if [ $STATUS -ne 0 ]; then
+		fatal "Failed to mount '$EXTRASFS' on '$MNTPNT'."
+	fi
+fi
+
+# enough space at destination?
+SSIZE=$(du -k -s "$MNTPNT"| cut -f1)
+[ $SSIZE ] || SSIZE=0
+REST=$(($DFREE - $SSIZE))
+if [ $REST -lt $RESERVHDD ]; then  # 20MB rest
+	umount "$MNTPNT" && rmdir "$MNTPNT"
+	# ensure loop device be free
+	LOOPDEV=$(losetup -a | grep -w "$EXTRASFS" | cut -sd ':' -f1)
+	[ "$LOOPDEV" != "" ] && free_loopdev "$LOOPDEV" 	#v1.9.4
+	fatal "$(gettext "There is not enough space to install.")\n$(gettext "Source"): $(kbyte2 $SSIZE) --> $(gettext "Free"): $(kbyte2 $DFREE)"
+fi
+
+# check contents 
+has_afterwork
+# make file list and copy the files
+FILELIST="$PKGDIR/$ROOTNAME.files"
+SKIPLIST="$MYTMPDIR/${ROOTNAME}_skipped.files"
+rm -f "$FILELIST" "$SKIPLIST"
+
+find "$MNTPNT" -mindepth 1 -printf '/%P\n' | grep -v PuppyPin | \
+while read ALINE
+do
+	if [ -d "$ALINE" ] && [ ! -L "$ALINE" ] ; then
+		mkdir -p "$MNTPNT$ALINE"
+		echo "$ALINE/" >> $FILELIST
+	else
+		if cp -a --remove-destination "$MNTPNT$ALINE" "$ALINE" ; then
+			echo "$ALINE" >> $FILELIST
+		else
+			echo "$ALINE" >> $SKIPLIST
+		fi
+	fi
+done
+
+umount "$MNTPNT" && rmdir "$MNTPNT"
+# ensure loop device be free
+LOOPDEV=$(losetup -a | grep -w "$EXTRASFS" | cut -sd ':' -f1)
+[ "$LOOPDEV" != "" ] && free_loopdev "$LOOPDEV" 	#v1.9.4
+if [ -s $SKIPLIST ]; then
+	error $(gettext "Failed to copy some files to root file system.")
+fi
+# register in the .package
+THESFSMNT=$ROOTNAME
+INSTSIZEK=${SSIZE}K
+DESCRIPTION="extra SFS installed by $MYNAME"
+
+# code from sfs_installation.sh by 01micko
+#quickpet_lupu-4beta2|quickpet_lupu|4beta2||Setup|484K||quickpet_lupu-4beta2.pet||Quickpet Install Popular Programs||||
+#format #packagename-ver1|packagename|ver1|||||packagename-ver1.pet|||||| 
+THESFSVERSION=`echo $THESFSMNT|cut -d '-' -f2-`
+THESFSNAME=`echo $THESFSMNT | cut -d '-' -f1`
+if [[ `echo $THESFSMNT | grep "devx"` != "" ]];then
+	THESFSNAME=`echo $THESFSMNT | cut -d '_' -f 1,2`
+	THESFSVERSION=`echo $THESFSMNT|cut -d '_' -f3`
+fi
+
+SFSASPETNAME=$FILENAME  #`echo $THESFS | sed 's/sfs$/pet/'`
+echo "${THESFSMNT}|${THESFSNAME}|$THESFSVERSION|||$INSTSIZEK||${SFSASPETNAME}||$DESCRIPTION||||" >> $PKGDIR/user-installed-packages
+
+# remove copied file
+if [ "$EXTRASFS" != "$EXTRASFSORG" ]; then
+	rm -f "$EXTRASFS"
+	log $(printf "$(gettext "'%s' is deleted.")" "$EXTRASFS") 
+fi
+afterwork
+ADDINFO=""
+[ "$HAS_FONTS" -o "$HAS_STARTUPS" ] && ADDINFO="\\n$_Restart_X"
+
+MSG="$(printf "$(gettext "'%s' is installed.")" "$FILENAME")$ADDINFO"
+OPT="--info"
+if [ "$HAS_DESKTOPS" ]; then
+	launcher $HAS_DESKTOPS
+else
+	BUTTONS=$QUIT_BUTTON
+	[ "$REENT" ] && BUTTONS="$CONTINUE_BUTTON $BUTTONS"
+	CUSTOM="<hbox>$BUTTONS</hbox>"
+	info $OPT --custom $MSG || REENT=""
+fi
+finish
+exit
+
+### END ###

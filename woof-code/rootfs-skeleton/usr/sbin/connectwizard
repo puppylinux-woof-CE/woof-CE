@@ -8,7 +8,7 @@
 #v411 anythng on commandline suppresses default-connect gui (see wizardwizard).
 #v423 menu modification, cater to dialup wireless modem.
 #091218 button for ipinfo.
-#100227 overhaul, added Pwireless2, Network Wizards (old and new).
+#100227 overhaul, Network Wizard
 #100310 added Simple Network Setup tool.
 #100412 sns related bug fix.
 #v433 rerwin: Add message for previously selected modem not present.
@@ -24,15 +24,41 @@
 #121112 rerwin: change indicator of frisbee.
 #130111 rerwin: change name of frisbee invocation for integrated version, add disable when appropriate.
 #131214 zigbert: gui (gtkdialog) improvements.
+#160120 rerwin: add use of new pgprs and frisbee interfaces.
+#170308 rerwin: use only new pgprs (2.0+) and frisbee (1.4.x) interfaces; remove gkdial check.
+#170309 rerwin: retain choice in case multiple setups tried; disconnect any unchosen network setup.
+#170418 rerwin: leave frisbee state unchanged after choosing new defaultconnect.
+#170510 rerwin: replace 170309 implemention with connectwizard_exec; kill other connectwizard dialogs, to avoid conflict; exit if dialog killed; support optional pupdial.
+#180919 add peasywifi support.
 
 export TEXTDOMAIN=connectwizard
 export OUTPUT_CHARSET=UTF-8
 
+firewall_func() {
+	which firewall_ng 2>&1 >/dev/null
+	ret=$?
+	if [ $ret -eq 0 ];then
+		firewall_ng &
+	else
+		rxvt -e /usr/sbin/firewallinstallshell &
+	fi
+}
+export -f firewall_func
+
+WIZARDPIDS="$(ps --no-headers -fC gtkdialog | grep -E 'Network_Connection_Wizard|InternetConnectionWizard' | tr -s ' ' | cut -f 2 -d ' ' | tr '\n' ' ')" #170510
+[ -n "$WIZARDPIDS" ] && kill $WIZARDPIDS #170510
+
+# test conectivity
+if wget -q --spider http://distro.ibiblio.org ;then # returns other than 0 we're not connected
+ ONLINE='true'
+ FIERWALL_LABEL=$(gettext "Setup a firewall")
+else
+ ONLINE='false'
+ FIERWALL_LABEL=$(gettext "Firewall can be setup after connection")
+fi
 
 #v411 commandline param, this section irrelevant...
 DEFAULTCONNECT="`cat /usr/local/bin/defaultconnect | tail -n 1 | tr -s " " | cut -f 2 -d " "`"
-[ "`grep 'gprs' /usr/local/bin/defaultconnect`" != "" ] && DEFAULTCONNECT='pgprs-connect'
-[ "$DEFAULTCONNECT" = "gkdial" ] && DEFAULTCONNECT="pupdial" #for older pups.
 #radiobuttons...
 DEFGNOMEPPP="no"
 DEFPUPDIAL="no"
@@ -40,45 +66,21 @@ DEFRPPPPOE="no"
 DEFMTGPRS="no"
 DEFICW="no"
 DEFPPPOECONF="no" #v409
-DEFPWIRELESS="no" #100227
 DEFFRISBEE="no" #120823
-DEFNETWIZCLASSIC="no" #100227
 DEFNETWIZARD="no" #100227
 DEFSNS="no" #100310
+DEFPWF="no" #180919
 case $DEFAULTCONNECT in
- gnome-ppp)
-  DEFGNOMEPPP="yes"
-  ;;
- pupdial)
-  DEFPUPDIAL="yes"
-  ;;
- pppoe_gui)
-  DEFRPPPPOE="yes"
-  ;;
- pgprs-connect)
-  DEFMTGPRS="yes"
-  ;;
- pppoeconf) #v409
-  DEFPPPOECONF="yes"
-  ;;
- Pwireless2) #100227
-  DEFPWIRELESS="yes"
-  ;;
- frisbee) #120823 130111
-  DEFFRISBEE="yes"
-  ;; 
- net_wiz_classic) #100227
-  DEFNETWIZCLASSIC="yes"
-  ;;
- net-setup.sh) #100227
-  DEFNETWIZARD="yes"
-  ;;
- sns) #100310 Simple Network Setup.
-  DEFSNS="yes"
-  ;;
- *)
-  DEFICW="yes"
-  ;;
+ gnome-ppp)    DEFGNOMEPPP="yes"  ;;
+ pupdial)      DEFPUPDIAL="yes"   ;;
+ pppoe_gui)    DEFRPPPPOE="yes"   ;;
+ pppoeconf)    DEFPPPOECONF="yes" ;;
+ frisbee)      DEFFRISBEE="yes"   ;;
+ net-setup.sh) DEFNETWIZARD="yes" ;;
+ sns)          DEFSNS="yes"       ;;
+ pgprs)        DEFMTGPRS="yes"    ;; #170308
+ peasywifi)    DEFPWF="yes" ;; #180919
+ *) DEFICW="yes" ;;
 esac
 
 #101002 rerwin: Wait for initialization scripts to complete... 101122 breakout.
@@ -114,18 +116,36 @@ if [ -h /dev/modem ];then
 fi
 
 FLAGGNOMEPPP=""
-if [ ! "`which gnome-ppp`" = "" ];then
+if [ ! "`which gnome-ppp 2>/dev/null`" = "" ];then
  FLAGGNOMEPPP="<radiobutton><label>$(gettext 'GnomePPP (modem dialup)')</label><variable>RADIOGNOMEPPP</variable><default>$DEFGNOMEPPP</default></radiobutton>"
 fi
 
+FLAGPUPDIAL="" #170510...
+CONNECTPUPDIAL=""
+if [ "`which pupdial 2>/dev/null`" != "" ];then
+ FLAGPUPDIAL="<radiobutton><label>'$(gettext "PupDial (modem dialup)")'</label><variable>RADIOPUPDIAL</variable><default>'$DEFPUPDIAL'</default></radiobutton>"
+ CONNECTPUPDIAL='
+ <hbox space-expand="true" space-fill="true">
+   <button space-expand="false" space-fill="false">
+     '"`/usr/lib/gtkdialog/xml_button-icon modem.svg big`"'
+     <action>connectwizard_exec pupdial</action>
+     <action>/usr/sbin/pupdial & </action>
+     <action type="exit">true_exit</action>
+   </button>
+   <text space-expand="false" space-fill="false"><label>'$(gettext "Dialup analog or wireless modem (2g/3g)")'</label></text>
+   <text space-expand="true" space-fill="true"><label>""</label></text>
+ </hbox>'
+fi #170510 end
+
 FLAGROARINGPENGUIN=""
 CONNECTROARINGPENGUIN="" #v409
-if [ "`which pppoe_gui`" != "" ];then
+if [ "`which pppoe_gui 2>/dev/null`" != "" ];then
  FLAGROARINGPENGUIN="<radiobutton><label>$(gettext 'Roaring Penguin (PPPoE)')</label><variable>RADIORPPPPOE</variable><default>$DEFRPPPPOE</default></radiobutton>"
  CONNECTROARINGPENGUIN='
  <hbox space-expand="true" space-fill="true">
    <button space-expand="false" space-fill="false">
      '"`/usr/lib/gtkdialog/xml_button-icon internet_connect.svg big`"'
+     <action>connectwizard_exec pppoe_gui</action>
      <action>/usr/sbin/pppoe_gui &</action>
      <action type="exit">exit</action>
    </button>
@@ -137,7 +157,7 @@ fi
 #v411...
 FLAGPPPOECONF=""
 CONNECTPPPOECONF=""
-if [ "`which pppoeconf`" != "" ];then
+if [ "`which pppoeconf 2>/dev/null`" != "" ];then
  FLAGPPPOECONF="<radiobutton><label>$(gettext 'Pppoeconf (PPPOE)')</label><variable>RADIOPPPOECONF</variable><default>$DEFPPPOECONF</default></radiobutton>"
  CONNECTPPPOECONF='
  <hbox space-expand="true" space-fill="true">
@@ -151,39 +171,36 @@ if [ "`which pppoeconf`" != "" ];then
  </hbox>'
 fi
 
-#FLAGMTGPRS=""
-#if [ "`which pgprs-setup`" != "" ];then
+FLAGMTGPRS=""
+if which pgprs &>/dev/null;then #160120
  CONNECTMTGPRS='
  <hbox space-expand="true" space-fill="true">
    <button space-expand="false" space-fill="false">
      '"`/usr/lib/gtkdialog/xml_button-icon wireless.svg big`"'
-     <action>/usr/sbin/pgprs-shell &</action>
+     <action>connectwizard_exec pgprs</action>
+     <action>/usr/sbin/pgprs --setup &</action>
      <action type="exit">exit</action>
    </button>
    <text space-expand="false" space-fill="false"><label>'$(gettext "Wireless GPRS modem")'</label></text>
    <text space-expand="true" space-fill="true"><label>""</label></text>
- </hbox>'
+ </hbox>' #160120 170308
  FLAGMTGPRS="<radiobutton><label>$(gettext "GPRS Connect")</label><variable>RADIOMTGPRS</variable><default>$DEFMTGPRS</default></radiobutton>"
-#fi
-
-if [ -d /usr/local/Pwireless2 ];then #100227 Jemimah's wireless connection gui.
- FLAGPWIRELESS="<radiobutton><label>$(gettext "Pwireless (wireless networking)")</label><variable>RADIOPWIRELESS</variable><default>$DEFPWIRELESS</default></radiobutton>"
 fi
 
-if [ -f /usr/local/bin/frisbee ];then #100227 121112 130111 Jemimah's wireless connection gui.
+if which frisbee &>/dev/null;then #100227 121112 130111 Jemimah's wireless connection gui. 160120
  FLAGFRISBEE="<radiobutton><label>$(gettext "Frisbee (wireless networking)")</label><variable>RADIOFRISBEE</variable><default>$DEFFRISBEE</default></radiobutton>"
 fi
 
-if [ -f /usr/local/net_setup/usr/sbin/net-setup.sh ];then #100227 wizard used in older puppies.
- FLAGNETWIZCLASSIC="<radiobutton><label>$(gettext "Network Wizard Classic")</label><variable>RADIONETWIZCLASSIC</variable><default>$DEFNETWIZCLASSIC</default></radiobutton>"
-fi
-
-if [ -f /usr/sbin/net-setup.sh ];then #100227 wizard developed by Dougal.
+if which net-setup.sh &>/dev/null;then #100227 wizard developed by Dougal.
  FLAGNETWIZARD="<radiobutton><label>$(gettext "Dougal's Network Wizard")</label><variable>RADIONETWIZARD</variable><default>$DEFNETWIZARD</default></radiobutton>"
 fi
 
-if [ -d /usr/local/simple_network_setup ];then #100310
+if which sns &>/dev/null;then #100310
  FLAGSNS="<radiobutton><label>$(gettext "Barry's Simple Network Setup")</label><variable>RADIOSNS</variable><default>$DEFSNS</default></radiobutton>"
+fi
+
+if which peasywifi &>/dev/null;then #180919
+ FLAGPWF="<radiobutton><label>$(gettext "PeasyWiFi Connection Manager")</label><variable>RADIOPWF</variable><default>$DEFPWF</default></radiobutton>"
 fi
 
 #v411...
@@ -193,16 +210,15 @@ CHOOSEDEFAULT='
       <vbox space-expand="true" space-fill="true">
   <frame '$(gettext "Connect action")'>
       <vbox space-expand="true" space-fill="true">
-        <radiobutton><label>'$(gettext "PupDial (modem dialup)")'</label><variable>RADIOPUPDIAL</variable><default>'$DEFPUPDIAL'</default></radiobutton>
+        '$FLAGPUPDIAL'
         '$FLAGSNS'
         '$FLAGNETWIZARD'
-        '$FLAGPWIRELESS'
         '$FLAGFRISBEE'
-        '$FLAGNETWIZCLASSIC'
         '$FLAGMTGPRS'
         '$FLAGGNOMEPPP'
         '$FLAGPPPOECONF'
         '$FLAGROARINGPENGUIN'
+        '$FLAGPWF'
         <radiobutton><label>'$(gettext "Internet Connection Wizard")'</label><variable>RADIOICW</variable><default>'$DEFICW'</default></radiobutton>
       </vbox>
   </frame>
@@ -231,15 +247,7 @@ export InternetConnectionWizard='
                 <text space-expand="false" space-fill="false"><label>'$(gettext "Wired or wireless LAN")'</label></text>
                 <text space-expand="true" space-fill="true"><label>""</label></text>
               </hbox>
-              <hbox space-expand="true" space-fill="true">
-                <button space-expand="false" space-fill="false">
-                  '"`/usr/lib/gtkdialog/xml_button-icon modem.svg big`"'
-                    <action>/usr/sbin/pupdial & </action>
-                    <action type="exit">true_exit</action>
-                </button>
-                <text space-expand="false" space-fill="false"><label>'$(gettext "Dialup analog or wireless modem (2g/3g)")'</label></text>
-                <text space-expand="true" space-fill="true"><label>""</label></text>
-              </hbox>
+              '${CONNECTPUPDIAL}'
               '${CONNECTMTGPRS}'
               '${CONNECTPPPOECONF}'
               '${CONNECTROARINGPENGUIN}'
@@ -251,10 +259,10 @@ export InternetConnectionWizard='
           <frame '$(gettext 'Tools')'>
             <vbox space-expand="false" space-fill="false">
               <hbox space-expand="true" space-fill="true">
-                <text space-expand="false" space-fill="false"><label>'$(gettext "Setup a firewall")'</label></text>
-                <button space-expand="false" space-fill="false">
+                <text space-expand="false" space-fill="false"><label>'"$FIERWALL_LABEL"'</label></text>
+                <button space-expand="false" space-fill="false" sensitive="'"$ONLINE"'">
                   '"`/usr/lib/gtkdialog/xml_button-icon firewall.svg big`"'
-                  <action>rxvt -e /usr/sbin/firewallinstallshell &</action>
+                  <action>firewall_func</action>
                   <action type="exit">exit</action>
                 </button>
               </hbox>
@@ -262,7 +270,7 @@ export InternetConnectionWizard='
                 <text space-expand="false" space-fill="false"><label>'$(gettext "Setup a proxy server")'</label></text>
                 <button space-expand="false" space-fill="false">
                   '"`/usr/lib/gtkdialog/xml_button-icon shield_internet.svg big`"'
-                  <action>/usr/local/simple_network_setup/proxy-setup &</action>
+                  <action>proxy-setup &</action>
                   <action type="exit">exit</action>
                 </button>
               </hbox>
@@ -315,6 +323,7 @@ export InternetConnectionWizard='
 . /usr/lib/gtkdialog/xml_info gtk #build bg_pixmap for gtk-theme
 RETSTR="`gtkdialog -p InternetConnectionWizard`" 
 
+[ $? -gt 2 ] && exit #170510
 [ $1 ] && exit #v411
 [ "`echo "$RETSTR" | grep 'true_exit'`" != "" ] && exit #100412 after return from sns. 100902 and pupdial.
 
@@ -322,18 +331,12 @@ RADIOBUT="`echo "$RETSTR" | grep '^RADIO' | grep '"true"' | cut -f 1 -d '='`"
 [ "$RADIOBUT" = "RADIOGNOMEPPP" ] && echo -e '#!/bin/sh\nexec gnomepppshell' > /usr/local/bin/defaultconnect
 [ "$RADIOBUT" = "RADIOPUPDIAL" ] && echo -e '#!/bin/sh\nexec pupdial' > /usr/local/bin/defaultconnect
 [ "$RADIOBUT" = "RADIORPPPPOE" ] && echo -e '#!/bin/sh\nexec pppoe_gui' > /usr/local/bin/defaultconnect
-[ "$RADIOBUT" = "RADIOMTGPRS" ] && echo -e '#!/bin/sh\nexec rxvt -title "pgprs-connect PRESS CTRL+C TO DISCONNECT" -e pgprs-connect' > /usr/local/bin/defaultconnect
+[ "$RADIOBUT" = "RADIOMTGPRS" ] && ( echo -e '#!/bin/sh\nexec pgprs --connect' > /usr/local/bin/defaultconnect ) #160120 170308
 [ "$RADIOBUT" = "RADIOICW" ] && echo -e '#!/bin/sh\nexec connectwizard' > /usr/local/bin/defaultconnect
 [ "$RADIOBUT" = "RADIOPPPOECONF" ] && echo -e '#!/bin/sh\nexec pppoeconf' > /usr/local/bin/defaultconnect #v409
-[ "$RADIOBUT" = "RADIOPWIRELESS" ] && echo -e '#!/bin/sh\nexec Pwireless2' > /usr/local/bin/defaultconnect #100227
 [ "$RADIOBUT" = "RADIOFRISBEE" ] && echo -e '#!/bin/sh\nexec frisbee' > /usr/local/bin/defaultconnect #120823 130111
-[ "$RADIOBUT" = "RADIONETWIZCLASSIC" ] && echo -e '#!/bin/sh\nexec net_wiz_classic' > /usr/local/bin/defaultconnect #100227
 [ "$RADIOBUT" = "RADIONETWIZARD" ] && echo -e '#!/bin/sh\nexec net-setup.sh' > /usr/local/bin/defaultconnect #100227
 [ "$RADIOBUT" = "RADIOSNS" ] && echo -e '#!/bin/sh\nexec sns' > /usr/local/bin/defaultconnect #100227
-
-if [ "$FLAGFRISBEE" ];then #130111 precaution...
- echo -n "$RADIOBUT" | grep -q -E 'CW$|FRISBEE|PUPDIAL|MTGPRS' \
-  || frisbee_mode_disable
-fi
+[ "$RADIOBUT" = "RADIOPWF" ] && echo -e '#!/bin/sh\nexec peasywifi' > /usr/local/bin/defaultconnect #180919
 
 ###end###

@@ -5,186 +5,237 @@
 #usbutils optionally used if installed, lsusb accesses usb.ids to obtain device description.
 #pupcamera is not a separate application, it is builtin to Woof so is in all builds
 # -- it detects if gphoto (and deps) not installed and informs the user.
-#111010 first release.
-#111015 detect if gphotofs not installed.
-#120202 BK: internationalized.
-#130208 rodin.s: missing translation.
-#130326 note: DEVICE variable no longer in 3.5+ kernel, as /proc/bus/usb removed.
-#131128 zigbert: gui (gtkdialog) improvements.
-#140128 01micko, bugfix "Open" button and tame 88-puppy-autodetect.rules
+#pupcamera rewritten by mistfire. Interface and behavior based from pmount for Puppy 4.0
+
+if ! [ "`which gphoto2`" ];then
+	/usr/lib/gtkdialog/box_ok "PupCamera" error "<b>$(gettext "The 'gphoto2' application is not installed.")</b>" "$(gettext "That means PupCamera cannot access the photos on a digital camera. Please run the Package Manager to install 'gphoto2'.")"
+	exit 1
+elif ! [ "`which gphotofs`" ]; then
+	/usr/lib/gtkdialog/box_ok "PupCamera" error "<b>$(gettext "The 'gphotofs' application is not installed.")</b>" "$(gettext "That means PupCamera cannot access the photos on a digital camera. Please run the Package Manager to install 'gphotofs'.")"
+	exit 1
+fi
 
 PIDOFMTP=`pidof mtpdevice`
 [ "$PIDOFMTP" ] && exit # exits if mtpdevice process starts to tame udev rule 88-puppy-autodetect.rules
 
-export TEXTDOMAIN=pupcamera
-export OUTPUT_CHARSET=UTF-8
+[ ! -e /media ] && mkdir /media
 
-mkdir -p /mnt/camera1
-mkdir -p /mnt/camera2
-umount /mnt/camera1 2>/dev/null #precaution.
-umount /mnt/camera2 2>/dev/null #precaution.
+#==================================================
 
-#as this app can be run from both menu and auto-detect plugging-in, kill any previous...
+add_remote()
+{
+	IP_Add=`Xdialog --title "New Remote Connection" --stdout --inputbox "Enter IP address of the remote camera" 300x100`
+
+	if [ "$IP_Add" == "" ]; then
+		exit
+	fi
+
+	/usr/lib/gtkdialog/box_splash -close never -text "Checking remote camera $IP_Add..." &
+	xPID=$!
+
+	ping -q -c5 $IP_Add
+	retvalp=$?
+
+	kill $xPID
+
+	if [ $retvalp -ne 0 ]; then
+		/usr/lib/gtkdialog/box_ok "PupCamera" error "Remote camera $IP_Add is not reachable"
+		exit
+	fi
+
+	port_no=`Xdialog --title "New Remote Connection" --stdout --inputbox "Enter port number of the remote camera (optional)" 350x100`
+
+	if [ "$port_no" == "" ]; then
+		port1=""
+		ippath="$IP_Add"
+	else
+		port1=":$port_no"
+		ippath="$IP_Add-$port_no"
+	fi
+
+	if [ ! -d /media/remote-cam-$ippath ]; then
+		mkdir /media/remote-cam-$ippath
+	fi
+
+	gphotofs --port="ptpip:$IP_Add$port1" /media/remote-cam-$ippath
+
+	retval=$?
+
+	if [ $retval -eq 0 ]; then
+		/usr/lib/gtkdialog/box_ok "PupCamera" info "Remote camera connected"
+	else
+		rmdir /media/remote-cam-$IP_Add
+		/usr/lib/gtkdialog/box_ok "PupCamera" error "Cannot connect to remote camera"
+	fi
+}
+export -f add_remote
+
+#==================================================
+
+#using ${$} which is pid of script...
+MYPID=${$}
+
+. /etc/rc.d/PUPSTATE #v3.96
+
 ALLPS="`ps`"
-OLDPIDS="`echo "$ALLPS" | grep 'gtkdialog' | grep 'PUPCAMERA_DLG' | tr -s ' ' | sed -e 's%^ %%' | cut -f 1 -d ' ' | tr '\n' ' '`"
+OLDPIDS="`echo "$ALLPS" | grep 'gtkdialog' | grep 'PCAMGUI' | tr -s ' ' | sed -e 's%^ %%' | cut -f 1 -d ' ' | tr '\n' ' '`"
 kill $OLDPIDS 2>/dev/null
 
-#find BUSNUM, DEVNUM...
-BUSNUM=""; DEVNUM=""; PRODUCTDESC=""
-if [ "$DEVPATH" ];then
- [ -e /sys${DEVPATH}/product ] && PRODUCTDESC="`cat /sys${DEVPATH}/product`"
- if [ "$DEVTYPE" = "usb_interface" ];then
-  UPDEVPATH=$DEVPATH
-  while [ "$UPDEVPATH" != "/" ];do
-   UPDEVPATH="`dirname $UPDEVPATH`"
-   case $UPDEVPATH in
-    *usb*) #this is to avoid going too high.
-     [ ! -e /sys${UPDEVPATH}/busnum ] && continue
-     [ ! -e /sys${UPDEVPATH}/devnum ] && continue
-     BUSNUM="00`cat /sys${UPDEVPATH}/busnum`"
-     DEVNUM="00`cat /sys${UPDEVPATH}/devnum`"
-     BUSNUM="`echo -n "$BUSNUM" | rev | cut -c 1,2,3 | rev`" #must be in 3-digit format, ex: 002
-     DEVNUM="`echo -n "$DEVNUM" | rev | cut -c 1,2,3 | rev`" #must be in 3-digit format, ex: 012
-     [ ! "$PRODUCTDESC" ] && [ -e /sys${UPDEVPATH}/product ] && PRODUCTDESC="`cat /sys${UPDEVPATH}/product`"
-     break
-    ;;
-    *)
-     break
-    ;;
-   esac
-  done
- fi
+/usr/lib/gtkdialog/box_splash -close never -text "Probing cameras..." &
+xPID=$!
+sleep 3s
+kill $xPID
+
+gphoto2 --auto-detect | tr -s ' ' | tail -n +3 > /tmp/pcamera_ports
+content=`cat /tmp/pcamera_ports`
+
+cp /tmp/pcamera_ports /tmp/pcamera_port_name
+
+sed -i -e "s/ /|/g" /tmp/pcamera_ports
+
+CAMCNT=1
+
+for d1 in `cat /tmp/pcamera_ports | sort`
+do
+	portcam=`echo "$d1" | rev | cut -f 2 -d "|" | rev`
+	DEVNAME=`cat /tmp/pcamera_port_name | grep "$portcam"`
+	ONEMNTPT=`mount | grep /media/camera${CAMCNT}`
+
+	if [ "$ONEMNTPT" = "" ];then #not mounted.
+		PARTSGUI="${PARTSGUI}
+<hbox>
+  <text space-expand=\"true\" space-fill=\"true\">
+    <label>${DEVNAME} (Cam ${CAMCNT})</label>
+  </text>
+  <button space-expand=\"true\" space-fill=\"true\">
+    <label>MOUNT</label>
+    <action>mkdir /media/camera${CAMCNT}</action>
+    <action>gphotofs --port='$portcam' /media/camera${CAMCNT}</action>
+    <action>EXIT:refresh</action>
+  </button>
+  <button space-expand=\"true\" space-fill=\"true\">
+    <input file stock=\"gtk-open\"></input>
+    <height>22</height>
+    <label>OPEN</label>
+    <action>rox -d /media/camera${CAMCNT} &</action>
+    <sensitive>false</sensitive>
+  </button>
+</hbox>"
+	else
+		PARTSGUI="${PARTSGUI}
+<hbox>
+  <text space-expand=\"true\" space-fill=\"true\">
+    <label>${DEVNAME} (Cam ${CAMCNT})</label>
+  </text>
+  <button space-expand=\"true\" space-fill=\"true\">
+    <label>UNMNT</label>
+    <action>umount /media/camera${CAMCNT}</action>
+    <action>rmdir /media/camera${CAMCNT}</action>
+    <action>EXIT:refresh</action>
+  </button>
+  <button space-expand=\"true\" space-fill=\"true\">
+    <input file stock=\"gtk-open\"></input>
+    <label>OPEN</label>
+    <action>rox -d /media/camera${CAMCNT} &</action>
+    <sensitive>true</sensitive>
+  </button>
+</hbox>"
+	fi
+
+	CAMCNT=`echo $(expr $CAMCNT + 1)`
+done
+
+
+RMT=1
+
+for g1 in `mount | grep /media/remote-cam- | cut -f 3 -d " "`
+do
+	ipaddress=`echo "$g1" | cut -f 3 -d "-"`
+	rport=`echo "$g1" | cut -f 4 -d "-"`
+	ippath=`basename $g1`
+
+	if [ "$rport" != "" ]; then
+		label1="$ipaddress port $rport (Remote $RMT)"
+	else
+		label1="$ipaddress (Remote $RMT)"
+	fi
+
+	if [ "$g1" != "" ]; then
+		PARTSGUI="${PARTSGUI}
+<hbox>
+  <text space-expand=\"true\" space-fill=\"true\">
+    <label>$label1</label>
+  </text>
+  <button space-expand=\"true\" space-fill=\"true\">
+    <label>UNMNT</label>
+    <action>umount /media/$ippath</action>
+    <action>rmdir /media/$ippath</action>
+    <action>EXIT:refresh</action>
+  </button>
+  <button></input><label>REFRESH</label>
+  <button space-expand=\"true\" space-fill=\"true\">
+    <input file stock=\"gtk-open\">
+    <label>OPEN</label>
+    <action>rox -d /media/$ippath &</action>
+    <sensitive>true</sensitive>
+  </button>
+</hbox>"
+	fi
+	RMT=`echo $(expr $RMT + 1)`
+done
+
+CICON=photocamera_yes.svg
+PROBEINFO="$(gettext 'You may have to close your file manager to close the camera correctly')"
+if [ "$PARTSGUI" = "" ]; then
+	PROBEINFO="<b>$(gettext "No device is detected.")</b>
+$(gettext "It means that the 1) Gphoto software does not recognise your device, or 2) the device is not connected or 3) the device needs to be turned on.")"
+	CICON=photocamera_no.svg
+	PARTSGUI="<text><label>NO CAMERAS DETECTED</label></text>"
 fi
 
-echo -n "" > /tmp/pupcamera_ports
-CAMERAINFO=""
-if [ "$BUSNUM" ];then
- 
- #get product description from lsusb (usbutils pkg)...
- VENDORINSERT=""
- if which lsusb;then
-  if [ "`lsusb --help 2>&1 | grep -i 'busybox'`" = "" ];then #want the full lsusb
-   VENDORDESC="`lsusb -s ${BUSNUM}:${DEVNUM} | tr -s ' ' | cut -f 3-9 -d ':' | cut -f 2-99 -d ' '`"
-   if [ "$VENDORDESC" ];then
-    VENDORINSERT="$(gettext 'The camera has identified itself as:')
- <b>${VENDORDESC}</b>
-"
-   fi
-  fi
- fi
- 
- CAMERAINFO="$(gettext 'A camera is detected connected via USB.')
-$(gettext 'The Linux kernel has identified it as:')
- $(gettext 'Type:') <b>${PRODUCTDESC}</b>
- $(gettext 'Connected on port: usb:')${BUSNUM},${DEVNUM}
-${VENDORINSERT}"
- echo "usb:${BUSNUM},${DEVNUM}" >> /tmp/pupcamera_ports
-fi
+#==================================================
+WIDTH=710
+HEIGHT=300
+SRCNXY=$(LANG=C xwininfo -root | grep -o '\-geometry .*' | sed 's/+.*// ;  s/-geometry //')
+SCRN_X=`echo "$SRCNXY" | cut -f 1 -d 'x'`
+#SCRN_Y=`echo "$SRCNXY" | cut -f 2 -d 'x'`
+[ "$SCRN_X" -a $SCRN_X -le 720 ] && WIDTH=600
+[ "$SCRN_X" -a $SCRN_X -le 640 ] && WIDTH=500
+#==================================================
 
-PROBEINFO=""
-if [ "`which gphoto2`" ];then
- GPHOTOPROBE="`gphoto2 --auto-detect | tr -s ' ' | tail -n +3`"
- if [ "$GPHOTOPROBE" ];then
-  PROBEINFO="$(gettext "A probe by the 'gphoto2' utility has detected a camera, so it is likely that this camera will be accessable. Results of probe:")
-<b>${GPHOTOPROBE}</b>"
-  PROBEPORTS="`echo "$GPHOTOPROBE" | sed -e 's% *$%%' | rev | cut -f 1 -d ' ' | rev`"
-  echo "$PROBEPORTS" >> /tmp/pupcamera_ports
- else
-  if [ -s /tmp/pupcamera_ports ];then
-   PROBEINFO="<b>$(gettext "No camera is detected.")</b>
-$(gettext "It means that the Gphoto software in puppy does not recognise the camera. (But, you can try, click the 'Open' button)")"
-  else
-   PROBEINFO="<b>$(gettext "No camera is detected.")</b>
-$(gettext "It means that the Gphoto software in puppy does not recognise the camera.")"
-  fi
- fi
-else
- #gphoto (and deps) not installed...
- PROBEINFO="<b>$(gettext "The 'gphoto' application is not installed.")</b>
-$(gettext "That means PupCamera cannot access the photos on a digital camera. Please run the Puppy Package Manager (see 'install' icon on desktop) to install 'gphotofs' and it's dependencies.")"
- echo -n "" > /tmp/pupcamera_ports #remove button.
-fi
-
-if [ "`which gphotofs`" = "" ]; then #111015
- PROBEINFO="<b>$(gettext "The 'gphotofs' application is not installed.")</b>
-$(gettext "That means PupCamera cannot access the photos on a digital camera. Please run the Puppy Package Manager (see 'install' icon on desktop) to install 'gphotofs' and it's dependencies.")"
-fi
-
-func_splash(){
-	/usr/lib/gtkdialog/box_splash -placement center -timeout 5 -fontsize large -text "$(gettext 'Please wait...')" &
-}
-export -f func_splash
-if [ -s /tmp/pupcamera_ports ];then
- CAMCNT=1
- for ONEPORT in `cat /tmp/pupcamera_ports | sort -u | tr '\n' ' '`
- do
-  mkdir -p /mnt/camera${CAMCNT} #"${OPENBUTTON}"
-  OPENBUTTON="${OPENBUTTON}"'
-  <button space-expand="false" space-fill="false">
-   '"`/usr/lib/gtkdialog/xml_button-icon open`"'
-   <label>'$(gettext 'Open')' '${ONEPORT}'</label>
-   <action>gphotofs --port='${ONEPORT}' /mnt/camera'${CAMCNT}'</action>
-   <action>func_splash</action>
-   <action>rox -x /mnt/camera'${CAMCNT}' -d /mnt/camera'${CAMCNT}' & </action>
-   <action>enable:BTN_CLOSE</action>
-  </button>'
-  CAMCNT=$(($CAMCNT + 1))
- done
- ICON=photocamera_yes.svg
-else
- OPENBUTTON='<button space-expand="false" space-fill="false">'"`/usr/lib/gtkdialog/xml_button-icon open`"'<label>'$(gettext 'Open camera')'</label><sensitive>falsw</sensitive></button>'
- ICON=photocamera_no.svg
-fi
-
-[ -s /tmp/pupcamera_ports ] && MSG2="$(gettext "click 'Open' button to access photos on your camera. A ROX-Filer window will pop up, and if you are then able to see your photos, it worked.")" || MSG=""
-
-#main gui
-S='
-<window title="PupCamera - '$(gettext 'Access digital camera')'" icon-name="gtk-orientation-landscape">
-<vbox>
-  <frame '$(gettext 'Detected camera')'>
-    '"`/usr/lib/gtkdialog/xml_info scale "$ICON" 60 "${CAMERAINFO}" "${PROBEINFO}" " " "$MSG2" "$(gettext "Please click the 'Close camera' button when you have finished accessing your camera...")"`"' 
-    <text height-request="20"><label>""</label></text>
-    <hbox homogeneous="true">
-      <hbox space-expand="false" space-fill="false">
-        '${OPENBUTTON}'
-        <button space-expand="false" space-fill="false">
-          '"`/usr/lib/gtkdialog/xml_button-icon close`"'
-          <label>'$(gettext 'Close camera')'</label>
-          <variable>BTN_CLOSE</variable>
-          <action>rox -D /mnt/camera1</action>
-          <action>umount /mnt/camera1</action>
-          <action>rox -D /mnt/camera2</action>
-          <action>umount /mnt/camera2</action>
-          <sensitive>false</sensitive>
-	    </button>
-      </hbox>
-    </hbox>
-    <text height-request="5"><label>""</label></text>
+export PCAMGUI='
+<window title="PupCamera - '$(gettext 'Access digital camera')'" icon-name="gtk-orientation-landscape" resizable="false">
+ <vbox height-request="'${HEIGHT}'" width-request="'${WIDTH}'">
+  <vbox>
+   '`/usr/lib/gtkdialog/xml_info fixed $CICON 40 "$PROBEINFO"`'
+  </vbox>
+    <frame Detected cameras - DO NOT REMOVE MOUNTED MEDIA>
+    <vbox scrollable="true" space-expand="true">
+    '${PARTSGUI}'
+  </vbox>
   </frame>
-
-  <hbox space-expand="false" space-fill="false">
-    <button>
-      '"`/usr/lib/gtkdialog/xml_button-icon refresh`"'
-      <label>'$(gettext 'Rescan')'</label>
-      <action>EXIT:rescan</action>
-    </button>
-    <button>
-      '"`/usr/lib/gtkdialog/xml_button-icon quit`"'
-      <label>'$(gettext 'Quit')'</label>
-      <action>EXIT:finished</action>
-    </button>
+  <hbox>
+   <button><input file stock="gtk-add"></input><label>REMOTE</label>
+    <action>add_remote</action>
+    <action type="exit">refresh</action>
+   </button>
+   <button><input file stock="gtk-refresh"></input><label>REFRESH</label>
+    <action type="exit">refresh</action>
+   </button>
+   <button><input file stock="gtk-quit"></input><label>QUIT</label></button>
   </hbox>
-</vbox>
+ </vbox>
 </window>'
-. /usr/lib/gtkdialog/xml_info gtk #build bg_pixmap for gtk-theme
-export PupCamera="$S"
 
-RETVALS="`gtkdialog -p PupCamera`"
+#echo "$PCAMGUI" > /tmp/zz.xml
+RETPARAMS="`gtkdialog --program=PCAMGUI --center`"
+result=`echo $RETPARAMS | grep "refresh"`
 
-umount /mnt/camera1 2>/dev/null #precaution.
-umount /mnt/camera2 2>/dev/null #precaution.
+rm -f /tmp/pcamera_ports
+rm -f /tmp/pcamera_port_name 
 
-[ "`echo "$RETVALS" | grep 'rescan'`" != "" ] && exec pupcamera #reenter.
+if [ "$result" != "" ]; then
+	$0
+fi
 
 ###END###

@@ -1,0 +1,425 @@
+#!/bin/bash
+
+PID=$$
+if [ "$2" = "-external_call" ]; then #most likely used the -e switch
+	export PROGPATH=/usr/local/pfilesearch
+	export WORKDIR=$HOME/.pfilesearch/tmp
+fi
+
+export TEXTDOMAIN=pfilesearch #for gettext
+
+case "$1" in
+-search)
+	echo false > $WORKDIR/pfilesearch-finish #used by daemons (ie Pfind) to see when to update their gui.
+	[ "$SEARCHPATHS" = "/  ($(gettext 'All files'))" ] && SEARCHPATHS="/"
+	[ "$SEARCHPATHS" = "/" ] && TMP="$(gettext 'All files')" || TMP="$SEARCHPATHS"
+	#splash
+	if [ "$BBBACKEND" != "true" ]; then
+		echo -e "$(gettext 'Searching')  <b><span size='"'large'"' color='"'darkred'"'>$SEARCHSTRING</span></b>  $(gettext 'in') $TMP\n\n\n$(gettext 'Note! The first search will be much slower than the next')" > $WORKDIR/pfilesearch-splashtext
+		echo 0 > $WORKDIR/pfilesearch-splash #reset progress bar
+		$PROGPATH/box_splash &
+	fi
+	#---
+	echo -n > $WORKDIR/pfilesearch-ext
+	echo -n > $HOME/.pfilesearch/hits
+	#set days fo atime / ctime / mtime
+	YEAR=`echo "$DATE_FROM" | cut -d "/" -f 3`
+	if [ $YEAR -lt 1970 ]; then ERROR="$(gettext 'Date can not be earlier than 1/1 1970.')"; . $PROGPATH/func -error_dialog; fi
+	TODAY=$(($(date -d "00:00:00" +%s)/60/60/24))
+	TMP=$(($(date -d $DATE_FROM +%s)/60/60/24))
+	DAYS_FROM1=$(($TODAY-($TMP-1)))
+	TMP=$(($(date -d $DATE_TO +%s)/60/60/24))
+	DAYS_TO1=$(($TODAY-$TMP-1))
+	TIME=''
+	[ $CHKMTIME = true ] && TIME=" -daystart -mtime -$DAYS_FROM1 -mtime +$DAYS_TO1"
+	[ $CHKATIME = true ] && TIME=" -daystart -atime -$DAYS_FROM1 -atime +$DAYS_TO1"
+	[ $CHKCTIME = true ] && TIME=" -daystart -ctime -$DAYS_FROM1 -ctime +$DAYS_TO1"
+	#set permission mode
+	[ $CHK_UX = true ] && UX=1 || UX=0
+	[ $CHK_UW = true ] && UW=2 || UW=0
+	[ $CHK_UR = true ] && UR=4 || UR=0
+	[ $CHK_GX = true ] && GX=1 || GX=0
+	[ $CHK_GW = true ] && GW=2 || GW=0
+	[ $CHK_GR = true ] && GR=4 || GR=0
+	[ $CHK_OX = true ] && OX=1 || OX=0
+	[ $CHK_OW = true ] && OW=2 || OW=0
+	[ $CHK_OR = true ] && OR=4 || OR=0
+	OWN=$(($UX+$UW+$UR))
+	GRP=$(($GX+$GW+$GR))
+	OTH=$(($OX+$OW+$OR))
+	if [ $OWN != 0 ] || [ $GRP != 0 ] || [ $OTH != 0 ]; then PERM=" -perm $OWN$GRP$OTH"; fi
+	#prepare variables to search
+	[ $CHKDOC = true ]		&& echo -n "$EXTDOC" >> $WORKDIR/pfilesearch-ext
+	[ $CHKPIC = true ]		&& echo -n "$EXTPIC" >> $WORKDIR/pfilesearch-ext
+	[ $CHKMUSIC = true ]	&& echo -n "$EXTMUSIC" >> $WORKDIR/pfilesearch-ext
+	[ $CHKVIDEO = true ]	&& echo -n "$EXTVIDEO" >> $WORKDIR/pfilesearch-ext
+#	[ $CHKMAIL = true ]		&& echo -n "$EXTMAIL" >> $WORKDIR/pfilesearch-ext
+	[ $CHKZIP = true ]		&& echo -n "$EXTZIP" >> $WORKDIR/pfilesearch-ext
+	[ $CHKCODE = true ]		&& echo -n "$EXTCODE" >> $WORKDIR/pfilesearch-ext
+	EXT=`cat $WORKDIR/pfilesearch-ext | sed -e 's/ ./\\\|\\\./g' `
+	[ "$CHKEXACT" = "false" ] && SEARCHSTRING2="*$SEARCHSTRING*" || SEARCHSTRING2="$SEARCHSTRING"
+	[ "$CHKFOLLOW_SYM" = "true" ] && FOLLOW_SYM="-L" || FOLLOW_SYM="-P" #follow symlink?
+	if [ "$CHKCASE" = "true" ]; then NAME="-name"; GREPCASE=""; else NAME="-iname"; GREPCASE="-i"; fi #case (in)sensitive
+	[ "$EXCLUDE" ] && EXCLUDE1="-path \"$EXCLUDE\" -prune -o "
+	FIND3X="false"
+	[ "$CHKFILE" = "true" ] && FIND3X="true" #only if type is specified it will run find 3 times
+	[ "$CHKDIR" = "true" ] && FIND3X="true"
+	[ "$CHKSYMLN" = "true" ] && FIND3X="true"
+	[ "$CHKREC" = "true" ] && DEPTH="" || DEPTH="-maxdepth 1"
+	[ "$CHKXDEV" = "true" ] && XDEV="-xdev" || XDEV=""
+	[ "$P_USER" != "" ] && USER2=" -user $P_USER"
+	[ "$SIZE_GT" != "" ] && SIZE_GT2=" -size +$SIZE_GT"
+	[ "$SIZE_LT" != "" ] && SIZE_LT2=" -size -$SIZE_LT"
+	FINDOPTIONS="$DEPTH$PERM$XDEV$TIME$USER2$SIZE_GT2$SIZE_LT2" #optional parameters to find
+	#Start loop with (all) defined searchpaths
+	echo "$SEARCHPATHS" | sed -e "s/\[OR\]/\n/g" > $WORKDIR/pfilesearch-SEARCHPATHS
+	while read SEARCHPATH; do
+		case $SEARCHPATH in './') SEARCHPATH="$CURDIR"; esac
+		#let's ensure that searchpath end with a /. Without Puppy troubles with searching in /mnt/home (symlink to base filesytem)
+		SEARCHPATH="`echo "${SEARCHPATH}/" | sed 's%//%/%'`"
+		#---
+		echo -n "find $FOLLOW_SYM \"$SEARCHPATH\" $EXCLUDE1 $FINDOPTIONS $NAME \"$SEARCHSTRING2\" " > $WORKDIR/pfilesearch-execfind #default find
+		echo -n "find \"/usr/share/applications\" $FINDOPTIONS $NAME \"$SEARCHSTRING2\" " > $WORKDIR/pfilesearch-execfindapps
+		echo -n "grep $GREPCASE -l '$SEARCHSTRING' "'"$TMP2"'" " > $WORKDIR/pfilesearch-execgrep #build default grep
+		#====== Building find-command ======
+		#[OR]
+		TMP=`echo "$SEARCHSTRING2" | grep -o "\[OR\]"` #Check if [OR] is used
+		if [ "$TMP" ]; then
+			TMP=`echo "$SEARCHSTRING2" | sed -e "s/\ \[/\[/g" | sed -e "s/\]\ /\]/g" | sed -e "s/\[OR\]/\|/g"` #cut -d syntax
+			if [ $CHKEXACT = "false" ]; then TMP=`echo "$TMP" | sed -e 's/|/*|*/g'`; fi
+			STR1=`echo "$TMP" | cut -d "|" -f 1`
+			FIND1="$FINDOPTIONS $NAME \"$STR1\""
+			GREP1=`echo "$STR1"`
+			STR2=`echo "$TMP" | cut -d "|" -f 2`
+			if [ "$STR2" ]; then
+				FIND2="-o $FINDOPTIONS $NAME \"$STR2\""
+				GREP2=`echo '|'"$STR2"`
+			fi
+			STR3=`echo "$TMP" | cut -d "|" -f 3`
+			if [ "$STR3" ]; then 
+				FIND3="-o $FINDOPTIONS $NAME \"$STR3\""
+				GREP3=`echo '|'"$STR3"`
+			fi
+			STR4=`echo "$TMP" | cut -d "|" -f 4`
+			if [ "$STR4" ]; then
+				FIND4="-o $FINDOPTIONS $NAME \"$STR4\""
+				GREP4=`echo '|'"$STR4"`
+			fi
+			STR5=`echo "$TMP" | cut -d "|" -f 5`
+			if [ "$STR5" ]; then
+				FIND5="-o $FINDOPTIONS $NAME \"$STR5\""
+				GREP5=`echo '|'"$STR5"`
+			fi
+			echo -n "find $FOLLOW_SYM \"$SEARCHPATH\" $EXCLUDE1 $FIND1 $FIND2 $FIND3 $FIND4 $FIND5 " > $WORKDIR/pfilesearch-execfind
+			echo -n "find \"/usr/share/applications\" $EXCLUDE1 $FIND1 $FIND2 $FIND3 $FIND4 $FIND5 " > $WORKDIR/pfilesearch-execfindapps
+			echo -n "grep $GREPCASE -l -E \"$GREP1$GREP2$GREP3$GREP4$GREP5\" "'"$TMP2"'" " > $WORKDIR/pfilesearch-execgrep
+		fi
+		#[AND]
+		if [ "`echo "$SEARCHSTRING2" | grep -o "\[AND\]"`" ]; then #Check if [AND] is used
+			TMP=`echo "$SEARCHSTRING2" | sed -e "s/\ \[/\[/g" | sed -e "s/\]\ /\]/g" | sed -e "s/\[AND\]/*\|*/g"` #cut -d syntax
+			STR1=`echo "$TMP" | cut -d "|" -f 1`
+			FIND1="$FINDOPTIONS $NAME \"$STR1\""
+			STR2=`echo "$TMP" | cut -d "|" -f 2`
+			[ "$STR2" ] && FIND2="-a $FINDOPTIONS $NAME \"$STR2\""
+			STR3=`echo "$TMP" | cut -d "|" -f 3`
+			[ "$STR3" ] && FIND3="-a $FINDOPTIONS $NAME \"$STR3\""
+			STR4=`echo "$TMP" | cut -d "|" -f 4`
+			[ "$STR4" ] && FIND4="-a $FINDOPTIONS $NAME \"$STR4\""
+			STR5=`echo "$TMP" | cut -d "|" -f 5`
+			[ "$STR5" ] && FIND5="-a $FINDOPTIONS $NAME \"$STR5\""
+			echo -n "find $FOLLOW_SYM \"$SEARCHPATH\" $EXCLUDE1 $FIND1 $FIND2 $FIND3 $FIND4 $FIND5 " > $WORKDIR/pfilesearch-execfind
+			echo -n "find \"/usr/share/appliactions\" $EXCLUDE1 $FIND1 $FIND2 $FIND3 $FIND4 $FIND5 " > $WORKDIR/pfilesearch-execfindapps
+		fi
+		#====== FIND ======
+		if [ "$CHKFILENAME" = "true" ] || [ "$CHKCONTENT" != "true" ] && [ "$CHKAPPS" != "true" ]; then
+			if [ $FIND3X = "true" ]; then
+				if [ $CHKFILE = "true" ]; then
+					sed -i -e "s/-o /-o -type f/g" $WORKDIR/pfilesearch-execfind #pushing -type f to command
+					sed -i -e "s/-a /-a -type f/g" $WORKDIR/pfilesearch-execfind
+					echo -n "-type f " >> $WORKDIR/pfilesearch-execfind
+				fi
+				if [ $CHKDIR = "true" ]; then
+					sed -i -e "s/-o /-o -type d/g" $WORKDIR/pfilesearch-execfind #pushing -type d to command
+					sed -i -e "s/-a /-a -type d/g" $WORKDIR/pfilesearch-execfind
+					echo -n "-type d " >> $WORKDIR/pfilesearch-execfind
+				fi
+				if [ $CHKSYMLN = "true" ];	then
+					sed -i -e "s/-o /-o -type l/g" $WORKDIR/pfilesearch-execfind #pushing -type l to command
+					sed -i -e "s/-a /-a -type l/g" $WORKDIR/pfilesearch-execfind
+					echo -n "-type l " >> $WORKDIR/pfilesearch-execfind
+				fi
+			fi
+			chmod 722 $WORKDIR/pfilesearch-execfind	
+			$WORKDIR/pfilesearch-execfind >> $HOME/.pfilesearch/hits #Run find command
+		fi
+		#====== GREP =======
+		if [ "$CHKCONTENT" = "true" ]; then
+			chmod 722 $WORKDIR/pfilesearch-execgrep
+			echo "find $FOLLOW_SYM \"$SEARCHPATH\" $FINDOPTIONS -iname \"*\" -type f" > $WORKDIR/pfilesearch-execfind #build command
+			chmod 722 $WORKDIR/pfilesearch-execfind
+			$WORKDIR/pfilesearch-execfind > $WORKDIR/pfilesearch-allfiles
+			if test -n "$EXT"; then
+				grep -i "('$EXT')" $WORKDIR/pfilesearch-allfiles > $WORKDIR/pfilesearch-tmp
+				mv -f $WORKDIR/pfilesearch-tmp $WORKDIR/pfilesearch-allfiles
+			fi
+			#All this to make [AND] allowed to grep 
+			TMP=`echo "$SEARCHSTRING" | grep -o "\[AND\]"` #Check if [AND] is used
+			if [ "$TMP" ]; then
+				echo -e "\c" > $WORKDIR/pfilesearch-tmp4
+				STR1=`echo "$STR1" | sed -e "s/*//g"`
+				while read I; do
+					export TMP2="$I" #export to use in next-line-func
+					grep $GREPCASE -l "$STR1" "$TMP2" >> $WORKDIR/pfilesearch-tmp4
+				done < $WORKDIR/pfilesearch-allfiles
+				cp -f $WORKDIR/pfilesearch-tmp4 $WORKDIR/pfilesearch-allfiles
+				if [ "$STR2" ]; then
+					echo -e "\c" > $WORKDIR/pfilesearch-tmp4
+					STR2=`echo "$STR2" | sed -e "s/*//g"`
+					while read I; do
+						export TMP2="$I" #export to use in next-line-func
+						grep $GREPCASE -l "$STR2" "$TMP2" >> $WORKDIR/pfilesearch-tmp4
+					done < $WORKDIR/pfilesearch-allfiles
+					cp -f $WORKDIR/pfilesearch-tmp4 $WORKDIR/pfilesearch-allfiles
+				fi
+				if [ "$STR3" ]; then
+					echo -e "\c" > $WORKDIR/pfilesearch-tmp4
+					STR3=`echo "$STR3" | sed -e "s/*//g"`
+					while read I; do
+						export TMP2="$I" #export to use in next-line-func
+						grep $GREPCASE -l "$STR3" "$TMP2" >> $WORKDIR/pfilesearch-tmp4
+					done < $WORKDIR/pfilesearch-allfiles
+					cp -f $WORKDIR/pfilesearch-tmp4 $WORKDIR/pfilesearch-allfiles
+				fi
+				if [ "$STR4" ]; then
+					echo -e "\c" > $WORKDIR/pfilesearch-tmp4
+					STR4=`echo "$STR4" | sed -e "s/*//g"`
+					while read I; do
+						export TMP2="$I" #export to use in next-line-func
+						grep $GREPCASE -l "$STR4" "$TMP2" >> $WORKDIR/pfilesearch-tmp4
+					done < $WORKDIR/pfilesearch-allfiles
+					cp -f $WORKDIR/pfilesearch-tmp4 $WORKDIR/pfilesearch-allfiles
+				fi
+				if [ "$STR5" ]; then
+					echo -e "\c" > $WORKDIR/pfilesearch-tmp4
+					STR5=`echo "$STR5" | sed -e "s/*//g"`
+					while read I; do
+						export TMP2="$I" #export to use in next-line-func
+						grep $GREPCASE -l "$STR5" "$TMP2" >> $WORKDIR/pfilesearch-tmp4
+					done < $WORKDIR/pfilesearch-allfiles
+					cp -f $WORKDIR/pfilesearch-tmp4 $WORKDIR/pfilesearch-allfiles
+				fi
+				cp $WORKDIR/pfilesearch-allfiles $HOME/.pfilesearch/hits
+	#-----
+			else
+				while read I; do
+					export TMP2="$I" #export to use in next-line-func
+					$WORKDIR/pfilesearch-execgrep >> $HOME/.pfilesearch/hits
+				done < $WORKDIR/pfilesearch-allfiles
+			fi
+		fi
+	done < $WORKDIR/pfilesearch-SEARCHPATHS
+	#remove excluded dir from hit-list
+	if [ "$EXCLUDE" ]; then
+		grep -v "^${EXCLUDE}" $HOME/.pfilesearch/hits > $WORKDIR/pfilesearch-tmp
+		cp -f $WORKDIR/pfilesearch-tmp $HOME/.pfilesearch/hits
+	fi
+	#find only files with choosen extension
+	if test -n "$EXT"; then
+		cat $HOME/.pfilesearch/hits | grep -i "('$EXT')" > $WORKDIR/pfilesearch-tmp
+		cat $WORKDIR/pfilesearch-tmp > $HOME/.pfilesearch/hits
+	fi
+	#---
+	#====== APPS ======
+	if [ $CHKAPPS = true ]; then
+		chmod 722 $WORKDIR/pfilesearch-execfindapps
+		$WORKDIR/pfilesearch-execfindapps >> $HOME/.pfilesearch/hits #Run find command
+	fi
+	#---
+	cp -f $HOME/.pfilesearch/hits /tmp/result-pfilesearch > /dev/null 2>&1 #make it compatible with older versions
+	echo "$SEARCHPATHS" > $WORKDIR/SEARCHPATHS #store last used
+	#update external gui
+	echo true > $WORKDIR/pfilesearch-finish
+	#---
+	if [ ! -s $HOME/.pfilesearch/hits ] && [ "$BBACKEND" != "true" ]; then
+		echo 100 > $WORKDIR/pfilesearch-splash #end progressbar.
+		ERROR="$(gettext 'No files found!')"
+		. $PROGPATH/func -error_dialog
+	fi
+	echo 100 > $WORKDIR/pfilesearch-splash #end progress bar
+	#show result
+	if [ "$BACKEND" != "true" ] && [ -s $HOME/.pfilesearch/hits ]; then
+		export pfilesearch_result="
+		<window title=\"pFilesearch\">
+		<vbox>
+		 <edit>
+		  <input file>$HOME/.pfilesearch/hits</input>
+		  <width>400</width><height>400</height>
+		 </edit>
+		</vbox></window>"
+		I=$IFS; IFS=""
+		for STATEMENTS in  $(gtkdialog -p pfilesearch_result --center); do
+			eval $STATEMENTS > /dev/null 2>&1
+		done
+		IFS=$I
+	fi
+	;;
+
+
+-write_config)
+	echo "export SEARCHPATHS=\"$SEARCHPATHS\""				> $HOME/.pfilesearch/pfilesearchrc
+	echo "export EXCLUDE=\"$EXCLUDE\""						>> $HOME/.pfilesearch/pfilesearchrc
+	echo "export CHKREC=$CHKREC"							>> $HOME/.pfilesearch/pfilesearchrc
+	echo "export CHKXDEV=$CHKXDEV"							>> $HOME/.pfilesearch/pfilesearchrc
+	echo "export CHKEXACT=$CHKEXACT"						>> $HOME/.pfilesearch/pfilesearchrc
+	echo "export CHKCASE=$CHKCASE"							>> $HOME/.pfilesearch/pfilesearchrc
+	echo "export CHKFOLLOW_SYM=$CHKFOLLOW_SYM" 				>> $HOME/.pfilesearch/pfilesearchrc
+	. $HOME/.pfilesearch/pfilesearchrc #read config file
+	;;
+
+
+
+-configure)
+	export pfilesearch_preferences='
+	<window title="pFilesearch '$(gettext 'Preferences')'" icon-name="gtk-find">
+	<vbox space-expand="true" space-fill="true">
+	 <notebook labels=" '$(gettext 'Search')' | '$(gettext 'MIME')'" space-expand="true" space-fill="true">
+	  <vbox>
+	   <frame '$(gettext 'Searchpath')'>
+		<hbox>
+		 <entry><variable>SEARCHPATHS</variable><input>echo '$SEARCHPATHS'</input></entry>
+		 <button>
+		  <input file stock="gtk-info"></input>
+		  <action>FRAME=Info; IMG=dialog-info; TXT1=LOC0317; . '$PROGPATH'/box_ok</action>
+		 </button>
+		</hbox>
+	   </frame>
+	   <frame '$(gettext 'Exclude')'>
+		<hbox>
+		 <entry><variable>EXCLUDE</variable><input>echo "$EXCLUDE"</input></entry>
+		 <button>
+		  <input file stock="gtk-info"></input>
+		  <action>FRAME=Info; IMG=dialog-info; TXT1=LOC0318; . '$PROGPATH'/box_ok</action>
+		 </button>
+		</hbox>
+	   </frame>
+	   <frame '$(gettext 'Options')'>
+		<checkbox>
+		 <label>'$(gettext 'Search also subdirectories')'</label>
+		 <variable>CHKREC</variable>
+		 <default>'$CHKREC'</default>
+		</checkbox>
+		<checkbox>
+		 <label>'$(gettext 'Search only current filesystem')'</label>
+		 <variable>CHKXDEV</variable>
+		 <default>'$CHKXDEV'</default>
+		</checkbox>
+		<checkbox>
+		 <label>'$(gettext 'Match only exact filename')'</label>
+		 <variable>CHKEXACT</variable>
+		 <default>'$CHKEXACT'</default>
+		</checkbox>
+		<checkbox>
+		 <label>'$(gettext 'Case sensitive')'</label>
+		 <variable>CHKCASE</variable>
+		 <default>'$CHKCASE'</default>
+		</checkbox>
+		<checkbox>
+		 <label>'$(gettext 'Follow symlinks')'</label>
+		 <variable>CHKFOLLOW_SYM</variable>
+		 <default>'$CHKFOLLOW_SYM'</default>
+		</checkbox>
+	   </frame>
+	  </vbox>
+	  <vbox>
+	   <frame '$(gettext 'MIME')'>
+		<edit><variable>MIME</variable><input file>'$HOME'/.pfilesearch/pfilesearchMIMErc</input></edit>
+	   </frame>
+	  </vbox>
+	 </notebook>
+	 <hbox space-expand="false" space-fill="false">
+	  <button cancel><input file stock="gtk-cancel"></input></button>
+	  <button ok><input file stock="gtk-ok"></input><action type="exit">OK</action></button>
+	 </hbox>
+	</vbox>
+	</window>'
+	I=$IFS; IFS=""
+	for STATEMENTS in  $(gtkdialog -p pfilesearch_preferences); do
+		eval $STATEMENTS
+	done
+	IFS=$I
+	if [ $EXIT = OK ]; then
+		echo "$MIME" > $HOME/.pfilesearch/pfilesearchMIMErc
+		. $PROGPATH/func -write_config
+	fi
+	;;
+
+-error_dialog)
+	export error_box="
+	<window title=\"pFilesearch\">
+	<vbox>
+	 <frame $(gettext 'Info')>
+	  <pixmap icon_size=\"6\"><input file stock=\"gtk-dialog-error\"></input></pixmap>
+	  <text><label>$ERROR</label></text>
+	 </frame>
+	 <button ok></button>
+	</vbox></window>"
+	I=$IFS; IFS=""
+	for STATEMENTS in  $(gtkdialog -p error_box --center); do
+		eval $STATEMENTS > /dev/null 2>&1
+	done
+	IFS=$I
+	;;
+
+-about)
+	export pfilesearch_about="
+<window title=\"pFilesearch - about\" icon-name=\"gtk-find\">
+ <vbox>
+  <notebook labels=\"About|License|Credits\">
+   <vbox>
+    <pixmap icon_size=\"6\"><input file stock=\"gtk-find\"></input></pixmap>
+    <text use-markup=\"true\"><label>\"<b>pFilesearch $VERSION - File finder</b>\"</label></text>
+    <text use-markup=\"true\"><label>Sigmund Berglund, Copyright 2007-2016</label></text>
+    <text><label>\"\"</label></text>
+     <button>
+      <label>\"http://www.murga-linux.com/puppy/viewtopic.php?t=15136\"</label>
+      <action>$BROWSER http:\/\/www.murga-linux.com\/puppy\/viewtopic.php?t=15136</action>
+     </button>
+   </vbox>
+   <vbox>
+    <text use-markup=\"true\"><label>\"pFilesearch is released under the <b>GNU General Public License</b> (GPL). You have the right to use and modify this software in any way you like, so long as any derivative works remain under a GPL license.\"</label></text>
+    <text use-markup=\"true\"><label>\"This program is distributed in the hope that it will be useful, but <b>WITHOUT ANY WARRANTY</b>. See the GNU General Public License homepage for more details.\"</label></text>
+    <hbox>
+     <button>
+      <label>\"http://www.gnu.org/licenses/\"</label>
+      <action>$BROWSER http:\/\/www.gnu.org\/licenses\/</action>
+     </button>
+    </hbox>
+   </vbox>
+   <vbox>
+    <edit><default>\"Translators:
+French - Jean-Jacques Moulinier (esmourguit)
+German - Thorsten Köbe (aragon)
+Greece - (The Hamsters)
+Italian - Angelo Gemmi
+Japanese - Shigekazu Satoh (himajin)
+Norwegian - Sigmund Berglund (zigbert)
+Russian -  Valeriy Danilin
+Spanish - Jacob S. Preciado (Proudog)
+
+Others:
+Disciple for contribution and bugfixing.
+klhrevolutionist for ideas, code support and help with config file
+Trapster for sed syntax.
+...and more\"</default></edit>
+   </vbox>
+  </notebook>
+  <hbox>
+   <button ok>
+    <input file icon=\"gtk-apply\"></input>
+   </button>
+  </hbox>
+ </vbox>
+</window>"
+	gtkdialog -p pfilesearch_about --center
+	;;
+esac

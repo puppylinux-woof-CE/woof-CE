@@ -1,0 +1,163 @@
+#!/bin/ash
+#(c) Copyright Barry Kauler Nov. 2010. License GPL v3 /usr/share/doc/legal
+#a complete rewrite of this script, aiming for extreme simplicity and multi-thread protection.
+#101202 usb_storage may have claimed an interface that is needed by another module (dual-mode 3G modems).
+#101202 more variability for random usleep.
+#101202 /etc/modules/firmware.dep.inst.${KERNVER} now has names of firmware tarballs, not modules.
+#101210 put files into /tmp/pup_event_backend (created by rc.sysinit).
+#101210 certain modules are loaded explicitly by /usr/sbin/usb_modeswitch_dispatcher.
+#101210 protect0, protect1, extra protection mechanisms. 101211: protect2.
+#101218 PREFLIST (in /etc/rc.d/MODULESCONFIG) format can have multiple ':', ex: 8139cp:8139too:8139xx (last is most preferred).
+#110508 do not allow argument-module if it is blacklisted (note blacklist.conf created in rc.sysinit).
+#110508 modprobe -i to ignore "install" and "remove" commands in /etc/modprobe.d/*.conf.
+#110509 avoid chance of a module not getting loaded when almost-simultaneous 'add' uevents.
+#110516 no longer using setup_alsa_func. now using /etc/modprobe.d/alsa-base.conf (from Ubuntu) only.
+#111106 support firmware directories.
+#120823 rerwin: $FIRMPKG always written. 
+#120823 rerwin: --use-blacklist to apply the blacklist commands in the configuration files (if any) to module names as well.
+#120828 rerwin: --use-blacklist again.
+#120908 rerwin: Change preference processing to ensure preferred module loaded first.
+#120909 rerwin: Use temporary blacklisting for preferences to avoid interference and inconsistency.
+#181023 rerwin: Modprobe only if module changed; remove support of passed module name; change all exit code 1s to 0; remove obsolete (?) FASTBOOTMODULESLIST check; remove dual-mode 3G modem logic made obsolete by usb_modeswitch. 
+
+export LANG=C
+. /etc/rc.d/PUPSTATE
+. /etc/rc.d/MODULESCONFIG-backend_modprobe
+
+KERNVER="`uname -r`"
+
+SLEEPU=`echo -n ${$} | rev` #110509 ex: pid 3124 becomes 4213, more variability for sleep.
+
+#note, no longer using /tmp/pup_event_modprobe.conf (which was created in rc.sysinit)...
+#110508 -i to ignore "install" and "remove" commands in /etc/modprobe.d/*.conf...
+#120823 rerwin: --use-blacklist (or -b) to apply the blacklist commands in the configuration files (if any) to module names as well...
+MODULE="`/sbin/modprobe -i --use-blacklist --show-depends $MODALIAS 2>/dev/null | tail -n 1 | rev | cut -f 1 -d '/' | rev | cut -f 1 -d '.' | tr '\-' '_'`"
+[ "$MODULE" = "" ] && exit 0 #181023
+origMODULE="$MODULE" #181023
+
+case $MODALIAS in
+ pci:*)
+  #######/etc/rc.d/MODULESCONFIG overrides######
+  #may need to do substitution for specific pci interface...
+  VENDOR='0x'"`echo -n "$MODALIAS" | cut -f 2 -d 'v' | cut -b 1-8 | tr [A-Z] [a-z]`"
+  DEVICE='0x'"`echo -n "$MODALIAS" | cut -f 2 -d 'v' | cut -b 10-17 | tr [A-Z] [a-z]`"
+  aPATTERN="$VENDOR $DEVICE"
+  REPLACEMENT="`echo "$PCI_OVERRIDES" | grep "$aPATTERN" | cut -f 1 -d ' '`"
+  [ "$REPLACEMENT" != "" ] && MODULE="$REPLACEMENT" #181023
+ ;;
+esac
+
+#120908...
+write_preference_log() {
+ echo "$(date +%H:%M:%S.%N | cut -c 1-12) ${$} $MODULE - $1" >> /tmp/pup_event_backend/preferences.log
+}
+
+#101218 bugfix, improve...
+#preferences list, ex rt2500usb and rt73usb both hits, then choose latter...
+modPATTERN='^'"$MODULE"':'
+PREFHIT="`echo -n "$PREFLIST" | tr ' ' '\n' | grep "$modPATTERN" | head -n 1`" #120908
+if [ "$PREFHIT" != "" ];then
+ cat /etc/modprobe.d/* 2>/dev/null | grep -o '^blacklist  *[^ ]*' | tr -s ' ' > /tmp/pup_event_backend/blacklist-$$.conf #120909
+ PREFMODS="`echo -n "$PREFHIT" | cut -f 2-9 -d ':' | tr ':' ' '`"
+ for PREFMOD in $PREFMODS #format can have multiple ':', ex: 8139cp:8139too:8139xx (last is most preferred).
+ do
+  echo "blacklist $MODULE" >> /tmp/pup_event_backend/blacklist-$$.conf #120909
+  #120828 rerwin: --use-blacklist (or -b) to apply the blacklist commands in the configuration files (if any) to module names as well...
+  xMODULE="`/sbin/modprobe -i --use-blacklist --config /tmp/pup_event_backend/blacklist-$$.conf --show-depends $MODALIAS 2>/dev/null | tail -n 1 | rev | cut -f 1 -d '/' | rev | cut -f 1 -d '.' | tr '\-' '_'`" #110508 120828 120909
+  [ "$xMODULE" = "$PREFMOD" ] && MODULE="$xMODULE"
+ done
+ rm -f /tmp/pup_event_backend/blacklist-$$.conf #120909
+ [ "$MODULE" = "$origMODULE" ] \
+  && sleep 1 \
+  && write_preference_log "Retained ($PREFHIT)" \
+  || write_preference_log "Substituted for module $origMODULE ($PREFHIT)" #120908
+fi
+
+#181023 if no module change needed & kernel >= 4.0, let udev do the modprobe...
+#but usb_storage devpath is needed by rc.sysinit.
+[ "$MODULE" = "$origMODULE" -a "$MODULE" != 'usb_storage' ] \
+ && vercmp $(uname -r) ge 4.0.0 \
+ && exit 0
+
+#module already loaded, exit...
+mREGEX='MODULE='"$MODULE"' DEVPATH'
+if cat /tmp/pup_event_backend/pup_event_module_devpath_log* 2>/dev/null | grep "${mREGEX}" ;then exit ;fi
+
+#110509 there may be almost-simultaneous executions of this script to load the same module...
+touch /tmp/pup_event_backend/lock1-${$} #start lock region.
+mREGEX=" ${MODULE} "
+echo "${$} ${MODULE} " > /tmp/pup_event_backend/protect1-${$}
+for NUM in 1 2
+do
+ SIMULT="`cat /tmp/pup_event_backend/protect1-* | grep "${mREGEX}"`"
+ [ $NUM -eq 1 ] && usleep ${SLEEPU}
+ if [ `echo "$SIMULT" | wc -l` -gt 1 ];then
+  [ $NUM -eq 2 ] && usleep ${SLEEPU}
+  #random sleep above means that this process will kill the others before they can kill this one...
+  for ONEPID in `echo -n "$SIMULT" | cut -f 1 -d ' ' | tr '\n' ' '`
+  do
+   [ $ONEPID -eq ${$} ] && continue
+   [ -f /tmp/pup_event_backend/lock1-${ONEPID} ] && kill $ONEPID #other process within lock region.
+   [ $? -eq 0 ] && rm -f /tmp/pup_event_backend/protect1-${ONEPID} && rm -f /tmp/pup_event_backend/lock1-${ONEPID}
+  done
+ fi
+done
+#if another process is beyond this point (loading same module), then exit here...
+rm -f /tmp/pup_event_backend/lock1-${$} && \
+ [ `cat /tmp/pup_event_backend/protect1-* | grep "$mREGEX" | wc -l` -gt 1 ] && \
+ rm -f /tmp/pup_event_backend/protect1-${$} && exit
+
+#log to file. rc.sysinit needs this info to find out if any modaliases missed (also above)...
+echo "MODULE=$MODULE DEVPATH=$DEVPATH MODALIAS=$MODALIAS" >> /tmp/pup_event_backend/pup_event_module_devpath_log${$}
+
+#120908 Wait for any preference processing, then ensure a preferred module is loaded first and any active conflicting modules afterward...
+if [ "$(ls /tmp/pup_event_backend/preference_processing_active* 2>/dev/null)" != "" ];then
+ write_preference_log "Began waiting for preference processing"
+ BRKCNT=0
+ while [ $BRKCNT -lt 20 ]; do
+  sleep 0.1
+  BRKCNT=$(($BRKCNT + 1))
+  [ "$(ls /tmp/pup_event_backend/preference_processing_active* 2>/dev/null)" = "" ] && break
+ done
+ write_preference_log "Resumed loading after preference processing"
+fi
+NONPREFS="$(echo -n "$PREFLIST" | tr ' ' '\n' | grep -w -o ".*:${MODULE}$" | sed -e 's/:[^:]*$//' | tr : '\n')"
+[ "$NONPREFS" = "" ] \
+ || [ "$(lsmod | sed 's/ .*//' | grep -E "$(echo $MODULE $NONPREFS | tr ' ' '|')" | tail -n 1 | sed "s/^${MODULE}$//")" = "" ] \
+ && exec /sbin/modprobe $MODULE
+
+touch /tmp/pup_event_backend/preference_processing_active-${$}
+write_preference_log "Began preference reload processing"
+NPRELOADS=""
+ALLDEPENDERS=""
+for ONEMODULE in $NONPREFS;do
+ LOADEDNP="$(lsmod | grep "^$ONEMODULE ")"
+ if [ "$LOADEDNP" = "" ];then
+  LOADEDNP="$(grep -o "^MODULE=${ONEMODULE} " /tmp/pup_event_backend/pup_event_module_devpath_log* | grep -o '[^=]*$')"
+  DEPENDERS=""
+ else
+  DEPENDERS="$(echo -n $LOADEDNP | tr -s ' ' | cut -f 4 -d ' ' | tr -d - | tr , ' ' | tr '\n' ' ' | sed 's/^  *$//')"
+ fi
+ if [ "$LOADEDNP" != "" ];then
+  if [ "$DEPENDERS" != "" ];then
+   /sbin/modprobe -r -i -q $DEPENDERS
+   wait
+   ALLDEPENDERS="${ALLDEPENDERS}${DEPENDERS}"
+  fi
+  /sbin/modprobe -r -i -q $ONEMODULE
+  wait
+  NPRELOADS="${ONEMODULE} ${NPRELOADS}" #reverse order
+ fi
+done
+for ONEMODULE in $MODULE $NPRELOADS $ALLDEPENDERS;do
+ lsmod | grep -q -w "^$ONEMODULE" \
+  && [ "$ONEMODULE" != "$MODULE" ] \
+  && write_preference_log "Unload failed for module: ${ONEMODULE}"
+ /sbin/modprobe $ONEMODULE
+sleep 0.01 #precaution
+done
+write_preference_log "Reloaded module(s): ${NPRELOADS}${ALLDEPENDERS}"
+rm -f /tmp/pup_event_backend/preference_processing_active-${$}
+#120908 end
+
+###END###

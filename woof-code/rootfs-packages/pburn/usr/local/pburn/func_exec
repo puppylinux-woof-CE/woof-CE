@@ -1,0 +1,325 @@
+#!/bin/sh
+#this script is the final step, and will start the actual burning
+export TEXTDOMAIN=pburn
+
+BURN="$(<$WORKDIR/BURN)"
+COPY_BURN_ISO="$(<$WORKDIR/COPY_BURN_ISO)" #copy data disc either on-the-fly (false) or with only 1 device (true)
+echo -n > $LOG
+$APPDIR/func -logbox &
+[ "`grep -w 'dd' $WORKDIR/exec_preburn`" ] && echo "$(gettext 'Reading content of disc ... Please wait ...')" >> $LOG #dd gives no output while running
+#sort graft-points to avoid similar items for iso9660
+#this will do the same as 'mkisofs -cache-inodes' (supress hardlinks), pluss it will supress symlinks
+sort -t= -u +0 -1 --output=$WORKDIR/tmp_graft_points $WORKDIR/graft_points
+mv -f $WORKDIR/tmp_graft_points $WORKDIR/graft_points
+#---
+sleep 0.1 #be sure that copy message comes above log
+chmod 700 $WORKDIR/exec*
+
+#func_build_command adds \ in front of ) and ( to help gtkdialog work correct. We must switch back to original before executing command.
+sed -i -e 's/\\(/(/g' -e 's/\\)/)/g' $WORKDIR/exec
+sed -i -e 's/\\(/(/g' -e 's/\\)/)/g' $WORKDIR/exec_preburn
+
+#pre-operations
+[ -s $WORKDIR/exec_preburn ] && $WORKDIR/exec_preburn >> $LOG 2>&1
+
+#burn-again-loop
+while [ 1 ]; do
+	$WORKDIR/exec >> $LOG 2>&1
+
+	#check for errors
+	if [ $? != 0 ]; then
+		if [ ! -f $WORKDIR/end_while ]; then #check if user has pressed 'Emergency Stop' button
+			ERROR="<b>$(gettext 'Unknown error.')</b>"
+			case "`cat $LOG`" in
+				*No\ disk*)							ERROR="$(gettext 'No disc inserted')";;
+				*Cannot\ load*)						ERROR="$(gettext '<b>No blank disk detected, or no valid multisession disk.</b>')";;
+				*Joliet*)							ERROR="$(gettext '<b>Joliet error.</b> Consider to deactivate the joliet filesystem.')";;
+				*No\ such\ device*)					ERROR="$(gettext "<b>Can't detect burner.</b>")";; #'
+				*overburn*)							ERROR="$(gettext '<b>Too much data for chosen burn-media.</b>')";;
+				*list\ too\ long*)					ERROR="$(gettext '<b>This is probably NOT critical</b>. pBurn reports problem with closing session, but if media is a new Blu-ray disc, please reload and you will most likely find everything ok.')";;
+				*seems\ to\ be\ mounted*)			ERROR="$(gettext 'Disc is mounted.')";;
+				*No\ space\ left*)					ERROR="$(gettext "<b>Not enough space in temporary storage.</b> Free up some space, or change the temporary storage location from menu 'File-Preferences'.")"; rm "$ISOFILE";;
+				*BLANK\ media*)						ERROR="$(gettext "<b>Can't blank this media.</b> Be sure to use a complete blank.")";;
+				*apply\ full\ blanking\ procedure*)	ERROR="$(gettext "<b>Problem writing to disc</b> Please blank disc in 'Blank complete' mode.")";;
+				*next\ writable\ add*)				ERROR="$(gettext '<b>Media seems to be closed for more data.</b>')";;
+				*error\ on\ old\ image*)			ERROR="$(gettext 'Problem reading content of disc. Please try to'):
+<b>$(gettext "Eject disc and reinsert, and 'Start all over again'")</b>";;
+				*not\ recognized\ as\ recordable*)	ERROR="<b>$(gettext 'Inserted disc is not writeable
+
+It could be that the disc is spinning up.
+If so, please wait and try to burn again.')</b>";;
+				*CLOSE\ SESSION\ failed\ with*)		ERROR="$(gettext '<b>This is probably NOT critical</b>. pBurn reports problem with closing session, but if media is a new Blu-ray disc, please reload and you will most likely find everything ok.')";;
+			esac
+			[ "$SOUND_ERROR" ] && aplay "$SOUND_ERROR" & #sound when done
+			#save ripped video-DVD
+			if [ "`find "$OUTDIR/" -name "*shrank.vob"`" ] && [ "$BURN" = "copy_video" ]; then
+				GUI_SAVE_MOVIE="<button><label>$(gettext 'Save ripped movie')</label><input file stock=\"gtk-save\"></input><action>EXIT:save_ripped_movie</action></button>"
+			fi
+			#---
+			export pburn_error="
+			<window title=\"pBurn\" icon-name=\"gtk-cdrom\">
+			 <vbox>
+			  <frame $(gettext 'Error')>
+			   <pixmap icon_size=\"6\"><input file stock=\"gtk-dialog-error\"></input></pixmap>
+			   <text use-markup=\"true\"><label>\"$ERROR
+... $(gettext 'See log for more information.')\"</label></text>
+			   <text><label>\"$(gettext 'Device'): $BURNDEV\"</label></text>
+			  </frame>
+			  <hbox>
+			   <button><label>$(gettext 'Save log')</label><input file stock=\"gtk-save\"></input><action>. $APPDIR/func -save_log</action></button>
+			   $GUI_SAVE_MOVIE
+			   <button><label>$(gettext 'Start burning once more')</label><input file>$APPDIR/pburn20.png</input><action>EXIT:ANOTHER_BURN</action></button>
+			   <button><label>$(gettext 'Start all over again')</label><input file stock=\"gtk-cancel\"></input></button>
+			  </hbox>
+			 </vbox>
+			</window>"
+			I=$IFS; IFS=""
+			for STATEMENTS in  $($GTKDIALOG -p pburn_error --center); do
+				eval $STATEMENTS
+			done
+			IFS=$I
+			case $EXIT in
+			save_ripped_movie)
+				ATTR='accept="directory"'
+				echo "$HOME/pBurn_movie.vob" > $WORKDIR/SAVEFILE
+				. $APPDIR/box_save
+				#if retval is a directory, add file name
+				if [ -d "$(<$WORKDIR/SAVEFILE)" ]; then
+					TMP="$(<$WORKDIR/SAVEFILE)/pBurn_movie.vob"
+					echo "$TMP" > $WORKDIR/SAVEFILE
+				fi
+				#---
+				if [ -s $WORKDIR/SAVEFILE ]; then
+					NAME="`find "$OUTDIR" -name "*-shrank.vob" -printf "%p"`"
+					mv "$NAME" "$(<$WORKDIR/SAVEFILE)" >> $LOG
+				fi
+				;;
+			esac
+			if [ ! "$EXIT" = "ANOTHER_BURN" ]; then
+				for I in `ps -eo pid,command | grep -i pburn | grep -iwE "pburn_tail|Xdialog|logbox" | awk '{print $1}'`; do kill -9 $I; done
+				rm -f "$OUTDIR"/Pburn.iso > /dev/null 2>&1
+				rm -f "$OUTDIR"/audio.cddb > /dev/null 2>&1 #audio copy
+				rm -f "$OUTDIR"/audio.cdindex > /dev/null 2>&1 #audio copy
+				rm -f "$OUTDIR"/pburn*.raw > /dev/null 2>&1 #audio copy
+				rm -f "$OUTDIR"/pburn*.inf > /dev/null 2>&1 #audio copy
+				rm -rf "$OUTDIR"/pburn_tmp > /dev/null 2>&1
+				rm -f "$OUTDIR"/*.vob > /dev/null 2>&1 & #video copy
+				if [ "$EJECT" = "true" ] && [ $BURN != export_iso ]; then
+					eject $BURNDEV &
+				fi
+				exit 0
+			fi
+		fi
+	else #finished
+		while [ 1 ]; do #verify-loop
+			if [ -f "$OUTDIR/Pburn.iso" ] && [ $BURN != export_iso ] && [ $BURN != iso ] && [ $BURN != audio ]; then #save_iso button
+				GUI_SAVE_ISO="<button><label>$(gettext 'Save ISO')</label><input file stock=\"gtk-save\"></input><action>EXIT:save_iso</action></button>"
+			fi
+			#save slidehow button
+			if [ -f "$OUTDIR/pburn_tmp/slideshow.avi" ] && [ "$BURN" = "video" ]; then 
+				GUI_SAVE_MOVIE="<button><label>$(gettext 'Save Slideshow file')</label><input file stock=\"gtk-save\"></input><action>EXIT:save_slideshow</action></button>"
+			fi
+			#save ripped video-DVD
+			if [  "`find "$OUTDIR/" -name "*shrank.vob"`" ] && [ "$BURN" = "copy_video" ]; then
+				GUI_SAVE_MOVIE="<button><label>$(gettext 'Save ripped movie')</label><input file stock=\"gtk-save\"></input><action>EXIT:save_ripped_movie</action></button>"
+			fi
+			
+			#verify md5sum if burnt iso-image to CD, else no verify
+			if [ $BURN = iso ] || [ "$COPY_BURN_ISO" = "true" ]; then
+				if [ ! "`grep -F 'nrg2iso' $WORKDIR/exec_preburn`" ]; then
+					TEXT_VERIFY="<text use-markup=\"true\"><label>\"$(gettext 'Note! <b>Verify may take time.</b> Depending on burnt complexity.')\"</label></text>"
+					GUI_VERIFY="<button><label>$(gettext 'Verify burn') (md5sum)</label><input file stock=\"gtk-apply\"></input><action>EXIT:md5</action></button>"
+				fi
+			fi
+			#Verify with dd
+			if [ $BURN = data ] && [ "$EXPORT_ISO" != "true" ]; then #verify button
+				TEXT_VERIFY="<text use-markup=\"true\"><label>\"$(gettext 'Note! <b>Verify may take time.</b> Depending on burnt complexity.')\"</label></text>"
+				GUI_VERIFY="<button><label>$(gettext 'Verify burn')</label><input file stock=\"gtk-apply\"></input><action>EXIT:verify</action></button>"
+			fi
+			#Verify copy-data-disc on-the-fly (off-the-fly uses the iso-image verify)
+			if [ "$COPY_BURN_ISO" = "false" ]; then
+				TEXT_VERIFY="<text use-markup=\"true\"><label>\"$(gettext 'Note! <b>Verify may take time.</b> Depending on burnt complexity.')\"</label></text>"
+				GUI_VERIFY="<button><label>$(gettext 'Verify burn')</label><input file stock=\"gtk-apply\"></input><action>EXIT:verify_2drives</action></button>"
+			fi
+
+			
+			#Burn another copy
+			if [ "$EXPORT_ISO" != "true" ] || [ $BURN != blank ]; then
+				GUI_REPEAT="<button><label>$(gettext 'Burn another copy')</label><input file stock=\"gtk-cdrom\"></input><action type=\"exit\">repeat</action></button>"
+			fi
+			#Eject
+			if [ "$EXPORT_ISO" != "true" ]; then #export iso doesn't requires eject
+				ACTIVATED=true
+				[ "$BURN" = "blank" ] && ACTIVATED=false #if user has blanked, he probably wants the disc still inserted
+				GUI_EJECT="<checkbox label=\"$(gettext 'Eject disc when finished')\"><variable>EJECT</variable><default>$ACTIVATED</default></checkbox>"
+			fi
+			#---
+			[ "$SOUND_FINISH" ] && aplay "$SOUND_FINISH" & #sound when done
+			export finish_box="
+			<window title=\"pBurn $VERSION\" icon-name=\"gtk-cdrom\">
+			 <vbox>
+			  <frame $(gettext 'Finished')>
+			   $SPLASH
+			   <text><label>\"\"</label></text>
+			   <text use-markup=\"true\"><label>\"$(gettext 'Operation finished!')\"</label></text>
+			  </frame>
+			  $GUI_EJECT
+			  $TEXT_VERIFY
+			  <hbox>
+			   <button><label>$(gettext 'Save log')</label><input file stock=\"gtk-save\"></input><action>. $APPDIR/func -save_log</action></button>
+			   $GUI_REPEAT
+			   $GUI_SAVE_ISO
+			   $GUI_SAVE_MOVIE
+			   $GUI_VERIFY
+			   <button><label>$(gettext 'Finished')</label><input file stock=\"gtk-quit\"></input></button>
+			  </hbox>
+			 </vbox>
+			</window>"
+			#show verify box if it is a DATA disc
+			I=$IFS; IFS=""
+			for STATEMENTS in  $($GTKDIALOG -p finish_box --center); do
+				eval $STATEMENTS > /dev/null 2>&1
+			done
+			IFS=$I
+			case $EXIT in
+			save_iso)
+				ATTR='accept="directory"'
+				echo "$HOME/pBurn.iso" > $WORKDIR/SAVEFILE
+				. $APPDIR/box_save
+				#if retval is a directory, add file name
+				if [ -d "$(<$WORKDIR/SAVEFILE)" ]; then
+					TMP="$(<$WORKDIR/SAVEFILE)/pBurn.iso"
+					echo "$TMP" > $WORKDIR/SAVEFILE
+				fi
+				#---
+				if [ -s $WORKDIR/SAVEFILE ]; then
+					SAVEFILE="`cat $WORKDIR/SAVEFILE`"
+					cp "$OUTDIR"/Pburn.iso "$SAVEFILE" >> $LOG
+				fi 
+				;;
+			save_slideshow)
+				ATTR='accept="directory"'
+				echo "$HOME/pBurn_slideshow.mpg" > $WORKDIR/SAVEFILE
+				. $APPDIR/box_save
+				#if retval is a directory, add file name
+				if [ -d "$(<$WORKDIR/SAVEFILE)" ]; then
+					TMP="$(<$WORKDIR/SAVEFILE)/pBurn_slideshow.mpg"
+					echo "$TMP" > $WORKDIR/SAVEFILE
+				fi
+				#---
+				if [ -s $WORKDIR/SAVEFILE ]; then
+					SAVEFILE="`cat $WORKDIR/SAVEFILE`"
+					cp "$OUTDIR"/pburn_tmp/slideshow.mpg "$SAVEFILE" >> $LOG
+				fi
+				;;
+			save_ripped_movie)
+				ATTR='accept="directory"'
+				echo "$HOME/pBurn_movie.vob" > $WORKDIR/SAVEFILE
+				. $APPDIR/box_save
+				#if retval is a directory, add file name
+				if [ -d "$(<$WORKDIR/SAVEFILE)" ]; then
+					TMP="$(<$WORKDIR/SAVEFILE)/pBurn_movie.vob"
+					echo "$TMP" > $WORKDIR/SAVEFILE
+				fi
+				#---
+				if [ -s $WORKDIR/SAVEFILE ]; then
+					NAME="`find "$OUTDIR" -name "*-shrank.vob" -printf "%p"`"
+					mv "$NAME" "$(<$WORKDIR/SAVEFILE)" >> $LOG
+				fi
+				;;
+			verify)
+				$CDRECORD -load dev=$BURNDEV #ensure disc to reload
+				sleep 2 #time to spin up
+				. $APPDIR/func -check_media #did it really happen? (not all drives support auto reload)
+				echo -e "\n\n======================================================\n$(gettext 'Verifying disc'). $(gettext 'Please wait...')\n$(gettext 'NB! Do not use disc while verifying...')\n" >> $LOG
+				sleep 3
+				#---	
+				mkdir /tmp/verify 2>/dev/null
+				mount $BURNDEV /tmp/verify -t iso9660
+				diff -r --speed-large-files /tmp/verify $OUTDIR/pburn_symlink_tree | grep -v verify: > $WORKDIR/tmp
+				cat $WORKDIR/tmp >> $LOG
+				echo -e "\n...$(gettext 'Verifying finished')" >> $LOG
+				umount /tmp/verify
+				if [ -s $WORKDIR/tmp ]; then #errors found
+					TXT1="$(gettext 'Verify burn') - $(gettext 'Errors found! Check the pBurn log')"
+					TXT2="$(gettext '<b>Note!</b>
+Depending on the linux kernel, you might need to reload disc to verify it correct. Please reload (eject and insert) disc and try again.')"
+					. $APPDIR/box
+				else
+					IMG="dialog-info"; FRAME="$(gettext 'Verifying disc')"
+					TXT1="$(gettext 'No errors returned')"
+					. $APPDIR/box
+				fi
+				;;
+			verify_2drives)
+				INDRIVE="${INDRIVE%%|*}"
+				#ensure disc to reload
+				$CDRECORD -load dev=$BURNDEV
+				$CDRECORD -load dev=$INDRIVE
+				sleep 2 #time to spin up
+				. $APPDIR/func -check_media #did it really happen? (not all drives support auto reload)
+				echo -e "\n\n======================================================\n$(gettext 'Verifying disc'). $(gettext 'Please wait...')\n$(gettext 'NB! Do not use disc while verifying...')\n" >> $LOG
+				sleep 3
+				#---	
+				mkdir /tmp/verify 2>/dev/null
+				mount $BURNDEV /tmp/verify -t iso9660
+				mkdir /tmp/verify2 2>/dev/null
+				mount $INDRIVE /tmp/verify2 -t iso9660
+				diff -r --speed-large-files /tmp/verify /tmp/verify2 | grep -v verify: | grep -v verify2: > $WORKDIR/tmp
+				cat $WORKDIR/tmp >> $LOG
+				echo -e "\n...$(gettext 'Verifying finished')" >> $LOG
+				umount /tmp/verify
+				umount /tmp/verify2
+				if [ -s $WORKDIR/tmp ]; then #errors found
+					TXT1="$(gettext 'Verify burn') - $(gettext 'Errors found! Check the pBurn log')"
+					TXT2="$(gettext '<b>Note!</b>
+Depending on the linux kernel, you might need to reload disc to verify it correct. Please reload (eject and insert) disc and try again.')"
+					. $APPDIR/box
+				else
+					IMG="dialog-info"; FRAME="$(gettext 'Verifying disc')"
+					TXT1="$(gettext 'No errors returned')"
+					. $APPDIR/box
+				fi
+				;;
+			md5)
+				$CDRECORD -load dev=$BURNDEV #ensure disc to reload
+				. $APPDIR/func -check_media #did it really happen? (not all drives support auto reload)
+				echo "$(gettext 'Calculating md5sum, please wait')..." > $WORKDIR/splashtext
+				$APPDIR/box_splash &
+				[ ! "$ISOFILE" ] && ISOFILE="$OUTDIR"/Pburn.iso
+				MD5_FS="$( md5sum $ISOFILE | cut -f 1 -d " " )"
+				MD5_DISC="$( dd if=$BURNDEV | head -c `stat -c %s $ISOFILE` | md5sum | cut -f 1 -d " " )" #'head...' ensures that length of dd is equal of $ISOFILE
+				echo 100 > $WORKDIR/splash
+				#show result
+				IMG=dialog-info; FRAME=Md5sum
+				TXT1="$MD5_FS - ISO-$(gettext 'image')
+$MD5_DISC - $(gettext 'Verifying disc')"
+				TXT2="$(gettext '<b>Note!</b>
+Depending on the linux kernel, you might need to reload disc to verify it correct. Please reload (eject and insert) disc and try again.')"
+				. $APPDIR/box
+				;;
+			repeat)
+				break
+				;;
+			*)
+				for I in `ps -eo pid,command | grep -i pburn | grep -iwE "pburn_tail|Xdialog|logbox" | awk '{print $1}'`; do kill -9 $I; done
+				if [ "$EJECT" = "true" ] && [ $BURN != export_iso ]; then
+					eject $BURNDEV &
+				fi
+				[ $BURN != blank ] && . $APPDIR/func -new
+				rm -f "$OUTDIR"/Pburn.iso > /dev/null 2>&1
+				rm -f "$OUTDIR"/audio.cddb > /dev/null 2>&1 #audio copy
+				rm -f "$OUTDIR"/audio.cdindex > /dev/null 2>&1 #audio copy
+				rm -f "$OUTDIR"/pburn*.raw > /dev/null 2>&1 #audio copy
+				rm -f "$OUTDIR"/pburn*.inf > /dev/null 2>&1 #audio copy
+				rm -rf "$OUTDIR"/pburn_tmp > /dev/null 2>&1
+				rm -f "$OUTDIR"/*.vob > /dev/null 2>&1 & #video copy
+				exit
+				;;
+			esac
+		done
+	 	eject $BURNDEV &
+		IMG="dialog-info"; FRAME="$(gettext 'Burn another copy')"; TXT1="$(gettext 'Insert new disc, WAIT FOR MEDIA TO SPIN UP, and press OK.')"
+		. $APPDIR/box
+	fi
+done #repeat-ac

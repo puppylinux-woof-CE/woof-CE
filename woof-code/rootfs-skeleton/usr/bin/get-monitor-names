@@ -1,0 +1,104 @@
+#!/bin/sh
+# jamesbond 2016, 2017
+# MIT license
+# idea from here: http://stackoverflow.com/questions/10500521/linux-retrieve-monitor-names
+# EDID data structure: https://en.wikipedia.org/wiki/Extended_Display_Identification_Data
+
+### configuration
+DRM_PREFIX=/sys/class/drm
+
+### helpers
+
+# out: active monitor ids
+get_active_monitors() {
+	local p pp monitors
+	monitors=
+	for p in $DRM_PREFIX/*; do
+		if [ -e $p/enabled ]; then
+			read pp < $p/enabled
+			[ $pp = "enabled" ] && monitors="$monitors ${p##*/}"
+		fi
+	done
+	echo ${monitors# }
+}
+
+# $1-monitor-id
+# out: hexstring edid
+read_monitor_edid() {
+	local size
+	# direct wc doesn't work, ls -l doesn't work too.
+	size=$(cat $DRM_PREFIX/$1/edid | wc -c)
+	[ $size -eq 0 ] && return
+	hexdump -e  "$size"'/1 "%02x""\n"' $DRM_PREFIX/$1/edid
+}
+
+# $1-monitor-id
+get_monitor_name() {
+	local edid
+	edid="$(read_monitor_edid $p)"
+	if [ "$edid" ]; then
+		awk -v edid=$edid '
+BEGIN {
+	print get_name(edid)
+}
+function get_name(s,  s1,i) {
+	for (i=0;i<3;i++) {
+		s1=substr(s,(72+i*18)*2+1,18*2)	
+		if (match(s1,/^000000fc00|^000000fe00/)) {
+			s1=substr(s1,11) # skip 5-chars in hex digits (start at 1)
+			return hex2str(s1)
+		}
+	}
+	return "Unknown"
+}
+function hex2str(s, i,v,ret) {
+	for (i=0; i<13*2; i+=2) {
+		v = substr(s,i+1,2)
+		ret = ret sprintf("%c", hex2byte(v))
+	}
+	return ret
+}
+function hex2byte(s, v,ret) {
+	v=substr(s,1,1)
+	ret = (index("0123456789abcdef",v)-1)*16
+	v=substr(s,2,1)
+	ret = ret + index("0123456789abcdef",v)-1
+	if (ret < 32) return 32
+	return ret
+}' | sed 's/[ \t]*$//'
+	fi
+}
+
+# $1-monitor-id
+get_monitor_dimensions() {
+	local edid
+	edid="$(read_monitor_edid $p)"
+	if [ "$edid" ]; then
+		awk -v edid=$edid '
+BEGIN {
+	# hex conversion tables
+	for(N=0; N<16; N++) {  H[sprintf("%x",N)]=N; H[sprintf("%X",N)]=N }
+	print get_dimensions(edid)
+}
+function get_dimensions(s,  s1,i)
+{
+	# width x height
+	print parsehex(substr(s,1+2*21,2)) "x" parsehex(substr(s,1+2*22,2))
+}
+function parsehex(V,OUT)
+{
+    if(V ~ /^0x/)  V=substr(V,3);
+
+    for(N=1; N<=length(V); N++)
+        OUT=(OUT*16) + H[substr(V, N, 1)]
+
+    return(OUT)
+}'
+	fi
+}
+
+### main ###
+for p in $(get_active_monitors); do
+	echo "#drm-card-id:monitor-name:width x height (in cm)"
+	echo $p:$(get_monitor_name $p):$(get_monitor_dimensions)
+done

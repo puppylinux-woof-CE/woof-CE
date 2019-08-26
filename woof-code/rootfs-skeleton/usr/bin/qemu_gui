@@ -1,0 +1,303 @@
+#!/bin/sh
+# origin: Qemu_Control_Center-0.7.pet by mikeb
+
+# make a list of available machines to choose from
+TMP=`ls -1 /usr/bin/qemu-system-* | cut -f 3 -d '-'` 
+for I in $TMP ; do LIST="$LIST<item>$I</item>" ; done
+
+if [ ! "$LIST" ] ; then
+	/usr/lib/gtkdialog/box_ok "QEMU GUI" error "No Qemu package present - Please install Qemu.."
+	exit 1
+fi
+
+#make 64 default but tweaked for my benefit and common sense
+if [ "`echo $LIST | grep x86_64`" ] ; then
+	LIST="<item>x86_64</item>$LIST"
+else
+	case $(uname -m) in i?86)
+		[ "`echo $LIST | grep i386 `" ] && LIST="<item>i386</item>$LIST"
+	esac
+fi
+
+# Test for either kvm_intel or kvm_amd  as kvm alone might occur even if bios disables support.
+if [ "`lsmod | grep kvm_`" ]; then
+	export device="/dev/kvm"
+	KVM=true
+	KVM_TEXT='
+	<hbox tooltip-text="Uses a kernel driver to give near native performance">
+		<checkbox>
+			<label>Enable KVM    </label>
+			<variable>KVM</variable>
+			<input>echo true</input>
+		</checkbox>
+	</hbox>'
+else
+	# Test for and enable kqemu if KVM not present only
+	if [ ! "`lsmod | grep kqemu`" ] ; then
+		modprobe kqemu 2>/dev/null # major=250
+	fi
+	if [ "`lsmod | grep kqemu`" ]; then
+		export device="/dev/kqemu"
+		KVM_TEXT='
+		<hbox tooltip-text="NORMAL = Partial acceleration, simulated cpu.   KERNEL = Host CPU appears to the guest for maximum acceleration.">
+			<text>
+				<label>Kqemu Mode :</label>
+			</text>
+			<combobox>
+				<variable>KVM</variable>
+				<item>Normal</item>
+				<item>Disabled</item>
+				<item>Kernel</item>
+			</combobox>
+		</hbox>'
+	fi
+fi
+
+# setup /dev/shm if not already done so and default values
+MEM=512
+if [ "`mount | grep shmfs`" == "" ] ; then
+	mount -t tmpfs -o size=154m shmfs /dev/shm
+fi
+CORES=1
+
+if [ -f ~/.qemu_gui.rc ] ; then
+	. ~/.qemu_gui.rc
+fi
+
+if [ "$1" -a -f "$1" ] ; then
+	case $1 in *.[iI][sS][oO])
+		CDROM="$(realpath "$1")"
+	esac
+fi
+
+function _exit() {
+	(
+	echo "MEM="$MEM
+	echo "CORES="$CORES
+	echo "IMAGE1="\"$IMAGE1\"
+	echo "IMAGE2="\"$IMAGE2\"
+	echo "CDROM="\"$CDROM\"
+	echo "EXTRAS="\"$EXTRAS\"
+	echo "BOOTDEV2="\"$BOOTDEV2\"
+	echo "VNC="\"$VNC\"
+	echo "FORWARD="\"$FORWARD\"
+	) > ~/.qemu_gui.rc
+	exit
+}
+
+function _makeimage() {
+	if [ "$IMAGE1" != "" ]; then
+		GROWTH=$(( SIZE * 1024 ))
+		dd of="$IMAGE1" bs=1024 seek=$GROWTH count=0
+	fi
+}
+
+function _runqemu() {
+	#make sure there is sufficient shm space
+	if [ $(( MEM * 1024 )) -gt $(( `df | grep shmfs | awk '{ print $2}'` - 26624 )) ] ; then
+		mount -t tmpfs -o remount,size="$(( MEM + 26 ))m" shmfs /dev/shm
+	fi
+	KERN="" ; IMG="" ; IMG2="" ; ROM="" ; BOOT="c" ; DISP=""
+	QEMU=qemu-system-$ARCH
+	[ "$VNC" = "true" ] && DISP="-vnc :1"
+	#force boot from optical if no hard drive image
+	[ "$BOOTDEV2" = "true" ] || [ ! "$IMAGE1" ] && BOOT="d"
+	[ "$KVM" = "true" ] && KERN="-enable-kvm"
+	[ "$KVM" = "Kernel" ] && KERN="-kernel-kqemu"
+	[ "$KVM" = "Disabled" ] && KERN="-no-kqemu"
+	[ -f "$IMAGE1" ] && IMAGE1="-hda $IMAGE1"
+	[ -f "$IMAGE2" ] && IMAGE2="-hdb $IMAGE2"
+	[ -f "$CDROM" ]  && CDROM="-cdrom $CDROM"
+	if [ "$FORWARD" = "true" ] ; then
+		FWD="-redir tcp:5556::445 -redir tcp:2222::22"
+	fi
+	## added port forward for samba.. mounts by mount -t cifs -o user=administrator,pass=******,port=5556 //127.0.0.1/someshare /mnt/qemu ...NFS needs insecure adding to server. ssh -p 2222  
+	echo debug: $QEMU $DISP -boot $BOOT -m $MEM $KERN $IMAGE1 $IMAGE2 $CDROM -smp $CORES $EXTRAS $FWD &
+	export QEMU_SOUND_DRV=alsa
+	$QEMU $DISP -boot $BOOT -m $MEM $KERN $IMAGE1 $IMAGE2 \
+		$CDROM -smp $CORES $EXTRAS $FWD &
+}
+
+export -f _makeimage
+export -f _runqemu
+export -f _exit
+
+export MEM BOOT MEM IMAGE1 IMAGE2 CDROM BOOTDEV BOOTDEV2 \
+		KVM SIZE VNC NORMAL QEMU CORES EXTRAS LIST ARCH FORWARD
+
+export MAIN_DIALOG='
+<window title="QEMU GUI">
+<vbox>
+	<hbox>
+		<frame Primary Hard Drive Image (C):>
+		<hbox>
+			<entry text="'$IMAGE1'" accept="savefilename">
+				<variable>IMAGE1</variable>
+			</entry>
+			<button>
+				<input file stock="gtk-open"></input>
+				<variable>FILE_BROWSE_SAVEFILENAME</variable>
+				<action type="fileselect">IMAGE1</action>
+			</button>
+		</hbox>
+		<hbox>
+			<text>
+				<label>New Image Size (MB)</label>
+			</text>
+			<entry>
+				<variable>SIZE</variable>
+			</entry>
+		</hbox>
+		<hbox>
+			<text>
+				<label>Enter new .img file details above then </label>
+			</text>
+			<button>
+				<input file stock="gtk-new"></input>
+				<label>Create</label>
+				<action>_makeimage</action>
+			</button>
+		</hbox>
+		</frame>
+	</hbox>
+
+	<hbox>
+		<frame Secondary Hard Drive Image (D):>
+		<hbox>
+			<entry text="'$IMAGE2'" accept="savefilename">
+				<variable>IMAGE2</variable>
+			</entry>
+			<button>
+				<input file stock="gtk-open"></input>
+				<variable>FILE_BROWSE_SAVEFILENAME3</variable>
+				<action type="fileselect">IMAGE2</action>
+			</button>
+		</hbox>
+		</frame>
+	</hbox>
+
+	<hbox>
+		<frame CD/DVD Image (D/E):>
+		<hbox>
+			<entry text="'$CDROM'" accept="savefilename">
+				<variable>CDROM</variable>
+			</entry>
+			<button>
+				<input file stock="gtk-open"></input>
+				<variable>FILE_BROWSE_SAVEFILENAME2</variable>
+				<action type="fileselect">CDROM</action>
+			</button>
+		</hbox>
+		</frame>
+	</hbox>
+
+	<hbox tooltip-text="Booting will default to CD/DVD if there are no hard drives present regardless of this setting">
+		<text>
+			<label>Boot device:</label>
+		</text>
+		<radiobutton>
+			<label>Primary Hard Drive</label>
+			<variable>BOOTDEV</variable>
+		</radiobutton>
+		<radiobutton active="'$BOOTDEV2'">
+			<label>CD/DVD</label>
+			<variable>BOOTDEV2</variable>
+		</radiobutton>
+	</hbox>
+	
+	<hbox tooltip-text="This allows remote access to the virtual machine using a standard VNC client and can be used to reduce overhead on the host.">
+		<text>
+			<label>Display:    </label>
+		</text>
+		<radiobutton>
+			<label>Normal    </label>
+			<variable>NORMAL</variable>
+			</radiobutton>
+		<radiobutton active="'$VNC'">
+			<label>Vnc :1    </label>
+			<variable>VNC</variable>
+		</radiobutton>
+	</hbox>
+
+	<hbox tooltip-text="The memory allocated will be taken from the actual ram plus swap on a dynamic basis so ensure there is sufficient available for your selection">	
+		<text>
+			<label>Virtual Memory (MB):</label>
+		</text>
+		<combobox>
+			<variable>MEM</variable>
+			<item>'$MEM'</item>
+			<item>64</item>
+			<item>128</item>
+			<item>256</item>
+			<item>512</item>
+			<item>768</item>
+			<item>1024</item>
+			<item>2048</item>
+		</combobox>
+	</hbox>
+
+	<hbox tooltip-text="Guest systems available are independant of the host system">	
+		<text>
+			<label>Guest Machine:</label>
+		</text>
+		<combobox>
+			<variable>ARCH</variable>
+			'$LIST'
+		</combobox>
+	</hbox>
+	<hbox>
+		<text>
+			<label>Number of Guest CPU:</label>
+		</text>
+		<combobox tooltip-text="The guest can have more cores than the host">
+			<variable>CORES</variable>
+			<item>'$CORES'</item>
+			<item>1</item>
+			<item>2</item>
+			<item>3</item>
+			<item>4</item>
+		</combobox>
+	</hbox>
+	'$KVM_TEXT'
+
+	<hbox tooltip-text="SAMBA:- mount -t cifs -o user=administrator,pass=******,port=5556 //127.0.0.1/someshare /mnt/qemu   SSH:- ssh -p 2222   For NFS add insecure to server options...no forwarding needed.   IMPORTANT - Only one QEMU session can have forwarding enabled.">
+		<checkbox active="'$FORWARD'">
+			<label>Enable SSH/SAMBA forwarding</label>
+			<variable>FORWARD</variable>
+		</checkbox>
+	</hbox>
+	<hbox tooltip-text="Add any additional parameters here using command line syntax.
+		See HELP for a full list of options">
+		<text>
+			<label>Extra Parameters:</label>
+		</text>
+		<entry text="'$EXTRAS'">
+			<variable>EXTRAS</variable>
+		</entry>
+	</hbox>
+
+	<hbox>
+		<button  tooltip-text="Click here to see the command line options and audio card help.">
+			<input file stock="gtk-help"></input>
+			<label>Help</label>
+			<action>gxmessage "`qemu-system-$ARCH --help` `qemu-system-$ARCH --audio-help`" &</action>
+		</button>
+		<button>
+			<input file stock="gtk-execute"></input>
+			<label>Run Qemu</label>
+			<action>_runqemu</action>
+		</button>
+		<button>
+			<input file stock="gtk-quit"></input>
+			<label>Save and exit</label>
+			<action>_exit</action>
+			<action>EXIT:32</action>
+		</button>
+	</hbox>
+</vbox>
+</window>
+'
+
+gtkdialog --program MAIN_DIALOG
+
+### EOF ###

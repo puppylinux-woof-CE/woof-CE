@@ -2,87 +2,240 @@
 #(c) Copyright Barry Kauler 2012, bkhome.org
 #License GPL3 (/usr/share/doc/legal)
 #shared-mime-info pkg has assigned initrd.gz mime-type application/initramfs-gz (by me).
-#Click on initrd.gz in ROX-Filer, this script will run (see /root/Choices/MIME-types/application_initramfs-gz).
+#Click on initrd.gz/xz in a file manager, this script will run (see ${HOME}/Choices/MIME-types/application_initramfs-gz).
 #note: script not internationalized, as this is a developer's tool.
 
-[ ! $1 ] && exit 1
-[ ! -f "$1" ] && exit 1
-BASEFILE="`basename "$1"`"
-[ "$BASEFILE" != "initrd.gz" ] && exit 1
+zhelp() {
+	script=${0##*/} ; echo "
+Usage:
 
-compr_func() {
-#find out compression type...
-UNCOMPREXE=gunzip; COMPREXE=gzip; EXT=gz
-gunzip -t "$1"
-if [ $? -ne 0 ];then
- UNCOMPREXE=bunzip2; COMPREXE=bzip2; EXT=bz2
- bunzip2 -t "$1"
- if [ $? -ne 0 ];then
-  UNCOMPREXE=unxz; COMPREXE=xz; EXT=xz
-  unxz -t "$1"
-  if [ $? -ne 0 ];then
-   return 1
-  fi
- fi
-fi
-return 0
+       $script -x|-c <initrd.gz/xz>
+          -x: extract
+          -c: compress"
+	exit
 }
 
-cd /root
-[ -f initrd ] && rm -f initrd
-[ -f /tmp/initrd.gz ] && rm -f /tmp/initrd.gz
-[ "$1" = "/root/initrd.gz" ] && cp -f /root/initrd.gz /tmp/
+if [ "`gzip --help 2>&1 | grep '\-k'`" ] ; then #gzip 1.5 doesn't support -k ...
+	GZIP=gzip
+	GUNZIP=gunzip
+elif [ "`busybox gzip --help 2>&1 | grep '\-k'`" ] ; then
+	GZIP='busybox gzip'
+	GUNZIP='busybox gunzip'
+fi
 
-if [ -d initrd-expanded ];then
- 
- pupdialog --background "yellow" --backtitle "initrd.gz: update?" --yesno "An initrd.gz is already expanded at /root/initrd-expanded. Is this correct, do you want to use /root/initrd-expanded to update ${1}?" 0 0
- if [ $? -eq 0 ];then
+#find out compression type...
+function compr_func() {
+	comp="$(file -b "$1")"
+	case "$comp" in
+		gz*|GZ*) UNCOMPREXE=${GUNZIP} ; EXT=gz ; COMPREXE=${GZIP} ;;
+		xz*|XZ*) UNCOMPREXE=unxz   ; EXT=xz ; COMPREXE='xz --check=crc32 --lzma2' ;;
+		*cpio*|*CPIO*) CPIO=1 ;; #fd64
+		*) echo "Unsupported compression/format for initrd."
+			exit 1 ;;
+	esac
+}
+
+#find out partition filesystem a file is located in
+function FILE_FS_IS_OK() {
+	[ $FILE_FS_IS_OK ] && return $FILE_FS_IS_OK
+	local MOUNTPOINT="$(stat -c '%m' "$@")"
+	local FS="$(mount | grep " $MOUNTPOINT " | cut -f 5 -d ' ')"
+	case $FS in
+		ext*|rootfs) FILE_FS_IS_OK=0 ;;
+		*) FILE_FS_IS_OK=1 ;;
+	esac
+	return $FILE_FS_IS_OK
+}
+
+##################################################
+# CLI (to extract and recompress in the same dir)
+##################################################
+
+function initrd_proc() { #<extract|compress> [-home] <initrd.gz/xz>
+
+	OPTION=$1
+	shift
+	[ "$1" = "-home" ] && { TOHOME=1; shift; }
+
+	INFILE="$@"
+	case $INFILE in
+		*'initrd-expanded')
+			INITRD_DIR=1
+			[ -e "$INFILE" ] || { echo "ERROR: file does not exist: $INFILE"; exit 1; }
+			INFILE=$(dirname $INFILE)/initrd.gz
+			UNCOMPREXE=${GUNZIP} EXT=gz COMPREXE=${GZIP}
+			;;
+		*)
+			[ -f "$INFILE" ] || { echo "ERROR: file does not exist: $INFILE"; exit 1; }
+			[[ $INFILE != /* ]] && INFILE=$PWD/$INFILE
+			;;
+	esac
+	DIR="`dirname "$INFILE"`"
+	FILE_NAME=${INFILE##*/}
+
+	CURDIRX=$DIR
+	FILE_FS_IS_OK "$DIR" || TOHOME=1
+	[ $TOHOME ] && DIR=${HOME}
+
+	cd "$DIR"
+
+	## now proceed
+	if [ ! "$INITRD_DIR" -o "$CPIO" != "" ] ; then
+		[ $TOHOME ] && cp -fv "$INFILE" ${HOME}
+		[ -f initrd -o -f initrd.gz -o -f initrd.xz ] || { echo "initrd.gz/xz not found in $DIR" ; exit 1 ; }
+		compr_func ${FILE_NAME} || { echo "ERROR getting compression type for ${FILE_NAME}" >&2 ; return 1 ; }
+	fi
+
+	if [ "$OPTION" = "extract" ] ; then
+		echo "Expanding at $DIR"
+		if [ "$CPIO" = "" ] ; then
+			[ "initrd.${EXT}" != "${FILE_NAME}" ] && cp -f "${FILE_NAME}" initrd.${EXT}
+			#-f and -k are options in gunzip, and unxz
+			zout=$($UNCOMPREXE -f -k initrd.${EXT} 2>&1)
+			if [ $? -ne 0 ] ; then
+				echo -e "${comp}\n${zout}" >&2
+				rm -f initrd.${EXT}
+				return 5 #error extracting
+			fi
+		fi
+		mkdir -p initrd-expanded
+		cd initrd-expanded
+		cat ../initrd | cpio -i -d -m
+		rm -f ../initrd
+		cd ..
+		[ "initrd.${EXT}" != "${FILE_NAME}" ] && rm -f initrd.${EXT}
+		[ "$TOHOME" ] && rm -f ${HOME}/${FILE_NAME}
+		return 0
+	else #compress
+		echo "Creating $FILE_NAME from $DIR"
+		[ -d initrd-expanded ] || { echo "'initrd-expanded' not found in $DIR" ; exit 1 ; }
+		cd initrd-expanded
+		find . | cpio -o -H newc > ../initrd
+		cd ..
+		${COMPREXE} -f initrd
+		[ "initrd.${EXT}" != "${FILE_NAME}" ] && mv -f initrd.${EXT} "${FILE_NAME}"
+		[ "$TOHOME" -a "$HOME" != "$CURDIRX" ] && mv -fv ${FILE_NAME} "$CURDIRX"
+		return 0
+	fi
+}
+
+#================================================
+
+case $1 in
+	-x) shift ; initrd_proc extract "$@" ; exit $? ;;
+	-c) shift ; initrd_proc compress "$@" ; exit $? ;;
+	-h|-help|--help) zhelp ; exit $? ;;
+esac
+
+[ $DISPLAY ] || zhelp
+
+##################################################
+#					GUI
+##################################################
+
+zfile="$1"
+[ ! -f "$zfile" ] && exit 1
+[[ $zfile != /* ]] && zfile=$PWD/$zfile
+DIRX="`dirname "$zfile"`"
+BASEFILE="`basename "$zfile"`"
+
+case "${BASEFILE}" in
+	*initrd|*"initrd.gz"|*"initrd.xz") ok=1 ;;
+	*) exit 1 ;;
+esac
+
+cd ${HOME}
+[ -f initrd ] && rm -f initrd
+[ -f /tmp/${BASEFILE} ] && rm -f /tmp/${BASEFILE}
+[ "$zfile" = "${HOME}/${BASEFILE}" ] && cp -f ${HOME}/${BASEFILE} /tmp/
+
+if [ -d "${HOME}/initrd-expanded" ] ; then
+	ex1="An ${BASEFILE} is already expanded at ${HOME}/initrd-expanded.\n\n"
+	msgx="Is this correct, do you want to use ${HOME}/initrd-expanded to update ${zfile}?"
+	expanded_home=1
+fi
+
+if [ -d "$DIRX/initrd-expanded" ] ;then
+	if FILE_FS_IS_OK "$DIRX/initrd-expanded" ; then
+		ex2="An ${BASEFILE} is already expanded at $DIRX/initrd-expanded.\n\n"
+		msgx="Is this correct, do you want to use $DIRX/initrd-expanded to update ${zfile}?"
+		expanded_dir=1
+	fi
+fi
+
+if [ "$expanded_home" -a "$expanded_dir" ] ; then
+	msgx="Please choose one of the above dirs to update ${BASEFILE}"
+fi
+
+EXP_DIR=$DIRX/initrd-expanded
+
+if [ "$expanded_home" -o "$expanded_dir" ] ; then ### COMPRESS ###
+
+	if [ "$expanded_home" -a "$expanded_dir" ] ; then
+		#initrd-expanded is in both ${HOME} and $DIRX
+		pupdialog --colors --background '#FFFF80' \
+		--backtitle "${BASEFILE}: expand?" --extra-button \
+		--yes-label "${HOME}" \
+		--extra-label "$DIRX" \
+		--no-label "Cancel" \
+		--yesno "$ex1 $ex2 $msgx" 0 0
+		retval=$?
+		case $retval in
+			0) toHOME="-home" ; EXP_DIR=${HOME}/initrd-expanded;; #"${HOME}"
+			3) EXP_DIR=$DIRX/initrd-expanded ;; #"$DIRX"
+			*) exit ;; #"Cancel"
+		esac
+	else
+		#initrd-expanded is in ${HOME} OR $DIRX
+		pupdialog --background "yellow" --backtitle "${BASEFILE}: update?" \
+		--yesno "$ex1 $ex2 $msgx" 0 0
+		[ $? -ne 0 ] && exit
+		if [ "$expanded_home" ] ; then
+			toHOME="-home"
+			EXP_DIR=${HOME}/initrd-expanded
+		fi
+	fi
+
+	initrd_proc compress $toHOME "$zfile"
+	pupdialog --background '#80FF80' --backtitle "${BASEFILE}: success" --msgbox "File ${zfile} has been updated with the contents of ${EXP_DIR}." 0 0
+	[ $toHOME ] || exit
+	pupdialog --background "yellow" --backtitle "${BASEFILE}: finished" --yesno "Do you want to delete ${HOME}/initrd-expanded? If in doubt, please choose Yes" 0 0
+	if [ $? -eq 0 ] ; then
+		rm -rf ${HOME}/initrd-expanded
+	fi
   
-  compr_func "$1"
-  if [ $? -ne 0 ];then
-   pupdialog --background '#FF8080' --backtitle "initrd.gz: fail" --msgbox "Sorry, could not recognise compression type, unable to update initrd.gz." 0 0
-  else
-   cd initrd-expanded
-   find . | cpio -o -H newc > ../initrd
-   sync
-   cd ..
-   ${COMPREXE} initrd
-   sync
-   mv -f initrd.${EXT} "$1"
-   pupdialog --background '#80FF80' --backtitle "initrd.gz: success" --msgbox "File ${1} has been updated with the contents of /root/initrd-expanded." 0 0
-  fi
-   
- fi
- pupdialog --background "yellow" --backtitle "initrd.gz: finished" --yesno "Do you want to delete /root/initrd-expanded? If in doubt, please choose Yes" 0 0
- if [ $? -eq 0 ];then
-  rox -D /root/initrd-expanded 2>/dev/null
-  rm -rf /root/initrd-expanded
- fi
-  
-else
- 
- pupdialog --background "yellow" --backtitle "initrd.gz: expand?"  --yesno "Do you want to open up initrd.gz, and optionally edit it?" 0 0
- if [ $? -eq 0 ];then
-  compr_func "$1"
-  if [ $? -ne 0 ];then
-   pupdialog --background '#FF8080' --backtitle "initrd.gz: fail" --msgbox "Sorry, could not recognise compression type of ${1}, unable to expand it." 0 0
-  else
-   [ "$1" != "/root/initrd.gz" ] && cp -f "$1" /root/
-   mv -f initrd.gz initrd.${EXT}
-   ${UNCOMPREXE} initrd.${EXT}
-   [ -f /tmp/initrd.gz ] && mv -f /tmp/initrd.gz /root/
-   mkdir initrd-expanded
-   cd initrd-expanded
-   cat ../initrd | cpio -i -d -m
-   sync
-   rm -f ../initrd
-   cd ..
-   pupdialog --colors --background '#80FF80' --backtitle "initrd.gz: expanded" --msgbox "File initrd.gz has been expanded at \Zb/root/initrd-expanded\ZB. You may edit the contents if you wish. \Zb\Z1\n\nAfterward, if you click on ${1} again\Zn\ZB, it will be updated with the contents of /root/initrd-expanded." 0 0
-   rox -d /root/initrd-expanded -x /root/initrd-expanded
-  fi
- fi
+else ### EXPAND ###
+
+	if FILE_FS_IS_OK "$DIRX" ; then
+		pupdialog --colors --background '#FFFF80' \
+		--backtitle "${BASEFILE}: expand?" --extra-button \
+		--yes-label "Expand at ${HOME}" \
+		--extra-label "Expand at Current dir" \
+		--no-label "Cancel" \
+		--yesno "Current dir:\n ${DIRX}\n\nDo you want to open up ${BASEFILE}, and optionally edit it?\n\n" 0 0
+		retval=$?
+		case $retval in
+			0) toHOME="-home" ; EXP_DIR=${HOME}/initrd-expanded;; #"expand at ${HOME}"
+			3) EXP_DIR=$DIRX/initrd-expanded ;; #"Expand at ${BASEFILE} dir"
+			*) exit ;; #"Cancel"
+		esac
+	else
+		msg="Do you want to open up ${BASEFILE}, and optionally edit it?\n\n"
+		pupdialog --colors --background '#FFFF80' --backtitle "${BASEFILE}: expand?" --yes-label "Expand at ${HOME}" --no-label "Cancel" --yesno "$msg" 0 0
+		[ $? -ne 0 ] && exit
+		if [ "$expanded_home" ] ; then
+			toHOME="-home"
+			EXP_DIR=${HOME}/initrd-expanded
+		fi
+	fi
+
+	initrd_proc extract $toHOME "$zfile"
+	[ $? -eq 5 ] && exec pupdialog --colors --background '#FF2222' --backtitle "ERROR" --msgbox "error extracting initrd.${EXT}\n\n${comp}\n\n${zout}" 0 0
+	pupdialog --colors --background '#80FF80' --backtitle "${BASEFILE}: expanded" --msgbox "File ${BASEFILE} has been expanded at \Zb${EXP_DIR}\ZB. You may edit the contents if you wish. \Zb\Z1\n\nAfterward, if you click on ${zfile} again\Zn\ZB, it will be updated with the contents of ${EXP_DIR}." 0 0
+	[ $toHOME ] && rox ${EXP_DIR}
 
 fi
 
-[ -f /tmp/initrd.gz ] && rm -f /tmp/initrd.gz
-###END###
+[ -f /tmp/${BASEFILE} ] && rm -f /tmp/${BASEFILE}
+
+### END ###

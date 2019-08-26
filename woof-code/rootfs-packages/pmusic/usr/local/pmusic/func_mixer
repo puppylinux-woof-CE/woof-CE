@@ -1,0 +1,255 @@
+#!/bin/bash
+#pMusic - sound processing
+#GPL - Copyright Sigmund Berglund
+
+export LC_NUMERIC=C
+export TEXTDOMAIN=pmusic
+export OUTPUT_CHARSET=UTF-8
+[ ! "$SPEAKER" ] && . $HOME/.pmusic/pmusicrc
+#Detect active soundcard
+if [ "$SOUND_DEVICE" = "auto" ]; then
+	if [ -f /etc/asound.conf ]; then #see if MultipleSoundCardWizard was used
+		TMP=$(head -1 /etc/asound.conf)
+		CARD_NR=${TMP##* } 
+	fi
+	if [ ! "$CARD_NR" ]; then
+		TMP="`LC_ALL=C aplay -l | grep -Fm1 card`" #grab the first card
+		CARD_NR=${TMP%%:*}
+		CARD_NR=${CARD_NR#*\ }
+	fi
+else
+	CARD_NR=${SOUND_DEVICE%%:*}
+	CARD_NR=${CARD_NR#*\ }
+fi
+
+
+case $1 in
+-activate_effects)
+	rm $WORKDIR/ffmpeg_filter
+	AF_STRING=""
+	[ "$FADE_IN" != "0" ] && AF_STRING="${AF_STRING}afade=t=in:d=$FADE_IN," #afade has to be BREFORE tempo
+	[ "$TREBLE" != "0" ] && AF_STRING="${AF_STRING}treble=gain=$TREBLE,"
+	[ "$BASS" != "0" ] && AF_STRING="${AF_STRING}bass=gain=$BASS,"
+	[ "$FF_VOLUME" != "1.0" ] && AF_STRING="${AF_STRING}volume=${FF_VOLUME},"
+	if [ "$TEMPO" != "100" ]; then
+		TEMPO="`echo "scale=2; $TEMPO / 100" | bc`"
+		AF_STRING="${AF_STRING}atempo=$TEMPO,"
+	fi
+	[[ ${AF_STRING} = @(*afade*|*treble*|*bass*|*atempo*|*volume*) ]] && echo -n "$AF_STRING" > $WORKDIR/ffmpeg_filter #trailing , in -af "..." corrupts ffmpeg
+	#Note that normalize is stored in rc - it has to be calculated before playing actual track
+	
+	#update stream if playing
+	if LC_ALL=C grep -F 'kbits' $WORKDIR/ffmpeg_output; then
+		IFS=: read C1 M S C <<< "`tail -c 120 $WORKDIR/ffmpeg_output`"
+		S=${S%%.*}
+		read SS < $WORKDIR/SS
+		echo "$(((10#${M} * 60) + 10#${S} + $SS))" > $WORKDIR/SS
+		$APPDIR/func_kill -audio
+		$APPDIR/func_player -playing -skip_update &
+	fi
+	;;
+-gui)
+	$0 -mute noaction
+	$0 -get_levels
+	GUI_PEQUALIZER="`/usr/local/pequalizer/pequalizer -e 2> /dev/null`"
+	[ ! "$GUI_PEQUALIZER" ] && GUI_PEQUALIZER='<vbox space-expand="true" space-fill="true"><frame><pixmap><input file stock="gtk-dialog-error"></input></pixmap><hbox homogeneous="true" width-request="250"><text><label>pEqualizer '$(gettext 'is not installed')'</label></text></hbox></frame></vbox>'
+	. $APPDIR/gui_mixer
+	$APPDIR/func_svg -heading "$(gettext 'Sound processing')" > /dev/null
+
+	S='
+	<window title="pMusic - '$(gettext 'Sound processing')'" icon-name="pmusic" window_position="2">
+	<vbox space-expand="true" space-fill="true">
+	 <vbox space-expand="false" space-fill="false">
+      <hbox spacing="0" height="80" scrollable="true" space-expand="true" space-fill="true" vscrollbar-policy="2" hscrollbar-policy="2">
+	   <eventbox name="svgheading">
+	    <hbox space-expand="true" space-fill="true">
+	     <text width-request="20" space-expand="false" space-fill="false"><label>""</label></text>
+	     <text ypad="40" use-markup="true" space-expand="false" space-fill="false"><label>"<i>'$(gettext 'Speaker channel')': <b>'$SPEAKER'</b>
+'$(gettext 'Sound card')': <b>'$(echo "$SOUND_DEVICE" | cut -d[ -f1 | cut -d: -f2)'</b></i>"</label></text>
+		 <text space-expand="true" space-fill="true"><label>""</label></text>
+		 <hbox spacing="0" '$SF'>
+		  <vbox>
+		   <button relief="2" can-focus="false" space-expand="false" space-fill="false">
+		    <input file stock="gtk-preferences"></input>
+		    <action>'$APPDIR'/func_config -preferences -playback</action>
+		   </button>
+		   <text space-expand="true" space-fill="true"><label>""</label></text>
+		  </vbox>
+		  <vbox>
+		   <button relief="2" can-focus="false" space-expand="false" space-fill="false">
+		    <input file stock="gtk-help"></input>
+		    <action>'$APPDIR'/func_mixer -info_SoundProcessing</action>
+		   </button>
+		   <text space-expand="true" space-fill="true"><label>""</label></text>
+		  </vbox>
+		 </hbox>
+	    </hbox>
+	   </eventbox>
+	  </hbox>
+	 </vbox>
+	 <notebook labels="'$(gettext 'Output')' (alsa)|'$(gettext 'Input')' (ffmpeg)" space-expand="true" space-fill="true">
+	  <vbox space-expand="true" space-fill="true">
+	   <hbox space-expand="true" space-fill="true">
+	    <vbox margin="10" space-expand="true" space-fill="true">
+	     <hbox space-expand="false" space-fill="false">
+	      <button space-expand="false" space-fill="false">
+	       <label>'$(gettext 'Bypass equalizer')'</label>
+	       <action>IMG=info; FRAME="'$(gettext 'Bypass')'"; TXT1="'$(gettext 'To NOT send signal through the equalizer, you have to lock sound driver (alsa) to pMusic. This is set in the preferences.')'"; TXT2="'$(gettext 'Be aware that locking the sound driver to pMusic affects your system: Other programs will not play audio as long as pMusic is active. On the other hand, pMusic will not play if sound driver is in use by other program. Normally, it is not recommended to lock your sound driver.')'"; . '$APPDIR'/box_ok</action>
+	      </button>
+	      <text space-expand="true" space-fill="true"><label>""</label></text>
+	     </hbox>
+	     <hseparator></hseparator>
+	     <hbox space-expand="true" space-fill="true">
+	      '$GUI_PEQUALIZER'
+	      <variable>HBOX_EQ</variable>'
+	      [ ! "$SOUND_DEVICE" = "auto" ] && S=$S'<sensitive>false</sensitive>'
+	     S=$S'</hbox>
+	    </vbox>
+	    <text space-expand="true" space-fill="true"><label>""</label></text>
+
+	    <eventbox name="mixer_background">
+	     <vbox space-expand="true" space-fill="true">
+	      '$GUI_MIXER'
+	     </vbox>
+	    </eventbox>
+	   </hbox>
+	  </vbox>
+	  <vbox margin="10">
+	   '$GUI_SOUND_INPUT'
+	  </vbox>
+	 </notebook>
+	</vbox>
+	</window>'
+	echo "$S" > $WORKDIR/xml_pmusic_mixer
+	[ $TOOLTIPS = false ] && sed -i 's%tooltip-%tooltipXXX%g' $WORKDIR/xml_pmusic_mixer #deactivate tooltips
+	sed -i 's/###.*//g' $WORKDIR/xml_pmusic_mixer #triple ### avoids confict with bash4 and colors as #FF0000
+	. $APPDIR/func -reset_gtk
+	$GTKDIALOG -f $WORKDIR/xml_pmusic_mixer
+	;;
+-check_stereo)
+	if [ "`LC_ALL=C amixer -c $CARD_NR get "$SPEAKER" | grep 'Mono:' | cut -d ':' -f 2`" ]; then #mono
+		TXT1="$(gettext 'Speaker channel is mono, so balance will not work. Select another speaker channel in the preferences.')"
+		TXT2="$(gettext 'Speaker channel:') $SPEAKER"
+		. $APPDIR/box_ok
+		echo 100 > $WORKDIR/BALANCE
+	fi
+	;;
+-set_volume)
+	#in case it is muted, and user tries to adjust volume, lets unmute
+	$APPDIR/func_mixer -mute unmute
+	#---
+	if [ "`LC_ALL=C amixer -c $CARD_NR get "$SPEAKER" | grep 'Mono:' | cut -d ':' -f 2`" ]; then #mono
+		amixer -c $CARD_NR set "$SPEAKER" $VOLUME"%" > /dev/null 2>&1
+	else
+		[ ! "$BALANCE" ] && BALANCE=100 #in case no balance slider is provided in gui
+		if [ $BALANCE -le 100 ]; then
+			VOL_LEFT=$VOLUME
+			VOL_RIGHT=$((($BALANCE*$VOLUME)/100))
+		else
+			VOL_LEFT=$((((200-$BALANCE)*$VOLUME)/100))
+			VOL_RIGHT=$VOLUME
+		fi
+		amixer -c $CARD_NR set "$SPEAKER" $VOL_LEFT"%",$VOL_RIGHT"%" > /dev/null 2>&1
+	fi
+	;;
+-get_levels)
+	AMIXER="`LC_ALL=C amixer -c $CARD_NR get "$SPEAKER"`"
+	if [ "`grep 'Mono:' <<< "$AMIXER" | cut -d ':' -f 2`" ]; then
+		grep -FA5 'Mono:' <<< "$AMIXER" | grep -Fm1 '%' | cut -d '%' -f 1 | cut -d '[' -f 2 > $WORKDIR/VOLUME
+		echo 100 > $WORKDIR/BALANCE
+	else #stereo
+		VOL_L=`grep -m1 'Left:' <<< "$AMIXER" | cut -d '%' -f 1 | cut -d '[' -f 2`
+		VOL_R=`grep -m1 'Right:' <<< "$AMIXER" | cut -d '%' -f 1 | cut -d '[' -f 2`
+		[ $VOL_L = 0 ] && VOL_L=1 #1 to avoid dividing with 0
+		[ $VOL_R = 0 ] && VOL_R=1
+		#check which channel is dominant. Make that the shown volume
+		if [ "$VOL_L" -ge "$VOL_R" ]; then
+			echo $VOL_L > $WORKDIR/VOLUME
+			TMP=$((($VOL_R*100)/$VOL_L)) 
+			echo "$TMP" > $WORKDIR/BALANCE
+		else
+			echo $VOL_R > $WORKDIR/VOLUME
+			TMP=$(((200-($VOL_L*100)/$VOL_R)))
+			echo "$TMP" > $WORKDIR/BALANCE
+		fi
+	fi
+	;;
+-volume_up)
+	$0 -get_levels
+	VOLUME=$(($(<$WORKDIR/VOLUME)+10))
+	BALANCE=$(<$WORKDIR/BALANCE)
+	[ "$VOLUME" -lt 1 ] && VOLUME=0
+	[ "$VOLUME" -gt 99 ] && VOLUME=100
+	. $APPDIR/func_mixer -set_volume
+	;;
+-volume_down)
+	$0 -get_levels
+	VOLUME=$(($(<$WORKDIR/VOLUME)-10))
+	BALANCE=$(<$WORKDIR/BALANCE)
+	[ "$VOLUME" -lt 1 ] && VOLUME=0
+	[ "$VOLUME" -gt 99 ] && VOLUME=100
+	. $APPDIR/func_mixer -set_volume
+	;;
+-balance_right)
+	$0 -get_levels
+	VOLUME=$(<$WORKDIR/VOLUME)
+	BALANCE=$(($(<$WORKDIR/BALANCE)+20))
+	[ "$BALANCE" -lt 1 ] && BALANCE=0
+	[ "$BALANCE" -gt 199 ] && BALANCE=200
+	. $APPDIR/func_mixer -set_volume
+	;;
+-balance_left)
+	$0 -get_levels
+	VOLUME=$(<$WORKDIR/VOLUME)
+	BALANCE=$(($(<$WORKDIR/BALANCE)-20))
+	[ "$BALANCE" -lt 1 ] && BALANCE=0
+	[ "$BALANCE" -gt 199 ] && BALANCE=200
+	. $APPDIR/func_mixer -set_volume
+	;;
+-mute)
+	case $2 in
+		mute) MUTE=false;;
+		unmute) MUTE=true;;
+		*)
+			AMIXER="`LC_ALL=C amixer -c $CARD_NR get "$SPEAKER"`"
+			if [ "`grep 'Mono:' <<< "$AMIXER" | cut -d ':' -f 2`" ]; then
+				[ "`grep -FA5 'Mono:' <<< "$AMIXER" | grep -Fm1 '%' | grep -F '[on]'`" ] && MUTE=false || MUTE=true
+			else #stereo
+				[ "`grep -m1 'Left:' <<< "$AMIXER" | grep -F '[on]'`" ] && MUTE=false || MUTE=true
+			fi
+			;;
+	esac
+	
+	if [ $MUTE = false ]; then
+		if [ "$2" = "noaction" ]; then #only a status check
+			cp -f $APPDIR/themes/$THEME/icon_volume_ok.svg $WORKDIR/icon_mute.svg
+		else
+			amixer -c $CARD_NR set "$SPEAKER" mute > /dev/null 2>&1
+			cp -f $APPDIR/themes/$THEME/icon_volume_mute.svg $WORKDIR/icon_mute.svg
+		fi
+	else
+		if [ "$2" = "noaction" ]; then #only a status check
+			cp -f $APPDIR/themes/$THEME/icon_volume_mute.svg $WORKDIR/icon_mute.svg
+		else
+			amixer -c $CARD_NR set "$SPEAKER" unmute > /dev/null 2>&1
+			cp -f $APPDIR/themes/$THEME/icon_volume_ok.svg $WORKDIR/icon_mute.svg
+		fi
+	fi
+	;;
+-info_SoundProcessing)
+	HEADING="$(gettext 'Sound Processing')"
+	IMG='info'
+	FRAME="$(gettext 'info')"
+	TXT1="$(gettext 'The <b>Output sound processing</b> is done after the stream has left the pMusic play-engine. So, it will only affect the Linux sound driver (alsa). This is a very smooth processing, and most often the recommended choice. The downside is that it will affect the sound output of all other apps using alsa.
+	
+The <b>Input processing</b> is tweaking the stream going into pMusic, so this gives more options to manipulate the stream (ie. tempo and fading). The downside is that it has to reload the stream setup, and it will give a tick/pause when changing the values.
+
+Be aware that the input processing stays active also when exporting the tracks. This gives the abilities to convert the stream more radically than just changing the format.
+
+Increasing the input <b>volume</b> should be used by caution. It will often give distortion to the sound. To optimize the input volume level, use the Normalizer. The output volume will not distort.
+
+<b>Normalize</b> will unify volume of all tracks.
+This is handy when your tracks comes from different sources, since the recording level is not the same. Depending on your system, the volume calculation will give a small gap before playing')"
+	. $APPDIR/box_ok &
+	;;
+esac

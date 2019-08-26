@@ -1,0 +1,884 @@
+#!/bin/bash
+
+PID=$$
+export TEXTDOMAIN=pfind
+
+menuitem(){
+	echo '<hbox spacing="0">
+	 <pixmap height-request="20" icon_size="1" space-expand="false" space-fill="false"><input file stock="gtk-'$3'"></input></pixmap>
+	 <button height-request="20" xalign="0" can-focus="no" relief="2" space-expand="true" space-fill="true">
+	  <label>" '$1'"</label>
+	  <action>echo '$2' > /tmp/pfind-tmp'$PROGPID'</action>
+	  <action>EXIT:exit</action>
+	 </button>
+	</hbox>'
+}
+export -f menuitem
+
+link (){
+	#if nothing is selected, act on all items in list
+	if [ ! "$TREE" ]; then
+		cp -f /tmp/pfind-view$PROGPID /tmp/pfind-links$PROGPID
+	else
+		echo "$TREE" > /tmp/pfind-links$PROGPID
+	fi
+
+	[ "$1" = "-check_only" ] && exit
+
+	echo "$(gettext 'Building symlinks...please wait')" > /tmp/pfind-splashtext
+	echo 0 > /tmp/pfind-splash #reset progress bar
+	$PROGPATH/box_splash &
+	#---
+	rm -dr /tmp/searchresult$PROGPID
+	mkdir /tmp/searchresult$PROGPID > /dev/null 2>&1
+	while read LINK; do
+		DIR=`dirname "$LINK" | sed -e "s/\//-/g"`
+		NAME="`basename "$LINK" | sed -e 's/\.[^\.]*$//'`"
+		if [ "`basename "$LINK" | grep -F '.'`" ]; then EXTENSION='.'"`basename "$LINK" | sed -e "s/^.*\.//g"`"; else EXTENSION=''; fi
+		case $FILENAME in
+			Short)
+				while [ `find "/tmp/searchresult$PROGPID/$NAME$EXTENSION"` ]; do #check if more than one file with the same name.
+					NAME="$NAME~"
+				done
+				cp -sp "$LINK" "/tmp/searchresult$PROGPID/$NAME$EXTENSION"
+				;;
+			Long)
+				cp -sp "$LINK" "/tmp/searchresult$PROGPID/$DIR-$NAME$EXTENSION"
+				;;
+			Hybrid)
+				TMP="`basename "$LINK"`"
+				if [ `grep -c "$TMP" /tmp/pfind-links$PROGPID` -gt 1 ]; then #more than one file with the same name.
+					cp -sp "$LINK" "/tmp/searchresult$PROGPID/$NAME$EXTENSION ~ $DIR-$NAME$EXTENSION"
+				else
+					cp -sp "$LINK" "/tmp/searchresult$PROGPID/$NAME$EXTENSION"
+				fi
+				;;
+		esac
+	done < /tmp/pfind-links$PROGPID
+	echo 100 > /tmp/pfind-splash #to end progressbar.
+}
+
+
+
+#############################################################################
+
+case "$1" in
+-write_config)
+	#geometry
+	XWININFO="`xwininfo -stats -name "pFind $VERSION - $(gettext 'File finder')"`"
+	if [ "$XWININFO" ]; then #if in preferences, there is no main window 
+		HEIGHT=`echo "$XWININFO" | grep 'Height:' | awk '{print $2}'`
+		WIDTH=`echo "$XWININFO" | grep 'Width:' | awk '{print $2}'`
+		X1=`echo "$XWININFO" | grep 'Absolute upper-left X' | awk '{print $4}'`
+		Y1=`echo "$XWININFO" | grep 'Absolute upper-left Y' | awk '{print $4}'`
+		X2=`echo "$XWININFO" | grep 'Relative upper-left X' | awk '{print $4}'`
+		Y2=`echo "$XWININFO" | grep 'Relative upper-left Y' | awk '{print $4}'`
+		X=$(($X1-$X2))
+		Y=$(($Y1-$Y2))
+	fi
+	#---
+	[ $RADIOBUTTON_PATH_CURRENT = true ] && RADIOBUTTON_PATH_MNT=true
+	echo "export VERSION=$VERSION
+export FILENAME=$FILENAME
+export ACCEPT_ARROW=$ACCEPT_ARROW
+export FILEMANAGER=\"$FILEMANAGER\"
+export TEXTEDITOR=\"$TEXTEDITOR\"
+export EXEC_FILEMANAGER=\"$EXEC_FILEMANAGER\"
+export EXEC_TEXTEDITOR=\"$EXEC_TEXTEDITOR\"
+export EXEC_EXPORT_LIST_TO_TEXTEDITOR=\"$EXEC_EXPORT_LIST_TO_TEXTEDITOR\"
+export EXEC_IMAGEBROWSER=\"$EXEC_IMAGEBROWSER\"
+export EXEC_SLIDESHOW=\"$EXEC_SLIDESHOW\"
+export EXEC_MUSICPLAYER=\"$EXEC_MUSICPLAYER\"
+export EXEC_VIDEOPLAYER=\"$EXEC_VIDEOPLAYER\"
+export EXEC_BURNER=\"$EXEC_BURNER\"
+export RADIOBUTTON_PATH_PUPPY=$RADIOBUTTON_PATH_PUPPY
+export RADIOBUTTON_PATH_MNT=$RADIOBUTTON_PATH_MNT
+export RADIOBUTTON_PATH_CURRENT=false
+export RADIOBUTTON_PATH_ALL=$RADIOBUTTON_PATH_ALL
+export PATH_PUPPY='$PATH_PUPPY'
+export PATH_MNT='$PATH_MNT'
+export ADVANCED_GUI_STATUS=$ADVANCED_GUI_STATUS
+
+#geometry
+export HEIGHT=\"$HEIGHT\"
+export WIDTH=\"$WIDTH\"
+export X=\"$X\"
+export Y=\"$Y\"" > $HOME/.pfind/pfindrc
+	. $HOME/.pfind/pfindrc #read config file
+	;;
+
+
+-rightclick_menu)
+	#external menu
+	if [ $BUTTON = 3 ]; then
+		echo -n > /tmp/pfind-tmp$PROGPID
+		if [ `echo "$TREE" | wc -l` != 1 ] || [ ! "$TREE" ]; then SENSITIVE='<sensitive>false</sensitive>'; fi #not single selection
+		S='<window decorated="false" skip_taskbar_hint="true" resizable="false" height-request="250" width-request="250" modal="true" window-position="2" space-expand="true" space-fill="true">
+		  <hbox scrollable="true" hscrollbar-policy="2" vscrollbar-policy="2" space-expand="true" space-fill="true">
+		    <text width-request="1" space-expand="false" space-fill="false"><label>""</label></text>
+		    <vbox spacing="2">
+		      '"
+		      $(menuitem " $(gettext 'Copy')" copy copy)
+		      $(menuitem " $(gettext 'Move')" move jump-to)
+		      $(menuitem " $(gettext 'Execute command')" exe execute)
+		      $(menuitem " $(gettext 'Open as text')" text edit)
+		      <hseparator></hseparator>
+		      $(menuitem " $(gettext 'Show location')" show_loc open)
+		      $(menuitem " $(gettext 'Rename')" rename convert)
+		      $(menuitem " $(gettext 'Link')" link convert)
+		      $(menuitem " $(gettext 'Delete')" delete cancel)
+		      $(menuitem " $(gettext 'Send to trash')" trash delete)
+		      $(menuitem " $(gettext 'Burn')" burn cdrom)
+		      "'
+		  </vbox>
+		 </hbox>
+		 <action signal="focus-out-event">EXIT:exit</action>
+		</window>'
+		export pfind_menu="$S"
+		gtkdialog -p pfind_menu > /dev/null
+		case "$(</tmp/pfind-tmp$PROGPID)" in
+			copy)
+				$PROGPATH/func -copy_files
+				;;
+			move)
+				. $PROGPATH/func -move
+				;;
+			burn)
+				$PROGPATH/func -burn
+				;;
+			exe)
+				$PROGPATH/func -execute_command
+				;;
+			text)
+				$PROGPATH/func -open_with_texteditor
+				;;
+			show_loc)
+				$PROGPATH/func -show_location &
+				;;
+			rename)
+				$PROGPATH/func -rename
+				;;
+			link)
+				. $PROGPATH/func -link
+				;;
+			delete)
+				. $PROGPATH/func -delete
+				;;
+			trash)
+				. $PROGPATH/func -trash
+				;;
+		esac
+	fi
+	;;
+
+-execute) #open with MIME-type settings
+	$FILEMANAGER "$2"
+	;;
+-search)
+	#check if pfilesearch is installed
+	if [ ! `which pfilesearch` ]; then
+		TXT1="<b>pFilesearch</b> $(gettext 'is not installed. Check config.')"
+		. $PROGPATH/box_ok
+		exit
+	fi
+	#---
+	export BACKEND=true
+	. /usr/local/pfilesearch/func -search -external_call
+	echo true > /tmp/pfind-done$PROGPID
+	;;
+
+
+-build_svg)
+	#build svg-buttons
+	COUNTALL=`cat /tmp/pfind-files$PROGPID | wc -l`
+	if [ $COUNTALL -gt 0 ] || [ "`cat /tmp/pfind-tabnr$PROGPID`" != 0 ]; then
+		. $PROGPATH/func -svg_button ALL "$(gettext 'Total')" $COUNTALL "$(</tmp/pfind-category$PROGPID)"
+		COUNTDOC=`grep -ic "('$EXTDOC')"		/tmp/pfind-files$PROGPID`
+		. $PROGPATH/func -svg_button DOC "$(gettext 'Documents')" $COUNTDOC "$(</tmp/pfind-category$PROGPID)"
+		COUNTPIC=`grep -ic "('$EXTPIC')"		/tmp/pfind-files$PROGPID`
+		. $PROGPATH/func -svg_button PIC "$(gettext 'Pictures')" $COUNTPIC "$(</tmp/pfind-category$PROGPID)"
+		COUNTMUSIC=`grep -ic "('$EXTMUSIC')"	/tmp/pfind-files$PROGPID`
+		. $PROGPATH/func -svg_button MUSIC "$(gettext 'Sound files')" $COUNTMUSIC "$(</tmp/pfind-category$PROGPID)"
+		COUNTVIDEO=`grep -ic "('$EXTVIDEO')"	/tmp/pfind-files$PROGPID`
+		. $PROGPATH/func -svg_button VIDEO "$(gettext 'Videos')" $COUNTVIDEO "$(</tmp/pfind-category$PROGPID)"
+		COUNTZIP=`grep -ic "('$EXTZIP')"		/tmp/pfind-files$PROGPID`
+		. $PROGPATH/func -svg_button ZIP "$(gettext 'Compressed')" $COUNTZIP "$(</tmp/pfind-category$PROGPID)"
+		COUNTCODE=`grep -ic "('$EXTCODE')"		/tmp/pfind-files$PROGPID`
+		. $PROGPATH/func -svg_button CODE "$(gettext 'Code files')" $COUNTCODE "$(</tmp/pfind-category$PROGPID)"
+	fi
+	;;
+
+
+-svg_button)
+	if [ $4 = 0 ] && [ $2 != ALL ]; then OPACITY=0.5; OPACITY_ICON=0.4; OPACITY_BACKGROUND=0.3; else OPACITY=1; OPACITY_ICON=1; OPACITY_BACKGROUND=1; fi
+	if [ $2 = $5 ]; then OPACITY_ACTIVE=0.8; else OPACITY_ACTIVE=0; fi #is this the shown category
+	case $2 in
+		ALL) SVG_PATH="m 5,5 0,2 24,0 0,-2 z m 0,14 24,0 0,-2 -24,0 z m 0,-6 24,0 0,-2 -24,0 z m 0,12 24,0 0,-2 -24,0 z";;
+		DOC) SVG_PATH="M 28,7 C 25,3 22,7.1 22,7.1 l 4,4.9 c 0,0 4,-2 2,-5 z M 8.3,18 12,23 25,13 21,8 z M 4.9,25 11,24 7.2,19 z";;
+		PIC) SVG_PATH="M 5,5 5,25 29,25 29,5 z M 26,23 8,23 8,7 26,7 z M 13,13 c 1,0 2,-1 2,-2 0,-1.1 -1,-2 -2,-2 -1,0 -2,0.9 -2,2 0,1 1,2 2,2 z m 12,2 -5,-4 -6,6 -2,-2 -3,3 0,4 16,0 z";;
+		MUSIC) SVG_PATH="m 5,11 0,8 4,0 7,6 0,-20 -7,6 z M 20,9 c -1,-1 -2,1 -1,2 l 0,0 c 1,1 1,3 1,4 0,1 0,3 -1,4 -1,1 0,3 1,2 2,-2 2,-4 2,-6 0,-2 0,-4 -2,-6 z m 4,-3 c -1,-1 -3,-1 -2,1 3,3 3,5 3,8 0,3 0,5 -3,8 -1,2 1,2 2,1 3,-4 3,-6 3,-9 0,-3 0,-5 -3,-9 z";;
+		VIDEO) SVG_PATH="m 26,5.1 0,1 -4,0 0,-1 L 10,5 10,6 6,6 6,5 5,5 l 0,20 1,0 0,-2 4,0 0,2 12,0 0,-2 4,0 0,2 1,0 0,-19.9 z M 10,22 l -4,0 0,-3 4,0 z m 0,-4 -4,0 0,-3 4,0 z m 0,-4 -4,0 0,-3 4,0 z m 0,-4 -4,0 0,-3 4,0 z m 2,10 0,-10.4 8,5.4 z m 14,2 -4,0 0,-3 4,0 z m 0,-4 -4,0 0,-3 4,0 z m 0,-4 -4,0 0,-3 4,0 z m 0,-4 -4,0 0,-2.7 4,0 z";;
+		ZIP) SVG_PATH="m 19,20 -2,-3 -2,3 -7,-3 0,5 9,3 10,-5 0,-4 z M 30,7 20,5 17,7.3 14,5 4.9,9 8.2,11 5,15 l 10,4 2,-4 2,4 10,-5 -3,-4 z M 17,14 9,11 17,7.8 26,10 z";;
+		CODE) SVG_PATH="m 12,5 -7,10 7,10 3,-3 -5,-7 5,-7 z m 10,0 -3,3 4,7 -4,7 3,3 6,-10 z";;
+	esac
+	echo '
+	<svg version="1.1" width="100" height="30" id="svg1">
+	  <rect
+		style="fill:'$BG_COLOR';fill-opacity:'$OPACITY_BACKGROUND';stroke-width:0"
+		width="80" height="30"/>
+	  <path
+		style="fill:'$BG_COLOR';fill-opacity:'$OPACITY_ACTIVE';stroke:none"
+		d="m 80,0 20,15 -20,15 z"
+		id="path1"/>
+      <path style="fill:'$FG_COLOR';stroke:none;fill-opacity:'$OPACITY_ICON';"
+        d="'$SVG_PATH'"/>
+	  <text style="fill:'$FG_COLOR';stroke:none;font-family:DejaVu;font-style:normal;font-weight:medium;font-size:14;fill-opacity:'$OPACITY';text-anchor:end;writing-mode:lr;"
+		x="75" y="20">
+		'"${4}"'
+	  </text>
+	</svg>' > /tmp/pfind-svg_${2}_$PROGPID.svg
+	;;
+
+
+-svg_button_empty)
+	echo '
+	<svg version="1.1" width="1" height="1" id="svg1">
+	  <rect
+		style="fill:#ffffff;fill-opacity:0"
+		width="1" height="1"/>
+	</svg>' > /tmp/pfind-svg_${2}_$PROGPID.svg
+	;;
+
+
+-build_treeitems)
+	> /tmp/pfind-treeitems$PROGPID
+	> /tmp/pfind-treeitemsx$PROGPID
+	while read I; do
+		find "$I" -maxdepth 0 -printf "gtk-%y|%f|%p|%s|%CY/%Cm/%Cd - %CH:%CM:%CS|%M|%u\n" >> /tmp/pfind-treeitemsx$PROGPID
+	done < /tmp/pfind-view$PROGPID
+	sed -i -e 's/gtk-f|/gtk-file|/g' -e 's/gtk-d|/gtk-directory|/g' -e 's/gtk-l|/gtk-copy|/g' /tmp/pfind-treeitemsx$PROGPID
+	if [ "$ACCEPT_ARROW" = "false" ]; then #filenames with < or > corrupts <tree> when not UTF-8
+		#check filenames for < and >
+		TMP=`grep "<" /tmp/pfind-view$PROGPID`
+		TMP2=`grep ">" /tmp/pfind-view$PROGPID`
+		if [ "$TMP" ] || [ "$TMP2" ]; then
+			FRAME="$(gettext 'Info')"; IMG="dialog-info"; TXT1="$(gettext 'Search result contains file(s) with < or > in name. As long as all filenames uses charset UTF-8 there is no risk, and you can configure Pfind to allow these chars. If filenames uses other charset than UTF-8 Pfind will fail. Pfind will now translate < and > to ?')"
+			. $PROGPATH/box_ok
+		fi
+		sed -e 's/</?/g' -e 's/>/?/g' /tmp/pfind-treeitemsx$PROGPID
+	fi
+	mv /tmp/pfind-treeitemsx$PROGPID /tmp/pfind-treeitems$PROGPID
+	;;
+
+
+-about)
+	export pFind_about='
+<window title="pFind - about" icon-name="gtk-find">
+ <vbox space-expand="true" space-fill="true">
+  <notebook labels="About|License|Credits" space-expand="true" space-fill="true">
+   <vbox>
+    <pixmap icon_size="6"><input file stock="gtk-find"></input></pixmap>
+    <text use-markup="true"><label>"<b>pFind '$VERSION' - File finder</b>"</label></text>
+    <text use-markup="true"><label>Sigmund Berglund, Copyright 2007-2017</label></text>
+    <text><label>""</label></text>
+     <button>
+      <label>"http://www.murga-linux.com/puppy/viewtopic.php?t=15136"</label>
+      <action>defaultbrowser http://www.murga-linux.com/puppy/viewtopic.php?t=15136</action>
+     </button>
+   </vbox>
+   <vbox>
+    <text use-markup="true"><label>"pFind is released under the <b>GNU General Public License</b> (GPL). You have the right to use and modify this software in any way you like, so long as any derivative works remain under a GPL license."</label></text>
+    <text use-markup="true"><label>"This program is distributed in the hope that it will be useful, but <b><span color='"'red'"'>WITHOUT ANY WARRANTY</span></b>. See the GNU General Public License homepage for more details."</label></text>
+    <hbox>
+     <button>
+      <label>"http://www.gnu.org/licenses/"</label>
+      <action>defaultbrowser http://www.gnu.org/licenses/</action>
+     </button>
+    </hbox>
+   </vbox>
+   <vbox>
+    <edit><default>"(Thunor) for gtkdialog cooperation.
+Alister Hood (Disciple) for contribution and bugfixing.
+(klhrevolutionist) for ideas, code support and help with config file
+(Trapster) for sed syntax.
+(HairyWill) and (Getnikar) for Slideshow.
+Jason Pline (plinej) for code and for pointing out multiuser issue.
+(don570) for testing and feedback.
+...and more
+
+Translators:
+French - Jean-Jacques Moulinier (esmourguit)
+German - Lutz-Ulrich Ringel (L18L)
+Italian - David Maria Galardi (xanad)
+Polish - Robert Wojewódzki (robwoj44)
+Russian - Sergey Rodin (rodin.s) 
+
+Translators for older releases:
+Chinese - (sasaqqdan)
+French - Jean-Jacques Moulinier (esmourguit)
+German - Thorsten Köbe (aragon)
+Greece - (The Hamsters)
+Italian - Angelo Gemmi
+Japanese - Shigekazu Satou (himajin) 
+Norwegian - Sigmund Berglund (zigbert)
+Russian - Viktor Melechin, Valeriy Danilin
+Spanish - (bernard), Pedro Worcel (droope)
+"</default></edit>
+   </vbox>
+  </notebook>
+  <hbox space-expand="false" space-fill="false">
+   <button ok>
+    <input file icon="gtk-apply"></input>
+   </button>
+  </hbox>
+ </vbox>
+</window>'
+	gtkdialog -p pFind_about
+	;;
+
+
+export)
+	export export_textfile="
+	<window title=\"pFind - $(gettext 'List to TextEditor')\">
+	 <vbox>
+	  <text><label>$(gettext 'Show list of filenames in default text editor.')</label></text>
+	  <text><label>\"\"</label></text>
+	  <frame $(gettext 'include')>
+	   <checkbox>
+	    <label>$(gettext 'Path')</label>
+	    <variable>EXPTXT_PATH</variable>
+	    <default>true</default>
+	   </checkbox>
+	   <checkbox>
+	    <label>$(gettext 'Extension')</label>
+	    <variable>EXPTXT_EXT</variable>
+	    <default>true</default>
+	   </checkbox>
+	  </frame>
+	  <hbox>
+	   <button cancel><input file icon=\"gtk-cancel\"></input></button>
+	   <button ok><input file icon=\"gtk-ok\"></input><action type=\"exit\">1</action></button>
+	  </hbox>
+	 </vbox>
+	</window>"
+	I=$IFS; IFS=""
+	for STATEMENTS in  $(gtkdialog --program=export_textfile --center); do
+		eval $STATEMENTS
+	done
+	IFS=$I
+	#check if external program is installed
+	TMP=`echo "$EXEC_EXPORT_LIST_TO_TEXTEDITOR" | cut -d " " -f 1`
+	if [ ! `which $TMP` ]; then
+		TXT1="<b>$TMP</b> $(gettext 'is not installed. Check config.')"
+		. $PROGPATH/box_ok
+		exit
+	fi
+	#---
+	cp /tmp/pfind-view$PROGPID /tmp/pfind-text$PROGPID
+	if [ "$EXIT" = "1" ]; then	
+		if [ "$EXPTXT_PATH" = "false" ]; then	#Remove path		
+			sed -i -e "s/^.*\///g" /tmp/pfind-text$PROGPID
+		fi
+		if [ "$EXPTXT_EXT" = "false" ]; then #Remove extension		
+			sed -i -e 's/\.[^\.]*$//' /tmp/pfind-text$PROGPID
+		fi
+		EXEC_EXPORT_LIST_TO_TEXTEDITOR=`echo "$EXEC_EXPORT_LIST_TO_TEXTEDITOR" | sed "s%/tmp/pfind-text%/tmp/pfind-text$PROGPID%g"`
+		$EXEC_EXPORT_LIST_TO_TEXTEDITOR &
+	fi
+	;;
+
+
+
+############################     V I E W   C A T E G O R Y     #################################
+
+
+-view_all)
+	cp /tmp/pfind-files$PROGPID /tmp/pfind-tmp$PROGPID
+	if [ -s /tmp/pfind-tmp$PROGPID ]; then
+		mv /tmp/pfind-tmp$PROGPID /tmp/pfind-view$PROGPID
+		echo ALL > /tmp/pfind-category$PROGPID
+	fi
+	;;
+-view_doc)
+	grep -i "('$EXTDOC')" /tmp/pfind-files$PROGPID > /tmp/pfind-tmp$PROGPID
+	if [ -s /tmp/pfind-tmp$PROGPID ]; then
+		mv /tmp/pfind-tmp$PROGPID /tmp/pfind-view$PROGPID
+		echo DOC > /tmp/pfind-category$PROGPID
+	fi
+	;;
+-view_pic)
+	grep -i "('$EXTPIC')" /tmp/pfind-files$PROGPID > /tmp/pfind-tmp$PROGPID
+	if [ -s /tmp/pfind-tmp$PROGPID ]; then
+		mv /tmp/pfind-tmp$PROGPID /tmp/pfind-view$PROGPID
+		echo PIC > /tmp/pfind-category$PROGPID
+	fi
+	;;
+-view_music)
+	grep -i "('$EXTMUSIC')" /tmp/pfind-files$PROGPID > /tmp/pfind-tmp$PROGPID
+	if [ -s /tmp/pfind-tmp$PROGPID ]; then
+		mv /tmp/pfind-tmp$PROGPID /tmp/pfind-view$PROGPID
+		echo MUSIC > /tmp/pfind-category$PROGPID
+	fi
+	;;
+-view_video)
+	grep -i "('$EXTVIDEO')" /tmp/pfind-files$PROGPID > /tmp/pfind-tmp$PROGPID
+	if [ -s /tmp/pfind-tmp$PROGPID ]; then
+		mv /tmp/pfind-tmp$PROGPID /tmp/pfind-view$PROGPID
+		echo VIDEO > /tmp/pfind-category$PROGPID
+	fi
+	;;
+-view_zip)
+	grep -i "('$EXTZIP')" /tmp/pfind-files$PROGPID > /tmp/pfind-tmp$PROGPID
+	if [ -s /tmp/pfind-tmp$PROGPID ]; then
+		mv /tmp/pfind-tmp$PROGPID /tmp/pfind-view$PROGPID
+		echo ZIP > /tmp/pfind-category$PROGPID
+	fi
+	;;
+-view_code)
+	grep -i "('$EXTCODE')" /tmp/pfind-files$PROGPID > /tmp/pfind-tmp$PROGPID
+	if [ -s /tmp/pfind-tmp$PROGPID ]; then
+		mv /tmp/pfind-tmp$PROGPID /tmp/pfind-view$PROGPID
+		echo CODE > /tmp/pfind-category$PROGPID
+	fi
+	;;
+
+
+
+
+############################     O P E N   W I T H     #################################
+
+-open_with_filemanager)
+	#check if external program is installed
+	TMP=`echo "$EXEC_FILEMANAGER" | cut -d " " -f 1`
+	if [ ! `which $TMP` ]; then
+		TXT1="<b>$TMP</b> $(gettext 'is not installed. Check config.')"
+		. $PROGPATH/box_ok
+		exit
+	fi
+	#---
+	EXEC_FILEMANAGER=`echo "$EXEC_FILEMANAGER" | sed "s%/tmp/searchresult%/tmp/searchresult$PROGPID%g"`
+	link
+	$EXEC_FILEMANAGER &
+	;;
+-open_with_texteditor)
+	#check if external program is installed
+	TMP=`echo "$EXEC_TEXTEDITOR" | cut -d " " -f 1`
+	if [ ! `which $TMP` ]; then
+		TXT1="<b>$TMP</b> $(gettext 'is not installed. Check config.')"
+		. $PROGPATH/box_ok
+		exit
+	fi
+	#---
+	EXEC_TEXTEDITOR=`echo "$EXEC_TEXTEDITOR" | sed "s%/tmp/searchresult%/tmp/searchresult$PROGPID%g"`
+	link
+	$EXEC_TEXTEDITOR &
+	;;
+-open_with_imagebrowser)
+	#check if external program is installed
+	TMP=`echo "$EXEC_IMAGEBROWSER" | cut -d " " -f 1`
+	if [ ! `which $TMP` ]; then
+		TXT1="<b>$TMP</b> $(gettext 'is not installed. Check config.')"
+		. $PROGPATH/box_ok
+		exit
+	fi
+	#---
+	EXEC_IMAGEBROWSER=`echo "$EXEC_IMAGEBROWSER" | sed "s%/tmp/searchresult%/tmp/searchresult$PROGPID%g"`
+	EXEC_IMAGEBROWSER=`echo "$EXEC_IMAGEBROWSER" | sed "s%/tmp/pfind-links%/tmp/pfind-links$PROGPID%g"`
+	([[ "$EXEC_SLIDESHOW" =~ "searchresult" ]] && link || link -check_only ) #link if command request links
+	if [ "`echo "$EXEC_IMAGEBROWSER" | grep gpicview`" ]; then #gpicview need to know a specific image
+		echo "gpicview \"/tmp/searchresult$PROGPID/`ls /tmp/searchresult$PROGPID/ | head -n 1`\"" > /tmp/pfind-exec$PROGPID
+		chmod 777 /tmp/pfind-exec$PROGPID
+		/tmp/pfind-exec$PROGPID &
+	fi
+	$EXEC_IMAGEBROWSER & 
+	;;
+-open_with_slideshow)
+	grep -i "('$EXTPIC')" /tmp/pfind-files$PROGPID > /tmp/pfind-view$PROGPID #link only pics
+	#check if external program is installed
+	TMP=`echo "$EXEC_SLIDESHOW" | cut -d " " -f 1`
+	if [ ! `which $TMP` ]; then
+		TXT1="<b>$TMP</b> $(gettext 'is not installed. Check config.')"
+		. $PROGPATH/box_ok
+		exit
+	fi
+	#---
+	EXEC_SLIDESHOW=`echo "$EXEC_SLIDESHOW" | sed "s%/tmp/searchresult%/tmp/searchresult$PROGPID%g"`
+	EXEC_SLIDESHOW=`echo "$EXEC_SLIDESHOW" | sed "s%/tmp/pfind-links%/tmp/pfind-links$PROGPID%g"` #for qiv
+	([[ "$EXEC_SLIDESHOW" =~ "searchresult" ]] && link || link -check_only ) #link if command request links
+	if [ "`echo "$EXEC_SLIDESHOW" | grep gpicview`" ]; then #gpicview need to know a specific image
+		echo "gpicview \"/tmp/searchresult$PROGPID/`ls /tmp/searchresult$PROGPID/ | head -n 1`\"" > /tmp/pfind-exec$PROGPID
+		chmod 777 /tmp/pfind-exec$PROGPID
+		/tmp/pfind-exec$PROGPID &
+	fi
+	$EXEC_SLIDESHOW & ;;
+-open_with_musicplayer)
+	#check if external program is installed
+	TMP=`echo "$EXEC_MUSICPLAYER" | cut -d " " -f 1`
+	if [ ! `which $TMP` ]; then
+		TXT1="<b>$TMP</b> $(gettext 'is not installed. Check config.')"
+		. $PROGPATH/box_ok
+		exit
+	fi
+	#---
+	EXEC_MUSICPLAYER=`echo "$EXEC_MUSICPLAYER" | sed "s%/tmp/searchresult%/tmp/searchresult$PROGPID%g"`
+	EXEC_MUSICPLAYER=`echo "$EXEC_MUSICPLAYER" | sed "s%/tmp/pfind-links%/tmp/pfind-links$PROGPID%g"`
+	([[ "$EXEC_MUSICPLAYER" =~ "searchresult" ]] && link || link -check_only) #link if command request links
+	cp /tmp/pfind-links$PROGPID /tmp/pfind-music.m3u #mplayer, xmms
+	$EXEC_MUSICPLAYER &
+	;;
+-open_with_videoplayer)
+	#check if external program is installed
+	TMP=`echo "$EXEC_VIDEOPLAYER" | cut -d " " -f 1`
+	if [ ! `which $TMP` ]; then
+		TXT1="<b>$TMP</b> $(gettext 'is not installed. Check config.')"
+		. $PROGPATH/box_ok
+		exit
+	fi
+	#---
+	cp /tmp/pfind-links$PROGPID /tmp/pfind-video.m3u #mplayer
+	EXEC_VIDEOPLAYER=`echo "$EXEC_VIDEOPLAYER" | sed "s%/tmp/searchresult%/tmp/searchresult$PROGPID%g"`
+	EXEC_VIDEOPLAYER=`echo "$EXEC_VIDEOPLAYER" | sed "s%/tmp/pfind-links%/tmp/pfind-links$PROGPID%g"`
+	([[ "$EXEC_VIDEOPLAYER" =~ "searchresult" ]] && link || link -check_only ) #link if command request links
+	$EXEC_VIDEOPLAYER &
+	;;
+-open_with)
+	if [ `echo "$TREE" | wc -l` != 1 ] || [ ! "$TREE" ]; then #not single selection
+		TXT1="<b>$(gettext 'This operation requires single selection. Please select ONE file.')</b>"
+		. $PROGPATH/box_ok
+		exit 0
+	else
+		FRAME="$(gettext 'Open with')"; TXT1="(gettext 'Define program that shall open') $TREE"
+		. $PROGPATH/box_input
+		if [ $EXIT = "ok" ]; then
+			echo > /tmp/pfind-error$PROGPID
+			exec "$INPUT" "$TREE" 2> /tmp/pfind-error$PROGPID
+			TXT1="`cat /tmp/pfind-error$PROGPID`"
+			if [ -n "$TXT1" ]; then . $PROGPATH/box_ok; fi #error
+		fi
+	fi
+	;;
+
+############################################################################################################
+
+
+
+
+-burn)
+	#check if external program is installed
+	TMP=`echo "$EXEC_BURNER" | cut -d " " -f 1`
+	if [ ! `which $TMP` ]; then
+		TXT1="<b>$TMP</b> $(gettext 'is not installed. Check config.')"
+		. $PROGPATH/box_ok
+		exit
+	fi
+	#---
+	EXEC_BURNER=`echo "$EXEC_BURNER" | sed "s%/tmp/searchresult%/tmp/searchresult$PROGPID%g"`
+	EXEC_BURNER=`echo "$EXEC_BURNER" | sed "s%/tmp/pfind-links%/tmp/pfind-links$PROGPID%g"` #for pburn
+	([[ "$EXEC_BURNER" =~ "searchresult" ]] && link || link -check_only) #link if command request links
+	$EXEC_BURNER &
+	;;
+
+-copy_files)
+	if [ `echo "$TREE" | wc -l` = 1 ] && [ "$TREE" ]; then #single selection
+		FRAME="$(gettext 'Copy')"; IMG="copy"; TXT1="$TREE"; DEFAULT="$TREE"
+		. $PROGPATH/box_input
+		if [ $EXIT = "ok" ]; then
+			echo > /tmp/pfind-error$PROGPID
+			cp "$TREE" "$INPUT" 2> /tmp/pfind-error$PROGPID
+			TXT1="`cat /tmp/pfind-error$PROGPID`"
+			if [ -n "$TXT1" ]; then
+				. $PROGPATH/box_ok #error
+			else
+				echo "$INPUT" > /tmp/pfind-treeitems$PROGPID
+			fi
+		fi
+	else	
+		if [ ! "$TREE" ]; then
+			cp -f /tmp/pfind-view$PROGPID /tmp/pfind-action$PROGPID
+		else
+			echo "$TREE" > /tmp/pfind-action$PROGPID
+		fi
+		link
+		export export_copy='
+		<window title="pFind - '$(gettext "Copy")'">
+		 <vbox>
+		  <frame>
+		   <hbox>
+			<text><label>'$(gettext "Copy to")'</label></text>
+			<entry accept="directory"><variable>COPYDIR</variable><input>echo "/tmp/"</input></entry>
+			<button>
+			 <input file stock="gtk-open"></input>
+			 <action type="fileselect">COPYDIR</action>
+			</button>
+		   </hbox>	
+		   <checkbox>
+			<label>'$(gettext "Use original filenames")'</label>
+			<variable>ORG_NAMES</variable>
+		   </checkbox>
+		  </frame>
+		  <frame '$(gettext "Info")'>
+		   <text><label>"'$(gettext "Pfind names files with both original filename and its path. Like this: info.txt (-usr-local-pfind-). Using only original filename, will let files get the same name (info.txt). Copying will fail if another file with the same name exist.
+
+The following files will be copied:")'"</label></text>
+		   <edit editable="false" left_margin="10"><input file>/tmp/pfind-action'$PROGPID'</input></edit>
+		  </frame>
+		  <hbox>
+		   <button cancel></button>
+		   <button ok><action type="exit">1</action></button>
+		  </hbox>
+		 </vbox>
+		</window>'
+		I=$IFS; IFS=""
+		for STATEMENTS in  $(gtkdialog -p export_copy); do
+			eval $STATEMENTS
+		done
+		IFS=$I
+		if [ "$EXIT" = "1" ]; then	
+			if [ "$ORG_NAMES" = "true" ]; then	
+				while read I; do
+					cp -p "$I" "$COPYDIR"
+				done < /tmp/pfind-links$PROGPID
+			else
+				cp -Lp /tmp/searchresult$PROGPID/* "$COPYDIR"
+			fi
+			$FILEMANAGER "$COPYDIR" &
+		fi
+	fi
+	;;	
+-execute_command)
+	if [ ! "$TREE" ]; then
+		cp -f /tmp/pfind-view$PROGPID /tmp/pfind-action$PROGPID
+	else
+		echo "$TREE" > /tmp/pfind-action$PROGPID
+	fi
+	link
+	export exec_command='
+	<window title="pFind '$VERSION'">
+ 	<vbox space-expand="true" space-fill="true">
+	 <vbox space-expand="false" space-fill="false">
+ 	  <frame '$(gettext 'Execute command on file(s) in list')'>
+	   <text><label>""</label></text>
+	   <entry activates-default="true"><variable>COMMAND</variable></entry>
+	   <text selectable="true" use-markup="true"><label>"
+'$(gettext 'Examples')':
+
+<i><b>ln -s [FILE] /root/</b>
+'$(gettext 'Links every file in list to')' /root/
+
+<b>grep -li '"'textstring'"' [FILE] >> /tmp/output</b>
+'$(gettext 'Find textstring in files and dump result into')' /tmp/output</i>"</label></text>
+	  </frame>
+	 </vbox>
+ 	<vbox space-expand="true" space-fill="true">
+	 <frame '$(gettext "Info")'>
+	  <text><label>"'$(gettext "The command will affect the following files:")'"</label></text>
+	  <edit editable="false" left_margin="10"><input file>/tmp/pfind-action'$PROGPID'</input></edit>
+	 </frame>
+     </vbox>
+	 <hbox space-expand="false" space-fill="false">
+	   <button cancel><input file icon="gtk-cancel"></input></button>
+	   <button can-default="true" has-default="true" use-stock="true">
+	    <input file icon="gtk-ok"></input>
+	    <label>'$(gettext 'Ok')'</label>
+	    <action type="exit">1</action>
+	   </button>
+	 </hbox>
+	</vbox></window>'
+	I=$IFS; IFS=""
+	for STATEMENTS in  $(gtkdialog -p exec_command); do eval $STATEMENTS; done
+	IFS=$I
+	if [ $EXIT = 1 ]; then
+		while read I; do
+			echo "$COMMAND" | sed -e "s%\[FILE\]%\"$I\"%g" > /tmp/pfind-exec_command$PROGPID #build command for loop
+			chmod 722 /tmp/pfind-exec_command$PROGPID
+			/tmp/pfind-exec_command$PROGPID
+		done < /tmp/pfind-links$PROGPID
+	fi
+	;;
+-show_location)
+	if [ `echo "$TREE" | wc -l` != 1 ] || [ ! "$TREE" ]; then #not single selection
+		TXT1="<b>$(gettext 'This operation requires single selection. Please select ONE file.')</b>"
+		. $PROGPATH/box_ok
+		exit 0
+	else
+		echo -n > /tmp/pfind-error$PROGPID
+		if [ $FILEMANAGER = rox ]; then
+			exec rox -s "$TREE" 2> /tmp/pfind-error$PROGPID
+		else
+			exec $FILEMANAGER "${TREE%/*}/" 2> /tmp/pfind-error$PROGPID
+		fi
+		TXT1="`cat /tmp/pfind-error$PROGPID`"
+		if [ -n "$TXT1" ]; then . $PROGPATH/box_ok; fi #error
+	fi
+	;;
+-rename)
+	if [ `echo "$TREE" | wc -l` != 1 ] || [ ! "$TREE" ]; then #not single selection
+		TXT1="<b>$(gettext 'This operation requires single selection. Please select ONE file.')</b>"
+		. $PROGPATH/box_ok
+		exit 0
+	else
+		TMPNAME=`basename "$TREE"`; TMPPATH=`dirname "$TREE"`
+		FRAME="$(gettext 'Rename')"; IMG="convert"; TXT1="$TMPNAME"; DEFAULT="$TMPNAME"
+		. $PROGPATH/box_input
+		if [ $EXIT = "ok" ]; then
+			#check if already exist
+			if [ -f "$DIR"/"$INPUT"."$EXTENSION" ]; then
+				TXT1="$DIR"/"$INPUT"."$EXTENSION $(gettext 'Does not exist')"
+				. $APPDIR/box_ok #error
+				exit			
+			fi
+			#---
+			echo > /tmp/pfind-error$PROGPID
+			mv "$TMPPATH"/"$TMPNAME" "$TMPPATH"/"$INPUT" 2> /tmp/pfind-error$PROGPID
+			TXT1="`cat /tmp/pfind-error$PROGPID`"
+			if [ -n "$TXT1" ]; then
+				. $PROGPATH/box_ok #error
+			else
+				TMP="s%$TREE%$TMPPATH/$INPUT%"
+				sed -i "$TMP" /tmp/pfind-view$PROGPID
+				. $PROGPATH/func -build_treeitems
+			fi
+		fi
+	fi
+	;;
+-move)
+	if [ `echo "$TREE" | wc -l` = 1 ] && [ "$TREE" ]; then #single selection
+		FRAME="$(gettext 'Move')"; TXT1="$TREE"; DEFAULT="$TREE"
+		. $PROGPATH/box_input
+		if [ $EXIT = "ok" ]; then
+			echo > /tmp/pfind-error$PROGPID
+			mv "$TREE" "$INPUT" 2> /tmp/pfind-error$PROGPID
+			TXT1="`cat /tmp/pfind-error$PROGPID`"
+			if [ -n "$TXT1" ]; then
+				. $PROGPATH/box_ok #error
+			else
+				TMP="s%$TREE%$INPUT%"
+				sed -i -e "$TMP" /tmp/pfind-treeitems$PROGPID
+			fi
+		fi
+	else
+		if [ ! "$TREE" ]; then
+			cp -f /tmp/pfind-view$PROGPID /tmp/pfind-action$PROGPID
+		else
+			echo "$TREE" > /tmp/pfind-action$PROGPID
+		fi
+		link
+		export move='
+		<window title="pFind - '$(gettext "Move")'">
+		 <vbox>
+		  <frame>
+		   <hbox>
+			<text><label>"'$(gettext "Move")' '$(gettext "to")'"</label></text>
+			<entry accept="directory"><variable>MOVEDIR</variable><input>echo "/tmp/"</input></entry>
+			<button>
+			 <input file stock="gtk-open"></input>
+			 <action type="fileselect">MOVEDIR</action>
+			</button>
+		   </hbox>	
+		   <checkbox>
+			<label>'$(gettext "Use original filenames")'</label>
+			<variable>ORG_NAMES</variable>
+		   </checkbox>
+		  </frame>
+		  <frame '$(gettext "Info")'>
+		   <text><label>"'$(gettext "Pfind names files with both original filename and its path. Like this: info.txt (-usr-local-pfind-). Using only original filename, will let files get the same name (info.txt). Moving will fail if another file with the same name exist.
+
+The following files will be moved:")'"</label></text>
+		   <edit editable="false" left_margin="10"><input file>/tmp/pfind-action'$PROGPID'</input></edit>
+		  </frame>
+		  <hbox>
+		   <button cancel></button>
+		   <button ok><action type="exit">1</action></button>
+		  </hbox>
+		 </vbox>
+		</window>'
+		I=$IFS; IFS=""
+		for STATEMENTS in  $(gtkdialog -p move); do
+			eval $STATEMENTS
+		done
+		IFS=$I
+		if [ "$EXIT" = "1" ]; then	
+			if [ "$ORG_NAMES" = "true" ]; then	
+				while read I; do
+					mv "$I" "$MOVEDIR"
+				done < /tmp/pfind-links$PROGPID
+			else
+				mv /tmp/searchresult$PROGPID/* "$MOVEDIR"
+			fi
+			$FILEMANAGER "$MOVEDIR" &
+		fi
+	fi
+	;;
+
+-link)
+	if [ `echo "$TREE" | wc -l` != 1 ] || [ ! "$TREE" ]; then #not single selection
+		TXT1="<b>$(gettext 'This operation requires single selection. Please select ONE file.')</b>"
+		. $PROGPATH/box_ok
+		exit 0
+	else
+		FRAME="$(gettext 'Link')"; TXT1="$TREE"; DEFAULT="$TREE"
+		. $PROGPATH/box_input
+		if [ $EXIT = "ok" ]; then
+			echo > /tmp/pfind-error$PROGPID
+			ln -s "$TREE" "$INPUT" 2> /tmp/pfind-error$PROGPID
+			TXT1="`cat /tmp/pfind-error$PROGPID`"
+			if [ -n "$TXT1" ]; then . $PROGPATH/box_ok; fi #error
+		fi
+	fi;;
+-delete)
+	if [ `echo "$TREE" | wc -l` != 1 ] || [ ! "$TREE" ]; then #not single selection
+		TXT1="<b>$(gettext 'This operation requires single selection. Please select ONE file.')</b>"
+		. $PROGPATH/box_ok
+		exit 0
+	else
+		FRAME="$(gettext 'Delete')"; IMG="clear"; TXT1="$TREE"
+		. /$PROGPATH/box_yesno
+		if [ $EXIT = "yes" ]; then
+			echo > /tmp/pfind-error$PROGPID
+			rm "$TREE" 2> /tmp/pfind-error$PROGPID
+			TXT1="`cat /tmp/pfind-error$PROGPID`"
+			if [ -n "$TXT1" ]; then
+				. $PROGPATH/box_ok #error
+			else
+				TMP=`grep -w "$TREE" /tmp/pfind-treeitems$PROGPID`
+				TMP="s%$TMP%%"
+				sed -i "$TMP" /tmp/pfind-view$PROGPID
+				. $PROGPATH/func -build_treeitems
+			fi
+		fi
+	fi
+	;;
+-trash)
+	if [ ! "$TREE" ]; then
+		cp -f /tmp/pfind-view$PROGPID /tmp/pfind-action$PROGPID
+	else
+		echo "$TREE" > /tmp/pfind-action$PROGPID
+	fi
+
+
+	FRAME="$(gettext 'Send to trash')"; IMG="delete"; TXT1="$(</tmp/pfind-action$PROGPID)"
+	. $PROGPATH/box_yesno
+	if [ $EXIT = "yes" ]; then 
+		while read I; do
+			if [ -f /usr/local/apps/Trash/AppRun ]; then
+				/usr/local/apps/Trash/AppRun "$I" & #Puppy trash
+			else
+				echo > /tmp/pfind-error$PROGPID
+				[ ! -d $HOME/.Trash ] && mkdir $HOME/.Trash 2> /tmp/pfind-error$PROGPID
+				mv "$I" $HOME/.Trash/ 2> /tmp/pfind-error$PROGPID #make trashdir in $HOME
+				TXT1="`cat /tmp/pfind-error$PROGPID`"
+				if [ -n "$TXT1" ]; then
+					. $PROGPATH/box_ok #error
+				else
+					TMP=`grep -w "$I" /tmp/pfind-treeitems$PROGPID`
+					TMP="s%$TMP%%"
+					sed -i -e "$TMP" /tmp/pfind-view$PROGPID
+					. $PROGPATH/func -build_treeitems
+				fi
+			fi
+		done < /tmp/pfind-action$PROGPID
+	fi
+	;;
+
+
+esac

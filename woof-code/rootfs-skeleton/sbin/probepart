@@ -1,152 +1,225 @@
-#!/bin/sh
+#!/bin/ash
 #Barry Kauler www.puppylinux.com
 #LGPL 2007 Puppy Linux www.puppylinux.com
-#17 june 2007
-#21 June 2007 BK:
-#some usb adaptors have slots for cards, plugging/unplugging these cards
-#does not cause a hotplug event and the kernel does not update /proc.
-#'disktype' does a direct hardware probe which forces /proc update.
-#attempt here to run disktype when appropriate.
-#v3.93 10 dec 2007 BK: updated for 2.6.24 kernel, no /dev/hd*.
-#v3.97 31jan2008 BK: refinement for detecting kernel with /dev/hd support.
-#v3.97 25feb2008 BK: guess_fstype does not work when testing 'makebootfat', use fdisk.
-#v4.01 19may2008 BK: bugfix for 2.6.25.4, ram entries in /proc/partitions.
-#v403 fix for SIZE of drives without partitions.
-#v406 support for old kernel, /proc/ide, /dev/hd*
-#v407 improved filesystem probe for optical discs.
-#110126 remove code for SATADRIVES (not used in PUPSTATE anymore).
-#120601 jemimah: fallback to use 'blkid' to find f.s. type. 120601 revert use of blkid, too slow.
-#120602 kernel 3.2.18 major deviance from earlier kernels, /proc/partitions (and /sys/block) now shows /dev/sr0 when no disk.
-#       new situation, getting duplicate /dev/sr0 so need 'sort -u'.
-#120516 raspi, guess_fstype fails for ext4 and swap f.s., did detect fat. fallback blkid.
-#120516 sort in old coreutils (as in wary/racy) does not have -V option
-#130127 early kernels do not have sr0/sr1 in /proc/partitions, 3.2+ do, which can upset things. (tested 2.6.32.29 and 3.2.29+, so not sure exact version this difference came in)
-#130128 improve detection of optical: distinguish iso9600, udf. no o/p if no media inserted.
-#       previously, any optical media returned "iso9660", now have "udf" (also for video dvds), "audiocd" (audio cds), "none" (unknown f.s.).
-#130526 Karl Godt: fix blkid parsing.
+# Optical drvs = problems. Behavior is not consistent after inserting and removing discs
+# k3.2.18+: sr* may appear in /proc/partitions or may not
+#           only checking sr* in /sys/block
 
-. /etc/rc.d/PUPSTATE
-
-SUNITS="$1" #allowed params are '-k' or '-m'.
-OUTPUT=""
-
-if [ -f /root/.usb-drive-log-probepart ];then #force /proc upate mechanism
- for ONEUSBDRV in `cat /root/.usb-drive-log-probepart | tr '\n' ' '`
- do
-  #disktype /dev/$ONEUSBDRV > /dev/null 2>&1
-  dd if=/dev/$ONEUSBDRV of=/dev/null bs=512 count=1 >/dev/null 2>&1 #v3.97 faster.
- done
+if [ -f /etc/rc.d/functions_x ] ; then
+	. /etc/rc.d/functions_x #want fx_drv_* functions
 fi
 
-#devices that have partitions... 
-#([^k] is to eliminate mmcblk0 device -- allow mmcblk0p1 etc) v4.01 bugfix eliminate ram...
-#130127 [^kr] screens out sr0-sr9. early kernels do not have these in /proc/partitions, 3.2+ do, which causes desktop icon to not appear when audio-cd inserted.
-PARTITIONS="`grep '^ .*[^kr][0-9]$' /proc/partitions | tr -s ' ' | cut -f 4-5 -d ' ' | grep -vE ' loop| ram'`" #each line ex: 16076800 sda5
-PARTNAMES="`echo "$PARTITIONS" | cut -f 2 -d ' '`" #120602
+usage() {
+	echo "probepart - show information about partitions
 
-#all disk devices... 
-#note, /proc/diskstats only updated when a disk accessed, so devs may be missing...
-#NO, NO, NO, /sys is very flakey for hd devices...
-ALLDRVS="`ls -1 /sys/block | grep -E '^scd|^sd|^mmc|^sr'`"
-[ -e /proc/ide ] && ALLDRVS="${ALLDRVS}
-`ls -1 /proc/ide | grep '^hd'`"
+Syntax:
 
-#all drives and partitions... 120602 sort...
-#120516 sort in old coreutils (as in wary/racy) does not have -V option...
-COREUTILSVER="$(sort --version | head -n 1 | rev | cut -f 1 -d ' ' | rev)"
-if vercmp $COREUTILSVER le 6.12;then
- ALLDEVS="`echo "${PARTNAMES}
-${ALLDRVS}" | tr '\n' ' '`"
-else
- ALLDEVS="`echo "${PARTNAMES}
-${ALLDRVS}" | sort -V -u | tr '\n' ' '`"
-fi
+   probepart [options] [device]
 
-for ONEDEV in $ALLDEVS
-do
- MEDIATYPE="" #130128
- FSTYPE="unknown"
- DPATTERN=' '${ONEDEV}'$'
- SIZE=`echo "$PARTITIONS" | grep "$DPATTERN" | cut -f 1 -d ' '`
- DEVICE="`echo "$PARTITIONS" | grep "$DPATTERN" | cut -f 2 -d ' '`"
- if [ ! $SIZE ];then
-  [ "`echo "$PARTITIONS" | grep "$ONEDEV"`" != "" ] && continue
-  #must be a device without partitions...
-  SIZE=0
-  DEVICE="$ONEDEV"
-  case $DEVICE in
-   hd*)
-    [ "`cat /proc/ide/$DEVICE/media`" = "cdrom" ] && MEDIATYPE="optical" #130128
-   ;;
-   scd*|sr*) #usb,sata,scsi cd/dvd drive.
-    MEDIATYPE="optical" #130128
-   ;;
-  esac
-  if [ -e /sys/block/${DEVICE}/size ];then
-   SIZE=`cat /sys/block/${DEVICE}/size`
-   SIZE=$(($SIZE/2)) #get KB.
-  fi
-  #for hd* or sd* superfloppy, determine size (avoid probing optical drive)...
-  if [ "$MEDIATYPE" = "" -a $SIZE -eq 0 ];then #130128
-   BSIZE=`disktype /dev/$DEVICE 2>/dev/null | grep '^Block device' | cut -f 2 -d '(' | cut -f 1 -d ' '`
-   [ $BSIZE ] && SIZE=$(($BSIZE/1024)) #KB
-  fi
-  if [ "$MEDIATYPE" = "optical" ];then #130128
-   opticalPATTERN='^/dev/'"$DEVICE"
-   if [ "`grep "$opticalPATTERN" /proc/mounts`" = "" ];then
-    cddetect_quick -d/dev/${DEVICE} >/dev/null 2>&1 #very fast.
-    #...returns 0 if disc inserted, else 255.
-    [ $? -ne 0 ] && continue #130128 go no further, as no media inserted.
-   fi
-  fi
- fi
- FSTYPE="`guess_fstype /dev/$DEVICE 2>/dev/null`" #130128 note, audio-cd returns "unknown", as no f.s.
+It will print info about all the valid partitions
 
- if [ "$FSTYPE" = "unknown" -a "$MEDIATYPE" = "optical" ];then #130128 probe optical a bit more.
-  cddetect -q -d/dev/${DEVICE} > /dev/null 2>&1
-  case $? in
-   1) FSTYPE="audiocd" ;;
-  esac
- fi
- 
- #v3.97 guess_fstype fails sometimes...
- #(using makebootfat to setup a USB-FLOPPY/-HDD/-ZIP combined bootable FAT drive).
- xFSTYPE=''
- if [ "$FSTYPE" = "unknown" -a "$MEDIATYPE" = "" ];then #130128 not optical.
-  fsPATTERN='^/dev/'"$DEVICE"' '
-  xDEVICE="`echo -n "$DEVICE" | sed -e 's/[0-9]*$//' -e 's%p$%%'`" #"${DEVICE/[0-9]/}" #remove partition number. 120516 remove 'p' from mmcblk0p1
-  xFSTYPE="`fdisk -l /dev/$xDEVICE 2>/dev/null | grep "$fsPATTERN" | head -n 1 | grep -o -E 'FAT|swap|Linux|NTFS'`" #120516 FAT12$|FAT16$|FAT32$
-  case $xFSTYPE in #120516
-   FAT) FSTYPE='vfat' ;;
-   swap) FSTYPE='swap' ;;
-   NTFS) FSTYPE='ntfs' ;;
-   Linux)
-    FSTYPE=$(blkid -c /dev/null /dev/${DEVICE} | grep -w "${DEVICE}" | grep -o ' TYPE=".*"' | cut -f2 -d'"')
-    [ "$FSTYPE" = "" ] && FSTYPE="unknown"
-   ;;
-  esac
- fi
- 
- [ "$FSTYPE" = "unknown" ] && FSTYPE="none"
+Output: DEVICE|FILESYSTEM|SIZE
 
- [ "$SUNITS" = "" ] && SIZE=$(($SIZE*2)) #want 512 byte blocks.
- [ "$SUNITS" = '-m' ] && SIZE=$(($SIZE/1024)) #want MB
+Example: /dev/sda1|ext4|827465877
+   SIZE = 512 byte blocks [default]
 
- echo "/dev/$DEVICE|$FSTYPE|$SIZE"
- 
- #keep record of usb sd*, for forced updating of /proc...
- case $DEVICE in
-  sd*)
-   #log if usb drive (not a ata drive)...
-   DEVDRV="`echo -n "$DEVICE" | tr -d '[0-9]'`"
-   if [ "`echo "$ATADRIVES" | grep "$DEVDRV"`" = "" ];then #110126
-    echo "$DEVDRV" >> /root/.usb-drive-log-probepart
-    sort -u /root/.usb-drive-log-probepart > /tmp/usb-drive-log-probepart-tmp
-    mv -f /tmp/usb-drive-log-probepart-tmp /root/.usb-drive-log-probepart
-   fi
-   ;;
- esac
- 
+Options:
+
+   -extra-info: show DEVICE|FILESYSTEM|SIZE|LABEL|MOUNT_STATUS
+   -no-optical: ignore optical devices
+   -m         : SIZE in MB
+   -k         : SIZE in KB
+   -hr        : human readable SIZE
+
+[device]
+   it's possible to specify [unix shell] wildcards
+      ex: probepart 'sda*'      (probe sda drive and partitions)
+      ex: probepart 'sdb[0-9]'   (probe sdb partitions 0-9)
+      ex: probepart 'sdc[0-9]*' (probe all sdc partitions)
+"
+	exit
+}
+
+PROCESS_OPTICAL=yes #default
+
+for i in $@ ; do
+	case $1 in
+		-k|-m) SUNITS="$1" ; shift ;; #allowed params are '-k' or '-m'.
+		-hr|-hr-size) HR_SIZE=yes ; shift ;;
+		-extra-info) EXTRA_INFO=yes ; shift ;; #/dev/$ONEDEV|$FSTYPE|$SIZE|$LABEL
+		-no-optical) PROCESS_OPTICAL=no ; shift ;;
+		-h|-help|--help) usage ;;
+		zz*)  shift ;;
+	esac
 done
 
-###END###
+#==============================================================
+#                        FUNCTIONS
+#==============================================================
+
+# $1: ID_...
+cdrom_id_has() {
+	while read i ; do
+		case $i in *"$1"*) return 0 ;; esac
+	done <<EOF
+$cdrom_id
+EOF
+	return 1
+}
+
+# $1: devname
+# $2: size
+probepart_func() {
+
+	ONEDEV=$1
+	SIZE=$2
+	FSTYPE=""
+	[ -z "$ONEDEV" ] && return
+
+	if [ -z "$SIZE" ] ; then # a drive
+		if [ -e /sys/block/${ONEDEV}/size ] ; then
+			read SIZE < /sys/block/${ONEDEV}/size
+			SIZE=$(($SIZE/2)) # kb = /proc/partitions
+		else
+			return #error
+		fi
+	fi
+
+	blockdev=/dev/${ONEDEV}
+
+	case $ONEDEV in fd*)
+		# skip "fake" fdX devices...
+		[ ! -e /sys/block/${ONEDEV}/device/vendor -a ! -e /sys/block/${ONEDEV}/device/model ] && return ;;
+	esac
+
+	DRV_IS_OPTICAL="no"
+	if [ "$PROCESS_OPTICAL" = "yes" ] ; then
+		if fx_drv_is_optical ${ONEDEV} ; then
+			DRV_IS_OPTICAL="yes"
+			#--
+			if [ -f /lib/udev/cdrom_id ] ; then
+				cdrom_id="$(/lib/udev/cdrom_id $blockdev)" #ID_CDROM_* variables
+				if ! cdrom_id_has "ID_CDROM_MEDIA"  ; then
+					return # disc is not inserted...
+				fi
+				if cdrom_id_has "ID_CDROM_MEDIA_TRACK_COUNT_AUDIO" ; then
+					FSTYPE="audiocd"
+				fi
+				if [ $SIZE -eq 0 ] ; then
+					FSTYPE="none" #blank disc
+				fi
+			fi
+		fi
+	fi
+
+	if [ "$FSTYPE" = "" ] ; then
+		BLKDID_OUT="$(busybox blkid ${blockdev} 2>/dev/null)"
+		if [ -z "$BLKDID_OUT" ] && [ ! -e /sys/block/${ONEDEV} ] ; then
+			BLKDID_OUT="$(blkid ${blockdev} 2>/dev/null)"
+		fi
+		case $BLKDID_OUT in *' TYPE="'*)
+			FSTYPE="${BLKDID_OUT##* TYPE=\"}"
+			FSTYPE="${FSTYPE%%\"*}" ;;
+		esac
+	fi
+
+	if [ "$FSTYPE" = "" ] ; then
+		if [ $SIZE -le 4 ] ; then
+			return #extended partition (most likely)
+		fi
+		if [ "$ONEDEV_ARG" != "1" -a "$DRV_IS_OPTICAL" != "yes" -a -e /sys/block/${ONEDEV} ] ; then
+			# drive with no f.s.. ignore
+			return
+		fi
+		FSTYPE="none"
+	fi
+
+	if [ "$EXTRA_INFO" = "yes" ] ; then
+		PARTITION_LABEL=""
+		case $BLKDID_OUT in *' LABEL="'*)
+			PARTITION_LABEL="${BLKDID_OUT##* LABEL=\"}"
+			PARTITION_LABEL="${PARTITION_LABEL%%\"*}" ;;
+		esac
+		MOUNT_STATUS="not_mounted"
+		while read dev etc ; do
+			[ "$dev" = "$blockdev" ] && MOUNT_STATUS="mounted" && break
+		done < /proc/mounts
+		EXTRA_STUFF="|${PARTITION_LABEL}|${MOUNT_STATUS}"
+	fi
+
+	if [ "$HR_SIZE" = "yes" ] ; then
+		SIZE=$(fx_format_bytes $(($SIZE * 1024)) ) #format size in KB
+	else
+		case $SUNITS in
+			-m) SIZE=$(($SIZE/1024)) ;; #want MB
+			-k) true                 ;; #want KB
+			"") SIZE=$(($SIZE*2))    ;; #want 512 byte blocks.
+		esac
+	fi
+
+	echo "${blockdev}|$FSTYPE|$SIZE${EXTRA_STUFF}"
+}
+
+#===========
+
+# $1: device
+do_probepart() {
+	#ALLDEVS="`grep " ${device}$" /proc/partitions | tr -s ' ' | cut -f 4-5 -d ' '`"
+	ONEDEV_ARG=1
+	unset ok
+	device="${1##*/}" #basename
+	device="${device//./}" #remove dots / convert grep wilcards to unix shell wildcards..
+	while read major minor blocks name #< /proc/partitions
+	do
+		case $name in $device)
+			ok=1
+			probepart_func $name $blocks ;;
+		esac
+	done < /proc/partitions
+	if [ ! "$ok" ] ; then
+		# optical = problems
+		for dev in /sys/block/${device} ; do
+			probepart_func ${dev##*/} #basename
+		done
+	fi
+}
+
+#===========
+
+do_probepart_all() {
+	# devices that have partitions... 
+	while read major minor blocks name  #< /proc/partitions
+	do
+		if ! fx_drv_is_ok $name ; then
+			continue
+		fi
+		case $name in sr*)
+			continue ;;
+		esac
+		echo $name $blocks
+		#-
+	done < /proc/partitions | sort | \
+		while read l ; do
+			probepart_func $l
+		done
+	#== optical
+	if [ "$PROCESS_OPTICAL" = "yes" ] ; then
+		for dev in /sys/block/sr* ; do
+			probepart_func ${dev##*/} #basename
+		done
+	fi
+}
+
+#==============================================================
+#                          MAIN
+#==============================================================
+
+if [ "$1" ] ; then
+	# process cli argument
+	do_probepart "$1"
+else
+	#normal operation
+	do_probepart_all
+fi
+
+### END ###

@@ -1,0 +1,571 @@
+#!/bin/sh
+#Ptiming 
+#Copyright 2011,2012,2013,2014
+#Sigmund Berglund - Valåmoen, Norway.
+
+#------------------------------
+#This program is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation version 2.
+
+#This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details. <http://www.gnu.org/licenses/>.
+#------------------------------
+
+#gettext
+export TEXTDOMAIN=ptiming
+export OUTPUT_CHARSET=UTF-8
+
+export APPDIR=`dirname $0`
+[ $APPDIR = '.' ] && export APPDIR=`pwd`
+export WORKDIR=$HOME/.ptiming/tmp
+#first run
+if [ ! -d $WORKDIR ]; then
+	mkdir -p $WORKDIR
+	ln -s /usr/local/lib/X11/mini-icons/mini-clock.png $WORKDIR
+fi
+
+#configs
+TMP=`grep VERSION $HOME/.ptiming/ptimingrc 2> /dev/null` #check current version
+if [ ! -f $HOME/.ptiming/ptimingrc ] || [ `echo $TMP | sed -e s/^.*\=//g | tr -d "."` != 103 > /dev/null 2>&1 ]; then
+	#guess correct fontsize
+	TMP=`xrdb -query | grep dpi | awk '{print $2}'` #check global fontsize
+	FONTSIZE=$((4100/$TMP))
+	#---
+	echo 'export VERSION=1.0.3
+export FONTSIZE='$FONTSIZE'
+export COLOR1="#222222"
+export COLOR2="#2CDD49"
+export COLOR3="#EEA03F"
+export SOUND_AT_START="/usr/share/audio/beep_high.wav"
+export SOUND_BEFORE_START="/usr/share/audio/beep_low.wav"
+export START_INTERVAL=30
+export LATE_REGISTRATION=2' > $HOME/.ptiming/ptimingrc
+	chmod 722 $HOME/.ptiming/ptimingrc
+fi
+. $HOME/.ptiming/ptimingrc
+
+#initials
+rm -f $WORKDIR/end_while #start progessbar loop
+date +%s%N > $WORKDIR/seconds_start #save the time in nanoseconds (from 1970) to tempfile
+date +%s%N > $WORKDIR/seconds_start_ptime #keep a backup --> used in set-timer box
+echo -n > $WORKDIR/resultlist
+echo 1 > $WORKDIR/count
+echo 00:00:00 > $WORKDIR/timer
+echo true > $WORKDIR/beep #activate beeping at defined start-times
+echo true > $WORKDIR/beep5
+echo true > $WORKDIR/HUNDREDTHS
+echo 0 > $WORKDIR/COUNTDOWN
+[ ! -f $WORKDIR/startlist ] && echo -n > $WORKDIR/startlist
+
+#gtk-theme
+echo 'style "monoBig" { font_name="Mono bold '$FONTSIZE'" base[NORMAL]="'$COLOR1'" text[NORMAL]="'$COLOR2'" }
+widget "*timer" style "monoBig"
+style "dejaColor" { font_name="Dejavu 13" base[NORMAL]="'$COLOR1'" text[NORMAL]="'$COLOR3'" }
+widget "*edit" style "dejaColor"
+style "dejaBig" { font_name="Mono bold '$FONTSIZE'" base[NORMAL]="'$COLOR1'" text[NORMAL]="'$COLOR3'"}
+widget "*nr" style "dejaBig"' > $WORKDIR/gtkrc
+export GTK2_RC_FILES=$WORKDIR/gtkrc:/root/.gtkrc-2.0 #include theme stuff with system themes
+
+
+###############################################
+#                                             #
+#              F U N C T I O N S              #
+#                                             #
+###############################################
+func_time(){ #called as input for the entry
+	date +%s%N > $WORKDIR/seconds_now
+	SEC_START=$(<$WORKDIR/seconds_start)
+	TIME_SEC=`echo "($(<$WORKDIR/seconds_now) - $SEC_START) / 1000000000" | bc 2> /dev/null`
+	if [ "$TIME_SEC" ]; then #it might happen that $WORKDIR/seconds_start is empty because of updates in set_timer
+		if [ $(($(<$WORKDIR/seconds_now)-$SEC_START)) -ge -200000000 ]; then #normal timer
+			echo "$(($(<$WORKDIR/seconds_now)-$SEC_START))" | tail -c 10 | head -c 2 > $WORKDIR/NANOSEC #this file is used by fullscreen
+			NANOSEC=($(<$WORKDIR/NANOSEC))
+			printf "%02d:%02d:%02d" $((TIME_SEC/3600)) $((TIME_SEC%3600/60)) $((TIME_SEC%60)) > $WORKDIR/timer
+			if [ $NANOSEC -lt 25 ]; then
+				echo; echo 100 #update clock
+				#beep - since fullscreen and main window both call this function, only one of them should beep.
+				if [ -f $WORKDIR/beep5 ] && [ "`grep -Ew "$(($TIME_SEC+4))$|$(($TIME_SEC+3))$|$(($TIME_SEC+2))$|$(($TIME_SEC+1))$" $WORKDIR/startlist`" ] && [ $NANOSEC -lt 25 ]; then
+					aplay "$SOUND_BEFORE_START" 2> /dev/null &
+				elif [ -f $WORKDIR/beep ] && [ "`grep -w "$TIME_SEC$" $WORKDIR/startlist`" ] && [ $NANOSEC -lt 25 ]; then
+					aplay "$SOUND_AT_START" 2> /dev/null &
+				fi
+				sleep 0.6 #no use in looping until we are closer to whole second
+			fi
+		else #countdown
+			NANOSEC=`echo "$(($SEC_START-$(<$WORKDIR/seconds_now)))" | tail -c 10 | head -c 2`
+			COUNTDOWN_SEC="$(((($SEC_START-$(<$WORKDIR/seconds_now))/1000000000)+1))"
+			printf "%02d:%02d:%02d" $((COUNTDOWN_SEC/3600)) $((COUNTDOWN_SEC%3600/60)) $((COUNTDOWN_SEC%60)) > $WORKDIR/timer
+			if [ $NANOSEC -gt 75 ]; then
+				echo; echo 100 #update clock
+				#beep
+				if [ -f $WORKDIR/beep5 ] && [ "`grep -Ew "$(($TIME_SEC+3))$|$(($TIME_SEC+2))$|$(($TIME_SEC+1))$|$TIME_SEC$" $WORKDIR/startlist 2> /dev/null`" ] && [ $NANOSEC -gt 75 ]; then
+					aplay "$SOUND_BEFORE_START" 2> /dev/null &
+				fi
+				sleep 0.6 #no use in looping until we are closer to whole second
+			fi
+		fi
+	fi
+}
+
+timestamp(){
+	#timestamp
+	date +%s%N > $WORKDIR/seconds_now
+	SEC_SINCE_START="$((($(<$WORKDIR/seconds_now)-$(<$WORKDIR/seconds_start))/1000000000))"
+	NANOSEC=`echo "$(($(<$WORKDIR/seconds_now)-$(<$WORKDIR/seconds_start)))" | tail -c 10 | head -c 2`
+	#read startlist
+	NR="`echo "$NR" | grep -vF '|'`" #remove special chars
+	[ ! "$NR" ] && NR=0
+	STARTTIME=`grep "^$NR|" $WORKDIR/startlist | cut -d'|' -f2`
+	[ ! "$STARTTIME" ] && STARTTIME=00:00:00
+	NAME=`grep "^$NR|" $WORKDIR/startlist | cut -d'|' -f3`
+	ORG=`grep "^$NR|" $WORKDIR/startlist | cut -d'|' -f4`
+	CLASS=`grep "^$NR|" $WORKDIR/startlist | cut -d'|' -f5`
+	[ ! "$CLASS" ] && CLASS='.' #export results need something to sort classes
+	STARTTIME_SEC=`grep "^$NR|" $WORKDIR/startlist | cut -d'|' -f7`
+	[ ! "$STARTTIME_SEC" ] && STARTTIME_SEC=0
+	TIME_SEC=$(($SEC_SINCE_START-$STARTTIME_SEC))
+	TIME=`printf "%02d:%02d:%02d" $((TIME_SEC/3600)) $((TIME_SEC%3600/60)) $((TIME_SEC%60))`
+	[ -f $WORKDIR/HUNDREDTHS ] && TIME=${TIME}.$NANOSEC
+	#laptime
+	TIME_PREV=`tac $WORKDIR/resultlist | grep -m1 "^$NR|" | cut -d'|' -f5` #previous timestamp for this competitor
+	if [ ! "$TIME_PREV" ]; then
+		LAPTIME=$TIME
+	else
+		HOUR=`echo $TIME_PREV | cut -d: -f1`
+		MIN=`echo $TIME_PREV | cut -d: -f2`
+		SEC=`echo $TIME_PREV | cut -d: -f3 | cut -d. -f1`
+		NSEC=`echo $TIME_PREV | cut -d. -f2`
+		if [ ! -f $WORKDIR/HUNDREDTHS ]; then NSEC=0; NANOSEC=0; fi
+		LAPTIME_PREV_SEC=`echo "($HOUR*3600)+($MIN*60)+($SEC)" | bc`
+		LAPTIME_SEC=`echo ${TIME_SEC}.${NANOSEC} - ${LAPTIME_PREV_SEC}.${NSEC} | bc | cut -d. -f1`
+		LAPTIME_NSEC=`echo ${TIME_SEC}.${NANOSEC} - ${LAPTIME_PREV_SEC}.${NSEC} | bc | cut -d. -f2`
+		LAPTIME=`printf "%02d:%02d:%02d" $((LAPTIME_SEC/3600)) $((LAPTIME_SEC%3600/60)) $((LAPTIME_SEC%60))`
+		[ -f $WORKDIR/HUNDREDTHS ] && LAPTIME=${LAPTIME}.$LAPTIME_NSEC
+	fi
+	#---
+	LAPNR=$(((`grep -c "^$NR|" $WORKDIR/resultlist`)+1))
+	COUNT=$(<$WORKDIR/count); echo $(($COUNT+1)) > $WORKDIR/count #keep one unique number for each line. (Time may be edited to be equal)
+	#echo result -- I have skipped $STARTTIME
+	echo "$NR|$NAME|$ORG|$CLASS|$TIME|[ $LAPNR ]|$LAPTIME|$COUNT" >> $WORKDIR/resultlist
+}
+
+fullscreen (){
+	rm -f $WORKDIR/end_while_fullscreen #activate loop
+	#geometry
+	HEIGHT=`xwininfo -root | grep -m 1 '\geometry' | cut -f4 -d ' ' | cut -f2 -d 'x' | cut -f1 -d '+'`
+	WIDTH=`xwininfo -root | grep -m 1 '\geometry' | cut -f4 -d ' ' | cut -f1 -d 'x'`
+	#gtk-theme
+	echo 'style "monohuge" { font_name="Mono bold '`echo "( $WIDTH * $FONTSIZE ) / 280" | bc`'" bg[NORMAL]="'$COLOR1'" base[NORMAL]="'$COLOR1'" fg[NORMAL]="'$COLOR2'" text[NORMAL]="'$COLOR2'" }
+	widget "*" style "monohuge"' > $WORKDIR/gtkrc2
+	export GTK2_RC_FILES=$WORKDIR/gtkrc2:/root/.gtkrc-2.0 #include theme stuff with system themes
+	#gui  	
+	export curtain='<window title="pTiming fullscreen" width-request="'$WIDTH'" height-request="'$HEIGHT'" decorated="false">
+	<vbox>
+	 <hbox width-request="1">
+	 <progressbar width-request="1" height-request="1" >
+	  <input>while [ ! -f '$WORKDIR'/end_while_fullscreen ]; do if [ `cat '$WORKDIR'/NANOSEC` -lt 25 ]; then echo; echo 100; sleep 0.4; fi; sleep 0.05; done</input>
+	  <action>refresh:TIMER</action>
+	 </progressbar>
+	  <button width-request="1" height-request="1"></button>
+	 </hbox>
+	 <entry width-request="'$WIDTH'" height-request="'$((HEIGHT/3))'">
+	  <variable>TIMER</variable>
+	  <input>cat '$WORKDIR'/timer</input>
+	  <action signal="button-press-event">exit:EXIT</action>
+	 </entry>
+	</vbox>
+	<action signal="delete-event">exit:EXIT</action>
+	</window>'
+	gtkdialog -p curtain --center
+	echo end > $WORKDIR/end_while_fullscreen
+	export GTK2_RC_FILES=$WORKDIR/gtkrc:/root/.gtkrc-2.0 #reset gtk-theme
+}
+
+edit(){
+	[ ! "$RESULTLIST" ] && exit
+	#read info from resultlist
+	TOUCHED_NR=`grep "|$RESULTLIST$" $WORKDIR/resultlist | cut -d'|' -f1`
+	TOUCHED_NAME=`grep "|$RESULTLIST$" $WORKDIR/resultlist | cut -d'|' -f2`
+	TOUCHED_TIME=`grep "|$RESULTLIST$" $WORKDIR/resultlist | cut -d'|' -f5`
+	#geometry
+	XWININFO=`xwininfo -stats -name pTiming`
+	WIDTH=`echo "$XWININFO" | grep 'Width:' | awk '{print $2}'`
+	export X=`echo "$XWININFO" | grep 'Absolute upper-left X' | awk '{print $4}'` #export to use in <progressbar> loop
+	export Y=$(((`getcurpos | awk '{print $2}'`)-20))
+	
+	#<progressbar> ensures that if user makes the edit-line to come below the window (with clickomania), the loop will end pid anyway
+	export pTiming_edit='
+	<window height-request="50" width-request="'$WIDTH'" skip-taskbar-hint="true" decorated="false">
+	 <vbox>
+	  <hbox width-request="1">
+	   <progressbar width-request="1" height-request="1" >
+	    <input>LOOP=true; while [ $LOOP = true ]; do MOUSEX=`getcurpos | awk '"'"'{print $1}'"'"'`; MOUSEY=`getcurpos | awk '"'"'{print $2}'"'"'`; if [ $MOUSEX -lt $X ] || [ $MOUSEX -gt '$(($X+$WIDTH))' ] || [ $MOUSEY -lt $Y ] || [ $MOUSEY -gt '$(($Y+50))' ]; then LOOP=false; echo; echo 100; fi; sleep 1; done</input>
+	    <action>EXIT:exit</action>
+	   </progressbar>
+	  </hbox>
+	  <hbox>
+	   <entry name="edit" width-request="80" tooltip-text="'$(gettext 'Apply changes by pressing ENTER')'">
+	    <input>echo '$TOUCHED_NR'</input>
+	    <variable>EDIT_NR</variable>
+	    <action signal="activate">EXIT:apply</action>
+	   </entry>
+	   <entry width-request="340" height-request="27">
+	    <input>echo '$TOUCHED_NAME'</input>
+	    <visible>disabled</visible>
+	   </entry>
+	   <entry name="edit" width-request="150" tooltip-text="'$(gettext 'Apply changes by pressing ENTER')'">
+	    <input>echo '$TOUCHED_TIME'</input>
+	    <variable>EDIT_TIME</variable>
+	    <action signal="activate">EXIT:apply</action>
+	   </entry>
+	   <text width-request="'$(($WIDTH-520))'"><label>""</label></text>
+	   <button visible="false" can-default="true" has-default="true"><action>EXIT:apply</action></button>
+	   <vbox homogeneous="true"><button height-request="30" tooltip-text="'$(gettext 'Delete timestamp')'"><input file stock="gtk-delete"></input><action>EXIT:delete</action></button></vbox>
+	  </hbox>
+	 </vbox>
+	 <action signal="focus-out-event">EXIT:exit</action>
+	</window>'
+	gtkdialog -p pTiming_edit -G +"$X"+"$Y" > $WORKDIR/returnvalues
+	chmod 722 $WORKDIR/returnvalues
+	. $WORKDIR/returnvalues
+	case $EXIT in
+		delete)
+			grep -B 10000 "|$RESULTLIST$" $WORKDIR/resultlist | grep -v "|$RESULTLIST$" > $WORKDIR/results_before #not necessary to update lap info of items in this list
+			grep -v "|$RESULTLIST$" $WORKDIR/resultlist > $WORKDIR/resultlist_edited
+			UPDATE=true
+			;;
+		apply)
+			grep -B 10000 "|$RESULTLIST$" $WORKDIR/resultlist | grep -v "|$RESULTLIST$" > $WORKDIR/results_before #not necessary to update lap info of items in this list
+			cat $WORKDIR/results_before > $WORKDIR/resultlist_edited
+			echo "$EDIT_NR||||$EDIT_TIME||" >> $WORKDIR/resultlist_edited #active item - will be refreshed later
+			grep -A 10000 "|$RESULTLIST$" $WORKDIR/resultlist | grep -v "|$RESULTLIST$" >> $WORKDIR/resultlist_edited #these should be updated for new lap info
+			UPDATE=true
+			;;
+	esac
+
+	if [ "$UPDATE" = "true" ]; then #update list with new lap info
+		echo -n > $WORKDIR/resultlist_edited2
+		while read I; do
+			NR=`echo "$I" | cut -d'|' -f1`
+			if [ $NR != $TOUCHED_NR ] && [ $NR != $EDIT_NR ] || [ "`grep -F "$I" $WORKDIR/results_before`" ]; then  #it's not necessary to renew other competitors 
+				echo "$I" >> $WORKDIR/resultlist_edited2
+			else
+				STARTTIME=`grep "^$NR|" $WORKDIR/startlist | cut -d'|' -f2`
+				NAME=`grep "^$NR|" $WORKDIR/startlist | cut -d'|' -f3`
+				ORG=`grep "^$NR|" $WORKDIR/startlist | cut -d'|' -f4`
+				CLASS=`grep "^$NR|" $WORKDIR/startlist | cut -d'|' -f5`
+				[ ! "$CLASS" ] && CLASS='.' #export results need something to sort classes
+				TIME=`echo "$I" | cut -d'|' -f5`
+				#laptime
+				TIME_PREV=`tac $WORKDIR/resultlist_edited2 | grep -m1 "^$NR|" | cut -d'|' -f5` #previous timestamp for this competitor
+				if [ ! "$TIME_PREV" ]; then
+					LAPTIME=$TIME
+				else
+					#time seconds
+					HOUR=`echo $TIME | cut -d: -f1`
+					MIN=`echo $TIME | cut -d: -f2`
+					SEC=`echo $TIME | cut -d: -f3 | cut -d. -f1`
+					NANOSEC=`echo $TIME | cut -d. -f2`
+					TIME_SEC=`echo "($HOUR*3600)+($MIN*60)+($SEC)" | bc`
+					#laptime seconds
+					HOUR=`echo $TIME_PREV | cut -d: -f1`
+					MIN=`echo $TIME_PREV | cut -d: -f2`
+					SEC=`echo $TIME_PREV | cut -d: -f3 | cut -d. -f1`
+					NSEC=`echo $TIME_PREV | cut -d. -f2`
+					LAPTIME_PREV_SEC=`echo "($HOUR*3600)+($MIN*60)+($SEC)" | bc`
+					LAPTIME_SEC=`echo ${TIME_SEC}.${NANOSEC} - ${LAPTIME_PREV_SEC}.${NSEC} | bc | cut -d. -f1`
+					LAPTIME_NSEC=`echo ${TIME_SEC}.${NANOSEC} - ${LAPTIME_PREV_SEC}.${NSEC} | bc | cut -d. -f2`
+					LAPTIME=`printf "%02d:%02d:%02d" $((LAPTIME_SEC/3600)) $((LAPTIME_SEC%3600/60)) $((LAPTIME_SEC%60))`
+					[ -f $WORKDIR/HUNDREDTHS ] && LAPTIME=${LAPTIME}.$LAPTIME_NSEC
+				fi
+				#---
+				LAPNR=$(((`grep -c "^$NR|" $WORKDIR/resultlist_edited2`)+1))
+				COUNT=$(<$WORKDIR/count); echo $(($COUNT+1)) > $WORKDIR/count #keep one unique number for each line.
+				#echo result -- I have skipped $STARTTIME
+				echo "$NR|$NAME|$ORG|$CLASS|$TIME|[ $LAPNR ]|$LAPTIME|$COUNT" >> $WORKDIR/resultlist_edited2
+			fi
+		done < $WORKDIR/resultlist_edited
+		mv -f $WORKDIR/resultlist_edited2 $WORKDIR/resultlist
+	fi
+}
+
+export_result(){
+	echo -n > $WORKDIR/classes
+	cut -d '|' -f4 $WORKDIR/resultlist | grep -v "^$" | sort -u > $WORKDIR/classes #find classes
+	echo -n > $WORKDIR/pTiming.csv
+	while read CLASS; do
+		cut -d'|' -f1-7 $WORKDIR/resultlist | grep -F "|$CLASS|" | sort -st'|' -k 5,5 > $WORKDIR/tmp
+		echo -e "\n,\"$CLASS\"\n,\"$(gettext 'Nr')\",\"$(gettext 'Time')\",\"$(gettext 'Name')\",\"$(gettext 'Organization')\",\"$(gettext 'Laps')\"" >> $WORKDIR/pTiming.csv #class separator
+		COUNT=1
+		while read I; do #read competitors in class
+			ID=`echo "$I" | cut -d'|' -f1`
+			LAP=`echo "$I" | cut -d'|' -f6`
+			if [ $ID != 0 ]; then #ID is defined --> lap info in rows
+				[ "[ `grep -c "^$ID|" $WORKDIR/resultlist` ]" != "$LAP" ] && continue #no new row for new lap info
+				TIME=`echo "$I" | cut -d'|' -f5`
+				NAME=`echo "$I" | cut -d'|' -f2`
+				[ ! "$NAME" ] && NAME="$ID"
+				ORG=`echo "$I" | cut -d'|' -f3`
+				echo -e ",\"$COUNT\",\"$TIME\",\"$NAME\",\"$ORG\",\"" >> $WORKDIR/pTiming.csv
+				#find lap info for each competitor
+				grep "^$ID|" $WORKDIR/resultlist > $WORKDIR/laps
+				while read J; do
+					LAP=`echo "$J" | cut -d'|' -f6`
+					LAPTIME=`echo "$J" | cut -d'|' -f7`
+					echo -n "   $LAP $LAPTIME" >> $WORKDIR/pTiming.csv
+				done < $WORKDIR/laps
+				echo -e "\"" >> $WORKDIR/pTiming.csv
+			else #ID is not defined. Clock is used the quick way. --> lap info in column
+				TIME=`echo "$I" | cut -d'|' -f5`
+				LAPTIME=`echo "$I" | cut -d'|' -f7`
+				echo -e ",,\"$TIME\",,,\"$LAP\",\"$LAPTIME\"" >> $WORKDIR/pTiming.csv
+			fi
+			COUNT=$(($COUNT+1))
+		done < $WORKDIR/tmp
+	done < $WORKDIR/classes
+	defaultspreadsheet $WORKDIR/pTiming.csv &	
+}
+
+
+###############################################
+#                                             #
+#             P R E F R E N C E S             #
+#                                             #
+###############################################
+
+preferences(){
+	export pTiming_pref='
+	<window title="pTiming - '$(gettext 'Preferences')'" icon-name="ptiming">
+	 <vbox>
+	  <frame '$(gettext 'Competitors')'>
+	  <hbox>
+	   <text><label>'$(gettext 'Default delay between added competitors')'</label></text>
+	   <entry><variable>START_INTERVAL</variable><default>'$START_INTERVAL'</default></entry>
+	  </hbox>
+	  <hbox>
+	   <text><label>'$(gettext 'Default empty startTimes for late registrations')'</label></text>
+	   <entry><variable>LATE_REGISTRATION</variable><default>'$LATE_REGISTRATION'</default></entry>
+	  </hbox>
+	  </frame>
+	  <frame '$(gettext 'Environment')'>
+	  <hbox>
+	   <text><label>'$(gettext 'Fontsize (this also affects fullscreen)')'</label></text>
+	   <entry><variable>FONTSIZE</variable><default>'$FONTSIZE'</default></entry>
+	  </hbox>
+	  <hbox>
+	   <text><label>'$(gettext 'Sound at startTime')'</label></text>
+	   <entry><variable>SOUND_AT_START</variable><default>'$SOUND_AT_START'</default></entry>
+	  </hbox>
+	  <hbox>
+	   <text><label>'$(gettext 'Sound before startTime')'</label></text>
+	   <entry><variable>SOUND_BEFORE_START</variable><default>'$SOUND_BEFORE_START'</default></entry>
+	  </hbox>
+	  <hbox>
+	   <text><label>'$(gettext 'Color of entry background')'</label></text>
+	   <entry><variable>COLOR1</variable><default>'$COLOR1'</default></entry>
+	  </hbox>
+	  <hbox>
+	   <text><label>'$(gettext 'Color of timer font')'</label></text>
+	   <entry><variable>COLOR2</variable><default>'$COLOR2'</default></entry>
+	  </hbox>
+	  <hbox>
+	   <text><label>'$(gettext 'Color of entry font')'</label></text>
+	   <entry><variable>COLOR3</variable><default>'$COLOR3'</default></entry>
+	  </hbox>
+	  </frame>
+	  <hbox>
+	   <text use-markup="true"><label>"<b>'$(gettext 'Restart pTiming to activate changes')'</b>    "</label></text>
+	   <button cancel></button>
+	   <button ok>
+	    <action>echo -e "export VERSION=$VERSION\nexport FONTSIZE=$FONTSIZE\nexport COLOR1=\"$COLOR1\"\nexport COLOR2=\"$COLOR2\"\nexport COLOR3=\"$COLOR3\"\nexport SOUND_AT_START=\"$SOUND_AT_START\"\nexport SOUND_BEFORE_START=\"$SOUND_BEFORE_START\"\nexport START_INTERVAL=$START_INTERVAL\nexport LATE_REGISTRATION=$LATE_REGISTRATION" > '$HOME'/.ptiming/ptimingrc</action>
+	    <action>EXIT:exit</action>
+	    </button>
+	  </hbox>
+	 </vbox>
+	</window>'
+	gtkdialog -p pTiming_pref
+}
+
+export -f func_time timestamp fullscreen edit export_result preferences
+
+
+###############################################
+#                                             #
+#             S E T   T I M E R               #
+#                                             #
+###############################################
+
+export set_timer='
+<window title="pTiming - '$(gettext 'Set timer')'" icon-name="ptiming" window_position="2">
+ <vbox>
+  <hbox>
+   <frame '$(gettext 'Beep at defined Start-time')'>
+    <vbox>
+     <radiobutton><label>'$(gettext 'Silence')'</label><action>if true rm '$WORKDIR'/beep5</action><action>if true rm '$WORKDIR'/beep</action></radiobutton>
+     <radiobutton><variable>CHK_BEEP</variable><label>'$(gettext '1 Beep')'</label><action>if true echo true > '$WORKDIR'/beep</action><action>if true rm '$WORKDIR'/beep5</action></radiobutton>
+     <radiobutton><variable>CHK_BEEP5</variable><default>true</default><label>'$(gettext '5 Beep')'</label><action>if true echo true > '$WORKDIR'/beep</action><action>if true echo true > '$WORKDIR'/beep5</action></radiobutton>
+    </vbox>
+   </frame>
+   <frame '$(gettext 'Options')'>
+    <checkbox><label>'$(gettext 'Calculate hundredths')'</label><variable>HUNDREDTHS</variable><default>true</default><action>if true echo true > '$WORKDIR'/HUNDREDTHS</action><action>if false rm -f '$WORKDIR'/HUNDREDTHS</action></checkbox>
+    <checkbox tooltip-text="'$(gettext 'You can switch between ordinary clock and builtin timer')'">
+     <label>'$(gettext 'Use day-time')'</label>
+     <variable>DAY_TIME</variable>
+     <default>false</default>
+     <action>if true echo "`date +%H` * 3600" | bc > '$WORKDIR'/tmp_hour</action>
+     <action>if true echo "`date +%M` * 60" | bc > '$WORKDIR'/tmp_min</action>
+     <action>if true echo "`date +%S`" > '$WORKDIR'/tmp_sec</action>
+     <action>if true echo "`cat '$WORKDIR'/tmp_hour` + `cat '$WORKDIR'/tmp_min` + `cat '$WORKDIR'/tmp_sec`" | bc > '$WORKDIR'/tmp</action>
+     <action>if true echo "`cat '$WORKDIR'/tmp``date +%N`" > '$WORKDIR'/tmp2</action>
+     <action>if true echo "$((`date +%s%N`)) - `cat '$WORKDIR'/tmp2`" | bc > '$WORKDIR'/seconds_start</action>
+     <action>if true disable:TXT1</action>
+     <action>if true disable:COUNTDOWN</action>
+     <action>if true disable:BUTTON_MIN</action>
+     <action>if true disable:BUTTON_HOUR</action>
+     <action>if true disable:BUTTON_DAY</action>
+     <action>if true disable:BUTTON_RESET</action>
+     <action>if false cp -f '$WORKDIR'/seconds_start_ptime '$WORKDIR'/seconds_start</action>
+     <action>if false enable:TXT1</action>
+     <action>if false enable:COUNTDOWN</action>
+     <action>if false enable:BUTTON_MIN</action>
+     <action>if false enable:BUTTON_HOUR</action>
+     <action>if false enable:BUTTON_DAY</action>
+     <action>if false enable:BUTTON_RESET</action>
+    </checkbox>
+   </frame>
+  </hbox>
+  <frame '$(gettext 'Reset Timer')'>
+   <hbox>
+    <text><label>'$(gettext 'Countdown seconds')'</label><variable>TXT1</variable></text>
+    <vbox width-request="60">
+     <entry width-request="60" xalign="1"><variable>COUNTDOWN</variable><input>cat '$WORKDIR'/COUNTDOWN</input></entry>
+    </vbox>
+    <button><label>'$(gettext '1 min')'</label><variable>BUTTON_MIN</variable><action>echo 60 > '$WORKDIR'/COUNTDOWN</action><action>refresh:COUNTDOWN</action></button>
+    <button><label>'$(gettext '1 hour')'</label><variable>BUTTON_HOUR</variable><action>echo 3600 > '$WORKDIR'/COUNTDOWN</action><action>refresh:COUNTDOWN</action></button>
+    <button><label>'$(gettext '1 day')'</label><variable>BUTTON_DAY</variable><action>echo 86400 > '$WORKDIR'/COUNTDOWN</action><action>refresh:COUNTDOWN</action></button>
+   </hbox>
+   <button height-request="50">
+    <label>'$(gettext 'Reset timer NOW')'</label>
+    <variable>BUTTON_RESET</variable>
+    <action>echo $(($(date +%s)+$COUNTDOWN))$(date +%N) > '$WORKDIR'/seconds_start</action>
+    <action>cp -f '$WORKDIR'/seconds_start '$WORKDIR'/seconds_start_ptime</action>
+   </button>
+  </frame>
+ </vbox>
+</window>'
+
+
+###############################################
+#                                             #
+#                  A B O U T                  #
+#                                             #
+###############################################
+
+export about="
+<window title=\"pTiming - about\" icon-name=\"ptiming\">
+ <notebook labels=\"About|License\">
+  <frame>
+   <pixmap>
+    <input file>/usr/share/icons/hicolor/scalable/apps/ptiming.svg</input>
+    <height>100</height>
+   </pixmap>
+   <text><label>\"\"</label></text>
+   <progressbar>
+    <input>echo 0; echo \"pTiming $VERSION\"</input>
+   </progressbar>
+   <text use-markup=\"true\"><label>\"<b>Sigmund Berglund, Copyright 2011-2014</b>\"</label></text>
+   <text height-request=\"30\"><label>\"\"</label></text>
+   <button>
+    <label>\"http://murga-linux.com/puppy/viewtopic.php?t=63888\"</label>
+    <action>defaulthtmlviewer http://murga-linux.com/puppy/viewtopic.php?t=63888 &</action>
+   </button>
+  </frame>
+  <frame>
+   <text use-markup=\"true\"><label>\"pTiming is released under the <b>GNU General Public License</b> (GPL). You have the right to use and modify this software in any way you like, so long as any derivative works remain under a GPL license.\"</label></text>
+   <text use-markup=\"true\"><label>\"This program is distributed in the hope that it will be useful, but <b><span color='"'red'"'>WITHOUT ANY WARRANTY</span></b>. See the GNU General Public License homepage for more details.\"</label></text>
+   <hbox>
+    <button>
+     <label>\"http://www.gnu.org/licenses/\"</label>
+     <action>defaulthtmlviewer http:\/\/www.gnu.org\/licenses\/</action>
+    </button>
+   </hbox>
+  </frame>
+ </notebook>
+</window>"
+
+
+
+###############################################
+#                                             #
+#               M A I N   G U I               #
+#                                             #
+###############################################
+
+export pTiming='
+<window title="pTiming" default_height="400" icon-name="ptiming">
+<vbox>
+ <menubar>
+  <menu>
+   <menuitem stock="gtk-edit" label="'$(gettext 'Export results')'">
+    <action>export_result</action>
+    </menuitem>
+   <separator></separator>
+   <menuitem stock="gtk-preferences" label="'$(gettext 'Preferences')'"><action>preferences &</action></menuitem>
+   <separator></separator>
+   <menuitem stock="gtk-quit" label="'$(gettext 'Quit')'"><action>echo end > '$WORKDIR'/end_while</action><action>exit:EXIT</action></menuitem>
+   <label>'$(gettext 'File')'</label>
+  </menu>
+  <menu>
+   <menuitem><label>'$(gettext 'Set timer')'</label><action type="launch">set_timer</action></menuitem>
+   <menuitem><label>'$(gettext 'Competitors')'</label><action>'$APPDIR'/competitors &</action></menuitem>
+   <menuitem stock="gtk-fullscreen" label="'$(gettext 'Fullscreen timer')'"><action>fullscreen &</action></menuitem>
+   <label>'$(gettext 'Timing')'</label>
+  </menu>
+  <menu>
+   <menuitem stock="gtk-about" label="'$(gettext 'About')'"><action type="launch">about</action></menuitem>
+   <menuitem stock="gtk-help" label="'$(gettext 'Online help')'"><action>defaulthtmlviewer http://murga-linux.com/puppy/viewtopic.php?p=486156#486156 &</action></menuitem>
+   <label>'$(gettext 'Help')'</label>
+  </menu>
+ </menubar>
+
+<progressbar visible="false">
+ <input>while [ ! -f '$WORKDIR'/end_while ]; do func_time; sleep 0.05; done</input>
+ <action>refresh:TIMER</action>
+</progressbar>
+
+ <hbox>
+  <vbox homogeneous="true"><vbox>
+   <button width-request="160" height-request="25"><label>'$(gettext 'Set timer')'</label><action>launch:set_timer</action></button>
+   <button width-request="160" height-request="25"><label>'$(gettext 'Competitors')'</label><action>'$APPDIR'/competitors &</action></button>
+  </vbox></vbox>
+  <entry name="timer" width-request="290" height-request="55" editable="false" xalign="1">
+   <variable>TIMER</variable>
+   <input>cat '$WORKDIR'/timer</input>
+  </entry>
+  <entry name="nr" width-request="90" height-request="55" xalign="1" activates-default="true" tooltip-text="'$(gettext 'Combine next timestamp to a competitor number.
+You can later edit items in result list by click on it.')'">
+   <variable>NR</variable>
+  </entry>
+  <button tooltip-text="'$(gettext 'Combine next timestamp to a competitor number.
+You can later edit items in result list by click on it.')'" can-default="true" has-default="true">
+   <input file>/usr/share/icons/hicolor/scalable/apps/ptiming.svg</input>
+   <height>48</height>
+   <action>timestamp</action>
+   <action>refresh:RESULTLIST</action>
+   <action>clear:NR</action>
+  </button>
+ </hbox>
+ 
+ <tree exported_column="7" hover_selection="true" sort-function="1">
+  <variable>RESULTLIST</variable>
+  <label>"'$(gettext 'ID')'|'$(gettext 'Name')'                    |'$(gettext 'Organization')'|'$(gettext 'Class')'|'$(gettext 'Time')'          |'$(gettext 'Lap')'|'$(gettext 'Laptime')'              |"</label>
+  <input>tac '$WORKDIR'/resultlist</input>
+  <action signal="button-press-event">edit</action>
+  <action signal="button-press-event">refresh:RESULTLIST</action>
+ </tree>
+ </vbox>
+ <action signal="delete-event">echo end > '$WORKDIR'/end_while</action>
+</window>'
+
+gtkdialog -p pTiming
+#clean up
+for I in `busybox ps | grep gtkdialog | grep competitors | awk '{print $1}'`; do kill -9 $I 2> /dev/null; done
+

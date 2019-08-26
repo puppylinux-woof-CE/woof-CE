@@ -1,15 +1,24 @@
-#!/bin/ash
+#!/bin/sh
 #splash window - compatible with yaf-splash
 #built upon gtkdialog-splash, written by mave, june 2010.
 #other contributors: BarryK, shinobar, 01micko
 #gpl license see: /usr/share/doc/legal/gpl-2.0.txt
 #Mar 2014, zigbert
 
+export TEXTDOMAIN=libstardust # even if not gettext!
+export OUTPUT_CHARSET=UTF-8   # even if not gettext.
+
 [ ! -f /tmp/yaf-splash ] && ln -s "`which gtkdialog`" /tmp/yaf-splash
 
-ROOTGEOM="`xwininfo -root | grep -o ' \\-geometry .*' | cut -f 3 -d ' '`" #ex: 1280x800+0+0
-ROOTX=`echo -n "$ROOTGEOM" | cut -f 1 -d 'x'`
-ROOTY=`echo -n "$ROOTGEOM" | cut -f 1 -d '+' | cut -f 2 -d 'x'`
+geometry=$(xwininfo -root | grep ' \-geometry ')
+geometry=${geometry%%\+*}
+geometry=${geometry##* }
+ROOTX=${geometry%x*}
+ROOTY=${geometry#*x}
+
+#read ROOTDIMS ROOTX ROOTY << EOF
+#`xwininfo -root | grep ' \-geometry ' | cut -f 1 -d '+' | tr 'x' ' '`
+#EOF
 
 MAX_CHAR_WIDTH=40 #Maximum number of chars in one line
 MARGIN_DESKTOP=40 #WM bars could conflict if pushing splashes all into the corner
@@ -31,6 +40,7 @@ helptext="usage: /path/box_splash [OPTIONS] [-timeout SEC] -text TEXT | -kill PI
   -align ALIGNMENT left, right or center
   -margin SIZE (default: 10)
   -border true|false (default: true)
+  -wrap true|false (default: true)
   -kill PID (process ID called before:
     PID=0 auto-search for the last one,
     PID=xxxxx kill the last one read by PID=\$!"
@@ -51,20 +61,29 @@ deco='false'
 title='box_splash'
 ICON_WIDTH=32
 ALIGN=0 #left
+WRAP=true
 #now, let's see if the default colors is set in config file
 [ -s $HOME/.config/ptheme/gtkdialog_active ] && . $HOME/.config/ptheme/gtkdialog_active
-[ ! "$BOX_SPLASH_BG" ]	&& BOX_SPLASH_BG=grey
-[ ! "$BOX_SPLASH_BG_GRADIENT" ]	&& BOX_SPLASH_BG_GRADIENT=true
+if [ ! "$BOX_SPLASH_BG" -a ! "$BOX_SPLASH_BG_GRADIENT" -a ! "$BOX_SPLASH_FG" ] ; then
+	BOX_SPLASH_BG=grey90
+elif [ ! "$BOX_SPLASH_BG" ] ; then
+	BOX_SPLASH_BG=grey
+fi
+[ ! "$BOX_SPLASH_BG_GRADIENT" ]	&& BOX_SPLASH_BG_GRADIENT=false
 [ ! "$BOX_SPLASH_FG" ]	&& BOX_SPLASH_FG=black
+
 bg=$BOX_SPLASH_BG
 bg_gradient=$BOX_SPLASH_BG_GRADIENT
 fg=$BOX_SPLASH_FG
+[ $border = false ] && notebook_border='show-border="false"'
 
 #parameters
 if [ $# = 0 ]; then echo "$helptext"; exit; fi #no parameters
-while [ $# != 0 ]; do
-	I=1
-	while [ $I -le `echo $# | wc -c` ]; do 
+for arg in "$@" ; do
+	case $1 in
+		-h|-help|--help) echo "$helptext";	exit;;
+	esac
+	if [ "$2" ] ; then
 		case $1 in
 			-align)
 				case $2 in
@@ -79,6 +98,7 @@ while [ $# != 0 ]; do
 			-border)
 				border="$2"
 				[ $border = false ] && notebook_border='show-border="false"'
+				[ $border = true ] && notebook_border='show-border="true"'
 				shift
 				;;
 			-close)			close="$2";			shift;;
@@ -98,13 +118,12 @@ while [ $# != 0 ]; do
 				[ $2 = x-large ] && fontsize="14"
 				shift
 				;;
-			-h|-help|--help) echo "$helptext";	exit;;
 			-icon)			ICON="$2";			shift;;
 			-icon_width)	ICON_WIDTH="$2";	shift;;
 			-kill)
 				pid=$2
 				if [ ${#pid} -eq -1 ]; then
-					dlgPID=`ps|grep -w 'GTKDIALOG_SPLASH'`
+					dlgPID=`busybox ps | grep -w 'GTKDIALOG_SPLASH'`
 					kill $dlgPID 2>/dev/null
 				else
 					TmpFile=$BasePIDFile${pid}
@@ -119,10 +138,16 @@ while [ $# != 0 ]; do
 			-placement)		placement="$2";		shift;;
 			-text)			text="$2";			shift;;
 			-timeout)		timeout="$2";		shift;;
+			-wrap)
+				if [ "$2" = false ]; then
+					MAX_CHAR_WIDTH=9999
+					WRAP=false
+				fi
+				shift
+				;;
 		esac
 		shift
-		I=$(($I+1))
-	done
+	fi
 done
 
 #put it here in case command have -icon_width specified after -icon
@@ -131,10 +156,13 @@ if [ "$ICON" ]; then
 	  <width>$ICON_WIDTH</width>
 	  <input file stock=\"$ICON\"></input>
 	</pixmap>"
-	[ "`echo $ICON | grep '^gtk'`" = "" ] && icon="<pixmap width-request=\"$ICON_WIDTH\" space-expand=\"false\" space-fill=\"false\"> 
+	case $ICON in
+	gtk*) ok=1 ;;
+	*) icon="<pixmap width-request=\"$ICON_WIDTH\" space-expand=\"false\" space-fill=\"false\">
 	  <width>$ICON_WIDTH</width>
 	  <input file>\"$ICON\"</input>
-	</pixmap>"
+	</pixmap>" ;;
+	esac
 fi
 
 #define height and width of the window 
@@ -144,16 +172,30 @@ if [ "$border" = "true" ]; then
 	WIDTH=$(($WIDTH+10))
 	HEIGHT=$(($HEIGHT+10))
 fi
-NR_CHARS="`echo "$text" | wc -c`"
-NR_LINES=`awk -v VAR1=$NR_CHARS -v VAR2=$MAX_CHAR_WIDTH 'BEGIN{print int((VAR1/VAR2)+1)}'`
+
+#NR_CHARS="`echo "$text" | wc -c`"
+NR_CHARS="$((${#text}+1))"
+
+#NR_LINES=`awk -v VAR1=$NR_CHARS -v VAR2=$MAX_CHAR_WIDTH 'BEGIN{print int((VAR1/VAR2)+1)}'`
+NR_LINES=$(($NR_CHARS / $MAX_CHAR_WIDTH + 1))
+
 [ $NR_CHARS -gt $MAX_CHAR_WIDTH ] && CHAR_WIDTH=$MAX_CHAR_WIDTH || CHAR_WIDTH=$NR_CHARS
-TMP=`awk -v VAR1=$CHAR_WIDTH -v VAR2=$fontsize 'BEGIN{print int(VAR1*(VAR2*1.0))}'`
+
+#TMP=`awk -v VAR1=$CHAR_WIDTH -v VAR2=$fontsize 'BEGIN{print int(VAR1*(VAR2*1.0))}'`
+TMP=$(( $CHAR_WIDTH * ($fontsize * 1) ))
 WIDTH=$(($WIDTH+$TMP))
-TMP=`awk -v VAR1=$NR_LINES -v VAR2=$fontsize 'BEGIN{print int(VAR1*(VAR2*2.0))}'`
-HEIGHT=$(($HEIGHT+$TMP))
+
+#TMP=`awk -v VAR1=$NR_LINES -v VAR2=$fontsize 'BEGIN{print int(VAR1*(VAR2*2.0))}'`
+TMP=$(( $NR_LINES * ($fontsize * 2) ))
+HEIGHT=$(($HEIGHT+$TMP+5))
+
 [ $NR_LINES -gt 1 ] && HEIGHT=$(($HEIGHT+$fontsize)) #gtkdialog <text> widgets does not has such accurate wrapping as we calculate. It wraps words, not chars
 if [ "$icon" ]; then
 	WIDTH=$(($WIDTH+$ICON_WIDTH+10))
+	[ $HEIGHT -lt 62 ] && HEIGHT=62
+fi
+if [ "$close" = "box" ]; then
+	WIDTH=$(($WIDTH+36+10))
 	[ $HEIGHT -lt 62 ] && HEIGHT=62
 fi
 
@@ -245,7 +287,7 @@ case $close in
 esac
 
 #gui
-export GTKDIALOG_SPLASH='	
+export GTKDIALOG_SPLASH='
 <window title="'${title}'" focus-on-map="false" skip-taskbar-hint="true" icon-name="gtk-preferences" resizable="false" decorated="'${deco}'" '${WINPLACE}'>
 <vbox>
   <notebook show-tabs="false" '"$notebook_border"' space-expand="true" space-fill="true">
@@ -254,7 +296,7 @@ export GTKDIALOG_SPLASH='
         '${icon}'
         <text space-expand="true" space-fill="true"><label>""</label></text>
       </vbox> 
-      <text justify="'${ALIGN}'" width-chars="'${CHAR_WIDTH}'" space-expand="true" space-fill="true">
+      <text justify="'${ALIGN}'" width-chars="'${CHAR_WIDTH}'" wrap="'${WRAP}'" space-expand="true" space-fill="true">
         <label>"'${text}'"</label>
       </text>
       '${CLOSETAG1}'
@@ -280,12 +322,10 @@ case $WINTYPE in
 esac
 dlgPID=$!
 
-pidPATTERN="^${dlgPID} "
 while [ $timeout -ne 0 ];do #100604
 	sleep 1
-	ALLPS="`ps`"
-	timeout=`expr $timeout - 1`
-	[ "`echo "$ALLPS" | sed -e 's%^ *%%' | grep "$pidPATTERN"`" == "" ] && exit #already killed.
+	timeout=$(($timeout-1))
+	[ "`busybox ps | awk '{print $1}' | grep "^${dlgPID}$"`" == "" ] && exit #already killed.
 done
 kill $dlgPID
 echo 'EXIT="Exit on timeout"'

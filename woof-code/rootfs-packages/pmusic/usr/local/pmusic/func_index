@@ -1,0 +1,706 @@
+#!/bin/bash
+#pMusic - managing internal DB
+#GPL - Copyright Sigmund Berglund
+
+export TEXTDOMAIN=pmusic
+export OUTPUT_CHARSET=UTF-8
+AUDIO_FORMATS2="${AUDIO_FORMATS//$/\\|}" #example: |/path/file.mp3|
+
+template (){
+	COUNT=1
+	for J in "$(gettext 'Command')" "$(gettext 'Artist / Filename')" "$(gettext 'Title')" "$(gettext 'Album')" "$(gettext 'Nr')" "$(gettext 'Year')" "$(gettext 'Genre')" "$(gettext 'Comment')" "$(gettext 'Rate')" "$(gettext 'Format')" "$(gettext 'Kb/s')" "$(gettext 'Length')" "$(gettext 'Tempo (bpm)')" "$(gettext 'Path')" "$(gettext 'Icon')" "$(gettext 'Disc-ID') musicbrainz.org" "$(gettext 'Artist-ID') musicbrainz.org" "$(gettext 'Lyrics source')" "$(gettext 'Album-art source')" "$(gettext 'Not in use')" "$(gettext 'Timestamps')"; do
+		echo '<hbox>'
+		case $J in
+			$(gettext 'Not in use'))
+				echo '<text use-markup="true"><label>"<b>   </b>'$J'   "</label><sensitive>false</sensitive></text>'
+				;;
+			$(gettext 'Artist / Filename')|$(gettext 'Title')|$(gettext 'Album')|$(gettext 'Nr')|$(gettext 'Year')|$(gettext 'Genre')|$(gettext 'Comment')|$(gettext 'Rate')|$(gettext 'Icon'))
+				echo '<text use-markup="true"><label>"<b>   </b>'$J'   "</label></text>'
+				;;
+			*)
+				echo '<text use-markup="true"><label>"<b>   '$J'</b>   "</label></text>'
+				;;
+		 esac
+		 echo '
+		 <entry>
+		  <variable>DB_'$COUNT'</variable>
+		  <input file>'$WORKDIR'/tmp_db_'$COUNT'</input>'
+		  case $J in $(gettext 'Not in use')) echo '<sensitive>false</sensitive>';; esac
+		 echo '</entry>
+		</hbox>'
+		COUNT=$(($COUNT+1))
+	done
+}
+
+template2 (){
+	for COUNT in $(seq 1 21); do
+		case $1 in
+			-first)
+				echo '
+				<action signal="button-release-event">cut -d"|" -f'$COUNT' '$WORKDIR'/tmp_index > '$WORKDIR'/tmp_db_'$COUNT'</action>
+				<action signal="button-release-event">refresh:DB_'$COUNT'</action>'
+				;;
+			-third)	echo -n > $WORKDIR/tmp_db_$COUNT;;
+			-fourth) echo '<action>clear:DB_'$COUNT'</action>';;
+		esac
+	done
+}
+
+backup_db (){
+	export pmusic_backupdb='
+	<window title="pMusic - '$(gettext 'Backup database')'" icon-name="pmusic">
+	 <vbox>
+	  <hbox>
+	   <text><label>'$(gettext 'Backup file')'</label></text>
+	   <entry accept="savefilename" width-request="300" fs-folder="'$HOME'" fs-title="pMusic - '$(gettext 'Backup database')'">
+	    <variable>BACKUPFILE</variable>
+	    <input file>'$WORKDIR'/last_added_playlist</input>
+	    <action signal="activate">exit:ok</action>
+	   </entry>
+	   <button>
+	    <input file stock="gtk-open"></input>
+	    <action type="fileselect">BACKUPFILE</action>
+	   </button>
+	  </hbox>
+	  <hbox>
+	   <button cancel></button>
+	   <button can-default="true" has-default="true">
+	    <label>'$(gettext 'Save')'</label>
+	    <input file stock="gtk-save-as"></input>
+	    <action type="exit">ok</action>
+	   </button>
+	  </hbox>
+	 </vbox>
+	</window>
+	'
+	I=$IFS; IFS=""
+	for STATEMENTS in $($GTKDIALOG -p pmusic_backupdb); do
+		eval $STATEMENTS
+	done
+	IFS=$I
+	if [ "$EXIT" = "ok" ]; then
+		if [ -s "$BACKUPFILE" ]; then #already exist
+			IMG=dialog-warning
+			FRAME="$(gettext 'Warning')"
+			TXT1="<b>$BACKUPFILE $(gettext 'already exist')</b>"
+			TXT2="$(gettext 'Do you want to overwrite existing file?')"
+			DEFAULT=yes
+			. $APPDIR/box_yesno
+			[ $EXIT = no ] && exit
+		fi
+		[ "$BACKUPFILE" ] && cp "$STORAGE_DIR/index_mymusic" "$BACKUPFILE"
+	fi
+}
+
+save_db (){
+	[ ! "$DB" ] && exit
+	echo "$DB_1|$DB_2|$DB_3|$DB_4|$DB_5|$DB_6|$DB_7|$DB_8|$DB_9|$DB_10|$DB_11|$DB_12|$DB_13|$DB_14|$DB_15|$DB_16|$DB_17|$DB_18|$DB_19|$DB_20|$DB_21" > $WORKDIR/tmp_index
+	( flock -e 200
+		grep -av "^${DB_1}|" "$STORAGE_DIR/index_mymusic" >> $WORKDIR/tmp_index
+		mv $WORKDIR/tmp_index "$STORAGE_DIR/index_mymusic"
+	) 200>$WORKDIR/mymusic_db.lockfile 
+}
+
+delete_db (){
+	[ ! "$DB" ] && exit
+	FRAME="$(gettext 'Delete')"; IMG="delete"; TXT1="$(gettext 'Delete database item?')"; TXT2="$DB"
+	. $APPDIR/box_yesno
+	if [ $EXIT = "yes" ]; then
+		( flock -e 200
+			grep -av "^${DB_1}|" "$STORAGE_DIR/index_mymusic" > $WORKDIR/tmp_index
+			mv $WORKDIR/tmp_index "$STORAGE_DIR/index_mymusic"
+		) 200>$WORKDIR/mymusic_db.lockfile 
+	fi
+}
+
+export -f template template2 backup_db save_db delete_db
+
+
+case "$1" in
+-search_db)
+	IFS=" "
+	echo > "$STORAGE_DIR"/index_mymusic.editor
+	echo -n "cut -d'|' -f2-4,14-15 \"$STORAGE_DIR/index_mymusic\"" > $WORKDIR/tmp_index_exec
+	for I in $2; do TMP="`echo "$I" | sed 's%"%\\\\\"%g'`"; echo -n "| grep -iF \"$TMP\"" >> $WORKDIR/tmp_index_exec; done
+	echo " > \"$STORAGE_DIR/index_mymusic.editor\"" >> $WORKDIR/tmp_index_exec
+	chmod 722 $WORKDIR/tmp_index_exec
+	$WORKDIR/tmp_index_exec
+	echo true > $WORKDIR/UPDATE_INDEX #update gui
+	;;
+
+-initialize_gui)
+	LC_ALL=C grep -caiE "$AUDIO_FORMATS2" "$STORAGE_DIR/index_mymusic" > $WORKDIR/index_count_songs
+	LC_ALL=C grep -caiE "\.pmu|\.m3u|\.pls" "$STORAGE_DIR/index_mymusic" > $WORKDIR/index_count_collections
+	echo true > $WORKDIR/UPDATE_INDEX #update gui
+	;;
+
+-msg_quick_update)
+	#if scan already is running, exit
+	read TMP < $WORKDIR/maingui_notebook_page
+	[ "$TMP" = "2" ] && exit
+	echo 2 > $WORKDIR/maingui_notebook_page
+	echo true > $WORKDIR/UPDATE_GUI
+	#---
+	for I in 1 2 3 4 5 6; do #in case gui is not running --> wait before setting the <notebook> page.
+		[ ! -f $WORKDIR/gui_is_running ] && sleep 1
+	done
+	cp -f "$APPDIR/themes/$THEME/info.svg" $WORKDIR/albumart.jpg
+	echo true > $WORKDIR/UPDATE_GUI
+	echo 2 > $WORKDIR/maingui_notebook_page #yes, we need to ensure value is 2 after gui is loaded
+	#---
+	$APPDIR/func_index -quick_update "$2"
+	#reset gui
+	echo 0 > $WORKDIR/maingui_notebook_page
+	[ -f $HOME/.pmusic/nowplaying_albumart.jpg ] && cp -f $HOME/.pmusic/nowplaying_albumart.jpg $WORKDIR/albumart.jpg || cp -f "$APPDIR/themes/$THEME/album_art.svg" $WORKDIR/albumart.jpg
+	sleep 1 #ensure update with speedy indexing
+	echo true > $WORKDIR/UPDATE_GUI
+	;;
+
+-quick_update)
+	#if $2 --> specific source is asked to be scanned
+	case $2 in
+		"$STORAGE_DIR/pmu/"*) #pMusic generated album list
+			ARTIST=${2##*/}; ARTIST=${ARTIST% - *}
+			ALBUM=${2##*/}; ALBUM=${ALBUM#* - }; ALBUM=${ALBUM%.*}
+			echo "$2|$ARTIST||$ALBUM||||||||||$2|gtk-audio||||||" > $WORKDIR/index_tmp
+			;;
+		/*)
+			find "$2" -printf "%p|%f|||||||0|||||%p|gtk-audio||||||\n" | grep -iaE "$AUDIO_FORMATS2|\.pmu\||\.m3u\||\.pls\|" > $WORKDIR/index_tmp
+			;;
+		*) #global scan
+			echo -n > $WORKDIR/index_tmp
+			while read I; do
+				[ ! -d "$I" ] && continue
+				nice -n 18 find -P "$I" -path '/initrd' -prune -o -printf "%p|%f|||||||0|||||%p|gtk-audio||||||\n" 2>> $STDERR | grep -iaE "$AUDIO_FORMATS2|\.pmu\||\.m3u\||\.pls\|" >> $WORKDIR/index_tmp
+			done < "$STORAGE_DIR/index_directories"
+			;;
+	esac
+	#change icon and remove rating for playlists
+	grep -iaE "\.pmu\||\.m3u\||\.pls\|" $WORKDIR/index_tmp | sed -e 's/|0|/||/g' -e 's/gtk-audio/gtk-audio_playlist/g' > $WORKDIR/index_tmp2
+	( flock -e 200
+		#build new db
+		#merge double additions, keep old entry if exists, full set of trackinfo already in db
+		#but for playlists we override existing (no extended info) since it will update icons from a pmusic-3 db
+		cat "$STORAGE_DIR/index_mymusic" $WORKDIR/index_tmp2 $WORKDIR/index_tmp | LANG=C awk -F'|' '!a[$1]++' > $WORKDIR/index_tmp3 #Don't sort db. Used tracks will always be most reachable - Overview rating
+		#remove streamripper incomplete files and podcasts
+		grep -vaF '/incomplete/' $WORKDIR/index_tmp3 | grep -vaF "$STORAGE_DIR/podcasts/" > "$STORAGE_DIR"/index_mymusic
+	) 200>$WORKDIR/mymusic_db.lockfile
+	;;
+
+-update_index)
+	[[ "$*" != *not_empty* ]] && echo > "$STORAGE_DIR"/index_mymusic.editor #we start the gui with empty file for speed
+	echo | tee $WORKDIR/index_count_songs $WORKDIR/index_count_collections $WORKDIR/index_splashtext
+	echo 0 > $WORKDIR/index_splash
+	echo false > $WORKDIR/UPDATE_INDEX
+	[[ "$*" = *editor* ]]				&& PAGE_NR=1 || PAGE_NR=0
+	[[ "$*" = *use_meta* ]]				&& CHK_USE_META='<default>true</default>'
+	[[ "$*" = *update_playlists* ]]		&& CHK_UPDATE_PLAYLISTS='<default>true</default>'
+	[[ "$*" = *remove_non_existing* ]]	&& CHK_REMOVE_NON_EXISTING='<default>true</default>'
+	
+	$APPDIR/func_svg -heading "$(gettext 'My music Database')" > /dev/null
+	template2 -third
+	S='
+<window title="pMusic - '$(gettext 'My Music Database')'" icon-name="pmusic">
+ <vbox>
+  <vbox space-expand="false" space-fill="false">
+   <hbox spacing="0" height="80" scrollable="true" space-expand="true" space-fill="true" vscrollbar-policy="2" hscrollbar-policy="2">
+    <eventbox name="svgheading">
+     <hbox space-expand="true" space-fill="true">
+      <text width-request="20" space-expand="false" space-fill="false"><label>""</label></text>
+      <text ypad="55" use-markup="true" wrap="false" space-expand="false" space-fill="false"><label>"<i><b>'$(gettext 'My Music')'</b> '$(gettext 'is a database of music on your system')'</i>"</label></text>
+      <text space-expand="true" space-fill="true"><label>""</label></text>
+      <hbox spacing="0" space-expand="false" space-fill="false">
+       <vbox>
+        <button relief="2" can-focus="false" tooltip-text="'$(gettext 'Backup database (text file)')'" space-expand="false" space-fill="false">
+         <input file stock="gtk-save"></input>
+         <action>backup_db</action>
+        </button>
+        <text space-expand="true" space-fill="true"><label>""</label></text>
+       </vbox>
+       <vbox>
+        <button relief="2" can-focus="false" space-expand="false" space-fill="false">
+         <input file stock="gtk-help"></input>
+         <action>'$0' -help</action>
+        </button>
+        <text space-expand="true" space-fill="true"><label>""</label></text>
+       </vbox>
+      </hbox>
+     </hbox>
+    </eventbox>
+   </hbox>
+  </vbox> 
+ 
+  <notebook page="'$PAGE_NR'" tab-labels="'$(gettext 'Indexer')'|'$(gettext 'Editor')'" space-expand="true" space-fill="true">
+   <vbox>
+    <hbox>
+     <pixmap icon_size="6"><input file stock="gtk-dialog-info"></input></pixmap>
+     <text use-markup="true" space-expand="false" space-fill="false"><label>"'$(gettext 'During use, pMusic stores info of tracks like ID3-tags, lyrics, albumart, ... If you want more info in place at once, you can scan your collection right now. See help.')'"</label></text>
+     <text space-expand="true" space-fill="true"><label>""</label></text>
+    </hbox>
+    <vbox space-expand="true" space-fill="true">
+     <frame '$(gettext 'Where to look for your music')'>
+      <hbox space-expand="true" space-fill="true">
+       <vbox space-expand="true" space-fill="true">
+        <tree headers_visible="false" space-expand="true" space-fill="true">
+         <label>a</label>
+         <variable>SOURCE_SOURCE</variable>
+         <input>cat "'$STORAGE_DIR'"/index_directories</input>
+         <width>250</width><height>100</height>
+         <action signal="button-release-event">enable:BUTTON_REMOVE</action>
+        </tree>
+       </vbox>
+       <vbox space-expand="false" space-fill="false">
+        <button space-expand="false" space-fill="false">
+         <input file stock="gtk-add"></input>
+         <action>. '$APPDIR'/func_index -add_to_indexlist</action>
+         <action>refresh:SOURCE_SOURCE</action>
+        </button>
+        <button space-expand="false" space-fill="false">
+         <variable>BUTTON_REMOVE</variable>
+         <visible>disabled</visible>
+         <input file stock="gtk-remove"></input>
+         <action>. '$APPDIR'/func_index -remove_from_indexlist</action>
+         <action>refresh:SOURCE_SOURCE</action>
+        </button>
+       </vbox>
+      </hbox>
+     </frame>
+     <vbox space-expand="false" space-fill="false">
+      <frame '$(gettext 'Options')'>
+       <checkbox>
+        <label>'$(gettext 'Add meta-info to database')'</label>
+        <variable>USE_META</variable>
+        '$CHK_USE_META'
+       </checkbox>
+       <expander>
+        <vbox>
+        <checkbox>
+         <label>'$(gettext 'Full scan')'</label>
+         <variable>FULL_SCAN</variable>
+         <action>if true enable:LYRICS_LOCAL</action>
+         <action>if true enable:ALBUMART_LOCAL</action>
+         <action>if true enable:PMU_LOCAL</action>
+         <action>if false disable:LYRICS_LOCAL</action>
+         <action>if false disable:ALBUMART_LOCAL</action>
+         <action>if false disable:PMU_LOCAL</action>
+        </checkbox>
+
+        <vbox space-expand="false" space-fill="false">
+         <hbox space-expand="true" space-fill="true">
+          <text space-expand="false" space-fill="false"><label>"  "</label></text>
+          <vbox>
+           <checkbox space-expand="true" space-fill="true">
+            <variable>LYRICS_LOCAL</variable>
+            <default>true</default>
+            <sensitive>false</sensitive>
+            <label>'$(gettext 'Download Lyrics')'</label>
+           </checkbox>
+           <checkbox space-expand="true" space-fill="true">
+            <variable>ALBUMART_LOCAL</variable>
+            <default>true</default>
+            <sensitive>false</sensitive>
+            <label>'$(gettext 'Download Album artwork')'</label>
+           </checkbox>
+           <checkbox space-expand="true" space-fill="true">
+            <variable>PMU_LOCAL</variable>
+            <default>true</default>
+            <label>'$(gettext 'Build Album list')'</label>
+            <sensitive>false</sensitive>
+           </checkbox>
+          </vbox>
+         </hbox>
+        </vbox>
+
+        <text><label>""</label></text>
+        <checkbox>
+         <label>'$(gettext 'Update sources in Album/Favorites lists')'</label>
+         <variable>UPDATE_PLAYLISTS</variable>
+         '$CHK_UPDATE_PLAYLISTS'
+        </checkbox>
+       <checkbox>
+        <label>'$(gettext 'Remove entries in database pointing to non-existing files')'</label>
+        <variable>REMOVE_NON_EXISTING</variable>
+        '$CHK_REMOVE_NON_EXISTING'
+       </checkbox>
+        </vbox>
+        <label>'$(gettext 'Deeper scan - slow options')'</label>
+       </expander>
+      </frame>
+     </vbox> 
+     <variable>VBOX1</variable>
+    </vbox>
+    <hbox space-expand="false" space-fill="false">
+     <text use-markup="true"><label>"<b>'$(gettext 'Tracks')' : </b>"</label></text>
+     <text><variable>COUNT_SONGS</variable><input>echo -n $(cat '$WORKDIR'/index_count_songs)</input></text> ##echo -n corrects vertical alignment
+     <text use-markup="true"><label>"<b>'$(gettext 'Collections')' : </b>"</label></text>
+     <text><variable>COUNT_COLLECTIONS</variable><input>echo -n $(cat '$WORKDIR'/index_count_collections)</input></text>
+    </hbox>
+    <hbox space-expand="false" space-fill="false">
+     <progressbar space-expand="true" space-fill="true">
+      <variable>INDEX_PROGRESS</variable>
+      <input>while [ "$I" != "100" ]; do I=`cat '$WORKDIR'/index_splash`; echo $I; cat '$WORKDIR'/index_splashtext;  sleep 1; done</input>
+      <action type="exit">cancel</action>
+     </progressbar>
+     <button space-expand="false" space-fill="false">
+      <input file stock="gtk-cancel"></input>
+      <label>'$(gettext 'Cancel')'</label>
+      <action>echo cancel > '$WORKDIR'/update_index_cancel</action>
+      <action type="exit">cancel</action>
+     </button>
+     <button can-default="true" has-default="true" use-stock="true" space-expand="false" space-fill="false">
+      <variable>BUTTON_START</variable>
+      <input file stock="gtk-apply"></input>
+      <label>'$(gettext 'Start indexing')'</label>
+      <action>disable:VBOX1</action>
+      <action>disable:BUTTON_START</action>
+      <action>'$APPDIR'/func_index -build_index &</action>
+     </button>
+    </hbox>
+   </vbox>
+
+   <vbox>
+    <hbox  homogeneous="true" space-expand="true" space-fill="true">
+     <vbox space-expand="true" space-fill="true">
+      <hbox space-expand="false" space-fill="false">
+       <button space-expand="false" space-fill="false">
+##      <input file stock="gtk-go-down"></input>
+##      <label>'$(gettext 'Show database')'</label>
+##      <action>cut -d"|" -f 2,3,4,14,15 "'$STORAGE_DIR'"/index_mymusic > "'$STORAGE_DIR'"/index_mymusic.editor</action>
+##      <action>clear:DB</action>
+##      <action>refresh:DB</action>
+        <input file stock="gtk-edit"></input>
+        <action>'$TEXT_EDITOR' "'$STORAGE_DIR'"/index_mymusic &</action>
+       </button>
+       <entry name="search" height-request="30" activates-default="true" is-focus="true" secondary-icon-stock="gtk-find" space-expand="true" space-fill="true">
+        <variable>SEARCH_DB</variable>
+        <default>"'$(gettext 'Search database')'"</default>
+        <action signal="activate">'$APPDIR'/func_index -search_db "$SEARCH_DB"</action>
+        <action signal="activate">refresh:DB</action>
+        <action signal="secondary-icon-release">'$APPDIR'/func_index -search_db "$SEARCH_DB"</action>
+        <action signal="secondary-icon-release">refresh:DB</action>
+        <action condition="command_is_true([[ `echo \"$SEARCH_DB\" | grep -F \"'$(gettext 'Search database')'\"` ]] && echo true)" signal="enter-notify-event">clear:SEARCH_DB</action>
+       </entry>
+
+      </hbox>
+      <vbox space-expand="true" space-fill="true">
+       <tree exported_column="3" column-visible="true|true|true|false|true" space-expand="true" space-fill="true">
+        <label>"'$(gettext 'Artist / Filename')'|'$(gettext 'Title')'|'$(gettext 'Album')'||"</label>
+        <variable>DB</variable>
+        <input file stock-column="4">"'$STORAGE_DIR'/index_mymusic.editor"</input>
+        <action signal="button-release-event">grep -F "$DB" "'$STORAGE_DIR'/index_mymusic" > '$WORKDIR'/tmp_index</action>
+        '"$(template2 -first)"'
+##      <action>pmusic -a "$DB" &</action>
+       </tree>    
+      </vbox>
+     </vbox>
+
+     <vbox space-expand="true" space-fill="true">
+      <hbox space-expand="false" space-fill="false">
+       <button space-expand="false" space-fill="false">
+        <label>'$(gettext 'Delete database item')'</label>
+        <input file stock="gtk-delete"></input>
+        <action>delete_db</action>
+        '"$(template2 -fourth)"'
+       </button>
+       <button space-expand="false" space-fill="false">
+        <label>'$(gettext 'Save changes')'</label>
+        <input file stock="gtk-save"></input>
+        <action>save_db</action>
+       </button>
+      </hbox>
+
+      <hbox space-expand="true" space-fill="true">
+       <vbox scrollable="true">
+        '"$(template)"'
+       </vbox>
+      </hbox>
+     </vbox>
+    </hbox>
+   </vbox>
+
+  </notebook>
+  <checkbox visible="false" file-monitor="true" auto-refresh="true">
+   <variable>UPDATE_INDEX</variable>
+   <input file>'$WORKDIR'/UPDATE_INDEX</input>
+   <action>if true clear:DB</action>
+   <action>if true refresh:DB</action>
+   <action>if true refresh:COUNT_SONGS</action>
+   <action>if true refresh:COUNT_COLLECTIONS</action>
+   <action>if true echo false > '$WORKDIR'/UPDATE_INDEX</action>
+  </checkbox>
+ </vbox>
+ <action signal="show">'$APPDIR'/func_index -initialize_gui &</action>
+ <action signal="delete-event">echo cancel > '$WORKDIR'/update_index_cancel</action>
+</window>'
+
+	echo "$S" | sed 's/##.*//' > $WORKDIR/xml_pmusic_mymusic #I use double hash (##) for comments. --> as #FF0000
+	[ $TOOLTIPS = false ] && sed -i 's%tooltip-%tooltipXXX%g' $WORKDIR/xml_pmusic_mymusic
+	. $APPDIR/func -reset_gtk
+	I=$IFS; IFS=""
+	for STATEMENTS in  $($GTKDIALOG -f $WORKDIR/xml_pmusic_mymusic); do
+		eval $STATEMENTS
+	done
+	IFS=$I
+	echo 100 > $WORKDIR/index_splash #end loop
+	if [ "$EXIT" = "cancel" ]; then
+		TMP="`LC_ALL=C ps -eo pid,command`"
+		for I in `LC_ALL=C grep update_index <<< "$TMP" | awk '{print $1}'`; do kill -9 $I; done
+		for I in `LC_ALL=C grep func_index <<< "$TMP" | awk '{print $1}'`; do kill -9 $I; done
+	fi
+	;;
+
+-add_to_indexlist)
+	TITLE="- $(gettext 'Index music directory')"; MODE=2; . $APPDIR/box_chooser
+	[ "$EXIT" = "OK" ] && echo "$CHOOSER" >> "$STORAGE_DIR/index_directories"
+	;;
+
+-remove_from_indexlist)
+	grep -vx "$SOURCE_SOURCE" "$STORAGE_DIR/index_directories" > $WORKDIR/tmp
+	mv -f $WORKDIR/tmp "$STORAGE_DIR/index_directories"
+	;;
+
+-build_index)
+	rm $WORKDIR/update_index_cancel
+	COUNT=0
+	echo -n > $WORKDIR/index_mymusic
+	[ -s "$STORAGE_DIR/index_mymusic" ] && cp -f "$STORAGE_DIR/index_mymusic" $WORKDIR/index_mymusic #we don't want to work directly on index file since this process will take time and can be canceled
+	if  [[ $USE_META = true || $FULL_SCAN = true ]]; then #change name from filename to metatag artist - title
+		gettext 'Indexing files' > $WORKDIR/index_splashtext
+		#find both changed files and new added files
+		echo -n > $WORKDIR/index_new
+		while read I; do
+			find "$I" -printf "%p\n" | grep -iaE "$AUDIO_FORMATS|\.pmu$|\.m3u$|\.pls$" >> $WORKDIR/index_new
+		done < "$STORAGE_DIR/index_directories"
+		#check meta tag. file by file
+		DB_NEW=$WORKDIR/tmp_index_mymusic_new
+		echo -n > $DB_NEW
+		while read I; do
+			#meta-info
+			$APPDIR/func_id3io "$I" -read $WORKDIR/index_mymusic $DB_NEW
+			#update progress bar
+			COUNT=$(($COUNT+1))
+			echo "$(gettext 'Indexing files'): $COUNT" > $WORKDIR/index_splashtext
+			[ -s $WORKDIR/update_index_cancel ] && exit
+		done < $WORKDIR/index_new
+		( flock -e 202
+			cat $DB_NEW >> $WORKDIR/mymusic_stack
+		) 202>$WORKDIR/mymusic_stack.lockfile 
+		$APPDIR/func_index -merge_stack
+		
+		#full scan
+		if [[ $FULL_SCAN = true ]]; then
+			COUNT=0
+			#update download values
+			$APPDIR/func_config -write_config
+			while read I; do
+				#full scan
+				$APPDIR/func_trackinfo "$I" -index
+				#update progress bar
+				COUNT=$(($COUNT+1))
+				echo "$(gettext 'Full scan'): $COUNT" > $WORKDIR/index_splashtext
+				[ -s $WORKDIR/update_index_cancel ] && exit
+			done < $WORKDIR/index_new
+			$APPDIR/func_index -merge_stack
+		fi
+		#---
+
+	else #only use filenames in add-list
+		$APPDIR/func_index -quick_update
+	fi
+
+	cp -f "$STORAGE_DIR/index_mymusic" $WORKDIR/index_mymusic #index is updated and we need to reload
+	#fix %20 and _ to spaces in id3-tags (column 2-8)
+	gettext 'Improving syntax' > $WORKDIR/index_splashtext
+	cut -d'|' -f1 $WORKDIR/index_mymusic > $WORKDIR/index_tmp0
+	cut -d'|' -f2-8 $WORKDIR/index_mymusic > $WORKDIR/index_tmp1
+	cut -d'|' -f9- $WORKDIR/index_mymusic > $WORKDIR/index_tmp
+	cat $WORKDIR/index_tmp1 | tr '_' ' ' | sed 's/%20/ /g' > $WORKDIR/index_tmp2
+	paste -d'|' $WORKDIR/index_tmp0 $WORKDIR/index_tmp2 $WORKDIR/index_tmp > $WORKDIR/index_mymusic
+
+	#remove non-existing files
+	if [ $REMOVE_NON_EXISTING = true ]; then
+		TXT="$(gettext 'Checking for non-existing files')"
+		echo -n > $WORKDIR/index_tmp
+		COUNT=0
+		while read I; do
+			IFS='|' read TMP C <<< "$I"
+			[ -f "$TMP" ] && echo "$I" >> $WORKDIR/index_tmp
+			#update progress bar
+			COUNT=$(($COUNT+1))
+			echo "$TXT: $COUNT" > $WORKDIR/index_splashtext
+			[ -s $WORKDIR/update_index_cancel ] && exit
+		done < $WORKDIR/index_mymusic
+		mv $WORKDIR/index_tmp $WORKDIR/index_mymusic
+	fi
+
+	#remove streamripper incomplete files, podcast files and duplicated lines
+#	grep -vF '/incomplete/' $WORKDIR/index_mymusic | sort -ust'|' -k1,1 | sort -rnt'|' -k21,21 --output=$WORKDIR/index_mymusic2
+	grep -vaF '/incomplete/' $WORKDIR/index_mymusic | grep -vaF "$STORAGE_DIR/podcasts/" | LANG=C awk -F'|' '!a[$1]++' > $WORKDIR/index_mymusic2
+
+	#reset
+	( flock -e 200
+		mv -f "$STORAGE_DIR"/index_mymusic "$STORAGE_DIR"/index_mymusic.bak
+		mv $WORKDIR/index_mymusic2 "$STORAGE_DIR"/index_mymusic
+	) 200>$WORKDIR/mymusic_db.lockfile 
+
+	#update playlists
+	[ $UPDATE_PLAYLISTS = true ] && . $APPDIR/func_index -update_playlists
+
+	#cleanup
+	echo 100 > $WORKDIR/index_splash
+	$APPDIR/func -index_songs
+	sleep 1 #wait for progressbar to detect 'echo 100'
+	rm $WORKDIR/index_*
+	;;
+
+-update_pmu) #we keep this in a standalone function to be used by -check_playlist in ./func
+	PMU="$2"
+	echo -n > $WORKDIR/tmp_check_pmu
+	while read I; do
+		IFS='|' read TMP LENGTH NAME ADR ADR_ID <<< "$I"
+		#if path is valid, go to next
+		if [ -s "$ADR" ]; then
+			echo "$I" >> $WORKDIR/tmp_check_pmu
+			continue
+		fi
+		#---
+		ARTIST=${NAME%% - *}
+		TITLE=${NAME#* - }
+		TITLE2=${TITLE%% (*}; TITLE2=${TITLE2%%(*} #remove info in ()
+		IFS='|' read ADR_NEW ARTIST_ TITLE_ ALBUM NR YEAR GENRE COMMENT RATING FORMAT BITRATE LENGTH TMP <<< "`grep -iF "|${TITLE2}" "$STORAGE_DIR/index_mymusic" | grep -vF "${ADR}|" | grep -Fi "|${ARTIST}|" | cut -d'|' -f1 | grep -iEm1 "$AUDIO_FORMATS"`"
+		if [[ -f "$ADR_NEW" && ! "$LENGTH" ]]; then
+			ffmpeg -i "$ADR_NEW" > $WORKDIR/tmp_check_pmu_ffmpeg 2>&1
+			LENGTH="`grep -wm1 "Duration:" $WORKDIR/tmp_check_pmu_ffmpeg | cut -d. -f1 | awk -F':' '{print $3":"$4}'`"
+			ADR="$ADR_NEW"
+		else
+			LENGTH='' #if no file found, length should be detected next time
+			ADR=''
+		fi
+		echo "|$LENGTH|$ARTIST - $TITLE|$ADR|`date +%s%N` $ADR" >> $WORKDIR/tmp_check_pmu
+	done < "$PMU"
+	mv -f $WORKDIR/tmp_check_pmu "$PMU" #save
+	;;
+	
+-update_pmd) #we keep this in a standalone function to be used by -check_playlist in ./func
+	PMD="$2"
+	echo -n > $WORKDIR/tmp_check_pmd
+	while read I; do
+		IFS='|' read ADR ARTIST TITLE TMP <<< "$I"
+		[ ! "$TITLE" ] && TITLE=${ARTIST#* - }; TITLE=${TITLE%.*} #Artist holds basename if no tag detecte
+		TITLE2=${TITLE%% (*}; TITLE2=${TITLE2%%(*} #remove info in ()
+		ARTIST=${ARTIST##*/}; ARTIST=${ARTIST%% - *} #Artist holds basename if no tag detecte
+		#if path is valid, go to next
+		if [ -s "$ADR" ]; then
+			echo "$I" >> $WORKDIR/tmp_check_pmd
+			continue
+		fi
+		#---
+		ADR_NEW="`grep -iF "|${ARTIST}|" $STORAGE_DIR/index_mymusic | grep -vF "${ADR}|" | grep -iF "|$TITLE2" | grep -iEm1 "$AUDIO_FORMATS2"`"
+		if [ "$ADR_NEW" ]; then
+			echo "${ADR_NEW}" >> $WORKDIR/tmp_check_pmd
+		else
+			echo "$ADR|${ARTIST} - ${TITLE}||||||||||||$ADR|gtk-audio_missing" >> $WORKDIR/tmp_check_pmd
+		fi
+	done < "$PMD"
+	mv -f $WORKDIR/tmp_check_pmd "$PMD" #save
+	;;
+
+-update_playlists)
+	#PMU
+	find "$STORAGE_DIR/pmu" -type f -printf "%p\n" > $WORKDIR/tmp_check_playlist
+	gettext 'Update Album lists' > $WORKDIR/index_splashtext
+	COUNT_PMU=0
+	while read PMU; do   
+		$0 -update_pmu "$PMU"
+		#update progress bar
+		COUNT_PMU=$(($COUNT_PMU+1))
+		echo "$(gettext 'Update Album lists'): $COUNT_PMU" > $WORKDIR/index_splashtext
+		[ -s $WORKDIR/update_index_cancel ] && exit
+	done < $WORKDIR/tmp_check_playlist
+
+	#PMD
+	find "$STORAGE_DIR/favorite_lists" -type f -printf "%p\n" > $WORKDIR/tmp_check_playlist
+	gettext 'Update Favorites lists' > $WORKDIR/index_splashtext
+	COUNT_PMD=0
+	while read PMD; do  
+		$0 -update_pmd "$PMD"
+		#update progress bar
+		COUNT_PMD=$(($COUNT_PMD+1))
+		echo "$(gettext 'Update Favorites lists'): $COUNT_PMD" > $WORKDIR/index_splashtext
+		[ -s $WORKDIR/update_index_cancel ] && exit
+	done < $WORKDIR/tmp_check_playlist
+	;;
+
+-merge_stack_pre)
+	[ "`LC_ALL=C grep -cF merge_stack_pre <<< "$(ps -eo pid,s,command)"`" -gt 4 ] && exit #if we already are waiting, exit (why -gt 4 ???)
+	sleep 7 #wait for trackinfo before merging (call from func_player -next)
+	$APPDIR/func_index -merge_stack
+	;;
+
+-merge_stack)
+	#sort and merge columns from same file in /mymusic_stack
+	#then add content to db
+	[ ! -s $WORKDIR/mymusic_stack ] && exit
+	echo -n > $WORKDIR/merge
+	( flock -e 202
+		while read I; do
+			[[ "$I" != *'|'* ]] && continue
+			IFS='|' read A1 B1 C1 D1 E1 F1 G1 H1 I1 J1 K1 L1 M1 N1 O1 P1 Q1 R1 S1 T1 U1 <<< "$I"
+			#compare with DB or temporary merge-file 
+			if [ "`grep -F "$A1" $WORKDIR/merge`" ]; then
+				IFS='|' read A2 B2 C2 D2 E2 F2 G2 H2 I2 J2 K2 L2 M2 N2 O2 P2 Q2 R2 S2 T2 U2 <<< "`grep -Fm1 "$A1" $WORKDIR/merge`"
+			else
+				IFS='|' read A2 B2 C2 D2 E2 F2 G2 H2 I2 J2 K2 L2 M2 N2 O2 P2 Q2 R2 S2 T2 U2 <<< "`grep -Fam1 "$A1" "$STORAGE_DIR/index_mymusic"`"
+			fi
+			#remove existing item
+			grep -Fav "$A1" $WORKDIR/merge > $WORKDIR/merge2
+			mv -f $WORKDIR/merge2 $WORKDIR/merge
+			#include new info from stack if exist
+			II="${A1}"
+			II="${II}|${B1}|${C1}|${D1}|${E1}|${F1}|${G1}|${H1}" #id3 tags. merge even if user has cleared them
+			II="${II}|" #rating should be null - depending on column 21
+			[ "${J1}" ] && II="${II}|${J1}" || II="${II}|${J2}"
+			[ "${K1}" ] && II="${II}|${K1}" || II="${II}|${K2}"
+			[ "${L1}" ] && II="${II}|${L1}" || II="${II}|${L2}"
+			[ "${M1}" ] && II="${II}|${M1}" || II="${II}|${M2}"
+			[ "${N1}" ] && II="${II}|${N1}" || II="${II}|${N2}"
+			[ "${O1}" ] && II="${II}|${O1}" || II="${II}|${O2}"
+			[ "${P1}" ] && II="${II}|${P1}" || II="${II}|${P2}"
+			[ "${Q1}" ] && II="${II}|${Q1}" || II="${II}|${Q2}"
+			[ "${R1}" ] && II="${II}|${R1}" || II="${II}|${R2}"
+			[ "${S1}" ] && II="${II}|${S1}" || II="${II}|${S2}"
+			II="${II}|" #T is not in use
+			[ "${U1}" ] && II="${II}|${U1}" || II="${II}|${U2}"
+			#make sure the most recent info comes first in file
+			mv -f $WORKDIR/merge $WORKDIR/merge2
+			echo "$II" > $WORKDIR/merge
+			cat $WORKDIR/merge2 >> $WORKDIR/merge
+			#---
+		done < $WORKDIR/mymusic_stack
+		echo -n > $WORKDIR/mymusic_stack
+	) 202>$WORKDIR/mymusic_stack.lockfile
+
+	#remove files in db that is added from stack
+	( flock -e 200
+		cat $WORKDIR/merge "$STORAGE_DIR/index_mymusic" | LANG=C awk -F'|' '!a[$1]++' > "$STORAGE_DIR/index_mymusic.tmp"
+		mv -f "$STORAGE_DIR/index_mymusic.tmp" "$STORAGE_DIR/index_mymusic"
+	) 200>$WORKDIR/mymusic_db.lockfile
+	;;
+-help)
+	HEADING="$(gettext 'My Music Database')"
+	IMG='info'
+	FRAME="$(gettext 'info')"
+	TXT1="<b>$(gettext 'Editor')</b>
+$(gettext 'Note that editing items in the database will NOT affect your audio files (ie. ID3-tags)')
+
+<b>$(gettext 'Indexer')</b>
+$(gettext 'if the switch <i>Add meta-info</i> is activated, the indexer checks the file itself for extended info like tags (ID3) and stream-info (samplerate, format...). 
+
+A <i>full scan</i> searches for related info on the web and your local system. This is a <u>much slower</u> process. In addition, it also tries to detect the tempo (bpm) of the song. The <i>full scan</i> corresponds to what you see in the <i>Track info</i> window, and scans for all possible info.
+
+The database file is found at:')
+$STORAGE_DIR/index_mymusic"
+	. $APPDIR/box_ok &
+	;;
+esac
+

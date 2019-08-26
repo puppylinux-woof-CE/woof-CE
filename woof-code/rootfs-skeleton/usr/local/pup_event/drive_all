@@ -1,0 +1,182 @@
+#!/bin/bash
+
+#this script is launched by pup_event_frontend_d when the icon is first created. also,
+#this script is launched when user clicks on deskop icon (former is configurable,
+# see /usr/sbin/eventmanager.
+#passed param is category of drive: card, floppy, optical, usbdrv, drive.
+
+#v403 icon menu, can call with 'unmount', 'eventmanager' and 'pmount_<DRV_CATEGORY>' params.
+#110720 should not open a layer inside aufs, ex: session saved entire partition, desktop drive icon is /initrd/pup_rw.
+#110721 detect if have clicked on a close-box of mounted partition.
+#120110 running as finn, popup password box changes mouse pointer position, need read before run sudo.
+#120516 frontend_change may call here when a drive plugged in, fix handling of automounting.
+
+#exec &> /tmp/drive_all.log ; set -x #debug
+
+export LANG	# need to restart pmount with correct locale
+export TEXTDOMAIN=drive_all
+export OUTPUT_CHARSET=UTF-8
+
+[ "`whoami`" != "root" ] && exec sudo -A ${0} ${@} #110505
+
+ONEDRVNAME="$1" # /tmp/pup_event_frontend/drive_<ONEDRVNAME>/AppRun
+PARAM1="$2"
+FSTYPE="$3"
+
+if [ -f /usr/local/pup_event/frontend_rox_funcs ] ; then
+	. /usr/local/pup_event/frontend_rox_funcs "" 2>/dev/null
+	rox_desktop_icon_clicked "$1" "$2" "$3"
+	# it might exit
+fi
+
+#===========================================================================
+
+DRV_CATEGORY="${PARAM1}"
+[ "$DRV_CATEGORY" = "" ] && DRV_CATEGORY="drive" #precaution.
+[ "$DRV_CATEGORY" = "all" ] && DRV_CATEGORY="drive" #precaution.
+
+. /etc/eventmanager
+. /etc/rc.d/functions_x
+
+#oh, now have to analyse the media, decide what app to run...
+
+cdrom_id_has() {
+	while read i ; do
+		case $i in *"$1"*) return 0 ;; esac
+	done <<EOF
+$cdrom_id
+EOF
+	return 1
+}
+
+optical_func() {
+	mount | grep "^/dev/${ONEDRVNAME} " && return #already mounted
+	#--
+	cdrom_id="$(/lib/udev/cdrom_id /dev/${ONEDRVNAME})" #ID_CDROM_* variables
+	eval "$cdrom_id" #debug
+	#--
+	# cd audio
+	if [ "$ID_CDROM_MEDIA_TRACK_COUNT_AUDIO" ] ; then
+		echo "/dev/${ONEDRVNAME}: Audio CD (most likely)"
+		/usr/lib/gtkdialog/box_yesno --yes-first --ok-cancel --image-icon cd_audio.svg --yes-label "Play" --yes-icon cd_audio.svg \
+		"Audio CD detected..." "An audio CD has been detected. Do you want to play it?"
+		case $? in
+			0) ln -snf /dev/${ONEDRVNAME} /dev/cdrom ; exec defaultcdplayer cdda:// ;;
+			*) exit 1 ;; #close/cancel
+		esac
+		exit 1
+	fi
+
+	# blank disc
+	if [ "$ID_CDROM_MEDIA_STATE" = "blank" ] ; then
+		TTL="Blank Disc"
+		cdrom_id_has 'ID_CDROM_MEDIA_CD' && TTL="Blank CD"
+		cdrom_id_has 'ID_CDROM_MEDIA_DVD' && TTL="Blank DVD"
+		/usr/lib/gtkdialog/box_yesno --yes-first --ok-cancel --image-icon cdrom.svg --yes-label "Run CD Burner" \
+			--yes-icon cdrom.svg "$TTL" "The disk in /dev/${ONEDRVNAME} is blank..."
+		[ $? -eq 0 ] && exec defaultcdrecorder /dev/${ONEDRVNAME}
+		exit
+	fi
+
+	# video dvd? ID_CDROM_MEDIA_DVD*
+	if cdrom_id_has 'ID_CDROM_MEDIA_DVD' ; then
+		# mount and look for 'video_ts' directory (dir should contain file video_ts.ifo)...
+		OPTICALMOUNTED="true" #don't try to mount the drive afterwards
+		echo "Trying to mount /dev/${ONEDRVNAME}"
+		mkdir -p /mnt/${ONEDRVNAME}
+		mount -t udf /dev/${ONEDRVNAME} /mnt/${ONEDRVNAME} || mount -t iso9660 /dev/${ONEDRVNAME} /mnt/${ONEDRVNAME}
+		RETVALX=$?
+		[ ${RETVALX} -ne 0 ] && return
+		if [ -d /mnt/${ONEDRVNAME}/video_ts -o -d /mnt/${ONEDRVNAME}/VIDEO_TS ] ; then
+			/usr/lib/gtkdialog/box_yesno --yes-first --ok-cancel --image-icon video.svg --yes-label "Play" --yes-icon cdrom.svg --extra-button Mount \
+			"Video DVD detected..." "This seems to be a Video DVD, do you want to play it?"
+			case $? in
+				0) #play
+					umount /mnt/${ONEDRVNAME} ; echo "/dev/${ONEDRVNAME}: Video DVD detected"
+					ln -snf /dev/${ONEDRVNAME} /dev/dvd
+					exec defaultmediaplayer dvd://
+					;;
+				2) OPTICALMOUNTED="true" ;; #keep mounted
+				*) umount /mnt/${ONEDRVNAME} ; exit 1 ;;
+			esac
+		else
+			if [ "$FSTYPE" = "0" -o "$FRONTEND_CHANGE" ] ; then
+				umount /mnt/${ONEDRVNAME}
+			fi
+		fi
+	fi
+}
+
+if fx_drv_is_optical ${ONEDRVNAME} ; then
+	optical_func
+fi
+
+#FSTYPE=0 -> ICONDESK=true ICONPARTITIONS=false
+#exec pmount if called directly by FRONTEND_CHANGE
+if [ "$FSTYPE" = "0" -o "$FRONTEND_CHANGE" ] ; then
+	if [ "`pidof gtkdialog_pmount`" != "" ];then #if pmount running, kill it.
+		killall gtkdialog_pmount 2>/dev/null
+		sleep 0.1
+	fi
+	exec pmount $ONEDRVNAME
+fi
+
+#===========================================================================
+#if dropped down here, it is likely to be a data partition...
+
+#120516 pup_event_frontend_d may call here when a drive plugged in, but only passes one parameter (PARAM1). want FSTYPE also...
+xONEDRVNAME=${ONEDRVNAME}
+if [ "$FSTYPE" != "" ];then
+	xFSTYPE=${FSTYPE}
+else
+	xFSTYPE=$(probepart -m "${ONEDRVNAME}" | cut -f 2 -d '|')
+fi
+
+#if it is a mountable partition then mount and open with rox. If already mntd then open in rox...
+EXITFLAG=no
+if [ "$xFSTYPE" ] ; then
+	if [ "`df | grep "^/dev/${ONEDRVNAME} "`" = "" ];then
+		#not mounted...
+		mkdir -p /mnt/$xONEDRVNAME
+		case $xFSTYPE in
+		iso9660|udf)
+			if [ "$OPTICALMOUNTED" ] ; then
+				RETVAL1=${RETVALX}
+			else
+				mount -t udf /dev/$xONEDRVNAME /mnt/$xONEDRVNAME || mount -t iso9660 /dev/$xONEDRVNAME /mnt/$xONEDRVNAME
+				RETVAL1=$?
+			fi
+		;;
+		*)
+			mount -t $xFSTYPE /dev/$xONEDRVNAME /mnt/$xONEDRVNAME
+			RETVAL1=$?
+		;;
+		esac
+		if [ $RETVAL1 -eq 0 ];then
+			defaultfilemanager_x /mnt/$xONEDRVNAME &
+			EXITFLAG=yes
+		fi
+	else
+		#mounted...
+		MNTPT="`mount | grep -m1 "^/dev/${ONEDRVNAME} " | cut -f 3 -d ' '`"
+		if [ -h /mnt/home ];then
+			[ "`readlink /mnt/home`" = "$MNTPT" ] && MNTPT="/mnt/home"
+		fi
+		#110720 should not open a layer inside aufs, ex: session saved entire partition, desktop drive icon is /initrd/pup_rw...
+		case $MNTPT in /initrd/pup_*) MNTPT="/" ;; esac
+		defaultfilemanager_x $MNTPT &
+		EXITFLAG=yes
+	fi
+fi
+
+if [ "$EXITFLAG" = "yes" ] ; then
+	exit
+fi
+
+if [ "`pidof gtkdialog_pmount`" != "" ];then #if pmount running, kill it.
+	killall gtkdialog_pmount 2>/dev/null
+	sleep 0.1
+fi
+exec pmount $ONEDRVNAME
+
+### END ###

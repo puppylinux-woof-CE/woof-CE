@@ -1,4 +1,4 @@
-#!/bin/ash
+#!/bin/sh
 #2007 Lesser GPL licence v2 (http://www.fsf.org/licensing/licenses/lgpl.html)
 #Barry Kauler www.puppylinux.com
 #called from savepuppyd and rc.shutdown, to save tmpfs layer to permanent flash storage.
@@ -8,11 +8,9 @@
 #4 nov 2007: reintroduce '-u' copy option.
 #v4.01 19may2008 BK: now called from /sbin/pup_eventd daemon (savepuppyd now history).
 #v4.01 19may2008 BK: if called from pup_eventd then X running: graceful exit if X shutdown.
-#v409 BK: XRUNNING test should be 'pup_event_frontend_d'.
 #v409 BK: save /var dir. previously screened out to save space, but prevents crontab from running.
 #v412 /etc/DISTRO_SPECS, renamed pup_xxx.sfs, pup_save.2fs etc.
 #w000 pup files renamed to woofr555.sfs, woofsave.2fs.
-#w003 bug fix for .wh.__dir_opaque whiteout file.
 #w003 screened out some dirs in /dev that should not be saved.
 #v424 fix for more layers in unionfs/aufs.
 #100222 shinobar: possible timezone problem with BOOTCONFIG. more file exclusions.
@@ -21,7 +19,6 @@
 #100820 added /var/tmp exclusion (apparently filled by opera crashes).
 #101221 yaf-splash fix.
 #110206 Dougal: clean up some testing. speedup: LANG=C, also change to /bin/ash.
-#110212 recent aufs: .wh.__dir_opaque name changed to .wh..wh..opq.
 #110212 Jemimah: files may disappear, more efficient calc of free space, fix i/o err.
 #110222 shinobar: remove all /dev, allow 'pup_ro10-19', exit code for no space
 #110224 BK: revert remove all /dev, for now. 110503 added dev/snd
@@ -31,44 +28,47 @@
 #140102 SFR: various fixes + gettext
 #140512 SFR: performance improvements
 
-[ "`whoami`" != "root" ] && exec sudo -A ${0} ${@} #110505
-
 export TEXTDOMAIN=snapmergepuppy
 export OUTPUT_CHARSET=UTF-8
 
 OLDLANG="$LANG"
-export LANG=C #110206 Dougal: I **think** this should not cause problems with filenames
+export LANG=C
 
 #variables created at bootup by 'init' script in initramfs...
 . /etc/rc.d/PUPSTATE
-. /etc/DISTRO_SPECS #v412
+. /etc/DISTRO_SPECS
+
+[ "`whoami`" != "root" ] && exec sudo -A ${0} ${@}
+
+if [ $PUPMODE -ne 13 ] ; then
+	echo "$0: Wrong PUPMODE ($PUPMODE)"
+	exit 1
+fi
+
 SAVEPART="`echo -n "$PUPSAVE" | cut -f 1 -d ','`"
 
 #v3.02 first time, do not use '-u' option when saving, save everything...
 NEXTPASSTHRU=""
 [ -e /tmp/flagnextpassthru ] && NEXTPASSTHRU="yes"
 
-RUNPS="`ps`"
 SHUTDOWN="no"
-[ "`echo "$RUNPS" | grep 'rc.shutdown'`" != "" ] && SHUTDOWN="yes"
+pidof rc.shutdown >/dev/null && SHUTDOWN="yes"
 XRUNNING="no"
-[ "`echo "$RUNPS" | grep 'pup_event_frontend_d'`" != "" ] && XRUNNING="yes"
+pidof X &>/dev/null || pidof Xorg &>/dev/null && XRUNNING="yes"
 
 PATH="/bin:/sbin:/usr/bin:/usr/sbin:/usr/X11R7/bin"
 WD="`pwd`"
 
-SNAP="/initrd/pup_rw"
+# all the action takes places inside $SNAP (ex: /initrd/pup_rw)
+SNAP="`cat /sys/fs/aufs/si_*/br0 | head -1 | cut -f1 -d'='`"
 cd $SNAP || exit 1
 
-if [ "$SAVE_LAYER" ]; then #defined in PUPSTATE
- BASE="/initrd${SAVE_LAYER}"
-else
- BASE="/initrd/pup_ro1"
-fi
+# files are copied from $SNAP/* to $BASE/ (ex: /initrd/pup_ro1)
+BASE="`cat /sys/fs/aufs/si_*/br1 | head -1 | cut -f1 -d'='`"
+BASEMTP="$(stat -c %m "$BASE")"
 
 # Precautions
-[ $PUPMODE -eq 3 -o $PUPMODE -eq 7 -o $PUPMODE -eq 13 ] || { echo "Wrong PUPMODE ($PUPMODE)!"; exit 1; }
-mountpoint -q "$BASE" || { echo "$BASE is not mounted!"; exit 1; }
+mountpoint -q "$BASEMTP" || { echo "$BASEMTP is not mounted!"; exit 1; }
 
 echo "Merging $SNAP onto $BASE..."
 
@@ -76,50 +76,44 @@ echo "Merging $SNAP onto $BASE..."
 # WHITEOUTS
 # =============================================================================
 
-SFSPoints=$( grep -o -E "/initrd/pup_ro[0-9]+" /proc/mounts |sort -t o -k2 -nu ) #110206 Dougal: get a list of the sfs mountpoints	SFR: increase amount of mountpoints (sfs_load can load >=10)
+for XFL in /sys/fs/aufs/si_*/br[0-9]* #get aufs branch list
+do
+	XFN="${XFL##*/}"
+	[ ${XFN:2} -lt 2 ] && continue
+	SFSPoints="${SFSPoints}`cat ${XFL} | cut -f1 -d'='` "
+done
 
 find . -mount \( -regex '.*/\.wh\.[^/]*' -type f \) | sed -e 's/\.\///;s/\.wh\.//' |
 while read -r N
 do
- DN="${N%/*}"
- BN="${N##*/}"
- [ "$DN" = "$N" ] || [ "$DN" = "" ] && DN="."
- [ "$DN" = "." ] && continue
- [ "$BN" = ".wh.aufs" ] && continue #w003 aufs has file .wh..wh.aufs in /initrd/pup_rw.
-
- #110212 unionfs and early aufs: '.wh.__dir_opaque' marks ignore all contents in lower layers...
- if [ "$BN" = "__dir_opaque" ];then #w003
-  #'.wh.__dir_opaque' marks ignore all contents in lower layers...
-  rm -rf "${BASE}/${DN}" 2>/dev/null #wipe anything in save layer. 110212 delete entire dir.
-  mkdir -p "${BASE}/${DN}" #jemimah: files sometimes mysteriously reappear if you don't delete and recreate the directory, aufs bug? 111229 rerwin: need -p, may have to create parent dir.
-  #also need to save the whiteout file to block all lower layers (may be readonly)...
-  touch "${BASE}/${DN}/.wh.__dir_opaque" 2>/dev/null
-  rm -f "$SNAP/$DN/.wh.__dir_opaque" #should force aufs layer "reval".
-  continue
- fi
- #110212 recent aufs: .wh.__dir_opaque name changed to .wh..wh..opq ...
- if [ "$BN" = ".wh..opq" ] ; then
-  rm -rf "${BASE}/${DN}" 2>/dev/null  #wipe anything in save layer.
-  mkdir -p "${BASE}/${DN}" #jemimah: files sometimes mysteriously reappear if you don't delete and recreate the directory, aufs bug? 111229 rerwin: need -p, may have to create parent dir.
-  #also need to save the whiteout file to block all lower layers (may be readonly)...
-  touch "${BASE}/${DN}/.wh..wh..opq" 2>/dev/null 
-  rm -f "$SNAP/$DN/.wh..wh..opq"  #should force aufs layer "reval".
-  continue
- fi
- #comes in here with the '.wh.' prefix stripped off, leaving actual filename...
- rm -rf "$BASE/$N"
+	DN="${N%/*}"
+	BN="${N##*/}"
+	[ "$DN" = "$N" ] || [ "$DN" = "" ] && DN="."
+	[ "$DN" = "." ] && continue
+	[ "$BN" = ".wh.aufs" ] && continue #w003 aufs has file .wh..wh.aufs in /initrd/pup_rw.
+	# recent aufs: .wh.__dir_opaque name changed to .wh..wh..opq ...
+	if [ "$BN" = ".wh..opq" ] ; then
+		rm -rf "${BASE}/${DN}" 2>/dev/null  #wipe anything in save layer.
+		mkdir -p "${BASE}/${DN}" #jemimah: files sometimes mysteriously reappear if you don't delete and recreate the directory, aufs bug? 111229 rerwin: need -p, may have to create parent dir.
+		#also need to save the whiteout file to block all lower layers (may be readonly)...
+		touch "${BASE}/${DN}/.wh..wh..opq" 2>/dev/null 
+		rm -f "$SNAP/$DN/.wh..wh..opq"  #should force aufs layer "reval".
+		continue
+	fi
+	#comes in here with the '.wh.' prefix stripped off, leaving actual filename...
+	rm -rf "$BASE/$N"
  
- #if file exists on a lower layer, have to save the whiteout file...
- #110206 Dougal: speedup and refine the search...
- for P in $SFSPoints
- do
-   if [ -e "$P/$N" ] || [ -L "$P/$N" ] ; then	# SFR: broken symlinks also deserve to be processed ( '-e' won't detect them, needs to be also '-L')
-     [ -d "${BASE}/${DN}" ] || mkdir -p "${BASE}/${DN}"
-     touch "${BASE}/${DN}/.wh.${BN}"
-     break
-   fi
- done #110206 End Dougal.
- rm -f "$SNAP/$DN/.wh.$BN" #remove whiteout file. should force aufs layer "reval".
+	#if file exists on a lower layer, have to save the whiteout file...
+	#110206 Dougal: speedup and refine the search...
+	for P in $SFSPoints
+	do
+		if [ -e "$P/$N" ] || [ -L "$P/$N" ] ; then	# SFR: broken symlinks also deserve to be processed ( '-e' won't detect them, needs to be also '-L')
+			[ -d "${BASE}/${DN}" ] || mkdir -p "${BASE}/${DN}"
+			touch "${BASE}/${DN}/.wh.${BN}"
+			break
+		fi
+	done #110206 End Dougal.
+	rm -f "$SNAP/$DN/.wh.$BN" #remove whiteout file. should force aufs layer "reval".
 done
 
 # =============================================================================
@@ -127,17 +121,17 @@ done
 # =============================================================================
 
 #110224 BK revert, leave save of /dev in for now, just take out some subdirs... 110503 added dev/snd
-find . -mount -type d | tail +2 | sed -e 's/\.\///' | grep -v -E '^mnt|^initrd|^proc|^sys|^tmp|^root/tmp|^\.wh\.|/\.wh\.|^dev/\.|^dev/fd|^dev/pts|^dev/shm|^dev/snd|^var/tmp' |
+find . -mount -type d | tail +2 | sed -e 's/\.\///' | grep -v -E '^mnt|^media|^initrd|^proc|^sys|^tmp|^root/tmp|^\.wh\.|/\.wh\.|^dev/\.|^dev/fd|^dev/pts|^dev/shm|^dev/snd|^var/tmp' |
 while read -r N
 do
- #v4.01 graceful exit if shutdown X (see /usr/X11R7/bin/restartwm,wmreboot,wmpoweroff)...
- [ "$XRUNNING" = "yes" ] && [ -f /tmp/wmexitmode.txt ] && exit
- mkdir -p "$BASE/$N"
- #i think nathan advised this, to handle non-root user (SFR: improved/simplified)
- chmod "$BASE/$N" --reference="$N"
- OWNERSHIP="`stat --format=%u:%g "$N"`"
- chown $OWNERSHIP "$BASE/$N"
- touch "$BASE/$N" --reference="$N"
+	#v4.01 graceful exit if shutdown X (see /usr/X11R7/bin/restartwm,wmreboot,wmpoweroff)...
+	[ "$XRUNNING" = "yes" ] && [ -f /tmp/wmexitmode.txt ] && exit
+	mkdir -p "$BASE/$N"
+	#i think nathan advised this, to handle non-root user (SFR: improved/simplified)
+	chmod "$BASE/$N" --reference="$N"
+	OWNERSHIP="`stat -c %u:%g "$N"`"
+	chown $OWNERSHIP "$BASE/$N"
+	touch "$BASE/$N" --reference="$N"
 done
 
 # =============================================================================
@@ -146,7 +140,7 @@ done
 
 #100222 a quick hack: BOOTCONFIG written to in init, before timezone set, can cause trouble...
 touch /etc/rc.d/BOOTCONFIG
-FREEBASE=`df -B 1 | grep -w "$BASE"| head -n 1 | tr -s ' ' | cut -f 4 -d ' '` #110212 Jemimah #110222 shinobar # SFR: result in bytes (see 'find' below)
+FREEBASE=`df -B 1 | grep -w "$BASEMTP"| head -n 1 | tr -s ' ' | cut -f 4 -d ' '` #110212 Jemimah #110222 shinobar # SFR: result in bytes (see 'find' below)
 
 rm -f /tmp/snapmergepuppy-nospace #110222 shinobar
 rm -f /tmp/snapmergepuppy-error   #140102 SFR
@@ -159,41 +153,42 @@ find . -mount \
 	   -not -type d \
 	   -regextype posix-extended \
 	   -not \( -regex '.*/\.wh\.[^\]*' -type f \) \
-	   -not \( -regex '^./mnt.*|^./initrd.*|^./proc.*|^./sys.*|^./tmp.*|^./pup_.*|^./zdrv_.*|^./root/tmp.*|.*_zdrv_.*|^./dev/\..*|^./dev/fd.*|^./dev/pts.*|^./dev/snd.*|^./dev/shm.*|^./\.wh\..*|^./var/run.*|^./root/ftpd.*|^./var/tmp.*|.*\.XLOADED$' \) \
+	   -not \( -regex '^./mnt.*|^./media.*|^./proc.*|^./sys.*|^./tmp.*|^./pup_.*|^./zdrv_.*|^./root/tmp.*|.*_zdrv_.*|^./dev/\..*|^./dev/fd.*|^./dev/pts.*|^./dev/snd.*|^./dev/shm.*|^./dev/tty.*|^./\.wh\..*|^./var/run.*|^./root/ftpd.*|^./var/tmp.*|.*\.XLOADED$' \) \
 	   -not \( -regex '.*\.thumbnails.*|.*\.part$|.*\.crdownload$' \) \
 	   -printf "%s %C@ %P\n" |
 while read -r NSIZE NCTIME N
 do
- #v4.01 graceful exit if shutdown X (see /usr/X11R7/bin/restartwm,wmreboot,wmpoweroff)...
- [ "$XRUNNING" = "yes" ] && [ -f /tmp/wmexitmode.txt ] && exit
+	#v4.01 graceful exit if shutdown X (see /usr/X11R7/bin/restartwm,wmreboot,wmpoweroff)...
+	[ "$XRUNNING" = "yes" ] && [ -f /tmp/wmexitmode.txt ] && exit
 
- ([ ! -e "$N" ] && [ ! -L "$N" ]) && continue # SFR: skip non-existing files (btw, '-e' won't detect broken symlinks, so '-L' is necessary!)
+	([ ! -e "$N" ] && [ ! -L "$N" ]) && continue # SFR: skip non-existing files (btw, '-e' won't detect broken symlinks, so '-L' is necessary!)
 
- #stop saving if not enough room left in ${DISTRO_FILE_PREFIX}save file...
- if [ $((NSIZE+204800)) -gt $FREEBASE ]; then	# 204800 = 200K slack space
-  FREEBASE=`df -B 1 | grep -w "$BASE" | head -n 1 | tr -s ' ' | cut -f 4 -d ' '` #110212 Jemimah: this is very slow; try not to check every iteration #110222 shinobar: fix for pup_ro10 and more
-  if [ $((NSIZE+204800)) -gt $FREEBASE ]; then	#110212 Jemimah.
-   touch /tmp/snapmergepuppy-nospace  #110222 shinobar
-   break
-  fi
- else
-  FREEBASE=$((FREEBASE-NSIZE)) #110212 Jemimah: keep track of the worst case
- fi
+	#stop saving if not enough room left in ${DISTRO_FILE_PREFIX}save file...
+	if [ $((NSIZE+204800)) -gt $FREEBASE ]; then	# 204800 = 200K slack space
+		FREEBASE=`df -B 1 | grep -w "$BASEMTP" | head -n 1 | tr -s ' ' | cut -f 4 -d ' '` #110212 Jemimah: this is very slow; try not to check every iteration #110222 shinobar: fix for pup_ro10 and more
+		if [ $((NSIZE+204800)) -gt $FREEBASE ]; then	#110212 Jemimah.
+			touch /tmp/snapmergepuppy-nospace  #110222 shinobar
+			break
+		fi
+	else
+		FREEBASE=$((FREEBASE-NSIZE)) #110212 Jemimah: keep track of the worst case
+	fi
  
- ##v2.21 -u causes trouble if timezone malconfigured...
- [ -L "$BASE/$N" ] && rm -f "$BASE/$N"
- if [ -L "$N" -o "$NEXTPASSTHRU" = "" ];then
-  #link, or first run of snapmergepuppy. no '-u' (update) option.
-  [ -L "$N" ] && [ -d "$BASE/$N" ] && rm -rf "$BASE/$N"	# SFR: in case if folder has been replaced with a symlink (cp won't overwrite a dir with a symlink)
-  cp -a -f "$N" "$BASE/$N" 2>>/tmp/snapmergepuppy-error
- else
-  [ ! -e "$BASE/$N" ] || [ ${NCTIME%%.*} -gt `stat -c %Z "$BASE/$N"` ] && cp -a -f "$N" "$BASE/$N" 2>>/tmp/snapmergepuppy-error
- fi
+	##v2.21 -u causes trouble if timezone malconfigured...
+	[ -L "$BASE/$N" ] && rm -f "$BASE/$N"
+	if [ -L "$N" -o "$NEXTPASSTHRU" = "" ];then
+		#link, or first run of snapmergepuppy. no '-u' (update) option.
+		[ -L "$N" ] && [ -d "$BASE/$N" ] && rm -rf "$BASE/$N"	# SFR: in case if folder has been replaced with a symlink (cp won't overwrite a dir with a symlink)
+		cp -a -f "$N" "$BASE/$N" 2>>/tmp/snapmergepuppy-error
+		rm "$N"
+	else
+		[ ! -e "$BASE/$N" ] || [ ${NCTIME%%.*} -gt `stat -c %Z "$BASE/$N"` ] && { cp -a -f "$N" "$BASE/$N" 2>>/tmp/snapmergepuppy-error; rm "$N"; }
+	fi
 
- DN="${N%/*}" #111229 rerwin: bugfix for jemimah code (110212) (SFR: improved performance)
- BN="${N##*/}" #111229  "
- [ "$DN" = "$N" ] || [ "$DN" = "" ] && DN="."
- [ -e "$BASE/$DN/.wh.${BN}" ] && rm "$BASE/$DN/.wh.${BN}" #110212 jemimah bugfix - I/O errors if you don't do this
+	DN="${N%/*}" #111229 rerwin: bugfix for jemimah code (110212) (SFR: improved performance)
+	BN="${N##*/}" #111229  "
+	[ "$DN" = "$N" ] || [ "$DN" = "" ] && DN="."
+	[ -e "$BASE/$DN/.wh.${BN}" ] && rm "$BASE/$DN/.wh.${BN}" #110212 jemimah bugfix - I/O errors if you don't do this
 
 done
 
@@ -202,10 +197,8 @@ done
 touch /tmp/flagnextpassthru
 
 # SFR: fix for .wh files not being created (in some cases) in pup_rw
-if [ "`lsmod | grep "^aufs" `" != "" ]; then
-  # force re-evalution of all the layers
-  busybox mount -t aufs -o remount,udba=reval unionfs /
-fi
+# force re-evalution of all the layers
+busybox mount -t aufs -o remount,udba=reval unionfs /
 
 sync
 cd "$WD"
@@ -213,31 +206,33 @@ cd "$WD"
 # =============================================================================
 
 error_msg () {
-  if [ "$SHUTDOWN" = "no" -a "$XRUNNING" = "yes" ];then
-    export DISPLAY=':0'
-    /usr/lib/gtkdialog/box_splash -timeout 30 -close box -icon gtk-dialog-warning -bg red -text "$1"
-  else
-    echo "$1"
-  fi
+	if [ "$SHUTDOWN" = "no" -a "$XRUNNING" = "yes" ];then
+		export DISPLAY=':0'
+		/usr/lib/gtkdialog/box_splash -timeout 30 -close box -icon gtk-dialog-warning -bg red -text "$1"
+	else
+		echo "$1"
+	fi
 }
 
 export LANG="$OLDLANG"
 ERRSTATUS=0
 
 if [ -f /tmp/snapmergepuppy-nospace ]; then #110222 shinobar
-  ERRMSG="$(gettext 'WARNING!
+	ERRMSG="$(gettext 'WARNING!
 Unable to save all files. You need to delete some.')"
-  error_msg "$ERRMSG"
-  ERRSTATUS=1
+	error_msg "$ERRMSG"
+	ERRSTATUS=1
 fi
 
+sed -i '/No such file or directory/d' /tmp/snapmergepuppy-error	# discard errors caused by bad timing
+
 if [ -s /tmp/snapmergepuppy-error ]; then	#140102 SFR
-  ERRMSG="$(gettext "WARNING!
+	ERRMSG="$(gettext "WARNING!
 There were some errors detected.
 (see '/tmp/snapmergepuppy-error' for details)
 Filesystem check of the savefile (pfix=fsck) is highly recommended.")"
-  error_msg "$ERRMSG"
-  ERRSTATUS=1
+	error_msg "$ERRMSG"
+	ERRSTATUS=1
 fi
 
 exit $ERRSTATUS

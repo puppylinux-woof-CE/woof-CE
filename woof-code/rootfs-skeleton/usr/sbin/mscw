@@ -1,0 +1,525 @@
+#!/bin/bash
+#past contributors: kirk, npierce, rodin.s, 01micko, BarryK, rg66, geoffrey, etc
+
+# have to edit /etc/asound.conf only
+# rcnsr1 reported that ~/.asoundrc is for other special customizations...
+
+[ "`whoami`" != "root" ] && exec sudo -A ${0} ${@}
+
+[ ! -d /var/local/mscw ] && mkdir -p /var/local/mscw
+
+case $1 in
+	report|-report) REPORT=1 ;;
+	start|restart) START_PROC=1 ;; ## /usr/sbin/delayedrun
+	gui|-gui) CMD_GUI=1 ;;   ## force gui
+	cli|-cli) CMD_CLI=1 ;;   ## force cli
+	fix|-fix) FIX=1     ;;   ## run checks
+	check|-check) CHECK=1 ;; ## check_for_new_hardware
+esac
+
+###############################################################
+#                          FUNCTIONS                          #
+###############################################################
+
+function ncards() { grep '^ [0-9]' /proc/asound/cards | grep -v 'pcsp' | wc -l ; }
+function ndevs() { grep -v 'pcspeaker' /proc/asound/pcm | wc -l ; }
+
+function is_valid_device() {
+	case $1 in [0-9]|[0-9][0-9]) return 0 ;;
+		*) return 1 ;;
+	esac
+}
+
+function write_retrovol_extra() { ## this is written only when there is no config file
+	echo 'seg_spacing=0
+background_color=#FFFFFF
+border_color=#3F4043
+unlit_color=#D5DFF4
+lit_color=#788FAF
+tray_slider_width=22
+tray_slider_offset=-4' >> $HOME/.retrovolrc 
+}
+
+function write_retrovol_card() { #card
+	if [ -f $HOME/.retrovolrc ] ; then
+		if grep -q '#card=hw' $HOME/.retrovolrc ; then
+			## a proper config file exists (retrovol has run before)
+			sed -i -e "/^card=hw/d;/#card=hw:0/a card=hw:${1}" $HOME/.retrovolrc
+			return
+		fi
+	else
+		write_retrovol_extra
+	fi
+	touch $HOME/.retrovolrc
+	echo "card=hw:${1}" >> $HOME/.retrovolrc
+}
+
+function write_asound_card() { #card device cmixer
+	local card=$1 device=$2 cmixer=$3
+	(
+		echo "defaults.pcm.card $1"
+		echo "defaults.pcm.device $2"
+		echo "defaults.ctl.card $1"
+	) > /etc/asound.conf
+	write_retrovol_card $card
+}
+
+function get_asound_card() { #returns: card device cardmixer
+	if [ -f /etc/asound.conf ] ; then
+		xfile="/etc/asound.conf"
+	else
+		return 1 #no file
+	fi
+	local field="" value="" MISSING=""
+	local fields='defaults.pcm.card defaults.pcm.device defaults.ctl.card'
+	for field in $fields ; do
+		value=$(grep "$field" $xfile)
+		if [ "$value" ] ; then
+			echo -n "${value#* } "
+		else
+			echo -n "0 "
+		fi
+	done
+}
+
+function check_asound_card() {
+	[ ! -f /etc/asound.conf ] && return
+	#asound.conf must have valid data, otherwise fatal errors will occur
+	local acard="" adevice="" acardmixer="" ERROR=""
+	read acard adevice acardmixer <<< "$(get_asound_card)"
+	is_valid_device $acard || { acard=0 ; ERROR=1 ; }
+	is_valid_device $adevice || { adevice=0 ; ERROR=1 ; }
+	is_valid_device $acardmixer || { ERROR=1 ; }
+	[ "$acard" != "$acardmixer" ] && ERROR=1
+	if [ "$ERROR" ] ; then
+		echo "ERROR(s) in /etc/asound.conf fixing.." ; echo
+		write_asound_card $acard $adevice $acard
+	fi
+}
+
+function print_asound_card() {
+	if [ -f /etc/asound.conf ] ; then
+		echo
+		echo "---------- /etc/asound.conf ---------"
+		grep -E '^defaults.pcm|^defaults.ctl' /etc/asound.conf
+		echo "-------------------------------------"
+	fi
+	if [ -f $HOME/.retrovolrc ] ; then
+		echo
+		echo "------------ .retrovolrc ------------"
+		grep 'card=' $HOME/.retrovolrc
+		echo "-------------------------------------"
+		echo
+	fi
+}
+export -f print_asound_card
+
+function cardinfo() {
+	print_asound_card
+	cat /proc/asound/version
+	echo
+	cat /proc/asound/modules
+	echo
+	echo "################################################### cards"
+	cat /proc/asound/cards
+	echo "###################################################"
+	echo
+	echo "################################################### aplay -l"
+	APLAY=$(LANG=C aplay -l | grep card)
+	echo "$APLAY"
+	echo "###################################################"
+	echo
+	echo "################################################### pcm"
+	cat /proc/asound/pcm
+	echo "###################################################"
+	echo
+	echo "################################################### devices"
+	cat /proc/asound/devices
+	echo "###################################################"
+}
+export -f cardinfo
+
+function check_for_new_hardware() {
+	. /etc/init.d/10alsa
+	x=0
+	while [ -e /sys/class/sound/card${x}/id ] ; do
+		id=$(< /sys/class/sound/card${x}/id)
+		if ! grep -q -m1 "$id" /etc/asound.state ; then
+			echo
+			echo "New hardware: $id"
+			echo -n "Setting initial volume levels "
+			set_volume_levels $x
+			echo
+		fi
+		let x++
+	done
+}
+
+function get_card_device() {
+	#card 0: V8235 [VIA 8235], device 0: VIA 8235
+	local devstr="$@" xpat='([0-9]|[0-9][0-9])'
+	local card=$(echo "$devstr" | grep -E -o "card $xpat")
+	local device=$(echo "$devstr" | grep -E -o "device $xpat")
+	echo ${card#card } ${device#device }
+}
+export -f get_card_device
+
+function retrovol_restart() {
+	if [ "$(busybox pidof retrovol)" ] ; then
+		echo ; echo "Retrovol is running" ; echo
+		killall -9 retrovol
+		retrovol $@ &
+		return 0
+	fi
+	return 1
+}
+
+#####
+LOG=1 #1 = use logfile
+#####
+
+function start_proc() {
+	[ ! -d /tmp/services ] && mkdir -p /tmp/services
+	if [ "$LOG" = "1" ] ; then
+		logfile=/tmp/services/mscw.start.log
+		if [ -f /tmp/services/mscw.start.log ] ; then
+			logfile=/tmp/services/mscw.restart.log
+		fi
+	else
+		logfile=/dev/null
+	fi
+	(
+		if [ ! -f /tmp/services/mscw.1st ] ; then
+			touch /tmp/services/mscw.1st
+			[ ! "$PUPMODE" ] && . /etc/rc.d/PUPSTATE
+			if [ $PUPMODE -eq 5 ] ; then
+				echo '*** First Boot ***'
+				rm -f /var/local/mscw/selected
+			fi
+			if [ -f /etc/asound.conf ] ; then
+				check_asound_card
+				retrovol_restart -hide
+			fi
+			check_for_new_hardware
+			#alsactl -f /etc/asound.state restore ##
+			cardinfo ; echo
+		else
+			check_for_new_hardware
+		fi
+	) &> ${logfile}
+	exit
+}
+
+function MSCW_REPORT() {
+	(
+	dmidecode -t baseboard | grep -iE 'Manufacturer|Product' && echo
+	if [ -f /tmp/services/10alsa.start.log ] ; then
+		echo '=========================================='
+		echo '     /tmp/services/10alsa.start.log       '
+		echo '=========================================='
+		cat /tmp/services/10alsa.start.log
+		echo ; echo ; echo
+	fi
+	if [ -f /var/local/mscw/selected ] ; then
+		echo "/var/local/mscw/selected: $(cat /var/local/mscw/selected)"
+		echo '-----------------------' ; echo
+	fi
+	if [ -f /tmp/services/mscw.check.txt ] ; then
+		echo '=========================================='
+		echo '         /tmp/services/mscw.check.txt             '
+		echo '=========================================='
+		cat  /tmp/services/mscw.check.txt
+		echo ; echo
+	fi
+	if [ -f /tmp/services/mscw.start.log ] ; then
+		echo '=========================================='
+		echo '     /tmp/services/mscw.start.log         '
+		echo '=========================================='
+		cat /tmp/services/mscw.start.log
+		echo ; echo ; echo
+	fi
+	echo '=========================================='
+	echo '            Sound Card Wizard             '
+	echo '=========================================='
+	bash -c cardinfo
+	echo ; echo ; echo
+	echo '=========================================='
+	echo '          lspci | grep -i audio           '
+	echo '=========================================='
+	lspci | grep -i audio
+	echo ---
+	lspci | grep -i -E 'graphic|video|display|vga' #for hdmi
+	echo -n "xorg driver: " ; report-video driver
+	echo ---
+	echo
+	echo '=========================================='
+	echo '     /etc/modprobe.d/alsa-base.conf       '
+	echo '=========================================='
+	cat /etc/modprobe.d/alsa-base.conf
+	) > /tmp/mscw.report.txt
+	if [ "$DISPLAY" ] ; then
+		defaulttextviewer /tmp/mscw.report.txt &
+	else
+		echo "Your report is in /tmp/mscw.report.txt"
+	fi
+}
+export -f MSCW_REPORT
+
+function FIX() {
+	check_asound_card
+	check_for_new_hardware
+	alsactl -f /etc/asound.state restore
+}
+
+###############################################################
+#                        COMMANDS
+###############################################################
+
+[ "$START_PROC" ] && { start_proc; exit; } ### start ###
+[ "$REPORT" ] && { MSCW_REPORT; exit; }
+[ "$CHECK" ] && { check_for_new_hardware; exit; }
+[ "$FIX" ] && { FIX; exit; }
+
+###############################################################
+#                         DIALOG
+###############################################################
+
+export TEXTDOMAIN=mscw
+export OUTPUT_CHARSET=UTF-8
+
+if [ "$DISPLAY" ] ; then
+	MSCW_GUI=1
+else
+	MSCW_CLI=1
+fi
+[ "$CMD_GUI" ] && MSCW_GUI=1  && MSCW_CLI=""
+[ "$CMD_CLI" ] && MSCW_GUI="" && MSCW_CLI=1
+
+ICON='/usr/share/pixmaps/puppy/card_pci.svg'
+
+###########################################################
+export L_MSCW=$(gettext 'Sound Card Wizard')
+L_NODEVICES=$(gettext 'No Sound Devices Detected')
+L_CHOOSE=$(gettext 'Choose default sound card')
+L_CHOOSE_ANOTHER=$(gettext 'Choose another default sound card')
+L_QUIT=$(gettext 'Quit')
+L_OK=$(gettext 'OK')
+L_CANCEL=$(gettext 'Cancel')
+L_SELECT=$(gettext 'Select card/device')
+L_REPORT=$(gettext 'Report')
+L_RETROVOL_SET=$(gettext 'Retrovol has been set to use this card:')
+L_CONFIGURE_MIXER=$(gettext 'Configure your audio mixer as')
+L_CARD=$(gettext 'Card')
+L_DEVICE=$(gettext 'device')
+L_TESTSOUND=$(gettext 'Test Sound')
+export L_MUSTSELECT=$(gettext 'You must select an item from the list..')
+###########################################################
+
+MSGX=$L_CHOOSE
+[ -f /var/local/mscw/selected ] && MSGX=$L_CHOOSE_ANOTHER
+
+if [ "$(grep -v pcspeaker /proc/asound/pcm)" = "" ] ; then
+	[ -f /etc/asound.conf ] && check_asound_card
+	if [ "$MSCW_GUI" ] ; then
+		gtkdialog-splash -close never -timeout 4 -icon $ICON -text "${L_NODEVICES}" &
+	else
+		dialog --title "${L_MSCW}" --msgbox "${L_NODEVICES}" 0 0 &
+	fi
+	exit
+fi
+
+if [ ! -f /etc/asound.conf ] ; then
+	write_asound_card 0 0 0
+else
+	check_asound_card
+fi
+DEVICES="`LANG=C aplay -l | grep card | grep -v pcspeaker`"
+read ACTIVE_CARD ACTIVE_DEVICE A_CMIXER <<< "$(get_asound_card)"
+ACTIVEN=`echo "$DEVICES" | grep -n -w "card $ACTIVE_CARD" | grep -w "device $ACTIVE_DEVICE"`
+ACTIVEN=${ACTIVEN%%:*}
+
+###############################################################
+
+function test_sound() {
+	if [ -z "$1" ] ; then
+		/usr/lib/gtkdialog/box_ok "$L_MSCW" error "$L_MUSTSELECT"
+		return 1
+	fi
+	local cd=$(get_card_device "$@")
+	cd=${cd// /,} #ex: 0,1
+	if which speaker-test &>/dev/null ; then
+		xterm -e speaker-test -c 2 -r 48000 -l 1 -D hw:${cd}
+	fi
+	aplay -D plughw:${cd} /usr/share/audio/2barks.au
+}
+export -f test_sound
+
+function ALSA_MIXER() {
+	if [ -z "$1" ] ; then
+		/usr/lib/gtkdialog/box_ok "$L_MSCW" error "$L_MUSTSELECT"
+		return 1
+	fi
+	local cd=$(get_card_device "$@")
+	cd=${cd%*-} #ex: 0
+	defaultterminal -e alsamixer -c $cd -V all
+}
+export -f ALSA_MIXER
+
+if [ "$MSCW_GUI" ] ; then
+
+	ITEMS="$(echo "$DEVICES" | sed 's|^|<item>|g' | sed 's|$|</item>|g')"
+	ITEMCOUNT=$(echo "$ITEMS" | wc -l)
+	HEIGHT=$((35*8))
+	[ $ITEMCOUNT -lt 8 ] && HEIGHT=$((35*ITEMCOUNT))
+	XPAT='<item stock-id="gtk-apply">'
+	ITEMS=$(echo "$ITEMS" | sed -e "${ACTIVEN}s%<item>%$XPAT%" )
+	##--
+	if [ $ITEMCOUNT -eq 1 ] ; then
+		BUTTONS='<button>
+				'$(/usr/lib/gtkdialog/xml_button-icon quit.svg)'
+				<label>'${L_QUIT}'</label>
+				<action type="exit">Cancel</action>
+			</button>'
+	else
+		BUTTONS='
+			<button>
+				'$(/usr/lib/gtkdialog/xml_button-icon apply.svg)'
+				<label>'${L_SELECT}'</label>
+				<action>exit:OK</action>
+			</button>
+			<button>
+				'$(/usr/lib/gtkdialog/xml_button-icon sound.svg)'
+				<label>'${L_TESTSOUND}'</label>
+				<action>test_sound $SELECTED</action>
+			</button>
+			<button>
+				'$(/usr/lib/gtkdialog/xml_button-icon sound_mixer.svg)'
+				<label>configure...</label>
+				<action>ALSA_MIXER $SELECTED</action>
+			</button>
+			<button>
+				'$(/usr/lib/gtkdialog/xml_button-icon cancel.svg)'
+				<label>'${L_CANCEL}'</label>
+				<action>exit:Cancel</action>
+			</button>
+			<button>
+				'$(/usr/lib/gtkdialog/xml_button-icon clipboard.svg)'
+				<label>'${L_REPORT}'</label>
+				<action>MSCW_REPORT &</action>
+			</button>'
+	fi
+
+	# ------------------------
+	WINDOW_MSG="$(/usr/lib/gtkdialog/xml_info scale /usr/share/pixmaps/puppy/sound_config.svg 24 "${MSGX}")"
+	export MSCW_DIALOG='
+<window title="'${L_MSCW}'" image-name="/usr/share/pixmaps/puppy/card_pci.svg" resizable="false">
+	<vbox>
+		'${WINDOW_MSG}'
+		<tree rules_hint="true" headers_visible="false" hover-expand="true">
+			<height>'${HEIGHT}'</height>
+			<width>600</width>
+			'${ITEMS}'
+			<variable>SELECTED</variable>
+		</tree>
+		<hbox>
+			'${BUTTONS}'
+		</hbox>
+	</vbox>
+</window>'
+	###
+	. /usr/lib/gtkdialog/xml_info gtk #build bg_pixmap for gtk-theme
+	#echo "$MSCW_DIALOG" > /tmp/mscw.gui #debug
+	res="$(gtkdialog --center --program MSCW_DIALOG 2>/dev/null)"
+	res="$(echo "$res" | grep '="')"
+	eval "$res"
+
+else ##### CLI #####
+	ITEMCOUNT=$(echo "$DEVICES" | wc -l)
+	EXIT=Cancel
+	x=1
+	(
+	echo -n 'dialog --title "'${L_MSCW}'" --cancel-label "'${L_CANCEL}'" --ok-label "'${L_OK}'" --extra-button --extra-label "'${L_REPORT}'" --radiolist "'${MSGX}'" 0 0 0 '
+	echo "$DEVICES" | while read line ; do
+		if [ $x -eq $ACTIVEN ] ; then
+			echo -n "\"$x\" \"$line\" \"on\" "
+		else
+			echo -n "\"$x\" \"$line\" \"off\" "
+		fi
+		x=$((x+1))
+	done
+	echo '>/dev/tty 2>/tmp/mscw.cli.res'
+	echo 'exit $?'
+	) > /tmp/mscw.cli
+	sh /tmp/mscw.cli
+	retval=$?
+	if [ $retval -eq 0 ] ; then
+		if [ $ITEMCOUNT -gt 1 ] ; then
+			choice=$(< /tmp/mscw.cli.res)
+			if [ "$choice" ] ; then
+				SELECTED=$(echo "$DEVICES" | sed -n "${choice}p" )
+				EXIT='OK'
+			fi
+		fi
+	elif [ $retval -eq 3 ] ; then
+		MSCW_REPORT
+		rm -f /tmp/mscw.cli /tmp/mscw.cli.res
+		exit
+	fi
+	rm -f /tmp/mscw.cli /tmp/mscw.cli.res
+fi
+
+###############################################################
+
+case $EXIT in Cancel|abort|EXIT)
+	if [ ! -f /var/local/mscw/selected ] ; then
+		if [ $ACTIVE_CARD -ne 0 -o $ACTIVE_DEVICE -ne 0 ] ; then
+			selected=$(echo "$DEVICES" | grep "card $ACTIVE_CARD" | grep "device $ACTIVE_DEVICE")
+			if [ "$selected" ] ; then
+				echo "$selected" > /var/local/mscw/selected
+			fi
+		fi
+	fi
+	exit
+esac
+
+if [ "$EXIT" = "OK" ]; then
+	read Card Device <<< "$(get_card_device "$SELECTED")"
+fi
+
+if ! is_valid_device $Card ; then
+	echo "\$Card has a wrong value: $Card" ; exit 1
+fi
+if ! is_valid_device $Device ; then
+	echo "\$Device has a wrong value: $Device" ; exit 1
+fi
+
+write_asound_card $Card $Device $Card #-- write --#
+
+check_for_new_hardware &>/dev/null
+
+if [ ${Card} -eq ${ACTIVE_CARD} -a ${Device} -eq ${ACTIVE_DEVICE} ] ; then
+	retrovol_restart -hide
+	exit
+fi
+
+###############################################################
+
+echo "$SELECTED" > /var/local/mscw/selected
+
+TXT="$L_CARD $Card $L_DEVICE $Device"
+if retrovol_restart ; then
+	TEXT="$L_RETROVOL_SET hw:${Card}"
+else
+	TEXT="$L_CONFIGURE_MIXER hw:${Card},${Device}"
+fi
+
+if [ "$MSCW_GUI" ] ; then
+	echo "$TEXT"
+	gtkdialog-splash -placement top -close never -timeout 6 -icon /usr/share/pixmaps/puppy/sound_config.svg -wrap false -text "$TXT
+$TEXT" &
+else
+	echo -e "$TXT\n$TEXT"
+	echo
+fi
+
+### END ###

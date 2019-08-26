@@ -1,0 +1,673 @@
+#!/bin/sh
+export TEXTDOMAIN=pburn
+
+#this script builds the gui for burn options
+. $CONFIG
+. $HOME/.pburn/pburnhlp-$MY_LANGUAGE #get info text from help file
+echo "$OUTDIR" > $WORKDIR/OUTDIR
+if [ "$BURN_DATA" = "true" ] && [ ! "$BURN" ]; then export BURN=data; fi
+if [ "$BURN_AUDIO" = "true" ] && [ ! "$BURN" ]; then export BURN=audio; fi
+if [ "$BURN_VIDEO" = "true" ] && [ ! "$BURN" ]; then export BURN=video; fi
+if [ $BURN = video ] && grep -iq 'video_ts' $WORKDIR/burn ; then export BURN=video_ts; fi
+echo "$BURN" > $WORKDIR/BURN
+
+#BURN ISO: check if there is only 1 file (*.iso) in burnlist. if not, chooser.
+if [ $BURN = iso ]; then
+	if grep -iE "iso\||nrg\|" $WORKDIR/burn && [ "`cat $WORKDIR/burn | wc -l`" = 1 ]; then
+		echo 
+	else
+		TITLE="$(gettext 'Burn image')"
+		. $APPDIR/box_chooser
+		if [ "$EXIT" = "OK" ]; then
+			#file not found
+			if [ ! -s "$CHOOSER" ]; then
+				TXT1="<b>$(gettext 'File not found.')</b>"
+				. $APPDIR/box
+				exit
+			#---
+			else
+				rm -fr "$BURNLIST_DIR/*"
+				cp -srpf "$CHOOSER" "$BURNLIST_DIR"
+				CHOOSER="`echo "$CHOOSER" | sed -e "s/^.*\\///g"`"
+				echo "$CHOOSER" > $WORKDIR/burn
+				BURNLIST="$CHOOSER"
+			fi
+		else
+			exit
+		fi
+	fi
+fi
+
+#check if there is only 1 file (*.iso), and mode is DATA. User wants probably to burn-iso 
+if [ $BURN = data ]; then
+	if grep -iqE "iso\||nrg\|" $WORKDIR/burn && [ "`cat $WORKDIR/burn | wc -l`" = 1 ]; then
+		. $APPDIR/box -quest_iso
+		case $EXIT in
+			iso) export BURN=iso
+				. $APPDIR/func_burn_options
+				exit
+				;;
+			Cancel) exit
+				;;
+		esac
+	fi
+fi
+
+
+#############   ERROR CHECKING   #############
+
+#video-DVD specific checking
+if [ $BURN = copy_video ]; then
+	#check ALL optical drives for a valid video-DVD
+	. $APPDIR/func -find_devices
+	echo "$CD_DRIVES" | cut -d ' ' -f 1 > $WORKDIR/tmp
+	INDRIVE=""
+	while read I; do
+		umount $I > /dev/null 2>&1
+		mount -t auto $I $HOME/.pburn/mnt/ > /dev/null 2>&1
+		if ls $HOME/.pburn/mnt/ | grep -iq video_ts; then INDRIVE=$I; fi
+		umount $HOME/.pburn/mnt/
+	done < $WORKDIR/tmp
+	if [ ! "$INDRIVE" ]; then
+		TXT1="$(gettext '<b>No valid Video-DVD.</b>
+Please wait for the disc to spin up before trying again.')"
+		. $APPDIR/box
+		exit
+	fi
+	#Copy video-DVD requires a huge tmp storage
+	$APPDIR/func -available_size
+	if [ `cut -d: -f2 $WORKDIR/systemsize | cut -d' ' -f2` -lt 9000 ]; then
+		IMG=dialog-warning; FRAME=Warning; TXT1="$(gettext 'This is a reminder that your temporary storage is less than 9Gb. If you intend to shrink the video-DVD you might need more.')"
+		. $APPDIR/box
+		$APPDIR/func -available_size #user may have fixed some free space, so let's update
+	fi
+fi
+
+#Nothing added to burnlist
+if [ "`cat $WORKDIR/burn | wc -l`" = 0 ] && [ $BURN != blank ] && [ $BURN != copy ] && [ $BURN != copy_audio ] && [ $BURN != copy_video ]; then 
+	TXT1="$(gettext 'No files added.')"
+	. $APPDIR/box
+	exit
+fi
+if [ $BURN = data ] || [ $BURN = audio ] || [ $BURN = video ] || [ $BURN = video_ts ] || [ $BURN = iso ]; then
+	#if -c parameter: skip media checking
+	if [ "$CHECK_MEDIA" = "false" ]; then
+		echo "$MEDIATYPE" > $WORKDIR/MEDIATYPE
+	else
+		#no burner
+		if [ ! "$BURNDEV" ] || [ ! "`cddetect_quick -d$BURNDEV`" ]; then
+			TXT1="<b>$(gettext "Can't detect burner.")</b>" #'
+			echo 100 > $WORKDIR/splash #splash is running when using -m switch - no main gui
+			. $APPDIR/box
+			exit
+		fi
+		#check if burner mounted
+		if mount | grep -q "$BURNDEV" ; then
+			IMG=dialog-question; FRAME="$(gettext 'Disc is mounted.')"; TXT1="<b>$(gettext 'Disc is mounted.')</b>"; TXT2="$(gettext 'Do you want to unmount it and continue?')"
+			. $APPDIR/box -yesno
+			if [ $EXIT = Yes ]; then
+				umount $BURNDEV
+			else #go back
+				echo 100 > $WORKDIR/splash #splash is running when using -m switch - no main gui
+				exit
+			fi
+		fi
+		
+		echo "$(gettext 'Checking media...
+Building command') ..." > $WORKDIR/splashtext
+		$APPDIR/box_splash &
+		. $APPDIR/func -check_media
+
+		#check if disc is valid type
+		case $MEDIATYPE in
+			CDDA|DVD-rom) 
+				TXT1="<b>$(gettext 'No writable media')</b>"
+				TXT2="$(gettext 'Device'): $BURNDEV"
+				echo 100 > $WORKDIR/splash #splash is running when using -m switch - no main gui
+				. $APPDIR/box
+				exit
+				;;
+		esac
+		#check if disc is not blank or closed.
+		if [ $MEDIATYPE = CD ]; then
+			if [ ! "`echo "$CDINFO" | grep -E "Cannot read TOC|-1:59:74"`" ] && [ $BURN != data ]; then TMP=true; fi #Not blank disc
+			if [ "`echo "$CDINFO" | grep -B 1 'track:lout' | grep 'mode: 1'`" ] && [ $BURN = data ]; then TMP=true; fi #closed disc
+		else #DVD/BD
+			case $BURN in
+				data)
+					[ ! "$MEDIASIZE_FREE" ] && TMP=true #closed disc
+					;;
+				*)	if [ ! "`echo "$DVDINFO" | grep Disc\ status.*blank`" ]; then #Not blank disc
+						TMP=true
+						#the disc might be already formatted (blank). if it is empty, we just move on.
+						mount $BURNDEV $HOME/.pburn/mnt -t auto 2> /dev/null
+						if [ ! "`ls -A $HOME/.pburn/mnt/`" ]; then
+							TMP=false
+							export CHK_OVERWRITE=true
+						fi
+						umount $HOME/.pburn/mnt
+					fi
+					;;
+			esac
+			
+		fi
+		if [ "$TMP" = "true" ]; then
+			echo 100 > $WORKDIR/splash #reset progress bar
+			. $APPDIR/box -quest_blank $MEDIATYPE
+			case $EXIT in
+				overwrite)
+					export CHK_OVERWRITE=true
+					;;
+				blank)
+					echo "<b><span color='"'#FF0000'"'>$(gettext "Blanking disc, please wait")...</span></b>
+
+$(gettext "This operation runs a fast blank. If it for some reason fails to blank your disc, please use the 'blank complete' function from menu 'Burn'.")" > $WORKDIR/splashtext
+					$APPDIR/box_splash &
+					. $APPDIR/func -check_media
+#					if [ $MEDIATYPE = CD ]; then
+						case $BURNDEV in \/dev\/hd*) DEV="ATAPI:$BURNDEV";; *) DEV="$BURNDEV";; esac #atapi for old kernels
+						$CDRECORD blank=fast dev=$DEV
+#					else #DVD
+#						case "$(<$WORKDIR/MEDIATYPE_FULL)" in
+#							'DVD-rom (DVD-RW)')	dvd+rw-format -force $BURNDEV;;
+#							'DVD-rom (DVD+RW)')	dvd+rw-format -force $BURNDEV;; #dd if=/dev/zero of=$BURNDEV bs=32k count=32;; #DVD+RW works 'often' with quick blanking using dd
+#							'Blu-ray (BD-RE)')	dvd+rw-format -force $BURNDEV;;
+#						esac
+#					fi
+					. $APPDIR/func -check_media #read disc info second time to get blanked info
+					. $APPDIR/func_build_command
+					;;
+				Cancel)
+					exit
+					;;
+			esac
+		fi
+		
+		#check if all files in burnlist exists. *.pbn file could be old....
+		echo -n > $WORKDIR/tmp
+		while read I; do
+			[ ! -r "`echo "$I" | cut -d= -f2`" ] && echo "$I" | cut -d= -f2 >> $WORKDIR/tmp
+		done < $WORKDIR/graft_points
+		if [ -s $WORKDIR/tmp ]; then
+			IMG=dialog-error; FRAME="$(gettext 'Error')"; TXT1="<b>$(gettext 'File(s) to be burnt, does not exist')</b>"; TXT2="$(<"$WORKDIR/tmp")"
+			. $APPDIR/box -ok
+			echo 100 > $WORKDIR/splash
+			exit
+		fi
+		
+		#check if burn-data is more than valid space on disc --> overburn?
+		if [ "$RAW_BURNMODE" != "true" ] && [ "$CHK_OVERBURN" != "true" ] && [ $BURN = data ]; then
+			case $MEDIASIZE_FREE in *[0-9]*)
+				TMP="`$MKISOFS -iso-level 4 -D -R --print-size -exclude-list $WORKDIR/exclude -graft-points -path-list=$WORKDIR/graft_points | tail -n 1`"
+				ISOSIZE="`echo "$TMP * 2048" | bc`" #use bc instead of bash to ensure some result. If -joliet-long fails, mkisofs fails to calculate and this line actually skips teh test for overburning - no big deal.
+				[ ! "$ISOSIZE" ] && ISOSIZE=0
+				MEDIASIZE_USED=$(($MEDIASIZE-$MEDIASIZE_FREE))
+				NEEDED_SPACE=$(($MEDIASIZE_USED+$ISOSIZE))
+				#make it human readable
+				if [ "$NEEDED_SPACE" -gt "1000000000" ]; then
+					NEEDED_SPACE_HUMAN="`echo "scale=2; $NEEDED_SPACE / 1024 / 1024 / 1024" | bc -l` Gb"
+				else
+					NEEDED_SPACE_HUMAN="`echo "scale=2; $NEEDED_SPACE / 1024 / 1024" | bc -l` Mb"
+				fi
+				if [ $NEEDED_SPACE -gt $MEDIASIZE ]; then
+					. $APPDIR/box -quest_overburn
+					case $EXIT in
+						overburn)
+							export CHK_OVERBURN=true
+							export CLOSEDISC=true
+							;;
+						overwrite)
+							export CHK_OVERWRITE=true
+							;;
+						*)
+							echo 100 > $WORKDIR/splash
+							exit
+							;;
+					esac
+				fi
+				;;
+			esac
+		fi
+
+		#get sections for off-the-fly multisession burning
+		if [ $MEDIATYPE = CD ]; then
+#			ON_THE_FLY=false
+			export SECTIONS="`$CDRECORD dev=$BURNDEV -msinfo 2> /dev/null | grep -F ","`"  #get previous session
+		else #DVD
+			#check if trying to burn a audio-CD to a DVD
+			if [ $BURN = audio ]; then
+				echo 100 > $WORKDIR/splash
+				TXT1="<b>$(gettext "It's not a valid CD in tray.")</b>" #'
+				TXT2="$(gettext 'Device'): $BURNDEV"
+				. $APPDIR/box
+				exit
+			fi
+			#---
+			ON_THE_FLY=true
+			#check if valid multisession disc
+			TMP="`echo "$DVDINFO" | grep "Media"`"
+			case $TMP in
+			*BD-RE*)
+#				if [ "`echo "$DVDINFO" | grep 'complete'`" ]; then
+#					echo "$DVDINFO" | grep 'Track Start Address' | cut -d: -f2 | cut -d'*' -f1 | tr -d ' ' > $WORKDIR/tmp
+#					export SECTIONS="0,`tail -n 1 $WORKDIR/tmp`"
+#				fi
+				umount $BURNDEV > /dev/null 2>&1
+				mount -t iso9660 $BURNDEV $HOME/.pburn/mnt/ > /dev/null 2>&1
+				ls $HOME/.pburn/mnt/ > $WORKDIR/tmp
+				if [ -s $WORKDIR/tmp ]; then
+					echo "$DVDINFO" | grep 'Track Start Address' | cut -d: -f2 | cut -d'*' -f1 | tr -d ' ' > $WORKDIR/tmp
+					export SECTIONS="0,`tail -n 1 $WORKDIR/tmp`"
+				fi
+				umount $HOME/.pburn/mnt/
+				;;
+			*-RW*)
+				if [ "`echo "$DVDINFO" | grep 'complete incremental'`" ]; then
+					echo "$DVDINFO" | grep 'Track Start Address' | cut -d: -f2 | cut -d'*' -f1 | tr -d ' ' > $WORKDIR/tmp
+					export SECTIONS="0,`tail -n 1 $WORKDIR/tmp`"
+				fi
+				;;
+			*+RW*) #dvd+rw-mediainfo doesn't differ between first track and the rest on DVD+RW
+				umount $BURNDEV > /dev/null 2>&1
+				mount -t iso9660 $BURNDEV $HOME/.pburn/mnt/ > /dev/null 2>&1
+				ls $HOME/.pburn/mnt/ > $WORKDIR/tmp
+				if [ -s $WORKDIR/tmp ]; then
+					echo "$DVDINFO" | grep 'Track Start Address' | cut -d: -f2 | cut -d'*' -f1 | tr -d ' ' > $WORKDIR/tmp
+					export SECTIONS="0,`tail -n 1 $WORKDIR/tmp`"
+				fi
+				umount $HOME/.pburn/mnt/
+				;;
+			*) #ordinary discs +-R
+				if [ "`echo -n "$DVDINFO" | grep "Disc status" | grep "appendable"`" ]; then
+					echo "$DVDINFO" | grep 'Track Start Address' | cut -d: -f2 | cut -d'*' -f1 | tr -d ' ' > $WORKDIR/tmp
+					export SECTIONS="0,`tail -n 1 $WORKDIR/tmp`"
+				fi
+				;;
+			esac
+		fi
+	fi
+fi
+
+#do not allow blanking of Recordable discs
+if [ $BURN = blank ]; then
+	. $APPDIR/func -check_media
+	if [ "`grep -F 'blank' <<< "$MEDIATYPE_FULL"`" ]; then
+		IMG=dialog-info; FRAME="$(gettext 'Info')"; TXT1="<b>$(gettext "Disc is already blank")</b>"
+		. $APPDIR/box -ok
+		echo 100 > $WORKDIR/splash
+		exit
+	elif [ ! "`grep -E "DVD\+RW|DVD-RW|BD-RE|CD-RW" <<< "$MEDIATYPE_FULL"`" ]; then
+		IMG=dialog-error; FRAME="$(gettext 'Error')"; TXT1="<b>$(gettext "Only Rewriteable discs can be blanked")</b>
+(DVD-/+RW  BD-RE  CD-RW)"; TXT2="$(gettext "Note that you can still hide existing data on a DVD/Blu-ray by 'Overwriting existing data' in the burn options dialog.")"
+		. $APPDIR/box -ok
+		echo 100 > $WORKDIR/splash
+		exit
+	fi
+fi
+
+#=============================================================================
+VISIBLE_ON_THE_FLY=enabled #burning ISO disables temporary storage
+MEDIATYPE_FULL="$(<$WORKDIR/MEDIATYPE_FULL)"
+MEDIATYPE="$(<$WORKDIR/MEDIATYPE)"
+. $APPDIR/func_gui_options
+echo $BURN > $WORKDIR/BURN #for rebuild command in advanced tab
+echo 100 > $WORKDIR/splash
+case $BURN in
+copy)
+	INDRIVE="$(cut -d' ' -f1 <<<"$CD_DRIVES" | grep -v $BURNDEV)"
+	[ ! "$INDRIVE" ] && INDRIVE=$BURNDEV
+	CONFIG_LABELS="$(gettext 'Copy')|$(gettext 'Burner device')|$(gettext 'Input device')|$(gettext 'Advanced')"
+	GUI_EXPORT_ISO=""; GUI_AUDIO=""; GUI_VIDEO=""; GUI_FILESYSTEM=""
+	GUI_PUBLISH=""; GUI_BURN=""; GUI_BLANK=""; GUI_CDTEXT=""; GUI_SLIDESHOW=""; GUI_COPY_VIDEO=""
+	;;
+copy_audio)
+	INDRIVE="$(cut -d' ' -f1 <<<"$CD_DRIVES" | grep -v $BURNDEV)"
+	[ ! "$INDRIVE" ] && INDRIVE=$BURNDEV
+	#cleanup
+	echo -n > $WORKDIR/cdtext
+	echo -n > $WORKDIR/CDTEXT_ALBUM_TITLE
+	echo -n > $WORKDIR/CDTEXT_ALBUM_ARTIST
+	rm -f "$OUTDIR"/audio.cddb > /dev/null 2>&1
+	rm -f "$OUTDIR"/audio.cdindex > /dev/null 2>&1
+	rm -f "$OUTDIR"/pburn*.raw > /dev/null 2>&1
+	rm -f "$OUTDIR"/pburn*.inf > /dev/null 2>&1
+	#---
+	CONFIG_LABELS="$(gettext 'Copy')|$(gettext 'CD-text')|$(gettext 'Burner device')|$(gettext 'Input device')|$(gettext 'Advanced')"
+	GUI_EXPORT_ISO=""; GUI_AUDIO=""; GUI_VIDEO=""; GUI_FILESYSTEM=""; GUI_PUBLISH=""
+	GUI_BURN=""; GUI_BLANK=""; GUI_SLIDESHOW=""; GUI_COPY_VIDEO=""
+	;;
+copy_video)
+	vobcopy -i $INDRIVE -I 2> $WORKDIR/tmp
+	export COPY_VIDEO_NAME=`grep DVD-name $WORKDIR/tmp | cut -f 2 -d ':' | sed 's/^ //'`
+	TMP="`grep 'Most chapters' $WORKDIR/tmp | cut -f 2 -d ']' | sed 's/ Most chapters has //' | cut -f 1 -d '.'`"
+	export COPY_VIDEO_TITLE=`echo "$TMP" | sed 's/title //' | cut -f 1 -d ' '`
+	rm "$OUTDIR/$COPY_VIDEO_NAME$COPY_VIDEO_TITLE.vob.partial"
+	export DO_VOBCOPY=true
+	if [ -f "$OUTDIR/$COPY_VIDEO_NAME$COPY_VIDEO_TITLE.vob" ]; then #file already exist
+		IMG=dialog-warning; FRAME=Warning
+		TXT1="<b>$(gettext 'File already exists.')</b>: $OUTDIR/$COPY_VIDEO_NAME$COPY_VIDEO_TITLE.vob"; TXT2="$(gettext 'Do you want to overwrite existing file?')"
+		. $APPDIR/box -yesno
+		if [ $EXIT = Yes ]; then
+			rm "$OUTDIR/$COPY_VIDEO_NAME$COPY_VIDEO_TITLE.vob"
+		else
+			export DO_VOBCOPY=false
+		fi
+	fi
+	. $APPDIR/func_gui_options
+	CONFIG_LABELS="$(gettext 'Copy/shrink video DVD')|$(gettext 'Video DVD/CD')|$(gettext 'Burner device')|$(gettext 'Input device')|$(gettext 'Advanced')"
+	GUI_EXPORT_ISO=""; GUI_AUDIO=""; GUI_FILESYSTEM=""
+	GUI_PUBLISH=""; GUI_BURN=""; GUI_BLANK=""; GUI_CDTEXT=""; GUI_SLIDESHOW=""; GUI_COPY=""
+	;;
+data)
+	CONFIG_LABELS="$(gettext 'Burn')|$(gettext 'Filesystem')|$(gettext 'Burner device')|$(gettext 'Publish')|$(gettext 'Advanced')"
+	GUI_AUDIO=""; GUI_VIDEO=""; GUI_EXPORT_ISO=""; GUI_CDTEXT=""; GUI_COPY=""
+	GUI_COPY_DEVICE=""; GUI_SLIDESHOW=""; GUI_COPY_VIDEO=""
+	;;
+audio)
+	export CDTEXT_INFO=`cut -d '|' -f 2 $WORKDIR/burn | sed -e 's/\.[^\.]*$//' | sed -e "s/(..)_//g"`  #generate CD-text info
+	echo "$CDTEXT_INFO" | tr -d ')' | tr -d '(' | tr -d "'" | tr -d '\`' | tr -d '&' | tr -d '#' | tr -d ',' > $WORKDIR/cdtext #for <edit>
+	CONFIG_LABELS="$(gettext 'Audio CD')|$(gettext 'CD-text')|$(gettext 'Burner device')|$(gettext 'Advanced')"
+	GUI_BURN=""; GUI_VIDEO=""; GUI_EXPORT_ISO=""; GUI_FILESYSTEM=""
+	GUI_PUBLISH=""; GUI_COPY=""; GUI_COPY_DEVICE=""; GUI_SLIDESHOW=""; GUI_COPY_VIDEO=""
+	;;
+video)
+	#set default values
+	SLIDETIME=$PIC_VIEWTIME #use PIC_VIEWTIME only as default 
+	echo -n > $WORKDIR/BACKGROUND_MUSIC
+	echo -n > $WORKDIR/CHK_SLIDESHOW
+	. $APPDIR/func -slideshow_time
+	. $APPDIR/func_gui_options #update mediatype
+	CONFIG_LABELS="$(gettext 'Video DVD/CD')|$(gettext 'Slideshow')|$(gettext 'Burner device')|$(gettext 'Advanced')"
+	GUI_BURN=""; GUI_AUDIO=""; GUI_CDTEXT=""; GUI_EXPORT_ISO=""; GUI_FILESYSTEM=""
+	GUI_PUBLISH=""; GUI_COPY=""; GUI_COPY_DEVICE=""; GUI_COPY_VIDEO=""
+	;;
+video_ts)
+	CONFIG_LABELS="$(gettext 'Burner device')|$(gettext 'Advanced')"
+	GUI_BURN=""; GUI_AUDIO=""; GUI_CDTEXT=""; GUI_EXPORT_ISO=""; GUI_FILESYSTEM=""
+	GUI_PUBLISH=""; GUI_COPY=""; GUI_COPY_DEVICE=""; GUI_COPY_VIDEO=""; GUI_VIDEO=""; GUI_SLIDESHOW=""
+	;;
+iso)
+	#check if file is iso-file or nrg-file
+	if ! grep -iE "iso|nrg" $WORKDIR/burn; then
+		TXT1="$(gettext 'File is not recognized as a filesystem image (*.iso or *.nrg).
+It could still be valid.')"
+		. $APPDIR/box -yesno
+		[ $EXIT != Yes ] && exit
+	fi
+	VISIBLE_ON_THE_FLY=disabled #disable temp storage
+	. $APPDIR/func_gui_options #update
+	CONFIG_LABELS="$(gettext 'Burn image')|$(gettext 'Burner device')|$(gettext 'Advanced')"
+	GUI_AUDIO=""; GUI_VIDEO=""; GUI_EXPORT_ISO=""; GUI_FILESYSTEM=""; GUI_COPY_VIDEO=""
+	GUI_PUBLISH=""; GUI_CDTEXT=""; GUI_COPY=""; GUI_COPY_DEVICE=""; GUI_SLIDESHOW=""
+	;;
+export_video_ts)
+	export EXPORT_VIDEO_TS=true; export MEDIATYPE=DVD; export BURN=video
+	export GUI_EXPORT_ISO='
+	<vbox>
+	 <frame '$(gettext 'Export to Video-DVD filesystem')'> 
+	  <text><label>'$(gettext 'Where should the new files/folders be saved?')'</label></text>
+	  <hbox>
+	   <entry accept="directory" fs-title="pBurn - '$(gettext 'Export to Video-DVD filesystem')'">
+		<variable>VIDEO_TS_FOLDER</variable>
+		<default>'$HOME'</default>
+	   </entry>
+	   <button>
+		<input file stock="gtk-open"></input>
+		<action type="fileselect">VIDEO_TS_FOLDER</action>
+	   </button>
+	  </hbox>
+	 </frame>
+	</vbox>'
+	CONFIG_LABELS="$(gettext 'Filesystem')|$(gettext 'Video')|$(gettext 'Slideshow')|$(gettext 'Advanced')"
+	GUI_BURN=""; GUI_DEVICES=""; GUI_AUDIO=""; GUI_COPY_VIDEO=""; GUI_PUBLISH=""
+	GUI_CDTEXT=""; GUI_COPY=""; GUI_COPY_DEVICE=""; GUI_FILESYSTEM=""
+	;;
+export_iso_video)
+	export EXPORT_ISO=true; export MEDIATYPE=DVD; export BURN=video
+	export GUI_EXPORT_ISO='
+	<vbox>
+	 <frame '$(gettext 'Export to ISO-image')'> 
+	  <text><label>'$(gettext 'Where should the new ISO-image be saved?')'</label></text>
+	  <hbox>
+	   <entry accept="directory" fs-title="pBurn - '$(gettext 'Export to ISO-image')'">
+		<variable>ISOFILE</variable>
+		<default>'$HOME'/Pburn.iso</default>
+	   </entry>
+	   <button>
+		<input file stock="gtk-open"></input>
+		<action type="fileselect">ISOFILE</action>
+	   </button>
+	  </hbox>
+	 </frame>
+	</vbox>'
+	CONFIG_LABELS="$(gettext 'image')|$(gettext 'Video')|$(gettext 'Slideshow')|$(gettext 'Advanced')"
+	GUI_BURN=""; GUI_DEVICES=""; GUI_AUDIO=""; GUI_COPY_VIDEO=""; GUI_PUBLISH=""
+	GUI_CDTEXT=""; GUI_COPY=""; GUI_COPY_DEVICE=""; GUI_FILESYSTEM=""
+	;;
+export_iso)
+	export EXPORT_ISO=true; export MEDIATYPE=CD; export BURN=data
+	export GUI_EXPORT_ISO='
+	<vbox>
+	 <frame '$(gettext 'Export to ISO-image')'> 
+	  <text><label>'$(gettext 'Where should the new ISO-image be saved?')'</label></text>
+	  <hbox>
+	   <entry accept="directory" fs-title="pBurn - '$(gettext 'Export to ISO-image')'">
+		<variable>ISOFILE</variable>
+		<default>'$HOME'/Pburn.iso</default>
+	   </entry>
+	   <button>
+		<input file stock="gtk-open"></input>
+		<action type="fileselect">ISOFILE</action>
+	   </button>
+	  </hbox>
+	 </frame>
+	</vbox>'
+	CONFIG_LABELS="$(gettext 'image')|$(gettext 'Filesystem')|$(gettext 'Publish')|$(gettext 'Advanced')"
+	GUI_BURN=""; GUI_DEVICES=""; GUI_AUDIO=""; GUI_VIDEO=""; GUI_COPY_VIDEO=""
+	GUI_CDTEXT=""; GUI_COPY=""; GUI_COPY_DEVICE=""; GUI_SLIDESHOW=""
+	;;
+blank)
+	#check if burner mounted
+	if mount | grep -q "$BURNDEV" ; then
+		IMG=dialog-question; FRAME="$(gettext 'Disc is mounted.')"; TXT1="<b>$(gettext 'Disc is mounted.')</b>"; TXT2="$(gettext 'Do you want to unmount it and continue?')"
+		. $APPDIR/box -yesno
+		if [ $EXIT = Yes ]; then
+			umount $BURNDEV
+		else #go back
+			echo 100 > $WORKDIR/splash
+			exit
+		fi
+	fi
+	echo "$(gettext 'Checking media...
+Building command') ..." > $WORKDIR/splashtext
+	$APPDIR/box_splash &
+	. $APPDIR/func -check_media
+	if [ "$MEDIATYPE" = "Audio CD" ]; then
+		MEDIATYPE=CD
+		GUI_BLANK_INFO="<text use-markup=\"true\"><label>\"<span color='"'red'"'>$(gettext '<b>Audio CD</b>
+Blanking an Audio CD (must be a RW disc) requires a complete blanking')</span>\"</label></text>"
+		GUI_BLANK_MODE="<default>true</default>"
+	elif [ "$MEDIATYPE" != "CD" ]; then
+		GUI_BLANK_INFO="<text use-markup=\"true\"><label>\"<span color='"'red'"'>$(gettext 'NOTE!
+Blanking a DVD or Blu-ray can give issues. The quick way (and sometimes the only way) is to <b>overwrite existing data on the disc</b>. This is set in the burn-option dialog.')</span>\"</label></text>"
+		GUI_BLANK_MODE=""
+	else
+		GUI_BLANK_INFO=""
+		GUI_BLANK_MODE=""
+	fi
+	export GUI_BLANK="
+	<vbox>
+	 <frame $(gettext 'Type')>
+	  <radiobutton label=\"$(gettext 'Fast blank - Erase table of context')\"></radiobutton>
+	  <radiobutton label=\"$(gettext 'Blank complete - Erase table of context and all data on disc')\">
+	   <variable>COMPLETE</variable>
+	   $GUI_BLANK_MODE
+	  </radiobutton>
+	  <text><label>\"\"</label></text>
+	  <hbox>
+	   <text><label>$(gettext 'Mediatype')</label></text>
+	   <comboboxtext>
+	    <variable>MEDIATYPE</variable>
+	    <default>\"$MEDIATYPE\"</default>
+	    <item>CD</item>
+	    <item>DVD</item>
+	    <item>Blu-ray</item>
+	   </comboboxtext>
+	  </hbox>
+	  $GUI_BLANK_INFO
+	 </frame>
+	</vbox>"
+	CONFIG_LABELS="$(gettext 'Blank (Erase) disc')|$(gettext 'Burner device')|$(gettext 'Advanced')"
+	GUI_BURN=""; GUI_PUBLISH=""; GUI_FILESYSTEM=""; GUI_AUDIO=""; GUI_VIDEO=""; GUI_EXPORT_ISO=""
+	GUI_CDTEXT=""; GUI_COPY=""; GUI_COPY_DEVICE=""; GUI_SLIDESHOW=""; GUI_COPY_VIDEO=""
+	;;
+esac
+. $APPDIR/func_build_command
+
+#theme
+if [ -s $APPDIR/themes/$THEME/button-burn.png ]; then
+	LABEL_BUTTON_BURN="<input file>$APPDIR/themes/$THEME/button-burn.png</input>"
+else
+	LABEL_BUTTON_BURN="<input file stock=\"gtk-apply\"></input>"
+fi
+if [ -s $APPDIR/themes/$THEME/button-quit.png ]; then
+	LABEL_BUTTON_CANCEL="<input file>$APPDIR/themes/$THEME/button-quit.png</input>"
+else
+	LABEL_BUTTON_CANCEL="<input file stock=\"gtk-cancel\"></input>"
+fi
+[ -f $APPDIR/themes/$THEME/heading-preferences.png ] && PIC="<pixmap><input file>$APPDIR/themes/$THEME/heading-preferences.png</input></pixmap>"
+#should Puplish fields be active ? See <window> actions
+if [ "$(echo "$DVDINFO" | grep Disc\ status.*blank)" ] || [ "$(grep -F true $WORKDIR/CHK_OVERWRITE)" ]; then
+	echo true > $WORKDIR/VISIBLE_PUBLISH
+fi	
+
+export Pburn_config="
+<window title=\"pBurn - "$(gettext ' Burn options')"\" icon-name=\"gtk-cdrom\">
+ <vbox space-expand=\"true\" space-fill=\"true\">
+  $PIC
+  <hbox space-expand=\"false\" space-fill=\"false\">
+   <hbox space-expand=\"false\" space-fill=\"false\">
+    <text use-markup=\"true\"><label>\"<b>$(gettext 'Too many options?
+The default settings are probably ok')</b>\"</label></text>
+   </hbox>
+   <hbox space-expand=\"true\" space-fill=\"true\">
+    <text><label>\"\"</label></text>
+   </hbox>
+  </hbox>
+  <notebook labels=\"$CONFIG_LABELS\" space-expand=\"true\" space-fill=\"true\">
+   $GUI_BURN
+   $GUI_BLANK
+   $GUI_COPY
+   $GUI_COPY_VIDEO
+   $GUI_EXPORT_ISO
+   $GUI_FILESYSTEM
+   $GUI_AUDIO
+   $GUI_CDTEXT
+   $GUI_VIDEO
+   $GUI_SLIDESHOW
+   $GUI_DEVICES
+   $GUI_COPY_DEVICE
+   $GUI_PUBLISH
+   <vbox>
+    <frame $(gettext 'Edit burn-command (below) and pre-operations')>
+     <hbox>
+      <checkbox label=\"$(gettext 'Dummy burn')\">
+       <variable>DUMMY_BURN</variable>
+       <action>. $APPDIR/func_build_command</action>
+      </checkbox>
+      <text space-expand=\"true\" space-fill=\"true\"><label>\"\"</label></text>
+      <checkbox label=\"$(gettext 'Allow manual edit')\">
+       <variable>EDIT_COMMAND</variable>
+       <action>. $APPDIR/func_build_command</action>
+       <action>refresh:COMMAND</action>
+       <action>refresh:COMMAND_PREBURN</action>
+       <action>if true disable:COMMAND_TIMER</action>
+       <action>if true enable:COMMAND</action>
+       <action>if true enable:COMMAND_PREBURN</action>
+       <action>if false enable:COMMAND_TIMER</action>
+       <action>if false disable:COMMAND</action>
+       <action>if false disable:COMMAND_PREBURN</action>
+      </checkbox>"'
+      <timer visible="false">
+        <variable>COMMAND_TIMER</variable>
+        <action>. '$APPDIR'/func_build_command -quick</action>
+        <action>refresh:COMMAND</action>
+        <action>refresh:COMMAND_PREBURN</action>
+      </timer> 
+     </hbox>
+     <edit>
+      <variable>COMMAND_PREBURN</variable>
+      <input file>'$WORKDIR'/exec_preburn</input>
+      <visible>disabled</visible>
+      <width>100</width><height>85</height>
+     </edit>
+     <edit>
+      <variable>COMMAND</variable>
+      <input file>'$WORKDIR'/exec</input>
+      <visible>disabled</visible>
+      <width>100</width><height>45</height>
+     </edit>
+    </frame>
+    <hbox>
+     <comboboxtext>
+      <variable>CPU_PRIORITY</variable>
+      <item>'$CPU_PRIORITY'</item>
+      <item>low</item>
+      <item>normal</item>
+      <item>high</item>
+     </comboboxtext>
+     <text space-expand="false" space-fill="false"><label>'$(gettext 'CPU-priority')'</label></text>
+     <text space-expand="true" space-fill="true"><label>""</label></text>
+     <text use-markup="true" space-expand="false" space-fill="false"><label>"<b>'$(gettext 'Information')'</b>"</label></text>
+     <button>
+      <input file stock="gtk-info"></input>'"
+      <action>FRAME=$(gettext 'Information'); IMG=dialog-info; TXT1=\$HLPTXT311; . $APPDIR/box &</action>
+     </button>
+    </hbox>
+   </vbox>
+  </notebook>
+  <hbox space-expand=\"false\" space-fill=\"false\">
+   $GUI_TEMPORARY_STORAGE
+   <hbox space-expand=\"true\" space-fill=\"true\">
+    <text><label>\"\"</label></text>
+   </hbox>
+   <hbox width-request=\"340\">
+	<button tooltip-text=\" $(gettext 'Start operation') \" height-request=\"72\" width-request=\"72\">
+	 $LABEL_BUTTON_BURN
+	 <action type=\"exit\">burn</action>
+	</button>"'
+   </hbox>
+  </hbox>
+ </vbox>
+ <action signal="show" condition="command_is_true([[ $(grep -vF true '$WORKDIR'/VISIBLE_PUBLISH) ]] && echo true)">disable:VOLUME</action>
+ <action signal="show" condition="command_is_true([[ $(grep -vF true '$WORKDIR'/VISIBLE_PUBLISH) ]] && echo true)">disable:PUBLISHER</action>
+</window>'
+
+	echo 100 > $WORKDIR/splash
+	#echo "$Pburn_config" > /root/gtk
+	I=$IFS; IFS=""
+	for STATEMENTS in  $($GTKDIALOG -p Pburn_config); do
+		eval $STATEMENTS
+	done
+	IFS=$I
+	if [ "$EXIT" = "burn" ]; then
+		#execute burning
+		if [ "$EDIT_COMMAND" = "true" ]; then #manual edit of command
+			echo "$COMMAND_PREBURN" > $WORKDIR/exec_preburn
+			echo "$COMMAND" > $WORKDIR/exec
+		else
+			#final testing of chosen options
+			#ON_THE_FLY is true, and BURNDEV/INDRIVE is the same device.
+			if [ $BURN = copy ] || [ $BURN = copy_audio ]; then
+				if [ "$ON_THE_FLY" = "true" ] && [ "$BURNDEV" = "$INDRIVE" ]; then
+					TXT1="$(gettext '<b>Burning on-the-fly requires 2 devices.</b>
+	Please specify the correct input drive.')"
+					. $APPDIR/box
+					exit
+				fi
+			fi
+			#---
+			. $APPDIR/func_build_command #build command of given settings. Run a full build without the -quick switch as in the <timer>
+		fi
+		. $APPDIR/func_exec
+	fi

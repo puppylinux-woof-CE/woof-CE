@@ -1,280 +1,56 @@
-#!/bin/sh
+#!/bin/bash
 #(c) Copyright 2009 Barry Kauler.
-#100331 bad hack for t2 8.0rc/8.0rcXorg7.3 variants. 100412 removed.
-#100617 add support for slackware .txz pkgs.
-#100622 fixed control panel.
-#100622 hack for pet search.
-#100730 if subdir field not specified in pet.specs, use pet_packages-${DISTRO_COMPAT_VERSION}.
-#100801 some common code extracted to support/inline_get_pet,inline_get_compat.
-#100911 fix so will download more kernel pets.
-#110523 Iguleder: support Scientific Linux rpm pkgs.
-#110607 replace 'quirky' with 'common' repo.
-#110615 support mageia
-#110616 fix path for downloading kernel pets.
-#110724 optional execute support/1buildversiondeps. 110817 removed.
-#110725 handle exception host folder pet_packages-drake
 #110819 support/findpkgs is new script to find all pkgs to be used in Puppy build.
-#110823 moved kernel pet download code up, choose which kernel, fix control panel.
-#111121 noryb009: improve arch linux support, patched: 0setup, 1download, 2createpackages, 3builddistro, DISTRO_COMPAT_REPOS-arch, support/arch/runDotInstalls
-#111127 no longer check if host has 'printcols', 'vercmp', it is done in 'merge2out' script.
 #120501 support arm build.
 #120515 build from "gentoo" binary tarballs (refer support/gentoo).
 #120719 support raspbian.
-#120812 db category now allows optional subcategory (for which an icons exists in /usr/local/lib/X11/mini-icons).
-#121102 file DISTRO_SPECS has new variable DISTRO_DB_SUBNAME. ex: for 14.0-based slacko, DISTRO_DB_SUBNAME=slacko14
-#121102 pet_packages-${DISTRO_COMPAT_VERSION} (or pet_packages-${DISTRO_FILE_PREFIX}) is now pet_packages-${DISTRO_DB_SUBNAME.
-#130306 arch linux: gz now xz. maybe only 'DISTRO_COMPAT_REPOS-arch'.
 
 export LANG=C #faster.
+[ $1 ] && XPKG=$1 #download specific pkg
+MWD=$PWD
 
+. ./_00build.conf
+. ./_00func
 . ./DISTRO_SPECS
-[ ! "$DISTRO_DB_SUBNAME" ] && DISTRO_DB_SUBNAME="$DISTRO_COMPAT_VERSION" #121102 fallback if DISTRO_DB_SUBNAME not defined in file DISTRO_SPECS.
-if [ -f ./DISTRO_COMPAT_REPOS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} ];then
-. ./DISTRO_COMPAT_REPOS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}
-else
-. ./DISTRO_COMPAT_REPOS-${DISTRO_BINARY_COMPAT} #130306
-fi
-if [ -f ./DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} ];then #w478
-. ./DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} #has FALLBACKS_COMPAT_VERSIONS
-else
-. ./DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT} #has FALLBACKS_COMPAT_VERSIONS
-fi
+source_compat_repos  # ./DISTRO_COMPAT_REPOS-
+source_pkgs_specs    # ./DISTRO_PKGS_SPECS-
 . ./DISTRO_PET_REPOS #has PACKAGELISTS_PET_ORDER
-
-#the files that have compatible-distro pkg docs (these were downloaded by 0setup)...
-PKGLISTS_COMPAT="`echo "$PKG_DOCS_DISTRO_COMPAT" | tr ' ' '\n' | cut -f 3 -d '|' | tr '\n' ' '`" #see file DISTRO_PKGS_SPECS-ubuntu
-#...format ex: 'Packages-ubuntu-intrepid-main packages-ubuntu-intrepid-universe'
-
-#w469 modify compat-distro fallback list...
-if [ "$FALLBACKS_COMPAT_VERSIONS" != "" ];then
- FALLBACKS_COMPAT_VERSIONS="`echo -n "$FALLBACKS_COMPAT_VERSIONS" | grep -o "${DISTRO_COMPAT_VERSION}.*"`"
- #ex: 'koala jaunty intrepid' gets reduced to 'jaunty intrepid' if DISTRO_COMPAT_VERSION=jaunty
-fi
-
-#w469 refer to file DISTRO_PET_REPOS...
-PACKAGELISTS_PET_PRIMARY="`echo -n "$PACKAGELISTS_PET_ORDER" | cut -f 1 -d ' '`"
-PACKAGELISTS_PET_SECOND="`echo -n "$PACKAGELISTS_PET_ORDER" | cut -f 2 -d ' '`" #100911
-if [ "$DISTRO_TARGETARCH" = "arm" ];then #120501
- PACKAGELISTS_PET_2NDARCH="`echo -n "$PACKAGELISTS_PET_ORDER" | tr ' ' '\n' | grep -v '\-noarch' | tr '\n' ' ' | cut -f 2 -d ' '`"
- [ "$PACKAGELISTS_PET_2NDARCH" = "$PACKAGELISTS_PET_PRIMARY" ] && PACKAGELISTS_PET_2NDARCH=''
-else
- PACKAGELISTS_PET_2NDARCH='Packages-puppy-common-official'
-fi
-
-#remove comments from PKGS_SPECS_TABLE... make sure '|' on end... get rid of old |+udev,+whatever on end...
-PKGS_SPECS_TABLE="`echo "$PKGS_SPECS_TABLE" | grep -v '^#' | grep -v '^$' | tr '\t' ' ' | tr -s ' ' | tr '+' '&' | sed -e 's%|&.*%%' | tr '&' '+' | sed -e 's% #.*%%' -e 's% $%%' -e 's%$%|%' -e 's%||$%|%'`"
-
-BINARIES='deb' #download to packages-deb.
-[ "$DISTRO_BINARY_COMPAT" = "t2" ] && BINARIES="bz2" #download to packages-bz2-${DISTRO_COMPAT_VERSION}.
-[ "$DISTRO_BINARY_COMPAT" = "slackware" ] && BINARIES="tgz_txz" #100617 download to packages-tgz_txz-${DISTRO_COMPAT_VERSION}.
-[ "$DISTRO_BINARY_COMPAT" = "debian" ] && BINARIES="deb" #download to packages-deb-${DISTRO_COMPAT_VERSION}.
-[ "$DISTRO_BINARY_COMPAT" = "arch" ] && BINARIES="tar_xz" #download to packages-tar_xz-${DISTRO_COMPAT_VERSION}. 130306
-[ "$DISTRO_BINARY_COMPAT" = "puppy" ] && BINARIES="pet" #w018 built entirely from pet pkgs.
-[ "$DISTRO_BINARY_COMPAT" = "scientific" ] && BINARIES="rpm" #110523 Iguleder: download to packages-rpm-${DISTRO_COMPAT_VERSION}.
-[ "$DISTRO_BINARY_COMPAT" = "mageia" ] && BINARIES="rpm" #110615
-[ "$DISTRO_BINARY_COMPAT" = "gentoo" ] && BINARIES="gentoo" #120515 download to packages-gentoo-gap6
-[ "$DISTRO_BINARY_COMPAT" = "raspbian" ] && BINARIES="deb_raspbian" #download to packages-deb_raspbian-${DISTRO_COMPAT_VERSION}.
-BINARIES="${BINARIES}-${DISTRO_COMPAT_VERSION}" #w478
-
+set_binaries_var     #ex: BINARIES=tgz_txz-14.2 BINARIES=deb-xenial
+create_local_repos_dirs
 mkdir -p packages-${BINARIES}
 mkdir -p packages-pet
+rm -f DOWNLOAD-FAILS-* DOWNLOAD-ERRORS 2>/dev/null
+wget --help | grep -q '\-\-show\-progress' && WGET_SHOW_PROGRESS='-q --show-progress'
 
-#find out what pet repos are working...
-echo "Finding what PET repos are working..."
-PET_URLS=""
-for ONE_PET_REPO in $PET_REPOS
-do
- ONE_PET_SITE="`echo -n "$ONE_PET_REPO" | cut -f 1 -d '|'`"
- ONE_PET_URL="`echo -n "$ONE_PET_REPO" | cut -f 2 -d '|'`"
- #w013 changed timeout from 20 to 30 seconds...
- #if wget -t 2 -T 20 --waitretry=20 --spider -S $ONE_PET_SITE -o /dev/stdout | grep '200 OK'
- if [ "`wget -t 2 -T 30 --waitretry=20 --spider -S $ONE_PET_SITE -o /dev/stdout 2>/dev/null | grep '200 OK'`" != "" ];then
-  echo "Okay: $ONE_PET_URL"
-  PET_URLS="$PET_URLS$ONE_PET_URL " #success.
- fi
-done
-if [ "$PET_URLS" = "" ];then
- echo "Failure. Is Internet working?"
- echo -n "Press ENTER key to quit script: "
- read yesgetout
- exit
-fi
-
-echo "Finding what $BINARIES repos are working..."
-BIN_URLS=""
-for ONE_BIN_REPO in $REPOS_DISTRO_COMPAT #from DISTRO_PKGS_SPECS-$DISTRO_BINARY_COMPAT.
-do
- ONE_BIN_SITE="`echo -n "$ONE_BIN_REPO" | cut -f 1 -d '|'`"
- ONE_BIN_URL="`echo -n "$ONE_BIN_REPO" | cut -f 2 -d '|'`"
- #w013 ditto...
- if [ "`wget -t 2 -T 30 --waitretry=20 --spider -S $ONE_BIN_SITE -o /dev/stdout 2>/dev/null | grep '200 OK'`" != "" ];then
-  echo "Okay: $ONE_BIN_URL"
-  BIN_URLS="$BIN_URLS$ONE_BIN_URL " #success.
- fi
-done
-if [ "$BIN_URLS" = "" ];then
- echo "Failure. Is Internet working?"
- echo -n "Press ENTER key to quit script: "
- read yesgetout
- exit
-fi
-
-
-rm -f DOWNLOAD-FAILS-PET 2>/dev/null
-rm -f DOWNLOAD-FAILS-${BINARIES} 2>/dev/null
-rm -f DOWNLOAD-ERRORS
-
-#start the gui controlpanel...
-echo 'Run' > /tmp/1download-status-request
-./support/1download_controlpanel &
-
-######################
-#110823 moved downloading kernels PETs up here.
-#download all the linux kernel pkgs from pet repo...
-echo
-echo "Downloading Linux kernel packages..."
-for PKGLISTFILE in $PACKAGELISTS_PET_PRIMARY #$PACKAGELISTS_PET_2NDARCH #$PACKAGELISTS_PET_SECOND #$PACKAGELISTS_PET_THIRD #110616
-do
- if [ "$DISTRO_KERNEL_PET" != "" ] ; then
-  SUBDIRTRAIL="`echo -n "$PKGLISTFILE" | cut -f 3 -d '-'`" #ex: common
-  SPEC_LINUXKERNELS="`cat $PKGLISTFILE | grep $DISTRO_KERNEL_PET | cut -f 2-99 -d ':' | cut -f 7,8 -d '|' | tr '\n' ' '`" 
-  if [ "$SPEC_LINUXKERNELS" = "" ]; then
-   echo 
-   echo "WARNING: Can not find the kernel pet specified in"
-   echo "DISTRO_SPECS file"
-   echo "Please update your DISTRO_SPECS file with one"
-   echo "of the available kernels."
-   echo "Will now download ALL the kernels available in the repos..."
-   echo
-   sleep 5
-   SUBDIRTRAIL="`echo -n "$PKGLISTFILE" | cut -f 3 -d '-'`" #ex: common
-   SPEC_LINUXKERNELS="`cat $PKGLISTFILE | grep '^linux_kernel\-' | cut -f 2-99 -d ':' | cut -f 7,8 -d '|' | tr '\n' ' '`" 
-  fi
- else
-  SUBDIRTRAIL="`echo -n "$PKGLISTFILE" | cut -f 3 -d '-'`" #ex: common
-  SPEC_LINUXKERNELS="`cat $PKGLISTFILE | grep '^linux_kernel\-' | cut -f 2-99 -d ':' | cut -f 7,8 -d '|' | tr '\n' ' '`" 
- fi
- 
- for SPEC_ONEKERNEL in $SPEC_LINUXKERNELS
- do
-  ONEKERNEL="`echo -n "$SPEC_ONEKERNEL" | cut -f 2 -d '|'`"
-  ONEKERNEL="`basename $ONEKERNEL .pet`"
-  PATHKERNEL="`echo -n "$SPEC_ONEKERNEL" | cut -f 1 -d '|'`"
-  
-  [ "$PATHKERNEL" = "" ] && PATHKERNEL="pet_packages-${SUBDIRTRAIL}" #110616
-  
-  SUCCESS="no"
-  [ -f packages-pet/${ONEKERNEL}.pet ] && continue
-  for ONE_PET_URL in $PET_URLS
-  do
-   wget --spider --tries=1 --timeout=20 ${ONE_PET_URL}/${PATHKERNEL}/${ONEKERNEL}.pet
-   [ $? -ne 0 ] && continue
-   cd packages-pet
-   wget ${ONE_PET_URL}/${PATHKERNEL}/${ONEKERNEL}.pet
-   sync
-   #check file downloaded correctly...
-   if [ -f ${ONEKERNEL}.pet ];then
-    cp -f ${ONEKERNEL}.pet tempfileonly.pet
-    pet2tgz tempfileonly.pet
-    [ $? -eq 0 ] && SUCCESS='yes'
-    rm -f tempfileonly.pet 2>/dev/null
-    rm -f tempfileonly.tar.gz 2>/dev/null
-    [ "$SUCCESS" = "no" ] && rm -f ${ONEKERNEL}.pet
-   fi
-   cd ..
-  
-   #check controlpanel, whether need to pause, resume or quit...
-   CP_STATUS_REQ="`cat /tmp/1download-status-request`" #Run, Pause, Resume, Quit
-   pausecnt=0; PIDCP=0
-   while [ "$CP_STATUS_REQ" = "Pause" ];do
-    #echo "Status: paused ${pausecnt}seconds"
-    if [ $PIDCP -eq 0 ];then
-     yaf-splash -close never -placement top -bg orange -text "1download script is currently in paused state" &
-     PIDCP=$!
-    fi
-    sleep 5
-    pausecnt=`expr $pausecnt + 5`
-    CP_STATUS_REQ="`cat /tmp/1download-status-request`"
-   done
-   [ $PIDCP -ne 0 ] && kill $PIDCP
-   if [ "$CP_STATUS_REQ" = "Quit" ];then
-    sync
-    kill `cat /tmp/1download_controlpanel_pid` #1download_controlpanel
-    rm -f /tmp/1download_controlpanel_pid
-    echo
-    echo "1download aborted."
-    echo -n "Press ENTER key to quit script: "
-    read yesgetout
-    exit
-   fi
-   [ "$SUCCESS" = "yes" ] && continue 2
-  done
-  echo "Failed to download ${ONEKERNEL}.pet."
- done
-done
-
-####choose kernel####
-KERNELPKG="$DISTRO_KERNEL_PET"
-if [ -f packages-pet/$DISTRO_KERNEL_PET ];then
- KMSG="This package exists in directory packages-pet, so ok. But you can change
-it now if you wish."
- KOK=''
-else
- KMSG="This package does not exist in directory packages-pet, so you cannot use it.
-You must choose a linux kernel PET package from those available."
- KOK='no'
-fi
-echo
-echo "The kernel to be used is specified in variable DISTRO_KERNEL_PET in file"
-echo "DISTRO_SPECS. Currently DISTRO_KERNEL_PET=${DISTRO_KERNEL_PET}"
-echo "$KMSG"
-if [ "$KOK" = "" ];then
- echo -n "Press ENTER only to use this kernel, press any other char to change: "
- read KOK
-fi
-if [ "$KOK" ];then
- CNTLOOP=1
- AVAILKERNELS="`ls -1 packages-pet/linux_kernel-*.pet`"
- [ "$AVAILKERNELS" = "" ] && echo 'No linux_kernel pkgs avail in packages-pet. Press CTRL-C.'
- for ONEKERNEL in $AVAILKERNELS
- do
-  echo "$CNTLOOP  $ONEKERNEL"
-  CNTLOOP=`expr $CNTLOOP + 1`
- done
- echo
- echo -n 'Type number for kernel you want to use [1]: '
- read numkernel
- [ "$numkernel" = "" ] && numkernel=1
- KERNELPKG="`echo "$AVAILKERNELS" | head -n $numkernel | tail -n 1 | rev | cut -f 1 -d '/' | rev`"
-fi
-if [ "$KERNELPKG" != "$DISTRO_KERNEL_PET" ];then
- dkpPATTERN="s%^DISTRO_KERNEL_PET.*%DISTRO_KERNEL_PET='${KERNELPKG}'%"
- sed -i -e "$dkpPATTERN" ./DISTRO_SPECS
- echo "...DISTRO_SPECS now set to use $KERNELPKG"
-fi
+function do_exit() { #$1: msg
+	kill `cat /tmp/1download_controlpanel_pid` &>/dev/null
+	rm -f /tmp/1download_controlpanel_pid &>/dev/null
+	echo -e "\n${1}"
+	echo -e "\nScript finished."
+	[ "$WOOF_GUI" ] && { echo -n "Press ENTER key to exit: " ; read zzz ; }
+	exit
+}
 
 ##################################
 #120501 support arm build, download sd images...
-if [ "$DISTRO_TARGETARCH" = "arm" ];then
+if [ "$DISTRO_TARGETARCH" = "arm" -a "$BUILD_ZIP" != "yes" ];then
  mkdir -p sd-skeleton-images
  echo
  echo 'Please wait, probing for online SD skeleton image files...'
- wget -4 -t 2 -T 20 --waitretry=20 --spider --recursive --level=1 --accept '*.xz' -S http://distro.ibiblio.org/quirky/arm/sd-skeleton-images/ 2>&1 | grep '\.xz$' | rev | cut -f 1 -d '/' | rev > /tmp/1download-sd-images-probe
+ wget -4 -t 2 -T 20 --waitretry=20 --spider --recursive --level=1 --accept '*.xz' -S http://distro.ibiblio.org/puppylinux/arm/sd-skeleton-images/ 2>&1 | grep '\.xz$' | rev | cut -f 1 -d '/' | rev > /tmp/1download-sd-images-probe
  sync
  if [ ! -s /tmp/1download-sd-images-probe ];then
-  echo 'Sorry, could not access any SD images at http://distro.ibiblio.org/quirky/arm/sd-skeleton-images/'
+  echo 'Sorry, could not access any SD images at http://distro.ibiblio.org/puppylinux/arm/sd-skeleton-images/'
   echo 'Press ENTER to continue script regardless: '
   read keepgoing
   [ "$keepgoing" != "" ] && exit
  else
- 
   #ask which sd-image to download...
   ALREADYDOWN="`ls -1 sd-skeleton-images | grep 'xz$'`"
   [ "$ALREADYDOWN" = "" ] && ALREADYDOWN='none'
   SDIMAGEBUTTONS=''
   for ONESDIMAGE in `cat /tmp/1download-sd-images-probe | sort -u | tr '\n' ' '`
   do
-   #SDIMAGENAME="`basename $ONESDIMAGE .xz`"
    [ -f sd-skeleton-images/$ONESDIMAGE ] && continue #already downloaded.
    SDIMAGEBUTTONS="${SDIMAGEBUTTONS}<radiobutton><label>${ONESDIMAGE}</label><variable>RADIO_URL_${ONESDIMAGE}</variable></radiobutton>"
   done
@@ -299,9 +75,8 @@ if [ "$DISTRO_TARGETARCH" = "arm" ];then
     [ "`echo "$RETPARAMS" | grep '^EXIT' | grep 'OK'`" != "" ] && SDIMAGE_FILE="`echo "$RETPARAMS" | grep 'RADIO_URL_' | grep '"true"' | cut -f 1 -d '=' | cut -f 3-9 -d '_'`"
     if [ "$SDIMAGE_FILE" ];then
      cd sd-skeleton-images
-     wget -4 http://distro.ibiblio.org/quirky/arm/sd-skeleton-images/$SDIMAGE_FILE
-     sync
-     wget -4 http://distro.ibiblio.org/quirky/arm/sd-skeleton-images/${SDIMAGE_FILE}.md5.txt
+     wget -4 http://distro.ibiblio.org/puppylinux/arm/sd-skeleton-images/$SDIMAGE_FILE
+     wget -4 http://distro.ibiblio.org/puppylinux/arm/sd-skeleton-images/${SDIMAGE_FILE}.md5.txt
      sync
      cd ..
      echo "...${SDIMAGE_FILE} downloaded to folder sd-skeleton-images"
@@ -324,182 +99,154 @@ if [ "$DISTRO_TARGETARCH" = "arm" ];then
  fi
 fi
 
+run_findpkgs #find all packages that will be used in the Puppy build...
 
-##################################
-#110817 new script to find all pkgs for build...
-./support/findpkgs
-#...returns file status/findpkgs_FINAL_PKGS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}
-# each line is full db entry for pkg, prefixed with :generic-name:, pet/compat and repo-filename.
-# ex: :a52dec:|compat|Packages-puppy-wary5-official|a52dec-0.7.4-w5|a52dec|0.7.4-w5||BuildingBlock|68K||a52dec-0.7.4-w5.pet||A free ATSC A52 stream decoder|puppy|wary5||
-if [ $? -ne 0 ];then
- echo
- echo "ERROR: Script support/findpkgs aborted with an error, exiting."
- exit 1
-fi
-if [ ! -f status/findpkgs_FINAL_PKGS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} ];then
- echo
- echo "ERROR: Something went wrong with support/findpkgs, exiting."
- exit 1
+#==============================================================================
+
+function download_controlpanel() {
+	export DOWNLOAD_CONTROLPANEL='
+<window title="1download control panel" icon-name="gtk-dialog-warning">
+ <vbox>
+  <hbox>
+   <text><label>Pause after current package has downloaded:</label></text>
+   <button>
+      <label>Pause</label>
+      <action>echo 'Pause' > /tmp/1download-status-request</action>
+   </button>
+  </hbox>
+  <hbox>
+   <text><label>Resume downloading if currently paused:</label></text>
+   <button>
+      <label>Resume</label>
+      <action>echo 'Resume' > /tmp/1download-status-request</action>
+   </button>
+  </hbox>
+  <hbox>
+   <text><label>Quit 1download script after current pkg has download:</label></text>
+   <button>
+      <label>Quit</label>
+      <action>echo 'Quit' > /tmp/1download-status-request</action>
+      <action type="exit">Exit</action>
+   </button>
+  </hbox>
+  <text><label>Note: If you Quit, 1download can be run again and will continue from where it left off. That is, previously downloaded packages will not be re-downloaded.</label></text>
+ </vbox>
+</window>
+'
+	gtkdialog --program=DOWNLOAD_CONTROLPANEL &
+	echo -n $! > /tmp/1download_controlpanel_pid
+}
+
+#==============================================================================
+
+REPOS_DISTRO_COMPAT=$(echo "$REPOS_DISTRO_COMPAT" | tr ' ' '\n')
+PET_REPOS=$(echo "$PET_REPOS" | tr ' ' '\n')
+
+echo -e "\nDownloading packages..."
+if [ $XPKG ] ; then
+	XFILE=/tmp/zz_downloadpkg
+	grep ":${XPKG}:" status/findpkgs_FINAL_PKGS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} | sort > /tmp/zz_downloadpkg
+else
+	#start the gui controlpanel...
+	echo 'Run' > /tmp/1download-status-request
+	download_controlpanel
+	XFILE=status/findpkgs_FINAL_PKGS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}
 fi
 
-echo
-echo "Downloading packages..."
+echo "" > $MWD/status/download_list
 LINECNT=1
-cat status/findpkgs_FINAL_PKGS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} |
-while read ONEDBENTRY
+cat $XFILE | while read ONEDBENTRY
 do
  #120812 optional subcategory...
  #ONEDBENTRY=:GENERICNAME:|PETorCOMPAT|DBFILE|pkgname|nameonly|version|pkgrelease|category[;subcategory]|size|path|fullfilename|dependencies|description|compileddistro|compiledrelease|repo|
  #...pkgname onwards is the full db entry for a package.
+ IFS="|" read -r F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 <<< "$ONEDBENTRY"
  LINECNT=$(($LINECNT + 1))
- PETorCOMPAT="`echo -n "$ONEDBENTRY" | cut -f 2 -d '|'`" #ex: compat
+ PETorCOMPAT="$F2" #ex: compat
  if [ "$PETorCOMPAT" != "pet" -a "$PETorCOMPAT" != "compat" ];then
-  echo
-  echo "Syntax ERROR in status/findpkgs_FINAL_PKGS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION},"
+  echo -e "\nSyntax ERROR in status/findpkgs_FINAL_PKGS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION},"
   echo "line number ${LINECNT}:"
   echo "$ONEDBENTRY"
   echo -n "Ignoring this line, press ENTER to continue (CTRL-C to abort): "
   read KEEPITGOING
   continue
  fi
- DBFILE="`echo -n "$ONEDBENTRY" | cut -f 3 -d '|'`"      #ex: Packages-puppy-5-official
- DB_pkgname="`echo -n "$ONEDBENTRY" | cut -f 4 -d '|'`"  #ex: abiword-2.3.4-w5
- DB_fullfilename="`echo -n "$ONEDBENTRY" | cut -f 11 -d '|'`"  #ex: abiword-2.3.4-w5.pet
- DB_path="`echo -n "$ONEDBENTRY" | cut -f 10 -d '|'`"  #ex: pet_packages-5
+ DBFILE="$F3"           #ex: Packages-puppy-5-official
+ DB_genericname="$F1"	#ex: abiword
+ DB_pkgname="$F4"       #ex: abiword-2.3.4-w5
+ DB_fullfilename="$F11" #ex: abiword-2.3.4-w5.pet
+ DB_path="$F10"         #ex: pet_packages-5
  if [ ! "$DB_path" ];then
   ONLINESUBDIR="`echo -n "$DBFILE" | cut -f 3 -d '-'`"   #ex: 5
   if [ "$PETorCOMPAT" = "pet" ];then #120515
    DB_path="pet_packages-${ONLINESUBDIR}"
-  else
+  else #compat binary tarballs
    DB_path="compat_packages-${ONLINESUBDIR}"
   fi
  fi
  
- echo -n "$DB_fullfilename "
- 
- if [ "$PETorCOMPAT" = "pet" ];then
-  
-  #see if pkg already downloaded...
-  PETPKG="`basename $DB_fullfilename .pet`"
-  [ -f packages-pet/${PETPKG}.pet ] && continue
-  echo "Downloading ${DB_fullfilename}..."
-  SUCCESS='no'
-  for ONE_PET_URL in $PET_URLS
-  do
-   wget --spider --tries=1 --timeout=30 ${ONE_PET_URL}/${DB_path}/${PETPKG}.pet #w013 was 20
-   [ $? -ne 0 ] && continue
-   cd packages-pet
-   #rxvt -name pet -bg orange -geometry 80x10 -e wget ${ONE_PET_URL}/${DB_path}/${PETPKG}.pet
-   wget ${ONE_PET_URL}/${DB_path}/${PETPKG}.pet
-   sync
-   #check file downloaded correctly...
-   if [ -f ${PETPKG}.pet ];then
-    cp -f ${PETPKG}.pet tempfileonly.pet
-    pet2tgz tempfileonly.pet
-    [ $? -eq 0 ] && SUCCESS='yes'
-    rm -f tempfileonly.pet 2>/dev/null
-    rm -f tempfileonly.tar.gz 2>/dev/null
-    [ "$SUCCESS" = "no" ] && rm -f ${PETPKG}.pet
-   fi
-   cd ..
-   [ "$SUCCESS" = "yes" ] && break
-  done 
-  #if fail to find it, log failure, request manual download.
-  [ "$SUCCESS" = "no" ] && echo "DOWNLOAD FAIL: ${PETPKG}.pet"
-  [ "$SUCCESS" = "no" ] && echo "${PETPKG}.pet" >> DOWNLOAD-FAILS-PET
+ SUCCESS='no'
 
- else #compat
-  
-  #check if already downloaded...
-  [ -f packages-${BINARIES}/$DB_fullfilename ] && continue
-  #arch is a bit awkward, as the pkg may or may not have '-i686' in the name...
-  if [ "$DISTRO_BINARY_COMPAT" = "arch" ];then
-   altDB_fullfilename="`echo -n "$DB_fullfilename" | sed -e 's%\-i686\.pkg%.pkg%'`"
-   [ -f packages-${BINARIES}/$altDB_fullfilename ] && continue
-  fi
-  #...probably don't need this anymore ###NOTE###
-  #use wget to see if pkg on a repository, if not try a secondary repo, then a third.
-  #if found, download to packages-${BINARIES} (packages-deb).
-  #if fail, log failure, request manual download.
-  SUCCESS='no'
-  ONEFILE="${DB_path}/${DB_fullfilename}"
-  for ONE_BIN_URL in $BIN_URLS
-  do
-   wget --spider --tries=1 --timeout=20 ${ONE_BIN_URL}/${ONEFILE} > /dev/null 2>&1
-   RETSPIDER=$?
-   if [ "$DISTRO_BINARY_COMPAT" = "arch" -a $RETSPIDER -ne 0 ];then #pkg naming inconsistency problem.
-    altONEFILE="`echo -n "$ONEFILE" | sed -e 's%\-i686\.pkg%.pkg%'`"
-    wget --spider --tries=1 --timeout=20 ${ONE_BIN_URL}/${altONEFILE} > /dev/null 2>&1
-    RETSPIDER=$?
-    if [ $RETSPIDER -eq 0 ];then
-     ONEFILE="$altONEFILE"
-     DB_fullfilename="$altDB_fullfilename"
+ if [ "$PETorCOMPAT" = "pet" ];then
+  LFILE=DOWNLOAD-FAILS-PET
+  FILE_DIR=packages-pet
+ else #-- compat
+  LFILE=DOWNLOAD-FAILS-${BINARIES}
+  FILE_DIR=packages-${BINARIES}
+ fi
+
+ cd ${MWD}
+
+ if [ -f "${FILE_DIR}/${DB_fullfilename}" ] ; then
+   echo -n " ${DB_fullfilename}" ; SUCCESS='yes'
+   continue
+ fi
+ echo -e "\n* Downloading ${DB_fullfilename}"
+
+ cd ${FILE_DIR}
+
+ if [ "$PETorCOMPAT" = "pet" ];then
+  XREPOS="$PET_REPOS"
+ else #-- compat
+  XREPOS="$REPOS_DISTRO_COMPAT"
+ fi
+
+ # have to give priority to the repo $DBFILE is in
+ # $DBFILE ex: Packages-slackware-14.2-official
+ # z|http://mirror.aarnet.edu.au/pub/slackware/slackware-14.2|Packages-slackware-14.2-official
+ REPOS="$(echo "$XREPOS" | grep "|${DBFILE}$")
+$(echo "$XREPOS" | grep -v "|${DBFILE}$")"
+ URLS="$(echo "$REPOS" | cut -f 2 -d '|')"
+
+ for ONE_URL in ${URLS}
+ do
+    [ -f "$DB_fullfilename" ] && { SUCCESS='yes' ; break ; }
+    REMOTE_PATH=${ONE_URL}/${DB_path}/${DB_fullfilename}
+    echo "  - from ${REMOTE_PATH%/*}"
+    wget -c ${WGET_SHOW_PROGRESS} --timeout=15 ${REMOTE_PATH} || {
+       echo "  failed (file not found on server or could not finish download)"
+       rm -f ${DB_fullfilename}
+       continue
+    }
+    #-
+    ${MWD}/rootfs-skeleton/usr/local/petget/verifypkg.sh ${DB_fullfilename}
+    [ $? -eq 0 ] && SUCCESS='yes'
+    #-
+    if [ "$SUCCESS" = "no" ] ; then
+       echo "  failed (file not found or corrupted file)"
+       rm -f ${DB_fullfilename} 2>/dev/null
     fi
-   fi
-   #...probably don't need this anymore ###NOTE###
-   [ $RETSPIDER -ne 0 ] && continue
-   cd packages-${BINARIES}
-   #rxvt -name pet -bg orange -geometry 80x10 -e wget ${ONE_BIN_URL}/${ONEFILE}
-   wget ${ONE_BIN_URL}/${ONEFILE}
-   sync
-   #check file downloaded correctly...
-   if [ -f $DB_fullfilename ];then
-    case $DISTRO_BINARY_COMPAT in #exs: ubuntu, debian
-     ubuntu|debian|raspbian)
-      dpkg-deb --extract $DB_fullfilename tempdironly
-      [ $? -eq 0 ] && SUCCESS='yes'
-     ;;
-     arch)
-      xz --test $DB_fullfilename > /dev/null 2>&1
-      if [ $? -eq 0 ];then
-       SUCCESS='yes'
-      else
-       gzip --test $DB_fullfilename > /dev/null 2>&1
-       [ $? -eq 0 ] && SUCCESS='yes'
-      fi
-     ;;
-     slackware) #100617 support .txz...
-      xz --test $DB_fullfilename > /dev/null 2>&1
-      if [ $? -eq 0 ];then
-       SUCCESS='yes'
-      else
-       gzip --test $DB_fullfilename > /dev/null 2>&1
-       [ $? -eq 0 ] && SUCCESS='yes'
-      fi
-     ;;
-     puppy) #w017
-      PETPKG="`basename $DB_fullfilename .pet`"
-      cp -f ${PETPKG}.pet tempfileonly.pet
-      pet2tgz tempfileonly.pet
-      [ $? -eq 0 ] && SUCCESS='yes'
-      rm -f tempfileonly.pet 2>/dev/null
-      rm -f tempfileonly.tar.gz 2>/dev/null
-     ;;
-     t2)
-      bzip2 --test $DB_fullfilename > /dev/null 2>&1
-      [ $? -eq 0 ] && SUCCESS='yes'
-     ;;
-     scientific|mageia) #110523 Iguleder. 110615
-      busybox rpm -qpl $DB_fullfilename > /dev/null 2>&1
-      [ $? -eq 0 ] && SUCCESS='yes'
-     ;;
-     gentoo) #120515
-      bzip2 --test $DB_fullfilename > /dev/null 2>&1
-      [ $? -eq 0 ] && SUCCESS='yes'
-     ;;
-    esac
-   fi
-   rm -rf tempdironly 2>/dev/null
-   [ "$SUCCESS" = "no" ] && rm -f ${DB_fullfilename} 2>/dev/null
-   cd ..
-   [ "$SUCCESS" = "yes" ] && break
-  done
-  #if failed to find it, log failure, request manual download...
-  [ "$SUCCESS" = "no" ]  && echo "$DB_fullfilename" >> DOWNLOAD-FAILS-${BINARIES}
-  
- fi #end if PETorCOMPAT
+    #--
+    [ "$SUCCESS" = "yes" ] && { echo "  success" ; echo "${DB_genericname}" >> $MWD/status/download_list ; break ; }
+ done
+
+ cd ${MWD}
+
+ [ "$SUCCESS" = "no" ] && echo "DOWNLOAD FAIL: ${DB_fullfilename}"
+ [ "$SUCCESS" = "no" ] && echo "$DB_fullfilename" >> ${LFILE}
 
  #check controlpanel, whether need to pause, resume or quit...
+ [ -f /tmp/1download-status-request ] || continue
  CP_STATUS_REQ="`cat /tmp/1download-status-request`" #Run, Pause, Resume, Quit
  pausecnt=0; PIDCP=0
  while [ "$CP_STATUS_REQ" = "Pause" ];do
@@ -517,26 +264,8 @@ do
 
 done
 
-if [ "$CP_STATUS_REQ" = "Quit" ];then
- sync
- kill `cat /tmp/1download_controlpanel_pid` #1download_controlpanel
- rm -f /tmp/1download_controlpanel_pid
- echo
- echo "1download aborted."
- echo -n "Press ENTER key to quit script: "
- read yesgetout
- exit
-fi
-
-############################
-
-sync
-kill `cat /tmp/1download_controlpanel_pid` #1download_controlpanel
-rm -f /tmp/1download_controlpanel_pid
-echo
-echo
-echo "Finished."
-echo -n "Press ENTER key to quit script: "
-read yesgetout
+[ $XPKG ] && echo && exit
+[ "$CP_STATUS_REQ" = "Quit" ] && do_exit "1download aborted."
+do_exit ""
 
 ###END###

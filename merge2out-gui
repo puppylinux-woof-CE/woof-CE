@@ -1,0 +1,256 @@
+#!/bin/bash
+
+# function to make the radiobuttons for the dialog box
+config_radiobuttons () {
+	while [ "$1" != '' ]; do
+		if [ "$1" = "$DBUILD" ]; then
+			echo -n '			<radiobutton active="true">
+									<label>'"$1"'</label>
+									<variable>'"${1}"'</variable>
+								</radiobutton>
+'
+		else
+			echo -n '			<radiobutton>
+									<label>'"$1"'</label>
+									<variable>'"${1}"'</variable>
+								</radiobutton>
+'
+		fi
+		shift
+	done
+}
+export -f config_radiobuttons
+
+
+
+[ -f ./woof.conf ] && . ./woof.conf
+
+CURRENT_DIR=$PWD
+if [ -d woof-CE ]; then
+	cd woof-CE
+elif [ -d ../woof-CE ]; then
+	cd ../woof-CE
+fi
+
+ALL_BUILDS=""
+for ONE_ARCH in $(find woof-arch -mindepth 1 -maxdepth 1 -type d | sed -e 's%^woof-arch/%%' | sort | tr '\n' ' ')
+do
+	taPTN="s%^woof-distro/${ONE_ARCH}/%%"
+	for ONE_DISTRO in $(find woof-distro/${ONE_ARCH} -mindepth 1 -maxdepth 1 -type d | sed -e "${taPTN}" | sort | tr '\n' ' ')
+	do
+		for ONE_COMPAT in $(find woof-distro/${ONE_ARCH}/${ONE_DISTRO} -maxdepth 1 -mindepth 1 -type d | rev | cut -f 1 -d '/' | rev | sort | tr '\n' ' ')
+		do
+			ALL_BUILDS="$ALL_BUILDS ${ONE_ARCH}/${ONE_DISTRO}/${ONE_COMPAT}"
+		done
+	done
+done
+
+cd $CURRENT_DIR
+START_DIR=${CURRENT_DIR%/woof-CE}
+
+ALTERNATE_BUILD_STATE="false"
+ALTERNATE_BUILD_ACTIVE=''
+if [ -d "$ALTERNATE_BUILD" -a -f "${ALTERNATE_BUILD}/DISTRO_SPECS" ]; then
+	ALTERNATE_BUILD_STATE="true"
+	if [ "$BUILD" = "" ]; then
+		ALTERNATE_BUILD_ACTIVE=' active="true"'
+	else
+		ALTERNATE_BUILD_ACTIVE=''
+	fi
+fi
+
+if [ "$ENABLE_EXTRA_MERGE" ] ; then
+	ALT_BUILD_RD='			<radiobutton sensitive="'${ALTERNATE_BUILD_STATE}'"'${ALTERNATE_BUILD_ACTIVE}'>
+				<label>ALTERNATE_BUILD</label>
+				<variable>ALTERNATE_BUILD_SELECTED</variable>
+			</radiobutton>
+			<hbox>
+				<entry accept="directory" fs-folder="'${START_DIR}'">
+					<variable>BUILD_DIRECTORY</variable>
+					<default>'${ALTERNATE_BUILD:-optional}'</default>
+					<action condition="command_is_true([ -d \"$BUILD_DIRECTORY\" -a -f \"${BUILD_DIRECTORY}/DISTRO_SPECS\" ] && echo true)">enable:ALTERNATE_BUILD_SELECTED</action>
+					<action condition="command_is_false([ ! -d \"$BUILD_DIRECTORY\" -o ! -f \"${BUILD_DIRECTORY}/DISTRO_SPECS\" ] && echo false)">disable:ALTERNATE_BUILD_SELECTED</action>
+				</entry>
+				<button>
+					<input file stock="gtk-open"></input>
+					<variable>FILE_BROWSE1</variable>
+					<action type="fileselect">BUILD_DIRECTORY</action>
+				</button>
+			</hbox>'
+	EXTRA_MERGE_DLG='		<frame EXTRA_MERGE>
+			<hbox>
+				<entry accept="directory" fs-folder="'${START_DIR}'">
+					<variable>MERGE_DIRECTORY</variable>
+					<default>'${EXTRA_MERGE:-optional}'</default>
+				</entry>
+				<button>
+					<input file stock="gtk-open"></input>
+					<variable>FILE_BROWSE2</variable>
+					<action type="fileselect">MERGE_DIRECTORY</action>
+				</button>
+			</hbox>
+		</frame>'
+fi
+
+DBUILD=$BUILD #this is to select the active radio button
+[ -z "$DBUILD" ] && DBUILD=none
+
+MAIN_DIALOG='<window title="merge2out-gui">
+	<vbox>
+		<frame Select build>
+'$(config_radiobuttons none ${ALL_BUILDS})'
+        '${ALT_BUILD_RD}'
+		</frame>
+		'${EXTRA_MERGE_DLG}'
+		<hbox>
+			<button cancel></button>
+			<button ok></button>
+		</hbox>
+	</vbox>
+</window>'
+
+export MAIN_DIALOG
+
+#	Uncomment the following line to see the finished dialog.
+#	echo "$MAIN_DIALOG"
+
+GTKDIALOG_RESULT="`gtkdialog --center --program=MAIN_DIALOG`"
+
+#	Uncomment the following line to see any errors for debugging.
+#	echo "$GTKDIALOG_RESULT"
+
+if echo "$GTKDIALOG_RESULT" | grep -q 'none="true"' ; then
+	[ -f woof.conf ] && sed -i '/^BUILD=/d' woof.conf
+	exit
+fi
+
+for ONE_VAR in $GTKDIALOG_RESULT
+do
+	case $ONE_VAR in
+		EXIT*)
+			if [ "${ONE_VAR%\"cancel\"}" != "$ONE_VAR" ]; then
+				exit
+			elif [ "${ONE_VAR%\"OK\"}" != "$ONE_VAR" ]; then
+				EXIT_OK="true"
+			fi
+			;;
+		arm*|x86*|x86_64*)
+			if [ "${ONE_VAR%\"true\"}" != "$ONE_VAR" ]; then
+				NEW_BUILD="BUILD=\"${ONE_VAR%=\"true\"}\""
+			fi
+			;;
+		ALTERNATE_BUILD_SELECTED*)
+			if [ "${ONE_VAR%\"true\"}" != "$ONE_VAR" ]; then
+				NEW_BUILD="BUILD=\"\""
+			fi
+			;;
+		MERGE_DIRECTORY*)
+			EXTRA_MERGE=${ONE_VAR#MERGE_DIRECTORY=}
+			EXTRA_MERGE=${EXTRA_MERGE//\"}
+			if [ -d "$EXTRA_MERGE" ]; then
+				EXTRA_MERGE=$(realpath ${EXTRA_MERGE})
+				NEW_EXTRA_MERGE="EXTRA_MERGE=\"${EXTRA_MERGE}\""
+			else
+				NEW_EXTRA_MERGE="EXTRA_MERGE=\"\""
+			fi
+			;;
+		BUILD_DIRECTORY*)
+			ALTERNATE_BUILD=${ONE_VAR#BUILD_DIRECTORY=}
+			ALTERNATE_BUILD=${ALTERNATE_BUILD//\"}
+			if [ -d "$ALTERNATE_BUILD" -a -f "${ALTERNATE_BUILD}/DISTRO_SPECS" ]; then
+				ALTERNATE_BUILD=$(realpath ${ALTERNATE_BUILD})
+				NEW_ALTERNATE_BUILD="ALTERNATE_BUILD=\"${ALTERNATE_BUILD}\""
+			else
+				NEW_ALTERNATE_BUILD="ALTERNATE_BUILD=\"\""
+			fi
+			;;
+		esac
+done
+
+
+
+if [ "$EXIT_OK" = "true" ]; then
+
+	if [ -e woof.conf ]; then
+		# update each line in existing file
+		sed -i '/^$/d' woof.conf
+		( #>> woof.conf.new
+		while read LINE ; do
+			case $LINE in
+				"EXTRA_MERGE="*) echo "$NEW_EXTRA_MERGE" ;;
+				"BUILD="*) echo "$NEW_BUILD" ;;
+				"ALTERNATE_BUILD="*) echo "$NEW_ALTERNATE_BUILD" ;;
+				*) echo "$LINE" ;;
+			esac
+		done < woof.conf
+		# If any variables were not set in the original config file, add them to the new config file.
+		grep -q '^EXTRA_MERGE=' woof.conf.new || echo "$NEW_EXTRA_MERGE"
+		grep -q '^BUILD=' woof.conf.new || echo "$NEW_BUILD"
+		grep -q '^ALTERNATE_BUILD=' woof.conf.new || echo "$NEW_ALTERNATE_BUILD"
+		) >> woof.conf.new
+		mv woof.conf.new woof.conf
+
+	else
+		# otherwise write new woof.conf
+		echo "# This is the config file for merge2out-gui" > woof.conf
+		echo >> woof.conf
+		echo "$NEW_BUILD" >> woof.conf
+		if [ "$ENABLE_EXTRA_MERGE" ] ; then
+			echo "$NEW_EXTRA_MERGE" >> woof.conf
+			echo "$NEW_ALTERNATE_BUILD" >> woof.conf
+		fi
+	fi
+
+
+	. ./woof.conf
+
+	TARGETARCH=${BUILD%%/*}
+#	echo "TARGETARCH = $TARGETARCH"
+	export TARGETARCH
+
+	COMPATDISTRO=${BUILD%/*}
+	COMPATDISTRO=${COMPATDISTRO#*/}
+#	echo "COMPATDISTRO = $COMPATDISTRO"
+	export COMPATDISTRO
+
+	COMPATVERSION=${BUILD##*/}
+#	echo "COMPATVERSION = $COMPATVERSION"
+	export COMPATVERSION
+
+	[ -d $EXTRA_MERGE ] && export EXTRA_MERGE
+
+	# try to find a terminal emulator
+	# TERMINAL_COMMAND could be set in woof.conf
+	if [ "`which urxvt`" != '' ]; then
+		TERMCMND="${TERMINAL_COMMAND:-urxvt}"
+	elif [ "`which rxvt`" != '' ]; then
+		TERMCMND="${TERMINAL_COMMAND:-rxvt}"
+	elif [ "`which lxterminal`" != '' ]; then
+		TERMCMND="${TERMINAL_COMMAND:-lxterminal}"
+	elif [ "`which xterm`" != '' ]; then
+		TERMCMND="${TERMINAL_COMMAND:-xterm}"
+	elif [ "`which konsole`" != '' ]; then
+		TERMCMND="${TERMINAL_COMMAND:-konsole}"
+	elif [ "`which gnome-terminal`" != '' ]; then
+		TERMCMND="${TERMINAL_COMMAND:-gnome-terminal}"
+	fi
+
+	if [ -d woof-CE ]; then
+		cd woof-CE
+	elif [ -d ../woof-CE ]; then
+		cd ../woof-CE
+	fi
+	if [ "$TERMCMND" != '' ]; then
+		if [ "$BUILD" = "" ]; then
+			$TERMCMND -e sh -c "./merge2out $ALTERNATE_BUILD ; echo 'Press <Enter> to continue' ; read VAR"
+		else
+			$TERMCMND -e sh -c "./merge2out ; echo 'Press <Enter> to continue' ; read VAR"
+		fi
+	else
+		# if running on a system so minimal that it has no terminal emulator
+		# there is no reason for running this script instead of merge2out
+		echo "Cannot find a terminal emulator."
+	fi
+
+fi
+

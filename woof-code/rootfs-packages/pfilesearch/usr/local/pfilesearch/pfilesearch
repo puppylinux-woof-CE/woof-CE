@@ -1,0 +1,412 @@
+#!/bin/bash
+#pFilesearch
+#Copyright 2008,2009,2010,2011,2012,2014,2015,2016
+#Sigmund Berglund
+
+#------------------------------
+#This program is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation version 2.
+
+#This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details. <http://www.gnu.org/licenses/>.
+#------------------------------
+
+CURDIR="`pwd`"
+export VERSION="2.3"
+export PROGPATH=`dirname "$0"`"/"
+export WORKDIR=$HOME/.pfilesearch/tmp
+[ ! -e $HOME/.pfilesearch ] && mkdir $HOME/.pfilesearch
+[ ! -e $WORKDIR ] && mkdir $WORKDIR
+echo -n > $HOME/.pfilesearch/hits
+export TEXTDOMAIN=pfilesearch #gettext
+
+#parameters
+while [ $# != 0 ]; do
+	I=1
+	while [ $I -le `echo $# | wc -c` ]; do #check all parameters
+		case "$1" in
+			-h)echo $(gettext "Options")'
+  -b          '$(gettext "use as backend. Do not show searchresult")'
+  -bb         '$(gettext "Do not show 'No Files found' box")'
+  -bbb        '$(gettext "Do not show 'Searching...' box")'
+  -c [STRING] '$(gettext "search quiet. No gui")'
+  -d [DIR]    '$(gettext "Search in a specific directory")'
+  -e          '$(gettext "Run embedded - gtkdialog code is pointed to stdout")'
+  -ee         '$(gettext "Run embedded - skip standalone options")'
+  -f [FILTER] '$(gettext "Search for only groups of files:")'
+              'apps - $(gettext "Apps")'
+              'documents - $(gettext "Documents")'
+              'pictures - $(gettext "Pictures")'
+              'music - $(gettext "Music")'
+              'videos - $(gettext "Videos")'
+              'compressed_files - $(gettext "Compressed files")'
+              'code_files - $(gettext "Code files")'
+  -i          '$(gettext "install config files and exit")'
+  -h          '$(gettext "show this help message")'
+  -p          '$(gettext "show preferences gui at startup")'
+  -t [STRING] '$(gettext "Define default search text")'
+  -v          '$(gettext "show pFilesearch version")
+ 		 		exit
+ 		 		;;
+ 			-b) export BACKEND=true;;
+ 			-bb) export BACKEND=true; export BBACKEND=true;;
+ 			-bbb) export BACKEND=true; export BBACKEND=true; export BBBACKEND=true;;
+ 		 	-d) OVERRIDE_SEARCHPATHS="$2"
+ 		 		[ "$OVERRIDE_SEARCHPATHS" = './' ] && OVERRIDE_SEARCHPATHS="`pwd`"
+ 		 		shift; I=$[$I + 1];;
+ 		 	-e) EMBED=true; BACKEND=true;;
+ 		 	-ee) EMBED=true; EMBED2=true; BACKEND=true;;
+ 		 	-f) FILTER=$2; shift; I=$[$I + 1];;
+  			-i) INTERFACE=install;;
+			-c) INTERFACE=cli; CLI_STRING="$2"; shift; I=$[$I + 1];;
+			-p) INTERFACE=pref;;
+			-t) OVERRIDE_SEARCHTEXT="$2"; shift; I=$[$I + 1];;
+			-v) echo "pFilesearch $VERSION"; exit;;
+		esac
+		shift
+		I=$[$I + 1]
+	done
+done
+#cleanup
+echo -n > $WORKDIR/SEARCHPATHS
+echo -n > $WORKDIR/pfilesearch-execfind
+
+if [ "$BACKEND" = "true" ]; then
+	#default 
+#	CHKFILENAME="true"; CHKCONTENT="false"; SEARCHSTRING="Search text"
+	CHKFILE=false; CHKSYMLN=false; CHKDIR=false
+	TODAY=`date +%m/%d/%Y`; CHKATIME="false"; CHKCTIME="false"; CHKMTIME="false"; DATE_FROM="01/01/1970"; DATE_TO="$TODAY"
+	P_USER=''; SIZE_GT=''; SIZE_LT=''
+	CHK_UR=false; CHK_UW=false; CHK_UX=false
+	CHK_GR=false; CHK_GW=false; CHK_GX=false
+	CHK_OR=false; CHK_OW=false; CHK_OX=false
+fi
+
+CHKAPPS=false
+#filters
+CHKDOC=false; CHKPIC=false; CHKMUSIC=false; CHKVIDEO=false; CHKMAIL=false; CHKZIP=false; CHKCODE=false
+case $FILTER in
+	documents)	CHKDOC=true;;
+	pictures)	CHKPIC=true;;
+	music)		CHKMUSIC=true;;
+	videos)		CHKVIDEO=true;;
+	compressed_files) CHKZIP=true;;
+	code_files)	CHKCODE=true;;
+esac
+
+
+#check if MIME-file is installed
+if [ ! -f $HOME/.pfilesearch/pfilesearchMIMErc ]; then #no rc-file
+	mkdir $HOME/.pfilesearch 2> /dev/null
+	cp -f $PROGPATH/pfilesearchMIMErc $HOME/.pfilesearch/pfilesearchMIMErc
+fi
+
+[ ! -e $HOME/.pfilesearch/pfilesearchrc ] && cp $PROGPATH/pfilesearchrc $HOME/.pfilesearch/pfilesearchrc
+
+
+export EXTDOC=`grep document= $HOME/.pfilesearch/pfilesearchMIMErc | sed -e s/^.*\=//g | sed -e 's/ ./$\\\|\\\./g'`
+#'$' makes the end of word (extension) '\|' makes grep either
+export EXTPIC=`grep picture= $HOME/.pfilesearch/pfilesearchMIMErc | sed -e s/^.*\=//g | sed -e 's/ ./$\\\|\\\./g'`
+export EXTMUSIC=`grep music= $HOME/.pfilesearch/pfilesearchMIMErc | sed -e s/^.*\=//g | sed -e 's/ ./$\\\|\\\./g'`
+export EXTVIDEO=`grep video= $HOME/.pfilesearch/pfilesearchMIMErc | sed -e s/^.*\=//g | sed -e 's/ ./$\\\|\\\./g'`
+export EXTMAIL=`grep mail= $HOME/.pfilesearch/pfilesearchMIMErc | sed -e s/^.*\=//g | sed -e 's/ ./$\\\|\\\./g'`
+export EXTZIP=`grep zip= $HOME/.pfilesearch/pfilesearchMIMErc | sed -e s/^.*\=//g | sed -e 's/ ./$\\\|\\\./g'`
+export EXTCODE=`grep code= $HOME/.pfilesearch/pfilesearchMIMErc | sed -e s/^.*\=//g | sed -e 's/ ./$\\\|\\\./g'`
+
+#default 
+TODAY=`date +%m/%d/%Y`; DATE_FROM="01/01/1970"; DATE_TO="$TODAY"
+#rcfile
+export SEARCHPATHS="/"
+export EXCLUDE="/initrd/pup_*"
+. $HOME/.pfilesearch/pfilesearchrc 2> /dev/null #read config file
+
+[ "$OVERRIDE_SEARCHPATHS" ] && export SEARCHPATHS="$OVERRIDE_SEARCHPATHS" #parameter -d is used
+[ "$OVERRIDE_SEARCHTEXT" ] && export SEARCHSTRING="$OVERRIDE_SEARCHTEXT" #parameter -t is used
+[ "$SEARCHPATHS" = "/" ] && SEARCHPATHS="/  ($(gettext 'All files'))"
+echo "$SEARCHPATHS" > $WORKDIR/SEARCHPATHS #we add it to a file to update the field later inside ie. Pfind
+
+case $INTERFACE in
+	install)
+		. $PROGPATH/func -write_config
+		exit
+		;;
+	cli)
+		SEARCHSTRING="$CLI_STRING"
+		. $PROGPATH/func -search
+		exit
+		;;
+	pref)
+		. $PROGPATH/func -configure
+		exit
+		;;
+esac
+
+
+[ "$EMBED" != "true" ] && S='
+<window title= "pFilesearch" icon-name="gtk-find">'
+S=$S'<hbox space-expand="true" space-fill="true">
+  <vbox space-expand="true" space-fill="true">
+    <hbox>
+      <vbox space-expand="true" space-fill="true">
+        <frame '$(gettext "Search")'>'
+          [ "$EMBED2" != "true" ] && S=$S'<hbox>
+            <hbox width-request="100" space-expand="true" space-fill="true">
+              <entry activates-default="true">
+                <variable>SEARCHSTRING</variable>
+                <input>echo "'$SEARCHSTRING'"</input>
+              </entry>
+            </hbox>
+            <button>
+              <input file stock="gtk-info"></input>
+              <action>FRAME=Info; IMG=dialog-info; TXT1="LOC0313"; . '$PROGPATH'/box_ok</action>
+            </button>
+          </hbox>'
+          S=$S'<vbox tooltip-text="'$(gettext "Search text in file is MUCH slower than Search filename.
+
+Regular expressions works only when searching for filenames (not for text in file).
+
+If having problems with local chars, use ? instead of char.")'">
+            <checkbox>
+              <label>'$(gettext 'Search Apps')'</label>
+              <variable>CHKAPPS</variable>
+              <default>'$CHKAPPS'</default>
+            </checkbox>
+            <checkbox>
+              <label>'$(gettext 'Search filename')'</label>
+              <variable>CHKFILENAME</variable>
+              <default>true</default>
+            </checkbox>
+            <checkbox>
+              <label>'$(gettext 'Search text in file (slow)')'</label>
+              <variable>CHKCONTENT</variable>
+            </checkbox>
+          </vbox>
+          <hbox tooltip-markup="'$(gettext "If wanted, there can be several searchpaths.
+
+Separate paths with <b>[OR]</b>: '/mnt/ [OR] /root/'.
+'./' is used to specify current path.")'">
+            <text space-expand="false" space-fill="false"><label>'$(gettext 'Search in')'</label></text>
+            <hbox width-request="100" space-expand="true" space-fill="true">
+              <entry accept="directory">
+                <variable>SEARCHPATHS</variable>
+                <input file>'$WORKDIR'/SEARCHPATHS</input>
+              </entry>
+            </hbox>
+            <button>
+              <input file stock="gtk-open"></input>
+              <action type="fileselect">SEARCHPATHS</action>
+            </button>
+          </hbox>
+          <hbox tooltip-markup="'$(gettext "Define a directory, and it will NOT be in the searchpath. Setting works recursively.")'">
+            <text space-expand="false" space-fill="false"><label>'$(gettext 'Exclude')'</label></text>
+            <hbox width-request="100" space-expand="true" space-fill="true">
+              <entry accept="directory"><variable>EXCLUDE</variable><input>echo "'$EXCLUDE'"</input></entry>
+            </hbox>
+            <button>
+              <input file stock="gtk-open"></input>
+              <action type="fileselect">EXCLUDE</action>
+            </button>
+          </hbox>
+          <text><label>""</label></text>
+          <checkbox><label>'$(gettext 'Search also subdirectories')'</label><variable>CHKREC</variable><default>'$CHKREC'</default></checkbox>
+          <checkbox><label>'$(gettext 'Search only current filesystem')'</label><variable>CHKXDEV</variable><default>'$CHKXDEV'</default></checkbox>
+          <checkbox><label>'$(gettext 'Match only exact filename')'</label><variable>CHKEXACT</variable><default>'$CHKEXACT'</default></checkbox>
+          <checkbox><label>'$(gettext 'Case sensitive')'</label><variable>CHKCASE</variable><default>'$CHKCASE'</default></checkbox>
+          <checkbox><label>'$(gettext 'Follow symlinks')'</label><variable>CHKFOLLOW_SYM</variable><default>'$CHKFOLLOW_SYM'</default></checkbox>
+        </frame>
+        <frame '$(gettext 'Match')'>
+          <vbox tooltip-markup="'$(gettext "format: MM/DD/YYYY. 
+<b>atime</b> - last day file was accessed.
+<b>ctime</b> - last day inode was changed 
+(The attributes or status of the file was changed - date, permissions...).
+<b>mtime</b> - last day file was modified
+(The actual content of the file was modified).")'">
+            <hbox spacing="0" space-expand="true" space-fill="true">
+              <text use-markup="true" xalign="0" space-expand="true" space-fill="true"><label>"<b>'$(gettext 'Date')'</b>  "</label></text>
+              <radiobutton visible="false"><label>a</label><default>true</default></radiobutton>
+              <radiobutton space-expand="false" space-fill="false">
+                <label>"atime "</label>
+                <variable>CHKATIME</variable>
+                <action>enable:DATE_TO</action>
+                <action>enable:DATE_FROM</action>
+              </radiobutton>
+              <radiobutton space-expand="false" space-fill="false">
+                <label>"ctime "</label>
+                <variable>CHKCTIME</variable>
+                <action>enable:DATE_TO</action>
+                <action>enable:DATE_FROM</action>
+              </radiobutton>
+              <radiobutton space-expand="false" space-fill="false">
+                <label>mtime</label>
+                <variable>CHKMTIME</variable>
+                <action>enable:DATE_TO</action>
+                <action>enable:DATE_FROM</action>
+              </radiobutton>
+            </hbox>
+            <hbox>
+              <text space-expand="false" space-fill="false"><label>'$(gettext 'from')'</label></text>
+              <entry activates-default="true">
+                <variable>DATE_FROM</variable>
+                <input>echo "'$DATE_FROM'"</input>
+                <width>90</width><height>27</height>
+                <sensitive>false</sensitive>
+              </entry>
+              <text space-expand="false" space-fill="false"><label>'$(gettext 'to')'</label></text>
+              <hbox width-request="90">
+                <entry activates-default="true">
+                  <variable>DATE_TO</variable>
+                  <input>echo "'$DATE_TO'"</input>
+                  <width>90</width><height>27</height>
+                  <sensitive>false</sensitive>
+                </entry>
+              </hbox>
+            </hbox>
+          </vbox>
+          <vbox>
+            <hbox space-expand="true" space-fill="true">
+              <text xalign="0" use-markup="true" space-expand="false" space-fill="false"><label>"<b>'$(gettext 'Size')'</b>"</label></text>
+              <hseparator space-expand="true" space-fill="true"></hseparator>
+            </hbox>
+            <hbox tooltip-markup="'$(gettext "<b>1k</b> = 1 kilobyte (small k).
+<b>1M</b> = 1 megabyte (big M).
+<b>1G</b> = 1 gigabyte (big G).")'">
+              <text><label>'$(gettext 'Greater than')'</label></text>
+              <entry activates-default="true">
+                <variable>SIZE_GT</variable>
+                <input>echo "'$SIZE_GT'"</input>
+                <width>40</width><height>27</height>
+              </entry>
+              <text space-expand="false" space-fill="false"><label>'$(gettext 'Less than')'</label></text>
+              <vbox>
+                <entry activates-default="true">
+                  <variable>SIZE_LT</variable>
+                  <input>echo "'$SIZE_LT'"</input>
+                  <width>40</width><height>27</height>
+                </entry>
+              </vbox>
+            </hbox>
+          </vbox>
+        </frame>
+      </vbox>
+      <vbox>
+        <frame '$(gettext 'Match')'>
+          <vbox spacing="2" space-expand="false" space-fill="false">
+            <radiobutton visible="false"><label>a</label><default>true</default></radiobutton>
+            <radiobutton>
+              <label>'$(gettext 'File')'</label>
+              <variable>CHKFILE</variable>
+              <action>if true enable:CHKDOC</action>
+              <action>if true enable:CHKPIC</action>
+              <action>if true enable:CHKMUSIC</action>
+              <action>if true enable:CHKVIDEO</action>
+              <action>if true enable:CHKZIP</action>
+              <action>if true enable:CHKCODE</action>
+            </radiobutton>
+            <radiobutton>
+              <label>'$(gettext 'Symlink')'</label>
+              <variable>CHKSYMLN</variable>
+              <action>if true enable:CHKDOC</action>
+              <action>if true enable:CHKPIC</action>
+              <action>if true enable:CHKMUSIC</action>
+              <action>if true enable:CHKVIDEO</action>
+              <action>if true enable:CHKZIP</action>
+              <action>if true enable:CHKCODE</action>
+            </radiobutton>
+            <radiobutton>
+              <label>'$(gettext 'Directory')'</label>
+              <variable>CHKDIR</variable>
+              <action>if true disable:CHKDOC</action>
+              <action>if true disable:CHKPIC</action>
+              <action>if true disable:CHKMUSIC</action>
+              <action>if true disable:CHKVIDEO</action>
+              <action>if true disable:CHKZIP</action>
+              <action>if true disable:CHKCODE</action>
+            </radiobutton>
+            <text><label>""</label></text>
+            <checkbox><label>'$(gettext 'Documents')'</label><variable>CHKDOC</variable><default>'$CHKDOC'</default></checkbox>
+            <checkbox><label>'$(gettext 'Pictures')'</label><variable>CHKPIC</variable><default>'$CHKPIC'</default></checkbox>
+            <checkbox><label>'$(gettext 'Soundfiles')'</label><variable>CHKMUSIC</variable><default>'$CHKMUSIC'</default></checkbox>
+            <checkbox><label>'$(gettext 'Videos')'</label><variable>CHKVIDEO</variable><default>'$CHKVIDEO'</default></checkbox>
+            <checkbox><label>'$(gettext 'Compressed files')'</label><variable>CHKZIP</variable><default>'$CHKZIP'</default></checkbox>
+            <checkbox><label>'$(gettext 'Code files')'</label><variable>CHKCODE</variable><default>'$CHKCODE'</default></checkbox>
+          </vbox>
+          <hbox space-expand="true" space-fill="true">
+            <text xalign="0" use-markup="true" space-expand="false" space-fill="false"><label>"<b>'$(gettext 'User')'</b>"</label></text>
+            <hseparator space-expand="true" space-fill="true"></hseparator>
+          </hbox>
+          <hbox>
+            <text><label>'$(gettext 'Name or ID')'</label></text>
+            <hbox width-request="90">
+              <entry activates-default="true">
+                <variable>P_USER</variable>
+                <input>echo "'$P_USER'"</input>
+                <width>90</width>
+                <height>27</height>
+              </entry>
+            </hbox>
+          </hbox>
+          <hbox space-expand="true" space-fill="true">
+            <text xalign="0" use-markup="true" space-expand="false" space-fill="false"><label>"<b>'$(gettext 'Mode')'</b>"</label></text>
+            <hseparator space-expand="true" space-fill="true"></hseparator>
+          </hbox>
+          <hbox>
+            <vbox spacing="0">
+              <text><label>"'$(gettext 'Read')'  "</label></text>
+              <checkbox><label>" "</label><variable>CHK_UR</variable></checkbox>
+              <checkbox><label>" "</label><variable>CHK_GR</variable></checkbox>
+              <checkbox><label>" "</label><variable>CHK_OR</variable></checkbox>
+            </vbox>
+            <vbox spacing="0">
+              <text><label>"'$(gettext 'Write')'  "</label></text>
+              <checkbox><label>" "</label><variable>CHK_UW</variable></checkbox>
+              <checkbox><label>" "</label><variable>CHK_GW</variable></checkbox>
+              <checkbox><label>" "</label><variable>CHK_OW</variable></checkbox>
+            </vbox>
+            <vbox spacing="0">
+              <hbox>
+                <text space-expand="false" space-fill="false"><label>"'$(gettext 'exec')'"</label></text>
+                <text space-expand="true" space-fill="true"><label>""</label></text>
+              </hbox>
+              <checkbox><label>"   '$(gettext 'User')'"</label><variable>CHK_UX</variable></checkbox>
+              <checkbox><label>"   '$(gettext 'Group')'"</label><variable>CHK_GX</variable></checkbox>
+              <checkbox><label>"   '$(gettext 'Other')'"</label><variable>CHK_OX</variable></checkbox>
+            </vbox>
+          </hbox>
+        </frame>
+      </vbox>
+    </hbox>'
+  
+    [ "$EMBED2" != "true" ] && S=$S'<hbox space-expand="false" space-fill="false">
+      <button cancel>
+        <input file stock="gtk-cancel"></input>'"
+        <action type=\"exit\">99</action>
+      </button>
+      <text><label>\"      \"</label></text>
+      <button>
+        <input file stock=\"gtk-preferences\"></input>
+        <label>$(gettext 'Preferences')</label>
+        <action type=\"exit\">98</action>
+      </button>
+      <button can-default=\"true\" has-default=\"true\" use-stock=\"true\">
+        <input file stock=\"gtk-find\"></input>
+        <label>$(gettext 'Search')</label>
+        <action type=\"exit\">80</action>
+      </button>
+    </hbox>"
+
+  S=$S'</vbox>
+</hbox>'
+[ "$EMBED" != "true" ] && S=$S'</window>'
+export pfilesearch_gui="$S"
+
+if [ "$EMBED" = "true" ]; then echo "$pfilesearch_gui"; exit; fi
+
+I=$IFS; IFS=""
+for STATEMENTS in  $(gtkdialog -p pfilesearch_gui); do
+	eval $STATEMENTS
+done
+IFS=$I
+case $EXIT in
+	80) . $PROGPATH/func -search;;
+	98) . $PROGPATH/func -configure;;
+	*)	rm $WORKDIR/pfilesearch* > /dev/null 2>&1
+		exit 0;;
+esac

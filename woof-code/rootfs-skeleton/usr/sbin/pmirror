@@ -1,0 +1,191 @@
+#!/bin/bash
+#Pmirror - a simple gui for rsync
+#Sigmund Berglund GPL
+#120816 rodin.s: i18n
+
+#set -x
+
+export TEXTDOMAIN=pmirror
+. gettext.sh
+
+if ! which rsync &>/dev/null ; then
+	/usr/lib/gtkdialog/box_ok "Pmirror" error "Please install rsync .."
+	exit 1
+fi
+
+if [ -f $HOME/.pmirror_config ] ; then
+	. $HOME/.pmirror_config
+fi
+
+SOURCEDIR=$sourcedir
+MIRRORDIR=$mirrordir
+EXCEPTION_FILE=$exception_file
+MIRRORDATE=$mirrordate
+
+[ ! "$EXCEPTION_FILE" ] && EXCEPTION_FILE=none
+
+echo "echo " $SOURCEDIR > /tmp/pm_source_dir
+echo "echo " $MIRRORDIR > /tmp/pm_mirror_dir
+echo "echo " $EXCEPTION_FILE > /tmp/pm_exception_dir
+
+chmod 777 /tmp/pm_source_dir
+chmod 777 /tmp/pm_mir*
+chmod 777 /tmp/pm_exc*
+
+if [ "$CHECK_VERBOSE" != "true" -a "$CHECK_VERBOSE" != "false" ] ; then
+	CHECK_VERBOSE=true
+fi
+
+if [ "$CHECK_DELETE_UNKNOWN" != "true" -a "$CHECK_DELETE_UNKNOWN" != "false" ] ; then
+	CHECK_DELETE_UNKNOWN=true
+fi
+
+if [ "$CHECK_SKIP_NEWER" != "true" -a "$CHECK_SKIP_NEWER" != "false" ] ; then
+	CHECK_SKIP_NEWER=true
+fi
+
+#-----get nr of days beetween last mirrorday and today
+TODAY_SEC=`date +%s`
+TODAY_DAYS=$(($TODAY_SEC / 60 / 60 / 24))
+TMP=`echo $MIRRORDATE | sed -e "s/\// /g" | awk '{print $2} {print $1} {print $3}'` 
+MIRRORDATE1=`echo $TMP | sed -e "s/ /\//g"`
+MIRRORDATE_SEC=`date -d $MIRRORDATE1 +%s 2> /dev/null`
+MIRRORDATE_DAYS=`expr $MIRRORDATE_SEC / 60 / 60 / 24 2> /dev/null`
+DAYS=`expr $TODAY_DAYS - $MIRRORDATE_DAYS 2> /dev/null`
+#-----
+
+while [ 1 ]
+do
+	if test -z $MIRRORDATE; then
+		echo -e " $(gettext 'It seems to be your first run of Pmirror.\n Please read HELP for information.')" > /tmp/pm_progress
+	else
+		echo -e " `eval_gettext \"Last Mirror of listed directory was "\\\$DAYS" days ago.\"`" > /tmp/pm_progress
+	fi
+	export Pmirror='
+	<window title="'$(gettext 'Pmirror - mirror/backup utility')'" image-name="/usr/share/pixmaps/puppy/directory_execute.svg">
+	<vbox>
+	 <hbox>
+	  <text><label>'$(gettext 'Source dir')'</label></text>
+	  <entry accept="directory"><variable>SOURCEDIR</variable><input>/tmp/pm_source_dir</input></entry>
+	  <button>
+	   <input file stock="gtk-open"></input>
+	   <action type="fileselect">SOURCEDIR</action>
+	  </button>
+	 </hbox>
+	 <hbox>
+	  <text><label>'$(gettext 'Mirror dir')'</label></text>
+	  <entry accept="directory"><variable>MIRRORDIR</variable><input>/tmp/pm_mirror_dir</input></entry>
+	  <button>
+	   <input file stock="gtk-open"></input>
+	   <action type="fileselect">MIRRORDIR</action>
+	  </button>
+	 </hbox>
+	 <frame '$(gettext 'Options')'>
+	  <checkbox><label>'$(gettext 'Verbose info')'</label><variable>CHECK_VERBOSE</variable><default>'${CHECK_VERBOSE}'</default></checkbox>
+	  <checkbox><label>'$(gettext 'Delete unknown files in mirror dir')'</label><variable>CHECK_DELETE_UNKNOWN</variable><default>'${CHECK_DELETE_UNKNOWN}'</default></checkbox>
+	  <checkbox><label>'$(gettext 'Skip files that are newer on the mirror')'</label><variable>CHECK_SKIP_NEWER</variable><default>'${CHECK_SKIP_NEWER}'</default></checkbox>
+	  <hbox>
+	   <text><label>'$(gettext 'Exception file')'</label></text>
+	   <entry accept="file"><variable>EXCEPTION_FILE</variable><input>/tmp/pm_exception_dir</input></entry>
+	   <button>
+		<input file stock="gtk-open"></input>
+		<action type="fileselect">EXCEPTION_FILE</action>
+	   </button>
+	  </hbox>
+	 </frame>
+	 <frame '$(gettext 'info')'>
+	  <text><input file>/tmp/pm_progress</input></text>
+	 </frame>
+	 <hbox space-expand="false" space-fill="false">
+	  <button help>
+	   <action>`Xdialog --wrap --screencenter --left --title "'$(gettext 'Pmirror - HELP')'" --msgbox "'$(gettext 'Pmirror is a simple backup system to make one directory like another. First run it will copy the entire source-directory to the mirror-directory. The mirror function will then just update the mirror-directory. It will delete files on the mirror-directory if they dont exist on source-directory. Be careful, think twice and check settings again.\n\nThe mirror-directory should not be on the same harddisk that you stores your main data. Do NOT think your data is safe when saving mirror-files on another partition. It is still the same disk, and when it crashes, it all does.\n\n- $HOME/ is where your personal data is stored (e-mail, bookmarks...)\n- Config file: $HOME/.pmirror_config. Created after first mirror.\n- Exception file: a list of filenames (supports *)  .\n- No warranty.\n\n')'" 600x0`</action>
+	  </button>
+	  <text space-expand="true" space-fill="false"><label>" "</label></text>
+	  <button ok></button>
+	  <button>
+	     <action>exit:SIMULATE</action>
+	     <label>Simulate</label>
+	  </button>
+	  <button cancel></button>
+	 </hbox>
+	</vbox>
+	</window>'
+
+	I=$IFS; IFS=""
+	for STATEMENTS in  $(gtkdialog --program Pmirror); do
+		eval $STATEMENTS
+	done
+	IFS=$I
+	if [ "$EXIT" = "SIMULATE" ]; then
+		EXIT=OK
+		CHECK_SIMULATE=true
+	fi
+	if [ "$EXIT" = "OK" ]; then
+		if [ ! -d "$SOURCEDIR" ] || [ ! -d "$MIRRORDIR" ]  ; then
+			/usr/lib/gtkdialog/box_ok "Pmirror" error "Please enter a valid directory"
+			continue
+		fi
+		if [ "$SOURCEDIR" = "$MIRRORDIR" ]  ; then
+			/usr/lib/gtkdialog/box_ok "Pmirror" error "SOURCE cannot be equal to TARGET"
+			continue
+		fi
+	fi
+	break
+done
+
+if [ "$EXIT" = "OK" ]; then
+	SOURCEDIR=`echo "$SOURCEDIR"/ | sed -e "s%//%/%g"`
+	MIRRORDIR=`echo "$MIRRORDIR"/ | sed -e "s%//%/%g"`
+	[ ! -f "$EXCEPTION_FILE" ] && EXCEPTION_FILE=none
+	# bulid rsync command
+	(
+		echo 'echo'
+		echo 'tail -n 1 /tmp/pm_rsync'
+		echo 'echo'
+		echo -n "rsync -v -a -b "
+		if test $CHECK_SIMULATE = true; then
+			echo -n "--dry-run "
+			echo -e "$(gettext 'Pmirror will now simulate the backup process.\n If it all goes right, turn off the simulate option,\n and make a real mirror ..')" > /tmp/pm_zmsg
+		else
+			if test $CHECK_DELETE_UNKNOWN = true; then
+				echo -e "`gettext "WARNING!!!\n\n Pmirror may delete unknown files in the target directory (mirror directory)"`" > /tmp/pm_zmsg
+			else
+				echo "`gettext "Confirm action"`" > /tmp/pm_zmsg
+			fi
+		fi
+		[ "$CHECK_VERBOSE" = "true" ] && echo -n "-v "
+		[ "$CHECK_SKIP_NEWER" = "true" ] && echo -n "-u "
+		[ "$CHECK_DELETE_UNKNOWN" = "true" ] && echo -n "--delete "
+		if [ "$EXCEPTION_FILE" != "none" -a -f "$EXCEPTION_FILE" ] ; then
+			echo -n "--exclude-from=$EXCEPTION_FILE --delete-excluded "
+		fi
+		echo -n "\"$SOURCEDIR\" "
+		echo -n "\"$MIRRORDIR\" "
+		echo
+	) > /tmp/pm_rsync
+
+	/usr/lib/gtkdialog/box_yesno --yes-first --ok-cancel "Pmirror" "`cat /tmp/pm_zmsg`"
+	if test "$?" = "0"; then
+		# Run rsync
+		gtk_text_info sh /tmp/pm_rsync
+		# update config file
+		if test "$CHECK_SIMULATE" != "true"; then
+			echo "mirrordate=`date +%d/%m/%Y`" > $HOME/.pmirror_config
+		else
+			mirrordate=$(grep "^mirrordate=" $HOME/.pmirror_config)
+			echo "$mirrordate" > $HOME/.pmirror_config
+		fi
+		(
+			echo "sourcedir=\"$SOURCEDIR\""
+			echo "mirrordir=\"$MIRRORDIR\""
+			echo "exception_file=\"$EXCEPTION_FILE\""
+			echo "CHECK_VERBOSE=$CHECK_VERBOSE"
+			echo "CHECK_DELETE_UNKNOWN=$CHECK_DELETE_UNKNOWN"
+			echo "CHECK_SKIP_NEWER=$CHECK_SKIP_NEWER"
+		) >> $HOME/.pmirror_config
+	fi
+fi
+
+rm -f /tmp/pm_*
+
+### END ###

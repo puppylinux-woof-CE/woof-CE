@@ -1,0 +1,1190 @@
+#!/bin/bash
+#pMusic - info-grabber using id3 info, ffmpeg output, musicbrainz.org, amazon.com and several lyrics sites
+#GPL - Copyright Sigmund Berglund
+
+. $CONFIG #needs to update this in case lyrics/albumart settings (in trackinfo) has been changed without restarting pMmusic
+export TEXTDOMAIN=pmusic
+export OUTPUT_CHARSET=UTF-8
+
+PAR1="$1"
+if [[ ! "$PAR1" && $USE_META = false ]]; then
+	IFS='|' read C1 PAR1 < $HOME/.pmusic/nowplaying
+	MSG_TRACKINFO=true
+fi
+#set active file
+SOURCE_FILE=''
+case $PAR1 in
+	*/*|*cdda:*) #both urls and files
+		SOURCE_FILE="$PAR1"
+		if [ "$2" = "-index" ]; then #call from My Music indexer
+			[ ! -f "$SOURCE_FILE" ] && exit
+			export MYPID=$$
+			MYDIR=${WORKDIR}/trackinfo${MYPID}
+		elif [ "$2" = "-norefresh" ] || [ $USE_META = false ]; then #call from right-click menu
+			export MYPID=$$
+			MYDIR=${WORKDIR}/trackinfo${MYPID}
+			echo false > $WORKDIR/UPDATE_TRACKINFO${MYPID}
+			for I in artist title album nr year; do
+				ln -sf $APPDIR/$THEME/blank.svg ${MYDIR}_icon_id3_${I}.svg
+			done
+			cp $APPDIR/$THEME/blank.svg ${MYDIR}_albumart.jpg
+			LOAD_GUI=true
+		fi
+		;;
+	*[0-9]*) #MYPID is already set - call from existing gui (save tags)
+		MYPID="$1"
+		MYDIR=${WORKDIR}/trackinfo${MYPID}
+		read SOURCE_FILE < ${MYDIR}_FILE
+		;;
+	*) #nothing - use playing track/url
+		IFS="|" read C1 C2 C3 SOURCE_FILE C < $WORKDIR/PLAYLIST_ALL #prefer this over nowplaying since that one may contain a playing track outside the playqueue
+		[ ! "SOURCE_FILE" ] && IFS='|' read C1 SOURCE_FILE < $HOME/.pmusic/nowplaying
+		MYPID=''
+		MYDIR=${WORKDIR}/trackinfo${MYPID}
+		[ ! -s $WORKDIR/xml_pmusic_trackinfo ] && . $APPDIR/gui_trackinfo #load gui
+		WINDOW_HEADING=" - $(gettext 'Now playing')"
+		[[ "$*" = *'gui'* ]] && LOAD_GUI=true
+		;;
+esac
+
+if [[ ! "$SOURCE_FILE" && "$*" != *index* ]]; then
+	TXT1="<b>$(gettext "Can't show trackinfo")</b>"
+	TXT2="$(gettext 'No active track')"
+	. $APPDIR/box_ok
+	exit
+fi
+
+echo "$SOURCE_FILE" > ${MYDIR}_FILE
+#let's store the existing content - it is no need to update if artist is the same as previous track (or if slider is moved)...
+read OLD_ARTIST < ${MYDIR}_ARTIST
+read OLD_TITLE < ${MYDIR}_TITLE
+read OLD_ALBUM < ${MYDIR}_ALBUM
+
+albumart_fullsize(){
+	echo '
+	<window title="'$ARTIST' - '$ALBUM'" window_position="2" icon-name="pmusic">
+	 <eventbox above-child="true" visible-window="true" spacing="0" space-expand="false" space-fill="false">
+	  <pixmap><input file>'$WORKDIR'/trackinfo'${MYPID}'_albumart.jpg</input></pixmap>
+	  <action signal="button-release-event">EXIT:exit</action>
+	 </eventbox>
+	</window>' | $GTKDIALOG -s &
+}
+export -f albumart_fullsize
+
+
+#bring up gui
+if [ "$LOAD_GUI" = "true" ]; then #if call is from func_progressbar (-quiet) there should be no gui
+	. $APPDIR/gui_trackinfo -width 400
+	S='
+	<window title="'$(gettext 'Track info')"$WINDOW_HEADING"'" window_position="2" icon-name="pmusic" default_height="550" default_width="470">
+	 <vbox>
+	  <hbox space-expand="true" space-fill="true">
+	  '"$(<$WORKDIR/xml_pmusic_trackinfo${MYPID})"'
+	  </hbox>
+	  <hbox space-expand="false" space-fill="false">'
+	   [ "$MSG_TRACKINFO" = "true" ] && S=$S'<vbox spacing="0"><text use-markup="true" wrap="false" xalign="0"><label>"<b><span color='"'red'"'>'$(gettext 'Extended track info is turned OFF.')'</span></b>"</label></text><text wrap="false" xalign="0"><label>'$(gettext 'See Preferences in File menu.')'</label></text></vbox><text space-expand="true" space-fill="true"><label>""</label></text>'
+	   S=$S'<button tooltip-text="'$(gettext 'Update all trackinfo based on the latest saved information')'">
+	    <label>'$(gettext 'Refresh')'</label>
+	    <input file stock="gtk-refresh"></input>
+	    <action>'$APPDIR'/func_kill -trackinfo</action>
+##      <action>echo false > '$WORKDIR'/UPDATE_TRACKINFO'${MYPID}'</action> ##this to reset conditional timer - workaround
+	    <action>'$APPDIR'/func_trackinfo '${MYPID}' -quiet -refresh</action>
+	   </button>
+	   <button ok><action>exit:EXIT</action></button>
+	   <statusbar width-request="22"></statusbar>
+	  </hbox>
+	 </vbox>
+	 <action signal="delete-event">if [ '${MYPID}' ]; then rm -f '$WORKDIR'/trackinfo'${MYPID}'_*; rm -f '$WORKDIR'/UPDATE_TRACKINFO'${MYPID}'; rm -f '$WORKDIR'/xml_pmusic_trackinfo'${MYPID}'; fi</action>
+    </window>'
+	echo "$S" | sed 's/##.*//' > $WORKDIR/xml_pmusic_trackinfo2_${MYPID} #I use double hash (##) for comments. --> as #FF0000
+	[ $TOOLTIPS = false ] && sed -i 's%tooltip-%tooltipXXX%g' $WORKDIR/xml_pmusic_trackinfo2_${MYPID}
+	. $APPDIR/func -reset_gtk
+	$GTKDIALOG -f $WORKDIR/xml_pmusic_trackinfo2_${MYPID} &
+	[ "$MYPID" ] && $0 ${MYPID} -quiet
+	exit 0
+fi
+
+##################################################################################
+#                                                                                #
+#                              F U N C T I O N S                                 #
+#                                                                                #
+##################################################################################
+
+
+convertxml() {
+	sed "s/\&amp\;/\&/g;s/\&quot\;/\"/g;s/\&apos;/\'/g;s/\&lt\;/</g;s/\&gt\;/>/g" <<< "$1" | tr '>' '\n'
+}
+
+artist(){
+
+	###########         A R T I S T         ############
+
+	#If this is the same artist as the previous - we already got info
+	if [ "$OLD_ARTIST" != "$ARTIST" ]; then
+		#clean up
+		echo -n > ${MYDIR}_urls
+		echo -e "|$(gettext 'Trying to fetch info from internet')\n|$(gettext 'Please wait')..." > ${MYDIR}_discography
+		echo -n > ${MYDIR}_discography1
+		echo -n > ${MYDIR}_discography2
+		echo true > $WORKDIR/UPDATE_TRACKINFO${MYPID} #update gui
+
+		#discography
+		XML="$(wget -q "http://musicbrainz.org/ws/1/artist/$ARTIST_ID?type=xml&inc=sa-Album+release-events" -O-)"
+		XML_CONV="`convertxml "$XML"`"
+		echo "$XML_CONV" | grep -F '<release ' | awk -F'id="' '{print $2}' | cut -d'"' -f1 > ${MYDIR}_discography3 #release id
+		while read I; do
+			#title
+			TMP="`grep -FA3 "$I" <<< "$XML_CONV" | grep -F '</title'`"
+			TMP=${TMP%%<*}
+			[[ "$(<${MYDIR}_discography1)" = *"$TMP"* ]] && continue #could be a second release in another country
+			echo "$TMP" >> ${MYDIR}_discography1
+			#year of release
+			TMP="`grep -FA8 "$I" <<< "$XML_CONV" | grep -Fm1 'date='`"
+			TMP=${TMP#*date=\"}; TMP=${TMP%%\"*}
+			echo $TMP >> ${MYDIR}_discography2
+		done < ${MYDIR}_discography3
+		ALBUMS="`paste -d'|' ${MYDIR}_discography2 ${MYDIR}_discography1 ${MYDIR}_discography3 | sort -rn | grep -vF '||'`"
+		[ ! "$ALBUMS" ] && ALBUMS="|$(gettext 'Nothing found')" #trackinfo_alternatives(){ needs something in the file to start search
+		echo "$ALBUMS" > ${MYDIR}_discography
+		#URLs
+		echo -n > $WORKDIR/tmpurls
+		echo -n > $WORKDIR/tmpurls1
+		XML="$(wget -q "http://musicbrainz.org/ws/1/artist/$ARTIST_ID?type=xml&inc=url-rels" -O-)"
+		convertxml "$XML" | grep -F 'relation target' | awk -F'"' '{print $4 "|" $2}' > ${MYDIR}_urls
+		#---
+		echo true > $WORKDIR/UPDATE_TRACKINFO${MYPID} #update gui
+	fi
+
+
+
+
+
+	###########    B U I L D   A L B U M - L I S T     ############
+
+	[ "$OLD_ALBUM" = "$ALBUM" ] && exit #track belongs to the same album as previous track
+	#if CD, use list from func_cd
+	case $COMMAND in cdda:*)
+		gettext 'CD audio' > ${MYDIR}_album_source
+		cp -f $WORKDIR/playlist_read_cd ${MYDIR}_album
+		exit;;
+	esac
+	#---
+	[ $PMU_LOCAL = false ] && exit
+	#Now continue to build pmu-file for album-list depending on the discography here. Musicbrainz could return an 'various-artist' album, so cross-checking with discography should give us only official releases
+	if [ "`grep -F "$DISC_ID" ${MYDIR}_discography3`" ]; then
+		A=${ARTIST%% (*}; A=${A%%(*}; A=${A%% feat*}; A=${A%% ft*}; ARTIST=${A%% &*}
+		#load artist tracks from db. sort by rating
+		awk -F'|' '{print $21 "|" $12 "|" $2 "|" $3 "|" $1 }' "$STORAGE_DIR/index_mymusic" | grep -iF "|$ARTIST" | grep -iE "$AUDIO_FORMATS" | sort -n > "$WORKDIR/db_$ARTIST"
+		#---
+		if [ ! "$LOCAL_PMU" ]; then #list from musicbrainz with no links to local files.
+			for M in 1 2 3 4 5 6 7 8 9; do #wait for tracklist is ready - it might be a step behind
+				[ ! `cat ${MYDIR}_album | wc -l` -gt 1 ] && sleep 1
+			done
+			cut -sd'|' -f3 ${MYDIR}_album | tr '\t' '|' | cut -d'|' -f2 > ${MYDIR}_album_tmp
+		else #pmu file already exist
+			cut -sd'|' -f3 ${MYDIR}_album | awk -F' - ' '{print $2}' > ${MYDIR}_album_tmp #tracklist
+		fi
+		echo -n > ${MYDIR}.pmu
+		while read I; do
+			#check if already info exist
+			II="`grep -F "|${I}|" ${MYDIR}_album`"
+			case $II in
+				*\|??:??\|*)
+					echo "$II" >> ${MYDIR}.pmu
+					;;
+				*) #if not, look inside mymusic
+					T=${I#* - }; T=${T%% (*}; TITLE=${T%%(*} #remove info in ()
+					DB="`grep -iFm1 "|${TITLE}" "$WORKDIR/db_$ARTIST"`"
+					[ ! "$DB" ] && DB="`grep -iFm1 "${TITLE}" "$WORKDIR/db_$ARTIST"`" #wider search
+					IFS='|' read COL1 LENGTH COL3 COL4 ADR <<< "$DB"
+					echo "|$LENGTH|$ARTIST - $TITLE|$ADR|`date +%s%N` $ADR" >> ${MYDIR}.pmu
+					;;
+			esac
+		done < ${MYDIR}_album_tmp
+		rm "$WORKDIR/db_$ARTIST"
+		#save
+		if [ `cat ${MYDIR}.pmu | wc -l` -gt 1 ]; then
+			[ ! "$ALBUM" ] && read ALBUM < ${MYDIR}_ALBUM
+			#Define outfile, file might exist with other capitals
+			OUTPMU="`find "$STORAGE_DIR/pmu" -maxdepth 1 -iname "$ARTIST - ${ALBUM}.pmu"`"
+			[ ! "$OUTPMU" ] && OUTPMU="$STORAGE_DIR/pmu/$ARTIST - ${ALBUM}.pmu"
+			echo "$OUTPMU" > ${MYDIR}_album_source
+			#update if new tracks are detected in existing pmu
+			if [ "`diff ${MYDIR}.pmu "$OUTPMU"`" ] || [ ! -s "$OUTPMU" ]; then
+				[ ! -d "$STORAGE_DIR/pmu" ] && mkdir "$STORAGE_DIR/pmu"
+				cp -f ${MYDIR}.pmu "$OUTPMU" #save
+				$APPDIR/func_index -quick_update "$OUTPMU"
+			fi
+			mv -f ${MYDIR}.pmu ${MYDIR}_album
+			echo true > $WORKDIR/UPDATE_TRACKINFO${MYPID} #update gui
+		fi
+	fi
+
+}
+
+
+
+
+	###########         L Y R I C S         ############
+
+
+lyrics(){
+	#check required meta tags
+	if [ ! -s ${MYDIR}_ARTIST -o ! -s ${MYDIR}_TITLE ]; then
+		gettext 'Missing meta info' > ${MYDIR}_lyrics_source
+		echo '' > ${MYDIR}_lyrics
+		echo true > $WORKDIR/UPDATE_TRACKINFO${MYPID}
+		exit
+	fi
+	#$1 might define a forced search to one of the lyrics sites.
+	SITE="$1"
+
+	#clean up
+	echo -e "$(gettext 'Note that lyrics-search uses the Meta-info
+for Artist and Title as search-string.
+
+In addition to the local storage (if set), 
+pMusic will search for lyrics in')\nelyrics.net\nlyrics.wikia.com\njamendo.com" > ${MYDIR}_lyrics
+	echo ' ' > ${MYDIR}_lyrics_source
+
+	TXT_NO_LYRICS="$(gettext 'No lyrics found')" #because LC_ALL=C in next line
+	export LC_ALL=C
+
+	#Skip this if user wants to check a specific site - set in trackinfo
+	if [ ! "$SITE" ]; then
+		if [ $LYRICS_LOCAL = true ]; then
+			LOCAL_LYRICS="`find "$STORAGE_DIR/lyrics" -iname "$ARTIST - ${TITLE}.txt" | head -n1`"
+		#QUICK SEARCH - There exist info in index
+		elif [ "$URL_LYRICS" ]; then
+			rm $WORKDIR/tmplyrics
+			wget -U "$USERAGENT" -t 5 --connect-timeout=1 -O $WORKDIR/tmplyrics $URL_LYRICS
+			case "$URL_LYRICS" in
+				*wiki*)
+					LYRICS="`grep -F ringtone $WORKDIR/tmplyrics | tr '>' '\n' | sed -e 's%<br /%%g' -e 's%<!--%%g' | grep -vF '<' | sed -f $APPDIR/sed_html2txt`"
+					;;
+				*elyrics*)
+					LYRICS="`cat $WORKDIR/tmplyrics | tr '>' '\n' | grep -B 1000 -m 1 'Terms of Service' | grep -A 1000 -m 1 'Ringtone to your Cell' | grep -v 'terms of service' | grep -v 'Ringtone to your Cell' | sed 's%<br%%g' | grep -vF '<' | grep -vF 'http' | head -n -3 `"
+					;;
+			esac
+			echo "$LYRICS" > ${MYDIR}_lyrics
+			echo "$URL_LYRICS" > ${MYDIR}_lyrics_source
+			echo true > $WORKDIR/UPDATE_TRACKINFO${MYPID}
+			#save if not already in db
+			if [ "$LYRICS" ] && [ $LYRICS_LOCAL = true ] && [ ! "$LOCAL_LYRICS" ]; then
+				[ ! -d "$STORAGE_DIR/lyrics" ] && mkdir "$STORAGE_DIR/lyrics"
+				cp -f ${MYDIR}_lyrics "$STORAGE_DIR/lyrics/$ARTIST - $TITLE.txt" #overwrite existing: happens at manual refresh
+			fi
+			exit
+		fi
+	fi
+	#---
+	if [ "$LOCAL_LYRICS" ] && [ ! "$SITE" ]; then #use local file
+		LYRICS="$(<"$LOCAL_LYRICS")"
+		echo "$LYRICS" > ${MYDIR}_lyrics
+		echo "$LOCAL_LYRICS" > ${MYDIR}_lyrics_source #where does the lyrics come from
+	elif [ "`echo "$SOURCE_FILE" | grep -F 'jamendo.com'`" ]; then #jamendo.com
+		ID="`echo "$SOURCE_FILE" | cut -d= -f3`"
+		#the following line would be the correct, but troubles (with special chars????)
+		#LYRICS="`wget -O - http://api.jamendo.com/get2/text/track/plain/?id=$ID&n=1&order=searchweight_desc`"
+		#instead we grab it from the www-lyric-site
+		wget -U $USERAGENT -t 3 --connect-timeout=3 -O - http://www.jamendo.com/en/track/$ID | tr '<' '\n' > $WORKDIR/tmplyrics
+		LYRICS="`grep -F -A1000 'id="lyrics' $WORKDIR/tmplyrics | grep -B1000 -Fm1 '/div>' | grep -v 'br />' | grep -v '/div>' | tr '>' '\n' | grep -v 'id="lyrics'`"
+		if [ "$LYRICS" ]; then
+			echo "$LYRICS" > ${MYDIR}_lyrics
+			echo "http://www.jamendo.com/en/track/$ID" > ${MYDIR}_lyrics_source
+		fi
+	elif [ ! "$LYRICS" ]; then
+		echo -n > $WORKDIR/tmplyrics
+		#lyrics.wikia.com
+		if [ "$SITE" != "elyrics" ]; then
+			TMP_ARTIST=${ARTIST%%(*}; TMP_ARTIST=${TMP_ARTIST// /_}
+			TMP_TITLE=${TITLE%%(*}; TMP_TITLE=${TMP_TITLE// /_}
+			rm $WORKDIR/tmplyrics
+			wget -U "$USERAGENT" -t 3 --connect-timeout=3 -O $WORKDIR/tmplyrics http://lyrics.wikia.com/$TMP_ARTIST:$TMP_TITLE
+			LYRICS="`grep -F "class='lyricbox'" $WORKDIR/tmplyrics | tr '>' '\n' | sed -e 's%<br /%%g' -e 's%<!--%%g' | grep -vF '<' | sed -f $APPDIR/sed_html2txt`"
+			[ "$LYRICS" ] && echo "http://lyrics.wikia.com/$TMP_ARTIST:$TMP_TITLE" > ${MYDIR}_lyrics_source
+		fi
+		#elyrics.net
+		if [ ! "$LYRICS" ] && [ "$SITE" != "lyricswiki" ]; then
+			T=${ARTIST%%(*}; T=${T//_/ }; T=${T//-/,,}; T=${T// /-}; T=${T//\'/}; TMP_ARTIST="${T,,}"
+			T=${TITLE%%(*}; T=${T//_/ }; T=${T//-/,,}; T=${T// /-}; T=${T//\'/}; TMP_TITLE="${T,,}"
+			TMP_CHAR=${TMP_ARTIST:0:1} #first char
+			rm $WORKDIR/tmplyrics
+			wget -U "$USERAGENT" -t 3 --connect-timeout=3 -O $WORKDIR/tmplyrics http://www.elyrics.net/read/$TMP_CHAR/$TMP_ARTIST-lyrics/$TMP_TITLE-lyrics.html
+			LYRICS="`cat $WORKDIR/tmplyrics | tr '>' '\n' | grep -B 1000 -m1 'Correct these lyrics' | grep -A 1000 -F "id='inlyr'" | sed 's%<br%%g' | grep -vF '<' | grep -vF 'http' | head -n -3 `"
+			[ "$LYRICS" ] && echo "http://www.elyrics.net/read/$TMP_CHAR/$TMP_ARTIST-lyrics/$TMP_TITLE-lyrics.html" > ${MYDIR}_lyrics_source
+		fi		
+		echo "$LYRICS" > ${MYDIR}_lyrics
+		#save to DB
+		if [ "$LYRICS" ]; then
+			( flock -e 202
+				grep -aF "$SOURCE_FILE" "$STORAGE_DIR/index_mymusic" | awk -F'|' -v VAR1="$(<${MYDIR}_lyrics_source)" '{print $1 "|" $2 "|" $3 "|" $4 "|" $5 "|" $6 "|" $7 "|" $8 "|" $9 "|" $10 "|" $11 "|" $12 "|" $13 "|" $14 "|" $15 "|" $16 "|" $17 "|" VAR1 "|" $19 "|" $20 "|" $21}' >> $WORKDIR/mymusic_stack
+			) 202>$WORKDIR/mymusic_stack.lockfile 
+		fi
+	fi
+	if [ ! "$LYRICS" ]; then
+		[ "$CONNECTION" = "false" ] && echo "$TXT_NO_WWW" > ${MYDIR}_lyrics_source || echo "$TXT_NO_LYRICS" > ${MYDIR}_lyrics_source
+	fi
+	#save if not already in db
+	if [ "$LYRICS" ] && [ $LYRICS_LOCAL = true ] && [ ! "$LOCAL_LYRICS" ]; then
+		[ ! -d "$STORAGE_DIR/lyrics" ] && mkdir "$STORAGE_DIR/lyrics"
+		cp -f ${MYDIR}_lyrics "$STORAGE_DIR/lyrics/$ARTIST - $TITLE.txt" #overwrite existing: happens at manual refresh
+	fi
+	echo true > $WORKDIR/UPDATE_TRACKINFO${MYPID}
+}
+
+
+
+
+
+	###########         S T R E A M   I N F O          ############
+
+
+stream_info (){
+	case $SOURCE_FILE in
+		http*)	echo "$(gettext 'Stream')|$SOURCE_FILE" > ${MYDIR}_stream;;
+		*)		echo "$(gettext 'Filename')|${SOURCE_FILE##*/}" > ${MYDIR}_stream
+				echo "$(gettext 'Path')|${SOURCE_FILE%/*}" >> ${MYDIR}_stream;;
+	esac
+	case $SOURCE_FILE in
+		*.kar|*.mid)
+			echo "$(gettext 'Size')|$(du -h "$SOURCE_FILE" | awk '{print $1}') ($(du -b "$SOURCE_FILE" | awk '{print $1}'))" >> ${MYDIR}_stream
+			TMP="`timidity -OuM8 -o $WORKDIR/tmp_midi.au "$SOURCE" | grep -F 'Playing time' | cut -d'~' -f2 | cut -d' ' -f1`" #seconds
+			echo -e "\n$(gettext 'Length')|$($APPDIR/func_C -sec2time $TMP)" >> ${MYDIR}_stream
+			echo "$(gettext 'Audio format')|Midi" >> ${MYDIR}_stream
+			;;
+		*)
+			ffmpeg -i "$SOURCE_FILE" 2> $WORKDIR/tmpinfo
+			if [ "`echo "$SOURCE_FILE" | grep -F 'http:'`" ] && type streamripper > /dev/null 2>&1 && [ "`grep -F 'Invalid data found' $WORKDIR/tmpinfo`" ]; then #ffmpeg doesn't support all streams that streamripper does
+				echo >> ${MYDIR}_stream
+				head -n 4 $WORKDIR/streamripper_output | tail -n 3 >> ${MYDIR}_stream
+			else #ordinary output based on ffmpeg
+				echo "$(gettext 'Size')|$(du -h "$SOURCE_FILE" | awk '{print $1}') ($(du -b "$SOURCE_FILE" | awk '{print $1}'))" >> ${MYDIR}_stream
+				TMP="`grep Duration $WORKDIR/tmpinfo | awk '{print $2}' | cut -d, -f1` "
+				echo -e "\n$(gettext 'Length')|$TMP" >> ${MYDIR}_stream
+				
+				IFS=',' read FORMAT SAMPLERATE CHANNELS TMP BITRATE <<< "`grep -F 'Stream #' $WORKDIR/tmpinfo | grep -F Audio | cut -d: -f4`"
+				echo -e "$(gettext 'Audio format')|${FORMAT# }\n$(gettext 'Samplerate')|${SAMPLERATE# }\n$(gettext 'Channels')|${CHANNELS# }\n$(gettext 'Bitrate')|${BITRATE# }" >> ${MYDIR}_stream
+				#Gain (used by normalize)
+				if [ $NORMALIZE = true ] && [ ! "$MYPID" ]; then #for playing track we already got the calculations
+					TMP="`grep -F max_volume $WORKDIR/ffmpeg_volumedetect | cut -d: -f2 | cut -d' ' -f2 | cut -d'-' -f2` dB"
+				elif [ "$MYPID" ]; then #chosen from right-click menu - we need to check volumelevel for this one 
+					ffmpeg -i "$SOURCE_FILE" -af volumedetect -t 60 -f null - 2> $WORKDIR/tmp_trackinfo_gain
+					TMP="`grep -F max_volume $WORKDIR/tmp_trackinfo_gain | cut -d: -f2 | cut -d' ' -f2 | cut -d'-' -f2` dB"
+				else
+					TMP="! $(gettext 'Normalize is deactivated (see preferences)')"
+				fi
+				echo "$(gettext 'Gain')|$TMP" >> ${MYDIR}_stream
+				#bpm
+				TMP="`$APPDIR/func_C -bpm "$SOURCE_FILE"`"
+				[ ! "$TMP" ] && TMP="! $(gettext 'Not able to detect bpm (missing dependency?)')" || TMP="$TMP bpm"
+				echo "$(gettext 'Tempo')|$TMP" >> ${MYDIR}_stream
+			fi
+			;;
+	esac
+	#rating
+	echo -e "\n$(gettext 'Times played')|"$((${#TIMESTAMPS}/11)) >> ${MYDIR}_stream
+	echo -n "$(gettext 'Last played')" >> ${MYDIR}_stream
+	while read I; do
+		echo "|$(date -d @$I)" >> ${MYDIR}_stream
+	done <<< "$(echo "$TIMESTAMPS" | tr , '\n' | tail -n 3 | tac)"
+	#---
+	echo true > $WORKDIR/UPDATE_TRACKINFO${MYPID}
+}
+
+
+
+
+
+	###########         A L B U M   A R T         ############
+
+album_art (){
+	#If this is the same album as the previous - we already got info
+	[[ "$OLD_ALBUM" && "$OLD_ALBUM" = "$ALBUM" ]] && exit
+	#clean up
+	echo "$(gettext 'Searching for artwork')" > ${MYDIR}_albumart_source
+	echo true > $WORKDIR/UPDATE_TRACKINFO${MYPID} #update gui
+	STRING=${2%% (*}; STRING=${STRING%%(*} #remove parenthesis
+	OUTFILE="$1"
+	SITE="$3" #if user want to check out a specified source (amazon.com/albumart.org - or a local file)
+	ffmpeg -i "$SOURCE_FILE" -y $WORKDIR/albumart_download.jpg
+	ALBUMART_ID="$(gettext 'Embedded in audio file')"
+	if [[ "$SITE" != "embedded" && ! -s $WORKDIR/albumart_download.jpg ]]; then
+		#define search string
+		if [ ! "${STRING% - *}" -o ! "${STRING#* - }" ]; then
+			case $SOURCE_FILE in
+				cdda:*)	IFS=: read COL1 NR TMP <<< "$SOURCE_FILE"
+						IFS='|' read COL1 ARTIST COL3 ALBUM TMP <<< "`grep -F "|${NR}|" $WORKDIR/cddb`";;
+			esac
+			#if no valid info, exit
+			if [ ! "$ARTIST" ] || [ ! "$ALBUM" ]; then
+				#show something in case no artwork is found
+				cp -f /usr/local/pmusic/themes/${THEME}/album_art.svg "$OUTFILE" 2>> $STDERR
+				#update pic in main window
+				if [ ! "$MYPID" ] && [ "$OUTFILE" != $HOME/.pmusic/nowplaying_albumart.jpg ] && [ -s "$OUTFILE" ]; then
+					cp -f "$OUTFILE" $WORKDIR/albumart.jpg
+					echo true > $WORKDIR/UPDATE_GUI
+				fi 
+				echo true > $WORKDIR/UPDATE_TRACKINFO${MYPID}
+				exit
+			fi
+			STRING="${ARTIST} - ${ALBUM}"
+		fi
+		rm -f $WORKDIR/albumart_download.jpg
+		#search for artwork locally: 1.) user defined. 2.) in pMusic local storage. -- Local dir and db-link is checked before
+		case $SITE in /*) LOCAL_ARTWORK="$SITE";; esac #user has manually defined a local file in the trackinfo gui
+		[ ! -s "$LOCAL_ARTWORK" ] && ALBUMART_ID="" #defined file has been removed - we must search the web
+		[ ! "$LOCAL_ARTWORK" -a "$SITE" != "amazon" ] && LOCAL_ARTWORK="`find "$STORAGE_DIR/albumart" -iname "${STRING}.*" | head -n1`"
+		if [ -s "$LOCAL_ARTWORK" ] && [ "$SITE" != "amazon" ]; then #use local file
+			cp -f "$LOCAL_ARTWORK" $WORKDIR/albumart_download.jpg
+			ALBUMART_ID="$LOCAL_ARTWORK"
+		else #search online
+			if [ ! "$ALBUMART_ID" ]; then #$ALBUMART_ID is stored in db
+				STRING=${STRING// - /+}
+				#albumart.org
+				rm $WORKDIR/tmp_wget
+				LC_ALL=C wget -t 3 -q -O $WORKDIR/tmp_wget "http://www.albumart.org/index.php?searchkk=${STRING// /+}&itempage=1&newsearch=1&searchindex=Music"
+				ALBUMART_ID="`cat $WORKDIR/tmp_wget | tr '>' '\n' | grep -Fim1 'View larger image' | cut -d'"' -f2`"
+				#seekacover.com
+				if [ ! "$ALBUMART_ID" ]; then
+					rm $WORKDIR/tmp_wget
+					LC_ALL=C wget -t 3 -q -O $WORKDIR/tmp_wget "http://www.seekacover.com/cd/${STRING// /+}"
+					ALBUMART_ID="`cat $WORKDIR/tmp_wget | tr '>' '\n' | grep -Fim1 '.jpg"' | cut -d'"' -f2`"
+				fi
+				#slothradio.com
+				if [ ! "$ALBUMART_ID" ]; then
+					rm $WORKDIR/tmp_wget
+					LC_ALL=C wget -t 3 -q -O $WORKDIR/tmp_wget "http://www.slothradio.com/covers/?adv=&artist=${ARTIST// /+}&album=${ALBUM// /+}"
+					ALBUMART_ID="`cat $WORKDIR/tmp_wget | tr '>' '\n' | grep -Fim1 '.jpg"' | cut -d'"' -f2`"
+				fi
+			fi
+			#download
+			rm "$WORKDIR/albumart_download.jpg"
+			wget "$ALBUMART_ID" -O "$WORKDIR/albumart_download.jpg" 2> /dev/null #use temp target to avoid slow connection to show 'missing img' icon during download.
+			[ -s $WORKDIR/albumart_download.jpg ] && STORE_ALBUMART_ID=true
+			#save
+			if [ -s "$WORKDIR/albumart_download.jpg" ] && [ $ALBUMART_LOCAL = true ] && [ ! "$LOCAL_ARTWORK" ] && [ "$ALBUM" ] && [ "$ARTIST" ]; then
+				[ ! -d "$STORAGE_DIR/albumart" ] && mkdir "$STORAGE_DIR/albumart"
+				cp -p "$WORKDIR/albumart_download.jpg" "$STORAGE_DIR/albumart/$ARTIST - $ALBUM.jpg"
+			fi
+		fi
+	fi
+	#show source
+	if [ -s "$WORKDIR/albumart_download.jpg" ]; then
+		echo "$ALBUMART_ID" > ${MYDIR}_albumart_source
+		#update index
+		if [ "$STORE_ALBUMART_ID" = "true" ]; then
+			( flock -e 202
+				grep -aF "$SOURCE_FILE" "$STORAGE_DIR/index_mymusic" | awk -F'|' -v VAR1="$ALBUMART_ID" '{print $1 "|" $2 "|" $3 "|" $4 "|" $5 "|" $6 "|" $7 "|" $8 "|" $9 "|" $10 "|" $11 "|" $12 "|" $13 "|" $14 "|" $15 "|" $16 "|" $17 "|" $18 "|" VAR1 "|" $20 "|" $21}' >> $WORKDIR/mymusic_stack
+			) 200>$WORKDIR/mymusic_stack.lockfile 
+		fi
+	fi
+	#define which art to choose (downloaded or default from theme)
+	if [ -s "$WORKDIR/albumart_download.jpg" ]; then
+		[ ! "$MYPID" ] && cp -f $WORKDIR/albumart_download.jpg $WORKDIR/albumart.jpg #this is for albumart in main gui
+		mv -f $WORKDIR/albumart_download.jpg "$OUTFILE"	
+	else
+		[ ! "$MYPID" ] && cp -f "$APPDIR/themes/$THEME/album_art.svg" $WORKDIR/albumart.jpg
+		cp -f "/usr/share/pixmaps/pmusic.svg" "$OUTFILE"
+		sed -i 's/="250"/="350"/g' "$OUTFILE" #resize svg
+		echo "$(gettext 'Nothing found')" > ${MYDIR}_albumart_source
+		[ "$CONNECTION" = "false" ] && echo "$TXT_NO_WWW" > ${MYDIR}_albumart_source || echo "$(gettext 'Nothing found')" > ${MYDIR}_albumart_source
+	fi
+	#update guis
+	echo true > $WORKDIR/UPDATE_TRACKINFO${MYPID}
+	echo true > $WORKDIR/UPDATE_GUI
+	#update nowplaying artwork
+ 	[ ! "$MYPID" ] && cp -f "$OUTFILE" $HOME/.pmusic/nowplaying_albumart.jpg
+}
+
+
+
+
+
+	###########         J A M E N D O         ############
+
+
+info_jamendo (){
+	#clean up
+	echo -n > ${MYDIR}_urls
+	echo -e "|$(gettext 'Trying to fetch info from internet')\n|$(gettext 'Please wait')..." > ${MYDIR}_discography
+	echo "||$(gettext 'Trying to fetch info')..." > ${MYDIR}_album
+	echo ' ' > ${MYDIR}_album_source
+	echo ' ' > ${MYDIR}_albumart_source
+	#---
+	for I in artist title album nr year; do ln -sf $APPDIR/$THEME/blank.svg $WORKDIR/trackinfo_icon_id3_${I}.svg; done
+	echo true > $WORKDIR/UPDATE_TRACKINFO${MYPID} #update gui
+
+	check_connection
+	[ "$CONNECTION" = "false" ] && exit
+	#---
+	TRACK_ID=${SOURCE_FILE##*id=}
+	wget --tries 1 -O - "http://api.jamendo.com/get2/name+artist_name+album_name+numalbum+dates+genre+artist_id+album_id+artist_url/track/plain/track_album+album_artist/?id=${TRACK_ID}" | tr '\t' '|' | sed -e 's/Array//g' > $WORKDIR/tmp_jamendo
+	IFS='|' read TITLE ARTIST ALBUM NR YEAR GENRE ARTIST_ID ALBUM_ID URL < $WORKDIR/tmp_jamendo
+	echo "$TITLE"	> ${MYDIR}_TITLE
+	echo "$ARTIST"	> ${MYDIR}_ARTIST
+	echo "$ALBUM"	> ${MYDIR}_ALBUM
+	echo "$NR"		> ${MYDIR}_NR
+	echo "$YEAR"	> ${MYDIR}_YEAR
+	echo "$GENRE"	> ${MYDIR}_GENRE
+	echo true > $WORKDIR/UPDATE_TRACKINFO${MYPID} #we got enough info to update tags
+	#---
+	echo "jamendo.com|$URL" > ${MYDIR}_urls
+	#album art
+	rm "${MYDIR}_albumart.jpg"
+	wget --tries 1 "http://api.jamendo.com/get2/image/album/redirect/?id=${ALBUM_ID}&imagesize=400" -O "${MYDIR}_albumart.jpg" 2>/dev/null
+	#discography
+	rm "${MYDIR}_discography"
+	wget --tries 1 "http://api.jamendo.com/get2/album_name/artist/plain/album_artist/?id=${ARTIST_ID}" -O "${MYDIR}_discography" 2>/dev/null
+	#album tracklist
+	wget --tries 1 "http://api.jamendo.com/get2/track_name/album/plain/track_album/?id=${ALBUM_ID}" -O - | sed "s/^/||/" > "${MYDIR}_album" 2>/dev/null
+	#---
+	echo true > $WORKDIR/UPDATE_TRACKINFO${MYPID}
+	if [ ! "$MYPID" ]; then #dynamic info - refresh for new track
+		#defining nowplaying normally belongs in func_progressbar, but for jamendo we have to wait for fetched info.
+		$APPDIR/func_svg -nowplaying "$ARTIST - $TITLE" "$ALBUM $YEAR"
+		#---
+		cp -f ${MYDIR}_albumart.jpg $HOME/.pmusic/nowplaying_albumart.jpg
+		cp -f ${MYDIR}_albumart.jpg $WORKDIR/albumart.jpg
+		echo true > $WORKDIR/UPDATE_GUI
+	fi
+	lyrics
+}
+
+
+
+
+
+	###########         T R A C K   I N F O         ############
+
+
+track_info (){
+	#Albumart
+	#search for artwork locally...db is checked later
+	case $ALBUMART_ID in
+		none) #album art is blacklisted for this track
+			cp -f "$APPDIR/themes/$THEME/album_art.svg" $WORKDIR/albumart.jpg
+			echo true > $WORKDIR/UPDATE_GUI
+			cp -f "/usr/local/pmusic/themes/${THEME}/album_art.svg" ${MYDIR}_albumart.jpg
+			echo "$(gettext 'Album art is blacklisted for this track')" > ${MYDIR}_albumart_source
+			echo true > $WORKDIR/UPDATE_TRACKINFO${MYPID}
+			ALBUMART_PRE=true
+			;;
+		$(gettext 'Embedded in audio file')) #tagged inside audio file
+			ffmpeg -i "$SOURCE_FILE" ${MYDIR}_albumart.jpg
+			if [ -s ${MYDIR}_albumart.jpg ]; then #it might not exist if user has deleted it since last db-update
+				album_art ${MYDIR}_albumart.jpg " " embedded &
+				ALBUMART_PRE=true
+			fi
+			;;
+		/*)
+			LOCAL_ARTWORK="$ALBUMART_ID" #is it defined in db
+			if [ ! "$LOCAL_ARTWORK" ] && [ ! "$ALBUMART_ID" ]; then #search in local path
+				LOCAL_ARTWORK="`find "${SOURCE_FILE%/*}" -maxdepth 1 -type f -printf "%p\n" | grep -iE "jpg|jpeg|svg" | grep -m1 -E "front|albumart|album_art|cover|folder"`"
+			fi
+			if [ "$LOCAL_ARTWORK" ]; then
+				album_art ${MYDIR}_albumart.jpg "${ARTIST} - ${ALBUM}" &
+				ALBUMART_PRE=true
+			fi
+			;;
+	esac
+
+	#musicbrainz
+	if [ "$CONNECTION" != "false" ] && [ ! "$ARTIST" -o ! "$TITLE" -o ! "$ALBUM" -o ! "$NR" -o ! "$YEAR" -o ! "$DISC_ID" -o ! "$ARTIST_ID" ]; then
+		#build url
+		TMP_ARTIST=${ARTIST%%(*}; TMP_ARTIST=${TMP_ARTIST// /_} #skip (...)
+		TMP_TITLE=${TITLE%%(*}; TMP_TITLE=${TMP_TITLE// /_}
+		TMP_ALBUM=${ALBUM%%(*}; TMP_ALBUM=${TMP_ALBUM// /_}
+		URL='http://musicbrainz.org/ws/1/track/?type=xml&limit=50'
+		[ "$TMP_TITLE" ] && URL="$URL&title=${TMP_TITLE}"
+		[ "$TMP_ARTIST" ] && URL="$URL&artist=${TMP_ARTIST}"
+		[ "$TMP_ALBUM" ] && URL="$URL&release=${TMP_ALBUM}"
+		URL=${URL// /+}
+		#---
+		LC_ALL=C wget -q "$URL" -O- > ${MYDIR}_tmp_trackinfo #if not usinig tmp-file, 'Save tags' wont refresh properly
+		XML="$(<${MYDIR}_tmp_trackinfo)"
+		XML_CONV="`convertxml "$XML"`"
+		#artist
+		if [ ! "$ARTIST" ]; then
+			ARTIST="`echo "$XML_CONV" | grep -F '</name'`"
+			ARTIST=${ARTIST%%<*}
+			echo "$ARTIST" > ${MYDIR}_ARTIST
+		fi
+		#title
+		if [ ! "$TITLE" ]; then
+			TITLE="`echo "$XML_CONV" | grep -F -A3 '<track id=' | grep -F '</title'`"
+			TITLE=${TITLE%%<*}
+			echo "$TITLE" > ${MYDIR}_TITLE
+		fi
+		#album
+		if [ ! "$ALBUM" ]; then
+			TMP="$(grep -FA3 '<release' <<< "$XML_CONV")"
+			ALBUM="`grep -FA3 'type="Album"' <<< "$TMP" | grep -Fm1 '</title'`"
+			[ ! "$ALBUM" ] && ALBUM="`grep -FA3 'type="Live"' <<< "$TMP" | grep -Fm1 '</title'`"
+			[ ! "$ALBUM" ] && ALBUM="`grep -FA3 'type="Single"' <<< "$TMP" | grep -Fm1 '</title'`"
+			[ ! "$ALBUM" ] && ALBUM="`echo "$XML_CONV" | grep -FA4 '<release' | grep -Fm1 '</title'`"
+			ALBUM=${ALBUM%%<*}
+			echo "$ALBUM" > ${MYDIR}_ALBUM
+		fi
+		#nr
+		if [ ! "$NR" ]; then	
+			TMP="`echo "$XML_CONV" | grep -FA5 '<release' | grep -iFA3 "$ALBUM" | grep -Fm1 'offset=' | awk -F 'offset=' '{print $2}' | cut -d'"' -f2`"
+			[ "$TMP" ] && NR=$(($TMP+1)) #Why add 1 - I haven't looked at it???
+			echo "$NR" > ${MYDIR}_NR
+		fi
+		#---
+		
+		[ ! "$DISC_ID" ] && export DISC_ID="`echo "$XML_CONV" | grep -FA2 '<release ' | grep -im1 -B2 -F "${ALBUM}<" | grep -F 'id=' | awk -F 'id=' '{print $2}' | cut -d'"' -f2`" #note "${ALBUM}<" where < defines the end of album-string
+		[ ! "$DISC_ID" ] && export DISC_ID="`echo "$XML_CONV" | grep -FA2 '<release ' | grep -im1 -B2 -F "${ALBUM}" | grep -F 'id=' | awk -F 'id=' '{print $2}' | cut -d'"' -f2`"
+		[ ! "$ARTIST_ID" ] && export ARTIST_ID="`echo "$XML_CONV" | grep -Fm1 'artist id=' | awk -F 'artist id=' '{print $2}' | cut -d'"' -f2`"
+		#save disc_id if we are sure it's the correct album. Do NOT save id3 tags. This must be chosen by user.
+		if [ "$DISC_ID" ] && [ "`echo $ALBUM | tr [a-z] [A-Z]`" = "`echo $ALBUM | tr [a-z] [A-Z]`" ]; then
+			( flock -e 202
+				grep -aF "$SOURCE_FILE" "$STORAGE_DIR/index_mymusic" | awk -F'|' -v VAR1="$DISC_ID" -v VAR2="$ARTIST_ID" '{print $1 "|" $2 "|" $3 "|" $4 "|" $5 "|" $6 "|" $7 "|" $8 "|" $9 "|" $10 "|" $11 "|" $12 "|" $13 "|" $14 "|" $15 "|" VAR1 "|" VAR2 "|" $18 "|" $19 "|" $20 "|" $21}' >> $WORKDIR/mymusic_stack
+			) 202>$WORKDIR/mymusic_stack.lockfile 
+		fi
+	fi
+	#year
+	if [ "$CONNECTION" != "false" ] && [ ! "$YEAR" -a "$DISC_ID" ]; then
+		XML="$(wget -q "http://musicbrainz.org/ws/1/release/$DISC_ID?type=xml&inc=tracks+release-events+url-rels" -O-)"
+		XML_CONV_1="`convertxml "$XML"`" #XML_CONV_1 is used later in this function for albumlist
+		if [ ! "$YEAR" ]; then
+			YEAR="`echo "$XML_CONV_1" | grep -F -A3 '<release-event-list' | grep -Fm1 'date=' | awk -F 'date=' '{print $2}' | cut -d'"' -f2`"
+			echo "$YEAR" | cut -d'-' -f1 > ${MYDIR}_YEAR
+		fi
+	fi
+
+	[ "$ARTIST" ] && artist &
+
+	[ $PMU_LOCAL = true ] && export LOCAL_PMU="`find "$STORAGE_DIR/pmu" -iname "$ARTIST - ${ALBUM}.pmu" | head -n1`"
+	#build track list
+	if [ ! "$OLD_ALBUM" -a ! "$ALBUM" ]; then
+		gettext 'No album found' > ${MYDIR}_album_source
+		echo '' > ${MYDIR}_album
+	elif [ "$OLD_ALBUM" != "$ALBUM" ]; then
+		#clean up
+		echo -e "||$(gettext 'Trying to fetch info')..." > ${MYDIR}_album
+		echo ' ' > ${MYDIR}_album_source
+		echo true > $WORKDIR/UPDATE_TRACKINFO${MYPID} #update gui
+		#---
+		case $SOURCE_FILE in
+			*cdda:*) #CD-audio: Use info from read_cd in case trouble with musicbrainz (in particular the bug: comma in album-name)
+				cut -d'|' -f3 $WORKDIR/playlist_read_cd > ${MYDIR}_album
+				;;
+			*)
+				if [ "$LOCAL_PMU" ]; then #if it is already stored locally, skip it...
+					cp "$LOCAL_PMU" ${MYDIR}_album
+					echo "$LOCAL_PMU" > ${MYDIR}_album_source #where does the info come from
+				elif [ "$CONNECTION" != "false" ]; then #search musicbrainz.org
+					#wget grabbed the same xml for year-tag, but incase that one already exist, grab it now
+					if [ ! "$XML_CONV_1" ]; then
+						XML="$(wget -q "http://musicbrainz.org/ws/1/release/$DISC_ID?type=xml&inc=tracks+release-events+url-rels" -O-)"
+						XML_CONV_1="`convertxml "$XML"`"
+					fi
+					TRACKS="`echo "$XML_CONV_1" | grep -FA3 '<track id=' | grep -F '</title' | cut -d '<' -f 1 | cat -n | cut -c 5-`"
+					echo "$TRACKS" | sed 's/^/||/g' > ${MYDIR}_album
+					if [ "$TRACKS" ]; then
+						echo "http://www.musicbrainz.org : $ALBUM $YEAR" > ${MYDIR}_album_source
+					else
+						gettext 'Nothing found' > ${MYDIR}_album_source
+					fi
+				else
+					echo -e "||$TXT_NO_WWW" > ${MYDIR}_album
+				fi
+				;;
+		esac
+	fi
+	#---
+	echo true > $WORKDIR/UPDATE_TRACKINFO${MYPID}
+	#Ok, finally check for albumart if this NOT happen first in this function
+	[ "$ALBUMART_PRE" != "true" ] && album_art ${MYDIR}_albumart.jpg "$ARTIST - $ALBUM" &
+}
+
+
+
+check_connection (){
+	#check internet connection
+	LC_ALL=C wget --spider --tries 1 -T 3 -F --max-redirect 0 $PING_SERVER 2> $WORKDIR/tmpinfo
+	if [ ! "`LC_ALL=C grep -F connected $WORKDIR/tmpinfo`" ]; then
+		export CONNECTION=false
+		#show icon instead of album art
+		[ ! "$MYPID" ] && cp -f /usr/local/pmusic/themes/${THEME}/album_art.svg $HOME/.pmusic/nowplaying_albumart.jpg 2>> $STDERR 
+		#add message in fields
+		echo "|$TXT_NO_WWW" > ${MYDIR}_urls
+		echo "|$TXT_NO_WWW" > ${MYDIR}_discography
+		echo "||$TXT_NO_WWW" > ${MYDIR}_album
+		echo "" > ${MYDIR}_album_source
+		echo "$TXT_NO_WWW" > ${MYDIR}_lyrics
+		echo "$TXT_NO_WWW" > ${MYDIR}_alterantives
+		for I in ARTIST TITLE ALBUM YEAR NR; do
+			read TMP < ${MYDIR}_${I}
+			[ "$TMP" = "$TXT_SEARCH" ] && echo "$TXT_NO_WWW" > ${MYDIR}_${I}
+		done
+	fi
+}
+
+
+##################################################################################
+#                                                                                #
+#                           E X T E R N A L  C A L L S                           #
+#                                                                                #
+##################################################################################
+
+case "$*" in
+	*-save_albumart)
+		export pmusic_save_albumart='
+		<window title="pMusic - '$(gettext 'Save albumart')'" icon-name="pmusic">
+		 <vbox>
+		  <frame>
+		   <radiobutton>
+		    <label>'$(gettext 'Embed albumart into audio file')'</label>
+		    <action>if true disable:HBOX</action>
+		   </radiobutton>
+		   <radiobutton>
+		    <variable>CHK_SAVE_FILE</variable>
+		    <default>true</default>
+		    <label>'$(gettext 'Save albumart to image file')'</label>
+		    <action>if true enable:HBOX</action>
+		   </radiobutton>
+		   <hbox>
+			<text width-request="20"><label>""</label></text>
+			<text><label>'$(gettext 'File')'</label></text>
+			<entry accept="file" width-request="300" fs-folder="'"$STORAGE_DIR"'/albumart" fs-title="Pmusic - '$(gettext 'Local storage')'">
+			 <variable>SAVEFILE</variable>
+			 <input>echo "'"$STORAGE_DIR"'/albumart/'$ARTIST' - '$ALBUM'.jpg"</input>
+			</entry>
+			<button>
+			 <input file stock="gtk-open"></input>
+			 <action type="fileselect">SAVEFILE</action>
+			</button>
+			<variable>HBOX</variable>
+		   </hbox>
+		  </frame>
+		  <hbox>
+		   <button cancel></button>
+		   <button can-default="true" has-default="true" use-stock="true">
+			<label>'$(gettext 'Save')'</label>
+			<input file stock="gtk-save"></input>
+			<action type="exit">ok</action>
+		   </button>
+		  </hbox>
+		 </vbox>
+		</window>'
+		I=$IFS; IFS=""
+		for STATEMENTS in $($GTKDIALOG -p pmusic_save_albumart --center); do
+			eval $STATEMENTS
+		done
+		IFS=$I
+		if [ "$EXIT" = "ok" ]; then
+			if [ $CHK_SAVE_FILE = true ]; then
+				if [ -s "$SAVEFILE" ]; then #already exist
+					IMG=dialog-warning
+					FRAME="$(gettext 'Warning')"
+					TXT1="<b>$SAVEFILE $(gettext 'already exists')</b>"
+					TXT2="$(gettext 'Do you want to overwrite existing file?')"
+					. $APPDIR/box_yesno
+					[ $EXIT = no ] && exit
+				fi
+				[ "$SAVEFILE" ] && cp ${MYDIR}_albumart.jpg "$SAVEFILE"
+			else #embed into audio file
+				ffmpeg -i "$SOURCE_FILE" -i ${MYDIR}_albumart.jpg -acodec copy -y $WORKDIR/tmp_ffmpeg_copy.${SOURCE_FILE##*.}
+				mv -f $WORKDIR/tmp_ffmpeg_copy.${SOURCE_FILE##*.} "$SOURCE_FILE"
+				echo "$(gettext 'Embedded in audio file')" > ${MYDIR}_albumart_source
+				echo true > $WORKDIR/UPDATE_TRACKINFO${MYPID} #update gui
+			fi
+		fi
+		exit 0
+		;;
+	*-search_alternatives) #this is the same code as for fetching tags, but now in a loop to build a list of optional albums 
+		check_connection
+		if [ "$CONNECTION" = "false" ]; then
+			TXT1="<b>$(gettext 'Not able to connect to internet')</b>"
+			. $APPDIR/box_ok
+		else
+			echo "$TXT_SEARCH" > $WORKDIR/splashtext
+			$APPDIR/box_splash &
+			echo '
+			<window default_width="600" default_height="500" title="pMusic - '$(gettext 'Alternative tag information')'" icon-name="pmusic">
+			 <vbox>
+			  <text><label>"'$(gettext 'No info available? musicbrainz.org may miss the info, but most likely the syntax differs from the db. The trick is to crop a complex Artist/Title tag (remaining words must be complete). This will give a wider search.')'"</label></text>
+			  <tree exported_column="2">
+			   <label>'$(gettext 'Artist')'|'$(gettext 'Title')'|'$(gettext 'Album')'</label>
+			   <variable>trackinfo_ALT</variable>
+			   <input>cat '$WORKDIR'/trackinfo'${MYPID}'_alterantives</input>
+			   <action>'$APPDIR'/func_trackinfo '${MYPID}' -tag</action>
+			   <action>EXIT:exit</action>
+			  </tree>
+			 <hbox>
+			  <button>
+			   <label>'$(gettext 'Save new info and close window')'</label>
+			   <input file stock="gtk-save"></input>
+			   <action>'$APPDIR'/func_trackinfo '${MYPID}' -tag</action>
+			   <action>EXIT:exit</action>
+			  </button>
+			  </hbox>
+			 </vbox>
+			</window>' > $WORKDIR/xml_pmusic_trackinfo${MYPID}_alternativ_id3
+			URL="http://musicbrainz.org/ws/1/track/?type=xml&limit=100"
+			[ "$TITLE" ] && URL="$URL&title=${TITLE}"
+			[ "$ARTIST" ] && URL="$URL&artist=${ARTIST}"
+			URL="${URL// /+}"
+			XML="$(wget -q "$URL" -O-)"
+			XML_CONV="`convertxml "$XML"`"
+			echo "$XML_CONV" | grep -F -A3 '<track id=' | grep -F '</title' | cut -d '<' -f 1 > $WORKDIR/alt_titles${MYPID}
+			echo "$XML_CONV" | grep -F '</name' | cut -d '<' -f1 > $WORKDIR/alt_artists${MYPID}
+			echo "$XML_CONV" | grep -F -A 5 '<release-list' | grep -F '</title' | cut -d '<' -f 1 > $WORKDIR/alt_albums${MYPID}
+			paste -d'|' $WORKDIR/alt_artists${MYPID} $WORKDIR/alt_titles${MYPID} $WORKDIR/alt_albums${MYPID} > ${MYDIR}_alterantives_all
+			#wait for discography is ready
+			for M in 1 2 3 4 5; do
+				[ ! -s ${MYDIR}_discography1 ] && sleep 1
+			done
+			#grab from album-list to show this alternative first in list. this requires that artist is correct
+			echo -n > ${MYDIR}_alterantives_sa
+			IFS=$'\n'
+			while read N; do
+				grep -m1 -i "$N" ${MYDIR}_alterantives_all >> ${MYDIR}_alterantives_sa #single artist
+			done < ${MYDIR}_discography1
+			#build output
+			echo -n > ${MYDIR}_alterantives #required if _sa is empty...
+			[ -s ${MYDIR}_alterantives_sa ] && cat ${MYDIR}_alterantives_sa | sort -u >> ${MYDIR}_alterantives
+			echo '____________________' >> ${MYDIR}_alterantives
+			cat ${MYDIR}_alterantives_all >> ${MYDIR}_alterantives
+			[ ! -s ${MYDIR}_alterantives_sa -a ! -s ${MYDIR}_alterantives_all ] && echo "$(gettext 'Nothing found')" > ${MYDIR}_alterantives
+			echo 100 > $WORKDIR/splash #reset progress bar
+		fi
+		exit 0
+		;;
+	*-quiet*)
+		case "$*" in *-refresh*) #search amazon for new artwork, ...
+			OLD_ARTIST=""
+			OLD_TITLE=""
+			OLD_ALBUM=""
+			REFRESH=true #clears DISC_ID and ARTIST_ID --> these can not be deleted in trackinfo gui (only in mymusic editor)
+			;;
+		esac
+		;;
+	*-del_albumart)
+		#check if embedded image exist
+		TMP="`ffmpeg -i "$SOURCE_FILE" 2>&1`"
+		case $TMP in
+			*Video:*)	GUI_EMBED='<default>true</default>';;
+			*)			GUI_EMBED='<sensitive>false</sensitive>';;
+		esac
+		#does there exist an image file in the local storage 
+		if [ "`grep "^/" ${MYDIR}_albumart_source`" ]; then
+			case $GUI_EMBED in *default*) GUI_FILE='<default>true</default>';; esac
+		else
+			GUI_FILE='<sensitive>false</sensitive>'
+		fi
+		#---
+		export pmusic_del_albumart='
+		<window title="pMusic - '$(gettext 'Delete albumart')'" icon-name="pmusic">
+		 <vbox>
+		  <frame>
+		   <radiobutton visible="false">
+		   </radiobutton>
+		   <radiobutton>
+		    <label>'$(gettext 'Delete embedded albumart in audio file')'</label>
+		    '$GUI_EMBED'
+		   </radiobutton>
+		   <radiobutton>
+		    <variable>CHK_DEL_FILE</variable>
+		    <label>'$(gettext 'Delete albumart file from local storage')'</label>
+		    '$GUI_FILE'
+		   </radiobutton>
+		   <text><label>""</label></text>
+		   <checkbox>
+		    <variable>CHK_BLACKLIST</variable>
+		    <label>'$(gettext 'Do not show/search albumart for this track')'</label>
+		   </checkbox>
+		  </frame>
+		  <hbox>
+		   <button cancel></button>
+		   <button can-default="true" has-default="true" use-stock="true">
+			<label>'$(gettext 'Delete')'</label>
+			<input file stock="gtk-delete"></input>
+			<action type="exit">ok</action>
+		   </button>
+		  </hbox>
+		 </vbox>
+		</window>'
+		I=$IFS; IFS=""
+		for STATEMENTS in $($GTKDIALOG -p pmusic_del_albumart --center); do
+			eval $STATEMENTS
+		done
+		IFS=$I
+		if [ "$EXIT" = "ok" ]; then
+			if [ "$CHK_DEL_FILE" = true ]; then
+				read TMP < ${MYDIR}_albumart_source
+				rm "$TMP"
+			else
+				ffmpeg -i "$SOURCE_FILE" -acodec copy -vn -y $WORKDIR/tmp_ffmpeg_copy.${SOURCE_FILE##*.}
+				mv -f $WORKDIR/tmp_ffmpeg_copy.${SOURCE_FILE##*.} "$SOURCE_FILE"
+			fi
+			echo ' ' > ${MYDIR}_albumart_source
+			if [ ! "$MYPID" ]; then
+				cp -f "$APPDIR/themes/$THEME/album_art.svg" $WORKDIR/albumart.jpg
+				cp -f "/usr/share/pixmaps/pmusic.svg" $HOME/.pmusic/nowplaying_albumart.jpg
+			fi
+			cp /usr/share/pixmaps/pmusic.svg ${MYDIR}_albumart.jpg
+			sed -i 's/="250"/="350"/' ${MYDIR}_albumart.jpg #resize svg
+			if [ "$CHK_BLACKLIST" ]; then
+				read PLAYLIST < ${MYDIR}_FILE
+				( flock -e 200
+					TMP="`grep -aF "${PLAYLIST}|" "$STORAGE_DIR/index_mymusic"`"
+				) 200>$WORKDIR/mymusic_db.lockfile 
+				if [ "$TMP" ]; then
+					TMP1="`cut -d'|' -f1-18 <<< "$TMP"`"
+					TMP2="`cut -d'|' -f20-21 <<< "$TMP"`"
+					( flock -e 202
+						echo "${TMP1}|none|${TMP2}" >> $WORKDIR/mymusic_stack
+					) 202>$WORKDIR/mymusic_stack.lockfile 
+				fi
+			fi
+			echo true > $WORKDIR/UPDATE_TRACKINFO${MYPID}
+			echo true > $WORKDIR/UPDATE_GUI
+		fi
+		;;
+	*-save_tags)
+		if [ "`echo "$SOURCE_FILE" | grep -E "cdda:|http|.mid$|.kar$"`" ]; then
+			TXT1="$(gettext 'Can not save tags for this track format')"
+			. $APPDIR/box_ok
+		else
+			$APPDIR/func_id3io "$SOURCE_FILE" -write ${MYPID}
+			$0 ${MYPID} -quiet -refresh &
+		fi
+		exit 0
+		;;
+	*-clear_tags)
+		if [ "`echo "$SOURCE_FILE" | grep -E "cdda:|http|.mid$|.kar$"`" ]; then
+			TXT1="$(gettext 'Can not save tags for this track format')"
+			. $APPDIR/box_ok
+		else
+			$APPDIR/func_id3io "$SOURCE_FILE" -clear ${MYPID}
+			#update gui
+			$0 ${MYPID} -quiet &
+		fi
+		exit 0
+		;;
+	-refresh) #this is called both from global refresh button and refresh button in album tab
+		$0 ${MYPID} -quiet -refresh &
+		exit 0
+		;;
+
+	*-tag)
+		ARTIST="`grep -m1 "${trackinfo_ALT}$" ${MYDIR}_alterantives | cut -d'|' -f1`"
+		TITLE="`grep -m1 "${trackinfo_ALT}$" ${MYDIR}_alterantives | cut -d'|' -f2`"
+		ALBUM="${trackinfo_ALT}"
+		YEAR=''
+		NR=''
+		$APPDIR/func_id3io "$SOURCE_FILE" -write ${MYPID}
+		$0 ${MYPID} -quiet -refresh &
+		;;
+	*-lyrics_refresh*)
+		gettext 'Searching for lyrics' > ${MYDIR}_lyrics_source
+		echo '' > ${MYDIR}_lyrics
+		echo true > $WORKDIR/UPDATE_TRACKINFO${MYPID}
+		lyrics $3
+		exit 0
+		;;
+	*-albumart_refresh*)
+		OLD_ALBUM="" #make sure it refreshes
+		if [ "$3" = "embedded" ]; then
+			album_art ${MYDIR}_albumart.jpg " " embedded &
+		else
+			cp $APPDIR/$THEME/blank.svg ${MYDIR}_albumart.jpg
+			export STORE_ALBUMART_ID=true
+			album_art ${MYDIR}_albumart.jpg "${ARTIST} - ${ALBUM}" "$3" &
+		fi
+		exit 0
+		;;
+esac
+
+
+
+##################################################################################
+#                                                                                #
+#                                    M A I N                                     #
+#                                                                                #
+##################################################################################
+
+
+
+#####     START COLLECTING TRACK INFORMATION     #############
+
+check_connection
+
+#tags
+echo -n > ${MYDIR}_ID3_info
+case $SOURCE_FILE in
+*cdda:*)
+	#define tags which we stored when reading CD
+	IFS=: read COL1 NR TMP <<< "$SOURCE_FILE"
+	IFS='|' read COMMAND ARTIST TITLE ALBUM COL5 YEAR GENRE TMP <<< "`grep "|${NR}|" $WORKDIR/cddb`"
+	echo "$NR"		> ${MYDIR}_NR
+	echo "$ARTIST"	> ${MYDIR}_ARTIST
+	echo "$TITLE"	> ${MYDIR}_TITLE
+	echo "$ALBUM"	> ${MYDIR}_ALBUM
+	echo "$YEAR"	> ${MYDIR}_YEAR #works only if using cddb_query (libcddb)
+	echo "$GENRE"	> ${MYDIR}_GENRE #works only if using cddb_query (libcddb)
+	for I in artist title album nr year; do ln -sf $APPDIR/$THEME/blank.svg $WORKDIR/trackinfo_icon_id3_${I}.svg; done
+	#stream info is hardcoded
+	echo -n "$(gettext 'Length')|" > ${MYDIR}_stream
+	grep "cdda:${NR}:" $WORKDIR/cddb | cut -d':' -f3-4 >> ${MYDIR}_stream
+	echo "$(gettext 'Audio format')|CD-audio (pcm_s16le)
+$(gettext 'Samplerate')|44100 Hz
+$(gettext 'Channels')|Stereo
+$(gettext 'Bitrate')|1411 kb/s" >> ${MYDIR}_stream
+	echo true > $WORKDIR/UPDATE_TRACKINFO${MYPID}
+	#if not using CDDB
+	if [ ! "$ARTIST" ] && [ ! "$TITLE" ]; then
+		for I in ARTIST TITLE ALBUM YEAR NR COMMENT GENRE; do echo '' > $WORKDIR/trackinfo_${I}; done
+		echo "$(gettext 'Deactivated')" > ${MYDIR}_lyrics_source
+		echo '' > ${MYDIR}_lyrics
+		echo "$(gettext 'Deactivated')" > ${MYDIR}_albumart_source
+		cp -f /usr/share/pixmaps/pmusic.svg ${MYDIR}_albumart.jpg 2>> $STDERR
+		sed -i 's/="250"/="350"/g' ${MYDIR}_albumart.jpg #resize svg
+		cp -f $APPDIR/themes/$THEME/album_art.svg $WORKDIR/albumart.jpg 2>> $STDERR #main window 
+		echo > ${MYDIR}_album
+		echo -e "|$(gettext 'Deactivated')" > ${MYDIR}_urls
+		echo -e "|$(gettext 'Deactivated')" > ${MYDIR}_discography
+		echo "$(gettext 'Deactivated')" > ${MYDIR}_album_source
+		echo true > $WORKDIR/UPDATE_TRACKINFO${MYPID}
+		#main gui
+		cp -f $APPDIR/themes/${THEME}/album_art.svg $HOME/.pmusic/nowplaying 2>> $STDERR
+		echo true > $WORKDIR/UPDATE_GUI
+		exit
+	fi
+	#---
+	[ "$OLD_TITLE" = "$TITLE" ] && exit
+	track_info &
+	lyrics &
+	;;
+/*)
+	. $APPDIR/func_id3io "$SOURCE_FILE" -read_ffmpeg ${MYPID}
+	echo "$ARTIST"	> ${MYDIR}_ARTIST
+	echo "$TITLE"	> ${MYDIR}_TITLE
+	echo "$ALBUM"	> ${MYDIR}_ALBUM
+	echo "$YEAR"	> ${MYDIR}_YEAR
+	echo "$NR"		> ${MYDIR}_NR
+	echo "$COMMENT"	> ${MYDIR}_COMMENT
+	echo "$GENRE"	> ${MYDIR}_GENRE
+
+	#if doing a full scan in the indexer, we do this as serial processes to avoid any conflict. We don't care about speed here 
+	if [ "$2" = "-index" ]; then
+		track_info
+		lyrics
+		stream_info
+		rm -f $WORKDIR/trackinfo[0-9]*
+		rm -f $WORKDIR/UPDATE_TRACKINFO[0-9]*
+		exit
+	fi
+	
+	#set icon for tag-source - local id3 or info from web - and add msg when missing id3
+	for i in artist title album year nr; do
+		I=${i^^} #to uppercase 
+		if [ "$(<${MYDIR}_${I})" ]; then
+			ln -sf $APPDIR/themes/$THEME/icon_source_local.svg ${MYDIR}_icon_id3_${i}.svg
+		else
+			ln -sf $APPDIR/themes/$THEME/icon_source_web.svg ${MYDIR}_icon_id3_${i}.svg
+			[ "$CONNECTION" = "false" ] && echo "$TXT_NO_WWW" > ${MYDIR}_${I} || echo "$TXT_SEARCH..." > ${MYDIR}_${I}
+		fi
+	done
+	echo true > $WORKDIR/UPDATE_TRACKINFO${MYPID}
+	[ "$OLD_TITLE" = "$TITLE" -a "$TITLE" ] && exit
+	if [ "$REFRESH" = "true" ]; then
+		DISC_ID=''
+		ARTIST_ID=''
+	fi
+
+	#if both Artist and Title is missing --> manual edit required
+	if [ "$(grep -E "${TXT_SEARCH}...|$TXT_NO_WWW" ${MYDIR}_ARTIST)" ] && [ "$(grep -E "${TXT_SEARCH}...|$TXT_NO_WWW" ${MYDIR}_TITLE)" ]; then
+		TXT_NO_META="$(gettext 'Missing meta information')"
+		echo "|$TXT_NO_META" | tee ${MYDIR}_urls ${MYDIR}_discography
+		echo "$TXT_NO_META" | tee ${MYDIR}_album_source ${MYDIR}_lyrics_source
+		echo | tee ${MYDIR}_lyrics ${MYDIR}_album
+		echo "$(gettext 'N O T E  !
+Please add Artist and Title, and then choose Save. pMusic will try to fetch the rest.')" > ${MYDIR}_ID3_info
+		echo '' | tee ${MYDIR}_ARTIST ${MYDIR}_TITLE
+		ln -sf $APPDIR/themes/$THEME/icon_source_manual.svg ${MYDIR}_icon_id3_artist.svg
+		ln -sf $APPDIR/themes/$THEME/icon_source_manual.svg ${MYDIR}_icon_id3_title.svg
+		for I in album year nr; do
+			read TMP < ${MYDIR}_${I^^}
+			if [[ "$TMP" = @("$TXT_SEARCH..."|"$TXT_NO_WWW") ]]; then echo '' > ${MYDIR}_${I^^}; ln -sf $APPDIR/$THEME/blank.svg ${MYDIR}_icon_id3_${I}.svg; fi
+		done
+		#albumart
+		echo "$TXT_NO_META" > ${MYDIR}_albumart_source
+		if [ ! "$MYPID" ]; then
+			cp -f "$APPDIR/themes/$THEME/album_art.svg" $WORKDIR/albumart.jpg
+			cp -f "/usr/share/pixmaps/pmusic.svg" $HOME/.pmusic/nowplaying_albumart.jpg
+		else
+			cp /usr/share/pixmaps/pmusic.svg ${MYDIR}_albumart.jpg
+			sed -i 's/="250"/="350"/' ${MYDIR}_albumart.jpg #resize svg
+		fi
+		echo true > $WORKDIR/UPDATE_TRACKINFO${MYPID}
+		echo true > $WORKDIR/UPDATE_GUI
+	else
+		track_info &
+		lyrics &
+	fi
+	stream_info &
+	;;
+*jamendo.com*)
+	info_jamendo &
+	stream_info &
+	;;
+*://www.youtube.com*)
+	#main window
+	IFS='|' read NAME ADR < $HOME/.pmusic/nowplaying
+	ID=${ADR##*=}
+	wget -O - -t 3 -U "$USERAGENT" -e robots=off "http://img.youtube.com/vi/${ID}/default.jpg" > $WORKDIR/albumart.jpg
+	#---
+	cp -f $WORKDIR/albumart.jpg ${MYDIR}_albumart.jpg 2>> $STDERR
+	cp -f $WORKDIR/albumart.jpg $HOME/.pmusic/nowplaying_albumart.jpg 2>> $STDERR
+	#---
+	if [ ! "$MYPID" ]; then #update refreshing gui
+		stream_info &
+		#clear the rest
+		for I in ARTIST TITLE ALBUM YEAR NR COMMENT GENRE urls discography album lyrics; do echo '' > $WORKDIR/trackinfo_${I}; done
+		for I in artist title album nr year; do ln -sf $APPDIR/$THEME/blank.svg $WORKDIR/trackinfo_icon_id3_${I}.svg; done
+		echo true > $WORKDIR/UPDATE_TRACKINFO${MYPID} #update gui
+	fi
+	#---
+	> ${MYDIR}_lyrics_source
+	> ${MYDIR}_album_source
+	> ${MYDIR}_albumart_source
+	#---
+	echo true > $WORKDIR/UPDATE_GUI
+	;;
+*) #stream
+	#no supported file format for tagging and musicbrainz
+	cp -f /usr/share/pixmaps/pmusic.svg ${MYDIR}_albumart.jpg 2>> $STDERR
+	sed -i 's/="250"/="350"/g' ${MYDIR}_albumart.jpg #resize svg
+	cp -f $APPDIR/themes/$THEME/album_art_radio.svg $WORKDIR/albumart.jpg 2>> $STDERR #main window 
+	cp -f $APPDIR/themes/$THEME/album_art_radio.svg $HOME/.pmusic/nowplaying_albumart.jpg 2>> $STDERR
+	#---
+	if [ ! "$MYPID" ]; then #update refreshing gui
+		stream_info &
+		#clear the rest
+		for I in ARTIST TITLE ALBUM YEAR NR COMMENT GENRE urls discography album lyrics; do echo '' > $WORKDIR/trackinfo_${I}; done
+		for I in artist title album nr year; do ln -sf $APPDIR/$THEME/blank.svg $WORKDIR/trackinfo_icon_id3_${I}.svg; done
+		echo true > $WORKDIR/UPDATE_TRACKINFO${MYPID} #update gui
+	fi
+	echo true > $WORKDIR/UPDATE_GUI
+
+	#let's see if stream has metainfo
+	. $APPDIR/func_id3io "$SOURCE_FILE" -read_ffmpeg ${MYPID}
+	if [[ "$ARTIST" || "$TITLE" || "$ALBUM" ]] && [[ "$TITLE" != {* ]]; then #streamripper returns {...
+		echo "$ARTIST"	> ${MYDIR}_ARTIST
+		echo "$TITLE"	> ${MYDIR}_TITLE
+		echo "$ALBUM"	> ${MYDIR}_ALBUM
+		echo "$YEAR"	> ${MYDIR}_YEAR
+		echo "$NR"		> ${MYDIR}_NR
+		echo "$COMMENT"	> ${MYDIR}_COMMENT
+		echo "$GENRE"	> ${MYDIR}_GENRE
+		track_info &
+	fi
+	echo true > $WORKDIR/UPDATE_GUI
+	exit 0
+	;;
+esac

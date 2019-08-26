@@ -1,0 +1,206 @@
+#!/bin/sh
+# functions library
+# this is sourced by pkg/<app>_static/<app>_static.petbuild
+
+[ -f ./build.conf ] && build_conf='./build.conf'
+[ -f ../build.conf ] && build_conf='../build.conf'
+[ -f ../../build.conf ] && build_conf='../../build.conf' #*
+[ -f ../../../build.conf ] && build_conf='../../../build.conf'
+[ -f ../../../../build.conf ] && build_conf='../../../../build.conf'
+
+[ ! -f "$build_conf" ] && exit 1
+. ${build_conf}
+
+if [ -d "$MWD" -a "$DLD_ONLY" = "no" ] ; then
+	echo -e "\n* main dir is $MWD\n" #MWD is set in build.sh
+fi
+
+function set_arch() {
+	ARCH=`uname -m`
+	[ "$OVERRIDE_ARCH" ] && ARCH=${OVERRIDE_ARCH}
+	case $ARCH in
+		*64) LIBDIR=lib64 ;;
+		*) LIBDIR=lib ;;
+	esac
+	if [ "$TARGET_TRIPLET" != "" ] ; then
+		XCOMPILER=${TARGET_TRIPLET} #this is exported by build.sh
+	fi
+	echo "$XCOMPILER"
+}
+set_arch
+
+if [ -d "$XPATH" ] ; then #set in build.sh
+	export PATH=${XPATH}/bin:$PATH # _configure _make _install
+fi
+
+#---------------------------------------------------------
+
+function exit_error() {
+	echo -n > $MWD/.fatal
+	exit $@
+}
+
+function retrieve() {
+	local SOURCE=${1}
+	local FILE=$SOURCE
+	case $SOURCE in http*|ftp*)
+		local URL=${SOURCE%/*}
+		local FILE=${SOURCE##*/}
+	esac
+	#--
+	ZZDL=1
+	if [ "$2" != "" ] ; then
+		[ -f ${MWD}/0sources/${2} ] && ZZDL=0
+		zzoutfile="${MWD}/0sources/${2}"
+	else
+		[ -f ${MWD}/0sources/${FILE} ] && ZZDL=0
+		zzoutfile="${MWD}/0sources/${FILE}"
+	fi
+	#--
+	if [ $ZZDL -eq 0 ] ; then
+		[ "$DLD_ONLY" = "yes" ] && echo "Already downloaded ${FILE}"
+	else
+		echo "Downloading ${URL}/${FILE}"
+		wget -O ${zzoutfile} -c --no-check-certificate "${URL}/${FILE}"
+		if [ $? -ne 0 ] ; then
+			rm -f ${FILE}
+			exit_error 1
+		fi
+	fi
+}
+
+function extract() {
+	tfile="$@"
+	[ -f "${MWD}/0sources/$tfile" ] || { echo "No such file: $tfile"; exit_error 1; }
+	tar -axf ${MWD}/0sources/${tfile} || { rm -f ${tfile}; exit_error 1; }
+}
+
+function abort_if_file_not_found() {
+	[ "$1" ] || exit_error 1
+	for i in "$@" ; do
+		if [ ! -f "$i" ] ; then
+			echo "$i: file does no exist!"
+			exit_error 1
+		fi
+	done
+}
+
+#---------------------------------------------------------
+
+function hl_echo() {
+	echo
+	echo '------------------------------'
+	echo "$@"
+	echo '------------------------------'
+	echo
+}
+
+function _cflags() {
+	echo "-g -Os" #-fmerge-all-constants -fno-unroll-loops -fomit-frame-pointer -ffunction-sections -fdata-sections"
+}
+
+function make_sh() {
+	# _make() creates make.sh in the current dir (calls make_sh())
+	# You can manually run make.sh and it will source this script (func)
+	# and will call _make() again...
+	# ... but make.sh must not overwrite itself 
+	# that's why it exports MAKE_SCRIPT=yes
+	if [ "$MAKE_SCRIPT" != "yes" ] ; then
+		echo "#!/bin/sh" > make.sh
+		echo "export MAKE_SCRIPT=yes" >> make.sh
+		[ -d "$XPATH" ] && echo "export XPATH=$XPATH" >> make.sh
+		echo ". $MWD/func" >> make.sh
+		echo "_make $@" >> make.sh
+		chmod +x make.sh
+	fi
+}
+
+#this is inside the source dir
+function _configure() {
+	unset host
+	if [ -f configure ] ; then
+		#this is to avoid possible problems with the triplet
+		sed -i  -e 's|^build_os=.*|build_os=linux|' \
+				-e 's|^host_os=.*|host_os=linux|' \
+				-e 's|^target_os=.*|target_os=linux|' \
+				-e 's|linux_os=no|linux_os=yes|' \
+				configure
+	fi
+	if [ -d "$XPATH" ] ; then
+		echo "PATH: $PATH"
+		host="--host=${XCOMPILER}"
+	fi
+	hl_echo "./configure ${opts} ${host}"
+	./configure ${opts} ${host} #opts is set in the calling script
+	[ $? -ne 0 ] && exit_error 1
+}
+
+#this is inside the source dir
+function _config_sh() {
+	unset host
+	if [ -f config.sh ] ; then
+		#this is to avoid possible problems with the triplet
+		sed -i  -e 's|^build_os=.*|build_os=linux|' \
+				-e 's|^host_os=.*|host_os=linux|' \
+				-e 's|^target_os=.*|target_os=linux|' \
+				-e 's|linux_os=no|linux_os=yes|' \
+				config.sh
+	fi
+	if [ -d "$XPATH" ] ; then
+		echo "PATH: $PATH"
+		host="--host=${XCOMPILER}"
+	fi
+	hl_echo "./config.sh ${opts} ${host}"
+	./config.sh ${opts} ${host} #opts is set in the calling script
+	[ $? -ne 0 ] && exit_error 1
+}
+
+#this is inside the source dir
+function _make() {
+	cf=$(_cflags)
+	if [ -f Makefile ] ; then
+		makefiles=$(find . -type f -name Makefile | tr '\n' ' ')
+		sed -i "s|\(^CFLAGS =.*\)|\1 $cf|g"  ${makefiles}
+		hl_echo "$(grep '^CFLAGS = ' $makefiles)"
+	else
+		export CFLAGS="$cf"
+	fi
+	[ "$1" = "make" ] && shift
+	if [ "$1" = "" ] ; then #no args
+		if [ -d "$XPATH" ] ; then #musl
+			echo "PATH: $PATH"
+			mkstr="${MKFLG} CC=${XCOMPILER}-gcc LD=${XCOMPILER}-ld AR=${XCOMPILER}-ar RANLIB=${XCOMPILER}-ranlib NM=${XCOMPILER}-nm LDFLAGS=-static"
+			hl_echo "make $mkstr"
+			make_sh "make $mkstr"
+			make $mkstr
+		else # system gcc
+			mkstr "${MKFLG} LDFLAGS=-static CFLAGS=-static"
+			hl_echo "make $mkstr"
+			make_sh "make $mkstr"
+			eval make $mkstr
+		fi
+	else
+		hl_echo "make $@"
+		make_sh "make $@"
+		eval make $@
+	fi
+	return $?
+}
+
+#this is inside the source dir
+function _install() {
+	local file="$1" dest="$2"
+	if [ -d "$XPATH" ] ; then
+		${XCOMPILER}-strip --strip-all "$file"
+	else
+		strip --strip-all "$file"
+	fi
+	chmod +x "$file"
+	cp "$file" "$dest"
+	file $file | grep -E 'dynamically|shared' && {
+		echo "$file is not static..!"
+		exit_error 1
+	}
+}
+
+### END ###

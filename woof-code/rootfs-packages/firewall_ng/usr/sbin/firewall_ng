@@ -1,0 +1,1342 @@
+#!/bin/bash
+
+#uses bashisms
+
+# A very simple firewall based on Alienbob's script
+# at http://www.slackware.com/~alien/efg/
+[ "`whoami`" != "root" ] && exec sudo -A ${0} ${@}
+CONFDIR="$HOME/.config/firewall"
+export CONF="$CONFDIR/fw.conf"
+version=0.8
+
+# gettext : only the GUI
+export TEXTDOMAIN=firewall_ng
+export OUTPUT_CHARSET=UTF-8
+
+# firewall test
+wall_state() {
+	if [ `iptables -L -n |wc -l` -gt 10 ];then
+		return 1
+	else
+		return 0
+	fi
+}
+
+# error splash
+error_cond() {
+	col=crimson
+	[ -n "$2" ] && col=green
+	gtkdialog-splash -bg $col -timeout 2 -close box -text "$1" &
+	exit
+}
+export -f error_cond
+
+# custom settings
+export FILE=/tmp/firewall_extras
+[ -f "$FILE" ] && rm $FILE
+
+# add entry to firewall
+mk_entry() {
+	PORT=$1
+	PROTO=$2
+	DIRECTION=$3
+	IPRANGE=$4
+	echo $DIRECTION | grep -q 'inbound' && DOPT=--destination-port || DOPT=--source-port
+	echo -e "\$IPT -A $DIRECTION -p $PROTO -s $IPRANGE $DOPT $PORT -j ACCEPT" \
+		>> $FILE
+}
+export -f mk_entry
+
+# parse input from extras gui
+add_extras() {
+	if echo $1|grep -q ',';then
+		IFS=',' read -r a1 a2 a3 a4 a5 <<< "$1"
+		echo $a1|grep -q '[a-zA-Z\!@\$%\^\&\*\(\)_+\-\=\.]' && \
+			error_cond "$(gettext "Error: illegal characters! Must be a port number.")"
+		case $a2 in
+			TCP|UDP): ;;
+			*)error_cond "$(gettext "Error: 2nd arg must be 'TCP' or 'UDP'.")" ;;
+		esac
+		echo "# Custom entry for port $a1" >> $FILE
+		if [ -n "$a3" ];then
+			case $a3 in
+				TCP|UDP): ;;
+				[1-9]*[0-9])echo ;;
+				*)error_cond \
+				"$(gettext "Error: 3rd arg must be 'TCP', 'UDP' or an IP or range.")" ;;
+			esac
+		fi
+		[ -n "$a4" ] && echo $a4|grep -q '[a-zA-Z\!@\$%\^\&\*\(\)_+\-\=]' && \
+			error_cond "$(gettext "Error: illegal characters! Must be an IP or range.")"
+		[ -z "$a3" -o -z "$a4" ] && IP=0/0
+		[ -n "$a3" ] && echo $a3 | grep '^[1-9]' | grep -q '[0-9]$' && IP=$a3
+		[ -n "$a4" ] && echo $a4 | grep '^[1-9]' | grep -q '[0-9]$' && IP=$a4
+		if [ -z "$a3" ];then
+			b2=${a2,,}
+			mk_entry $a1 $a2 ${b2}_inbound 0/0
+		elif [ -n "$a3" -a -z "$a4" ];then
+			#sort out if a3 is a proto or IP
+			case $a3 in
+			TCP|UDP)
+				b2=${a2,,}
+				b3=${a3,,}
+				mk_entry $a1 $a2 ${b2}_inbound 0/0
+				mk_entry $a1 $a3 ${b3}_inbound 0/0
+				;;
+			*)
+				b2=${a2,,}
+				mk_entry $a1 $a2 ${b2}_inbound $a3 #a3 must be IP		
+			;;
+			esac
+		else
+			#full house
+			b2=${a2,,}
+			b3=${a3,,}
+			mk_entry $a1 $a2 ${b2}_inbound $a4 #a4 must be IP
+			mk_entry $a1 $a3 ${b3}_inbound $a4 #a4 must be IP
+		fi
+	else
+		echo $1|grep -q '[a-zA-Z\!@\$%\^\&\*\(\)_+\-\=\.]' && \
+			error_cond "$(gettext "Error: illegal characters! Must be a port number.")"
+		echo "# Custom entry for port $1" >> $FILE
+		mk_entry $1 UDP udp_inbound "0/0"
+		mk_entry $1 TCP tcp_inbound "0/0"
+	fi
+}
+export -f add_extras
+
+process_ports() {
+	read -a name <<< "$1"
+	for ((z=0; z<10; z++));do
+		[ -z "${name[z]}" ] && break
+		add_extras ${name[z]}
+	done
+
+}
+export -f process_ports
+
+# extra ports gui
+extras_gui() {
+	TEXT1="$(gettext "Place a space delimited array of ports and options in the 
+	box below. Up to 10 can be specified. You must comma 
+	delimit the options.
+	Specifying the port number only allows inbound TCP
+	and UDP traffic from any source.")"
+	TEXT2="$(gettext "Example:")"
+	TEXT3=51200,TCP
+	TEXT4="$(gettext "Or:")"
+	TEXT5=5100,TCP,UDP,192.168.1.0/16
+	TEXT6="$(gettext "Place extra ports here")"
+	if [ -f "$CONF" ];then
+		. "$CONF"
+		EXTRA_CONF="$CONFIG_EXTRAS"
+		[ -z "$EXTRA_CONF" ] && EXTRA_CONF="$TEXT6"
+	else
+		EXTRA_CONF="$TEXT6"
+	fi
+
+	export extras="<window title=\"$(gettext "Extra ports")\">
+	<vbox>
+		<hbox space-expand=\"true\" space-fill=\"true\" width-request=\"500\">
+			<vbox>
+				<text space-expand=\"true\" space-fill=\"true\">
+					<label>\"$TEXT1\"</label>
+				</text>
+				<text space-expand=\"true\" space-fill=\"true\" xalign=\"0\">
+					<label>\"$TEXT2\"</label>
+				</text>
+				<text space-expand=\"true\" space-fill=\"true\" use-markup=\"true\">
+					<label>\"<i>$TEXT3</i>\"</label>
+				</text>
+				<text space-expand=\"true\" space-fill=\"true\" xalign=\"0\">
+					<label>\"$TEXT4\"</label>
+				</text>
+				<text space-expand=\"true\" space-fill=\"true\" use-markup=\"true\">
+					<label>\"<i>$TEXT5</i>\"</label>
+				</text>
+			</vbox>
+		</hbox>
+		<hbox space-expand=\"true\" space-fill=\"true\" width-request=\"500\">
+			<entry>
+				<variable>extra_ports</variable>
+				<default>$EXTRA_CONF</default>
+			</entry>
+		</hbox>
+		<hbox><button ok></button></hbox>
+	</vbox>
+</window>"
+	eval $(gtkdialog -p extras)
+	[ "$EXIT" = "abort" ] && return
+	[ "$extra_ports" = "$TEXT6" ] && error_cond \
+		"Error: $(gettext "No rules set!")"
+	echo "$extra_ports" > /tmp/extra_ports.txt
+	process_ports "$extra_ports"
+	error_cond "$(gettext "Setting custom rules")" z
+}
+export -f extras_gui
+
+warning_func() {
+	title="$(gettext "Warning!")"
+	fr="$(gettext "Information")"
+	message="$(gettext "You don't seem to be connected to a network. You can configure your firewall but some features will not work correctly until you establish a connection and reconfigure the firewall.")"
+	echo "<window title=\"$title\">
+		<vbox>
+			<hbox space-expand=\"true\" space-fill=\"true\">
+				<text height-request=\"50\" use-markup=\"true\"><label>\"<span size='x-large' color='sienna'>$title</span>\"</label></text>
+			</hbox>
+			<frame $fr>
+			<hbox homogeneous=\"true\">
+				<text><label>$message</label></text>
+			</hbox>
+			</frame>
+			<hbox><button ok></button></hbox>
+		</vbox>
+	</window>"|gtkdialog -c -s
+}
+
+# get the current network interface and subnet
+while read -r dest gateway genmask flags metric ref use face;do
+	case $dest in
+		default)iface=$face
+		
+		;;
+	esac
+	case $face in
+		$iface)
+		case $dest in
+			[0-9]*.[0-9]*.[0-9]*.[0-9]*)host=$dest # very lazy regex
+			break;;
+		esac
+		;;
+	esac
+done < <(busybox route)
+
+while read -r inet subnet rest;do
+	case $inet in
+		inet)sub=${subnet#*/} && break;;
+	esac		
+done < <(busybox ip addr show $iface)
+echo ${host}/${sub}
+echo $iface
+IFACE=$iface
+SUBNET=${host}/${sub}
+
+[ -z "$IFACE" ] && warning_func
+
+# setup
+sens=false
+[ -d "$CONFDIR" ] || mkdir -p "$CONFDIR"
+if [ -f "$CONF" ];then
+	. "$CONF"
+	def_extra="$CONFIG_EXTRAS"
+	defgen=$GENERIC
+	loggen=$LOGGING
+	defmain=$MAIN
+	CB_MAINTXT="$(gettext "Your firewall is configured. Change it to open ports if you have added extra services.")"
+	CB_TTTXT="$(gettext "Your firewall is configured. Change it if you wish.")"
+else
+	def=false
+	defgen=true
+	loggen=false
+	defmain=true
+	CB_MAINTXT="$(gettext "The default setting is that all ports are blocked. Uncheck to allow you to check some ports.")"
+	CB_TTTXT="$(gettext "If you do not need to connect to any incoming services then the default setting is recommended")"
+fi
+[ "$MAIN" == 'false' ] && sens=true
+
+# gui
+wall_state
+state=$?
+if [ "$state" = '1' ];then
+	IMAGEFILE=/usr/share/pixmaps/puppy/shield_yes.svg
+	msg=$(gettext "Firewall On")
+	winicon=gtk-connect
+	ttmsg=$(gettext "Your firewall is configured and running. You can cancel or abort this program if you wish, or change the settings now.")
+	btn_label="$(gettext "Reload")"
+else
+	IMAGEFILE=/usr/share/pixmaps/puppy/shield_no.svg
+	msg=$(gettext "Firewall Off")
+	winicon=gtk-no
+	ttmsg=$(gettext "Your firewall is not running. You should configure it now!")
+	btn_label="$(gettext "Resume")"
+fi
+# resume/reload button
+if [ -x /etc/init.d/rc.firewall ];then
+	RESUME="<button tooltip-text=\"$(gettext "Restart Firewall with current settings")\">
+				<label>$btn_label</label>
+				<input file stock=\"gtk-refresh\"></input>
+				<action type=\"exit\">Redo</action>
+			</button>
+"
+fi
+export url="http://www.slackware.com/~alien/efg/" 
+TEXT='<b><u><span color='"'blue'"'>'"$(gettext "Alien Bob's Easy Firewall Generator for IPTables")"'</span></u></b>' 
+URL="<eventbox hover-selection=\"true\" homogeneous=\"true\" tooltip-text=\"$(gettext "This link opens in your default web browser")\"> 
+      <text justify=\"2\" use-markup=\"true\"><label>\"$TEXT\"</label></text> 
+<action signal=\"button-press-event\">defaultbrowser $url &</action> 
+</eventbox>"
+for i in SSH CUPS Samba Samba_client DLNA NTP ftp http DNS DHCP NFS ;do
+
+	case $i in 
+		Samba)var=CONFIG_SAMBA desc=$(gettext "Share files with Windows");[ -f "$CONF" ] &&  def=$CONFIG_SAMBA || def=false;;
+		Samba_client)var=CONFIG_SAMBA_CLIENT desc=$(gettext "Browse files on Windows");[ -f "$CONF" ] &&  def=$CONFIG_SAMBA_CLIENT || def=false;;
+		DLNA)var=CONFIG_DLNA  desc=$(gettext "Media Server");[ -f "$CONF" ] &&  def=$CONFIG_DLNA || def=false;;
+		ftp)var=CONFIG_FTP desc=$(gettext "File transfer protocol");[ -f "$CONF" ] &&  def=$CONFIG_FTP || def=false;;
+		http)var=CONFIG_HTTP desc=$(gettext "Web Server");[ -f "$CONF" ] &&  def=$CONFIG_HTTP || def=false;;
+		SSH)var=CONFIG_${i} desc=$(gettext "Remote secure shell access");[ -f "$CONF" ] &&  def=$CONFIG_SSH || def=false;;
+		CUPS)var=CONFIG_${i} desc=$(gettext "Printer server");[ -f "$CONF" ] &&  def=$CONFIG_CUPS || def=false;;
+		NTP)var=CONFIG_${i} desc=$(gettext "Time server");[ -f "$CONF" ] &&  def=$CONFIG_NTP || def=false;;
+		DHCP)var=CONFIG_${i} desc=$(gettext "DHCP Server");[ -f "$CONF" ] &&  def=$CONFIG_DHCP || def=false;;
+		DNS)var=CONFIG_${i} desc=$(gettext "Domain Name Services");[ -f "$CONF" ] &&  def=$CONFIG_DNS || def=false;;
+		NFS)var=CONFIG_${i} desc=$(gettext "Network File Sharing Protocol (UNIX)");[ -f "$CONF" ] &&  def=$CONFIG_NFS || def=false ;;
+	esac
+	name=$i
+	[ "$name" == 'Samba_client' ] && name="Samba Client"
+	CB="$CB""<hbox space-expand=\"true\" space-fill=\"true\">
+		<checkbox>
+			<label>$name - $desc</label>
+			<default>$def</default>
+			<variable>$var</variable>
+			<sensitive>$sens</sensitive>
+		</checkbox>
+	</hbox>"
+	case $var in 
+		CONFIG_FTP|CONFIG_HTTP|CONFIG_NTP|CONFIG_DHCP|CONFIG_DNS|CONFIG_NFS)
+		ACT="$ACT""<action>if true enable:$var</action>
+				<action>if false disable:$var</action>"
+		;;
+		*)DEF="$DEF""<action>if false enable:$var</action>
+				<action>if true disable:$var</action>"
+		;;
+	esac
+		
+done
+
+export GUI="<window title=\"Firewall Setup $version\" icon-name=\"$winicon\">
+	<vbox>
+		<hbox space-expand=\"true\" space-fill=\"true\">
+			<vbox>
+				<pixmap tooltip-text=\"$ttmsg\">
+					<height>64</height>
+					<input file>\"$IMAGEFILE\"</input>
+				</pixmap>
+				<hbox space-expand=\"true\" space-fill=\"true\">
+					<text use-markup=\"true\"><label>\"<small><tt>$msg</tt></small>\"</label></text>
+				</hbox>
+			</vbox>
+			<vbox>
+				<hbox space-expand=\"true\" space-fill=\"true\">
+					<text use-markup=\"true\"><label>\"<b>$(gettext "Choose which connections to allow through your firewall.")</b>\"</label></text>
+				</hbox>
+				<hbox space-expand=\"true\" space-fill=\"true\">
+					<text><label>$(gettext "Check your required remote connections or leave the default.")</label></text>
+				</hbox>
+				<hbox space-expand=\"true\" space-fill=\"true\">
+					<text><label>$(gettext "Advanced users may need a more granular Firewall. Please visit:")</label></text>
+				</hbox>
+				<hbox space-expand=\"true\" space-fill=\"true\">
+					$URL
+				</hbox>
+				<hbox space-expand=\"true\" space-fill=\"true\">
+					<checkbox>
+						<label>\"$(gettext "When this button is checked a generic firewall is generated on no specific interface.")\"</label>
+						<default>$defgen</default>
+						<variable>GENERIC</variable>
+					</checkbox>
+				</hbox>
+				<hbox space-expand=\"true\" space-fill=\"true\">
+					<checkbox>
+						<label>\"$(gettext "Check this box to enable logging.")\"</label>
+						<default>$loggen</default>
+						<variable>LOGGING</variable>
+					</checkbox>
+				</hbox>
+			</vbox>
+		</hbox>
+		<frame>
+			<hbox space-expand=\"true\" space-fill=\"true\">
+				<checkbox tooltip-text=\"$CB_TTTXT\">
+					<label>\"$CB_MAINTXT\"</label>
+					<default>$defmain</default>
+					<variable>MAIN</variable>
+					$DEF
+					<action>if false enable:EX</action>
+					<action>if true disable:EX</action>
+				</checkbox>
+			</hbox>
+		</frame>
+		<vbox scrollable=\"true\" width=\"480\" height=\"230\">
+			<hbox space-expand=\"true\" space-fill=\"true\">
+				<checkbox>
+					<label>$(gettext "Check this to allow higher level server settings (Experts only).")</label>
+					<variable>EX</variable>
+					<default>false</default>
+					$ACT
+					<sensitive>false</sensitive>
+				</checkbox>
+			</hbox>
+			<hseparator></hseparator>
+			$CB
+		</vbox>
+		<hbox>
+			<button cancel></button>
+			$RESUME
+			<button tooltip-text=\"$(gettext "Option to choose custom ports")\">
+				<label>$(gettext "Extras")</label>
+				<input file stock=\"gtk-add\"></input>
+				<action>extras_gui</action>
+			</button>
+			<button has-focus=\"true\">
+				<label>$(gettext "Apply")</label>
+				<input file stock=\"gtk-apply\"></input>
+				<action type=\"exit\">Doit</action>
+			</button>
+		</hbox>
+	</vbox>
+</window>"
+eval $(gtkdialog -p GUI -c 2>/dev/null) 2>/dev/null
+echo $EXIT
+case "$EXIT" in
+	Doit)echo "GENERIC=$GENERIC
+LOGGING=$LOGGING
+MAIN=$MAIN
+EX=$EX
+CONFIG_SSH=$CONFIG_SSH
+CONFIG_CUPS=$CONFIG_CUPS
+CONFIG_SAMBA=$CONFIG_SAMBA
+CONFIG_SAMBA_CLIENT=$CONFIG_SAMBA_CLIENT
+CONFIG_DLNA=$CONFIG_DLNA
+CONFIG_NTP=$CONFIG_NTP
+CONFIG_FTP=$CONFIG_FTP
+CONFIG_HTTP=$CONFIG_HTTP
+CONFIG_DNS=$CONFIG_DNS
+CONFIG_DHCP=$CONFIG_DHCP
+CONFIG_NFS=$CONFIG_NFS" > $CONF # (re)write config
+	if [ -f /tmp/extra_ports.txt ];then
+		XTRAS="`cat /tmp/extra_ports.txt`"
+		echo "CONFIG_EXTRAS=\"$XTRAS\"" >> $CONF # add a new custom setup
+		rm /tmp/extra_ports.txt
+	else
+		echo "CONFIG_EXTRAS=\"$def_extra\"" >> $CONF # save initial custom setup
+		process_ports "$def_extra"
+	fi
+	;;
+	Redo)
+	if [ -f "$CONF" ];then
+		if [ -x /etc/init.d/rc.firewall ];then
+			if [ $state -eq 0 ];then
+				/etc/init.d/rc.firewall start
+				echo 'starting firewall using previous config' && exit
+			else
+				/etc/init.d/rc.firewall restart
+				echo 'restarting firewall using previous config' && exit
+			fi
+		else
+			echo 'aborting' && exit
+		fi
+	else
+		echo 'aborting' && exit
+	fi
+	;;
+	*)echo 'aborting' && exit
+	;;
+esac
+
+# build the firewall
+TMPFW=/tmp/firewall_gen$$
+cat > $TMPFW << EOF_FWSTART
+#!/bin/sh
+#
+# Generated iptables firewall script for the Linux 2.4 kernel and later.
+# Script generated by Easy Firewall Generator for IPTables 1.15
+# copyright 2002 Timothy Scott Morizot
+# Modified for Slackware Linux by Eric Hameleers <alien@slackware.com>
+# 
+# This generator is adapted from the original to work on Slackware Linux.
+# Basically, I corrected the path name to the iptables* commands
+# and re-wrote this comment.
+#
+# It can be executed with the typical start and stop arguments.
+# If used with stop, it will stop after flushing the firewall.
+# The save and restore arguments will save or restore the rules
+# from the /etc/sysconfig/iptables file.  The save and restore
+# arguments are included to preserve compatibility with
+# Redhat's or Fedora's init.d script if you prefer to use it.
+
+# You may want to save this script as /etc/rc.d/rc.firewall
+# and make it executable, like this:
+#   chmod +x /etc/rc.d/rc.firewall
+# Slackware Linux will then automatically run this script
+# with the "start" parameter.
+
+
+# Modified for Puppy Linux by Michael Amadio <01micko@gmail.com> 2015
+
+###############################################################################
+# 
+# Local Settings
+#
+
+# sysctl location.  If set, it will use sysctl to adjust the kernel parameters.
+# If this is set to the empty string (or is unset), the use of sysctl
+# is disabled.
+
+SYSCTL="/sbin/sysctl -w" 
+
+# To echo the value directly to the /proc file instead
+# SYSCTL=""
+
+# IPTables Location
+IPT_PATH="\$(dirname \$(which iptables))"
+IPT="\$IPT_PATH/iptables"
+IPTS="\$IPT_PATH/iptables-save"
+IPTR="\$IPT_PATH/iptables-restore"
+EOF_FWSTART
+
+# generic or interface
+case $GENERIC in
+	true) IFACE=generic
+			IOPT=""
+			OOPT=""
+	;;
+	false) IFACE=$IFACE
+			IOPT="-i \$INET_IFACE"
+			OOPT="-o \$INET_IFACE"	
+	;;
+esac
+
+# logging
+echo '
+# logging' >> $TMPFW
+echo "LOGGING=$LOGGING" >> $TMPFW
+
+cat >> $TMPFW << EOF_FWNEXT
+# Internet Interface
+INET_IFACE="$IFACE"
+
+# Localhost Interface
+
+LO_IFACE="lo"
+LO_IP="127.0.0.1"
+
+# Save and Restore arguments handled here
+if [ "\$1" = "save" ]
+then
+	echo -n "Saving firewall to /etc/sysconfig/iptables ... "
+	\$IPTS > /etc/sysconfig/iptables
+	echo "done"
+	exit 0
+elif [ "\$1" = "restore" ]
+then
+	echo -n "Restoring firewall from /etc/sysconfig/iptables ... "
+	\$IPTR < /etc/sysconfig/iptables
+	echo "done"
+	exit 0
+fi
+
+###############################################################################
+#
+# Load Modules
+#
+
+echo "Loading kernel modules ..."
+
+# You should uncomment the line below and run it the first time just to
+# ensure all kernel module dependencies are OK.  There is no need to run
+# every time, however.
+
+# /sbin/depmod -a
+
+# Unless you have kernel module auto-loading disabled, you should not
+# need to manually load each of these modules.  Other than ip_tables,
+# ip_conntrack, and some of the optional modules, I've left these
+# commented by default.  Uncomment if you have any problems or if
+# you have disabled module autoload.  Note that some modules must
+# be loaded by another kernel module.
+
+# core netfilter module
+/sbin/modprobe ip_tables
+
+# the stateful connection tracking module
+/sbin/modprobe ip_conntrack
+
+# filter table module
+# /sbin/modprobe iptable_filter
+
+# mangle table module
+# /sbin/modprobe iptable_mangle
+
+# nat table module
+# /sbin/modprobe iptable_nat
+
+# LOG target module
+# /sbin/modprobe ipt_LOG
+
+# This is used to limit the number of packets per sec/min/hr
+# /sbin/modprobe ipt_limit
+
+# masquerade target module
+# /sbin/modprobe ipt_MASQUERADE
+
+# filter using owner as part of the match
+# /sbin/modprobe ipt_owner
+
+# REJECT target drops the packet and returns an ICMP response.
+# The response is configurable.  By default, connection refused.
+# /sbin/modprobe ipt_REJECT
+
+# This target allows packets to be marked in the mangle table
+# /sbin/modprobe ipt_mark
+
+# This target affects the TCP MSS
+# /sbin/modprobe ipt_tcpmss
+
+# This match allows multiple ports instead of a single port or range
+# /sbin/modprobe multiport
+
+# This match checks against the TCP flags
+# /sbin/modprobe ipt_state
+
+# This match catches packets with invalid flags
+# /sbin/modprobe ipt_unclean
+
+# The ftp nat module is required for non-PASV ftp support
+/sbin/modprobe ip_nat_ftp
+
+# the module for full ftp connection tracking
+/sbin/modprobe ip_conntrack_ftp
+
+# the module for full irc connection tracking
+/sbin/modprobe ip_conntrack_irc
+
+
+###############################################################################
+#
+# Kernel Parameter Configuration
+#
+# See http://ipsysctl-tutorial.frozentux.net/chunkyhtml/index.html
+# for a detailed tutorial on sysctl and the various settings
+# available.
+
+# Required to enable IPv4 forwarding.
+# Redhat users can try setting FORWARD_IPV4 in /etc/sysconfig/network to true
+# Alternatively, it can be set in /etc/sysctl.conf
+#if [ "\$SYSCTL" = "" ]
+#then
+#    echo "1" > /proc/sys/net/ipv4/ip_forward
+#else
+#    \$SYSCTL net.ipv4.ip_forward="1"
+#fi
+
+# This enables dynamic address hacking.
+# This may help if you have a dynamic IP address \(e.g. slip, ppp, dhcp\).
+#if [ "\$SYSCTL" = "" ]
+#then
+#    echo "1" > /proc/sys/net/ipv4/ip_dynaddr
+#else
+#    \$SYSCTL net.ipv4.ip_dynaddr="1"
+#fi
+
+# This enables SYN flood protection.
+# The SYN cookies activation allows your system to accept an unlimited
+# number of TCP connections while still trying to give reasonable
+# service during a denial of service attack.
+if [ "\$SYSCTL" = "" ]
+then
+    echo "1" > /proc/sys/net/ipv4/tcp_syncookies
+else
+    \$SYSCTL net.ipv4.tcp_syncookies="1"
+fi
+
+# This enables source validation by reversed path according to RFC1812.
+# In other words, did the response packet originate from the same interface
+# through which the source packet was sent?  It's recommended for single-homed
+# systems and routers on stub networks.  Since those are the configurations
+# this firewall is designed to support, I turn it on by default.
+# Turn it off if you use multiple NICs connected to the same network.
+if [ "\$SYSCTL" = "" ]
+then
+    echo "1" > /proc/sys/net/ipv4/conf/all/rp_filter
+else
+    \$SYSCTL net.ipv4.conf.all.rp_filter="1"
+fi
+
+# This option allows a subnet to be firewalled with a single IP address.
+# It's used to build a DMZ.  Since that's not a focus of this firewall
+# script, it's not enabled by default, but is included for reference.
+# See: http://www.sjdjweis.com/linux/proxyarp/ 
+#if [ "\$SYSCTL" = "" ]
+#then
+#    echo "1" > /proc/sys/net/ipv4/conf/all/proxy_arp
+#else
+#    \$SYSCTL net.ipv4.conf.all.proxy_arp="1"
+#fi
+
+# The following kernel settings were suggested by Alex Weeks. Thanks!
+
+# This kernel parameter instructs the kernel to ignore all ICMP
+# echo requests sent to the broadcast address.  This prevents
+# a number of smurfs and similar DoS nasty attacks.
+if [ "\$SYSCTL" = "" ]
+then
+    echo "1" > /proc/sys/net/ipv4/icmp_echo_ignore_broadcasts
+else
+    \$SYSCTL net.ipv4.icmp_echo_ignore_broadcasts="1"
+fi
+
+# This option can be used to accept or refuse source routed
+# packets.  It is usually on by default, but is generally
+# considered a security risk.  This option turns it off.
+if [ "\$SYSCTL" = "" ]
+then
+    echo "0" > /proc/sys/net/ipv4/conf/all/accept_source_route
+else
+    \$SYSCTL net.ipv4.conf.all.accept_source_route="0"
+fi
+
+# This option can disable ICMP redirects.  ICMP redirects
+# are generally considered a security risk and shouldn't be
+# needed by most systems using this generator.
+#if [ "\$SYSCTL" = "" ]
+#then
+#    echo "0" > /proc/sys/net/ipv4/conf/all/accept_redirects
+#else
+#    \$SYSCTL net.ipv4.conf.all.accept_redirects="0"
+#fi
+
+# However, we'll ensure the secure_redirects option is on instead.
+# This option accepts only from gateways in the default gateways list.
+if [ "\$SYSCTL" = "" ]
+then
+    echo "1" > /proc/sys/net/ipv4/conf/all/secure_redirects
+else
+    \$SYSCTL net.ipv4.conf.all.secure_redirects="1"
+fi
+
+# This option logs packets from impossible addresses.
+if [ "\$SYSCTL" = "" ]
+then
+    echo "1" > /proc/sys/net/ipv4/conf/all/log_martians
+else
+    \$SYSCTL net.ipv4.conf.all.log_martians="1"
+fi
+
+
+###############################################################################
+#
+# Flush Any Existing Rules or Chains
+#
+
+echo "Flushing Tables ..."
+
+# Reset Default Policies
+\$IPT -P INPUT ACCEPT
+\$IPT -P FORWARD ACCEPT
+\$IPT -P OUTPUT ACCEPT
+\$IPT -t nat -P PREROUTING ACCEPT
+\$IPT -t nat -P POSTROUTING ACCEPT
+\$IPT -t nat -P OUTPUT ACCEPT
+\$IPT -t mangle -P PREROUTING ACCEPT
+\$IPT -t mangle -P OUTPUT ACCEPT
+
+# Flush all rules
+\$IPT -F
+\$IPT -t nat -F
+\$IPT -t mangle -F
+
+# Erase all non-default chains
+\$IPT -X
+\$IPT -t nat -X
+\$IPT -t mangle -X
+
+if [ "\$1" = "stop" ]
+then
+	echo "Firewall completely flushed!  Now running with no firewall."
+	exit 0
+fi
+
+###############################################################################
+#
+# Rules Configuration
+#
+
+###############################################################################
+#
+# Filter Table
+#
+###############################################################################
+
+# Set Policies
+
+\$IPT -P INPUT DROP
+\$IPT -P OUTPUT DROP
+\$IPT -P FORWARD DROP
+
+###############################################################################
+#
+# User-Specified Chains
+#
+# Create user chains to reduce the number of rules each packet
+# must traverse.
+
+echo "Create and populate custom rule chains ..."
+
+# Create a chain to filter INVALID packets
+
+\$IPT -N bad_packets
+
+# Create another chain to filter bad tcp packets
+
+\$IPT -N bad_tcp_packets
+
+# Create separate chains for icmp, tcp (incoming and outgoing),
+# and incoming udp packets.
+
+\$IPT -N icmp_packets
+
+# Used for UDP packets inbound from the Internet
+\$IPT -N udp_inbound
+
+# Used to block outbound UDP services from internal network
+# Default to allow all
+\$IPT -N udp_outbound
+
+# Used to allow inbound services if desired
+# Default fail except for established sessions
+\$IPT -N tcp_inbound
+
+# Used to block outbound services from internal network
+# Default to allow all
+\$IPT -N tcp_outbound
+
+###############################################################################
+#
+# Populate User Chains
+#
+
+# bad_packets chain
+#
+
+# Drop INVALID packets immediately
+if [ "\$LOGGING" = "true" ];then
+	\$IPT -A bad_packets -p ALL -m conntrack --ctstate INVALID -j LOG \
+--log-prefix "Invalid packet: "
+fi
+
+\$IPT -A bad_packets -p ALL -m conntrack --ctstate INVALID -j DROP
+
+# Then check the tcp packets for additional problems
+\$IPT -A bad_packets -p tcp -j bad_tcp_packets
+
+# All good, so return
+\$IPT -A bad_packets -p ALL -j RETURN
+
+# bad_tcp_packets chain
+#
+# All tcp packets will traverse this chain.
+# Every new connection attempt should begin with
+# a syn packet.  If it doesn't, it is likely a
+# port scan.  This drops packets in state
+# NEW that are not flagged as syn packets.
+
+
+if [ "\$LOGGING" = "true" ];then
+	\$IPT -A bad_tcp_packets -p tcp ! --syn -m conntrack --ctstate NEW -j LOG \
+--log-prefix "New not syn: "
+fi
+\$IPT -A bad_tcp_packets -p tcp ! --syn -m conntrack --ctstate NEW -j DROP
+
+if [ "\$LOGGING" = "true" ];then
+	\$IPT -A bad_tcp_packets -p tcp --tcp-flags ALL NONE -j LOG \
+--log-prefix "Stealth scan: "
+fi
+\$IPT -A bad_tcp_packets -p tcp --tcp-flags ALL NONE -j DROP
+
+if [ "\$LOGGING" = "true" ];then
+	\$IPT -A bad_tcp_packets -p tcp --tcp-flags ALL ALL -j LOG \
+--log-prefix "Stealth scan: "
+fi
+\$IPT -A bad_tcp_packets -p tcp --tcp-flags ALL ALL -j DROP
+
+if [ "\$LOGGING" = "true" ];then
+	\$IPT -A bad_tcp_packets -p tcp --tcp-flags ALL FIN,URG,PSH -j LOG \
+--log-prefix "Stealth scan: "
+fi
+\$IPT -A bad_tcp_packets -p tcp --tcp-flags ALL FIN,URG,PSH -j DROP
+
+if [ "\$LOGGING" = "true" ];then
+	\$IPT -A bad_tcp_packets -p tcp --tcp-flags ALL SYN,RST,ACK,FIN,URG -j LOG \
+--log-prefix "Stealth scan: "
+fi
+\$IPT -A bad_tcp_packets -p tcp --tcp-flags ALL SYN,RST,ACK,FIN,URG -j DROP
+
+if [ "\$LOGGING" = "true" ];then
+	\$IPT -A bad_tcp_packets -p tcp --tcp-flags SYN,RST SYN,RST -j LOG \
+--log-prefix "Stealth scan: "
+fi
+\$IPT -A bad_tcp_packets -p tcp --tcp-flags SYN,RST SYN,RST -j DROP
+
+if [ "\$LOGGING" = "true" ];then
+	\$IPT -A bad_tcp_packets -p tcp --tcp-flags SYN,FIN SYN,FIN -j LOG \
+--log-prefix "Stealth scan: "
+fi
+\$IPT -A bad_tcp_packets -p tcp --tcp-flags SYN,FIN SYN,FIN -j DROP
+
+# All good, so return
+\$IPT -A bad_tcp_packets -p tcp -j RETURN
+
+# icmp_packets chain
+#
+# This chain is for inbound (from the Internet) icmp packets only.
+# Type 8 (Echo Request) is not accepted by default
+# Enable it if you want remote hosts to be able to reach you.
+# 11 (Time Exceeded) is the only one accepted
+# that would not already be covered by the established
+# connection rule.  Applied to INPUT on the external interface.
+# 
+# See: http://www.ee.siue.edu/~rwalden/networking/icmp.html
+# for more info on ICMP types.
+#
+# Note that the stateful settings allow replies to ICMP packets.
+# These rules allow new packets of the specified types.
+
+# ICMP packets should fit in a Layer 2 frame, thus they should
+# never be fragmented.  Fragmented ICMP packets are a typical sign
+# of a denial of service attack.
+if [ "\$LOGGING" = "true" ];then
+	\$IPT -A icmp_packets --fragment -p ICMP -j LOG \
+--log-prefix "ICMP Fragment: "
+fi
+\$IPT -A icmp_packets --fragment -p ICMP -j DROP
+
+# Echo - uncomment to allow your system to be pinged.
+# Uncomment the LOG command if you also want to log PING attempts
+# 
+#if [ "\$LOGGING" = "true" ];then
+#	\$IPT -A icmp_packets -p ICMP -s 0/0 --icmp-type 8 -j LOG \
+#--log-prefix "Ping detected: "
+#fi
+# \$IPT -A icmp_packets -p ICMP -s 0/0 --icmp-type 8 -j ACCEPT
+
+# By default, however, drop pings without logging. Blaster
+# and other worms have infected systems blasting pings.
+# Comment the line below if you want pings logged, but it
+# will likely fill your logs.
+\$IPT -A icmp_packets -p ICMP -s 0/0 --icmp-type 8 -j DROP
+
+# Time Exceeded
+\$IPT -A icmp_packets -p ICMP -s 0/0 --icmp-type 11 -j ACCEPT
+
+# Not matched, so return so it will be logged
+\$IPT -A icmp_packets -p ICMP -j RETURN
+
+# TCP & UDP
+# Identify ports at:
+#    http://www.chebucto.ns.ca/~rakerman/port-table.html
+#    http://www.iana.org/assignments/port-numbers
+
+# udp_inbound chain
+#
+# This chain describes the inbound UDP packets it will accept.
+# It's applied to INPUT on the external or Internet interface.
+# Note that the stateful settings allow replies.
+# These rules are for new requests.
+# It drops netbios packets (windows) immediately without logging.
+# Drop netbios calls
+# Please note that these rules do not really change the way the firewall
+# treats netbios connections.  Connections from the localhost and
+# internal interface (if one exists) are accepted by default.
+# Responses from the Internet to requests initiated by or through
+# the firewall are also accepted by default.  To get here, the
+# packets would have to be part of a new request received by the
+# Internet interface.  You would have to manually add rules to
+# accept these.  I added these rules because some network connections,
+# such as those via cable modems, tend to be filled with noise from
+# unprotected Windows machines.  These rules drop those packets
+# quickly and without logging them.  This prevents them from traversing
+# the whole chain and keeps the log from getting cluttered with
+# chatter from Windows systems.
+EOF_FWNEXT
+
+# From here is where Puppy edits
+echo "
+############################### Puppy Rules ###################################
+" >> $TMPFW
+if [ "$CONFIG_SAMBA" != "true" -a "$CONFIG_SAMBA_CLIENT" != "true" ];then
+	cat >> $TMPFW << EOF_SAMBA_NOT
+	
+# disallow netbios name resolution
+\$IPT -A udp_inbound -p UDP -s 0/0 --destination-port 137 -j DROP
+\$IPT -A udp_inbound -p UDP -s 0/0 --destination-port 138 -j DROP
+EOF_SAMBA_NOT
+fi
+
+cat >> $TMPFW << EOF_FWCOMMENT
+# Dynamic Address
+# If DHCP, the initial request is a broadcast. The response
+# doesn't exactly match the outbound packet.  This explicitly
+# allow the DHCP ports to alleviate this problem.
+# If you receive your dynamic address by a different means, you
+# can probably comment this line.
+\$IPT -A udp_inbound -p UDP -s 0/0 --source-port 67 --destination-port 68 \
+-j ACCEPT
+# User specified allowed UDP protocol
+EOF_FWCOMMENT
+
+if [ "$CONFIG_SAMBA" == "true" ];then
+	cat >> $TMPFW << EOF_SAMBA_UDP
+	
+# allow netbios name resolution for Samba server
+\$IPT -A udp_inbound -p UDP -s $SUBNET --destination-port 137 -j ACCEPT
+\$IPT -A udp_inbound -p UDP -s $SUBNET --destination-port 138 -j ACCEPT
+EOF_SAMBA_UDP
+fi
+if [ "$CONFIG_SAMBA_CLIENT" == "true" ];then
+	cat >> $TMPFW << EOF_SAMBA_UDP_CL
+	
+# allow netbios name resolution for Samba client
+\$IPT -A udp_inbound -p UDP -s $SUBNET --source-port 137 -m state --state NEW,ESTABLISHED -j ACCEPT
+\$IPT -A udp_inbound -p UDP -s $SUBNET --source-port 138 -m state --state NEW,ESTABLISHED -j ACCEPT
+\$IPT -A tcp_inbound -p TCP -s $SUBNET --source-port 139 -m state --state NEW,ESTABLISHED -j ACCEPT
+\$IPT -A tcp_inbound -p TCP -s $SUBNET --source-port 445 -m state --state NEW,ESTABLISHED -j ACCEPT
+EOF_SAMBA_UDP_CL
+fi
+if [ "$CONFIG_CUPS" == "true" ];then
+	cat >> $TMPFW << EOF_CUPS_UDP
+
+# allow CUPS printing to this server - requires CUPS to be shared
+\$IPT -A udp_inbound -p UDP -s 0/0 --destination-port 631 -j ACCEPT
+EOF_CUPS_UDP
+fi
+
+if [ "$CONFIG_NTP" == "true" ];then
+	cat >> $TMPFW << EOF_NTP
+
+# Network Time Protocol (NTP) Server
+\$IPT -A udp_inbound -p UDP -s 0/0 --destination-port 123 -j ACCEPT
+EOF_NTP
+fi
+
+if [ "$CONFIG_DNS" == "true" ];then
+	cat >> $TMPFW << EOF_DNS
+
+# DNS Server
+# Configure the server to use port 53 as the source port for requests
+# Note, if you run a caching-only name server that only accepts queries
+# from the private network or localhost, you can comment out this line.
+\$IPT -A udp_inbound -p UDP -s 0/0 --destination-port 53 -j ACCEPT
+
+# # If you don't query-source the server to port 53 and you have problems,
+# uncomment this rule.  It specifically allows responses to queries
+# initiated to another server from a high UDP port.  The stateful
+# connection rules should handle this situation, though.
+# \$IPT -A udp_inbound -p UDP -s 0/0 --source-port 53 -j ACCEPT
+
+# mDNSResponder
+#\$IPT -A udp_inbound -p UDP -s 0/0 --destination-port 5353 -j ACCEPT
+EOF_DNS
+fi
+
+if [ "$CONFIG_DHCP" == "true" ];then
+	cat >> $TMPFW << EOF_DHCP
+
+# External DHCP Server
+# Allow DHCP client request packets inbound from external network
+\$IPT -A udp_inbound -p UDP -s 0/0 --source-port 68 --destination-port 67 \
+-j ACCEPT
+
+# Dynamic Address
+# If DHCP, the initial request is a broadcast. The response
+# doesn't exactly match the outbound packet.  This explicitly
+# allow the DHCP ports to alleviate this problem.
+# If you receive your dynamic address by a different means, you
+# can probably comment this line.
+\$IPT -A udp_inbound -p UDP -s 0/0 --source-port 67 --destination-port 68 \
+-j ACCEPT
+EOF_DHCP
+fi
+
+if [ "$CONFIG_NFS" == "true" ];then
+	cat >> $TMPFW << EOF_NFS
+
+# Network File System (NFS) Server
+# Please note that additional services must
+# be configured in order to support an NFS Server through
+# the firewall. Read the help in the generator or this site:
+# http://www.lowth.com/LinWiz/nfs_help.html
+
+# NFS Server - portmapper
+\$IPT -A udp_inbound -p UDP -s 0/0 --destination-port 111 -j ACCEPT
+
+# NFS Server - statd
+\$IPT -A udp_inbound -p UDP -s 0/0 --destination-port 9400 -j ACCEPT
+
+# NFS Server - NFS daemon
+\$IPT -A udp_inbound -p UDP -s 0/0 --destination-port 2049 -j ACCEPT
+
+# NFS Server - lockd
+\$IPT -A udp_inbound -p UDP -s 0/0 --destination-port 9401 -j ACCEPT
+
+# NFS Server - mountd
+\$IPT -A udp_inbound -p UDP -s 0/0 --destination-port 9402 -j ACCEPT
+
+# NFS Server - quotad
+\$IPT -A udp_inbound -p UDP -s 0/0 --destination-port 9403 -j ACCEPT
+EOF_NFS
+fi
+cat >> $TMPFW << EOF_MID
+
+# Not matched, so return for logging
+\$IPT -A udp_inbound -p UDP -j RETURN
+
+# udp_outbound chain
+#
+# This chain is used with a private network to prevent forwarding for
+# UDP requests on specific protocols.  Applied to the FORWARD rule from
+# the internal network.  Ends with an ACCEPT
+
+
+# No match, so ACCEPT
+\$IPT -A udp_outbound -p UDP -s 0/0 -j ACCEPT
+
+# tcp_inbound chain
+#
+# This chain is used to allow inbound connections to the
+# system/gateway.  Use with care.  It defaults to none.
+# It's applied on INPUT from the external or Internet interface.
+EOF_MID
+if [ "$CONFIG_HTTP" == "true" ];then
+	cat >> $TMPFW << EOF_HTTP
+	
+# Web Server
+
+# HTTP
+\$IPT -A tcp_inbound -p TCP -s 0/0 --destination-port 80 -j ACCEPT
+EOF_HTTP
+fi
+if [ "$CONFIG_FTP" == "true" ];then
+	cat >> $TMPFW << EOF_FTP
+	
+# FTP Server (Control)
+\$IPT -A tcp_inbound -p TCP -s 0/0 --destination-port 21 -j ACCEPT
+
+# FTP Client (Data Port for non-PASV transfers)
+\$IPT -A tcp_inbound -p TCP -s 0/0 --source-port 20 -j ACCEPT
+EOF_FTP
+fi
+if [ "$CONFIG_SSH" == "true" ];then
+	cat >> $TMPFW << EOF_SSH
+
+# sshd
+\$IPT -A tcp_inbound -p TCP -s 0/0 --destination-port 22 -j ACCEPT
+EOF_SSH
+fi
+if [ "$CONFIG_SAMBA" == "true" ];then
+	cat >> $TMPFW << EOF_SAMBA_TCP
+	
+# allow Samba TCP communication
+\$IPT -A tcp_inbound -p TCP -s $SUBNET --destination-port 139 -j ACCEPT
+\$IPT -A tcp_inbound -p TCP -s $SUBNET --destination-port 445 -j ACCEPT
+EOF_SAMBA_TCP
+fi
+if [ "$CONFIG_CUPS" == "true" ];then
+	cat >> $TMPFW << EOF_CUPS_TCP
+
+# allow CUPS ipp printing to this server - requires CUPS to be shared
+\$IPT -A tcp_inbound -p TCP -s 0/0 --destination-port 631 -j ACCEPT
+EOF_CUPS_TCP
+fi
+
+if [ "$CONFIG_DLNA" == "true" ];then
+	cat >> $TMPFW << EOF_CUPS_DLNA
+
+# allow dlna multimedia server
+\$IPT -A tcp_inbound -p TCP -s 0/0 --destination-port 8200 -j ACCEPT
+EOF_CUPS_DLNA
+fi
+
+# custom extras
+[ -f "$FILE" ] && echo "
+############################### Custom Extras #################################
+" >> $TMPFW
+[ -f "$FILE" ] && cat $FILE >> $TMPFW
+[ -f "$FILE" ] && echo "
+############################## END Custom Extras ##############################
+" >> $TMPFW
+
+# The rest!
+
+cat >> $TMPFW << EOF_REST
+
+# Not matched, so return so it will be logged
+\$IPT -A tcp_inbound -p TCP -j RETURN
+
+# tcp_outbound chain
+#
+# This chain is used with a private network to prevent forwarding for
+# requests on specific protocols.  Applied to the FORWARD rule from
+# the internal network.  Ends with an ACCEPT
+
+
+# No match, so ACCEPT
+\$IPT -A tcp_outbound -p TCP -s 0/0 -j ACCEPT
+
+###############################################################################
+#
+# INPUT Chain
+#
+
+echo "Process INPUT chain ..."
+
+# Allow all on localhost interface
+\$IPT -A INPUT -p ALL -i \$LO_IFACE -j ACCEPT
+
+# Drop bad packets
+\$IPT -A INPUT -p ALL -j bad_packets
+
+# DOCSIS compliant cable modems
+# Some DOCSIS compliant cable modems send IGMP multicasts to find
+# connected PCs.  The multicast packets have the destination address
+# 224.0.0.1.  You can accept them.  If you choose to do so,
+# Uncomment the rule to ACCEPT them and comment the rule to DROP
+# them  The firewall will drop them here by default to avoid
+# cluttering the log.  The firewall will drop all multicasts
+# to the entire subnet (224.0.0.1) by default.  To only affect
+# IGMP multicasts, change '-p ALL' to '-p 2'.  Of course,
+# if they aren't accepted elsewhere, it will only ensure that
+# multicasts on other protocols are logged.
+# Drop them without logging.
+\$IPT -A INPUT -p ALL -d 224.0.0.1 -j DROP
+# The rule to accept the packets.
+# \$IPT -A INPUT -p ALL -d 224.0.0.1 -j ACCEPT
+
+
+# Inbound Internet Packet Rules
+
+# Accept Established Connections
+\$IPT -A INPUT -p ALL $IOPT -m conntrack --ctstate ESTABLISHED,RELATED \
+-j ACCEPT
+
+# Route the rest to the appropriate user chain
+\$IPT -A INPUT -p TCP $IOPT -j tcp_inbound
+\$IPT -A INPUT -p UDP $IOPT -j udp_inbound
+\$IPT -A INPUT -p ICMP $IOPT -j icmp_packets
+
+# Drop without logging broadcasts that get this far.
+# Cuts down on log clutter.
+# Comment this line if testing new rules that impact
+# broadcast protocols.
+\$IPT -A INPUT -m pkttype --pkt-type broadcast -j DROP
+
+# Log packets that still don't match
+if [ "\$LOGGING" = "true" ];then
+	\$IPT -A INPUT -m limit --limit 3/minute --limit-burst 3 -j LOG \
+--log-prefix "INPUT packet died: "
+fi
+
+###############################################################################
+#
+# FORWARD Chain
+#
+
+echo "Process FORWARD chain ..."
+
+# Used if forwarding for a private network
+
+
+###############################################################################
+#
+# OUTPUT Chain
+#
+
+echo "Process OUTPUT chain ..."
+
+# Generally trust the firewall on output
+
+# However, invalid icmp packets need to be dropped
+# to prevent a possible exploit.
+\$IPT -A OUTPUT -p icmp -m conntrack --ctstate INVALID -j DROP
+
+# Localhost
+\$IPT -A OUTPUT -p ALL -s \$LO_IP -j ACCEPT
+\$IPT -A OUTPUT -p ALL -o \$LO_IFACE -j ACCEPT
+
+# To internet
+\$IPT -A OUTPUT -p ALL $OOPT -j ACCEPT
+
+# Log packets that still don't match
+if [ "\$LOGGING" = "true" ];then
+	\$IPT -A OUTPUT -m limit --limit 3/minute --limit-burst 3 -j LOG \
+--log-prefix "OUTPUT packet died: "
+fi
+
+###############################################################################
+#
+# nat table
+#
+###############################################################################
+
+# The nat table is where network address translation occurs if there
+# is a private network.  If the gateway is connected to the Internet
+# with a static IP, snat is used.  If the gateway has a dynamic address,
+# masquerade must be used instead.  There is more overhead associated
+# with masquerade, so snat is better when it can be used.
+# The nat table has a builtin chain, PREROUTING, for dnat and redirects.
+# Another, POSTROUTING, handles snat and masquerade.
+
+echo "Load rules for nat table ..."
+
+###############################################################################
+#
+# PREROUTING chain
+#
+
+
+###############################################################################
+#
+# POSTROUTING chain
+#
+
+
+###############################################################################
+#
+# mangle table
+#
+###############################################################################
+
+# The mangle table is used to alter packets.  It can alter or mangle them in
+# several ways.  For the purposes of this generator, we only use its ability
+# to alter the TTL in packets.  However, it can be used to set netfilter
+# mark values on specific packets.  Those marks could then be used in another
+# table like filter, to limit activities associated with a specific host, for
+# instance.  The TOS target can be used to set the Type of Service field in
+# the IP header.  Note that the TTL target might not be included in the
+# distribution on your system.  If it is not and you require it, you will
+# have to add it.  That may require that you build from source.
+
+echo "Load rules for mangle table ..."
+EOF_REST
+
+if [ -f "$TMPFW" ];then
+	[ $state = 1 ] && /etc/init.d/rc.firewall stop && sleep 1
+	echo "copying firewall"
+	cp -af "$TMPFW" /etc/init.d/rc.firewall
+	chmod 755 /etc/init.d/rc.firewall
+	rm -f "$TMPFW"
+else
+	echo "Something went wrong"
+	exit
+fi
+
+# run it!
+gtkdialog-splash -bg yellow -timeout 2 -text "Starting firewall" &
+urxvt -bg yellow -fg black -geometry 60X10+1+1 --hold -e /etc/init.d/rc.firewall start &
+p=$!
+sleep 6
+kill -9 $p 2>/dev/null
+
+# start the status icon
+pidof firewallstatus && exit
+[ -x /usr/bin/firewallstatus ] && exec /usr/bin/firewallstatus &
+
+# end

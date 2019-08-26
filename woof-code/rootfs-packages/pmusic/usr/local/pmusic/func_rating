@@ -1,0 +1,194 @@
+#!/bin/bash
+#pMusic - func_rating
+#GPL - Copyright Sigmund Berglund
+
+export TEXTDOMAIN=pmusic
+export OUTPUT_CHARSET=UTF-8
+
+rating_buildlist (){
+	#this has 3 functions for the sourcelist
+	#- Calculate the rating (col 9) based on the nr of timestamps (col 21) in mymusic db
+	#- Define the correct icon for tracks, urls and cd-audio. Playlists and directories are NOT sent here.
+	#- Give each item an unique nr for managing the correct item in case several items in sourcelist points to the same file. (ie. expand 2 playlists with the same song.)
+	
+
+	#since , is field separator in awk we better make a temporary convert for , elsewhere.
+	cut -d'|' -f1-20 "$2" | sed 's/,/___comma___/g' > $WORKDIR/tmp_rating_awk1
+	cut -d'|' -f21 "$2" > $WORKDIR/tmp_rating_awk2
+	paste -d"|" $WORKDIR/tmp_rating_awk1 $WORKDIR/tmp_rating_awk2 > $WORKDIR/tmp_rating_awk
+	#---
+	TIME_FROM=$1
+	TIME_TO=$3
+	[[ ! "$TIME_TO" || "$TIME_TO" = "0" ]] && TIME_TO=`date +%s`
+	MIN_RATE=$4
+	[ ! "$MIN_RATE" ] && MIN_RATE=0 #print only hits with higher rating or equal 
+	TAB="$5" #expanding lists wants an extra tab for col 2
+
+	awk -F, -v TS1=$TIME_FROM -v TS2=$TIME_TO -v TAB="$TAB" -v MIN_RATE=$MIN_RATE -v ID=$(date +%N) '{
+		split($1, a, "|"); $1=a[21] # fix first entry
+		max=NF; min=0;
+		while (max-min > 1) {
+			i=int( (max+min)/2 )
+			if (TS1 >= $i) min = i
+			else max = i
+		}
+		from=NF-(min-1)
+
+		max=NF; min=0;
+		while (max-min > 1) {
+			i=int( (max+min)/2 )
+			if (TS2 >= $i) min = i
+			else max = i
+		}
+		if (max < 2) to=2
+		else to=(NF-min)
+		
+		
+		#__________ Set icon __________
+		if (a[14] ~ "^http://")
+			if (a[12]~ ":") icon="gtk-audio_podcast"
+			else icon="gtk-audio_url"
+		else if (a[14] ~ "^cdda:") icon="gtk-audio_cd"
+		else if (a[15] == "gtk-audio_missing") icon="gtk-null"
+		else
+			if ((from-to) > 10) icon="gtk-audio_rated3"
+			else if ((from-to) > 2) icon="gtk-audio_rated2"
+			else if ((from-to) > 0) icon="gtk-audio_rated1"
+			else icon="gtk-audio"
+		#________ END set icon ________
+		
+		if ((from-to) >= MIN_RATE) print ID rand()":"a[1] "|" TAB a[2] "|" a[3] "|" a[4] "|" a[5] "|" a[6] "|" a[7] "|" a[8] "|" from-to "|" a[10] "|" a[11] "|" a[12] "|" a[13] "|" a[14] "|" icon "|" a[16] "|" a[17] "|" a[18] "|" a[19] "|" a[20] "|" a[21]
+
+	}' $WORKDIR/tmp_rating_awk | sed 's/___comma___/,/g'
+}
+
+#custom search
+rating_find (){
+	gettext 'Searching' > $WORKDIR/splashtext
+	$APPDIR/box_splash &
+	#calculate seconds instead of regular date
+	LC_ALL=C SEC_FROM=`date --date $FROM_MONTH/$FROM_DAY/$FROM_YEAR +%s`
+	LC_ALL=C SEC_TO=`date --date $TO_MONTH/$TO_DAY/$TO_YEAR +%s`
+	#---
+	rating_buildlist $SEC_FROM "$STORAGE_DIR/index_mymusic" $SEC_TO > $WORKDIR/tmp_rating
+	sort -rnst'|' -k9,9 $WORKDIR/tmp_rating | grep -vF "|0|" | head -n 1000 > $WORKDIR/sourcelist
+#	#album art
+#	if [ $SEARCH_ALBUMART = true ]; then
+#		cat $WORKDIR/sourcelist | awk -F'|' -v VAR1="$STORAGE_DIR" '{print VAR1 "/albumart/" $2 " - " $4 ".jpg"}' | awk '!a[$0]++' > $WORKDIR/tmp_search_albumart
+#		$APPDIR/func -search_albumart_update
+#	fi
+	#---
+	$APPDIR/func -add_to_history "pMusic: $(gettext 'Most played')" & #update history
+	echo true > $WORKDIR/UPDATE_SOURCELIST
+	echo 100 > $WORKDIR/splash #reset progress bar
+}
+
+#quick search (last week, month, year) 
+rating_quick (){
+	gettext 'Searching' > $WORKDIR/splashtext
+	$APPDIR/box_splash &
+	#---
+	rating_buildlist $1 "$STORAGE_DIR/index_mymusic" > $WORKDIR/tmp_rating
+	sort -rnst'|' -k9,9 $WORKDIR/tmp_rating | grep -vF "|0|" | head -n $2 > $WORKDIR/sourcelist
+	#album art
+	if [ $SEARCH_ALBUMART = true ]; then
+		head -n 30 $WORKDIR/sourcelist | awk -F'|' -v VAR1="$STORAGE_DIR" '{print VAR1 "/albumart/" $2 " - " $4 ".jpg"}' | LANG=C awk '!a[$0]++' > $WORKDIR/tmp_search_albumart
+		$APPDIR/func -search_albumart_update
+	fi
+	#---
+	$APPDIR/func -add_to_history "pMusic: $(gettext 'Most played')" & #update history
+	echo true > $WORKDIR/UPDATE_SOURCELIST
+	echo 100 > $WORKDIR/splash #reset progress bar
+}
+export -f rating_buildlist rating_find rating_quick
+
+case "$1" in
+-buildlist)
+	INPUT_FILE="$3"
+	TIME_FROM=$2
+	TIME_TO=$4
+	MIN_RATE=$5
+	TAB="$6"
+	rating_buildlist $TIME_FROM "$INPUT_FILE" "$TIME_TO" "$MIN_RATE" "$TAB" 
+	;;
+-custom)
+	C=1; while [ $C != 32 ]; do ITEMS_DAY="$ITEMS_DAY<item>$C</item>"; C=$(($C+1)); done
+	C=1; while [ $C != 13 ]; do ITEMS_MONTH="$ITEMS_MONTH<item>$C</item>"; C=$(($C+1)); done
+	C="$(date +%Y)"; while [ $C != 2011 ]; do ITEMS_YEAR="$ITEMS_YEAR<item>$C</item>"; C=$(($C-1)); done
+	S='
+	<window title="pMusic - '$(gettext 'Most played')'" icon-name="pmusic" default_height="100" default_width="400">
+	 <vbox>
+	  '"$($APPDIR/func_svg -heading "$(gettext 'Find most played music')")"'
+	  <frame '$(gettext 'Quick find')'>
+	   <hbox homogeneous="true">
+	    <button>
+	 	 <input file stock="gtk-find"></input>
+ 		 <label>'$(gettext 'Last week')'</label>
+	     <action>rating_quick "$(($(date +%s)-604800))" 200</action>
+	    </button>
+	    <button>
+	 	 <input file stock="gtk-find"></input>
+ 		 <label>'$(gettext 'Last month')'</label>
+	     <action>rating_quick "$(($(date +%s)-2592000))" 500</action>
+	    </button>
+	    <button>
+	 	 <input file stock="gtk-find"></input>
+ 		 <label>'$(gettext 'Last year')'</label>
+	     <action>rating_quick "$(($(date +%s)-31104000))" 1000</action>
+	    </button>
+	   </hbox>
+	   <text height-request="10"><label>""</label></text>
+	  </frame>
+
+	  <frame '$(gettext 'From date to date')'>
+	   <hbox homogeneous="true">
+	   <hbox>
+	    <vbox>
+	     <hbox>
+	 	  <vbox>
+ 		   <text height-request="23"><label>""</label></text>
+		   <text use-markup="true"><label>"<b>'$(gettext 'From')':</b>"</label></text>
+		  </vbox>
+		  <vbox>
+		   <text><label>'$(gettext 'Day')'</label></text>
+		   <comboboxtext><variable>FROM_DAY</variable>'$ITEMS_DAY'</comboboxtext>
+		  </vbox>
+		  <vbox>
+		   <text><label>'$(gettext 'Month')'</label></text>
+		   <comboboxtext><variable>FROM_MONTH</variable>'$ITEMS_MONTH'</comboboxtext>
+		  </vbox>
+		  <vbox>
+		   <text><label>'$(gettext 'Year')'</label></text>
+		   <comboboxtext><variable>FROM_YEAR</variable>'$ITEMS_YEAR'<default>2012</default></comboboxtext>
+		  </vbox>
+	     </hbox>
+	     <hbox>
+	 	  <text use-markup="true"><label>"<b>'$(gettext 'To')':</b>"</label></text>
+		  <comboboxtext><variable>TO_DAY</variable><default>31</default>'$ITEMS_DAY'</comboboxtext>
+		  <comboboxtext><variable>TO_MONTH</variable><default>12</default>'$ITEMS_MONTH'</comboboxtext>
+		  <comboboxtext><variable>TO_YEAR</variable>'$ITEMS_YEAR'</comboboxtext>
+	     </hbox>
+	    </vbox>
+		<text width-request="10"><label>""</label></text>
+	    <vbox>
+		 <text><label>""</label></text>
+	     <button has-focus="true" image-position="2" space-expand="true" space-fill="true">
+	      <input file stock="gtk-find"></input>
+		  <label>"  '$(gettext 'Find')'  "</label>
+		  <action>rating_find</action>
+	     </button>
+	    </vbox>
+	   </hbox>
+	   </hbox>
+	  </frame>
+	  <hbox>
+	   <button cancel></button>
+	  </hbox>
+	 </vbox>
+	</window>'
+
+	echo "$S" > $WORKDIR/xml_pmusic_rating
+	. $APPDIR/func -reset_gtk
+	$GTKDIALOG -f $WORKDIR/xml_pmusic_rating &
+	;;
+esac

@@ -1,0 +1,309 @@
+#!/bin/bash
+# * tested with yad 0.40
+# * compatible with gxmessage-2.20.4
+#   but not all options are implemented -- see #TODO
+# * it should be enough for all normal use cases
+# * puppy usually includes gxmessage-2.12.4
+
+usage() {
+	printf "
+gxmessage - a GTK-based xmessage clone
+
+Usage: gxmessage [OPTIONS] message ...
+       gxmessage [OPTIONS] -file FILENAME
+
+xmessage options:
+  -file FILENAME         Get message text from file, '-' for stdin
+  -buttons BUTTON_LIST   List of \"LABEL:EXIT_CODE\", comma separated
+  -default LABEL         Give keyboard focus to the specified button
+  -print                 Send the selected button's LABEL to stdout
+  -center                Open the window in the center of the screen
+  -nearmouse             Open the window near the mouse pointer
+  -timeout SECONDS       Exit with code 0 after SECONDS seconds
+  -display DISPLAY       X display to use
+  -fn FONT | -font FONT  Set message font (works with GTK font names)
+  -fg COLOR              Set message font color
+  -bg COLOR              Set message background color
+  -geometry GEOMETRY     Set window size (position will be ignored)
+  -iconic                Start iconified
+  -name NAME             Program name as used by the window manager
+  -title TITLE           Set window title to TITLE
+
+Additional gxmessage options:
+  -borderless            Open the window without border decoration
+  -sticky                Make the window stick to all desktops
+  -ontop                 Keep window on top
+  -nofocus               Don't focus the window when it opens
+  -noescape              Don't allow pressing ESC to close the window
+  -encoding CHARSET      Expect CHARSET as the message encoding
+  -entry                 Prompt for text to be sent to stdout
+  -entrytext TEXT        Same as -entry, but with TEXT as default text
+  -wrap                  Wrap lines of text to fit window width
+  -help | -?             Show this usage information
+  -version               Show gxmessage version and Copyright details
+"
+	exit 0
+}
+
+print_version() {
+	echo 'gxmessage-2.20.4
+Not the real gxmessage'
+	exit 0
+}
+
+#=================================================================
+
+# -entry in gxmessage always prints results.. = --always-print-result
+# window is not resizable = fixed
+# --undecorated
+
+OPTS='--always-print-result --skip-taskbar --text-info --margins=5 --wrap'
+OPTS_ORIG=$OPTS
+
+BORDERLESS=
+INPUT_FILE=
+HAS_SIZE=
+HAS_BUTTONS=
+HAS_ENTRY=
+HAS_PRINT=
+HAS_NAME=
+HAS_FONT=
+msg=
+
+add_opt_value() {
+	opt=$1
+	value=$2
+	case "$value" in
+		-*) return 1 ;;
+		"") return 1 ;;
+		*) 
+			[ -z "$opt" ] && return 0
+			OPTS="$OPTS ${opt}=\"${value}\""
+			return 0
+			;;
+	esac
+}
+
+process_buttons() { # $1: 
+	local str="$@"
+	#--
+	#gxmessage -buttons "Hello\, world" "Example"
+	case $str in *"\\,"*)
+		str="${str//\\,/--comma--}" ;; #comma - replace '\,' with '--comma--'
+	esac
+	#--
+	FSI=$IFS
+	IFS=","
+	for i in $str
+	do
+		HAS_BUTTONS=1
+		case $i in GTK_STOCK_*)
+			#gxmessage -buttons "GTK_STOCK_OK:0" "Example"
+			#yad       --button "gtk-ok:0"
+			i=${i//GTK_STOCK_/gtk-} # replace 'GTK_STOCK_' with 'gtk-'
+			i=${i,,}                # convert to lowerase bashism not supported by ash
+			;;
+		esac
+		i="${i//--comma--/,}" #comma - replace '--comma--' with ','
+		add_opt_value --button "$i"
+	done
+	IFS=$FSI
+}
+
+#############################################################
+
+for i in "$@"
+do
+	case $1 in
+		# ===================================================
+		-file)
+			INPUT_FILE="$2"
+			shift
+			;;
+		-buttons)
+			if [ "$2" = "" ] ; then
+				OPTS="$OPTS --no-buttons"
+				HAS_BUTTONS=1
+			else
+				process_buttons "$2"
+			fi
+			shift
+			;;
+		-default) #TODO - BUTTONS
+			add_opt_value "" "$2" && shift
+			;;
+		-print) #TODO - BUTTONS
+			#Writes the LABEL of the selected button to stdout.
+			# not supported by yad?
+			# this is not needed any anyway.. exit code is what we want..
+			HAS_PRINT=1
+			;;
+		-center)     OPTS="$OPTS --center" ;;
+		-nearmouse)  OPTS="$OPTS --mouse" ;;
+		-timeout)    add_opt_value --timeout "${2}" && shift ;;
+		-display)    add_opt_value --display "${2}" && shift ;;
+		-fn|-font)   add_opt_value --fontname "${2}" && shift ; HAS_FONT=1 ;;
+		-fg)         add_opt_value --fore "${2}" && shift ;;
+		-bg)         add_opt_value --back "${2}" && shift ;;
+		-geometry)
+			# Sets the window's size (position is ignored by gxmessage).
+			# Example: -geometry 400x200
+			geometry=$2
+			geometry=${geometry%%+*} #ignore position
+			width=${geometry%x*}
+			height=${geometry#*x}
+			if add_opt_value --width $width && add_opt_value --height $height ; then
+				HAS_SIZE=1
+				shift
+			fi
+			;;
+		-iconic) #TODO minimized
+			echo -n
+			;;
+		-name)
+			if add_opt_value --name "${2}" ; then
+				HAS_NAME=1
+				shift
+			fi
+			;;
+		-title)      OPTS="$OPTS --title=\"${2}\"" ; shift ;;
+		# ===================================================
+		-borderless) OPTS="$OPTS --borders=0" ; BORDERLESS=1 ;;
+		-sticky)     OPTS="$OPTS --sticky" ;;
+		-ontop)      OPTS="$OPTS --on-top" ;;
+		-nofocus)    OPTS="$OPTS --no-focus" ;;
+		-noescape)   OPTS="$OPTS --no-escape" ;;
+		-encoding) #TODO CHARSET
+			add_opt_value "" "$2" && shift
+			;;
+		-entry)
+			HAS_ENTRY=1
+			OPTS="$OPTS --entry"
+			;;
+		-entrytext)
+			if [ -z "$HAS_ENTRY" ] ; then
+				OPTS="$OPTS --entry"
+				HAS_ENTRY=1
+			fi
+			add_opt_value "--entry-text" "$2" && shift
+			;;
+		-wrap)
+			#OPTS="$OPTS --wrap"
+			echo -n
+			;;
+		-help|-"?") usage ;;
+		-version) print_version ;;
+		*)
+			if [ -z "$msg" ] ; then
+				msg="$1"
+			else
+				msg="$msg $1"
+			fi
+	esac
+	#-
+	shift
+done
+
+if ! [ "$INPUT_FILE" ] ; then
+	if ! [ "$msg" ] ; then
+		printf "gxmessage: message text is required\n" 1>&2
+		printf "Try 'gxmessage --help' for more information\n" 1>&2
+		exit 1
+	fi
+fi
+
+#==============================================================
+
+if [ "$HAS_ENTRY" ] && [ "$HAS_PRINT" ] ; then
+	echo "$0: can't have both -entry and -print"
+	exit 1
+fi
+
+if ! [ "$BORDERLESS" ] ; then
+	OPTS="$OPTS --borders=10"
+fi
+
+if ! [ "$HAS_FONT" ] ; then
+	OPTS="$OPTS --fontname=Sans" #Monospace
+fi
+
+if ! [ "$HAS_NAME" ] ; then
+	#for some reason when -name is not specified there is no titlebar
+	OPTS="$OPTS --undecorated"
+else
+	OPTS="$OPTS --window-icon=gtk-info"
+fi
+
+if ! [ "$HAS_BUTTONS" ] ; then
+	OPTS="$OPTS --button=gtk-ok:0"
+fi
+
+if [ "$INPUT_FILE" ] ; then
+	if [ "$INPUT_FILE" = "-" ] ; then
+		msg="$(while read l ; do echo "$l" ; done)"
+	else
+		msg="`cat "$INPUT_FILE"`"
+	fi
+fi
+#echo "$msg" > /tmp/gxmessage.msg #debug
+
+if ! [ "$HAS_SIZE" ] ; then
+	#--
+	l=0
+	maxlen=0
+	lines=0
+	while read i ; do
+		lines=$((lines+1))
+		l=${#i}
+		if [ $maxlen -lt $l ] ; then
+			maxlen=$l
+		fi
+	done <<EOF
+$msg
+EOF
+	#--
+	if [ $maxlen -gt 62 ] ; then
+		OPTS="$OPTS --width=640"
+	else
+		w=120
+		if [ $maxlen -gt 10 ] ; then
+			w=$(( 640 - ((62-$maxlen) * 10) ))
+		fi
+		OPTS="$OPTS --width=${w}"
+	fi
+	if ! [ "$HAS_ENTRY" ] ; then
+		if [ $lines -gt 10 ] ; then
+			OPTS="$OPTS --height=480"
+		else
+			h=120
+			if [ $lines -gt 5 ] ; then
+				w=$(( 480 - ((10-$lines) * 10) ))
+			fi
+			OPTS="$OPTS --height=${h}"
+		fi
+	fi
+fi
+
+#==============================================================
+
+yad=yad
+## for some reason the window titlebar disappears is this uncommented..
+#script=${0##*/}
+#if [ -e /tmp/$script ] ; then
+#	yad=/tmp/$script
+#else
+#	ln -snf /usr/bin/yad /tmp/$script && yad=/tmp/$script
+#fi
+
+if ! [ "$HAS_ENTRY" ] ; then
+	#echo; echo "$OPTS" ; echo #debug
+	eval exec $yad "$OPTS" done <<EOF
+$msg
+EOF
+else
+	OPTS="$OPTS --text=\"\${msg}\""
+	#echo; echo "$OPTS" ; echo #debug
+	eval exec $yad "$OPTS"
+fi
+
+### END ###

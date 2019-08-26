@@ -1,0 +1,1743 @@
+#!/bin/sh  #Triggers geany color highlighting
+#Commands read and executed by frisbee components only.
+#Localization - argolance - January 2013
+#130822 Support EAP-PEAP & EAP-TTLC identity & password
+#140221 peebee: need precaution to unblock wireless before starting
+#140816 Remove set-drop-timeout function -- interval fixed at 3 seconds maximum in dropwait version of dhcpcd-6.4.2+, checking once per second.
+#140818 Sort change-if-wireless button list; add SSID to profile update message.
+#140824 Change logic for multiple interfaces for changes in connected devices; make stop-wpa from reset-wpa.
+#140901 Add return codes for update-dhcp & -wireless; make DNS1 optional.
+#140914 Insert sleep to avoid slow password input echo; notify and return if SSID not obtained; set return codes in add-profile and restart scan for all input errors/failures after WPA disconnect.
+#140921 Add splash notice while waiting for WPA connection; check periodically instead of long wait.
+#140929 In add-profile bump priority only when used, obtain SSID & FLAGS together; correct max_priority test.
+#141005 Simplify/replace tests of exit codes and hex-input logic in add_profile and update_profile.
+#170621 display networks in order of signal quality.
+#180313 prevent error messages from appearing as Xdialog user input/selection.
+#180721 Replace modem-stats with corrected use of microcom.
+
+#############################################
+
+function max_priority {
+	#set -x
+	MAX_PRIORITY=0
+	wpa_cli -i $INTERFACE list_networks |head | while read LINE ; do
+		[[ $LINE =~ ^network* ]] && continue
+        ID=$(echo "$LINE" |cut -f1)
+		PRIORITY=`wpa_cli -i $INTERFACE get_network $ID priority`
+		if [[ $PRIORITY -gt $MAX_PRIORITY ]] ; then #140929
+			MAX_PRIORITY=$PRIORITY #140929
+			echo $MAX_PRIORITY
+		fi
+	done |tail -n 1
+}
+
+export -f max_priority
+
+#############################################
+
+function check_profile_exists {
+    #set -x
+	SSID=$1
+	ID=-1
+	wpa_cli -i $INTERFACE list_networks | while read LINE ; do
+        	PSSID=$(echo "$LINE" |cut -f2)
+                if [[ "$PSSID" == "$SSID" ]] ; then
+                        ID=$(echo "$LINE" |cut -f1)
+			echo $ID
+			break
+		fi
+        done 
+}
+
+export -f check_profile_exists
+
+#############################################
+
+function add_profile {
+	#set -x
+
+	BSSID="$1"
+
+	. gettext.sh
+	if [[ $BSSID == '' ]] ; then
+		Xdialog --wmclass "frisbee" --title "Frisbee"  --msgbox "$(gettext 'Please select a network')" 0 0 
+		return 1 #140914
+	fi
+
+	BSSID_RESULT="`wpa_cli scan_results -i $INTERFACE | grep "$BSSID"`" #140929
+	SSID="`echo "$BSSID_RESULT" | cut -f 5`" #140929
+	if [ -z "$SSID" ] ; then #140914...
+		Xdialog  --wmclass "frisbee" --title "Frisbee"  --msgbox "`eval_gettext \"Network information for \\\$INTERFACE not available.  Please try again to connect.\"`" 0 0
+		return 1 #140914
+	fi #140914 end
+	[ "$SSID" = "<hidden>" ] && SSID=''
+	FLAGS="`echo "$BSSID_RESULT" | cut -f 4`" #140929
+
+	PRIORITY=`max_priority` #140929
+	[ "$PRIORITY" ] && ((PRIORITY++)) || PRIORITY=1 #140929
+	
+	ID="`check_profile_exists $SSID`"
+	if [[ ! -z "$ID" ]] ; then
+		RESULT=`wpa_cli -i $INTERFACE set_network $ID priority $PRIORITY`
+		if [[ "$RESULT" != "OK" ]] ; then
+				PARAMETER="priority"
+				Xdialog  --wmclass "frisbee" --title "Frisbee"  --msgbox "`eval_gettext \"Failed to set network configuration parameter: \\\$PARAMETER\"`" 0 0
+		fi
+
+		RESULT=`wpa_cli -i $INTERFACE save_config`
+		if [[ "$RESULT" != "OK" ]] ; then
+				Xdialog  --wmclass "frisbee" --title "Frisbee"  --msgbox "$(gettext 'Failed to save configuration')" 0 0
+		fi
+		reset_wpa&
+		reset_dhcp&
+		return 0 #140914
+	fi
+
+	wpa_cli -i $INTERFACE disconnect
+	
+	if echo "$FLAGS" | grep -q 'WPA'; then #141005
+		ENC=WPA
+		if echo "$FLAGS" | grep -q 'TKIP'; then
+			ENCTYPE=TKIP
+		else
+			ENCTYPE=CCMP
+		fi
+		if echo "$FLAGS" | grep -q 'WPA-'; then #141005
+			PROTO=WPA
+		else
+			PROTO=RSN
+		fi
+		if echo "$FLAGS" | grep -q 'EAP'; then #130822... #141005
+			EAP=1
+		else
+			EAP=0
+		fi #130822 end
+	else
+		if echo "$FLAGS" | grep -q 'WEP'; then #141005
+			ENC=WEP
+		else
+			ENC=NONE
+		fi
+	fi
+	
+	ID=`wpa_cli -i $INTERFACE add_network`
+	if [ -z "$ID" ] || [[ "$ID" == "FAIL" ]] ; then #141005
+		Xdialog  --wmclass "frisbee" --title "Frisbee"  --msgbox "$(gettext 'Failed to add network')" 0 0
+		wpa_cli -i $INTERFACE scan #140914
+		return 1 #140914
+	fi
+	
+	if [ -z "$SSID" ] ; then #SSID hidden
+		if ! Xdialog  --wmclass "frisbee" --title "Frisbee" --stdout --inputbox "$(gettext 'The SSID is hidden -- please enter the SSID')" 0 0 > /tmp/.frisbee/entry; then #141005 180313
+			rm  /tmp/.frisbee/entry #140914
+			wpa_cli -i $INTERFACE remove_network $ID 
+			wpa_cli -i $INTERFACE scan #140914
+			return 1 #140914
+		fi
+		SSID=`cat /tmp/.frisbee/entry`
+		rm  /tmp/.frisbee/entry
+		if [ -z "$SSID" ] ; then
+			Xdialog  --wmclass "frisbee" --title "Frisbee" --msgbox "$(gettext 'No SSID provided -- cannot connect')" 0 0 #141005
+			wpa_cli -i $INTERFACE remove_network $ID 
+			wpa_cli -i $INTERFACE scan #140914
+			return 1 #140914
+		fi
+		SCANSSID=1
+	fi
+	
+	RESULT=`wpa_cli -i $INTERFACE set_network $ID ssid \""${SSID}"\"`
+	if [[ "$RESULT" != "OK" ]] ; then
+		PARAMETER="ssid"
+		Xdialog  --wmclass "frisbee" --title "Frisbee"  --msgbox "`eval_gettext \"Failed to set network configuration parameter: \\\$PARAMETER\"`" 0 0
+		wpa_cli -i $INTERFACE remove_network $ID 
+		wpa_cli -i $INTERFACE scan #140914
+		return 1 #140914
+	fi
+	
+	if [[ $SCANSSID == 1 ]] ; then
+		RESULT=`wpa_cli -i $INTERFACE set_network $ID scan_ssid 1`
+		if [[ "$RESULT" != "OK" ]] ; then
+			PARAMETER="scan_ssid"
+			Xdialog  --wmclass "frisbee" --title "Frisbee"  --msgbox "`eval_gettext \"Failed to set network configuration parameter: \\\$PARAMETER\"`" 0 0
+			wpa_cli -i $INTERFACE remove_network $ID 
+			wpa_cli -i $INTERFACE scan #140914
+			return 1 #140914
+		fi
+	fi
+	
+	RESULT=`wpa_cli -i $INTERFACE enable_network $ID`
+	if [[ "$RESULT" != "OK" ]] ; then
+		Xdialog  --wmclass "frisbee" --title "Frisbee" --msgbox "$(gettext 'Failed to enable network')" 0 0
+		wpa_cli -i $INTERFACE remove_network $ID 
+		wpa_cli -i $INTERFACE scan #140914
+		return 1 #140914
+	fi
+	
+	if echo $FLAGS | grep -q 'IBSS'; then #141005
+		RESULT=`wpa_cli -i $INTERFACE set_network $ID mode 1`
+		if [[ "$RESULT" != "OK" ]] ; then
+			PARAMETER="mode"
+			Xdialog  --wmclass "frisbee" --title "Frisbee" --msgbox "`eval_gettext \"Failed to set network configuration parameter: \\\$PARAMETER\"`" 0 0
+			wpa_cli -i $INTERFACE remove_network $ID 
+			wpa_cli -i $INTERFACE scan #140914
+			return 1 #140914
+		fi
+		RESULT=`wpa_cli -i $INTERFACE ap_scan 2`
+		if [[ "$RESULT" != "OK" ]] ; then
+			PARAMETER="ap_scan"
+			Xdialog  --wmclass "frisbee" --title "Frisbee" --msgbox "`eval_gettext \"Failed to set network configuration parameter: \\\$PARAMETER\"`" 0 0
+			wpa_cli -i $INTERFACE remove_network $ID 
+			wpa_cli -i $INTERFACE scan #140914
+			return 1 #140914
+		fi
+	fi
+	
+	if [[ "$ENC" == "WPA" ]] ; then
+		MGMT=WPA-PSK #130822...
+		if [ $EAP -eq 1 ] ; then
+#			echo "add_profile - key_mgmt: $(wpa_cli -i $INTERFACE get_network $ID key_mgmt)" >> /tmp/debug.log #DEBUG
+#			echo "add_profile - eap: $(wpa_cli -i $INTERFACE get_network $ID eap)" >> /tmp/debug.log #DEBUG
+			IDENTITY=""
+			MSG="$(gettext 'Please enter your authorisation identity, only if required.')"
+			if Xdialog  --wmclass "frisbee" --title "Frisbee"--stdout --password --inputbox "$MSG" 0 0 > /tmp/.frisbee/entry; then #141005 180313
+				IDENTITY=`cat /tmp/.frisbee/entry`
+				if [ "$IDENTITY" ] ; then
+					MGMT=WPA-EAP
+				fi
+			fi
+			rm  /tmp/.frisbee/entry
+		fi #130822 end
+	else
+		MGMT=NONE
+	fi
+	
+	RESULT=`wpa_cli -i $INTERFACE set_network $ID key_mgmt $MGMT`
+	if [[ "$RESULT" != "OK" ]] ; then
+		PARAMETER="key_mgmt"
+		Xdialog  --wmclass "frisbee" --title "Frisbee" --msgbox "`eval_gettext \"Failed to set network configuration parameter: \\\$PARAMETER\"`" 0 0
+		wpa_cli -i $INTERFACE remove_network $ID 
+		wpa_cli -i $INTERFACE scan #140914
+		return 1 #140914
+	fi
+	
+	if [[ "$MGMT" == "WPA-EAP" ]] ; then #130822...
+		RESULT=`wpa_cli -i $INTERFACE set_network $ID eap PEAP`
+		if [[ "$RESULT" != "OK" ]] ; then
+			RESULT=`wpa_cli -i $INTERFACE set_network $ID eap TTLS`
+			if [[ "$RESULT" != "OK" ]] ; then
+				PARAMETER="eap"
+				Xdialog  --wmclass "frisbee" --title "Frisbee" --msgbox "`eval_gettext \"Failed to set network configuration parameter: \\\$PARAMETER\"`" 0 0
+				wpa_cli -i $INTERFACE remove_network $ID 
+				wpa_cli -i $INTERFACE scan #140914
+				return 1 #140914
+			fi
+		fi
+	fi #130822 end
+	
+	if [[ "$ENC" == "WPA" ||  "$ENC" == "WEP" ]] ; then
+		if [[ "$ENC" == "WEP" ]] ; then
+		 MSG="$(gettext 'Please enter the ASCII or HEX WEP key with no colons or dashes.\nThe HEX key works most reliably.')" #130822
+		else
+		 if [[ "$MGMT" == "WPA-EAP" ]] ; then #130822...
+		  MSG="$(gettext 'Please enter the authentication Password.')"
+		 else
+		  MSG="$(gettext 'Please enter the public (pre-shared) Key.')" #130822 end
+		 fi  
+		fi  
+		if ! Xdialog  --wmclass "frisbee" --title "Frisbee" --stdout --password --inputbox "$MSG" 0 0 > /tmp/.frisbee/entry; then #141005 180313
+			wpa_cli -i $INTERFACE remove_network $ID 
+			wpa_cli -i $INTERFACE scan #140914
+			return 1 #140914
+		fi
+		PASS=`cat /tmp/.frisbee/entry`
+		rm  /tmp/.frisbee/entry
+	 	if [ -z "$PASS" ] ; then
+			Xdialog  --wmclass "frisbee" --title "Frisbee" --msgbox "$(gettext 'Invalid Key or Password')" 0 0 #130822
+			wpa_cli -i $INTERFACE remove_network $ID 
+			wpa_cli -i $INTERFACE scan
+			return 1 #140914
+		fi
+		if [[ "$ENC" == "WEP" ]] ; then
+			if echo "$PASS" | grep -E -q '^([[:xdigit:]]){10}$|^([[:xdigit:]]){26}$|^([[:xdigit:]]){32}$'; then #141005
+				RESULT=`wpa_cli -i $INTERFACE set_network $ID wep_key0 "$PASS"`
+			    if [[ "$RESULT" != "OK" ]] ; then
+	            		Xdialog  --wmclass "frisbee" --title "Frisbee"  --msgbox "$(gettext 'Set HEX Key Failed')" 0 0 #130822
+		            	wpa_cli -i $INTERFACE remove_network $ID
+		            	wpa_cli -i $INTERFACE scan
+	                	return 1 #140914
+	        	 fi
+			else
+				if echo "$PASS" | grep -E -q '^.{5}$|^.{13}$|^.{16}$'; then #141005
+					RESULT=`wpa_cli -i $INTERFACE set_network $ID wep_key0 \""${PASS}"\"` 
+					if [[ "$RESULT" != "OK" ]] ; then
+						Xdialog  --wmclass "frisbee" --title "Frisbee"  --msgbox "$(gettext 'Set ASCII Key Failed')" 0 0 #130822
+						wpa_cli -i $INTERFACE remove_network $ID
+						wpa_cli -i $INTERFACE scan
+						return 1 #140914
+					fi
+				else
+					Xdialog  --wmclass "frisbee" --title "Frisbee" --left --msgbox "$(gettext 'Invalid Key\n\nAscii keys must be 5, 13 or 16 characters.\nHex keys must be 10, 26, or 32 characters.')" 0 0 #130822
+					wpa_cli -i $INTERFACE remove_network $ID 
+					wpa_cli -i $INTERFACE scan
+					return 1 #140914
+				fi	
+				
+			fi
+			Xdialog  --wmclass "frisbee" --title "Frisbee" --stdout --left --no-tags  --radiolist "$(gettext 'Key Type?\n\nIf in doubt, try Open first')" 0 0 0  open open open  shared shared shared > /tmp/.frisbee/entry #180313
+            AALG=`cat /tmp/.frisbee/entry`
+            if [[ "$AALG" == "shared" ]] ; then
+				RESULT=`wpa_cli -i $INTERFACE set_network $ID auth_alg SHARED`
+				if [[ "$RESULT" != "OK" ]] ; then
+			         PARAMETER="auth_alg"
+			         Xdialog  --wmclass "frisbee" --title "Frisbee"  --msgbox "`eval_gettext \"Failed to set network configuration parameter: \\\$PARAMETER\"`" 0 0
+		            wpa_cli -i $INTERFACE remove_network $ID
+					wpa_cli -i $INTERFACE scan #140914
+					return 1 #140914
+				fi
+			fi
+	
+		else #WPA
+			if [[ "$MGMT" == "WPA-EAP" ]] ; then #130822...
+				RESULT=`wpa_cli -i $INTERFACE set_network $ID identity \""${IDENTITY}"\"`
+	        	if [[ "$RESULT" != "OK" ]] ; then
+	                	Xdialog  --wmclass "frisbee" --title "Frisbee" --msgbox "$(gettext 'Invalid authentication Identifier')" 0 0
+	                	wpa_cli -i $INTERFACE remove_network $ID
+						wpa_cli -i $INTERFACE scan #140914
+	                	return 1 #140914
+	        	fi
+			fi #130822 end
+			if echo "$PASS" | grep -E -q '^([[:xdigit:]]){64}$'; then #141005
+				RESULT=`wpa_cli -i $INTERFACE set_network $ID psk $PASS`
+			else
+				if [[ "$MGMT" == "WPA-EAP" ]] ; then #130822...
+					RESULT=`wpa_cli -i $INTERFACE set_network $ID password \""${PASS}"\"`
+				else #130822 end
+					RESULT=`wpa_cli -i $INTERFACE set_network $ID psk \""${PASS}"\"`
+				fi #130822
+			fi
+        	if [[ "$RESULT" != "OK" ]] ; then
+				Xdialog  --wmclass "frisbee" --title "Frisbee" --msgbox "$(gettext 'Invalid Key or Password')" 0 0
+				wpa_cli -i $INTERFACE remove_network $ID
+				wpa_cli -i $INTERFACE scan #140914
+				return 1 #140914
+			fi
+			RESULT=`wpa_cli -i $INTERFACE set_network $ID pairwise $ENCTYPE`
+	        if [[ "$RESULT" != "OK" ]] ; then
+				PARAMETER="pairwise"
+				Xdialog  --wmclass "frisbee" --title "Frisbee"  --msgbox "`eval_gettext \"Failed to set network configuration parameter: \\\$PARAMETER\"`" 0 0
+				wpa_cli -i $INTERFACE remove_network $ID
+				wpa_cli -i $INTERFACE scan #140914
+				return 1 #140914
+			fi
+		fi
+	fi
+	
+	
+	if [[ $PROTO != '' ]] ; then
+		RESULT=`wpa_cli -i $INTERFACE set_network $ID proto $PROTO`
+		if [[ "$RESULT" != "OK" ]] ; then
+			PARAMETER="proto"
+			Xdialog  --wmclass "frisbee" --title "Frisbee"  --msgbox "`eval_gettext \"Failed to set network configuration parameter: \\\$PARAMETER\"`" 0 0
+			wpa_cli -i $INTERFACE remove_network $ID 
+			wpa_cli -i $INTERFACE scan #140914
+			return 1 #140914
+		fi
+	fi
+	
+	RESULT=`wpa_cli -i $INTERFACE set_network $ID priority $PRIORITY`
+	if [[ "$RESULT" != "OK" ]] ; then
+		PARAMETER="priority"
+		Xdialog  --wmclass "frisbee" --title "Frisbee"  --msgbox "`eval_gettext \"Failed to set network configuration parameter: \\\$PARAMETER\"`" 0 0
+	fi
+
+	RESULT=`wpa_cli -i $INTERFACE enable_network $ID`
+	if [[ "$RESULT" != "OK" ]] ; then
+		Xdialog  --wmclass "frisbee" --title "Frisbee"  --msgbox "$(gettext 'Failed to enable network')" 0 0
+		wpa_cli -i $INTERFACE remove_network $ID 
+		wpa_cli -i $INTERFACE scan #140914
+		return 1 #140914
+	fi
+	
+	#wpa_cli -i $INTERFACE select_network $ID 
+	
+	RESULT=`wpa_cli -i $INTERFACE save_config`
+	if [[ "$RESULT" != "OK" ]] ; then
+		Xdialog  --wmclass "frisbee" --title "Frisbee"  --msgbox "$(gettext 'Failed to save configuration')" 0 0
+	fi
+	
+	. gettext.sh
+	gtkdialog-splash -timeout 15 -placement center -bg lightgreen -text "`eval_gettext \"Profile for \\\$SSID added.\"`
+	$(gettext 'Network can take a minute or so to reconfigure itself.')
+	$(gettext 'To configure a static IP address, press the Manage Saved Networks button.')" &
+	
+	reset_wpa&
+	reset_dhcp&
+	
+	if [[ $ENC == "WPA" ]] ; then
+		connection_check&
+	fi
+	return 0 #140914
+}
+export -f   add_profile
+
+#############################################
+
+function set_ap_scan {
+	. gettext.sh
+	grep -q '^wireless_autostart=1' /etc/frisbee/frisbee.conf \
+	 && WPACFGFILE="/etc/frisbee/wpa_supplicant.conf" \
+	 || WPACFGFILE="/tmp/wpa_supplicant.conf"
+	VAL=`grep ap_scan $WPACFGFILE`
+	[ ! -z $VAL ] && VAL="`eval_gettext \"Currently \\\${VAL}.\"`" 
+	
+	Xdialog --no-tags --wmclass "frisbee" --title "Frisbee $(gettext 'AP Scan Mode')" --stdout --left --radiolist "$(gettext 'Set the AP Scan Mode (ap_scan WPA parameter).\n\nIt should be set to 1 unless you have an adhoc network, or\nare using ndiswrapper, or some other 3rd party driver.\n\nIt may also be necessary to set it to 2 to connect to a\nhidden SSID with some hardware.') \n  $VAL" 0 0 0 1 1 1 2 2 2 > /tmp/.frisbee/entry #180313
+    APS=`cat /tmp/.frisbee/entry`
+    [ -z $APS ] && return
+    if [[ "$APS" == "1" ]] ; then
+		RESULT=`wpa_cli -i $INTERFACE ap_scan 1`
+		if [[ "$RESULT" != "OK" ]] ; then
+			PARAMETER="ap_scan"
+			Xdialog  --wmclass "frisbee" --title "Frisbee" --msgbox "`eval_gettext \"Failed to set network configuration parameter: \\\$PARAMETER\"`" 0 0
+			return
+		fi
+	else
+		RESULT=`wpa_cli -i $INTERFACE ap_scan 2`
+		if [[ "$RESULT" != "OK" ]] ; then
+			PARAMETER="ap_scan"
+			Xdialog  --wmclass "frisbee" --title "Frisbee" --msgbox "`eval_gettext \"Failed to set network configuration parameter: \\\$PARAMETER\"`" 0 0
+			return
+		fi
+	fi
+	
+	RESULT=`wpa_cli -i $INTERFACE save_config`
+	if [[ "$RESULT" != "OK" ]] ; then
+		Xdialog  --wmclass "frisbee" --title "Frisbee"  --msgbox "$(gettext 'Failed to save configuration')" 0 0
+	fi
+	
+	reset_wpa&
+	
+}
+export -f set_ap_scan
+
+#############################################
+		
+function wpaconf_edit {
+	grep -q '^wireless_autostart=1' /etc/frisbee/frisbee.conf \
+	 && WPACFGFILE="/etc/frisbee/wpa_supplicant.conf" \
+	 || WPACFGFILE="/tmp/wpa_supplicant.conf"
+	TXTEDITOR=$(grep '^editor=' /etc/frisbee/frisbee.conf | sed 's/.*=\([^ 	#]*\).*/\1/') #140607
+	[ "$(which $TXTEDITOR 2>/dev/null)" ] || TXTEDITOR=defaulttexteditor #140607
+	$TXTEDITOR $WPACFGFILE #140607
+	RESULT=`wpa_cli -i $INTERFACE reconfigure`
+	if [[ "$RESULT" != "OK" ]] ; then
+		Xdialog  --wmclass "frisbee" --title "Frisbee"  --msgbox "$(gettext 'Failed to save configuration')" 0 0
+	fi
+	
+	reset_wpa&
+}
+
+export -f wpaconf_edit
+
+#############################################
+
+function dhcpconf_edit {
+	TXTEDITOR=$(grep '^editor=' /etc/frisbee/frisbee.conf | sed 's/.*=\([^ 	#]*\).*/\1/') #140607
+	[ "$(which $TXTEDITOR 2>/dev/null)" ] || TXTEDITOR=defaulttexteditor #140607
+	$TXTEDITOR /etc/frisbee/dhcpcd.conf #140607
+	reset_dhcp&
+}
+
+export -f dhcpconf_edit
+
+function connection_check {
+	. gettext.sh #140921...
+	gtkdialog-splash -placement center -bg orange -text "`eval_gettext \"Waiting for connection to \\\$SSID.\"`" &
+	SPLASHPID=$!
+	for COUNTDOWN in 6 5 4 3 2 1 ; do
+		sleep 10
+	    if wpa_cli -i $INTERFACE status 2>/dev/null | grep -q COMPLETED; then
+			kill $SPLASHPID 2>/dev/null
+			break
+		fi
+		if [ $COUNTDOWN -eq 1 ];then
+			kill $SPLASHPID 2>/dev/null
+			Xdialog  --wmclass "frisbee" --title "Frisbee $(gettext 'Connect')" --left --msgbox "$(gettext 'Wpa_supplicant failed to connect.\n\nVerify that the key or password you entered is correct\nand that your network card supports wpa_supplicant.')" 0 0 #130822
+		fi
+	done
+}
+export -f   connection_check 
+
+#############################################
+
+function current_ip {
+	IFSTATUS="$(wpa_cli -i $INTERFACE status 2>/dev/null)"
+	IP="$(echo "$IFSTATUS" | grep ^ip_address | cut -f 2 -d =)"
+	if [ "$(echo "$IFSTATUS" | grep ^wpa_state | cut -f 2 -d =)" = "COMPLETED" ] \
+	 && [ "$IP" ]; then
+		. gettext.sh
+		echo "`eval_gettext \"IP Address: \\\$IP\"`"
+	fi
+}
+export -f   current_ip
+
+#############################################
+
+function current_status {
+	IFSTATUS="$(wpa_cli -i $INTERFACE status 2>/dev/null)"
+	SSID="$(echo "$IFSTATUS" | grep ^ssid | cut -f 2 -d =)"
+	if [ "$(echo "$IFSTATUS" | grep ^wpa_state | cut -f 2 -d =)" != "COMPLETED" ] \
+	 || [ -z "$(echo "$IFSTATUS" | grep ^ip_address | cut -f 2 -d =)" ] \
+	 || [ -z "$SSID" ]; then
+		echo "$(gettext 'Not Connected')"
+	else	
+		. gettext.sh
+		echo "`eval_gettext \"Connected to \\\$SSID\"`"
+	fi
+}
+export -f   current_status
+
+#############################################
+
+function if_connected {
+	#set -x
+	STATE="$(wpa_cli -i $INTERFACE status 2>/dev/null | grep wpa_state | cut -f 2 -d =)"
+	[ -z "$STATE" -o "$STATE" = "DISCONNECTED" ] \
+		&& return 1
+	return 0
+}
+export -f   if_connected
+
+#############################################
+
+function delete_profile {
+	#set -x
+	ID="$1"
+	
+	if [[ -z $ID ]] ; then
+	        Xdialog  --wmclass "frisbee" --title "Frisbee" --msgbox "$(gettext 'Please select a network profile')" 0 0
+	        return
+	fi
+	
+	wpa_cli -i $INTERFACE  list_networks | grep "^$ID	"|grep CURRENT
+	[[ $? == 0 ]] && CURRENT=yes
+	
+	RESULT=`wpa_cli -i $INTERFACE remove_network $ID`
+	if [[ "$RESULT" != "OK" ]] ; then
+	        Xdialog  --wmclass "frisbee" --title "Frisbee" --msgbox "$(gettext 'Failed to delete network profile')" 0 0
+	        return
+	fi
+	
+	RESULT=`wpa_cli -i $INTERFACE save_config`
+	if [[ "$RESULT" != "OK" ]] ; then
+	        Xdialog  --wmclass "frisbee" --title "Frisbee" --msgbox "$(gettext 'Failed to save configuration')" 0 0
+	        return
+	fi
+	
+	 if [[ ! -z $CURRENT ]] ; then
+		disconnect
+		connect
+		wpa_cli -i $INTERFACE scan >/dev/null
+		sleep 2
+		reset_dhcp&  
+	fi
+
+	Xdialog  --wmclass "frisbee" --title "Frisbee" --msgbox "$(gettext 'Profile deleted')" 0 0
+
+}
+export -f  delete_profile
+
+#############################################
+
+function get_auth {
+	ID="$1"
+	
+	if [ -z $ID ]  ; then
+	        return
+	fi
+	
+	
+	AUTH=`wpa_cli -i $INTERFACE get_network $ID key_mgmt`
+	if [[ "$AUTH" != "FAIL" ]] ; then
+	        echo $AUTH
+	        return
+	fi
+}
+export -f   get_auth
+
+#############################################
+
+function get_bssid {
+	ID="$1"
+	
+	if [ -z $ID ] ; then 
+	        return
+	fi
+	
+	
+	bssid=`wpa_cli -i $INTERFACE get_network $ID bssid`
+	if [[ $bssid == "FAIL" ]] ; then
+	        return
+	fi
+	echo $bssid |tr -d \"
+}
+export -f   get_bssid
+
+#############################################
+
+function get_dhcp_auto {
+	IF=$1
+	if [ -z "$IF" ] \
+	 || cat /etc/frisbee/dhcpcd.conf | grep '^denyinterfaces' | grep -qw $IF \
+	 || cat /etc/frisbee/dhcpcd.conf | grep -q "^#$IF static\$"; then #140824
+	    echo false
+	else
+	    echo true
+	fi 
+}
+export -f   get_dhcp_auto
+
+#############################################
+
+function get_dhcp_auto_wireless {
+	SSID=$1
+	if [ -z "$SSID" ] \
+	 || cat /etc/frisbee/dhcpcd.conf | grep -q "^#$SSID static\$"; then
+	    echo false
+	else
+		echo true
+	fi
+}
+export -f   get_dhcp_auto_wireless
+
+#############################################
+
+function get_dhcp_ignored {
+	INTERFACE="$1"
+	if [ "$INTERFACE" ] \
+	 && cat /etc/frisbee/dhcpcd.conf | grep '^denyinterfaces' | grep -qw $INTERFACE ; then #140824
+	    echo true
+	else
+	    echo false
+	fi 
+}
+export -f  get_dhcp_ignored 
+
+#############################################
+
+function get_dns1 {
+	IF=$1
+	cat /etc/frisbee/dhcpcd.conf | grep "^#$IF static\$" -A4|tail -n 1|cut -d= -f2 |cut -d" " -f1
+}
+export -f   get_dns1
+
+#############################################
+
+function get_dns1_wireless {
+	SSID=$1
+	cat /etc/frisbee/dhcpcd.conf | grep "^#$SSID static\$" -A5|tail -n 1|cut -d= -f2 |cut -d" " -f1
+}
+export -f   get_dns1_wireless
+
+#############################################
+
+function get_dns2 {
+	IF=$1
+	cat /etc/frisbee/dhcpcd.conf | grep "^#$IF static\$" -A4|tail -n 1|cut -d= -f2 |cut -d" " -f2 
+}
+export -f   get_dns2
+
+#############################################
+
+function get_dns2_wireless {
+	SSID=$1
+	cat /etc/frisbee/dhcpcd.conf | grep "^#$SSID static\$" -A5|tail -n 1|cut -d= -f2 |cut -d" " -f2 
+}
+export -f   get_dns2_wireless
+
+#############################################
+
+function get_enabled {
+	ID="$1"
+	
+	
+	if [ -z $ID ] ; then
+	        return
+	fi
+	
+	disabled=`wpa_cli -i $INTERFACE get_network $ID disabled`
+	if [[ "$disabled" == "0" ]] ; then
+	        echo "true"
+	else
+	        echo "false"
+	fi
+}
+
+export -f  get_enabled
+
+#############################################
+
+function get_enc {
+	ID=`echo $1`
+	if [ -z $ID ]  ; then
+	        return
+	fi
+	
+	AUTH=`wpa_cli -i $INTERFACE get_network $ID key_mgmt`
+	if [[ "$AUTH" == "NONE" ]] ; then
+	        WEP=`wpa_cli -i $INTERFACE get_network $ID wep_key0`
+	        if [[ "$WEP" != "FAIL" ]] ; then
+	                echo "WEP" 
+	                return
+	        else
+	                echo "OPEN"
+	                return
+	        fi
+	fi
+	ENC=`wpa_cli -i $INTERFACE get_network $ID pairwise`
+	if [[ "$ENC" != "FAIL" ]] ; then
+	        echo $ENC
+	        return
+	fi
+}
+export -f   get_enc
+
+#############################################
+
+function get_gateway {
+	IF=$1
+	cat /etc/frisbee/dhcpcd.conf | grep "^#$IF static\$" -A3|tail -n 1|cut -d= -f2
+}
+export -f   get_gateway
+
+#############################################
+
+function get_gateway_wireless {
+	SSID=$1
+	cat /etc/frisbee/dhcpcd.conf | grep "^#$SSID static\$" -A4|tail -n 1|cut -d= -f2
+}
+export -f   get_gateway_wireless
+
+#############################################
+
+function get_interfaces {
+	iwconfig 2>&1 |grep ^[a-z]|while read if line ; do
+	        if [[ $line == "no wireless extensions." ]] ; then
+	                line=wired
+	        else
+	                line=wireless
+	        fi
+	        if [[ $if == lo ]] ; then
+	                line=loopback
+	        elif [[ $if == ppp* ]] ; then
+	                line=ppp
+	        fi
+	        cat /etc/frisbee/dhcpcd.conf | grep '^denyinterfaces' | grep -qw $if
+	        if [[ $? == 0 ]] ; then #140824
+	                state=ignored
+	        else
+	                cat /etc/frisbee/dhcpcd.conf | grep "^#$if static\$"  | grep -q $if
+	                if [[ $? == 0 ]] ; then
+	                        state=static
+	                else
+	                        state=auto
+	                fi
+	                
+	        fi
+	        echo "$if|$line|$state"
+	done    
+	echo
+	echo
+	echo
+	echo
+}
+export -f   get_interfaces 
+
+#############################################
+	
+function get_key {
+	ID="$1"
+	if [ -z $ID ]  ; then
+	        return
+	fi
+	
+	wep_key=`wpa_cli -i $INTERFACE get_network $ID wep_key0`
+	if [[ $wep_key != "FAIL" ]] ; then
+	        echo "[Key Configured]"
+	fi
+	psk=`wpa_cli -i $INTERFACE get_network $ID psk`
+	if [[ $psk != "FAIL" ]] ; then
+	        echo "[Key Configured]"
+	fi
+}
+export -f   get_key 
+
+#############################################
+
+function get_log {
+	sync
+	cat /tmp/wpa_supplicant.log 2>/dev/null |tail -n 500 > /tmp/.frisbee/wpa_supplicant_log_tail
+}
+export -f   get_log 
+
+#############################################
+
+function get_mask {
+	IF=$1
+	  CIDR=`cat /etc/frisbee/dhcpcd.conf | grep "^#$IF static\$" -A2|tail -n 1 |cut -d= -f2|cut -d\/ -f2`
+	 [ ! $CIDR ] && return
+	  full_octets=$((CIDR/8))
+	  partial_octet=$((CIDR%8))
+	
+	  for ((i=0;i<4;i+=1)); do
+	    if [ $i -lt $full_octets ]; then
+	      mask="${mask}255"
+	    elif [ $i -eq $full_octets ]; then
+	      mask="${mask}$((256 - 2**(8-partial_octet)))"
+	    else
+	      mask="${mask}0"
+	    fi  
+	    test $i -lt 3 && mask="${mask}."
+	  done
+	
+	  echo $mask
+}
+export -f   get_mask
+
+#############################################
+
+function get_mask_wireless {
+	SSID=$1
+	  CIDR=`cat /etc/frisbee/dhcpcd.conf | grep "^#$SSID static\$" -A3|tail -n 1 |cut -d= -f2|cut -d\/ -f2`
+	 [ ! $CIDR ] && return
+	  full_octets=$((CIDR/8))
+	  partial_octet=$((CIDR%8))
+	
+	  for ((i=0;i<4;i+=1)); do
+	    if [ $i -lt $full_octets ]; then
+	      mask="${mask}255"
+	    elif [ $i -eq $full_octets ]; then
+	      mask="${mask}$((256 - 2**(8-partial_octet)))"
+	    else
+	      mask="${mask}0"
+	    fi  
+	    test $i -lt 3 && mask="${mask}."
+	  done
+	
+	  echo $mask
+}
+export -f   get_mask_wireless
+
+#############################################
+
+function get_priority { 
+	ID="$1"
+	if [ -z $ID ] ; then
+	        return
+	fi
+	
+	pri=`wpa_cli -i $INTERFACE get_network $ID priority|tr -d \"`
+	if [[ $pri != "FAIL" ]] ; then
+	        echo $pri
+	fi 
+
+}
+export -f   get_priority
+
+#############################################
+
+function get_proto {
+	ID="$1"
+	
+	if [ -z $ID ]  ; then
+	        return
+	fi
+	
+	AUTH=`wpa_cli -i $INTERFACE get_network $ID proto`
+	if [[ "$AUTH" == "FAIL" ]] ; then
+	        return
+	fi
+	
+	if [[ $AUTH == "RSN" ]] ; then
+	        echo "WPA2"
+	        return
+	fi
+	
+	if [[ $AUTH == "WPA" ]] ; then
+	        echo "WPA"
+	        return
+	fi
+	
+	echo "NONE"
+}
+export -f   get_proto
+
+#############################################
+
+function get_auth_alg {
+	ID="$1"
+	
+	if [ -z $ID ]  ; then
+	        return
+	fi
+	
+	AUTH=`wpa_cli -i $INTERFACE get_network $ID auth_alg`
+	if [[ "$AUTH" == "FAIL" ]] ; then
+	        return
+	fi
+	
+	[ -z $AUTH ] && AUTH=NONE
+	
+	echo "$AUTH" 
+	
+	return
+}
+export -f   get_auth_alg
+
+#############################################
+
+function get_scan_results {
+	if_connected || return
+	wpa_cli -i $INTERFACE scan >/dev/null
+	wpa_cli scan_results -i $INTERFACE | grep ^..:..: | awk -F '\t' '{print $1"|"$2"|"$3"|"$5"|"$4}' | sort -g -r -t \| -k 3 #140607 160801 170621
+	
+	for i in 1 2 3 4 5 6 7 8 9 10 11 ; do 
+	echo
+	done
+}
+export -f   get_scan_results
+
+#############################################
+
+function get_ssid {
+	ID=`cat /tmp/.frisbee/id 2>/dev/null`
+	if [ -z $ID ] ; then
+	        return
+	fi
+	
+	ssid=`wpa_cli -i $INTERFACE get_network $ID ssid | tr -d \"`
+	if [[ $ssid != "FAIL" ]] ; then
+	        echo $ssid
+	fi 
+}
+export -f   get_ssid 
+
+#############################################
+
+function get_ssids {
+	wpa_cli -i $INTERFACE list_networks | grep '^[0-9]' | sed 's/	/|/g'| while read line ; do #141005
+	echo $line
+	done 
+	echo
+	echo
+	echo
+	echo
+}
+export -f   get_ssids 
+
+#############################################
+
+function get_static_ip {
+	IF=$1
+	cat /etc/frisbee/dhcpcd.conf | grep "^#$IF static\$" -A2|tail -n 1|cut -d= -f2|cut -d\/ -f1
+}
+export -f   get_static_ip
+
+#############################################
+
+function get_static_ip_wireless {
+	SSID=$1
+	cat /etc/frisbee/dhcpcd.conf | grep "^#$SSID static\$" -A3|tail -n 1|cut -d= -f2|cut -d\/ -f1
+}
+export -f   get_static_ip_wireless
+
+#############################################
+
+function get_status {
+	echo "Wpa_supplicant Status:" > /tmp/.frisbee/status 
+	echo "-------------------------------------------------" >> /tmp/.frisbee/status 
+	wpa_cli -i $INTERFACE status >> /tmp/.frisbee/status 2>/dev/null
+	[ $? -ne 0 ] && echo "Not Active" >> /tmp/.frisbee/status
+	echo "-------------------------------------------------" >> /tmp/.frisbee/status 
+	echo >> /tmp/.frisbee/status 
+	iwconfig $INTERFACE >> /tmp/.frisbee/status 2>&1
+	ifconfig $INTERFACE >> /tmp/.frisbee/status 2>&1
+}
+export -f   get_status 
+
+#############################################
+	
+function get_identity { #130822...
+	ID="$1"
+	if [ -z $ID ]  ; then
+	        return
+	fi
+	
+	ident=`wpa_cli -i $INTERFACE get_network $ID identity | tr -d \"`
+	if [[ $ident != "FAIL" ]] ; then
+	        echo $ident
+	fi 
+}
+export -f   get_identity  #130822 end
+
+#############################################
+
+
+function start_dhcp {
+	ZOPTION="" #140824...
+	WIFI_IF="$(cat /etc/frisbee/interface 2> /dev/null)"
+	if [ "$WIFI_IF" ];then
+		OTHERWIFI="$(get_ifs_wireless | grep -vw "$WIFI_IF" | tr '\n' , | sed 's/,$//')"
+		[ "$OTHERWIFI" ] && ZOPTION="-Z $OTHERWIFI"
+	fi
+	setsid dhcpcd -b -d $ZOPTION -f /etc/frisbee/dhcpcd.conf #140824 end
+	sleep 2
+}
+export -f start_dhcp
+
+#############################################
+
+function reset_dhcp {
+	dhcpcd -k
+	killall -9 dhcpcd
+	killall wpa_cli 2>/dev/null
+	start_dhcp
+}
+export -f reset_dhcp
+
+#############################################
+
+function start_wpa {
+	rfkill unblock wlan 2>/dev/null #140221
+	ifconfig $INTERFACE up
+	if grep -q '^wireless_autostart=1' /etc/frisbee/frisbee.conf ; then
+		WPACFGFILE="/etc/frisbee/wpa_supplicant.conf"
+		rm -f /tmp/wpa_supplicant.conf
+	else
+		WPACFGFILE="/tmp/wpa_supplicant.conf"
+		[ -f $WPACFGFILE ] \
+		 || sed -e '/^network=/,/}/d' /etc/frisbee/wpa_supplicant.conf > $WPACFGFILE
+	fi
+	if grep -q '^wpa_log_mode=1' /etc/frisbee/frisbee.conf ; then
+		setsid wpa_supplicant -B -d -Dwext -i$INTERFACE -c$WPACFGFILE > /tmp/wpa_supplicant.log
+	else
+		setsid wpa_supplicant -B -Dwext -i$INTERFACE -c$WPACFGFILE > /tmp/wpa_supplicant.log
+	fi
+	wpa_cli -i $INTERFACE scan >/dev/null
+
+}
+export -f start_wpa
+
+#############################################
+
+function stop_wpa { #140824...
+	busybox pidof wpa_supplicant >/dev/null
+	if [[ $? = 0 ]] ; then
+		wpa_cli terminate
+		sleep 2 
+		wpa_cli terminate 2>/dev/null
+	fi
+	killall -9 wpa_supplicant 2>/dev/null
+	rm -rf /var/run/wpa_supplicant/*
+	rm -f /tmp/wpa_supplicant.log
+}
+export -f stop_wpa
+
+#############################################
+
+function reset_wpa {
+	stop_wpa #140824
+	start_wpa
+	connect
+}
+export -f reset_wpa 
+
+#############################################
+
+function roam {
+		wpa_cli -i $INTERFACE list_networks | while read LINE ; do
+	                ID=$(echo "$LINE" |cut -f1)
+	                wpa_cli -i $INTERFACE enable_network $ID
+	done
+	wpa_cli -i $INTERFACE save_config
+	sleep 1
+	
+	reset_wpa
+}
+export -f roam
+
+#############################################
+
+function cleanfile {
+	ECHO=1
+	while read LINE ; do 
+	        [[ $LINE == "#$1" ]] && ECHO=0
+	        [[ $LINE == "#$1 static" ]] && ECHO=0
+	        [[ $ECHO == 2 ]] && ECHO=1
+	        [[ $LINE == "#end $1" ]] && ECHO=2
+	        [[ $ECHO == 1 ]] && echo $LINE
+	done
+}
+export -f   cleanfile 
+
+#############################################
+
+function update_dhcp {
+	IF=`echo $1|cut -f1 -d\|`
+	IGNORE=`echo $1|cut -f2 -d\|`
+	AUTO=`echo $1|cut -f3 -d\|`
+	IP=`echo $1|cut -f4 -d\|`
+	SUBNET=`echo $1|cut -f5 -d\|`
+	GATEWAY=`echo $1|cut -f6 -d\|`
+	DNS1=`echo $1|cut -f7 -d\|`
+	DNS2=`echo $1|cut -f8 -d\|`
+	
+	if [ ! $IF ]  ;then
+	         Xdialog  --wmclass "frisbee" --title "Frisbee"  --msgbox "$(gettext 'Please select an interface')" 0 0 ; return 1 #140901
+	fi
+	
+	IGNOREORIG=`cat /etc/frisbee/dhcpcd.conf |grep '^denyinterfaces'`
+	IGNORELIST=`echo $IGNOREORIG |cut -f2 -d" "|tr , " "`
+	
+	for i in $IGNORELIST ; do
+	        if [[ $IF == $i ]] ; then
+	                IGNORED=1
+	        fi
+	done
+	
+	if [[ $IGNORE == true ]] ; then
+	        if [[ $IGNORED == 1 ]] ; then
+	                return 1 #140901
+	        else
+	                IGNORELIST="$IGNORELIST $IF"
+	        fi
+	fi
+	
+	if [[ $AUTO == true && $IGNORED == 1 ]] ; then
+	        
+	        IGNORELIST=`for i in $IGNORELIST ; do
+	                if [[ $IF != $i ]] ; then
+	                        echo -n "$i "
+	                fi
+	        done
+	        echo`
+	fi
+	
+	IGNORELIST=`echo "$IGNORELIST"|tr " " ,|sed 's/,$//'`
+	IGNORELIST=`echo "denyinterfaces $IGNORELIST"`
+	
+	if [[ "$IGNORELIST" != "$IGNOREORIG" ]] ; then
+	        cat /etc/frisbee/dhcpcd.conf |sed "s/^denyinterfaces.*$/$IGNORELIST/" > /tmp/dhcpcd.conf 
+	        mv /tmp/dhcpcd.conf /etc/frisbee
+	        reset_dhcp&
+	fi
+	
+	if [[ $AUTO == true || $IGNORE == true ]] ; then
+	        cat /etc/frisbee/dhcpcd.conf | grep "interface $IF"
+	        if [[ $? == 0 ]] ; then
+	                cat /etc/frisbee/dhcpcd.conf |cleanfile $IF >  /tmp/dhcpcd.conf 
+	                mv /tmp/dhcpcd.conf /etc/frisbee
+	        fi
+	        return 0 #140901
+	fi
+	
+	
+	IP=`echo $IP|awk --posix -F"." '{ if ($0~/^([0-9]{1,3}\.){3}[0-9]{1,3}$/ && $1<=255 && $2<=255 && $3<=255 && $4<=255) print $0}'`
+	if [ ! $IP ] ; then
+	         Xdialog  --wmclass "frisbee" --title "Frisbee"  --msgbox "$(gettext 'Invalid IP address')" 0 0 ; return 1 #140901
+	fi
+	GATEWAY=`echo $GATEWAY|awk --posix -F"." '{ if ($0~/^([0-9]{1,3}\.){3}[0-9]{1,3}$/ && $1<=255 && $2<=255 && $3<=255 && $4<=255) print $0}'`
+	if [ ! $GATEWAY ] ; then
+	         Xdialog  --wmclass "frisbee" --title "Frisbee"  --msgbox "$(gettext 'Invalid gateway')" 0 0  ; return 1 #140901
+	fi
+	SUBNET=`echo $SUBNET|awk --posix -F"." '{ if ($0~/^([0-9]{1,3}\.){3}[0-9]{1,3}$/ && $1<=255 && $2<=255 && $3<=255 && $4<=255) print $0}'`
+	if [ ! $SUBNET ] ; then
+	         Xdialog  --wmclass "frisbee" --title "Frisbee"  --msgbox "$(gettext 'Invalid subnet mask')" 0 0  ; return 1 #140901
+	fi
+	if [ "$DNS1" ];then
+		DNS1=`echo $DNS1|awk --posix -F"." '{ if ($0~/^([0-9]{1,3}\.){3}[0-9]{1,3}$/ && $1<=255 && $2<=255 && $3<=255 && $4<=255) print $0}'`
+		if [ ! $DNS1 ] ; then
+	         Xdialog  --wmclass "frisbee" --title "Frisbee"  --msgbox "$(gettext 'Invalid IP Address for DNS Server 1')" 0 0  ; return 1 #140901
+		fi
+	fi
+	DNS2=`echo $DNS2|awk --posix -F"." '{ if ($0~/^([0-9]{1,3}\.){3}[0-9]{1,3}$/ && $1<=255 && $2<=255 && $3<=255 && $4<=255) print $0}'`
+	SUBNET=`echo $SUBNET|tr "." " "`
+	CIDR=0
+	for dec in $SUBNET ; do
+	        case $dec in
+	            255) let CIDR+=8;;
+	            254) let CIDR+=7;;
+	            252) let CIDR+=6;;
+	            248) let CIDR+=5;;
+	            240) let CIDR+=4;;
+	            224) let CIDR+=3;;
+	            192) let CIDR+=2;;
+	            128) let CIDR+=1;;
+	            0);;
+	            *) Xdialog  --wmclass "frisbee" --title "Frisbee"  --msgbox "$(gettext 'Invalid subnet mask')" 0 0  ; return 1 ;; #140901
+	        esac
+	done
+	
+	
+	cat /etc/frisbee/dhcpcd.conf |cleanfile $IF > /tmp/dhcpcd.conf 
+	echo "#$IF static" >> /tmp/dhcpcd.conf
+	echo "interface $IF " >> /tmp/dhcpcd.conf
+	echo "static ip_address=${IP}/${CIDR} " >> /tmp/dhcpcd.conf
+	echo "static routers=$GATEWAY " >> /tmp/dhcpcd.conf
+	echo "static domain_name_servers=$DNS1 $DNS2" >> /tmp/dhcpcd.conf
+	echo "#end $IF" >> /tmp/dhcpcd.conf
+	mv /tmp/dhcpcd.conf /etc/frisbee
+	reset_dhcp&
+	return 0
+}
+export -f   update_dhcp
+
+#############################################
+
+function update_dhcp_wireless {
+	#set -x
+	SSID=`echo $1|cut -f1 -d\|`
+	AUTO=`echo $1|cut -f2 -d\|`
+	IP=`echo $1|cut -f3 -d\|`
+	SUBNET=`echo $1|cut -f4 -d\|`
+	GATEWAY=`echo $1|cut -f5 -d\|`
+	DNS1=`echo $1|cut -f6 -d\|`
+	DNS2=`echo $1|cut -f7 -d\|`
+
+	if [[ -z $SSID ]] ; then
+	        return 1 #140901
+	fi
+	
+	if [[ $AUTO == true ]] ; then
+	     cat /etc/frisbee/dhcpcd.conf | grep "^#$SSID static\$"
+	     if [[ $? == 0 ]] ; then
+	           cat /etc/frisbee/dhcpcd.conf |cleanfile $SSID >  /tmp/dhcpcd.conf 
+	           mv /tmp/dhcpcd.conf /etc/frisbee
+	    fi
+	    return 0 #140901
+	fi
+	
+	IP=`echo $IP|awk --posix -F"." '{ if ($0~/^([0-9]{1,3}\.){3}[0-9]{1,3}$/ && $1<=255 && $2<=255 && $3<=255 && $4<=255) print $0}'`
+	if [ ! $IP ] ; then
+	         Xdialog  --wmclass "frisbee" --title "Frisbee"  --msgbox "$(gettext 'Invalid IP address')" 0 0 ; return 1 #140901
+	fi
+	GATEWAY=`echo $GATEWAY|awk --posix -F"." '{ if ($0~/^([0-9]{1,3}\.){3}[0-9]{1,3}$/ && $1<=255 && $2<=255 && $3<=255 && $4<=255) print $0}'`
+	if [ ! $GATEWAY ] ; then
+	         Xdialog  --wmclass "frisbee" --title "Frisbee"  --msgbox "$(gettext 'Invalid gateway')" 0 0  ; return 1 #140901
+	fi
+	SUBNET=`echo $SUBNET|awk --posix -F"." '{ if ($0~/^([0-9]{1,3}\.){3}[0-9]{1,3}$/ && $1<=255 && $2<=255 && $3<=255 && $4<=255) print $0}'`
+	if [ ! $SUBNET ] ; then
+	         Xdialog  --wmclass "frisbee" --title "Frisbee"  --msgbox "$(gettext 'Invalid subnet mask')" 0 0  ; return 1 #140901
+	fi
+	if [ "$DNS1" ];then
+		DNS1=`echo $DNS1|awk --posix -F"." '{ if ($0~/^([0-9]{1,3}\.){3}[0-9]{1,3}$/ && $1<=255 && $2<=255 && $3<=255 && $4<=255) print $0}'`
+		if [ ! $DNS1 ] ; then
+	         Xdialog  --wmclass "frisbee" --title "Frisbee"  --msgbox "$(gettext 'Invalid IP address for DNS Server 1')" 0 0  ; return 1 #140901
+		fi
+	fi
+	DNS2=`echo $DNS2|awk --posix -F"." '{ if ($0~/^([0-9]{1,3}\.){3}[0-9]{1,3}$/ && $1<=255 && $2<=255 && $3<=255 && $4<=255) print $0}'`
+	SUBNET=`echo $SUBNET|tr "." " "`
+	CIDR=0
+	for dec in $SUBNET ; do
+	        case $dec in
+	            255) let CIDR+=8;;
+	            254) let CIDR+=7;;
+	            252) let CIDR+=6;;
+	            248) let CIDR+=5;;
+	            240) let CIDR+=4;;
+	            224) let CIDR+=3;;
+	            192) let CIDR+=2;;
+	            128) let CIDR+=1;;
+	            0);;
+	            *) Xdialog  --wmclass "frisbee" --title "Frisbee"  --msgbox "$(gettext 'Invalid subnet mask')" 0 0  ; return 1 ;; #140901
+	        esac
+	done
+	
+	
+	cat /etc/frisbee/dhcpcd.conf |cleanfile $SSID > /tmp/dhcpcd.conf 
+	echo "#$SSID static" >> /tmp/dhcpcd.conf
+	echo "#interface $INTERFACE" >> /tmp/dhcpcd.conf #140929
+	echo "ssid $SSID" >> /tmp/dhcpcd.conf
+	echo "static ip_address=${IP}/${CIDR} " >> /tmp/dhcpcd.conf
+	echo "static routers=$GATEWAY " >> /tmp/dhcpcd.conf
+	echo "static domain_name_servers=$DNS1 $DNS2" >> /tmp/dhcpcd.conf
+	echo "#end $SSID" >> /tmp/dhcpcd.conf
+	mv /tmp/dhcpcd.conf /etc/frisbee
+	reset_dhcp&
+	return 0 #140901
+}
+export -f   update_dhcp_wireless
+
+#############################################
+
+function update_profile {
+	ID=`echo $1|cut -f1 -d\|`
+	SSID=`echo $1|cut -f2 -d\|`
+	BSSID=`echo $1|cut -f3 -d\|`
+	ENCKEY=`echo $1|cut -f4 -d\|`
+	PRIORITY=`echo $1|cut -f5 -d\|`
+	ENABLED=`echo $1|cut -f6 -d\|`
+	AUTH=`echo $1|cut -f7 -d\|`
+	ENC=`echo $1|cut -f8 -d\|`
+	echo "$ID $SSID $BSSID $ENCKEY $PRIORITY $ENABLED"
+	
+	wpa_cli  list_networks | grep "^$ID    "|grep CURRENT
+	[[ $? == 0 ]] && CURRENT=yes
+	
+	
+	if [[ -z $ID ]] ; then
+	        Xdialog  --wmclass "frisbee" --title "Frisbee" --msgbox "$(gettext 'Please select a profile to update')" 0 0
+	        return
+	fi
+	        
+	
+	RESULT=`wpa_cli -i $INTERFACE set_network $ID priority $PRIORITY`
+	if [[ "$RESULT" != "OK" ]] ; then
+	        Xdialog  --wmclass "frisbee" --title "Frisbee"  --msgbox "$(gettext 'Invalid priority')" 0 0
+	        wpa_cli -i $INTERFACE reconfigure
+	        return
+	fi
+	
+	if [[ "$ENABLED" == "true" ]] ; then
+	        RESULT=`wpa_cli -i $INTERFACE enable_network $ID`
+	        if [[ "$RESULT" != "OK" ]] ; then
+	                Xdialog  --wmclass "frisbee" --title "Frisbee" --msgbox "$(gettext 'Failed to enable network')" 0 0
+	                wpa_cli -i $INTERFACE reconfigure
+	                return
+	        fi
+	else
+	        RESULT=`wpa_cli -i $INTERFACE disable_network $ID`
+	        if [[ "$RESULT" != "OK" ]] ; then
+	                Xdialog  --wmclass "frisbee" --title "Frisbee"  --msgbox "$(gettext 'Failed to disable network')" 0 0
+	                wpa_cli -i $INTERFACE reconfigure
+	                return
+	        fi
+	fi
+	
+	if [[ $BSSID != '' ]] ; then
+	        RESULT=`wpa_cli -i $INTERFACE set_network $ID bssid $BSSID`
+	        if [[ "$RESULT" != "OK" ]] ; then
+	                Xdialog  --wmclass "frisbee" --title "Frisbee" --msgbox "$(gettext 'Invalid BSSID')" 0 0
+	                wpa_cli -i $INTERFACE reconfigure
+	                return
+	        fi
+	fi
+	
+	if [[ ("$AUTH" == "WPA-PSK" ||  "$ENC" == "WEP") && "$ENCKEY" != "[Key Configured]"  ]] ; then
+	        if [ -z $ENCKEY ] ; then
+	                Xdialog  --wmclass "frisbee" --title "Frisbee" --msgbox "$(gettext 'Invalid Password')" 0 0   
+	                wpa_cli -i $INTERFACE reconfigure
+	                return
+	        fi
+	        if [[ "$ENC" == "WEP" ]] ; then
+	                if echo "$ENCKEY" | grep -E '^([[:xdigit:]]){10}$|^([[:xdigit:]]){26}$|^([[:xdigit:]]){32}$'; then #141005
+	                    RESULT=`wpa_cli -i $INTERFACE set_network $ID wep_key0 $ENCKEY`
+	                else
+	                    RESULT=`wpa_cli -i $INTERFACE set_network $ID wep_key0 \""${ENCKEY}"\"`
+	                fi
+	                if [[ "$RESULT" != "OK" ]] ; then
+	                        Xdialog  --wmclass "frisbee" --title "Frisbee"  --msgbox "$(gettext 'Invalid Password')" 0 0
+	                        wpa_cli -i $INTERFACE reconfigure
+	                        return
+	                fi
+	
+	        else
+	                if echo "$ENCKEY" | grep -E '^([[:xdigit:]]){64}$'; then #141005
+							RESULT=`wpa_cli -i $INTERFACE set_network $ID psk $ENCKEY`
+	                else
+	                        RESULT=`wpa_cli -i $INTERFACE set_network $ID psk \""${ENCKEY}"\"`
+	                fi
+	                if [[ "$RESULT" != "OK" ]] ; then
+	                        Xdialog  --wmclass "frisbee" --title "Frisbee"  --msgbox "$(gettext 'Invalid Password')" 0 0
+	                        wpa_cli -i $INTERFACE reconfigure
+	                        return
+	                fi
+	        fi
+	fi
+	
+	
+	
+	RESULT=`wpa_cli -i $INTERFACE save_config`
+	if [[ "$RESULT" != "OK" ]] ; then
+	        Xdialog  --wmclass "frisbee" --title "Frisbee"  --msgbox "$(gettext 'Failed to save configuration')" 0 0
+	        wpa_cli -i $INTERFACE reconfigure
+	        return
+	fi
+	#[[ $CURRENT == "yes" ]] && reset_wpa
+	reset_wpa
+	reset_dhcp
+	
+	. gettext.sh #140818
+	Xdialog  --wmclass "frisbee" --title "Frisbee" --msgbox "`eval_gettext \"Profile for \\\$SSID updated\"`" 0 0 #140818
+}
+export -f   update_profile
+
+#############################################
+
+function connect {
+	#set -x
+	prof=`wpa_cli -i $INTERFACE list_networks|tail -n 1|cut -d " " -f1 `
+	if [[ $prof == "network" ]] ; then
+	        return 1
+	fi
+	wpa_cli -i $INTERFACE status|grep -q COMPLETED 
+	if [[ $? == 0 ]] ; then
+	        #dhcpcd -n 
+	        dhcpcd -n $INTERFACE #180210
+	        return 0
+	fi
+	        ifconfig $INTERFACE up
+	        busybox pidof wpa_supplicant >/dev/null
+	        if [[ $? != 0 ]] ; then
+	                start_wpa
+	        fi
+	        busybox pidof dhcpcd >/dev/null
+	        if [[ $? != 0 ]] ; then
+	                start_dhcp
+	        else #180210
+	                dhcpcd -n $INTERFACE #180210
+	        fi
+	        wpa_cli -i $INTERFACE reconnect 
+	        #dhcpcd -n 
+	
+	sleep 2
+	return 0
+}
+export -f connect
+
+#############################################
+
+
+function disconnect {
+	[ "$INTERFACE" = "none" ] && return
+	wpa_cli -i $INTERFACE disconnect 2>/dev/null
+	sleep 1 
+	wpa_cli -i $INTERFACE disconnect 2>/dev/null
+	busybox pidof wait_disconnect >/dev/null && killall wait_disconnect #140607
+	dhcpcd -k $INTERFACE 
+
+}
+export -f disconnect
+
+#############################################
+
+function wait_disconnect {
+	for i in 1 2 3 ; do
+	        sleep 10
+	        wpa_cli -i $INTERFACE status | grep DISCONNECTED #140607
+	        if [[ $? == 0 ]] ; then
+				return
+	        fi
+	done
+
+dhcpcd -k $INTERFACE 
+}
+export -f wait_disconnect
+
+#############################################
+
+function get_ifs_wireless { #140819...
+	#returns true/0 if interfaces present
+	WIFACES=$(iwconfig 2>&1 | grep '^[a-z]' | grep -v 'no wireless' | cut -f 1 -d ' ')
+	echo "$WIFACES"
+	[ "$WIFACES" ]
+	return $?
+}
+export -f get_ifs_wireless
+
+#############################################
+
+function change_if_wireless {
+	WIFACES="$(get_ifs_wireless)" #140824
+	if [ "$WIFACES" ];then #140824
+		IFACES=''
+		for i in $(echo "$WIFACES" | sort); do #140818
+			IFACES="$IFACES $i $i $i "
+		done
+		Xdialog  --wmclass "frisbee" --title "Frisbee" --stdout --ok-label "$(gettext 'Change')" --no-tags --radiolist "$(gettext 'Please select an interface')"  0 0 0 $IFACES > /tmp/.frisbee/userif #140824... 180313
+		IF=$(cat /tmp/.frisbee/userif)
+		[ "$IF" ] && echo -n "$IF" > /etc/frisbee/userif
+	else
+		Xdialog --wmclass "frisbee" --title "Frisbee"  --msgbox "$(gettext 'No wireless interfaces found.')" 0 0 
+	fi
+}
+export -f change_if_wireless
+
+#############################################
+
+function read_password_from_secret {
+	#Argument is user name.
+	[ -z "$1" ] && return 1
+	TEMPUIDPAT='^"'"$1"'"'
+	TEMPPSWD="$(cat /etc/ppp/*secrets | grep "$TEMPUIDPAT" | tail -n 1 | tr '\t' ' ' | tr -s ' ' | cut -f 3 -d ' ' | tr -d '\"' | tr -d '\n')"
+	echo -n "$TEMPPSWD"
+}
+export -f read_password_from_secret
+
+#############################################
+
+function save_password_to_secret {
+	#Arguments are user name, password.
+	[ -z "$1" -o -z "$2" ] && return 1
+	for ONEAPFILE in pap-secrets chap-secrets; do
+		if ! grep -q -s "^\"$1\".\*.\"$2\"" /etc/ppp/$ONEAPFILE; then
+			sed -i -e "/^\"$1\"\t/d" /etc/ppp/$ONEAPFILE
+			echo -e "\"$1\"\t*\t\"$2\"" >> /etc/ppp/$ONEAPFILE
+		fi
+	done
+}
+export -f save_password_to_secret
+
+#############################################
+
+function read_telephone_value {
+	#Argument: pppoeuser, pppoepswd apn, number, pin gprsuser gprspswd
+	RETVAL=""
+	case "$1" in
+	pppoedemand)
+		RETVAL="false"
+		[ -s /etc/ppp/pppoe.conf ] \
+		 && ! grep -q -s "^DEMAND='*no" /etc/ppp/pppoe.conf \
+		 && RETVAL="true"
+		;;
+	pppoedns)
+		RETVAL="false"
+		[ -s /etc/ppp/pppoe.conf ] \
+		 && ! grep -q -s "^DNSTYPE='*SERVER" /etc/ppp/pppoe.conf \
+		 && RETVAL="true"
+		;;
+	pppoednsvalue)
+		RETVAL="$(grep -q -s "^DNS[12]=\'*" /etc/ppp/pppoe.conf && echo -n "$(sed -n -e "s/^DNS[12]='*\([^\' ]*\).*/\1/p" /etc/ppp/pppoe.conf 2>/dev/null | head -n 2 | tr '\n' ' ' | sed -e 's/ *$//')")"
+		;;
+	pppoeuidreq)
+		grep -q -s "^USER='*[^ $]" /etc/ppp/pppoe.conf \
+		 && RETVAL="true" \
+		 || RETVAL="false"
+		;;
+	pppoeuser)
+		RETVAL="$(grep -q -s "^USER=\'*." /etc/ppp/pppoe.conf && echo -n "$(sed -n -e '/^USER=/ s/.*=\([^ ]*\)/\1/p' /etc/ppp/pppoe.conf 2>/dev/null | tr -d \')")"
+		;;
+	pppoepswd)
+		RETVAL="$(echo -n "$(read_password_from_secret "$PPPOEUSER")")"
+		;;
+	pppoepaponly)
+		grep -q '^pppoe_paponly=1' /etc/frisbee/frisbee.conf \
+		 && RETVAL="true" \
+		 || RETVAL="false"
+		;;
+	device)
+		RETVAL="$(grep 'GPRSDEV=' /root/.config/gprs.conf | cut -f 2 -d =)"
+		;;
+	apn)
+		RETVAL="$(grep 'GPRSAPN=' /root/.config/gprs.conf | cut -f 2 -d =)"
+		;;
+	number)
+		RETVAL="$(grep 'GPRSNBR=' /root/.config/gprs.conf | cut -f 2 -d =)"
+		[ "$RETVAL" ] \
+		 || RETVAL="$(grep -m 1 '.' /tmp/.frisbee/mobilenbrlist)"
+		;;
+	pin)
+		RETVAL="$(grep 'GPRSPIN=' /root/.config/gprs.conf | cut -f 2 -d =)"
+		;;
+	uidreq)
+		grep -q -s "^GPRSUSER='*[^ $]" /root/.config/gprs.conf \
+		 && RETVAL="true" \
+		 || RETVAL="false"
+		;;
+	gprsuser)
+		RETVAL="$(grep '^GPRSUSER=' /root/.config/gprs.conf | cut -f 2 -d =)"
+		;;
+	gprspswd)
+		RETVAL="$(echo -n "$(read_password_from_secret "$GPRSUSER")")"
+		;;
+	gprspaponly)
+		RETVAL="$(grep '^GPRSPAPONLY=' /root/.config/gprs.conf | cut -f 2 -d =)"
+		[ "$RETVAL" ] || RETVAL="false"
+		;;
+	esac
+	echo -n "$RETVAL"
+	[ "$RETVAL" ]
+}
+
+export -f read_telephone_value
+
+#############################################
+
+#160220 talk to modem, allow time for response... 180721
+function chat_with_modem() { #device passed in.
+ local ANSWERFILE=/tmp/.frisbee/answer.txt
+ rm -f $ANSWERFILE
+ [ -f "/var/lock/LCK..${1##*/}" ] && rm -f "/var/lock/LCK..${1##*/}"
+ echo -e "ATZ\r" | microcom -t 1000 $1 > $ANSWERFILE 2>/dev/null #180721
+ [ -s $ANSWERFILE ] && grep -q '^OK' $ANSWERFILE #180721
+ return $?
+}
+export -f chat_with_modem
+
+
+#############################################
+
+function build_mobile_device_list {
+	local DETECTED=''
+	if [ "$(which get_modem_alternate_device 2>/dev/null)" ] \
+	 && grep -q '"ALL"' $(which get_modem_alternate_device 2>/dev/null);then #160201...
+		DETECTED="$(get_modem_alternate_device ALL | sed -e '/^$/ d' -e 's%^%/dev/%')"
+	else
+		#Compensate for get_modem_alternate_device w/o ALL option
+		for MAINDEV in $(ls /dev/ttyACM* /dev/ttyHS* /dev/ttyUSB* /dev/rfcomm* 2>/dev/null);do
+			[ -c $MAINDEV ] \
+			 && chat_with_modem $MAINDEV \
+			 && DETECTED="$DETECTED $MAINDEV"
+		done
+	fi
+	eval $(grep '^GPRS_OTHER_DEVICES=' /etc/ppp/gprs.conf)
+	for OTHERDEV in $(ls $GPRS_OTHER_DEVICES 2>/dev/null); do
+		[ -c $OTHERDEV ] \
+		 && chat_with_modem $OTHERDEV \
+		 && DETECTED="$DETECTED $OTHERDEV"
+	done
+	#130428...
+	if [ -z "$DETECTED" ];then
+		echo -n "--$(gettext 'None detected')--" > /tmp/.frisbee/mobiledevlist
+	else
+		echo "$DETECTED" | sed -e 's/^ //' -e 's/ /\n/g' > /tmp/.frisbee/mobiledevlist
+	fi
+#	echo -e "build_mobile_device_list exit - mobiledevlist:\n'$(cat /tmp/.frisbee/mobiledevlist)'" >> /tmp/debug.log #DEBUG
+}
+
+export -f build_mobile_device_list
+
+#############################################
+
+function save_mobile_configuration {
+	[ "$(echo -n "$GPRSDEV" | grep -v '^--')$GPRSAPN$GPRSNBR$GPRSPIN$GPRSUSER$GPRSPSWD$GPRSPAPONLY" ] || return 0
+	for ONEGPRS in GPRSDEV GPRSAPN GPRSNBR GPRSPIN GPRSUSER GPRSPAPONLY; do
+		if [ "$(grep "^${ONEGPRS}=" /root/.config/gprs.conf | cut -f 2 -d =)" != "${!ONEGPRS}" ]; then
+			SEDSCRIPT="s%\(${ONEGPRS}=\).*%\1${!ONEGPRS}%"
+			sed -i -e "$SEDSCRIPT" -e 's/\(GPRSDEV=\)--.*/\1/' /root/.config/gprs.conf
+		fi
+	done
+	sync
+}
+
+export -f save_mobile_configuration
+
+#############################################
+
+function save_mobile_password {
+	save_password_to_secret $GPRSUSER $GPRSPSWD
+}
+
+export -f save_mobile_password
+
+#############################################
+
+function mobile_status {
+	if [ -f /var/run/ppp-gprs.pid ]; then
+		Xdialog --center --wmclass "frisbee" --backtitle "$(gettext 'NOTICE: If the log shows a failure to connect, please click left button')" --title "Frisbee $(gettext 'GPRS connection log')" --ok-label "$(gettext 'DISCONNECT or stop trying')" --cancel-label "$(gettext 'CLOSE window but stay online')" --fixed-font --tailbox /tmp/.frisbee/gprs.log 20 80 &
+	else
+		Xdialog --center --wmclass "frisbee" --title "Frisbee GPRS"  --msgbox "GPRS connection inactive." 0 0
+	fi
+}
+
+export -f mobile_status
+
+#############################################
+
+function build_pppoe_interface_list {
+	PPPOEECUR="$(echo "$PPPOEDEV" | grep '^[a-z]')"
+	PPPOEELIST="$(ifconfig | grep -w -o '^[a-z][a-z]*[0-9][0-9]*' |grep -v -E '^lo|^ppp')"
+	if [ "$PPPOEELIST" ];then
+		if [ "$PPPOEECUR" ];then
+			echo "$PPPOEELIST" | grep -q -x "$PPPOEECUR" \
+			 && PPPOEELIST="$PPPOEECUR
+$(echo -n "$PPPOEELIST" | grep -v -x "$PPPOEECUR")"
+		fi
+		echo -n "$PPPOEELIST" > /tmp/.frisbee/pppoedevlist
+	else
+		echo -n "--None Detected--" > /tmp/.frisbee/pppoedevlist
+	fi
+}
+
+export -f build_pppoe_interface_list
+
+#############################################
+
+function save_pppoe_configuration {
+	[ "$PPPOEDEV$PPPOEDEMAND$PPPOEDNS$PPPOEDNSVALUE$PPPOEUSER$PPPOEPSWD" ] || return 0
+	[ -f /etc/ppp/pppoe.conf ] || return 1
+	
+	[ "$PPPOEDEMAND" = "true" ] \
+	 && DEMAND="$(grep 'DEMAND=[0-9]' /etc/ppp/pppoe.conf | head -n 1 | cut -f 2 -d =)" \
+	 || DEMAND="no"
+	[ "$DEMAND" = "" ] &&  DEMAND="300"
+
+	if [ "$PPPOEDNS" = "true" ];then
+		PPPOEDNS1=$(echo -n "$PPPOEDNSVALUE" | cut -f 1 -d ' ')
+		PPPOEDNS2=$(echo -n "$PPPOEDNSVALUE" | tr -s ' ' | cut -f 2 -d ' ')
+		[ "$PPPOEDNS1" = "" ] && DNSTYPE=NOCHANGE || DNSTYPE=SPECIFY
+		PEERDNS=no
+	else
+		DNSTYPE=SERVER
+		PPPOEDNS1=""
+		PPPOEDNS2=""
+		PEERDNS=yes
+	fi
+	
+	sed -e "s/^ETH=.*/ETH=$PPPOEDEV/" \
+	 -e "s/^DEMAND=.*/DEMAND=$DEMAND/" \
+	 -e "s/^DNSTYPE=.*/DNSTYPE=$DNSTYPE/" \
+	 -e "s/^DNS1=.*/DNS1=$PPPOEDNS1/" \
+	 -e "s/^DNS2=.*/DNS2=$PPPOEDNS2/" \
+	 -e "s/^PEERDNS=.*/PEERDNS=$PEERDNS/" \
+	 -e "s/^USER=.*/USER=$PPPOEUSER/" \
+	 -e "s/^FIREWALL=.*/FIREWALL=$PPPOEFIREWALL/" \
+	 /etc/ppp/pppoe.conf > /tmp/pppoe.tmp
+	[ -s /tmp/pppoe.tmp ] \
+	 && ! cmp -s /tmp/pppoe.tmp /etc/ppp/pppoe.conf \
+	 && cp -f /tmp/pppoe.tmp /etc/ppp/pppoe.conf
+
+	if [ "$PPPOEPAPONLY" = "true" ];then
+		grep -q '^pppoe_paponly=1' /etc/frisbee/frisbee.conf \
+		 || sed -i -e '/^pppoe_paponly=/ s/=.*/=1/' \
+		     /etc/frisbee/frisbee.conf
+	else
+		grep -q '^pppoe_paponly=0' /etc/frisbee/frisbee.conf \
+		 || sed -i -e '/^pppoe_paponly=/ s/=.*/=0/' \
+		     /etc/frisbee/frisbee.conf
+	fi
+
+	FIREWALLLIST="$(echo -e "STANDALONE\nMASQUERADE\nNONE" | grep -v "$PPPOEFIREWALL")"
+	echo "$PPPOEFIREWALL $FIREWALLLIST" | tr ' ' '\n' > /tmp/.frisbee/pppoefirewalllist
+}
+
+export -f save_pppoe_configuration
+
+#############################################
+
+function save_pppoe_password {
+	save_password_to_secret $PPPOEUSER $PPPOEPSWD
+}
+
+export -f save_pppoe_password
+
+#############################################
+
+function connect_pppoe {
+	echo -n > /tmp/pppoe.log
+	pppoe-start 2>&1 | grep '.' >> /tmp/pppoe.log &
+	Xdialog --center --wmclass "frisbee" --backtitle "$(gettext 'NOTICE: If the log shows a failure to connect, please click left button')" --title "Frisbee $(gettext 'PPPoE connection log')" --ok-label "$(gettext 'DISCONNECT or stop trying')" --cancel-label "$(gettext 'CLOSE window but stay online')" --fixed-font --tailbox /tmp/pppoe.log 20 80 &
+}
+
+export -f connect_pppoe
+
+#############################################
+
+function disconnect_pppoe {
+	pppoe-stop 2>&1 | grep '.' >> /tmp/pppoe.log &
+}
+
+export -f disconnect_pppoe
+
+#############################################
+
+

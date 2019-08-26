@@ -16,11 +16,24 @@
 
 [ ! $1 ] && exec busybox mount
 
+if [ "`whoami`" != "root" ] ; then
+	exec sudo -A ${0} ${@}
+fi
+
+# non-root:
+#   ntfs-3g and probably other weird drivers might not let the user
+#   see the files unless the fs is mounted with a proper uid and gid
+if [ ! "$USER_ID" ] ; then
+	[ -f /tmp/services/user_info ] && . /tmp/services/user_info
+fi
+if [ "$USER_ID" ] ; then
+	USER_OTPS="uid=${USER_ID},gid=${USER_GROUP_ID},"
+	USER_OTPS_2="-o uid=${USER_ID},gid=${USER_GROUP_ID}"
+fi
+
 #i realised this script has to allow reentrancy. So, all temp file now unique,
 #using ${$} which is pid of script.
 MYPID=${$}
-
-. /etc/rc.d/functions4puppy4 #v4.02
 
 #v2.12 discovered difference between $@ and $*. Replaced all $@ with $* in this script...
 
@@ -28,93 +41,122 @@ MYPID=${$}
 #v3.93 eliminate ' -- ' and all past it...
 DASHOPTS="`echo "$*" | tr '\t' ' '  | sed -e 's/ -- .*//' | tr ' ' '\n' | grep '^\-'`"
 
-#needs an explicit '-t ntfs', does not work with /etc/fstab...
-if [ "`echo "$*" | grep 'ntfs'`" = "" ];then
+case "$*" in
+	*' vfat '*) VFAT_FLAG=yes ;;
+	*' exfat '*) EXFAT_FLAG=yes ;;
+	*' ntfs '*) NTFS_FLAG=yes ;;
+	*' crypto_LUKS '*) LUKS_FLAG=yes ;;
+esac
 
- # #busybox mount does not support '--bind'
- # #as have mtab file (see below), can now use full mount...
-  #v409 put in '-n' option as now have /etc/mtab symlink to /proc/mounts...
-  mount-FULL -n "${@}" #SFR quotes
+if [ "$VFAT_FLAG" = "yes" ];then
+  case "$@" in
+    *"-o "*) #don't override -o
+      mount-FULL -n "${@}"
+      ;;
+    *)
+      CMDPRMS="`echo -n "$*" | tr '\t' ' ' | tr -s ' ' | tr ' ' '\n' | grep '^/' | tr '\n' ' '`"
+      NLS_PARAM=""
+      if [ -f /etc/codepage ]; then
+        grep -q -i '850' /etc/codepage && [ "$(echo $LANG|cut -d'.' -f1)" != "en_US" ] && NLS_PARAM=",codepage=850"
+        grep -q -i '852' /etc/codepage && NLS_PARAM=",codepage=852,iocharset=iso8859-2"
+      fi
+      grep '^LANG=' /etc/profile | grep -q -i -E '\.utf|\.UTF' && NLS_PARAM="$NLS_PARAM,utf8"
+      OPT="-o ${USER_OTPS}shortname=mixed,quiet${NLS_PARAM}"
+      mount-FULL -t vfat ${OPT} -n $CMDPRMS
+      ;;
+  esac
   RETVAL=$?
- #fi
- 
-else
- #screen out all the options...
- CMDPRMS="`echo -n "$*" | tr '\t' ' ' | tr -s ' ' | tr ' ' '\n' | grep '^/' | tr '\n' ' '`"
- #kirk advised these options so Rox will not complain about file
- #permissions when copy a file to a ntfs partition...
- [ -f /tmp/ntfsmnterr${MYPID}.txt ] && rm -f /tmp/ntfsmnterr${MYPID}.txt
- 
- ntfs-3g $CMDPRMS -o umask=0,no_def_opts,silent 2>/tmp/ntfsmnterr${MYPID}.txt #120103 shinobar: need silent
- RETVAL=$?
- #v2.16 ntfs-3g v1.417, part. scheduled for check, failed with value 10...
- #v4.00 ntfs-3g v1.2412 does not have 4,10, has 15 for dirty f.s., 14 hiberneted...
- if [ $RETVAL -eq 4 -o $RETVAL -eq 10 -o $RETVAL -eq 15 -o $RETVAL -eq 14 ];then  #try to force it...
-  if [ $RETVAL -eq 14 ];then
-   #ntfs-3g $CMDPRMS -o umask=0,no_def_opts,remove_hiberfile 2>/tmp/ntfsmnterr${MYPID}.txt
-   #RETVAL=$?
-   echo > /dev/null
-  else
-   ntfs-3g $CMDPRMS -o force,umask=0,no_def_opts,silent 2>/tmp/ntfsmnterr${MYPID}.txt #120103 shinobar: need silent.
-   RETVAL=$?
-   ERRMSG1="`cat /tmp/ntfsmnterr${MYPID}.txt`"
-   echo "$ERRMSG1"
-   if [ $RETVAL -eq 0 ];then
-    echo "WARNING: NTFS f.s. mounted read/write but corrupted."
-    [ ! "`pidof X`" = "" ] && nohup gxmessage -bg red -center -title "NTFS WARNING" "The ntfs-3g driver was able to mount the NTFS
+
+elif [ "$EXFAT_FLAG" = "yes" ];then
+  #older mount version: exfat systems fail with mount-FULL -n
+  mount-FULL "${@}" || {
+    # musl static mount.exfat fails
+    #   however it works if calling the right app directly
+    #   note: filemnt still fails. but it has extra code to make it work..
+    wc=$(echo "${@}" | tr -s ' ' | wc -w)
+    args=$(echo "$@" | cut -f "$(($wc-1))-" -d ' ')
+    mount.exfat-fuse ${args}
+  }
+  RETVAL=$?
+
+elif [ "$LUKS_FLAG" = "yes" ] ; then
+  exec mount.crypto_LUKS "$@" #mount.crypto_LUKS has specific rox code
+
+elif [ "$NTFS_FLAG" = "yes" ];then
+
+  [ ! -d /tmp/ntfs-errors ] && mkdir -p /tmp/ntfs-errors
+
+  case "$@" in
+    *"-o "*) #don't override -o
+      ntfs-3g "${@}" || busybox mount "${@}"
+      RETVAL=$?
+      ;;
+    *)
+      #screen out all the options...
+      CMDPRMS="`echo -n "$*" | tr '\t' ' ' | tr -s ' ' | tr ' ' '\n' | grep '^/' | tr '\n' ' '`"
+      #kirk advised these options so Rox will not complain about file
+      #permissions when copy a file to a ntfs partition...
+      [ -f /tmp/ntfs-errors/ntfsmnterr${MYPID}.txt ] && rm -f /tmp/ntfs-errors/ntfsmnterr${MYPID}.txt
+      ntfs-3g $CMDPRMS -o ${USER_OTPS}silent 2>/tmp/ntfs-errors/ntfsmnterr${MYPID}.txt
+      RETVAL=$?
+      #v2.16 ntfs-3g v1.417, part. scheduled for check, failed with value 10...
+      #v4.00 ntfs-3g v1.2412 does not have 4,10, has 15 for dirty f.s., 14 hiberneted...
+      case $RETVAL in 4|10|15) #14 = must mount read-only
+        ntfs-3g $CMDPRMS -o ${USER_OTPS}force,silent 2>/tmp/ntfs-errors/ntfsmnterr${MYPID}.txt
+        RETVAL=$?
+        ERRMSG1="`cat /tmp/ntfs-errors/ntfsmnterr${MYPID}.txt`"
+        echo "$ERRMSG1"
+        if [ $RETVAL -eq 0 ];then
+         echo "WARNING: NTFS f.s. mounted read/write but corrupted."
+         [ ! "`pidof X`" = "" ] && nohup gxmessage -bg red -center -title "NTFS WARNING" "The ntfs-3g driver was able to mount the NTFS
 partition but returned this error message:
 $ERRMSG1
 
 It is mounted read/write, but advice is only write
 to it in emergency situation. Recommendation is
 boot Windows and fix the filesystem first!!!" &
-   fi
-  fi
- fi
+        fi
+       [ ! -s /tmp/ntfs-errors/ntfsmnterr${MYPID}.txt ] && rm -f /tmp/ntfs-errors/ntfsmnterr${MYPID}.txt
+       ;;
+      esac
  
- #ntfs-3g plays very safe and will not mount if thinks anything
- #wrong with ntfs f.s. But, we may want to recover files from a
- #damaged windows. So, fall back to the kernel ntfs driver...
- if [ ! $RETVAL -eq 0 ];then
-  #mount read-only...
-  busybox mount -r -t ntfs $CMDPRMS
-  RETVAL=$?
-  ERRMSG1="`cat /tmp/ntfsmnterr${MYPID}.txt`"
-  echo "$ERRMSG1"
-  if [ $RETVAL -eq 0 ];then
-   echo "WARNING: NTFS f.s. mounted read-only."
-   [ ! "`pidof X`" = "" ] && nohup gxmessage -bg red -center -title "NTFS WARNING" "The ntfs-3g driver was unable to mount the NTFS
+      #ntfs-3g plays very safe and will not mount if thinks anything
+      #wrong with ntfs f.s. But, we may want to recover files from a
+      #damaged windows. So, fall back to the kernel ntfs driver...
+      if [ ! $RETVAL -eq 0 ];then
+       #mount read-only...
+       busybox mount -r -t ntfs $CMDPRMS
+       RETVAL=$?
+       ERRMSG1="`cat /tmp/ntfs-errors/ntfsmnterr${MYPID}.txt`"
+       echo "$ERRMSG1"
+       if [ $RETVAL -eq 0 ];then
+        echo "WARNING: NTFS f.s. mounted read-only."
+        [ ! "`pidof X`" = "" ] && nohup gxmessage -bg red -center -title "NTFS WARNING" "The ntfs-3g driver was unable to mount the NTFS
 partition and returned this error message:
 $ERRMSG1
 
 So, the inbuilt kernel NTFS driver has been used
 to mount the partition read-only." &
-  fi
- fi
+       fi
+      fi
+      ;;
+  esac
+
+### everything else ###
+else
+  #needs an explicit '-t ntfs', does not work with /etc/fstab...
+  # busybox mount does not support '--bind'
+  # as have mtab file (see below), can now use full mount...
+  # v409 put in '-n' option as now have /etc/mtab symlink to /proc/mounts...
+  mount-FULL -n "${@}" #SFR quotes
+  RETVAL=$?
 fi
 
-#v4.02 if there is a desktop icon (see pup_eventd), then refresh it...
-if [ $RETVAL -eq 0 -a "$DISPLAY" != "" ];then
- DEVNAME="`busybox mount | tail -n 1 | grep '^/dev/' | cut -f 1 -d ' ' | cut -f 3 -d '/'`"
- if [ "$DEVNAME" != "" ];then
-  DRVNAME="`echo -n "$DEVNAME" | cut -c 1-3`"
-  #special case, SD card /dev/mmcblk0p1...
-  [ "$DRVNAME" = "mmc" ] && DRVNAME="`echo -n "$DEVNAME" | sed -e 's/p[0-9]$//'`"
-  xDRVNAME="$DRVNAME" #v404
-  [ -d /root/.pup_event/drive_${DEVNAME} ] && DRVNAME="$DEVNAME" #icon for each partition.
-  if [ -d /root/.pup_event/drive_${DRVNAME} ];then
-   case $DRVNAME in #v407
-    fd*)
-     DRV_CATEGORY="floppy"
-    ;;
-    *)
-     dnPATTERN='/dev/'"${xDRVNAME}"'|'
-     DRV_CATEGORY="`probedisk | grep "$dnPATTERN" | cut -f 2 -d '|'`"
-    ;;
-   esac
-   icon_mounted_func $DRVNAME $DRV_CATEGORY #see functions4puppy4
-  fi
- fi
+if [ $RETVAL -eq 0 ] ; then
+	if [ -f /usr/local/pup_event/frontend_rox_funcs ] ; then
+		#ROX: create or refresh desktop icon
+		/usr/local/pup_event/frontend_rox_funcs rox_mount "$DEVNAME"
+	fi
 fi
 
 #v409, instead just make sure the symlink stays there...

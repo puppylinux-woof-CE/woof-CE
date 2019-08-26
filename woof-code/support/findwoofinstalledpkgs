@@ -1,0 +1,68 @@
+#!/bin/bash
+#(c) Copyright Barry Kauler 2009, puppylinux.com
+#this script finds all builtin packages in Puppy Linux.
+#110821 completely rewritten.
+#111204 do not use /var/local/woof, instead 'status' directory (better for running from different save-files).
+#121028 exclude pkgs that go into devx only from woof-installed-packages.
+#121102 file DISTRO_SPECS has new variable DISTRO_DB_SUBNAME. ex: for 14.0-based slacko, DISTRO_DB_SUBNAME=slacko14
+
+export LANG=C
+
+. ./_00func
+. ./DISTRO_SPECS #has DISTRO_BINARY_COMPAT, DISTRO_COMPAT_VERSION
+[ ! "$DISTRO_DB_SUBNAME" ] && DISTRO_DB_SUBNAME="$DISTRO_COMPAT_VERSION" #121102 fallback if DISTRO_DB_SUBNAME not defined in file DISTRO_SPECS.
+source_pkgs_specs    # ./DISTRO_PKGS_SPECS-
+
+echo "Creating file woof-installed-packages..."
+
+#remove comments from PKGS_SPECS_TABLE... make sure '|' on end... get rid of old |+udev,+whatever on end...
+PKGS_SPECS_TABLE="`echo "$PKGS_SPECS_TABLE" | grep -v '^#' | grep -v '^$' | tr '\t' ' ' | tr -s ' ' | tr '+' '&' | sed -e 's%|&.*%%' | tr '&' '+' | sed -e 's% #.*%%' -e 's% $%%' -e 's%$%|%' -e 's%||$%|%'`"
+
+run_findpkgs #find all packages that will be used in the Puppy build...
+
+#need to find exactly what has gone into the build and the devx...
+echo -n "" > /tmp/woof-installed-packages-tmp
+echo -n "" > /tmp/devx-only-installed-packages-tmp #121028
+(
+cat status/findpkgs_FINAL_PKGS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} |
+while read ONELINE
+do
+ #ex: :a52dec:|compat|Packages-puppy-wary5-official|a52dec-0.7.4-w5|a52dec|0.7.4-w5||BuildingBlock|68K||a52dec-0.7.4-w5.pet||A free ATSC A52 stream decoder|puppy|wary5||
+ ADBENTRY="`echo -n "$ONELINE" | cut -f 4-19 -d '|'`"
+ IFS="|" read -r F1 F2 F3 F4 F5 F6 <<< "$ONELINE"
+ GENERICNAMES="$F1"
+ NAMEONLY="$F5"
+ case $NAMEONLY in
+  *_DEV) PTN1='^dev$'     ; PTN2='dev>exe$'  ;;
+  *_DOC) PTN1='^doc>exe$' ; PTN2='^doc>dev$' ;;
+  *_NLS) PTN1='^nls>exe$' ; PTN2='^nls>dev$' ;;
+  *)     PTN1=''          ; PTN2='' ;; #allow all thru...
+ esac
+ PTN3='exe>dev$' #121028
+ for AGENERICNAME in ${GENERICNAMES//:/ }
+ do
+  gnPTN="^yes|${AGENERICNAME}|"
+  SPLITUPS="`echo "$PKGS_SPECS_TABLE" | grep "$gnPTN" | cut -f 4 -d '|' | tr ',' '\n'`"
+  if echo "$SPLITUPS" | grep -q "$PTN3" ;then #121028
+   echo "$ADBENTRY" >> /tmp/devx-only-installed-packages-tmp
+   break
+  fi
+  if echo "$SPLITUPS" | grep -q "$PTN1" || \
+     echo "$SPLITUPS" | grep -q "$PTN2" ; then
+     echo "$ADBENTRY" # /tmp/woof-installed-packages-tmp
+     break
+  fi
+ done
+done
+) >> /tmp/woof-installed-packages-tmp
+sync
+
+# added for rootfs-packages
+[ -f /tmp/rootfs-packages.specs ] && cat /tmp/rootfs-packages.specs >> /tmp/woof-installed-packages-tmp
+
+sort --key=1 --field-separator="|" /tmp/woof-installed-packages-tmp > woof-installed-packages
+if [ -s /tmp/devx-only-installed-packages-tmp ];then
+ sort --key=1 --field-separator="|" /tmp/devx-only-installed-packages-tmp > devx-only-installed-packages
+fi
+
+###END###

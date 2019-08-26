@@ -1,0 +1,519 @@
+#!/bin/bash
+
+usage() {
+	script=$(basename "$0")
+	echo "syntax:
+
+$script  specs   <file.pet/directory>
+$script  files   <file.pet/directory>
+$script  files2  <file.pet/directory>
+$script  check   <file.pet/directory>
+$script  comp    <file.pet/directory>
+"
+	exit
+}
+
+#export VERBOSE=1
+
+## ValidatePet <file.pet>
+##   susccess: <file.pet> [full path]
+function ValidatePet() {
+  local petfile=$1
+  [ -f "$petfile" ] || { echo "ERROR: '${petfile}': not a regular file" >&2 ; return 1 ; }
+  [[ $petfile == *.pet ]] || { echo "ERROR: *.pet files only" >&2 ; return 1 ; }
+  [[ $petfile != /* ]] && petfile=${PWD}/${petfile}
+  echo $petfile
+}
+
+## pet_tar_opt <file.pet>
+##   susccess: -z || -J
+function pet_tar_opt() {
+  local petfile finfo
+  petfile="$@"
+  finfo=$(file -b "$petfile")
+  case $finfo in
+    gz*|GZ*) echo '-z' ;;
+    xz*|XZ*) echo '-J' ;;
+    *) echo "ERROR: wrong compression or corrupted/empty file (${finfo})" >&2 ; return 1  ;;
+  esac
+}
+
+## pet_comp <file.pet>
+##   susccess: gz || xz
+function pet_comp() {
+  local type
+  type=$(pet_tar_opt "$@")
+  case $type in
+    -z) echo 'gz' ;;
+    -J) echo 'xz' ;;
+    *) return 1   ;;
+  esac
+}
+
+## pet_raw_filelist <file.pet>
+##   success: raw filelist
+function pet_raw_filelist() {
+  local petfile taropt
+  petfile="$@"
+  [ ! -f "$petfile" ] && return 1
+  taropt=$(pet_tar_opt "$petfile")
+  #local taropt='-a'
+  tar ${taropt} -tf "$petfile" 2>/dev/null
+}
+
+## <filelist> | pet_format_filelist <file.pet>
+##   success: formatted filelist
+function pet_format_filelist() {
+  local petfile rootname
+  petfile="$@"
+  rootname=${petfile##*/}
+  rootname=${rootname%.pet}
+  sed -e "s|^./${rootname}||" -e "s|^${rootname}||" -e "\|/$|d" -e 's|^./|/|' \
+       -e '\|/pet.specs|d' -e '\|/pinstall.sh|d' -e '\|/puninstall.sh|d' | \
+          sort  
+}
+
+## <filelist> | pet_format_filelist2 <file.pet>
+##   success: formatted filelist
+function pet_format_filelist2() { #for /root/.packages
+  local petfile rootname
+  petfile="$@"
+  rootname=${petfile##*/}
+  rootname=${rootname%.pet}
+  sed -e "s|^./${rootname}||" -e "s|^${rootname}||" -e 's|^./|/|' -e '\|^/$|d' \
+       -e '\|/pet.specs|d' -e '\|/pinstall.sh|d' -e '\|/puninstall.sh|d'
+}
+
+## pet_filelist <file.pet>
+##   success: formatted filelist
+function pet_filelist() {
+  pet_raw_filelist "$1" | pet_format_filelist "$1"
+}
+
+## pet_filelist2 <file.pet>
+##   success: formatted filelist2
+function pet_filelist2() {
+  pet_raw_filelist "$1" | pet_format_filelist2 "$1"
+}
+
+## <filelist> | pet_strip_opt)
+##   success: 1 || 2
+function pet_strip_opt() {
+  local file
+  while read file; do
+    case $file in
+      ./*) echo 2 ;;
+      * )  echo 1 ;;
+    esac
+    break
+  done
+}
+
+## pet_get_strip_opt <file.pet>
+##   success: 1 || 2
+function pet_get_strip_opt() {
+  pet_raw_filelist "$1" | pet_strip_opt
+}
+
+## pet_check <file.pet>
+##   success: <filepet>: OK
+function pet_check() {
+  local petfile EXT NEWNAME taropt
+  petfile=$(ValidatePet $1)
+  [ ! "$petfile" ] && return 1
+  EXT=$(pet_comp "$petfile")
+  NEWNAME=${petfile%pet}tar.${EXT}
+  NEWNAME=/tmp/${NEWNAME##*/}
+  head -c -32 "$petfile" > $NEWNAME
+  taropt=$(pet_tar_opt "$petfile")
+  tar ${taropt} -tf ${NEWNAME} &>/dev/null
+  if [ $? -eq 0 ] ; then
+    echo ${petfile##*/}: OK
+  else
+    echo ${petfile##*/}: ERROR
+  fi
+  rm -f "$NEWNAME"
+}
+
+## pet_has_file <file.pet> <file2test>
+##   success: file2test
+function pet_has_file() {
+  local petfile file2test petfile2 petdir taropt stripopt result
+  petfile=$(ValidatePet $1)
+  [ ! "$petfile" ] && return 1  
+  file2test="$2" newf=''
+  [ ! "$file2test" ] && return 1
+  petfile2=${petfile##*/}
+  petdir=${petfile2%.pet}
+  taropt=$(pet_tar_opt "$petfile")
+  #local taropt='-a'
+  [ $? -ne 0 ] && return 1
+  stripopt=$(pet_get_strip_opt "$petfile")
+  [ $stripopt -eq 2 ] && stripopt2='./'
+  result=$(tar --strip=${stripopt} ${taropt} \
+    -t -f "$petfile" ${stripopt2}${petdir}/${file2test} 2>/dev/null)
+  if [ "${result}" ] ; then
+    echo ${result}
+  else
+    return 1
+  fi
+}
+
+## pet_extract <file.pet>
+##   success:
+function pet_extract() {
+  local petfile EXT NEWNAME taropt
+  petfile=$(ValidatePet $1)
+  [ ! "$petfile" ] && return 1
+  EXT=$(pet_comp "$petfile")
+  NEWNAME=${petfile%pet}tar.${EXT}
+  head -c -32 "$petfile" > $NEWNAME
+  taropt=$(pet_tar_opt "$petfile")
+  tar ${taropt} -xf ${NEWNAME}
+  [ $? -ne 0 ] && { echo "ERROR extracting $petfile" >&2 ; return 1 ; }
+  rm -f "$NEWNAME"
+}
+
+## pet_extract2 <file.pet>
+##   success:
+function pet_extract2() {
+  local petfile taropt
+  petfile=$(ValidatePet $1)
+  [ ! "$petfile" ] && return 1
+  taropt=$(pet_tar_opt "$petfile")
+  tar ${taropt} -xf "${petfile}"
+}
+
+## pet_extract_file <file.pet> <file2extract>
+##   success: path to extracted file
+function pet_extract_file() {
+  local petfile file2extract petfile2 petdir taropt stripopt tmpdir
+  petfile=$(ValidatePet $1)
+  [ ! "$petfile" ] && return 1
+  file2extract="$2" newf=''
+  [ ! "$file2extract" ] && return 1
+  petfile2=${petfile##*/}
+  petdir=${petfile2%.pet}
+  #local taropt='-a'
+  taropt=$(pet_tar_opt "$petfile")
+  [ $? -ne 0 ] && return 1
+  stripopt=$(pet_get_strip_opt "$petfile")
+  [ $stripopt -eq 2 ] && stripopt2='./'
+  tmpdir=/tmp/pet_extract_file #$$ #${RANDOM}
+  mkdir -p ${tmpdir}
+  tar --strip=${stripopt} --directory=${tmpdir} ${taropt} \
+    -x -f "$petfile" ${stripopt2}${petdir}/${file2extract} 2>/dev/null
+  if [ -f "${tmpdir}/${file2extract}" ] ; then
+    newf=${tmpdir}/${file2extract}${RANDOM}
+    mv -f ${tmpdir}/${file2extract} "$newf"
+    echo ${newf}
+  else
+    return 1
+  fi
+}
+
+## pet_specs <file.pet>
+##   success: pet specs
+function pet_specs() {
+  local petfile specs specsfile
+  petfile="$1"
+  specsfile=$(pet_extract_file "$petfile" pet.specs)
+  [ $? -ne 0 ] && return 1
+  read -r specs < "$specsfile"
+  rm -f $specsfile
+  echo $specs
+}
+
+## pet2tar <file.pet>
+##   success:
+function pet2tar() {
+  local petfile EXT FOOTERSIZE MD5SUM NEWNAME DL_SAVE_FLAG
+  petfile=$(ValidatePet $1)
+  [ ! "$petfile" ] && return 1
+  EXT=$(pet_comp "$petfile")
+  [ $? -ne 0 ] && return 1
+  [ -f /var/local/petget/nd_category ] && DL_SAVE_FLAG=$(cat /var/local/petget/nd_category)
+  [ "$DL_SAVE_FLAG" != "true" ] && [ -f /tmp/install_quietly ] && set -x
+  chmod +w "$petfile" #make it writable.
+  FOOTERSIZE="32"
+  MD5SUM="`tail -c $FOOTERSIZE \"$petfile\"`"
+  NEWNAME=${petfile%pet}tar.${EXT}
+  head -c -$FOOTERSIZE "$petfile" > $NEWNAME
+  local NEWMD5SUM="`md5sum \"$NEWNAME\" | cut -f 1 -d ' '`"
+  [ "$DL_SAVE_FLAG" != "true" ] && rm -f "$petfile"
+  if [ ! "$MD5SUM" = "$NEWMD5SUM" ] ; then
+    echo "CHECKSUM ERROR: $MD5SUM != $NEWMD5SUM" >&2
+    return 1
+  fi
+}
+
+## /!\
+## untar2root <file.pet>
+##   success:
+function untar2root() {
+  local petfile petfile2 petdir taropt stripopt
+  petfile="$1"
+  [[ $petfile != /* ]] && petfile=${PWD}/${petfile}
+  petfile2=${petfile##*/}
+  petdir=${petfile2%.pet}
+  petdir=${petfile2%.tar.*}
+  taropt=$(pet_tar_opt "$petfile")
+  #local taropt='-a'
+  [ $? -ne 0 ] && return 1
+  stripopt=$(pet_get_strip_opt "$petfile")
+  [ "$VERBOSE" ] && local V='-v'
+  tar --strip=${stripopt} --directory=/ ${V} ${taropt} -x -f "$petfile" 2>/dev/null
+}
+
+## unpet2root <file.pet>
+##   success:
+function unpet2root() {
+  local curdir petfile tmpdir petfile2 tarfile filelist rootname
+  curdir=$PWD
+  petfile=$(ValidatePet $1)
+  [ ! "$petfile" ] && return 1
+  tmpdir=/tmp/pet_install${RANDOM}
+  mkdir -p ${tmpdir}
+  cd ${tmpdir}
+  cp -f "$petfile" "${tmpdir}"
+  petfile2=${tmpdir}/${petfile##*/}
+  pet2tar "$petfile2"
+  if [ $? -ne 0 ] ; then
+    echo "ERROR installing ${petfile##*/}" >&2
+    cd $curdir
+    rm -rf ${tmpdir}
+    return 1
+  fi
+  tarfile=${petfile2%.pet}.tar.gz
+  [ ! -f "$tarfile" ] && tarfile=${petfile2%.pet}.tar.xz
+  V=-v
+  filelist=$(untar2root ${tarfile})
+  if [ $? -ne 0 ] ; then
+    echo "ERROR installing ${petfile##*/}" >&2
+    rm -rf ${tmpdir}
+    cd $curdir
+    return 1
+  fi
+
+  rootname=${petfile##*/}
+  rootname=${rootname%.pet}
+  echo "$(echo "$filelist" | pet_format_filelist2 "$petfile")" > /root/.packages/${rootname}.files
+  echo -n "PACKAGE NAME:     ${rootname}" > /var/log/packages/${rootname}
+
+  if [ -f /pet.specs ] ; then
+    sed -i -e "\%${rootname}|%d" /root/.packages/user-installed-packages #/root/.packages/woof-installed-packages
+    read -r specs < /pet.specs
+    echo "$specs" >> /root/.packages/user-installed-packages
+  else
+    echo "/pet: not found" >&2
+  fi
+
+  [ -f /puninstall.sh ] && mv -f /puninstall.sh /root/.packages/${rootname}.remove
+  if [ -f /pinstall.sh ] ; then
+    cd / && sh /pinstall.sh
+    #mv -f /puninstall.sh /root/.packages/${rootname}.install
+  fi
+  rm -f /nohup.out /pet.specs /pinstall.sh /puninstall.sh
+
+  echo "Succesfully installed ${petfile##*/}" >&2
+  cd $curdir
+  rm -rf ${tmpdir}
+}
+
+## tar2pet <file.[tgz|txz|tar.gz|]>
+##   success:
+##   convert a .tar.gz file to .pet...
+##   this works for md5sum returning 8-bit characters!
+function tar2pet() { 
+  local TARBALL EXT BASEPKG DIRPKG
+  TARBALL=$1
+  [ ! -f "$TARBALL" ] && { echo "ERROR: '${TARBALL}' is not regular file" >&2 ; exit 1 ; }
+  sync
+  chmod 644 $TARBALL #make it writable.
+  EXT=''
+  case $EXT in
+    *gz) OPT=-z ;;
+    *xz) OPT=-J ;;
+  esac 
+  case $EXT in 	
+   *tgz)
+     mv -f ${TARBALL} ${DIRPKG}/${BASEPKG}.tar.gz
+     TARBALL="${DIRPKG}/${BASEPKG}.tar.gz"
+     EXT='.tar.gz' 	
+     ;; 
+   *txz)
+     mv -f ${TARBALL} ${DIRPKG}/${BASEPKG}.tar.xz
+     TARBALL="${DIRPKG}/${BASEPKG}.tar.xz"
+     EXT='.tar.xz' 	
+     ;;
+  esac
+  # split TARBALL path/filename into components...
+  BASEPKG="`basename $TARBALL $EXT`"
+  DIRPKG="`dirname $TARBALL`"
+  [ "$DIRPKG" = "/" ] && DIRPKG=""
+  # if tarball expands direct to '/' want to wrap around it (slackware pkg)... 100628 add -z ...
+  # man bad bug here... the thing isn't expanded! #131122
+  if [ "`tar ${OPT} --list -f $TARBALL | head -n 1`" = "./" ] ; then
+    [ -d $DIRPKG/$BASEPKG ] && exit 1
+    mkdir $DIRPKG/$BASEPKG
+    mv $TARBALL $DIRPKG/$BASEPKG/
+    (cd $DIRPKG/$BASEPKG/ ; tar xf $TARBALL ; rm $TARBALL)
+    tar --remove-files -c -f $DIRPKG/${BASEPKG}.tar $DIRPKG/$BASEPKG/
+    case $EXT in
+      *gz) gzip --best $DIRPKG/${BASEPKG}.tar ;;
+      *xz) xz -z -9 -e $DIRPKG/${BASEPKG}.tar ;;
+    esac
+    #[ -d $DIRPKG/$BASEPKG ] && rmdir $DIRPKG/$BASEPKG
+  fi
+  echo -n `md5sum $TARBALL | cut -f 1 -d ' '` >> $TARBALL
+  sync
+  mv -f $TARBALL $DIRPKG/${BASEPKG}.pet
+  sync
+}
+
+
+##############################################
+#            MASS PROCESSING
+##############################################
+
+## dirpets <directory> [tar]
+##   success: pet files in <directory> (full path)
+function dirpets() {
+  local dir="$1" type="$2" pfile=""
+  [ ! -d "$dir" ] && return 1
+  dir=$(realpath "$dir")
+  case $type in
+    tar) name="*.tar.*" ;;
+    *)   name="*.pet"   ;;
+  esac
+  find "$dir" -maxdepth 1 -type f -name "$name" | sort
+}
+
+## dir_pet_comp <directory>
+function dir_pet_comp() {
+  dirpets "$1" | while read petfile ; do echo -n "$petfile: " ; pet_comp "$petfile" ; done
+}
+
+## dir_pet_has_install <directory>
+##   success: pet files containing pinstall.sh
+function dir_pet_has_install() {
+  dirpets "$1" | while read petfile ; do
+    [ "$(pet_has_file "$petfile" pinstall.sh)" ] && echo ${petfile##*/}
+  done
+}
+
+## dir_pet_has_uninstall <directory>
+##   success: pet files containing puninstall.sh
+function dir_pet_has_uninstall() {
+  dirpets "$1" | while read petfile ; do
+    [ "$(pet_has_file "$petfile" puninstall.sh)" ] && echo ${petfile##*/}
+  done
+}
+
+## dir_pet_has_specs <directory>
+##   success: pet files containing pet.specs
+function dir_pet_has_specs() {
+  dirpets "$1" | while read petfile ; do
+    [ "$(pet_has_file "$petfile" pet.specs)" ] && echo ${petfile##*/}
+  done
+}
+
+## dir_pet_specs <directory>
+##   success: pets specs [if present]
+function dir_pet_specs() {
+  dirpets "$1" | while read petfile ; do
+    local specz=$(pet_specs "$petfile")
+    [ "$specz" ] && echo "$specz"
+  done
+}
+
+## dir_pet_filelist <directory>
+##   success: formatted filelist
+function dir_pet_filelist() {
+  dirpets "$1" | while read petfile ; do pet_filelist "$petfile" ; done
+}
+
+## dir_pet_filelist2 <directory>
+##   success: raw filelist
+function dir_pet_filelist2() {
+  dirpets "$1" | while read petfile ; do pet_raw_filelist "$petfile" ; done
+}
+
+## dir_pet_check <directory>
+function dir_pet_check() {
+  dirpets "$1" | while read petfile ; do pet_check "$petfile" ; done
+}
+
+## dir_pet_extract <directory>
+function dir_pet_extract() {
+  dirpets "$1" | while read petfile ; do pet_extract "$petfile" ; done
+}
+
+## dir_pet_extract2 <directory>
+function dir_pet_extract2() {
+  dirpets "$1" | while read petfile ; do pet_extract2 "$petfile" ; done
+}
+
+## dir_unpet2root <directory>
+function dir_unpet2root() {
+  dirpets "$1" | while read petfile ; do unpet2root "$petfile" ; done
+}
+
+## dir_pet2tar <directory>
+function dir_pet2tar() {
+  dirpets "$1" | while read petfile ; do pet2tar "$petfile" ; done
+}
+
+## dir_tar2pet <directory>
+function dir_tar2pet() {
+  dirpets "$1" tar | while read tarfile ; do 
+    case $tarfile in *gz|*xz) tar2pet "$tarfile" ;; esac
+  done
+}
+
+##############################################
+script=${0##*/}
+case $script in
+  pet2tgz) pet2tar "$@" ; exit $? ;;
+  tgz2pet) tar2pet "$@" ; exit $? ;;
+esac
+##############################################
+
+process_dir_or_file() {
+	local petcmd=$1 dircmd=$2 f="$3"
+	if [ -d "$f" ] ; then
+		$dircmd "$f"
+	else
+		$petcmd "$f"
+	fi
+}
+
+[ -z "$1" -o -z "$2" ] && usage
+
+case $1 in
+	specs) 
+		shift
+		process_dir_or_file pet_specs dir_pet_specs "$1"
+		;;
+	files)
+		shift
+		process_dir_or_file pet_filelist dir_pet_filelist "$1"
+		;;
+	files2)
+		shift
+		process_dir_or_file pet_filelist2 dir_pet_filelist2 "$1"
+		;;
+	comp)
+		shift
+		process_dir_or_file pet_comp dir_pet_comp "$1"
+		;;
+	check)
+		shift
+		process_dir_or_file pet_check dir_pet_check "$1"
+		;;
+	*)
+		usage
+		;;
+esac
+
+### END ###

@@ -1,0 +1,85 @@
+#!/bin/sh
+# creates /tmp/not_a_huge_kernel
+
+if [ -f /lib/modules/${KERNELVER}/modules.alias -a \
+	-f /lib/modules/${KERNELVER}/modules.dep -a \
+	-f /lib/modules/${KERNELVER}/modules.symbols ] ; then
+	# these files are created by 3builddistro
+	# which means we're dealing with a non-woofce kernel
+	# a kernel pet: an old kernel or a distro stock kernel
+	# where extra steps are needed to make it work with the current code
+	touch /tmp/not_a_huge_kernel
+else
+	exit 1
+fi
+
+ls -d /lib/modules/${KERNELVER}/kernel/* 
+[ $? -ne 0 ] && exit 1
+
+###################LOAD MODULES TO ACCESS DRIVES#####################
+echo -n "Loading drivers needed to access disk drives" > /dev/console #STEP ONE
+
+#100214 one config of 2.6.33 has base floppy and ps/2 mouse support not builtin...
+[ "`modinfo floppy 2>/dev/null`" != "" ] && modprobe floppy > /dev/null 2>&1
+[ "`modinfo psmouse 2>/dev/null`" != "" ] && modprobe psmouse
+
+#w462 if present, load it. enables recognition of drives attached to parallel port.
+[ "`modinfo ppa 2>/dev/null`" != "" ] && modprobe ppa #also loads parport.ko
+
+#v403 pcmcia drive support. i think this may need extra delay though...
+if [ "`lspci -n | grep -o ' 0607: '`" != "" ];then
+ modprobe yenta_socket
+ #...may have to add on a couple of seconds, need to test with a pcmcia drive.
+ #v412 yeah, my pccard-usb adaptor needs delay before lspci recognises 0c03* interface...
+ echo -n "." > /dev/console
+ sleep 2
+fi
+#v423 k2.6.29.6 dmesg has warning that ehci-hcd should load before uhci-hcd and ohci-hid...
+[ "`lspci -n | grep ' 0c03: '`" != "" ] && modprobe ehci-hcd 2>/dev/null
+
+#121227 extra f.s. drivers may be modules (quirky6)... 130216 add f2fs...
+for ONEFSMOD in ext2 ext3 ext4 fat msdos vfat ntfs reiserfs udf f2fs isofs
+do
+ [ "`modinfo $ONEFSMOD 2>/dev/null`" != "" ] && modprobe $ONEFSMOD
+done
+
+echo -n "." > /dev/console
+MODALIASES="`cat /sys/bus/pci/devices/*/modalias`" #important, save to variable before loop.
+for ONEMODALIAS in $MODALIASES
+do
+  modprobe $ONEMODALIAS 2>/dev/null #-v means verbose.
+done
+
+#091222 some mmc/sd interfaces need this...
+#(above code loop may have loaded sdhci/sdhci_pci or tifm_core/tifm_7xx1)
+[ "`lsmod | grep '^sdhci'`" != "" ] && modprobe mmc_core && modprobe mmc_block
+[ "`lsmod | grep '^tifm'`" != "" ] && modprobe mmc_core && modprobe mmc_block && modprobe tifm_sd
+
+modprobe squashfs
+modprobe sr_mod
+
+#filesystems...
+modprobe nls_cp437 #needed by windows filesystems.
+modprobe nls_iso8859-1 #needed by linux filesystems.
+modprobe aufs
+modprobe overlay
+modprobe fuse #for ntfs-3g driver.
+
+modprobe usb-storage & #run as separate process
+modprobe usbhid #for a usb keyboard.
+
+dirs="/lib/modules/${KERNELVER}/kernel/drivers/scsi
+/lib/modules/${KERNELVER}/kernel/drivers/ata
+/lib/modules/${KERNELVER}/kernel/drivers/block"
+
+for dir in $dirs
+do
+	for i in $(find $dir -type f) ; do
+		ko="$(basename $i)"
+		modprobe $ko
+	done
+done
+
+exit 0
+
+### END ###
