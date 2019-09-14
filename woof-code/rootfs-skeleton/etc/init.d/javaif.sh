@@ -1,7 +1,6 @@
 #!/bin/ash
 # /etc/init.d/javaif.sh
 # Derived from /etc/init.d/java.sfs.sh in java-sfs.sh by Uten
-#set -x #DEBUG
 
 [ "$1" ] || exit
 ARGUMENT="$1"
@@ -11,30 +10,57 @@ ARGUMENT="$1"
 #==============================================================
 
 update_configuration () {
-    JAVAHOME="$(javaiffind)"
-    local UPDATECONFIG=false
+    JAVAHOME=''; JREHOME=''; JAVAVERSION=''; ICEDTEAHOME=''; ICEDTEAVERSION=''
+    if [ -f /root/.javaifrc ]; then
+     . /root/.javaifrc #dynamic info
+    fi
+    PREVJAVAHOME="$JAVAHOME"
+    PREVVERSION="$JAVAVERSION"
+    PREVICEDTEAHOME="$ICEDTEAHOME"
+    PREVICEDTEAVERSION="$ICEDTEAVERSION"
+    JAVAHOME="$(javaiffind)" #Latest installed java version & icedtea-web
+    ICEDTEAHOME="$(echo -n "$JAVAHOME " | cut -f 2 -d ' ')"
+    JAVAHOME="$(echo -n $JAVAHOME | cut -f 1 -d ' ')"
     if [ "$JAVAHOME" ]; then
+     JAVAVERSION="$($JAVAHOME/bin/java -version 2>&1 | grep 'version' | cut -f3 -d ' ' | tr -d '\"')"
      if [ -d "$JAVAHOME/jre" ]; then #JDK
       JREHOME="$JAVAHOME/jre"
      else
       JREHOME="$JAVAHOME"
      fi
-     JAVAVERSION="$($JAVAHOME/bin/java -version 2>&1 | grep 'version' | cut -f3 -d ' ' | tr -d '\"')"
-     if [ "$JREHOME $JAVAVERSION" != "$PREVJREHOME $PREVVERSION" ]; then
-      local UPDATECONFIG=true
+     if [ -n "$ICEDTEAHOME" ]; then
+      ICEDTEAVERSION="$(grep -osm 1 '"icedtea-web .*"' \
+       $ICEDTEAHOME/man/man1/icedtea-web.1 \
+       $ICEDTEAHOME/share/man/man1/icedtea-web.1 | \
+       sed 's/.*"icedtea-web (*\([0-9.]*\).*/\1/')"
+      for ONEEXEC in itweb-settings javaws policyeditor; do
+       if [ -x /usr/bin/$ONEEXEC ]; then
+        if [ -h /usr/bin/$ONEEXEC ]; then
+         rm -f /usr/bin/$ONEEXEC
+        else
+         chmod a-x /usr/bin/$ONEEXEC
+        fi
+       fi
+      done
+     else
+      ICEDTEAVERSION=''
+      for ONEEXEC in itweb-settings javaws policyeditor; do
+       if [ -f /usr/bin/$ONEEXEC ]; then
+        chmod a+x /usr/bin/$ONEEXEC
+       elif [ -f $JAVAHOME/bin/$ONEEXEC ]; then
+         ln -snf $JAVAHOME/bin/$ONEEXEC /usr/bin/$ONEEXEC
+       fi
+      done
+     fi
+     JAVAIFRC="JAVAHOME=$JAVAHOME
+JAVAVERSION=$JAVAVERSION
+ICEDTEAHOME=$ICEDTEAHOME
+ICEDTEAVERSION=$ICEDTEAVERSION"
+     if [ ! -f /root/.javaifrc ] || [ "$JAVAIFRC" != "$(cat /root/.javaifrc)" ]; then
+      echo -n "$JAVAIFRC" > /root/.javaifrc
      fi
     else
-     JREHOME=''
-     JAVAVERSION=''
-     if [ "$PREVJAVAHOME" -o "$PREVJREHOME" -o "$PREVVERSION" ]; then
-      local UPDATECONFIG=true
-     fi
-    fi
-    if [ $UPDATECONFIG = true ]; then
-     SEDSCRIPT1="/JAVAHOME=/ s%=.*%=${JAVAHOME}%"
-     SEDSCRIPT2="/JREHOME=/ s%=.*%=${JREHOME}%"
-     SEDSCRIPT3="/JAVAVERSION=/ s%=.*%=${JAVAVERSION}%"
-     sed -i -e "$SEDSCRIPT1" -e "$SEDSCRIPT2" -e "$SEDSCRIPT3" /etc/javaif.conf
+     rm -f /root/.javaifrc
     fi
 }
 
@@ -42,8 +68,8 @@ add_plugin_links() {
     for ONEBROWSER in $BROWSERS; do
      if [ -d /usr/lib/$ONEBROWSER ]; then
       for ONEPLUGIN in $BROWSERPLUGINS; do
-       mkdir -p /usr/lib/$ONEBROWSER/plugins
        if [ -f $JREHOME/lib/i386/$ONEPLUGIN ]; then
+        mkdir -p /usr/lib/$ONEBROWSER/plugins
         ln -sf $JREHOME/lib/i386/$ONEPLUGIN /usr/lib/$ONEBROWSER/plugins/$(basename $ONEPLUGIN)
        fi
       done
@@ -75,29 +101,29 @@ add_icon_links() {
      fi
     done
     for ONEMIMEICON in $MIMEICONS; do
-     if [ "$ROXMIMEPATH" -a -f $JREHOME/lib/desktop/icons/hicolor/48x48/mimetypes/gnome-mime-$ONEMIMEICON ]; then
-      ln -sf $JREHOME/lib/desktop/icons/hicolor/48x48/mimetypes/gnome-mime-$ONEMIMEICON $ROXMIMEPATH/$ONEMIMEICON
+     if [ "$ROXMIMEICONPATH" -a -f $JREHOME/lib/desktop/icons/hicolor/48x48/mimetypes/gnome-mime-$ONEMIMEICON ]; then
+      ln -sf $JREHOME/lib/desktop/icons/hicolor/48x48/mimetypes/gnome-mime-$ONEMIMEICON $ROXMIMEICONPATH/$ONEMIMEICON
      fi
     done
     for ONEGROUP in hicolor HighContrast HighContrastInverse LowContrast; do
      if [ -d $JREHOME/lib/desktop/icons/$ONEGROUP ]; then
-      mkdir -p /usr/share/icons/$ONEGROUP/16x16/apps
-      mkdir -p /usr/share/icons/$ONEGROUP/48x48/apps
       for ONEMAINICON in $MAINICONS; do
        if [ -f $JREHOME/lib/desktop/icons/$ONEGROUP/16x16/apps/$ONEMAINICON ]; then
+        mkdir -p /usr/share/icons/$ONEGROUP/16x16/apps
         ln -sf $JREHOME/lib/desktop/icons/$ONEGROUP/16x16/apps/$ONEMAINICON /usr/share/icons/$ONEGROUP/16x16/apps/
        fi
        if [ -f $JREHOME/lib/desktop/icons/$ONEGROUP/48x48/apps/$ONEMAINICON ]; then
+        mkdir -p /usr/share/icons/$ONEGROUP/48x48/apps
         ln -sf $JREHOME/lib/desktop/icons/$ONEGROUP/48x48/apps/$ONEMAINICON /usr/share/icons/$ONEGROUP/48x48/apps/
        fi
       done
-      mkdir -p /usr/share/icons/$ONEGROUP/16x16/mimetypes
-      mkdir -p /usr/share/icons/$ONEGROUP/48x48/mimetypes
       for ONEMIMEICON in $MIMEICONS; do
        if [ -f $JREHOME/lib/desktop/icons/$ONEGROUP/16x16/mimetypes/gnome-mime-$ONEMIMEICON ]; then
+        mkdir -p /usr/share/icons/$ONEGROUP/16x16/mimetypes
         ln -sf $JREHOME/lib/desktop/icons/$ONEGROUP/16x16/mimetypes/gnome-mime-$ONEMIMEICON /usr/share/icons/$ONEGROUP/16x16/mimetypes/
        fi
        if [ -f $JREHOME/lib/desktop/icons/$ONEGROUP/48x48/mimetypes/gnome-mime-$ONEMIMEICON ]; then
+        mkdir -p /usr/share/icons/$ONEGROUP/48x48/mimetypes
         ln -sf $JREHOME/lib/desktop/icons/$ONEGROUP/48x48/mimetypes/gnome-mime-$ONEMIMEICON /usr/share/icons/$ONEGROUP/48x48/mimetypes/
        fi
       done
@@ -113,7 +139,7 @@ remove_icon_links() {
       [ -f /usr/local/lib/X11/mini-icons/$ONEMAINICON ] && rm -f /usr/local/lib/X11/mini-icons/$ONEMAINICON
     done
     for ONEMIMEICON in $MIMEICONS; do
-     [ "$ROXMIMEPATH" ] && rm -f $ROXMIMEPATH/$ONEMIMEICON
+     [ "$ROXMIMEICONPATH" ] && rm -f $ROXMIMEICONPATH/$ONEMIMEICON
     done
     for ONEGROUP in hicolor HighContrast HighContrastInverse LowContrast; do
      for ONEMAINICON in $MAINICONS; do
@@ -141,28 +167,21 @@ remove_icon_links() {
 
 case "$ARGUMENT" in
  start|change)
+  [ "$ARGUMENT" = 'start' ] && sleep 1 #Wait for other java service scripts before overriding them, then do change
   BROWSERS=''; BROWSERPLUGINS=''
   IMAGES=''; MAINICONS=''; MIMEICONS=''
-  . /etc/javaif.conf
-  PREVJAVAHOME="$JAVAHOME"
-  PREVJREHOME="$JREHOME"
-  PREVVERSION="$JAVAVERSION"
   FORCEEXECPATH=false
-  ROXMIMEPATH=/usr/local/apps/ROX-Filer/ROX/MIME
+  ROXMIMEICONPATH=/usr/local/apps/ROX-Filer/ROX/MIME
+  ROXMIMETYPESPATH=/etc/xdg/rox.sourceforge.net/MIME-types
   update_configuration
+  . /etc/javaif.conf #static info
   if [ "$JAVAHOME" ]; then
-   if [ "$PREVJREHOME" ]; then
+   if [ "$PREVJAVAHOME" ]; then
     remove_plugin_links
     remove_icon_links
    fi
    add_plugin_links
    add_icon_links
-   # Remove possible conflicting override links & script from PET/SFS package
-   for ONEEXEC in java javac javaws jcontrol jjs; do
-    rm -f /usr/bin/$ONEEXEC
-   done
-   rm -f /etc/init.d/java.sfs.sh # possible conflicting init scripts
-   rm -f etc/init.d/java
   else
    remove_plugin_links
    remove_icon_links
