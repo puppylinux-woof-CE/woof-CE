@@ -107,6 +107,63 @@ do
 
 done < /tmp/busybox.lst
 
+#==============================================================
+
+# currently these apps are busybox applets...
+
+# need busybox su - spot
+# ubuntu tarh-cosmic: 'login' pkg
+# ubuntu disco+     : 'util-linux' pkg
+
+# upupdd: ptheme calls killall and killall fails for some reason
+# need busybox killall (debian: psmisc, slackware: procps(-ng))
+
+# util-linux: fdformat...switch_root
+# coreutils : '['........yes
+
+for i in \
+	su \
+	killall \
+	fdformat \
+	getty \
+	logger \
+	mesg \
+	more \
+	pivot_root \
+	readprofile \
+	rtcwake \
+	sulogin \
+	switch_root
+	'[' \
+	basename \
+	chown \
+	chroot \
+	echo \
+	env \
+	expr \
+	false \
+	realpath \
+	sha1sum \
+	sha256sum \
+	sleep \
+	sync \
+	tee \
+	tr \
+	true \
+	unlink \
+	who \
+	whoami \
+	yes
+do
+	for d in bin sbin usr/bin usr/sbin usr/local/bin
+	do
+		if [ -e ${d}/${i} ] && [ ! -L ${d}/${i} ] ; then
+			mv -f ${d}/${i} ${d}/${i}-FULL
+			ln -snfv /bin/busybox ${d}/${i}
+		fi
+	done
+done
+
 echo
 
 ### END ###

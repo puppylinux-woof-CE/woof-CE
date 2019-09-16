@@ -226,25 +226,6 @@ do
 	fi
 done
 
-# upupdd: ptheme calls killall and killall fails for some reason
-# need busybox killall (debian: psmisc, slackware: procps(-ng))
-if [ -e ${SR}/bin/killall ] && [ ! -L ${SR}/bin/killall ] ; then
-	mv -fv ${SR}/bin/killall ${SR}/bin/killall-FULL
-	ln -snfv /bin/busybox ${SR}/bin/killall
-fi
-if [ -e ${SR}/usr/bin/killall ] && [ ! -L ${SR}/usr/bin/killall ] ; then
-	mv -fv ${SR}/usr/bin/killall ${SR}/usr/bin/killall-FULL
-	ln -snfv /bin/busybox ${SR}/usr/bin/killall
-fi
-
-# need busybox su - spot
-# ubuntu tarh-cosmic: 'login' pkg
-# ubuntu disco+     : 'util-linux' pkg
-if [ -e ${SR}/bin/su ] && [ ! -L ${SR}/bin/su ] ; then
-	mv -fv ${SR}/bin/su ${SR}/bin/su-FULL
-	ln -snfv /bin/busybox ${SR}/bin/su
-fi
-
 # need to enforce pterminfo: xterm -- see /etc/profile
 if [ -d ${SR}/usr/share/terminfox ] ; then
 	rm -rf ${SR}/usr/share/terminfo
