@@ -905,7 +905,7 @@ mv ../output/${linux_kernel_dir}/boot/vmlinuz \
 	rm -f ../output/${linux_kernel_dir}/boot/bzImage
 [ -f ../output/${linux_kernel_dir}/boot/zImage ] && \
 	rm -f ../output/${linux_kernel_dir}/boot/zImage
-log_msg "${linux_kernel_dir} is ready in dist"
+log_msg "${linux_kernel_dir} is ready in output"
 
 log_msg "Cleaning the kernel sources"
 make clean >> ${BUILD_LOG} 2>&1
