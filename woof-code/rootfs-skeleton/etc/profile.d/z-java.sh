@@ -16,12 +16,12 @@ if [ -n "$JAVADIR" ]; then
 
  # Add path(s) for executables.
  JAVAPATH=''; JREPATH=''; ICEDTEAPATH=''
- if [ -d $JAVADIR/bin ]; then
+ if [ -n "$(ls $JAVADIR/bin 2>/dev/null)" ]; then
   JAVAPATH=":$JAVADIR/bin"
-  if [ -d $JAVADIR/jre/bin ] && [ ! -x ":$JAVAPATH/java" ]; then
+  if [ -d $JAVADIR/jre/bin ] && [ ! -x "$JAVAPATH/java" ]; then
    JREPATH=":$JAVADIR/jre/bin"
   fi
-  if [ -n "$ICEDTEADIR" ] && [ -d $ICEDTEADIR/bin ]; then
+  if [ -n "$ICEDTEADIR" ] && [ -x $ICEDTEADIR/bin/javaws ]; then
    ICEDTEAPATH=":$ICEDTEADIR/bin"
   fi
  fi
@@ -30,10 +30,12 @@ if [ -n "$JAVADIR" ]; then
   -e 's%:[^:]*/java/[^:]*%%g')${JAVAPATH}${JREPATH}${ICEDTEAPATH}"
 
  # Add library path to libjvm.
- if [ -d $JAVADIR/lib/server ]; then
+ if [ -f $JAVADIR/lib/server/libjvm ]; then
   JAVALIBDIR="$JAVADIR/lib/server"
- elif [ -d $JAVADIR/jre/lib/*/server ]; then
+ elif [ -f $JAVADIR/jre/lib/*/server/libjvm ]; then
   JAVALIBDIR="$(ls -d $JAVADIR/jre/lib/*/server)"
+ elif [ -f $JAVADIR/lib/*/server/libjvm ]; then
+  JAVALIBDIR="$(ls -d $JAVADIR/lib/*/server)"
  fi
  if [ -n "$JAVALIBDIR" ]; then
   export LD_LIBRARY_PATH="$(echo "${LD_LIBRARY_PATH}" | sed 's%:[^:]*/j[dr][ke]-*[1-9/][^:]*%%g'):$JAVALIBDIR"
@@ -41,9 +43,9 @@ if [ -n "$JAVADIR" ]; then
 
  # Override MANPATH if already set by open java.
  if [ -n "$MANPATH" ]; then
-  NEWMANPATH="$(echo "${MANPATH}" | sed 's%:[^:]*/java[^:]*%%g')"
-  if [ -d $JAVADIR/man ]; then
-   NEWMANPATH="${MANPATH}:$JAVADIR/man"
+  NEWMANPATH="$(echo "${MANPATH}" | sed 's%[:^][^:]*/java[^:]*%%g')"
+  if [ -f $JAVADIR/man/man1/java.1.gz ]; then
+   NEWMANPATH="${NEWMANPATH}:$JAVADIR/man"
   fi
   if [ "$NEWMANPATH" != "$MANPATH" ]; then
    if [ -n "$NEWMANPATH" ]; then
