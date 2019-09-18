@@ -718,6 +718,12 @@ if [ "`grep "/lib/modules/$KERNVER/" $PKGFILES`" != "" ];then
  depmod -a
 fi
 
+if [ "`grep '/usr/share/icons/' $PKGFILES`" != "" ] && [ "$(cat "$PKGFILES" | grep "/mimetypes/")" != "" ]; then
+  if [ -e /usr/local/apps/ROX-Filer/ROX-Filer ] || [ -e /usr/bin/rox-filer ] || [ -e /usr/bin/rox ]; then
+   [ "$(which sync-rox-icons)" != "" ] && sync-rox-icons
+  fi
+fi
+
 rm -f $HOME/nohup.out
 
 ###END###
