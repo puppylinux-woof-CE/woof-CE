@@ -133,7 +133,7 @@ for i in \
 	readprofile \
 	rtcwake \
 	sulogin \
-	switch_root
+	switch_root \
 	'[' \
 	basename \
 	chown \
