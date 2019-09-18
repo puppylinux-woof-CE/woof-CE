@@ -369,6 +369,12 @@ if [ "`grep "/lib/modules/$KERNVER/" $PKGFILES`" != "" ];then
  depmod -a
 fi
 
+if [ "$(cat "$PKGFILES" | grep "/usr/share/icons/" | grep "/mimetypes/")" != "" ]; then
+  if [ -e /usr/local/apps/ROX-Filer/ROX-Filer ] || [ -e /usr/bin/rox-filer ] || [ -e /usr/bin/rox ]; then
+   [ "$(which sync-rox-icons)" != "" ] && sync-rox-icons
+  fi
+fi
+
 #what about any user-installed deps...
 remPATTERN='^'"$DB_pkgname"'|'
 #110211 shinobar: was the dependency logic inverted...
