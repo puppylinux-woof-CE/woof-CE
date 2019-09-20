@@ -369,11 +369,16 @@ if [ "`grep "/lib/modules/$KERNVER/" $PKGFILES`" != "" ];then
  depmod -a
 fi
 
-if [ "$(cat "$PKGFILES" | grep "/usr/share/icons/" | grep "/mimetypes/")" != "" ]; then
-  if [ -e /usr/local/apps/ROX-Filer/ROX-Filer ] || [ -e /usr/bin/rox-filer ] || [ -e /usr/bin/rox ]; then
+if [ "$(cat "$PKGFILE" | grep "/share/icons" | grep "mimetype")" != "" ]; then
+ if [ -e /usr/local/apps/ROX-Filer/ROX-Filer ]; then
    [ "$(which sync-rox-icons)" != "" ] && sync-rox-icons
-  fi
+ elif [ "$(which rox)" != "" ] && [ "$(file "$(which rox)" | grep "ELF")" != "" ]; then
+   [ "$(which sync-rox-icons)" != "" ] && sync-rox-icons
+ elif [ "$(which rox-filer)" != "" ] && [ "$(file "$(which rox-filer)" | grep "ELF")" != "" ]; then
+   [ "$(which sync-rox-icons)" != "" ] && sync-rox-icons
+ fi 
 fi
+
 
 #what about any user-installed deps...
 remPATTERN='^'"$DB_pkgname"'|'
