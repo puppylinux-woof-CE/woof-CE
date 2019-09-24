@@ -1,171 +1,65 @@
 #!/bin/ash
 # /etc/init.d/javaif.sh
 # Derived from /etc/init.d/java.sfs.sh in java-sfs.sh by Uten
-#set -x #DEBUG
 
 [ "$1" ] || exit
 ARGUMENT="$1"
 
-#==============================================================
-#                      FUNCTIONS
-#==============================================================
-
-update_configuration () {
-    JAVAHOME="$(javaiffind)"
-    local UPDATECONFIG=false
-    if [ "$JAVAHOME" ]; then
-     if [ -d "$JAVAHOME/jre" ]; then #JDK
-      JREHOME="$JAVAHOME/jre"
-     else
-      JREHOME="$JAVAHOME"
-     fi
-     JAVAVERSION="$($JAVAHOME/bin/java -version 2>&1 | grep 'version' | cut -f3 -d ' ' | tr -d '\"')"
-     if [ "$JREHOME $JAVAVERSION" != "$PREVJREHOME $PREVVERSION" ]; then
-      local UPDATECONFIG=true
-     fi
+update_icedtea_configuration () {
+    if [ -n "$ICEDTEAHOME" ]; then
+     ICEDTEAVERSION="$(grep -osm 1 '"icedtea-web .*"' \
+      $ICEDTEAHOME/man/man1/icedtea-web.1 \
+      $ICEDTEAHOME/share/man/man1/icedtea-web.1 | \
+      sed 's/.*"icedtea-web (*\([0-9.]*\).*/\1/')"
+     for ONEEXEC in itweb-settings javaws policyeditor; do
+      if [ -x /usr/bin/$ONEEXEC ]; then
+       if [ -h /usr/bin/$ONEEXEC ]; then
+        rm -f /usr/bin/$ONEEXEC
+       else
+        chmod a-x /usr/bin/$ONEEXEC
+       fi
+      fi
+     done
     else
-     JREHOME=''
-     JAVAVERSION=''
-     if [ "$PREVJAVAHOME" -o "$PREVJREHOME" -o "$PREVVERSION" ]; then
-      local UPDATECONFIG=true
-     fi
-    fi
-    if [ $UPDATECONFIG = true ]; then
-     SEDSCRIPT1="/JAVAHOME=/ s%=.*%=${JAVAHOME}%"
-     SEDSCRIPT2="/JREHOME=/ s%=.*%=${JREHOME}%"
-     SEDSCRIPT3="/JAVAVERSION=/ s%=.*%=${JAVAVERSION}%"
-     sed -i -e "$SEDSCRIPT1" -e "$SEDSCRIPT2" -e "$SEDSCRIPT3" /etc/javaif.conf
+     ICEDTEAVERSION=''
+     for ONEEXEC in itweb-settings javaws policyeditor; do
+      if [ -f /usr/bin/$ONEEXEC ]; then
+       chmod a+x /usr/bin/$ONEEXEC
+      elif [ -f $JAVAHOME/bin/$ONEEXEC ]; then
+        ln -snf $JAVAHOME/bin/$ONEEXEC /usr/bin/$ONEEXEC
+      fi
+     done
     fi
 }
 
-add_plugin_links() {
-    for ONEBROWSER in $BROWSERS; do
-     if [ -d /usr/lib/$ONEBROWSER ]; then
-      for ONEPLUGIN in $BROWSERPLUGINS; do
-       mkdir -p /usr/lib/$ONEBROWSER/plugins
-       if [ -f $JREHOME/lib/i386/$ONEPLUGIN ]; then
-        ln -sf $JREHOME/lib/i386/$ONEPLUGIN /usr/lib/$ONEBROWSER/plugins/$(basename $ONEPLUGIN)
-       fi
-      done
-     fi
-    done
-}
-
-remove_plugin_links() {
-    for ONEBROWSER in $BROWSERS; do
-     if [ -d /usr/lib/$ONEBROWSER ]; then
-      for ONEPLUGIN in $BROWSERPLUGINS; do
-       if [ -d /usr/lib/$ONEBROWSER/plugins ]; then
-        rm -f /usr/lib/$ONEBROWSER/plugins/$(basename $ONEPLUGIN)
-       fi
-      done
-     fi
-    done
-}
-
-add_icon_links() {
-    for ONEIMAGE in $IMAGES; do
-     if [ -f $JREHOME/lib/images/icons/$ONEIMAGE ]; then
-      ln -sf $JREHOME/lib/images/icons/$ONEIMAGE /usr/share/pixmaps/
-     fi
-    done
-    for ONEMAINICON in $MAINICONS; do
-     if [ -f $JREHOME/lib/desktop/icons/hicolor/16x16/apps/$ONEMAINICON ]; then
-      ln -sf $JREHOME/lib/desktop/icons/hicolor/16x16/apps/$ONEMAINICON /usr/local/lib/X11/mini-icons/
-     fi
-    done
-    for ONEMIMEICON in $MIMEICONS; do
-     if [ "$ROXMIMEPATH" -a -f $JREHOME/lib/desktop/icons/hicolor/48x48/mimetypes/gnome-mime-$ONEMIMEICON ]; then
-      ln -sf $JREHOME/lib/desktop/icons/hicolor/48x48/mimetypes/gnome-mime-$ONEMIMEICON $ROXMIMEPATH/$ONEMIMEICON
-     fi
-    done
-    for ONEGROUP in hicolor HighContrast HighContrastInverse LowContrast; do
-     if [ -d $JREHOME/lib/desktop/icons/$ONEGROUP ]; then
-      mkdir -p /usr/share/icons/$ONEGROUP/16x16/apps
-      mkdir -p /usr/share/icons/$ONEGROUP/48x48/apps
-      for ONEMAINICON in $MAINICONS; do
-       if [ -f $JREHOME/lib/desktop/icons/$ONEGROUP/16x16/apps/$ONEMAINICON ]; then
-        ln -sf $JREHOME/lib/desktop/icons/$ONEGROUP/16x16/apps/$ONEMAINICON /usr/share/icons/$ONEGROUP/16x16/apps/
-       fi
-       if [ -f $JREHOME/lib/desktop/icons/$ONEGROUP/48x48/apps/$ONEMAINICON ]; then
-        ln -sf $JREHOME/lib/desktop/icons/$ONEGROUP/48x48/apps/$ONEMAINICON /usr/share/icons/$ONEGROUP/48x48/apps/
-       fi
-      done
-      mkdir -p /usr/share/icons/$ONEGROUP/16x16/mimetypes
-      mkdir -p /usr/share/icons/$ONEGROUP/48x48/mimetypes
-      for ONEMIMEICON in $MIMEICONS; do
-       if [ -f $JREHOME/lib/desktop/icons/$ONEGROUP/16x16/mimetypes/gnome-mime-$ONEMIMEICON ]; then
-        ln -sf $JREHOME/lib/desktop/icons/$ONEGROUP/16x16/mimetypes/gnome-mime-$ONEMIMEICON /usr/share/icons/$ONEGROUP/16x16/mimetypes/
-       fi
-       if [ -f $JREHOME/lib/desktop/icons/$ONEGROUP/48x48/mimetypes/gnome-mime-$ONEMIMEICON ]; then
-        ln -sf $JREHOME/lib/desktop/icons/$ONEGROUP/48x48/mimetypes/gnome-mime-$ONEMIMEICON /usr/share/icons/$ONEGROUP/48x48/mimetypes/
-       fi
-      done
-     fi
-    done
-}
-
-remove_icon_links() {
-    for ONEIMAGE in $IMAGES; do
-      [ -f /usr/share/pixmaps/$ONEIMAGE ] && rm -f /usr/share/pixmaps/$ONEIMAGE
-    done
-    for ONEMAINICON in $MAINICONS; do
-      [ -f /usr/local/lib/X11/mini-icons/$ONEMAINICON ] && rm -f /usr/local/lib/X11/mini-icons/$ONEMAINICON
-    done
-    for ONEMIMEICON in $MIMEICONS; do
-     [ "$ROXMIMEPATH" ] && rm -f $ROXMIMEPATH/$ONEMIMEICON
-    done
-    for ONEGROUP in hicolor HighContrast HighContrastInverse LowContrast; do
-     for ONEMAINICON in $MAINICONS; do
-       if [ -f /usr/share/icons/$ONEGROUP/16x16/apps/$ONEMAINICON ] ; then
-         rm -f /usr/share/icons/$ONEGROUP/16x16/apps/$ONEMAINICON
-       fi
-       if [ -f /usr/share/icons/$ONEGROUP/48x48/apps/$ONEMAINICON ] ; then
-         rm -f /usr/share/icons/$ONEGROUP/48x48/apps/$ONEMAINICON
-       fi
-     done
-     for ONEMIMEICON in $MIMEICONS; do
-       if [ -f /usr/share/icons/$ONEGROUP/16x16/mimetypes/gnome-mime-$ONEMIMEICON ] ; then
-         rm -f /usr/share/icons/$ONEGROUP/16x16/mimetypes/gnome-mime-$ONEMIMEICON
-       fi
-       if [ -f /usr/share/icons/$ONEGROUP/48x48/mimetypes/gnome-mime-$ONEMIMEICON ] ; then
-         rm -f /usr/share/icons/$ONEGROUP/48x48/mimetypes/gnome-mime-$ONEMIMEICON
-       fi
-     done
-    done
-}
-
-#==============================================================
-#                      MAIN
-#==============================================================
-
+#Main:
 case "$ARGUMENT" in
  start|change)
-  BROWSERS=''; BROWSERPLUGINS=''
-  IMAGES=''; MAINICONS=''; MIMEICONS=''
-  . /etc/javaif.conf
-  PREVJAVAHOME="$JAVAHOME"
-  PREVJREHOME="$JREHOME"
-  PREVVERSION="$JAVAVERSION"
-  FORCEEXECPATH=false
-  ROXMIMEPATH=/usr/local/apps/ROX-Filer/ROX/MIME
-  update_configuration
+  [ "$ARGUMENT" = 'start' ] && sleep 1 #Wait for other java service scripts before overriding them, then do change
+  JAVAHOME=''; JAVAVERSION=''; ICEDTEAHOME=''; ICEDTEAVERSION=''
+  if [ -f /root/.javaifrc ]; then
+   . /root/.javaifrc #dynamic info
+  fi
+  PREVJAVAHOME="$JAVAHOME"; PREVVERSION="$JAVAVERSION"
+  PREVICEDTEAHOME="$ICEDTEAHOME"; PREVICEDTEAVERSION="$ICEDTEAVERSION"
+
+  JAVAHOME="$(javaiffind)" #Latest installed java version & icedtea-web
+  ICEDTEAHOME="$(echo -n "$JAVAHOME " | cut -f 2 -d ' ')"
+  JAVAHOME="$(echo -n $JAVAHOME | cut -f 1 -d ' ')"
   if [ "$JAVAHOME" ]; then
-   if [ "$PREVJREHOME" ]; then
-    remove_plugin_links
-    remove_icon_links
+   JAVAVERSION="$($JAVAHOME/bin/java -version 2>&1 | grep 'version' | cut -f3 -d ' ' | tr -d '\"')"
+
+   update_icedtea_configuration
+
+   JAVAIFRC="JAVAHOME=$JAVAHOME
+JAVAVERSION=$JAVAVERSION
+ICEDTEAHOME=$ICEDTEAHOME
+ICEDTEAVERSION=$ICEDTEAVERSION"
+   if [ ! -f /root/.javaifrc ] || [ "$JAVAIFRC" != "$(cat /root/.javaifrc)" ]; then
+    echo -n "$JAVAIFRC" > /root/.javaifrc
    fi
-   add_plugin_links
-   add_icon_links
-   # Remove possible conflicting override links & script from PET/SFS package
-   for ONEEXEC in java javac javaws jcontrol jjs; do
-    rm -f /usr/bin/$ONEEXEC
-   done
-   rm -f /etc/init.d/java.sfs.sh # possible conflicting init scripts
-   rm -f etc/init.d/java
   else
-   remove_plugin_links
-   remove_icon_links
+   rm -f /root/.javaifrc
   fi
   ;;
 esac
