@@ -99,44 +99,16 @@ IS_KERNEL=`ls ${HUGE_KERNEL_DIR}/*.tar.* 2>/dev/null | wc -l`
 
 download_kernel() {
 	local URL="$1" TARBALL="${1##*/}"
-	if [ -f ../../local-repositories/huge_kernels/${TARBALL} ] ; then
-		echo "Verifying ../../local-repositories/huge_kernels/${TARBALL}"
-		if tar -tf ../../local-repositories/huge_kernels/${TARBALL} >/dev/null 2>&1 ; then
-			cp -fv ../../local-repositories/huge_kernels/${TARBALL} ${HUGE_KERNEL_DIR}/
-			return
-		fi
-	elif [ -f ${HUGE_KERNEL_DIR}/${TARBALL} ] ; then
-		echo "Verifying ${HUGE_KERNEL_DIR}/${TARBALL}"
-		if tar -tf ${HUGE_KERNEL_DIR}/${TARBALL} >/dev/null 2>&1 ; then
-			cp -fv ${HUGE_KERNEL_DIR}/${TARBALL} ../../local-repositories/huge_kernels/
-			return
+	if [ ! -f ../../local-repositories/huge_kernels/${TARBALL} ] ; then
+		if [ -f ${HUGE_KERNEL_DIR}/${TARBALL} ] ; then
+			cp ${HUGE_KERNEL_DIR}/${TARBALL} ../../local-repositories/huge_kernels/${TARBALL}
 		fi
 	fi
-	#---------------------------------
-	wget -t0 -c $URL -P ${HUGE_KERNEL_DIR}
-	wget ${URL}.md5.txt -P ${HUGE_KERNEL_DIR}
-	CHK=`md5sum ${HUGE_KERNEL_DIR}/${TARBALL} | cut -d ' ' -f1`
-	MD5=`cat ${HUGE_KERNEL_DIR}/${TARBALL}.md5.txt| cut -d ' ' -f1`
-	# - md5.txt file might not be available: 404  not found
-	# -  e.g.: huge-3.14.79-tahr_noPAE.tar.bz2.md5
-	echo "${TARBALL}         : $CHK"
-	echo "${TARBALL}.md5.txt : $MD5"
-	rm -f ${HUGE_KERNEL_DIR}/${TARBALL}.md5.txt
-	if [ -z "$MD5" ] ; then
-		echo "*** WARNING: no checksum"
-		echo "Verifying tarball integrity..."
-		if ! tar -tf ${HUGE_KERNEL_DIR}/${TARBALL} >/dev/null 2>&1 ; then
-			echo "ERROR"
-			exit 1
-		fi
-	else
-		if [ "$CHK" != "$MD5" ] ; then
-			echo "checksum failed"
-			exit 1
-		fi
-		echo "Checksum passed"
+	../support/download_file.sh "$URL" ../../local-repositories/huge_kernels
+	[ $? -ne 0 ] && exit 1
+	if [ ! -f ${HUGE_KERNEL_DIR}/${TARBALL} ] ; then
+		cp ../../local-repositories/huge_kernels/${TARBALL} ${HUGE_KERNEL_DIR}/${TARBALL}
 	fi
-	cp -f ${HUGE_KERNEL_DIR}/${TARBALL} ../../local-repositories/huge_kernels/
 }
 
 choose_kernel_to_download() {
