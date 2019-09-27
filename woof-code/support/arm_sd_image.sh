@@ -4,30 +4,16 @@
 
 # see http://distro.ibiblio.org/puppylinux/arm/sd-skeleton-images
 if ! [ "$SD_IMAGE" ] ; then #build.conf
-	echo "SD_IMAGE not defined (url/img.xz md5)"
+	echo "SD_IMAGE not defined (url/img.xz)"
 	exit 1
 fi
 
-URL=$(echo $SD_IMAGE | cut -f 1 -d ' ')
-MD5=$(echo $SD_IMAGE | cut -f 2 -d ' ')
+SD_IMAGE="${SD_IMAGE% *}"
 SDIMAGE=${URL##*/}
 SDBASE=${SDIMAGE%.xz}
 
-mkdir -p ../../local-repositories #precaution
-for i in 1 2 ; do
-	if [ -f ../../local-repositories/${SDIMAGE} ] ; then
-		MD5Z=$(md5sum ../../local-repositories/${SDIMAGE} | cut -f 1 -d ' ')
-		[ "$MD5" != "$MD5Z" ] && rm -f ../../local-repositories/${SDIMAGE}
-	fi
-	if [ ! -f ../../local-repositories/${SDIMAGE} ] ; then
-		wget -P ../../local-repositories/ -c $URL
-		if [ $? -ne 0 ] ; then
-			echo "ERROR downloading $SDIMAGE"
-			rm -f ../../local-repositories/${SDIMAGE}
-			exit 1
-		fi
-	fi
-done
+../support/download_file.sh $SD_IMAGE ../../local-repositories
+[ $? -ne 0 ] && exit 1
 
 echo
 SDBASEBASE="`basename $SDBASE .img | sed -e 's%-201[0-9]*%-%' -e 's%-skeleton%-%' | cut -f 1,2,3 -d '-'`"
