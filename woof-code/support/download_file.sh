@@ -12,7 +12,8 @@ URL="$1"
 DOWNLOAD_DIR="$2/"
 COPYTO="$3"
 
-FILE=${URL##*/} #basename
+FILE="${URL##*/}"     # basename
+FILE="${FILE//%2B/+}" # un-escape '+'
 
 #==============================================================
 
@@ -60,7 +61,11 @@ fi
 if [ -f ${DOWNLOAD_DIR}"${FILE}".sha256.txt ] ; then
 	[ "${DOWNLOAD_DIR}" ] && cd "${DOWNLOAD_DIR}"
 	if ! sha256sum -c "${FILE}".sha256.txt ; then
-		rm -f "${FILE}"
+		echo
+		echo "*** ERROR: checksum failed, $FILE"
+		echo "*** located at $PWD"
+		echo
+		rm -f "${FILE}" "${FILE}".sha256.txt "${FILE}".md5.txt
 		exit 1
 	fi
 	[ "${DOWNLOAD_DIR}" ] && cd "$CURDIR"
@@ -69,7 +74,11 @@ fi
 if [ -f ${DOWNLOAD_DIR}"${FILE}".md5.txt ] ; then
 	[ "${DOWNLOAD_DIR}" ] && cd "${DOWNLOAD_DIR}"
 	if ! md5sum -c "${FILE}".md5.txt ; then
-		rm -f "${FILE}"
+		echo
+		echo "*** ERROR: checksum failed, $FILE"
+		echo "*** located at $PWD"
+		echo
+		rm -f "${FILE}" "${FILE}".md5.txt
 		exit 1
 	fi
 	[ "${DOWNLOAD_DIR}" ] && cd "$CURDIR"

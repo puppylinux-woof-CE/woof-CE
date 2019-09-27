@@ -27,21 +27,13 @@ name_of() {
 
 
 download_kernel() {
-	local URL="$1" TARBALL_NAME="`name_of "$URL"`"
-	wget -t0 -c $URL -P ../../local-repositories/${DISTRO_TARGETARCH}/kernels
-	wget ${URL}.sha256.txt -P ../../local-repositories/${DISTRO_TARGETARCH}/kernels
-
-	if [ -f "../../local-repositories/${DISTRO_TARGETARCH}/kernels/${TARBALL_NAME}.sha256.txt" ]; then
-		( cd "../../local-repositories/${DISTRO_TARGETARCH}/kernels/"
-		sha256sum -c "${TARBALL_NAME}.sha256.txt") &> /dev/null
-		if [ "$?" != "0" ]; then
-			echo "ERROR: checksum failed, $TARBALL_NAME"
-			echo "located at `realpath ../../local-repositories/${DISTRO_TARGETARCH}/kernels/`"
-			exit 1
-		fi
+	local URL="$1"
+	../support/download_file.sh "$URL" "../../local-repositories/${DISTRO_TARGETARCH}/kernels"
+	if [ $? -ne 0 ] ; then
+		../support/download_file.sh "URL" "../../local-repositories/${DISTRO_TARGETARCH}/kernels"
+		[ $? -ne 0 ] && exit 1
 	fi
 }
-
 
 choose_kernel_to_download() {
 
@@ -252,48 +244,15 @@ if [ -d '../kernel-kit/output' ];then
 fi
 
 if [ "$KERNEL_TARBALL_URL" != "" ]; then
-	TARBALL_NAME="`name_of "$KERNEL_TARBALL_URL"`"
-	if [ -f "../../local-repositories/${DISTRO_TARGETARCH}/kernels/${TARBALL_NAME}" ]; then
-		if [ -f "../../local-repositories/${DISTRO_TARGETARCH}/kernels/${TARBALL_NAME}.sha256.txt" ]; then
-			( cd "../../local-repositories/${DISTRO_TARGETARCH}/kernels/"
-			sha256sum -c "${TARBALL_NAME}.sha256.txt") &> /dev/null
-			if [ "$?" != "0" ]; then
-				download_kernel "$KERNEL_TARBALL_URL"
-			fi
-		fi
-	else
-		download_kernel "$KERNEL_TARBALL_URL"
-	fi
+	download_kernel "$KERNEL_TARBALL_URL"
 fi
 
 if [ "$KERNEL7_TARBALL_URL" != "" ]; then
-	TARBALL_NAME="`name_of "$KERNEL7_TARBALL_URL"`"
-	if [ -f "../../local-repositories/${DISTRO_TARGETARCH}/kernels/${TARBALL_NAME}" ]; then
-		if [ -f "../../local-repositories/${DISTRO_TARGETARCH}/kernels/${TARBALL_NAME}.sha256.txt" ]; then
-			( cd "../../local-repositories/${DISTRO_TARGETARCH}/kernels/"
-			sha256sum -c "${TARBALL_NAME}.sha256.txt") &> /dev/null
-			if [ "$?" != "0" ]; then
-				download_kernel "$KERNEL7_TARBALL_URL"
-			fi
-		fi
-	else
-		download_kernel "$KERNEL7_TARBALL_URL"
-	fi
+	download_kernel "$KERNEL7_TARBALL_URL"
 fi
 
 if [ "$KERNEL7L_TARBALL_URL" != "" ]; then
-	TARBALL_NAME="`name_of "$KERNEL7L_TARBALL_URL"`"
-	if [ -f "../../local-repositories/${DISTRO_TARGETARCH}/kernels/${TARBALL_NAME}" ]; then
-		if [ -f "../../local-repositories/${DISTRO_TARGETARCH}/kernels/${TARBALL_NAME}.sha256.txt" ]; then
-			( cd "../../local-repositories/${DISTRO_TARGETARCH}/kernels/"
-			sha256sum -c "${TARBALL_NAME}.sha256.txt") &> /dev/null
-			if [ "$?" != "0" ]; then
-				download_kernel "$KERNEL7L_TARBALL_URL"
-			fi
-		fi
-	else
-		download_kernel "$KERNEL7L_TARBALL_URL"
-	fi
+	download_kernel "$KERNEL7L_TARBALL_URL"
 fi
 
 if  [ "$KERNEL_TARBALL_URL" = "" -a "$KERNEL7_TARBALL_URL" = "" -a "$KERNEL7L_TARBALL_URL" = "" ]; then
