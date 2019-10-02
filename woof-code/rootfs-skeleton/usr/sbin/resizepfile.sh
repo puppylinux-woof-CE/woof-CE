@@ -49,7 +49,7 @@ do
 done
 
 x='
-<window title="'$(gettext 'Resize Personal Storage File')'" icon-name="gtk-refresh"> 
+<window title="'$(gettext 'Resize Personal Storage File')'" icon-name="gtk-refresh" resizable="false"> 
 <vbox space-expand="true" space-fill="true">
   '"$(/usr/lib/gtkdialog/xml_info fixed puppy_increase.svg 60 "$(eval_gettext "<b>Your personal file is \${NAMEPFILE},</b> and this contains user data, configuration files, email, newsgroup cache, history files and installed packages...")" "$(eval_gettext "If you see that you are running low on space in \$NAMEPFILE, you can make it bigger, but of course there must be enough space in \$SAVEPART.")")"'
   <vbox space-expand="true" space-fill="true">
