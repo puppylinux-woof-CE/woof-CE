@@ -100,11 +100,10 @@ export -f update_db_more_info
 
 export SETUPCALLEDFROM='ppm'
 
-S='<window title="'$(gettext 'Package Manager - Configure')'" icon-name="gtk-about" default-height="350">
+S='<window title="'$(gettext 'Package Manager - Configure')'" icon-name="gtk-about" default-height="350" resizable="false">
 <vbox space-expand="true" space-fill="true">
 <notebook tab-pos="2" labels="'$(gettext 'Choose repositories')'|'$(gettext 'Update database')'|'$(gettext 'Options')'" space-expand="true" space-fill="true">
-  <vbox space-expand="true" space-fill="true">
-    <frame '$(gettext 'Choose repositories')'>
+  <vbox space-expand="true" space-fill="true" margin="8">
       <vbox space-expand="false" space-fill="false">
         <hbox space-expand="true" space-fill="true">
           <text xalign="0" space-expand="true" space-fill="true"><label>"'$(gettext "Choose what repositories you would like to have appear in the main GUI window.")'"</label></text>
@@ -121,11 +120,9 @@ S='<window title="'$(gettext 'Package Manager - Configure')'" icon-name="gtk-abo
           '${CHECKBOX_MAIN_REPO}'
         </vbox>
       </vbox>
-    </frame>
   </vbox>
 
-  <vbox space-expand="true" space-fill="true">
-    <frame '$(gettext 'Update database')'>
+  <vbox space-expand="true" space-fill="true" margin="8">
      <vbox space-expand="false" space-fill="false">
 
       <hbox space-expand="true" space-fill="true">
@@ -148,11 +145,9 @@ S='<window title="'$(gettext 'Package Manager - Configure')'" icon-name="gtk-abo
         </button>
       </hbox>
      </vbox>
-    </frame>
   </vbox>
 
-  <vbox space-expand="true" space-fill="true">
-    <frame '$(gettext 'Options')'>
+  <vbox space-expand="true" space-fill="true" margin="8">
       <checkbox>
         <label>'$(gettext "Show info with configuration changes as startup")'</label>
         <variable>CATEGORY_SI</variable>'
@@ -188,7 +183,6 @@ S='<window title="'$(gettext 'Package Manager - Configure')'" icon-name="gtk-abo
          <action type="fileselect">SAVEPATH</action>
         </button>
 	  </hbox>
-     </frame>
   </vbox>
 </notebook>
 
