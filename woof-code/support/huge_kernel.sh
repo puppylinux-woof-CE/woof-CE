@@ -104,7 +104,8 @@ download_kernel() {
 			cp ${HUGE_KERNEL_DIR}/${TARBALL} ../../local-repositories/huge_kernels/${TARBALL}
 		fi
 	fi
-	../support/download_file.sh "$URL" ../../local-repositories/huge_kernels
+	../support/download_file.sh "$URL" ../../local-repositories/huge_kernels || \
+		../support/download_file.sh "$URL" ../../local-repositories/huge_kernels
 	[ $? -ne 0 ] && exit 1
 	if [ ! -f ${HUGE_KERNEL_DIR}/${TARBALL} ] ; then
 		cp ../../local-repositories/huge_kernels/${TARBALL} ${HUGE_KERNEL_DIR}/${TARBALL}
