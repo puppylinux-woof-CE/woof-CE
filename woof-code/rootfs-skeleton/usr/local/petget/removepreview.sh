@@ -59,45 +59,49 @@ if [ $PUPMODE -eq 13 ];then
 fi
 
 if [ -f /root/.packages/${DB_pkgname}.files ];then
- if [ "$PUP_LAYER" = '/pup_ro2' ]; then #120103 shinobar.
-  cat /root/.packages/${DB_pkgname}.files |
+
+  cat /root/.packages/${DB_pkgname}.files | sort -r |
   while read ONESPEC
   do
-   if [ ! -d "$ONESPEC" ];then
-    #120103 shinobar: better way of doing this, look all lower layers...
-    Sx=$(ls /initrd/pup_{a,y,ro[0-9]*}"$ONESPEC" 2>/dev/null| grep -v '^/initrd/pup_ro1/')
-    INAY=$(echo $Sx | grep -E 'pup_a|pup_y')
-    if [ "$INAY" != "" ]; then
-     S=$(ls /initrd/pup_{a,y}"$ONESPEC" 2>/dev/null| grep -v '^/initrd/pup_ro1/'| tail -n 1)
-    else
-     S=$(ls /initrd/pup_ro{?,??}"$ONESPEC" 2>/dev/null| grep -v '^/initrd/pup_ro1/'| head -n 1)
-    fi # pup_ro2 - pup_ro99
-    if [ "$S" ]; then
-     #the problem is, deleting the file on the top layer places a ".wh" whiteout file,
-     #that hides the original file. what we want is to remove the installed file, and
-     #restore the original pristine file...
-     cp -a --remove-destination "$S" "$ONESPEC" #120103 shinobar.
-     #120103 apparently for odd# PUPMODEs, save layer may have a lurking old file and/or whiteout...
-     if [ $PUPMODE -eq 13 ];then
-      [ -f "/initrd${SAVE_LAYER}${ONESPEC}" ] && rm -f "/initrd${SAVE_LAYER}${ONESPEC}" #normally /pup_ro1
-      BN="`basename "$ONESPEC"`"
-      DN="`dirname "$ONESPEC"`"
-      [ -f "/initrd${SAVE_LAYER}${DN}/.wh.${BN}" ] && rm -f "/initrd${SAVE_LAYER}${DN}/.wh.${BN}"
+     if [ ! -f /tmp/ppm-dirlists.txt ]; then
+      dirname "$ONESPEC" > /tmp/ppm-dirlists.txt
+     elif [ "$(cat /tmp/ppm-dirlists.txt | grep "$ONESPEC")" == "" ]; then
+      dirname "$ONESPEC" >> /tmp/ppm-dirlists.txt
      fi
-    else
-     rm -f "$ONESPEC"
-    fi
-   fi
+     
+     if [ -f "$ONESPEC" ] || [ -L "$ONESPEC" ]; then
+        if [ "$ISLAYEREDFS" != "" ];then
+         [ -f "/initrd${SAVE_LAYER}${ONESPEC}" ] && rm -f "/initrd${SAVE_LAYER}${ONESPEC}" #normally /pup_ro1
+         BN="`basename "$ONESPEC"`"
+         DN="`dirname "$ONESPEC"`"
+         [ -f "/initrd${SAVE_LAYER}${DN}/.wh.${BN}" ] && rm -f "/initrd${SAVE_LAYER}${DN}/.wh.${BN}"
+        else
+         rm -f "$ONESPEC"
+        fi
+      fi
   done
- fi
+
  #do it again, looking for empty directories...
- cat /root/.packages/${DB_pkgname}.files |
+ cat /root/.packages/${DB_pkgname}.files | sort -r |
  while read ONESPEC
  do
   if [ -d "$ONESPEC" ];then
    [ "`ls -1 "$ONESPEC"`" = "" ] && rmdir "$ONESPEC" 2>/dev/null #120107
   fi
  done
+ 
+ if [ -f /tmp/ppm-dirlists.txt ]; then
+  cat /tmp/ppm-dirlists.txt | sort -r |
+  while read ONESPEC
+  do
+   if [ -d "$ONESPEC" ];then
+    [ "`ls -1 "$ONESPEC"`" = "" ] && rmdir "$ONESPEC" 2>/dev/null #120107
+   fi
+  done
+  rm -f -f /tmp/ppm-dirlists.txt
+ fi
+ 
+ 
  ###+++2011-12-27 KRG
 else
  firstchar=`echo ${DB_pkgname} | cut -c 1`
@@ -352,6 +356,8 @@ if [ "`grep '/usr/lib/pango/' $PKGFILES`" != "" ];then
  pango-querymodules --update-cache
 fi
 
+[ "$(which gtk-query-immodules)" != "" ] && gtk-query-immodules
+
 for gtkver in '1.0' '2.0' '3.0'
 do
  if [ "`grep "/usr/lib/gtk-$gtkver" $PKGFILES | grep "/immodules"`" != "" ];then
@@ -415,7 +421,10 @@ fi
 if [ ! -f /tmp/petget_proc/remove_pets_quietly ]; then
  export REM_DIALOG="<window title=\"$(gettext 'Puppy Package Manager')\" icon-name=\"gtk-about\">
   <vbox>
-  <pixmap><input file>/usr/share/pixmaps/puppy/dialog-complete.svg</input></pixmap>
+  <pixmap>
+  <width>48</width>
+  <height>48</height>
+  <input file>/usr/share/pixmaps/puppy/dialog-complete.svg</input></pixmap>
    <text><label>$(gettext 'Package') '$DB_pkgname' $(gettext 'has been removed.')</label></text>
    ${EXTRAMSG}
    <hbox>
@@ -425,7 +434,11 @@ if [ ! -f /tmp/petget_proc/remove_pets_quietly ]; then
  </window>
  "
  if [ "$DISPLAY" != "" ];then
-  gtkdialog -p REM_DIALOG
+  if [ "$EXTRAMSG" != "" ]; then
+   gtkdialog -p REM_DIALOG
+  else
+   /usr/lib/gtkdialog/box_ok "$(gettext 'Puppy Package Manager')" info "$(gettext 'Package') $(gettext 'has been removed.')" "$DB_pkgname"
+  fi
  fi
 elif [ -s /tmp/petget_proc/petget-deps-maybe-rem ];then
  for MAYBEREM in $(cat /tmp/petget_proc/petget-deps-maybe-remove)
