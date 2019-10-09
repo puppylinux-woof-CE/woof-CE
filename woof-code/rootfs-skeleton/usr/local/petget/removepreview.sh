@@ -66,15 +66,18 @@ if [ -f /root/.packages/${DB_pkgname}.files ];then
   cat /root/.packages/${DB_pkgname}.files | sort -r |
   while read ONESPEC
   do
+     
+     dname="$(dirname "$ONESPEC")"
+    
      if [ ! -f /tmp/ppm-dirlists.txt ]; then
-      dirname "$ONESPEC" > /tmp/ppm-dirlists.txt
-     elif [ "$(cat /tmp/ppm-dirlists.txt | grep "$ONESPEC")" == "" ]; then
-      dirname "$ONESPEC" >> /tmp/ppm-dirlists.txt
+      echo "$dname" > /tmp/ppm-dirlists.txt
+     elif [ "$(cat /tmp/ppm-dirlists.txt | grep "$dname")" == "" ]; then
+      echo "$dname"  >> /tmp/ppm-dirlists.txt
      fi
      
      if [ -f "$ONESPEC" ] || [ -L "$ONESPEC" ]; then
         if [ "$ISLAYEREDFS" != "" ];then
-         [ -f "/initrd${SAVE_LAYER}${ONESPEC}" ] && rm -f "/initrd${SAVE_LAYER}${ONESPEC}" #normally /pup_ro1
+         [ -e "/initrd${SAVE_LAYER}${ONESPEC}" ] && rm -f "/initrd${SAVE_LAYER}${ONESPEC}" #normally /pup_ro1
          BN="`basename "$ONESPEC"`"
          DN="`dirname "$ONESPEC"`"
          [ -f "/initrd${SAVE_LAYER}${DN}/.wh.${BN}" ] && rm -f "/initrd${SAVE_LAYER}${DN}/.wh.${BN}"
