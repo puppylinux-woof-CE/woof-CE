@@ -98,7 +98,7 @@ if [ -f /root/.packages/${DB_pkgname}.files ];then
     [ "`ls -1 "$ONESPEC"`" = "" ] && rmdir "$ONESPEC" 2>/dev/null #120107
    fi
   done
-  rm -f -f /tmp/ppm-dirlists.txt
+  rm -f /tmp/ppm-dirlists.txt
  fi
  
  
