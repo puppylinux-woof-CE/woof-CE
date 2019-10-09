@@ -31,6 +31,9 @@ export OUTPUT_CHARSET=UTF-8
 . /etc/DISTRO_SPECS #has DISTRO_BINARY_COMPAT, DISTRO_COMPAT_VERSION
 . /root/.packages/DISTRO_PKGS_SPECS
 
+ISLAYEREDFS="$(mount | grep "on / type" | grep "unionfs")"
+[ "$ISLAYEREDFS" == "" ] && ISLAYEREDFS="$(mount | grep "on / type" | grep "aufs")"
+
 DB_pkgname="$TREE2"
 
 #v424 info box, nothing yet installed...
