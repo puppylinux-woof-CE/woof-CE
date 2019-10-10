@@ -5,31 +5,56 @@
 [ "$1" ] || exit
 ARGUMENT="$1"
 
-update_icedtea_configuration () {
-    if [ -n "$ICEDTEAHOME" ]; then
-     ICEDTEAVERSION="$(grep -osm 1 '"icedtea-web .*"' \
-      $ICEDTEAHOME/man/man1/icedtea-web.1 \
-      $ICEDTEAHOME/share/man/man1/icedtea-web.1 | \
-      sed 's/.*"icedtea-web (*\([0-9.]*\).*/\1/')"
+get_nonhomed_icedtea_version () {
+    # Get version when icedtea-netx is not in a home directory.
+    DEFAULTICEDTEAVERSION='1.7.2'
+    ICEDTEAVERSION="$(/usr/share/icedtea-web/bin/javaws.sh --version -headless 2>/dev/null | \
+     grep -m 1 -E '^icedtea-web|^null' | cut -f 2 -d ' ' | sed "s/null/$DEFAULTICEDTEAVERSION/")"
+    if [ -z $ICEDTEAVERSION ] \
+      && [ -f /usr/share/icedtea-web/man/man1/icedtea-web.1.gz ]; then
+     ICEDTEAVERSION="$(gunzip --stdout /usr/share/icedtea-web/man/man1/icedtea-web.1.gz | \
+       grep -osm 1 '"icedtea-web .*"' | \
+       sed -n 's/.*"icedtea-web (*\([0-9.]*\))*.*/\1/p')"
+    fi
+}
+    
+set_up_for_newest_icedtea_version () {
+    if [ -x $ICEDTEAHOME/bin/javaws ]; then
+     ICEDTEAVERSION="$($ICEDTEAHOME/bin/javaws --version -headless 2>/dev/null | \
+      grep -m 1 -E '^openjdk|icedtea-web' | cut -f 2 -d ' ')"
+     if [ -z $ICEDTEAVERSION ]; then
+      ICEDTEAHOMEVERSION="$(grep -osm 1 '"icedtea-web .*"' \
+       $ICEDTEAHOME/man/man1/icedtea-web.1 \
+       $ICEDTEAHOME/share/man/man1/icedtea-web.1 | \
+       sed -n 's/.*"icedtea-web (*\([0-9.]*\).*/\1/p')"
+     fi
+     if [ -z $ICEDTEAVERSION ] || vercmp $ICEDTEAHOMEVERSION gt $ICEDTEAVERSION; then
+      ICEDTEAVERSION=$ICEDTEAHOMEVERSION
+     fi
      for ONEEXEC in itweb-settings javaws policyeditor; do
-      if [ -x /usr/bin/$ONEEXEC ]; then
-       if [ -h /usr/bin/$ONEEXEC ]; then
-        rm -f /usr/bin/$ONEEXEC
-       else
+      if [ -f /usr/bin/$ONEEXEC ]; then
+       if  [ -x /usr/share/icedtea-web/bin/${ONEEXEC}.sh ];then
         chmod a-x /usr/bin/$ONEEXEC
+       else
+        rm -f /usr/bin/$ONEEXEC
        fi
       fi
      done
-    else
-     ICEDTEAVERSION=''
-     for ONEEXEC in itweb-settings javaws policyeditor; do
-      if [ -f /usr/bin/$ONEEXEC ]; then
-       chmod a+x /usr/bin/$ONEEXEC
-      elif [ -f $JAVAHOME/bin/$ONEEXEC ]; then
-        ln -snf $JAVAHOME/bin/$ONEEXEC /usr/bin/$ONEEXEC
-      fi
-     done
     fi
+}
+     
+set_up_for_nonhomed_icedtea_version () {
+    for ONEEXEC in itweb-settings javaws policyeditor; do
+     if [ -f /usr/bin/$ONEEXEC ]; then
+      if [ -f /usr/share/icedtea-web/bin/${ONEEXEC}.sh ];then
+       chmod a+x /usr/bin/$ONEEXEC
+      else
+       rm -f /usr/bin/$ONEEXEC
+      fi
+     elif [ -f /usr/share/icedtea-web/bin/${ONEEXEC}.sh ]; then
+       ln -snf /usr/share/icedtea-web/bin/${ONEEXEC}.sh /usr/bin/$ONEEXEC
+     fi
+    done
 }
 
 #Main:
@@ -47,9 +72,19 @@ case "$ARGUMENT" in
   ICEDTEAHOME="$(echo -n "$JAVAHOME " | cut -f 2 -d ' ')"
   JAVAHOME="$(echo -n $JAVAHOME | cut -f 1 -d ' ')"
   if [ "$JAVAHOME" ]; then
-   JAVAVERSION="$($JAVAHOME/bin/java -version 2>&1 | grep 'version' | cut -f3 -d ' ' | tr -d '\"')"
+  JAVAVERSION="$($JAVAHOME/bin/java --version 2>/dev/null)" \
+   || JAVAVERSION="$($JAVAHOME/bin/java -version 2>&1)"
+  JAVAVERSION="$(echo $JAVAVERSION | grep -m 1 '^openjdk' | \
+   sed -e 's/ version//' -e 's/"//g' -e 's/ 1\./ /' | cut -f 2 -d ' ')"
 
-   update_icedtea_configuration
+   get_nonhomed_icedtea_version # e. g., debian
+   if [ -n "$ICEDTEAHOME" ]; then
+    # Use newest of non-homed and home-directoried implementations.
+    set_up_for_newest_icedtea_version
+   else
+    # Use non-homed implementation if present.
+    set_up_for_nonhomed_icedtea_version
+   fi
 
    JAVAIFRC="JAVAHOME=$JAVAHOME
 JAVAVERSION=$JAVAVERSION
