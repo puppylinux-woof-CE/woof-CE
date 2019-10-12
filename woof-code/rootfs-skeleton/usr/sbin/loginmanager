@@ -1,15 +1,10 @@
-#!/bin/sh
-#note, root2user called via shutdownconfig, changes root to finn.
-#110507 TaZOC bug fix.
+#!/bin/bash
 #120201 rodin.s: internationalized.
-#120323 replace 'xmessage' with 'pupmessage'.
-#120409 if using minit instead of busybox init.
 #130527 extract code that bumps user to root to script 'user2root'.
 #130531 explain root, finn and spot.
 #130601 offer run some internet apps as user 'spot'. see also usr/sbin/setup-spot and 3builddistro (in woof).
 #130604 use actual names of executables, passed to setup-spot. multiple spot checkboxes.
 #130723 pre-populate /root/.spot-status.
-#130822 add firefox to run as spot. see also 3builddistro.
 
 export TEXTDOMAIN=loginmanager
 export TEXTDOMAINDIR=/usr/share/locale
@@ -17,192 +12,223 @@ export OUTPUT_CHARSET=UTF-8
 . gettext.sh
 
 HOMEUSER="`whoami`"
+if [ -f /tmp/services/user_info ] ; then
+	. /tmp/services/user_info
+	HOMEUSER="$USER"
+fi
+
 xHOMEUSER="$HOMEUSER"
 [ "$HOMEUSER" = "root" ] && xHOMEUSER='administrator'
 
-CHANGE2ROOT=""
-if [ "$HOMEUSER" != "root" ];then
- CHANGE2ROOT="<text><label>$(gettext "You are currently running as 'finn', however, if you wish, you can change to the administrator (root) permanently on the next boot. Just tick this box and it will be so:")</label></text>
-  <checkbox>
-   <label>$(gettext 'Tick box to become administrator permanently')</label>
-   <default>false</default>
-   <variable>CHECKADMIN</variable>
-  </checkbox>
-  <hbox>
-   <entry invisible_char=\"x\" visibility=\"false\">
-    <variable>ADMINPASSWORD</variable>
-   </entry>
-   <text><label>$(gettext 'Type admin password here')</label></text>
-  </hbox>
- <text><label>$(gettext 'This will take affect after reboot.')</label></text>
- "
+[ "`whoami`" != "root" ] && exec sudo -A ${0} ${@} #110505
 
-fi
+#========================================================================
+login_as() {
+	[ "$1" ] || return
+	/usr/lib/gtkdialog/box_yesno "Login Manager" "Confirm that you really want to log in as $1 at the next boot"
+	case $? in
+		0) echo -n $1 > /etc/plogin.set ;;
+		1) rm -f /etc/plogin.set ;;
+	esac
+}
 
-touch /root/.spot-status
+set_password() {
+	#change root password, and require password to 'su root'...
+	USER=$1
+	PASSWORD="$(/usr/lib/gtkdialog/box_passwd --confirm "Change password for: $USER" "Please enter a password for $USER, minimum six characters.")"
+	if [ $? -eq 0 ] ; then
+		echo "${USER}:${PASSWORD}" | busybox chpasswd -c sha512
+		if [ $? -eq 0 ] ; then
+			mkdir -p /var/local/chgdpasswd/
+			echo -n > /var/local/chgdpasswd/${USER}
+			/usr/lib/gtkdialog/box_ok "Login Manager" complete "Password successfully changed."
+		fi
+	fi
+}
 
-MOREEXPERIMENT='
-This feature has recently been introduced in the official Puppy.
-If you would like to help out and add more apps to run as spot,
-edit /root/.spot-status. For example, to add Sylpheed mail client,
-insert a line "sylpheed=false". Then type "loginmanager" in a
-terminal, and you will see the checkbox for sylpheed. Tick it,
-click OK button, then see if sylpheed then runs as spot.
-Note, /usr/sbin/loginmanager calls /usr/sbin/setup-spot to
-setup sylpheed to run as spot, also to revert to root if you
-untick the checkbox.
-In some cases, setup-spot may need to be customised'
-echo "xmessage -bg red -center 'NOT YET IMPLEMENTED${MOREEXPERIMENT}'" > /tmp/notyetimplemented
-chmod 755 /tmp/notyetimplemented
+spot_dlg() {
+	touch /root/.spot-status
+	SPOTCHECKS=''
+	if [ -s /root/.spot-status ];then
+		#organise checkboxes into 3 rows per column...
+		SPOTCHECKS='<vbox>'
+		CNT=0
+		for ASPOTLIST in `cat /root/.spot-status`
+		do
+			[ ! "$ASPOTLIST" ] && continue
+			CNT=$(($CNT + 1))
+			case $CNT in
+				4) SPOTCHECKS="${SPOTCHECKS}</vbox><vbox>" ;;
+				7) SPOTCHECKS="${SPOTCHECKS}</vbox><vbox>" ;;
+				10) SPOTCHECKS="${SPOTCHECKS}</vbox><vbox>" ;;
+			esac
+			ANAME="`echo -n "$ASPOTLIST" | cut -f 1 -d '='`"
+			AVALUE="`echo -n "$ASPOTLIST" | cut -f 2 -d '='`"
+			SPOTCHECKS="${SPOTCHECKS}<checkbox><label>${ANAME}</label><variable>CHECK_${ANAME}</variable><default>${AVALUE}</default></checkbox>"
+		done
+		SPOTCHECKS="${SPOTCHECKS}</vbox>"
+	fi
 
-if [ "$HOMEUSER" = "root" ];then #130601 130604
-
- #130723 pre-populate .spot-status... 130822 add firefox...
- for ONEAPP in seamonkey QtWeb opera firefox palemoon midori slimjet light netsurf iron min chromium google-chrome
- do
-  [ "$(which ${ONEAPP})" = "" ] && continue
-  [ "$(grep "${ONEAPP}" /root/.spot-status)" = "" ] && echo "${ONEAPP}=false" >> /root/.spot-status
- done
-
- SPOTCHECKS=''
- if [ -s /root/.spot-status ];then
-  #organise checkboxes into 3 rows per column...
-  SPOTCHECKS='<vbox>'
-  CNT=0
-  for ASPOTLIST in `cat /root/.spot-status`
-  do
-   [ ! "$ASPOTLIST" ] && continue
-   CNT=$(($CNT + 1))
-   case $CNT in
-    4) SPOTCHECKS="${SPOTCHECKS}</vbox><vbox>" ;;
-    7) SPOTCHECKS="${SPOTCHECKS}</vbox><vbox>" ;;
-    10) SPOTCHECKS="${SPOTCHECKS}</vbox><vbox>" ;;
-   esac
-   ANAME="`echo -n "$ASPOTLIST" | cut -f 1 -d '='`"
-   AVALUE="`echo -n "$ASPOTLIST" | cut -f 2 -d '='`"
-   SPOTCHECKS="${SPOTCHECKS}<checkbox><label>${ANAME}</label><variable>CHECK_${ANAME}</variable><default>${AVALUE}</default></checkbox>"
-  done
-  SPOTCHECKS="${SPOTCHECKS}</vbox>"
- fi
-
- SPOTLIST="
- <hbox>
-  <vbox>
-   <text width-chars=\"14\"><label>$(gettext 'Tick apps to run as spot:')</label></text>
-  </vbox>
-  ${SPOTCHECKS}
-  <vbox><button><label>$(gettext 'More')</label><action>/tmp/notyetimplemented & </action></button></vbox>
- </hbox>
-"
-else
- SPOTLIST="<text use-markup=\"true\"><label>\"<b>$(gettext 'Disabled, as not logged in as administrator')</b>\"</label></text>"
-fi
-
-export MAIN_DIALOG="
-<window title=\"Login and Security Manager\" icon-name=\"gtk-execute\" resizable=\"false\">
- <vbox>
-  <text use-markup=\"true\"><label>\"<b>$(gettext 'Currently you are logged in as:') <big>${xHOMEUSER}</big></b>\"</label></text>
+	export SPOT_DIALOG='
+<window title="Login and Security Manager" icon-name="gtk-execute" resizable="false">
+ <vbox space-expand="true" space-fill="true">
+	<hbox>
+		<pixmap><input file>/home/spot/spot.png</input></pixmap>
+		<frame spot>
+			<vbox>
+				<text><label>'$(gettext "Logged in as administrator, it is possible to run some Internet applications as user 'spot'. This gives theoretical extra security.")'</label></text>
+				<hbox>
+					<vbox>
+					<text width-chars="14"><label>'$(gettext 'Tick apps to run as spot:')'</label></text>
+					</vbox>
+					'${SPOTCHECKS}'
+				</hbox>
+			</vbox>
+		</frame>
+	</hbox>
   
-  <hbox>
-   <pixmap><input file>/usr/share/doc/puppylogo96.png</input></pixmap>
-   <frame administrator>
-    <text><label>$(gettext "Puppy is structured in such a way that we consider running as administrator (also known as 'root') to be safe*, and is the choice of most users.")</label></text>
-   </frame>
-  </hbox>
-  
-  <hbox>
-   <pixmap><input file>/home/spot/spot.png</input></pixmap>
-   <frame spot>
-    <vbox>
-     <text><label>$(gettext "Logged in as administrator, it is possible to run some Internet applications as user 'spot'. This gives theoretical extra security.")</label></text>
-     ${SPOTLIST}
-    </vbox>
-   </frame>
-  </hbox>
-  
-  <hbox>
-   <pixmap><input file>/usr/share/doc/finn96.png</input></pixmap>
-   <frame finn>
-    <vbox>
-     <text><label>$(gettext 'Puppy only has one non-admin user, finn, as Puppy is not a multi-user system in the normal sense. Instead, individual session save-files can be set to root or finn as the user wishes (chosen at the time of creation of the save-file).')</label></text>
-     ${CHANGE2ROOT}
-    </vbox>
-   </frame>
-  </hbox>
-  
-  <hbox>
-   <text><label>$(gettext 'Help:')</label></text>
-   <button>
-    "`/usr/lib/gtkdialog/xml_button-icon info`"
-    <action>basichtmlviewer file:///usr/share/doc/root.htm & </action>
-   </button>
-   <text><label>$(gettext '*Legal:')</label></text>
-   <button>
-    "`/usr/lib/gtkdialog/xml_button-icon info`"
-    <action>basichtmlviewer file:///usr/share/doc/legal/puppy.htm & </action>
-   </button>
-   <text><label>\"     \"</label></text>
-   <button ok></button>
-   <button cancel></button>
-  </hbox>
+	<hbox>
+		<text space-expand="true" space-fill="false"><label>"       "</label></text>
+		<button ok></button>
+		<button cancel></button>
+	</hbox>
  </vbox>
 </window>
-"
-
-
-RETSTRING="`gtkdialog --program=MAIN_DIALOG --center`"
-[ $? -ne 0 ] && exit
-
-eval "$RETSTRING"
-[ "$EXIT" != "OK" ] && exit
-
-#if [ "$CHANGE2ROOT" != "" ];then
- if [ "$CHECKADMIN" = "true" ];then
-  echo "$ADMINPASSWORD" | su root -c /usr/sbin/user2root #130527
-  if [ $? -ne 0 ];then
-   /usr/lib/gtkdialog/box_ok "$(gettext 'Login manager')" error "$(gettext 'Admin password is wrong')"
-   exit
-  fi
- fi
-#fi
-
-if [ "$HOMEUSER" = "root" ];then #130604
- if [ -s /root/.spot-status ];then
-  for ASPOTLIST in `echo "$RETSTRING" | grep '^CHECK_'`
-  do
-   ACHECKNAME="`echo -n "$ASPOTLIST" | cut -f 1 -d '='`"
-   ANAME="`echo -n "$ACHECKNAME" | cut -f 2- -d '_'`"
-   AVALUE="`echo -n "$ASPOTLIST" | cut -f 2 -d '"'`" #'geany
-   ORIGVALUE="$(grep "^${ANAME}=" /root/.spot-status | cut -f 2 -d '=')"
-   if [ "$AVALUE" != "$ORIGVALUE" ];then
-    /usr/lib/gtkdialog/box_ok "$(gettext 'Security Manager:') ${ANAME}" nb "$(eval_gettext 'If ${ANAME} is running please exit it now, then click OK button...')"
-    setup-spot "${ANAME}=${AVALUE}"
-    case $AVALUE in
-     true)
-      extramsg=''
-      case $ANAME in
-       seamonkey)
-        extramsg="
-$(gettext 'Note also, the restrictions apply to all components of the SeaMonkey suite, including browser, Composer, address-book and ChatZilla.')" 
-       ;;
-      esac
-      M_sm1="$(eval_gettext "The next time that you start \${ANAME}, it will run as user 'spot'.")
+'
+	#echo "$SPOT_DIALOG" > /tmp/loginmanager_SPOT.xml #debug
+	RETSTRING="`gtkdialog --program=SPOT_DIALOG --center`"
+	[ $? -ne 0 ] && exit
+	eval "$RETSTRING"
+	[ "$EXIT" != "OK" ] && return
+	if [ -s /root/.spot-status ];then
+		for ASPOTLIST in `echo "$RETSTRING" | grep '^CHECK_'`
+		do
+			ACHECKNAME="`echo -n "$ASPOTLIST" | cut -f 1 -d '='`"
+			ANAME="`echo -n "$ACHECKNAME" | cut -f 2- -d '_'`"
+			AVALUE="`echo -n "$ASPOTLIST" | cut -f 2 -d '"'`" #'geany
+			ORIGVALUE="$(grep "^${ANAME}=" /root/.spot-status | cut -f 2 -d '=')"
+			if [ "$AVALUE" != "$ORIGVALUE" ];then
+				/usr/lib/gtkdialog/box_ok "$(gettext 'Security Manager:') ${ANAME}" nb "$(eval_gettext 'If ${ANAME} is running please exit it now, then click OK button...')"
+				setup-spot "${ANAME}=${AVALUE}"
+				case $AVALUE in
+				true)
+					M_sm1="$(eval_gettext "The next time that you start \${ANAME}, it will run as user 'spot'.")
 
 $(gettext 'Note, this restricts where you can download and save files to, and where they can be edited. You are restricted to /home/spot, and the default folder is /home/spot/Downloads.')
 
-$(eval_gettext 'Note also, if you move or copy any files into /home/spot while ${ANAME} is running, you may be able to open but not edit them, as they may not have permissions/ownership rights for spot -- exiting and restarting ${ANAME} will automatically fix this.')
-${extramsg}"
-     ;;
-     false)
-      M_sm1="$(eval_gettext "The next time that you start \${ANAME}, it will run as the 'root' user (administrator).")
+$(eval_gettext 'Note also, if you move or copy any files into /home/spot while ${ANAME} is running, you may be able to open but not edit them, as they may not have permissions/ownership rights for spot -- exiting and restarting ${ANAME} will automatically fix this.')"
+					;;
+				false)
+					M_sm1="$(eval_gettext "The next time that you start \${ANAME}, it will run as the 'root' user (administrator).")
 
 $(gettext 'Note, this gives you complete freedom to download, save and edit files anywhere in the system.')"
-     ;;
-    esac
-    /usr/lib/gtkdialog/box_ok "$(gettext 'Security Manager:') ${ANAME}" complete "$M_sm1"
-   fi
-  done
- fi
+					;;
+				esac
+				/usr/lib/gtkdialog/box_ok "$(gettext 'Security Manager:') ${ANAME}" complete "$M_sm1"
+			fi
+		done
+	fi
+}
+
+export -f login_as
+export -f set_password
+export -f spot_dlg
+
+#========================================================================
+
+if [ "$HOMEUSER" = "root" ];then #130601 130604
+
+	LOGIN_AS_FINN="  <vbox>
+   <button>
+    <label>$(gettext '*** Set finn as the default login account ***')</label>
+    <action>login_as finn</action>
+   </button>
+  </vbox>"
+	LOGIN_AS_ROOT="  <vbox>
+   <button>
+    <label>$(gettext 'Configure applications to run as spot...')</label>
+    <action>spot_dlg</action>
+   </button>
+  </vbox>"
+
+	#130723 pre-populate .spot-status... 130822 add firefox...
+	for ONEAPP in seamonkey QtWeb opera firefox palemoon midori slimjet light netsurf iron min chromium google-chrome
+	do
+		[ "$(which ${ONEAPP})" = "" ] && continue
+		[ "$(grep "${ONEAPP}" /root/.spot-status)" = "" ] && echo "${ONEAPP}=false" >> /root/.spot-status
+	done
+else
+	LOGIN_AS_FINN=
+	LOGIN_AS_ROOT="  <vbox>
+   <button>
+     <label>$(gettext '*** Set root as the default login account ***')</label>
+     <action>login_as root</action>
+   </button>
+  </vbox>"
 fi
+
+#===================================================================
+
+export MAIN_DIALOG='
+<window title="Login and Security Manager" icon-name="gtk-execute" resizable="false">
+ <vbox space-expand="true" space-fill="true">
+	<text use-markup="true">
+		<label>"<b>'$(gettext 'Currently you are logged in as:')' <big>'${xHOMEUSER}'</big></b>"</label>
+	</text>
+	<hbox>
+		<pixmap><input file>/usr/share/doc/puppylogo96.png</input></pixmap>
+		<frame administrator>
+			<vbox>
+				<text>
+					<label>'$(gettext "Puppy is structured in such a way that we consider running as administrator (also known as 'root') to be safe, and is the choice of most users.")'</label>
+				</text>
+			</vbox>
+			<vbox>
+				<button>
+					<label>'$(gettext 'Set administrator password')'</label>
+					<action>set_password root</action>
+				</button>
+			</vbox>
+			'${LOGIN_AS_ROOT}'
+		</frame>
+	</hbox>
+
+	'${SPOT_DLG}'
+  
+	<hbox>
+		<pixmap><input file>/usr/share/pixmaps/puppy/game_chess.svg</input></pixmap>
+		<frame finn>
+			<vbox>
+				<text use-markup="true"><label>"'$(gettext 'Puppy only has one non-admin user, finn, as it is not a multi-user system in the normal sense.')'
+<b>'$(gettext 'WARNING: finn is experimental')'</b>"</label>
+				</text>
+			</vbox>
+			<button>
+				<label>'$(gettext 'Set user password')'</label>
+				<action>set_password finn</action>
+			</button>
+			'${LOGIN_AS_FINN}'
+		</frame>
+	</hbox>
+  
+	<hbox>
+		<button space-expand="false" space-fill="false">
+			'"`/usr/lib/gtkdialog/xml_button-icon help`"'
+			<label>"'$(gettext 'Help')'"</label>
+			<action>basichtmlviewer file:///usr/share/doc/root.htm & </action>
+		</button>
+		<text space-expand="true" space-fill="false"><label>"       "</label></text>
+		<button space-expand="false" space-fill="false">
+			'$(/usr/lib/gtkdialog/xml_button-icon quit.svg)'
+			<label>Quit</label>
+			<action type="exit">Cancel</action>
+		</button>
+	</hbox>
+ </vbox>
+</window>
+'
+
+#echo "$MAIN_DIALOG" > /tmp/loginmanager.xml #debug
+gtkdialog --program=MAIN_DIALOG --center
 
 ###END###
