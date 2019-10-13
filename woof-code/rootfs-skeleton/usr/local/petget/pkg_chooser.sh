@@ -524,7 +524,7 @@ S='<window title="'$(gettext 'Package Manager v')''${VERSION}'" width-request="'
 
       <hbox space-expand="false" space-fill="false">
         <vbox space-expand="true" space-fill="true">
-
+          <vbox space-expand="false" space-fill="false">
           <frame '$(gettext 'Category')'>
            <comboboxtext width-request="150" space-expand="false" space-fill="false">
             <variable>CATEGORY</variable>
@@ -545,7 +545,9 @@ S='<window title="'$(gettext 'Package Manager v')''${VERSION}'" width-request="'
              <action>refresh:TREE1</action>
            </comboboxtext>
           </frame>
-
+          </vbox>
+          
+          <vbox space-expand="true" space-fill="true">
           <frame '$(gettext 'Repositories')'>
             <vbox scrollable="true" shadow-type="0" hscrollbar-policy="2" space-expand="true" space-fill="true">
               '${REPOS_RADIO}'
@@ -554,8 +556,10 @@ S='<window title="'$(gettext 'Package Manager v')''${VERSION}'" width-request="'
               <width>50</width>
             </vbox>
           </frame>
+          </vbox>
+     
           <vbox space-expand="false" space-fill="false">
-            <frame '$(gettext 'package types')'>
+            <frame '$(gettext 'Package types')'>
               <hbox>
                 <vbox>
                   <checkbox>
@@ -611,6 +615,7 @@ S='<window title="'$(gettext 'Package Manager v')''${VERSION}'" width-request="'
             </frame>
           </vbox>
         </vbox>
+        
       </hbox>
 
       <vbox space-expand="true" space-fill="true">
