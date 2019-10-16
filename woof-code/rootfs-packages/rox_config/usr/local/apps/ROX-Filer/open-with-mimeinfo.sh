@@ -94,9 +94,13 @@ get_info_from_desktop_files() {
 	shopt -s extglob
 	for one_file in ${desktop_files}
 	do
+		if ! [ -e  "$one_file" ] ; then
+			continue
+		fi
 		desktop_name=""
 		desktop_icon=""
 		desktop_exec=""
+		exe_only=""
 		while IFS="=" read field desc
 		do
 			case $field in
@@ -112,9 +116,24 @@ get_info_from_desktop_files() {
 					;;
 				Exec)
 					desktop_exec=${desc}
+					exe_only=${desktop_exec##* -e } # delete rxtv/xterm -e 
+					exe_only=${exe_only%% *}        # keep only the first word
+					if ! [ "$exe_only" ] ; then
+						break
+					fi
+					if ! type "$exe_only" 1>&/dev/null 2>&1 ; then
+						if ! [ -e "$exe_only" ] ; then
+							exe_only=""
+							break # invalid Exec=
+						fi
+					fi
 					;;
 			esac
 		done < "${one_file}"
+
+		if ! [ "$exe_only" ] ; then #invalid Exec=
+			continue # next file
+		fi
 
 		if [ "$desktop_name" != "" -a "$desktop_exec" != "" ]; then
 			ENTRY_LIST="${ENTRY_LIST}${desktop_icon}|${desktop_name}|${desktop_exec}
