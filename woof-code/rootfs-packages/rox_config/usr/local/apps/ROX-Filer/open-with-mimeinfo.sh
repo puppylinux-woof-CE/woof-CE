@@ -97,7 +97,6 @@ get_info_from_desktop_files() {
 		desktop_name=""
 		desktop_icon=""
 		desktop_exec=""
-		desktop_nodisplay=""
 		while IFS="=" read field desc
 		do
 			case $field in
@@ -114,18 +113,8 @@ get_info_from_desktop_files() {
 				Exec)
 					desktop_exec=${desc}
 					;;
-				NoDisplay)
-					desktop_nodisplay=${desc}
-					if [ "$desktop_nodisplay" = "true" ] ; then
-						break
-					fi
-					;;
 			esac
 		done < "${one_file}"
-
-		if [ "$desktop_nodisplay" = "true" ] ; then
-			continue # next file
-		fi
 
 		if [ "$desktop_name" != "" -a "$desktop_exec" != "" ]; then
 			ENTRY_LIST="${ENTRY_LIST}${desktop_icon}|${desktop_name}|${desktop_exec}
