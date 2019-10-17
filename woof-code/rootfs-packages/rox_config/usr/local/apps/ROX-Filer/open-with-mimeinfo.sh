@@ -189,6 +189,9 @@ show_dialog() {
 
 	if [ "$EXIT" = "OK" -a "$exec_command" != "" ]; then
 
+		# fix exec_command
+		exec_command="$(echo "$exec_command" | sed 's| %u||g ; s| %U||g ; s| %f||g ; s| %F||g')"
+
 		if [ "$CHK_SET_DEFAULT" = "true" ] ; then
 			#mt=.${mimetype//\//_} # application/pet -> .application_pet
 			#mtdir=$HOME/.config/rox.sourceforge.net/OpenWith/${mt}
@@ -201,23 +204,8 @@ exec '${exec_command}' "$@"' > "${mtfile}"
 			chmod +x "${mtfile}"
 		fi
 
-		if [ "${exec_command}" != "${exec_command%\%f*}" ]; then
-			# Support %f in desktop files.
-			declare -a "exec_begin=(${exec_command%\%f*})"
-			declare -a "exec_end=(${exec_command#*\%f})"
-			exec "${exec_begin[@]}" "$filename" "${exec_end[@]}"
-
-		elif [ "${exec_command}" != "${exec_command%\%F*}" ]; then
-			# Support %F in desktop files.
-			declare -a "exec_begin=(${exec_command%\%F*})"
-			declare -a "exec_end=(${exec_command#*\%F})"
-			exec "${exec_begin[@]}" "$filename" "${exec_end[@]}"
-
-		else
-			# Desktop files without %f or %F.
-			declare -a "exec_array=(${exec_command})"
-			exec "${exec_array[@]}" "$filename"
-		fi
+		declare -a "exec_array=(${exec_command})"
+		exec "${exec_array[@]}" "$filename"
 
 	fi
 }
