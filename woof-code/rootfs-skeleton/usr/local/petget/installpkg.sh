@@ -273,10 +273,11 @@ case $DLPKG_BASE in
   [ -d /DEBIAN ] && rm -rf /DEBIAN #130112 precaution.
   dpkg-deb -e $DLPKG_BASE /DEBIAN #130112 extracts deb control files to dir /DEBIAN. may have a post-install script, see below.
  ;;
- *.tgz|*.txz|*.tar.gz|*.tar.xz|*.tar.bz2) #slackware, arch, etc..
+ *.tgz|*.txz|*.tzst|*.tar.gz|*.tar.xz|*.tar.bz2|*.tar.zst) #slackware, arch, etc..
   DLPKG_MAIN="`basename $DLPKG_BASE`" #remove directory - filename only
   DLPKG_MAIN=${DLPKG_MAIN%*.tar.*}    #remove .tar.xx extension
   DLPKG_MAIN=${DLPKG_MAIN%.t[gx]z}    #remove .t[gx]z extension
+  DLPKG_MAIN=${DLPKG_MAIN%.tzst}    #remove .tzst extension
   PFILES="`tar --list -a -f $DLPKG_BASE`" || exit 1
   echo "$PFILES" | sed -e "s#^\.\/#\/#g" -e "s#^#\/#g" -e "s#^\/\/#\/#g" -e 's#^\/$##g' -e 's#^\/\.$##g' > /root/.packages/${DLPKG_NAME}.files
   install_path_check
