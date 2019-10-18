@@ -10,7 +10,6 @@
 # 14 Feb 2011 v0.8: warning excessive extra files, restart main dialog, cleanup whiteout at unload(thanks to jpeps and jemimah), mkfontscale, mkfontdir
 # 23 Feb 2011 v0.9: improve compatibility under PUPMODE=6 (thanks to mavrothal) and PUPMODE=77
 # 23 Feb 2011 v0.9: persistent loading excessive sfs after reboot(idea from jamesbond), main dialog layout(thanks to jamesbond)
-# 23 Feb 2011 v0.9: glob pattern file neme, puppypin
 # 15 Mar 2011 v1.0: again PUPMODE=5/6/77
 # 17 Mar 2011 v1.1: load/unload under PUPMODE=5, launcher
 # 22 Sep 2011 v1.1.1: free(busybox) version compatible
@@ -67,7 +66,7 @@ done
 
 MYPATH=$0
 MYNAME=$(basename "$0")
-VERSION=3.0
+VERSION=3.1w
 ORGOPT="$@"
 #some options the puplet builder can choose
 WIPEWHITEONINIT="true"	# true/false
@@ -348,7 +347,6 @@ remove_item() {
 reset_has_vars() {
 	HAS_MODULES=""
 	HAS_FONTS=""
-	HAS_PINS=""
 	HAS_DESKTOPS=""
 	HAS_SCRIPTS=""
 	HAS_STARTUPS=""
@@ -395,21 +393,9 @@ has_afterwork() {
 	if [ -d $MNTPNT/usr/share/glib-2.0/schemas/ ] ; then
 		HAS_GLIB_SCHEMA=$(ls $MNTPNT/usr/share/glib-2.0/schemas/ 2>/dev/null)
 	fi
-	if [ -s "$MNTPNT/root/Choices/ROX-Filer/PuppyPin" ]; then
-		mkdir -p "$MYTMPDIR"
-		cp -f "$MNTPNT/root/Choices/ROX-Filer/PuppyPin" "$MYTMPDIR/PuppyPin-$ROOTNAME"
-		[ -s "$MNTPNT/root/Choices/ROX-Filer/globicons" ] && cp -f  "$MNTPNT/root/Choices/ROX-Filer/globicons" "$MYTMPDIR/globicons-$ROOTNAME"
-		HAS_PINS="PuppyPin-$ROOTNAME"
-	fi
-
 	# save to files
 	[ "$HAS_MODULES" ] && echo $HAS_MODULES >> "$MYTMPDIR/has_modules"
 	[ "$HAS_FONTS" ] && echo $HAS_FONTS >> "$MYTMPDIR/has_fonts"
-	if [ "$ACTION" = 'load' ]; then
-		[ "$HAS_PINS" ] && echo $HAS_PINS >> "$MYTMPDIR/has_pins"
-	else
-		[ "$HAS_PINS" ] && echo $HAS_PINS >> "$MYTMPDIR/has_pins_removed"
-	fi
 	[ "$HAS_DESKTOPS" ] && echo $HAS_DESKTOPS >> "$MYTMPDIR/has_desktops"
 	[ "$HAS_SCRIPTS" ] && echo $HAS_SCRIPTS >> "$MYTMPDIR/has_scripts"
 	[ "$HAS_STARTUPS" ] && echo $HAS_STARTUPS >> "$MYTMPDIR/has_startups"
@@ -431,8 +417,6 @@ afterwork() {
 	reset_has_vars
 	[ -e "$MYTMPDIR/has_modules" ] && HAS_MODULES=$(cat "$MYTMPDIR/has_modules" 2>/dev/null | grep '.')
 	[ -e "$MYTMPDIR/has_fonts" ] && HAS_FONTS=$(cat "$MYTMPDIR/has_fonts" 2>/dev/null | grep '.')
-	[ -e "$MYTMPDIR/has_pins" ] && HAS_PINS=$(cat "$MYTMPDIR/has_pins" 2>/dev/null | grep '.')
-	[ -e "$MYTMPDIR/has_pins_removed" ] && HAS_PINS_REMOVED=$(cat "$MYTMPDIR/has_pins_removed" 2>/dev/null | grep '.')
 	[ -e "$MYTMPDIR/has_desktops" ] && HAS_DESKTOPS=$(cat "$MYTMPDIR/has_desktops" 2>/dev/null | grep '.')
 	[ -e "$MYTMPDIR/has_scripts" ] && HAS_SCRIPTS=$(cat "$MYTMPDIR/has_scripts" 2>/dev/null | sort -u | grep '.')
 	[ -e "$MYTMPDIR/has_startups" ] && HAS_STARTUPS=$(cat "$MYTMPDIR/has_startups" 2>/dev/null | sort -u | grep '.')
@@ -519,9 +503,6 @@ afterwork() {
 	[ "$HAS_GIO" ] && gio-querymodules /usr/lib/gio/modules
 	
 	[ "$HAS_32BIT" ] && /sbin/ldconfig && gdk-pixbuf-query-loaders32 > /usr/lib/i386-linux-gnu/gdk-pixbuf-2.0/2.10.0/loaders.cache
-	[ "$HAS_PINS" ] && mergepin
-	[ "$HAS_PINS_REMOVED" ] && removepin
-	[ "$HAS_PINS" -o "$HAS_PINS_REMOVED" ] && restart_rox
 	if [ "$HAS_DESKTOPS" -a -z "$SKIP_FIXMENUS" ]; then
 		waitsplash $(gettext "Updating menu...")
 		#v2.0: refresh default applications
@@ -567,61 +548,6 @@ defaults-chooser' > $F
 		fi
 		[ "$GUI" ] && sleep 2
 	fi
-}
-
-mergepin() {
-	log "mergepin: $HAS_PINS"
-	PUPPYPIN="$HOME/Choices/ROX-Filer/PuppyPin"
-	MASTERGLOB="$HOME/Choices/ROX-Filer/globicons"
-	GLOBICONS="$HOME/.config/rox.sourceforge.net/ROX-Filer/globicons"
-	[ -f "$PUPPYPIN" ] || return
-	[ "$HAS_PINS" ] || return
-	[ -s "$GLOBICONS" ] || cp "$MASTERGLOB" "$GLOBICONS"
-	grep -v '</pinboard>' "$PUPPYPIN" > "$MYTMPDIR/PuppyPin"
-	grep -v '</special-files>' "$GLOBICONS" > "$MYTMPDIR/globicons"
-	PINUP=""
-	GLOBUP=""
-	for F in $HAS_PINS; do
-	# PuppyPin
-	P=$(grep '<icon ' "$MYTMPDIR/$F"| head -n 1| cut -s -d'>' -f2 | cut -s -d'<' -f1 | tr -d ' ')
-	if ! grep -qw "$P" "$PUPPYPIN" ; then
-		grep '<icon ' "$MYTMPDIR/$F" >> "$MYTMPDIR/PuppyPin" && PINUP="y"
-	fi
-	# globicons
-	G="$MYTMPDIR/globicons-"$(echo $F| cut -s -d'-' -f2-)
-	P=$(grep '<rule[ ]match=' "$G"| head -n 1| cut -s -d'"' -f2 | tr -d ' ')
-	if ! grep -qw "$P" "$GLOBICONS"; then
-		grep -E '<([/]*rule|icon)' "$G" >> "$MYTMPDIR/globicons" && GLOBUP="y"
-	fi
-	done
-	echo '</pinboard>' >> "$MYTMPDIR/PuppyPin"
-	echo '</special-files>' >> "$MYTMPDIR/globicons"
-	[ "$PINUP" != "" -a -s "$MYTMPDIR/PuppyPin" ] && cp -f "$MYTMPDIR/PuppyPin" "$PUPPYPIN"
-	[ -f "$GLOBICONS" ] || return
-	[ "$GLOBUP" != "" -a -s "$MYTMPDIR/globicons" ] && cp -f "$MYTMPDIR/globicons" "$GLOBICONS"
-}
-
-removepin() {
-	log "removepin: $HAS_PINS_REMOVED"
-	PUPPYPIN="$HOME/Choices/ROX-Filer/PuppyPin"
-	[ -f "$PUPPYPIN" ] || return
-	[ "$HAS_PINS_REMOVED" ] || return
-	PLIST=""
-	for F in $HAS_PINS_REMOVED; do
-		PLIST="$PLIST
-"$(grep '<icon ' "$MYTMPDIR/$F"| cut -s -d'>' -f2 | cut -s -d'<' -f1 | tr -d ' ')
-	done
-	PLIST=$(echo $PLIST| tr ' ' '|')
-	debug "PLIST=$PLIST"
-	grep -v -E "$PLIST" "$PUPPYPIN" >  "$MYTMPDIR/PuppyPin"
-	[ -s "$MYTMPDIR/PuppyPin" ] && cp -f "$MYTMPDIR/PuppyPin" "$PUPPYPIN"
-}
-
-restart_rox() {
-	[ "$DISPLAY" ] || return  #v1.9.2
-	roxpids=`pidof ROX-Filer` || return
-	for PID in ${roxpids}; do kill $PID ; done
-	roxfiler -p "$HOME/Choices/ROX-Filer/PuppyPin" && log "ROX-Filer restarted." || log "ROX-Filer restart failed." 
 }
 
 keyword() { # 13 Nov 2011
@@ -1895,12 +1821,6 @@ if [ "$STARTSCRIPT" ]; then
 			echo "y" > "$MYTMPDIR/has_gconv"
 						
 			echo "/usr/sharefonts" > "$MYTMPDIR/has_fonts"	###FIXME subdirs ###
-			#puppy pins
-			if [ -s "/root/Choices/ROX-Filer/PuppyPin" ]; then
-				cp -f "/root/Choices/ROX-Filer/globicons" "$MYTMPDIR/globicons-sfs_load"
-				cp -f "/root/Choices/ROX-Filer/PuppyPin" "$MYTMPDIR/PuppyPin-sfs_load"
-				echo "PuppyPin-sfs_load" >  "$MYTMPDIR/has_pins"
-			fi
 		fi
 		afterwork
 		#v2.0: fix menu icons
