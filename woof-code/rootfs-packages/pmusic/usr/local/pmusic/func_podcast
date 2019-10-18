@@ -83,6 +83,28 @@ case $1 in
 	[ "`grep "$(gettext 'M Y   P O D C A S T S')" $WORKDIR/sourcelist`" ] && echo true > $WORKDIR/UPDATE_SOURCELIST
 	;;
 -opml2pmd)
+	#build sed files for locale convertion
+	echo -n > $WORKDIR/tmp_locale-nn_NN
+	echo -n > $WORKDIR/tmp_locale-nn-NN
+	echo -n > $WORKDIR/tmp_locale-nn
+	echo -n > $WORKDIR/tmp_locale-NN
+	while read I; do
+		TERRITORY="`grep -FA20 LC_IDENTIFICATION /usr/share/i18n/locales/${I} | grep ^territory | cut -d'"' -f2`"
+		LANGUA="`grep -FA20 'LC_IDENTIFICATION' /usr/share/i18n/locales/${I} | grep ^language | cut -d'"' -f2`"
+		LANGznn_NN="`echo "$I"  | sed -e 's/\(.*\)/\L\1/'`" #only small chars
+		LANGznn="`echo "$LANGznn_NN" | cut -d'_' -f1`"
+		LANGzNN="`echo "$LANGznn_NN" | cut -d'_' -f2`"
+		LANGznnzNN="${LANGznn}-${LANGzNN}"
+		echo -n 's|zzz'${LANGznn_NN}'zzz| '${LANGUA}, ${TERRITORY}'| ; ' >> $WORKDIR/tmp_locale-nn_NN
+		echo -n 's|zzz'${LANGznnzNN}'zzz| '${LANGUA}, ${TERRITORY}'| ; ' >> $WORKDIR/tmp_locale-nn-NN
+		[ ! "$(grep -F '|'${LANGznn}'|' $WORKDIR/tmp_locale-nn)" ] && echo -n 's|zzz'${LANGznn}'zzz| '${LANGUA}, '| ; ' >> $WORKDIR/tmp_locale-nn
+		[ ! "$(grep -F '|'${LANGzNN}'|' $WORKDIR/tmp_locale-NN)" ] && echo -n 's|zzz'${LANGzNN}'zzz| '${LANGUA}, ${TERRITORY}'| ; ' >> $WORKDIR/tmp_locale-NN
+		echo $I:::$LANGUA:::$TERRITORY
+	done <<< $(ls /usr/share/i18n/locales)
+
+	#read raw data - line by line
+	A=0
+	TOTAL=$(grep -Fc 'url=' $WORKDIR/tmp_podcast_opml)
 	echo -n > $WORKDIR/tmp_opml2pmd
 	while read I; do
 		case $I in
@@ -90,26 +112,37 @@ case $1 in
 				ADR=${I##*url=\"}; ADR=${ADR%%\"*}
 				NAME=${I##*text=\"}; NAME=${NAME%%\"*}
 				#write to index if url is alive
-				LC_ALL=C wget --spider --tries 3 -T 3 $ADR 2> $WORKDIR/tmp_podcast
-				if [ "`LC_ALL=C grep 'connected' $WORKDIR/tmp_podcast`" ]; then
+				LC_ALL=C wget --tries 3 -T 3 -q $ADR -O - | tr '>' '\n' | tr \' \"  > $WORKDIR/tmp_podcast
+				if [ "`grep -F '</rss' $WORKDIR/tmp_podcast`" ]; then #valid rss
+					A=$(($A+1))
 					#Get filelist from RSS feed
 					while read I; do
 						case $I in
 							*.jpg*) ALBUMART=${I##*href=\"}; ALBUMART=${ALBUMART%%\"*}; ALBUMART=${ALBUMART%%\<*} ;;
 							*\<\/language*)
 								LANGUA=${I%%<*}
+								#convert locale (en-US) to language based on one of the following definition files
+								if [ "$(grep -i "|zzz${LANGUA}zzz|" $WORKDIR/tmp_locale-nn_NN)" ]; then
+									LANGUA="$(echo "zzz${LANGUA}zzz" | sed -e 's/\(.*\)/\L\1/' | sed -f $WORKDIR/tmp_locale-nn_NN)"
+								elif [ "$(grep -i "|zzz${LANGUA}zzz|" $WORKDIR/tmp_locale-nn-NN)" ]; then
+									LANGUA="$(echo "zzz${LANGUA}zzz" | sed -e 's/\(.*\)/\L\1/' | sed -f $WORKDIR/tmp_locale-nn-NN)"
+								elif [ "$(grep -i "|zzz${LANGUA}zzz|" $WORKDIR/tmp_locale-nn)" ]; then
+									LANGUA="$(echo "zzz${LANGUA}zzz" | sed -e 's/\(.*\)/\L\1/' | sed -f $WORKDIR/tmp_locale-nn)"
+								elif [ "$(grep -i "|zzz${LANGUA}zzz|" $WORKDIR/tmp_locale-NN)" ]; then
+									LANGUA="$(echo "zzz${LANGUA}zzz" | sed -e 's/\(.*\)/\L\1/' | sed -f $WORKDIR/tmp_locale-NN)"
+								fi
 								;;
 							*\<\/itunes:author*) AUTHOR=${I%%<*} ;;
-							*\<\/itunes:keywords*) TAGS=${I%%<*} ;;
+							*\<\/itunes:keywords*) TAGS=${I%%<*} | TAGS=${TAGS::150} ;; #Crop to max 150 chars
 							*\<\/item*) #we have reached next item --> echo what we got
-								echo OK : $NAME
+								echo OK : ${A}/${TOTAL} : $NAME
 								echo "pmusicbrowse_podcast:$ADR|$NAME|||||$GENRE|${AUTHOR}, ${TAGS}||||||$ADR|gtk-podcast_channel||||$ALBUMART|$LANGUA|" >> $WORKDIR/tmp_opml2pmd
 								break
 								;;
 						esac
-					done <<< "$(wget -q $ADR -O - | tr '>' '\n' | tr \' \" )"
+					done < $WORKDIR/tmp_podcast
 				else
-					echo NO : $NAME
+					echo NO : ${A}/${TOTAL} : $NAME
 				fi
 				;;
 			*text=*\>) #category
@@ -118,6 +151,7 @@ case $1 in
 		esac
 	done < $WORKDIR/tmp_podcast_opml
 	sed -f $APPDIR/sed_html2txt -i $WORKDIR/tmp_opml2pmd
+	awk '!a[$0]++'  $WORKDIR/tmp_opml2pmd >  "$STORAGE_DIR"/index_podcast #remove duplicate lines
 	;;
 
 -build_index)
@@ -126,7 +160,6 @@ case $1 in
 	wget http://api.digitalpodcast.com/opml/digitalpodcast.opml -O - | tr '<' '\n' > $WORKDIR/tmp_podcast_opml
 	echo 100 > $WORKDIR/splash
 	rxvt -e $APPDIR/func_podcast -opml2pmd
-	mv -f $WORKDIR/tmp_opml2pmd "$STORAGE_DIR"/index_podcast
 	;;
 
 -show_podcast)
@@ -157,7 +190,7 @@ case $1 in
 -expand_channel) #both expand and collapse
 	ADR="$2"
 	#expand
-	if [ ! "`grep -FA1 "|$ADR|" $WORKDIR/sourcelist | grep -vF "|$ADR|" | grep -E "gtk-podcast_available|gtk-podcast_played"`" ]; then #expand if next item on list is a channel or if this is the last item
+	if [ ! "`grep -FA1 "|$ADR|" $WORKDIR/sourcelist | grep -vF "|$ADR|" | grep -E "gtk-podcast_available|gtk-podcast_played|gtk-podcast_dead"`" ]; then #expand if next item on list is a channel or if this is the last item
 		grep -B 10000 "|$ADR|" $WORKDIR/sourcelist > $WORKDIR/tmp_pod2
 		grep -A 10000 "|$ADR|" $WORKDIR/sourcelist | grep -v "|$ADR|" > $WORKDIR/tmp_pod3
 		#show msg
@@ -172,7 +205,7 @@ case $1 in
 		cp $WORKDIR/tmp_pod2 $WORKDIR/tmp_pod3 #pod2 is the one acting on. pod3 is for reading and has to be complete
 		#remove expanded items
 		while read I; do
-			if [[ "$I" = @(*gtk-podcast_available*|*gtk-podcast_played*) ]]; then
+			if [[ "$I" = @(*gtk-podcast_available*|*gtk-podcast_played*|*gtk-podcast_dead*) ]]; then
 				grep -v "$I" $WORKDIR/tmp_pod2 > $WORKDIR/tmp_pod4
 				mv -f $WORKDIR/tmp_pod4 $WORKDIR/tmp_pod2
 			else #no more podcasts
@@ -238,6 +271,7 @@ case $1 in
 	rm $WORKDIR/tmp_pod*
 	echo true > $WORKDIR/UPDATE_SOURCELIST
 	;;
+
 -edit_preset)
 	IFS='|' read COMMAND ARTIST TITLE ALBUM NR YEAR GENRE COMMENT RATING FORMAT BITRATE LENGTH C13 ADR C <<< "$(grep -m1 "$2" "$STORAGE_DIR"/podcast_channels)"
 	echo "$ARTIST" > $WORKDIR/PODCAST_NAME
