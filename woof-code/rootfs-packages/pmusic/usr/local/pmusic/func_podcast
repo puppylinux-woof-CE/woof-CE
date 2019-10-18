@@ -188,11 +188,43 @@ case $1 in
 	IFS='|' read COMMAND ARTIST TITLE ALBUM NR YEAR GENRE COMMENT RATING FORMAT BITRATE LENGTH C13 ADR ICON C <<< "$(grep -m1 "$2" $WORKDIR/sourcelist)"
 	#check content of channel
 	mv -f $WORKDIR/tmp_pod2 $WORKDIR/sourcelist2
-	#check internet connection
-	LC_ALL=C wget --spider --tries 3 -T 3 $PING_SERVER 2> $WORKDIR/tmp_podcast
-	if [ ! "`LC_ALL=C grep 'connected' $WORKDIR/tmp_podcast`" ]; then
+
+	#Get filelist from RSS feed
+	LC_ALL=C wget --tries 3 -T 3 -q $ADR -O - | tr '>' '\n' | tr \' \"  > $WORKDIR/tmp_podcast
+	if [ "`grep -F '<rss ' $WORKDIR/tmp_podcast`" ]; then #valid rss
+		while read I; do
+			case $I in
+				*audio*url=*|*url=*audio*|*video*url=*|*url=*video*) URL=${I#*url=\"}; URL=${URL%%\"*} ;;
+				*\<\/pubDate*) DATO=${I%%<*} ;;
+				*\<\/title*) TITLE=${I%%<*} ;;
+				*duration=*|*/itunes:duration*)
+					[[ "$I" = */itunes:duration* ]] && LENGTH=${I%%<*} || LENGTH=${I#*duration=\"}; LENGTH=${LENGTH%%\"*}
+					;;
+				*\<\/item*) #we have reached next item --> echo what we got
+					if [ "$LENGTH" ]; then
+						#in case length is defined in seconds
+						[[ $LENGTH = *:* ]] || LENGTH=`$APPDIR/func_C -sec2time $LENGTH`
+						#in case Hours is defined --> convert to minutes 
+						if [[ "$LENGTH" = *:*:* ]]; then
+							IFS=: read H M S <<< "$LENGTH"
+							M=$(((10#$H * 60) + 10#$M))
+							LENGTH=$(printf "%02d" $M):$(printf "%02d" $S)
+						fi
+					else
+					LENGTH='??:??'
+					fi
+					if  [ "$URL" ]; then
+						[[ "$(grep -F "$URL" $WORKDIR/podcasts_played)" ]] && ICON='gtk-podcast_played' || ICON='gtk-podcast_available'
+					else
+						ICON='gtk-podcast_dead'
+					fi
+					echo "$URL|$ARTIST|$TITLE|||$DATO|$GENRE|||||$LENGTH||$URL|$ICON|" >> $WORKDIR/sourcelist2
+					;;
+			esac
+		done < $WORKDIR/tmp_podcast
+	else #no internet connection
 		sleep 0.2
-		TXT1="<b>$(gettext 'Not able to connect to internet')</b>"
+		TXT1="<b>$(gettext 'Not able to connect to podcast channel')</b>"
 		. $APPDIR/box_ok
 		echo 100 > $WORKDIR/splash #reset progress bar
 		grep -v "$(gettext 'Searching podcasts')" $WORKDIR/sourcelist > $WORKDIR/tmp_sourcelist
@@ -200,40 +232,12 @@ case $1 in
 		echo true > $WORKDIR/UPDATE_SOURCELIST
 		exit
 	fi
-	#Get filelist from RSS feed
-	while read I; do
-		case $I in
-			*audio*url=*|*url=*audio*) URL=${I#*url=\"}; URL=${URL%%\"*} ;;
-			*\<\/pubDate*) DATO=${I%%<*} ;;
-			*\<\/title*) TITLE=${I%%<*} ;;
-			*duration=*|*/itunes:duration*)
-				[[ "$I" = */itunes:duration* ]] && LENGTH=${I%%<*} || LENGTH=${I#*duration=\"}; LENGTH=${LENGTH%%\"*}
-				;;
-			*\<\/item*) #we have reached next item --> echo what we got
-				if [ "$LENGTH" ]; then
-					#in case length is defined in seconds
-					[[ $LENGTH = *:* ]] || LENGTH=`$APPDIR/func_C -sec2time $LENGTH`
-					#in case Hours is defined --> convert to minutes 
-					if [[ "$LENGTH" = *:*:* ]]; then
-						IFS=: read H M S <<< "$LENGTH"
-						M=$(((10#$H * 60) + 10#$M))
-						LENGTH=$(printf "%02d" $M):$(printf "%02d" $S)
-					fi
-				else
-				LENGTH='??:??'
-				fi
-				[[ "$(grep -F "$URL" $WORKDIR/podcasts_played)" ]] && ICON='gtk-podcast_played' || ICON='gtk-podcast_available'
-				echo "$URL|$ARTIST|$TITLE|||$DATO|$GENRE|||||$LENGTH||$URL|$ICON|" >> $WORKDIR/sourcelist2
-				;;
-		esac
-	done <<< "$(wget -q $ADR -O - | tr '>' '\n' | tr \' \" )"
 	cat $WORKDIR/tmp_pod3 >> $WORKDIR/sourcelist2
 	mv -f $WORKDIR/sourcelist2 $WORKDIR/sourcelist
 	sed -f $APPDIR/sed_html2txt -i $WORKDIR/sourcelist
 	rm $WORKDIR/tmp_pod*
 	echo true > $WORKDIR/UPDATE_SOURCELIST
 	;;
-
 -edit_preset)
 	IFS='|' read COMMAND ARTIST TITLE ALBUM NR YEAR GENRE COMMENT RATING FORMAT BITRATE LENGTH C13 ADR C <<< "$(grep -m1 "$2" "$STORAGE_DIR"/podcast_channels)"
 	echo "$ARTIST" > $WORKDIR/PODCAST_NAME
