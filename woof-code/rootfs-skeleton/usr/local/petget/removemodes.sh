@@ -45,7 +45,7 @@ report_window () {
 Packages succesfully uninstalled:
 $REMOVED_PGKS
 
-Packages that did not uninstall properly or the user abortded their removal:
+Packages that did not uninstall properly or the user aborted their removal:
 $FAILED_TO_REMOVE
 
 Installed packages that may not be needed after the removal of the above:
