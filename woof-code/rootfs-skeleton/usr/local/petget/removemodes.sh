@@ -41,11 +41,11 @@ report_window () {
 <i><b>${MAYBEREM}</b></i>"
  fi
 
- cat << EOF > /tmp/petget_proc/overall_remove_deport
+ cat << EOF > /tmp/petget_proc/overall_remove_report
 Packages succesfully uninstalled:
 $REMOVED_PGKS
 
-Packages that did not uninstall properly or the user abortded their removal:
+Packages that did not uninstall properly or the user aborted their removal:
 $FAILED_TO_REMOVE
 
 Installed packages that may not be needed after the removal of the above:
@@ -109,7 +109,7 @@ EOF
      <button>
        <label>'$(gettext 'View details')'</label>
        '"`/usr/lib/gtkdialog/xml_button-icon document_viewer`"'
-       <action>defaulttextviewer /tmp/petget_proc/overall_remove_deport &</action>
+       <action>defaulttextviewer /tmp/petget_proc/overall_remove_report &</action>
      </button>
      <button ok></button>
      '"`/usr/lib/gtkdialog/xml_scalegrip`"'
@@ -121,7 +121,7 @@ EOF
  rm -f /tmp/petget_proc/pgks_really_removed
  rm -f /tmp/petget_proc/pgks_failed_to_remove
  rm -f /tmp/petget_proc/pkgs_to_remove_done
- rm -f /tmp/petget_proc/overall_remove_deport
+ rm -f /tmp/petget_proc/overall_remove_report
  rm -f /tmp/petget_proc/overall_petget-deps-maybe-rem
  echo 100 > /tmp/petget_proc/petget/install_status_percent
 }
