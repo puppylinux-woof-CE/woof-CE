@@ -23,6 +23,8 @@ export TMPDIR=/tmp/apps/puppyinstaller
 . /etc/DISTRO_SPECS
 [ -f /initrd/DISTRO_SPECS ] && . /initrd/DISTRO_SPECS
 NEWVER="$DISTRO_VERSION"
+L_PUPPY_INSTALLER=$(gettext 'Puppy Installer')
+CWD=`pwd`
 
 if [ "$PUPSFS" ] ; then #PUPSTATE
 	DISTRO_PUPPYSFS=${PUPSFS##*/}
@@ -32,11 +34,13 @@ if [ "$PUPSFS" ] ; then #PUPSTATE
 	DISTRO_YDRVSFS=${YDRV##*/}
 fi
 
-CWD=`pwd`
+#===================================================================
+#                           FUNCTIONS
+#===================================================================
 
-L_PUPPY_INSTALLER=$(gettext 'Puppy Installer')
-
-linux_func() { #two params: fstype partition
+# $1: fstype
+# $2: partition
+linux_func() {
 	#returns $DISTRO;windows, version of already-installed Puppy or other Linux if any.
 	#set -x ###debug
 	unset DISTRO
@@ -138,6 +142,7 @@ linux_func() { #two params: fstype partition
 	# done
 }
 
+# $1: dev
 free_space_func() {
 	# function to determine if there is substantial free space on a physical drive
 	# check what is used
@@ -202,8 +207,7 @@ unmountcdfunc() {
 	fi
 }
 
-locate_puppy_src_files() {
-	#===============================
+locate_puppy_src_files() { # sets $SRCPATH $CDDRIVE
 	SRCPATH=""
 	CDDRIVE=""
 	ISO_MP=""
@@ -293,7 +297,54 @@ locate_puppy_src_files() {
  \nClick OK button to quit...\"`" 0 0
 		exit
 	fi
-} #end locate_puppy_src_files function.
+}
+
+# $1: directory
+# $2: distro
+# $3: pmedia
+copy_g4dos_cd() {
+	if [ ! -d "$1" ] ; then
+		return 1
+	fi
+	cp -fv /usr/share/g4dos/pcd/* "$1"/
+	if [ "$2" ] ; then #distro
+		if [ "$2" = "auto" ] ; then
+			. /etc/DISTRO_SPECS
+			sed -i "s%#distrodesc#%${DISTRO_NAME} ${DISTRO_VERSION}%" "$1"/menu.lst
+		else
+			sed -i "s%#distrodesc#%${2}%" "$1"/menu.lst
+		fi
+	fi
+	if [ "$3" ] ; then #pmedia
+		sed -i "s|pmedia=cd|pmedia=${3}|" "$1"/menu.lst
+	fi
+	if [ -f /usr/lib/grub4dos/grldr ] ; then
+		cp /usr/lib/grub4dos/grldr "$1"/
+	elif [ -f /usr/share/g4dos/grldr ] ; then
+		cp /usr/share/g4dos/grldr "$1"/
+	fi
+}
+
+# $1: drive
+write_wee_mbr() {
+	XDEV=${1##*/}
+	BLOCKDEV=$1
+	WEE_MBR='/usr/share/g4dos/wee.mbr'
+	if [ ! -f $WEE_MBR ] ; then
+		echo "file not found: $WEE_MBR"
+		exit 1
+	fi
+	cp ${WEE_MBR} /tmp/wee.mbr
+	## Read disk signature and partition table from MBR
+	## and write it to wee.mbr:
+	dd if=${BLOCKDEV} bs=1 skip=439 count=72 2>/dev/null | \
+		dd of=/tmp/wee.mbr bs=1 seek=439 conv=notrunc
+	## backup MBR
+	dd if=${BLOCKDEV} of=/tmp/${XDEV}.mbr bs=512 count=63
+	## Write wee MBR to $MBR_DEV
+	echo "Installing bootloader(Wee) on ${BLOCKDEV} ..."
+	dd if=/tmp/wee.mbr of=${BLOCKDEV}
+}
 
 grub4dos_func() {
 	#really need gtkdialog here.. add a "readme" button or something... all this says is "trust me" }:-)
@@ -330,6 +381,10 @@ f2fs_func() {
 	esac
 }
 
+#===================================================================
+#                          MAIN DIALOG
+#===================================================================
+
 tmpsel=${TMPDIR}/selections
 
 # gui
@@ -361,7 +416,7 @@ export PUI='
           </vbox> 
         </hbox> 
         <hbox space-expand="true" space-fill="true"> 
-          <text xalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"<b>USB</b> '$(gettext 'hard drive')'"</label></text> 
+          <text xalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"<b>USB</b> '$(gettext 'hard drive / SSD')'"</label></text> 
           <vbox space-expand="false" space-fill="false"> 
             <button> 
               '"`/usr/lib/gtkdialog/xml_button-icon harddisk_usb.svg big`"' 
@@ -375,7 +430,7 @@ export PUI='
     <hbox space-expand="true" space-fill="true"> 
       <vbox> 
         <hbox space-expand="true" space-fill="true"> 
-          <text xalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"'$(gettext '<b>Internal</b> hard drive')'"</label></text> 
+          <text xalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"'$(gettext '<b>Internal</b> hard drive / SSD')'"</label></text> 
           <vbox space-expand="false" space-fill="false"> 
             <button> 
               '"`/usr/lib/gtkdialog/xml_button-icon harddisk.svg big`"' 
@@ -496,10 +551,12 @@ widget "*bg*" style "bg"' > ${TMPDIR}/gtkrc_pui
 echo "debug pmedia $PMEDIA"
 echo "$PMEDIA" > $tmpsel
 
-#=======================================================================
+#===================================================================
+#                          BIG LOOP
+#===================================================================
 
-############BIG LOOP###############
-while [ 1 ];do #BIG LOOP
+while [ 1 ]
+do
 
  PROBEDISK="`probedisk -extended-usb -type -model -size -hr`"
  case $PMEDIA in
@@ -707,7 +764,6 @@ $DLGEXT
  </vbox>
 </window>
 "
-
  RETTXT=$(echo "$DLG2" | gtkdialog --stdin -c)
  eval "$RETTXT"
  rm ${TMPDIR}/{buttonstate,win,cnt,num*,ntfsmnterr*,is_f2fs} 2>/dev/null #cleanup
@@ -765,72 +821,18 @@ try to fix the\nproblem of the partition getting mounted...\"`" 0 0
  break
 done ###########END BIG LOOP###############
 
-#=======================================================================
-
 /usr/lib/gtkdialog/box_yesno --ok-cancel "$L_PUPPY_INSTALLER" \
 "`eval_gettext \"You have chosen to install Puppy to partition /dev/\\\${DESTPART}, which has a \\\${DESTFS} filesystem and the size is \\\${DESTSIZM}M.\"`" \
 "$(gettext 'Press OK button to install Puppy (note, there will be one or two more dialog windows before you have to commit to the actual install)...')"
 [ ! $? -eq 0 ] && exit
 
-#get latest Puppy files....
-locate_puppy_src_files
+locate_puppy_src_files # sets $SRCPATH $CDDRIVE
 
-#==============================================================
-#now to do the actual install...
+#===================================================================
+#                 INSTALL TO REMOVABLE MEDIA
+#===================================================================
 
-# $1: directory
-# $2: distro
-# $3: pmedia
-copy_g4dos_cd() {
-	if [ ! -d "$1" ] ; then
-		return 1
-	fi
-	cp -fv /usr/share/g4dos/pcd/* "$1"/
-	if [ "$2" ] ; then #distro
-		if [ "$2" = "auto" ] ; then
-			. /etc/DISTRO_SPECS
-			sed -i "s%#distrodesc#%${DISTRO_NAME} ${DISTRO_VERSION}%" "$1"/menu.lst
-		else
-			sed -i "s%#distrodesc#%${2}%" "$1"/menu.lst
-		fi
-	fi
-	if [ "$3" ] ; then #pmedia
-		sed -i "s|pmedia=cd|pmedia=${3}|" "$1"/menu.lst
-	fi
-	if [ -f /usr/lib/grub4dos/grldr ] ; then
-		cp /usr/lib/grub4dos/grldr "$1"/
-	elif [ -f /usr/share/g4dos/grldr ] ; then
-		cp /usr/share/g4dos/grldr "$1"/
-	fi
-}
-
-# $1: drive
-write_wee_mbr() {
-	XDEV=${1##*/}
-	BLOCKDEV=$1
-	WEE_MBR='/usr/share/g4dos/wee.mbr'
-	if [ ! -f $WEE_MBR ] ; then
-		echo "file not found: $WEE_MBR"
-		exit 1
-	fi
-	cp ${WEE_MBR} /tmp/wee.mbr
-	## Read disk signature and partition table from MBR
-	## and write it to wee.mbr:
-	dd if=${BLOCKDEV} bs=1 skip=439 count=72 2>/dev/null | \
-		dd of=/tmp/wee.mbr bs=1 seek=439 conv=notrunc
-	## backup MBR
-	dd if=${BLOCKDEV} of=/tmp/${XDEV}.mbr bs=512 count=63
-	## Write wee MBR to $MBR_DEV
-	echo "Installing bootloader(Wee) on ${BLOCKDEV} ..."
-	dd if=/tmp/wee.mbr of=${BLOCKDEV}
-}
-
-case $PMEDIA in
-
-	#===============================
-	usbflash|usbhd) #removable media
-	#===============================
-
+case $PMEDIA in usb*)
 	case $DESTFS in
 	vfat|ntfs|ext2|ext3|ext4)
 
@@ -886,10 +888,13 @@ case $PMEDIA in
 		;;
 	esac
 	;;
+esac
 
-	#=====================
-	atahd) #internal media
-	#=====================
+#===================================================================
+#               INSTALL TO INTERNAL HARD DRIVE
+#===================================================================
+
+case $PMEDIA in ata*)
 	#arrive here with DESTPART & DESTFS where installing to, PMEDIA boot param PMEDIA,
 	#SRCPATH where to get vmlinuz, initrd, ${DISTRO_PUPPYSFS}
 	#format 200 (without dots) =0 if no prior installed puppy,
