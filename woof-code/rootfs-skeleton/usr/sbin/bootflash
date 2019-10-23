@@ -13,21 +13,6 @@ fi
 . /etc/rc.d/PUPSTATE
 . /etc/DISTRO_SPECS
 
-case $1 in *.iso|*.ISO)
-	ISO_MP=/mnt/isofile #unmountcdfunc
-	SRCPATH=${ISO_MP}
-	mkdir -p ${ISO_MP}
-	umount ${ISO_MP} 2>/dev/null
-	mount -o loop "$1" ${ISO_MP} || {
-		echo "Cannot mount $1"
-		umount ${ISO_MP}
-		exit 1
-	}
-	ANY_ISO=1
-	shift
-	;;
-esac
-
 PARAM1=""
 if [ $1 ] ; then
 	probedisk -extended-usb -card-as-usbflash | grep usbflash | grep "/${1}|" || exit
@@ -63,6 +48,7 @@ fi
 # $1: device
 ensure_unmounted() {
 	umount $1 2>/dev/null ; sync ; sleep 1
+	umount $2 2>/dev/null ; sync
 	if [ "`mount | grep "^${1}"`" ] ; then
 		/usr/lib/gtkdialog/box_ok "Bootflash" error "$(gettext "${USBDRV} is being used")" \
 			"$(gettext "${USBDRV} please unmount all the drive partitions and run this script again")"
@@ -171,10 +157,12 @@ write_wee_mbr() {
 
 # create msdos partition table and 1 partition, then install wee.mbr
 # $1 = drv
-# $2 = fstype (vfat, ntfs)
+# $2 = fstype (vfat, ntfs, ext3, ext4)
+# $3 = fstype2 (f2fs)  (optional - $2 becomes vfat)
 create_grub4dos_bootable_drv() {
 	local XDEV=${1##*/}
 	local FSTYPE=$2
+	local FSTYPE2=$3
 
 	ensure_unmounted /dev/${XDEV}
 	#-- wipe_existing_partition_table_and_filesystem_signatures
@@ -184,18 +172,28 @@ create_grub4dos_bootable_drv() {
 
 	# -- create_target_partition_table
 	# parted
-	# https://rainbow.chard.org/2013/01/30/how-to-align-partitions-for-best-performance-using-parted/
-	case "$FSTYPE" in
-		vfat) DEVTYPE=fat32 ; mkpart_end='-1s'    ;;
-		ntfs) DEVTYPE=NTFS  ; mkpart_end='-1025s' ;; # Leave 512KiB==1024sector in traditional 512bytes/sector disk, disks with sector with more than 512bytes only result in partition size greater than 512KiB and is intentionally let-it-be.
-		ext*) DEVTYPE=ext2  ; mkpart_end='-1s'    ;;
-	esac
-	#mkpart primary fat32 0% 100%
-	parted --script -- \
-		/dev/${XDEV} \
-		mklabel msdos \
-		mkpart primary ${DEVTYPE} 4MiB ${mkpart_end} \
-		set 1 boot on
+	if [ "$FSTYPE2" ] ; then # f2fs
+		FSTYPE=vfat
+		parted --script -- \
+			/dev/${XDEV} \
+			mklabel msdos \
+			mkpart primary fat32 4MiB 50MiB \
+			mkpart primary ext2 100MiB 100% \
+			set 1 boot on
+	else
+		# https://rainbow.chard.org/2013/01/30/how-to-align-partitions-for-best-performance-using-parted/
+		case "$FSTYPE" in
+			vfat) DEVTYPE=fat32 ; mkpart_end='-1s'    ;;
+			ntfs) DEVTYPE=NTFS  ; mkpart_end='-1025s' ;; # Leave 512KiB==1024sector in traditional 512bytes/sector disk, disks with sector with more than 512bytes only result in partition size greater than 512KiB and is intentionally let-it-be.
+			ext*) DEVTYPE=ext2  ; mkpart_end='-1s'    ;;
+		esac
+		#mkpart primary fat32 0% 100%
+		parted --script -- \
+			/dev/${XDEV} \
+			mklabel msdos \
+			mkpart primary ${DEVTYPE} 4MiB ${mkpart_end} \
+			set 1 boot on
+	fi
 	sync
 	sleep 1.5
 
@@ -203,12 +201,16 @@ create_grub4dos_bootable_drv() {
 	if grep -q '64bit' /etc/mke2fs.conf ; then
 		sed -i 's/64bit,//g' /etc/mke2fs.conf #remove 64bit flag
 	fi
+
 	case "$FSTYPE" in
 		vfat) mkdosfs -F 32 -v /dev/${XDEV}1 ;;
 		ntfs) mkntfs -f /dev/${XDEV}1        ;;
 		ext*) mkfs.${FSTYPE} /dev/${XDEV}1   ;;
 	esac
 	sleep 1
+	case "$FSTYPE2" in
+		f2fs) mkfs.f2fs /dev/${XDEV}2 ;;
+	esac
 
 	sync
 	blockdev --rereadpt /dev/${XDEV}
@@ -358,13 +360,13 @@ export ASKDIALOG='
 
     '${UEFI_USB_INSTALLER}'
 
-     '$(create_dlg_item "$(gettext '<b>Create grub4dos USB (MBR / EXT4 - FAT32 - NTFS)</b>')" \
-		"$(gettext 'Does not support UEFI. Installs the running system. For computers booting with BIOS.')" \
+     '$(create_dlg_item "$(gettext '<b>Create grub4dos USB (MBR - BIOS)</b>')" \
+		"$(gettext 'Does not support UEFI. Installs the running system. For computers booting with BIOS. Supported filesystems: FAT32, F2FS, EXT3, EXT4, NTFS')" \
 		install_options.svg 3
 		)'
 
     '$(create_dlg_item "$(gettext '<b>Write Hybrid ISO file to USB drive</b> [Generic] ')" \
-		"$(gettext "Woof-CE/Fatdog hybrid uefi/bios ISOs are supported. You can also try any distro hybrid iso installers. It's probably only useful if you want try other distros. Not recommended.")" \
+		"$(gettext "Woof-CE/Fatdog hybrid uefi/bios ISOs are supported. You can also try any distro hybrid iso installers. It's probably only useful if you want to try other distros. Not recommended.")" \
 		cd_burn.svg 2
 		)'
 
@@ -429,23 +431,43 @@ case $EXIT in
 		;;
 	3) #========== GRUB4DOS ==========
 
+		# check f2fs support
+		DOTCFG="/etc/modules/DOTconfig*"
+		CFG=`cat $DOTCFG 2>/dev/null`
+		[ "$CFG" ] || CFIG=`zcat /proc/config.gz 2>/dev/null`
+		[ "$CFG" ] || error_func "$ENOCFG" 1
+		if echo "$CFG" | grep -q 'CONFIG_F2FS_FS=y';then
+			if type mkfs.f2fs >/dev/null 2>&1 ; then
+				F2FS_DLG=$(create_dlg_item "$(gettext '<b>FAT32 partition + F2FS partition + grub4dos</b>')" \
+				"$(gettext 'Enables use of F2FS partition')" \
+				install_options.svg 15)
+			fi
+		fi
+
 		export GRUB4DOS_DIALOG='<window title="'"BootFlash: $USBDRV"'" icon-name="gtk-preferences">
 <vbox>
     '$(/usr/lib/gtkdialog/xml_info fixed execute_yes.svg 30 "$(gettext 'The intention of BootFlash is to make a USB memory stick (Flash drive) bootable.. then to install Puppy on it')")'
+
+	'${F2FS_DLG}'
+
+	'$(create_dlg_item "$(gettext '<b>FAT32 partition + grub4dos</b>')" \
+		"$(gettext 'Create FAT32 partition and install grub4dos')" \
+		install_options.svg 11
+		)'
 
     '$(create_dlg_item "$(gettext '<b>EXT4 partition + grub4dos</b>')" \
 		"$(gettext 'Create ext4 partition and install grub4dos')" \
 		install_options.svg 13
 		)'
 
+    '$(create_dlg_item "$(gettext '<b>EXT3 partition + grub4dos</b>')" \
+		"$(gettext 'Create ext3 partition and install grub4dos')" \
+		install_options.svg 14
+		)'
+
 	'$(create_dlg_item "$(gettext '<b>NTFS partition + grub4dos</b>')" \
 		"$(gettext 'Create NTFS partition and install grub4dos')" \
 		install_options.svg 12
-		)'
-
-	'$(create_dlg_item "$(gettext '<b>FAT partition + grub4dos</b>')" \
-		"$(gettext 'Create FAT partition and install grub4dos')" \
-		install_options.svg 11
 		)'
 
     <hbox homogeneous="true" space-expand="true" space-fill="true">
@@ -470,10 +492,13 @@ case $EXIT in
 		RETPARAMS="`gtkdialog --center --program=GRUB4DOS_DIALOG`"
 		eval "$RETPARAMS"
 
+		BOOTLOADER='grub4dos'
 		case $EXIT in
-			13) FSTYPE=ext4 BOOTLOADER=grub4dos ;;
-			12) FSTYPE=ntfs BOOTLOADER=grub4dos ;;
-			11) FSTYPE=vfat BOOTLOADER=grub4dos ;;
+			13) FSTYPE='ext4' ;;
+			14) FSTYPE='ext3' ;;
+			12) FSTYPE='ntfs' ;;
+			11) FSTYPE='vfat' ;;
+			15) FSTYPE='vfat' ; FSTYPE2='f2fs' ;;
 			*) exit ;;
 		esac
 		;;
@@ -510,7 +535,7 @@ done
 X1PID=$!
 
 if [ "$BOOTLOADER" = "grub4dos" ] ; then
-	create_grub4dos_bootable_drv ${USBDRV} ${FSTYPE}
+	create_grub4dos_bootable_drv ${USBDRV} ${FSTYPE} ${FSTYPE2}
 elif [ "$BOOTLOADER" = "grub2" ] ; then
 	create_gpt_drv ${USBDRV}
 else
@@ -519,7 +544,6 @@ fi
 
 # need to refresh desktop drive icons(s)...
 echo change > /sys/block/${USBDRV}/uevent
-
 sleep 2
 
 kill $X1PID
@@ -539,7 +563,7 @@ if [ "`mount | grep "/dev/${PBOOTPART}"`" = "" ];then
 	exit
 fi
 
-/usr/lib/gtkdialog/box_splash -close never -text "$(gettext 'Please wait, copying files from .iso file...')" &
+/usr/lib/gtkdialog/box_splash -close never -text "$(gettext 'Please wait, copying files...')" &
 X1PID=$!
 
 if [ "`cat /sys/block/$USBDRV/removable`" = "1" ] ; then
@@ -554,23 +578,52 @@ elif [ "$BOOTLOADER" = "grub2" ] ; then
 	copy_grub2_uefi_boot /mnt/${PBOOTPART} ${PMEDIA}
 fi
 
-if [ "$ANY_ISO" ] ; then
-	# just copy the sfs files, initrd.gz and vmlinuz
-	cp -fv ${SRCPATH}/*.sfs /mnt/${PBOOTPART}/
-	cp -fv ${SRCPATH}/initrd* /mnt/${PBOOTPART}/
-	cp -fv ${SRCPATH}/vmlinuz /mnt/${PBOOTPART}/
-else
-	for i in vmlinuz initrd.gz ${DISTRO_PUPPYSFS} ${DISTRO_ZDRVSFS} ${DISTRO_FDRVSFS} ${DISTRO_ADRVSFS} ${DISTRO_YDRVSFS}; do
-		if ! [ -f ${SRCPATH}/${i} ] ; then
-			continue
-		fi
-		cp -fv ${SRCPATH}/${i} /mnt/${PBOOTPART}/
-	done
+FILES2COPY="vmlinuz
+initrd.gz
+${DISTRO_PUPPYSFS}
+${DISTRO_ZDRVSFS}
+${DISTRO_FDRVSFS}
+${DISTRO_ADRVSFS}
+${DISTRO_YDRVSFS}"
+
+#-------------------------
+if [ "${FSTYPE2}" ] ; then
+	PBOOTPART=${USBDRV}2
+	mkdir -p /mnt/${PBOOTPART}
+	mount -t $FSTYPE2 /dev/${PBOOTPART} /mnt/${PBOOTPART}
+	if [ "`mount | grep "/dev/${PBOOTPART}"`" = "" ];then
+		/usr/lib/gtkdialog/box_ok "Bootflash" error "$(gettext 'Error mounting USB drive')"
+		exit
+	fi
+	#-
+	cp -fv ${SRCPATH}/vmlinuz /mnt/${USBDRV}1/
+	cp -fv ${SRCPATH}/initrd.gz /mnt/${USBDRV}1/
+	#- get partition UUID
+	UUID=$(busybox blkid /dev/${USBDRV}2 | grep -o ' UUID=".*' | cut -f2 -d '"')
+	if [ "$UUID" ] ; then
+		PUPSFS="pupsfs=$UUID psave=$UUID"
+		sed -i \
+			-e "s%pmedia=cd%pmedia=cd $PUPSFS%" \
+			-e "s%pmedia=usbhd%pmedia=usbhd $PUPSFS%" \
+			-e "s%pmedia=usbflash%pmedia=usbflash $PUPSFS%" \
+			/mnt/${USBDRV}1/menu.lst
+	fi
+	FILES2COPY=$(echo "$FILES2COPY" | grep -v 'vmlinuz|initrd.gz')
 fi
+#-------------------------
+
+for i in ${FILES2COPY} ; do
+	if [ -f ${SRCPATH}/${i} ] ; then
+		cp -fv ${SRCPATH}/${i} /mnt/${PBOOTPART}/
+	fi
+done
 
 sync
 
-umount /mnt/${PBOOTPART}
+umount /mnt/${USBDRV}1
+if [ "${FSTYPE2}" ] ; then
+	umount /mnt/${USBDRV}2
+fi
 unmountcdfunc
 kill $X1PID
 
