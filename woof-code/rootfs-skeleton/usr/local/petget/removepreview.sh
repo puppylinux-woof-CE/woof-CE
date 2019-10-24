@@ -31,6 +31,7 @@ export OUTPUT_CHARSET=UTF-8
 . /etc/DISTRO_SPECS #has DISTRO_BINARY_COMPAT, DISTRO_COMPAT_VERSION
 . /root/.packages/DISTRO_PKGS_SPECS
 
+#Check if the / is layered fs
 ISLAYEREDFS="$(mount | grep "on / type" | grep "unionfs")"
 [ "$ISLAYEREDFS" == "" ] && ISLAYEREDFS="$(mount | grep "on / type" | grep "aufs")"
 
@@ -69,20 +70,38 @@ if [ -f /root/.packages/${DB_pkgname}.files ];then
      
      dname="$(dirname "$ONESPEC")"
     
-     if [ ! -f /tmp/ppm-dirlists.txt ]; then
-      echo "$dname" > /tmp/ppm-dirlists.txt
-     elif [ "$(cat /tmp/ppm-dirlists.txt | grep "$dname")" == "" ]; then
-      echo "$dname"  >> /tmp/ppm-dirlists.txt
+     if [ "$dname" != "" ] && [ "$dname" != "/" ]; then
+     #Log the dirnames.
+       if [ ! -f /tmp/ppm-dirlists.txt ]; then
+        echo "$dname" > /tmp/ppm-dirlists.txt
+       elif [ "$(cat /tmp/ppm-dirlists.txt | grep "$dname")" == "" ]; then
+        echo "$dname"  >> /tmp/ppm-dirlists.txt
+       fi
      fi
      
      if [ -f "$ONESPEC" ] || [ -L "$ONESPEC" ]; then
+        #Check if is layered fs.
         if [ "$ISLAYEREDFS" != "" ];then
+         
+         #In case the PUPMODE was 13
+         if [ -d /initrd/pup_rw ] && [ ! -L /initrd/pup_rw ]; then
+          [ -e "/initrd/pup_rw${ONESPEC}" ] && rm -f "/initrd/pup_rw${ONESPEC}"
+         fi
+    
+         #Delete file at save layer 
          [ -e "/initrd${SAVE_LAYER}${ONESPEC}" ] && rm -f "/initrd${SAVE_LAYER}${ONESPEC}" #normally /pup_ro1
+         
          BN="`basename "$ONESPEC"`"
          DN="`dirname "$ONESPEC"`"
+         
+         #The file might be builtin just show the builtin files on top layer
          [ -f "/initrd${SAVE_LAYER}${DN}/.wh.${BN}" ] && rm -f "/initrd${SAVE_LAYER}${DN}/.wh.${BN}"
+        
         else
-         rm -f "$ONESPEC"
+         #Not layered fs. delete the file anyway
+         if [ -f "$ONESPEC" ] || [ -L "$ONESPEC" ]; then
+          rm -f "$ONESPEC"
+         fi
         fi
       fi
   done
@@ -91,7 +110,7 @@ if [ -f /root/.packages/${DB_pkgname}.files ];then
  cat /root/.packages/${DB_pkgname}.files | sort -r |
  while read ONESPEC
  do
-  if [ -d "$ONESPEC" ];then
+  if [ "$ONESPEC" != "" ] && [ "$ONESPEC" != "/" ] && [ -d "$ONESPEC" ];then
    [ "`ls -1 "$ONESPEC"`" = "" ] && rmdir "$ONESPEC" 2>/dev/null #120107
   fi
  done
@@ -100,13 +119,12 @@ if [ -f /root/.packages/${DB_pkgname}.files ];then
   cat /tmp/ppm-dirlists.txt | sort -r |
   while read ONESPEC
   do
-   if [ -d "$ONESPEC" ];then
+   if [ "$ONESPEC" != "" ] && [ "$ONESPEC" != "/" ] && [ -d "$ONESPEC" ]; then
     [ "`ls -1 "$ONESPEC"`" = "" ] && rmdir "$ONESPEC" 2>/dev/null #120107
    fi
   done
   rm -f /tmp/ppm-dirlists.txt
  fi
- 
  
  ###+++2011-12-27 KRG
 else
@@ -351,7 +369,11 @@ if [ "`grep '/usr/share/icons/hicolor/' $PKGFILES`" != "" ];then
 fi
 
 if [ "`grep '/usr/lib/gdk-pixbuf' $PKGFILES`" != "" ];then
- gdk-pixbuf-query-loaders --update-cache
+ if [ "$(which update-gdk-pixbuf-loaders)" != "" ]; then
+  update-gdk-pixbuf-loaders
+ else
+  gdk-pixbuf-query-loaders --update-cache 
+ fi
 fi
 
 if [ "`grep '/usr/lib/gconv/' $PKGFILES`" != "" ];then
@@ -359,15 +381,32 @@ if [ "`grep '/usr/lib/gconv/' $PKGFILES`" != "" ];then
 fi
 
 if [ "`grep '/usr/lib/pango/' $PKGFILES`" != "" ];then
- pango-querymodules --update-cache
+ if [ "$(which update-pango-querymodules)" != "" ]; then
+  update-pango-querymodules
+ else
+  pango-querymodules --update-cache
+ fi
 fi
 
 [ "$(which gtk-query-immodules)" != "" ] && gtk-query-immodules
-
 for gtkver in '1.0' '2.0' '3.0'
 do
  if [ "`grep "/usr/lib/gtk-$gtkver" $PKGFILES | grep "/immodules"`" != "" ];then
-  [ -e /usr/bin/gtk-query-immodules-$gtkver ] && gtk-query-immodules-$gtkver --update-cache
+  if [ "$gtkver" == "1.0" ]; then
+   if [ "$(which update-gtk-immodules)" != "" ]; then
+    update-gtk-immodules
+   elif [ "$(which update-gtk-immodules-$gtkver)" != "" ]; then
+    update-gtk-immodules-$gtkver
+   else
+    gtk-query-immodules-$gtkver --update-cache
+   fi
+  else
+   if  [ "$(which update-gtk-immodules-$gtkver)" != "" ]; then
+    update-gtk-immodules-$gtkver
+   else
+    [ -e /usr/bin/gtk-query-immodules-$gtkver ] && gtk-query-immodules-$gtkver --update-cache
+   fi
+  fi
  fi
 done
 
