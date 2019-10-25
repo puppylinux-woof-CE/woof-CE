@@ -593,8 +593,10 @@ xpkgname="$(echo "$DB_ENTRY" | cut -f 2 -d '|')"
 installed_pkg="$(cat /root/.packages/user-installed-packages | grep "|$xpkgname|")"
 
 if [ "$installed_pkg" != "" ]; then
+  #There is an already installed package. Just update the package file list
   installed_files="$(echo "$installed_pkg" | cut -f 1 -d '|')"
   if [ "$installed_files" != "" ]; then
+   #Check if the old package file list exists
     if [ -e /root/.packages/${installed_files}.files ]; then
     
 	#Ask user to retain files which is not a part of upgrade/downgrade
@@ -616,7 +618,9 @@ if [ "$installed_pkg" != "" ]; then
    
 	while IFS= read -r xline
 	do
+	 #Check if the file was a part of the newly installed package
   	 if [ "$(cat /root/.packages/${DLPKG_NAME}.files | grep "$xline")" == "" ]; then
+	  #Not a part of newly installed package. Do action
 	  if [ "$KEEP_OLD" != "" ]; then
 	   #Add the file to new package file list. It will removed upon uninstallation
 	   [ -e "$xline" ] && echo "$xline" >> /root/.packages/${DLPKG_NAME}.files
