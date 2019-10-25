@@ -596,10 +596,36 @@ if [ "$installed_pkg" != "" ]; then
   installed_files="$(echo "$installed_pkg" | cut -f 1 -d '|')"
   if [ "$installed_files" != "" ]; then
     if [ -e /root/.packages/${installed_files}.files ]; then
+    
+	#Ask user to retain files which is not a part of upgrade/downgrade
+        if [ "$DISPLAY" ]; then
+	  /usr/lib/gtkdialog/box_yesno "$(gettext 'Puppy Package Manager')" "$(gettext 'A modification of installed package is detected')" "$(gettext 'Keep the files which is not a part of upgrade/downgrade?')"
+	  if [ $? -eq 0 ]; then
+	   KEEP_OLD="yes"
+	  else
+	   KEEP_OLD=""
+	  fi
+	else
+	  dialog --yesno "$(gettext 'A modification of installed package is detected\nKeep the files which is not a part of upgrade/downgrade?')" 0 0
+	  if [ $? -eq 0 ];then
+	   KEEP_OLD="yes"
+	  else
+	   KEEP_OLD=""
+	  fi
+	fi
+   
 	while IFS= read -r xline
 	do
   	 if [ "$(cat /root/.packages/${DLPKG_NAME}.files | grep "$xline")" == "" ]; then
-	  echo "$xline" >> /root/.packages/${DLPKG_NAME}.files
+	  if [ "$KEEP_OLD" != "" ]; then
+	   #Add the file to new package file list. It will removed upon uninstallation
+	   [ -e "$xline" ] && echo "$xline" >> /root/.packages/${DLPKG_NAME}.files
+	  else
+	   #Delete the file which is not a part of upgrade
+	   if [ -e "$xline" ] && [ ! -d "$xline" ]; then
+	    rm -f "$xline"
+	   fi
+	  fi
 	 fi
 	done < /root/.packages/${installed_files}.files
 	
