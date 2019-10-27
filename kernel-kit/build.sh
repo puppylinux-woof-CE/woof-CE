@@ -934,6 +934,7 @@ if [ ! -f ${KERNEL_SOURCES_DIR}/usr/src/linux/include/linux/version.h ] ; then
 		${KERNEL_SOURCES_DIR}/usr/src/linux/include/linux/version.h
 fi
 ln -s /usr/src/linux ${KERNEL_SOURCES_DIR}/lib/modules/${kernel_version}${custom_suffix}/source
+rm -rf ${KERNEL_SOURCES_DIR}/usr/src/linux/.git* # don't need git history
 mksquashfs ${KERNEL_SOURCES_DIR} output/${KERNEL_SOURCES_DIR}.sfs $COMP
 md5sum output/${KERNEL_SOURCES_DIR}.sfs > output/${KERNEL_SOURCES_DIR}.sfs.md5.txt
 sha256sum output/${KERNEL_SOURCES_DIR}.sfs > output/${KERNEL_SOURCES_DIR}.sfs.sha256.txt
