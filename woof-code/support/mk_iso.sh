@@ -1,4 +1,7 @@
 #!/bin/bash
+#
+# sandbox3 or $PX $BUILD
+#
 # efi.img/grub2 is thanks to jamesbond
 # basic CD structure is the same as Fatdog64
 # called from 3builddistro (or build-iso.sh)
@@ -13,22 +16,22 @@ elif [ -f ./build.conf ] ; then #zwoof-next
 	. ./DISTRO_SPECS
 fi
 
-[ -z "$PX" ]    && PX=../sandbox3/rootfs-complete
-[ -z "$BUILD" ] && BUILD=../sandbox3/build
+if [ -z "$PX" ] ; then
+	PX=rootfs-complete
+fi
+if [ -z "$BUILD" ] ; then
+	BUILD=build
+fi
 
 FIXUSB=${PX}/usr/sbin/fix-usb.sh
-BOOTLABEL=puppy
-PPMLABEL=`which ppmlabel`
 TEXT="-text $DISTRO_VERSION"
 EFI64_SOURCE=${PX}/usr/share/grub2-efi/grubx64.efi #grub2_efi noarch pkg
 EFI32_SOURCE=${PX}/usr/share/grub2-efi/grubia32.efi
 
 if [ -f "$EFI32_SOURCE" -o -f "$EFI64_SOURCE" ] ; then
-	SCREENRES='800 600'
 	UEFI_ISO=yes
 	UFLG=-uefi
 else
-	SCREENRES='640 480'
 	UEFI_ISO=
 fi
 
@@ -90,73 +93,67 @@ OUT=${WOOF_OUTPUT}/${ISO_BASENAME}.iso
 
 
 #======================================================
-#                  isolinux
-#======================================================
-
-ISOLINUX=
-VESAMENU=
-
-if [ -f ${PX}/usr/lib/ISOLINUX/isolinux.bin ] ; then
-	#isolinux pkg (debian/ubuntu) xenial+
-	ISOLINUX=${PX}/usr/lib/ISOLINUX/isolinux.bin
-elif [ -f ${PX}/usr/share/syslinux/isolinux.bin ] ; then
-	# standard location
-	ISOLINUX=${PX}/usr/share/syslinux/isolinux.bin
-fi
-
-if [ -f ${PX}/usr/lib/syslinux/modules/bios/vesamenu.c32 ] ; then
-	# syslinux 6
-	VESAMENU=${PX}/usr/lib/syslinux/modules/bios
-elif [ ${PX}/usr/share/syslinux/vesamenu.c32 ] ; then
-	VESAMENU=${PX}/usr/share/syslinux
-fi
-
-[ -z "$ISOLINUX" ] && echo "Can't find isolinux" && exit 32
-[ -z "$VESAMENU" ] && echo "Can't find vesamenu" && exit 33
-
-cp -a $ISOLINUX		$BUILD
-for i in ldlinux.c32 libcom32.c32 libutil.c32 vesamenu.c32 ; do
-	if [ -f $VESAMENU/${i} ] ; then
-		cp -a $VESAMENU/${i} $BUILD
-	fi
-done
-
-#======================================================
 
 [ -n "$FIXUSB" ] && cp -a $FIXUSB $BUILD
 
-mkdir -p ${BUILD}/help
-cp -f ${PX}/usr/share/boot-dialog/*.msg ${BUILD}/help/
-cp -f ${PX}/usr/share/boot-dialog/isolinux.cfg ${BUILD}/
-[ "$UEFI_ISO" ] && cp -f ${PX}/usr/share/boot-dialog/grub.cfg ${BUILD}/
+# grub4dos
+mkdir -p ${BUILD}/boot/grub/
+cp -f ${PX}/usr/share/boot-dialog/menu.lst ${BUILD}/boot/grub/
+cp -f ${PX}/usr/share/boot-dialog/menu_phelp.lst ${BUILD}/boot/grub/
+sed -i 's%configfile.*/menu%configfile /boot/grub/menu%' ${BUILD}/boot/grub/menu*
+if [ -f ${PX}/usr/share/boot-dialog/grldr ] ; then # 0.4.6a
+	cp -f ${PX}/usr/share/boot-dialog/grldr ${BUILD}/boot/grub/
+	sed -i 's%#splashimage%splashimage% ; s%#graphicsmode%graphicsmode%' ${BUILD}/boot/grub/menu.lst
+elif [ -f ${PX}/usr/lib/grub4dos/grldr ] ; then # grub4dosconfig
+	cp -f ${PX}/usr/lib/grub4dos/grldr ${BUILD}/boot/grub/
+fi
 
-sed -i "s/menu resolution.*/menu resolution ${SCREENRES}/" ${BUILD}/isolinux.cfg
+# isolinux 4.07
+cp -f ${PX}/usr/share/boot-dialog/isolinux/chain.c32 ${BUILD}/boot/
+cp -f ${PX}/usr/share/boot-dialog/isolinux/isolinux.bin ${BUILD}/
+cp -f ${PX}/usr/share/boot-dialog/isolinux/isolinux.cfg ${BUILD}/
+
+# grub2
+if [ "$UEFI_ISO" ] ; then
+	cp -f ${PX}/usr/share/boot-dialog/grub.cfg ${BUILD}/
+fi
 
 sed -i -e "s/DISTRO_FILE_PREFIX/${DISTRO_FILE_PREFIX}/g" \
 		-e "s/DISTRO_DESC/${DISTRO_FILE_PREFIX} ${DISTRO_VERSION}/g" \
-		-e "s/BOOTLABEL/${BOOTLABEL}/g" \
-		${BUILD}/*.cfg ${BUILD}/help/*.msg
+		-e "s/#distrodesc#/${DISTRO_FILE_PREFIX} ${DISTRO_VERSION}/g" \
+		${BUILD}/*.cfg ${BUILD}/boot/grub/menu*
+
+sed -i -e "s% /splash.jpg% /boot/splash.jpg%" ${BUILD}/*.cfg ${BUILD}/boot/grub/menu*
 
 #======================================================
 
 # build the efi image
 if [ "$UEFI_ISO" ] ; then
-	# custom backdrop
-	pic=puppy
-	case ${DISTRO_FILE_PREFIX} in
-		[Tt]ahr*)pic=tahr;;
-		[Ss]lacko*)pic=slacko;;
-		[Xx]enial*)pic=xenial;;
-	esac
-
 	# update and transfer the skeleton files
-	if [ -n "$PPMLABEL" ];then # label the image with version
-		GEOM="-x 680 -y 380"
-		pngtopnm < ${PX}/usr/share/boot-dialog/${pic}.png | \
-		${PPMLABEL} ${GEOM} ${TEXT} | \
-		pnmtopng > ${BUILD}/splash.png
-	else
-		cp -a ${PX}/usr/share/boot-dialog/${pic}.png ${BUILD}/splash.png
+	if type pngtopnm 2>/dev/null && type pnmtojpeg 2>/dev/null ; then
+		# custom backdrop
+		pic=puppy
+		case ${DISTRO_FILE_PREFIX} in
+			[Tt]ahr*)pic=tahr;;
+			[Ss]lacko*)pic=slacko;;
+			[Xx]enial*)pic=xenial;;
+		esac
+		#--
+		if type ppmlabel 2>/dev/null ; then # label the image with version
+			pngtopnm < ${PX}/usr/share/boot-dialog/${pic}.png | \
+			ppmlabel -x 680 -y 380 ${TEXT} | \
+			pnmtojpeg -quality=100 > ${BUILD}/boot/splash.jpg
+		else
+			pngtopnm < ${PX}/usr/share/boot-dialog/${pic}.png | \
+			pnmtojpeg -quality=100 > ${BUILD}/boot/splash.jpg
+		fi
+		#-
+		if [ -f ${BUILD}/boot/splash.png ] ; then
+			# someone is cheating
+			pngtopnm < ${BUILD}/boot/splash.png | \
+			pnmtojpeg -quality=100 > ${BUILD}/boot/splash.jpg
+			rm -f ${BUILD}/boot/splash.png
+		fi
 	fi
 
 	mk_efi_img $BUILD
