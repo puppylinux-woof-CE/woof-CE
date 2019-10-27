@@ -41,6 +41,7 @@ if [ "$USBDRV" = "" ];then
 	USBDRV="$DRVSEL"
 fi
 
+
 #======================================================================
 #                             FUNCTIONS
 #======================================================================
@@ -57,16 +58,41 @@ ensure_unmounted() {
 }
 
 # $1: device
+# $2: fileystem (f2fs) [optional, default vfat]
 create_gpt_drv() {
 	local XDEV=${1##*/}
+	local XFSTYPE=vfat
+	local XFSTYPE2=${2}
+
 	ensure_unmounted /dev/${XDEV}
-	parted --script -- \
-		/dev/${XDEV} \
-		mklabel gpt \
-		mkpart primary fat32 4MiB 100%
+	#-- wipe_existing_partition_table_and_filesystem_signatures
+	dd if=/dev/zero of=/dev/${XDEV} bs=1M count=10
+	sync
+	sleep 1
+
+	# -- create_target_partition_table
+	# parted
+	if [ "$XFSTYPE2" ] ; then # f2fs
+		parted --script -- \
+			/dev/${XDEV} \
+			mklabel gpt \
+			mkpart primary fat32 4MiB 60MiB \
+			mkpart primary ext2 100MiB 100%
+	else
+		parted --script -- \
+			/dev/${XDEV} \
+			mklabel gpt \
+			mkpart primary fat32 4MiB 100%
+	fi
+
 	sync
 	mkdosfs -F 32 -v /dev/${XDEV}1
+	sleep 1
+	case "$XFSTYPE2" in
+		f2fs) mkfs.f2fs /dev/${XDEV}2 ;;
+	esac
 	sync
+
 	blockdev --rereadpt /dev/${XDEV}
 	sleep 4
 }
@@ -157,12 +183,12 @@ write_wee_mbr() {
 
 # create msdos partition table and 1 partition, then install wee.mbr
 # $1 = drv
-# $2 = fstype (vfat, ntfs, ext3, ext4)
-# $3 = fstype2 (f2fs)  (optional - $2 becomes vfat)
+# $2 = XFSTYPE (vfat, ntfs, ext3, ext4)
+# $3 = XFSTYPE2 (f2fs)  (optional - $2 becomes vfat)
 create_grub4dos_bootable_drv() {
 	local XDEV=${1##*/}
-	local FSTYPE=$2
-	local FSTYPE2=$3
+	local XFSTYPE=$2
+	local XFSTYPE2=$3
 
 	ensure_unmounted /dev/${XDEV}
 	#-- wipe_existing_partition_table_and_filesystem_signatures
@@ -172,17 +198,17 @@ create_grub4dos_bootable_drv() {
 
 	# -- create_target_partition_table
 	# parted
-	if [ "$FSTYPE2" ] ; then # f2fs
-		FSTYPE=vfat
+	if [ "$XFSTYPE2" ] ; then # f2fs
+		XFSTYPE=vfat
 		parted --script -- \
 			/dev/${XDEV} \
 			mklabel msdos \
-			mkpart primary fat32 4MiB 50MiB \
+			mkpart primary fat32 4MiB 60MiB \
 			mkpart primary ext2 100MiB 100% \
 			set 1 boot on
 	else
 		# https://rainbow.chard.org/2013/01/30/how-to-align-partitions-for-best-performance-using-parted/
-		case "$FSTYPE" in
+		case "$XFSTYPE" in
 			vfat) DEVTYPE=fat32 ; mkpart_end='-1s'    ;;
 			ntfs) DEVTYPE=NTFS  ; mkpart_end='-1025s' ;; # Leave 512KiB==1024sector in traditional 512bytes/sector disk, disks with sector with more than 512bytes only result in partition size greater than 512KiB and is intentionally let-it-be.
 			ext*) DEVTYPE=ext2  ; mkpart_end='-1s'    ;;
@@ -202,13 +228,13 @@ create_grub4dos_bootable_drv() {
 		sed -i 's/64bit,//g' /etc/mke2fs.conf #remove 64bit flag
 	fi
 
-	case "$FSTYPE" in
+	case "$XFSTYPE" in
 		vfat) mkdosfs -F 32 -v /dev/${XDEV}1 ;;
 		ntfs) mkntfs -f /dev/${XDEV}1        ;;
-		ext*) mkfs.${FSTYPE} /dev/${XDEV}1   ;;
+		ext*) mkfs.${XFSTYPE} /dev/${XDEV}1   ;;
 	esac
 	sleep 1
-	case "$FSTYPE2" in
+	case "$XFSTYPE2" in
 		f2fs) mkfs.f2fs /dev/${XDEV}2 ;;
 	esac
 
@@ -346,7 +372,7 @@ ${2}"'"</label></text>
 
 if [ "$(ls /usr/share/grub2-efi/grub*.efi* 2>/dev/null)" ] ; then
 	UEFI_USB_INSTALLER=$(
-		create_dlg_item "$(gettext '<b>Create UEFI USB (GPT / FAT32 / GRUB2)</b>')" \
+		create_dlg_item "$(gettext '<b>Create UEFI USB (GPT / GRUB2)</b>')" \
 			"$(gettext 'For UEFI-enabled machines booting in UEFI mode. Installs the running system. Not compatible with old BIOS')" \
 			install_options.svg 1
 	)
@@ -387,12 +413,65 @@ export ASKDIALOG='
 RETVAL="`gtkdialog --center -p ASKDIALOG 2>/dev/null`"
 eval "$RETVAL"
 
+# check f2fs support
+if [ "$(cat /proc/filesystems  | grep f2fs)" ] ; then
+	if type mkfs.f2fs >/dev/null 2>&1 ; then
+		F2FS_DLG=$(create_dlg_item "$(gettext '<b>FAT32 partition + F2FS partition</b>')" \
+		"$(gettext 'Enables use of F2FS partition')" \
+		install_options.svg 15)
+	fi
+fi
+
 case $EXIT in
-	1) #========= UEFI - GRUB2 ==========
+	1)
+		#========================
+		#    UEFI - GRUB2
+		#========================
 		BOOTLOADER=grub2
 		FSTYPE=vfat
+		export UEFI_DIALOG='<window title="'"BootFlash: $USBDRV"'" icon-name="gtk-preferences">
+<vbox>
+    '$(/usr/lib/gtkdialog/xml_info fixed execute_yes.svg 30 "$(gettext 'The intention of BootFlash is to make a USB memory stick (Flash drive) bootable.. then to install Puppy on it')")'
+
+	'$(create_dlg_item "$(gettext '<b>FAT32 GPT UEFI</b>')" \
+		"$(gettext 'Create FAT32 partition and install grub2')" \
+		install_options.svg 11
+		)'
+
+	'${F2FS_DLG}'
+
+    <hbox homogeneous="true" space-expand="true" space-fill="true">
+       <text use-markup="true" space-expand="true" space-fill="true">
+         <label>"<span fgcolor='"'#821811'"'><b>'$(gettext "THIS WILL DESTROY ALL DATA ON ${USBDRV}")'</b></span>"</label>
+       </text>
+    </hbox>
+    <hseparator></hseparator>
+
+    <hbox space-expand="false" space-fill="false">
+     <button>
+       '"`/usr/lib/gtkdialog/xml_button-icon quit`"'
+       <label>'$(gettext 'Quit')'</label>
+       <action type="exit">EXIT</action>
+     </button>
+    </hbox>
+
+  </vbox>
+</window>'
+		. /usr/lib/gtkdialog/xml_info gtk
+		#echo "$UEFI_DIALOG" > /tmp/bootflash.uefi.xml #debug
+		RETPARAMS="`gtkdialog --center --program=UEFI_DIALOG`"
+		eval "$RETPARAMS"
+		case $EXIT in
+			11) FSTYPE='vfat' ;;
+			15) FSTYPE='vfat' ; FSTYPE2='f2fs' ;;
+			*) exit ;;
+		esac
 		;;
-	2) #========= DD ISO TO USB DRV ==========
+
+	2)
+		#========================
+		#   DD ISO TO USB DRV
+		#========================
 		iso_file=$(/usr/lib/gtkdialog/file_chooser --last-path "Select ISO file")
 		if [ ! "$iso_file" ] ; then
 			exit
@@ -429,21 +508,11 @@ case $EXIT in
 		/usr/lib/gtkdialog/box_ok "Done" info "$(gettext 'done!')"
 		exit
 		;;
-	3) #========== GRUB4DOS ==========
 
-		# check f2fs support
-		DOTCFG="/etc/modules/DOTconfig*"
-		CFG=`cat $DOTCFG 2>/dev/null`
-		[ "$CFG" ] || CFIG=`zcat /proc/config.gz 2>/dev/null`
-		[ "$CFG" ] || error_func "$ENOCFG" 1
-		if echo "$CFG" | grep -q 'CONFIG_F2FS_FS=y';then
-			if type mkfs.f2fs >/dev/null 2>&1 ; then
-				F2FS_DLG=$(create_dlg_item "$(gettext '<b>FAT32 partition + F2FS partition + grub4dos</b>')" \
-				"$(gettext 'Enables use of F2FS partition')" \
-				install_options.svg 15)
-			fi
-		fi
-
+	3)
+		#========================
+		#        GRUB4DOS
+		#========================
 		export GRUB4DOS_DIALOG='<window title="'"BootFlash: $USBDRV"'" icon-name="gtk-preferences">
 <vbox>
     '$(/usr/lib/gtkdialog/xml_info fixed execute_yes.svg 30 "$(gettext 'The intention of BootFlash is to make a USB memory stick (Flash drive) bootable.. then to install Puppy on it')")'
@@ -527,6 +596,7 @@ while [ "`mount | grep "^/dev/$DRVSEL "`" != "" ];do
 	sleep 1
 done
 
+
 #======================================================================
 #            DRIVE PARTITIONING / INSTALLATION
 #======================================================================
@@ -537,7 +607,7 @@ X1PID=$!
 if [ "$BOOTLOADER" = "grub4dos" ] ; then
 	create_grub4dos_bootable_drv ${USBDRV} ${FSTYPE} ${FSTYPE2}
 elif [ "$BOOTLOADER" = "grub2" ] ; then
-	create_gpt_drv ${USBDRV}
+	create_gpt_drv ${USBDRV} ${FSTYPE2}
 else
 	exit 1
 fi
@@ -552,7 +622,7 @@ if [ -z "$SRCPATH" ] ; then
 	locate_puppy_src_files
 fi
 
-#=======================================================================
+#-----------------------------------------------------------------------
 
 PBOOTPART=${USBDRV}1
 mkdir -p /mnt/${PBOOTPART}
@@ -587,7 +657,7 @@ ${DISTRO_ADRVSFS}
 ${DISTRO_YDRVSFS}"
 
 #-------------------------
-if [ "${FSTYPE2}" ] ; then
+if [ "${FSTYPE2}" ] ; then # fat32 + f2fs
 	PBOOTPART=${USBDRV}2
 	mkdir -p /mnt/${PBOOTPART}
 	mount -t $FSTYPE2 /dev/${PBOOTPART} /mnt/${PBOOTPART}
@@ -601,12 +671,19 @@ if [ "${FSTYPE2}" ] ; then
 	#- get partition UUID
 	UUID=$(busybox blkid /dev/${USBDRV}2 | grep -o ' UUID=".*' | cut -f2 -d '"')
 	if [ "$UUID" ] ; then
+		# need to alter bootmenu
+		if [ -f /mnt/${USBDRV}1/menu.lst ] ; then
+			SEDFILES="/mnt/${USBDRV}1/menu.lst"
+		fi
+		if [ -f /mnt/${USBDRV}1/grub.cfg ] ; then
+			SEDFILES="$SEDFILES /mnt/${USBDRV}1/grub.cfg"
+		fi
 		PUPSFS="pupsfs=$UUID psave=$UUID"
 		sed -i \
 			-e "s%pmedia=cd%pmedia=cd $PUPSFS%" \
 			-e "s%pmedia=usbhd%pmedia=usbhd $PUPSFS%" \
 			-e "s%pmedia=usbflash%pmedia=usbflash $PUPSFS%" \
-			/mnt/${USBDRV}1/menu.lst
+			${SEDFILES}
 	fi
 	FILES2COPY=$(echo "$FILES2COPY" | grep -v 'vmlinuz|initrd.gz')
 fi
