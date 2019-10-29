@@ -601,14 +601,14 @@ if [ "$installed_pkg" != "" ]; then
     
 	#Ask user to retain files which is not a part of upgrade/downgrade
         if [ "$DISPLAY" ]; then
-	  /usr/lib/gtkdialog/box_yesno "$(gettext 'Puppy Package Manager')" "$(gettext 'A modification of installed package is detected')" "$(gettext 'Keep the files which is not a part of upgrade/downgrade?')"
+	  /usr/lib/gtkdialog/box_yesno "$(gettext 'Puppy Package Manager')" "$(gettext "$installed_pkg was already installed. It will be replaced by $DLPKG_NAME")" "$(gettext 'Keep the files which is not replaced by upgrade/downgrade?')"
 	  if [ $? -eq 0 ]; then
 	   KEEP_OLD="yes"
 	  else
 	   KEEP_OLD=""
 	  fi
 	else
-	  dialog --yesno "$(gettext 'A modification of installed package is detected\nKeep the files which is not a part of upgrade/downgrade?')" 0 0
+	  dialog --yesno "$(gettext "$installed_pkg was already installed. It will be replaced by $DLPKG_NAME\nKeep the files which is not replaced by upgrade/downgrade?")" 0 0
 	  if [ $? -eq 0 ];then
 	   KEEP_OLD="yes"
 	  else
