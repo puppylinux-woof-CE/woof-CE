@@ -627,7 +627,15 @@ if [ "$installed_pkg" != "" ]; then
 	  else
 	   #Delete the file which is not a part of upgrade
 	   if [ -e "$xline" ] && [ ! -d "$xline" ]; then
-	    rm -f "$xline"
+	    
+	    if [ -d "/initrd/pup_rw$xline" ] && [ ! -L "/initrd/pup_rw$xline" ]; then
+	     rm -f "/initrd/pup_rw$xline"
+	    fi
+	    
+	    [ -e "/initrd${SAVE_LAYER}${xline}" ] && rm -f "/initrd${SAVE_LAYER}${xline}"
+	    
+	    [ -e "$xline" ] && rm -f "$xline"
+	   
 	   fi
 	  fi
 	 fi
