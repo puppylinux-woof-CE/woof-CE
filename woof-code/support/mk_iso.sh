@@ -23,7 +23,6 @@ if [ -z "$BUILD" ] ; then
 	BUILD=build
 fi
 
-FIXUSB=${PX}/usr/sbin/fix-usb.sh
 TEXT="-text $DISTRO_VERSION"
 EFI64_SOURCE=${PX}/usr/share/grub2-efi/grubx64.efi #grub2_efi noarch pkg
 EFI32_SOURCE=${PX}/usr/share/grub2-efi/grubia32.efi
@@ -41,13 +40,14 @@ fi
 mk_iso() {
 	tmp_isoroot=$1 	# input
 	OUTPUT=$2 		# output
+	BOOT_CAT="-c boot/boot.catalog"
 	if [ "$UEFI_ISO" ] ; then
-		mkisofs -iso-level 4 -D -R -o $OUTPUT -b isolinux.bin -no-emul-boot -boot-load-size 4 -boot-info-table \
-			-eltorito-alt-boot -eltorito-platform efi -b efi.img -no-emul-boot "$tmp_isoroot" || exit 100
+		mkisofs -iso-level 4 -D -R -o $OUTPUT -b isolinux.bin -no-emul-boot -boot-load-size 4 -boot-info-table ${BOOT_CAT} \
+			-eltorito-alt-boot -eltorito-platform efi -b boot/efi.img -no-emul-boot "$tmp_isoroot" || exit 100
 		echo "Converting ISO to isohybrid."
 		isohybrid -u $OUTPUT
 	else
-		mkisofs -iso-level 4 -D -R -o $OUTPUT -b isolinux.bin -no-emul-boot -boot-load-size 4 -boot-info-table "$tmp_isoroot" || exit 101
+		mkisofs -iso-level 4 -D -R -o $OUTPUT -b isolinux.bin -no-emul-boot -boot-load-size 4 -boot-info-table ${BOOT_CAT} "$tmp_isoroot" || exit 101
 		echo "Converting ISO to isohybrid."
 		isohybrid $OUTPUT
 	fi
@@ -57,17 +57,20 @@ mk_iso() {
 mk_efi_img() {
 	TGT=$1
 	mkdir -p /tmp/efi_img # mount point
-	echo "making ${TGT}/efi.img"
-	size=8192 #4mb
+	echo "making ${TGT}/boot/efi.img"
+	size64=$(stat -c %s "$EFI64_SOURCE")
+	size32=0
 	if [ -f "$EFI32_SOURCE" ] ; then
-		size=$((size+4096)) #6 mb
+		size32=$(stat -c %s "$EFI32_SOURCE")
 	fi
-	dd if=/dev/zero of=${TGT}/efi.img bs=512 count=${size} || return 1
-	echo "formatting ${TGT}/efi.img - vfat"
-	mkdosfs ${TGT}/efi.img
+	size=$((size64 + size32 + 524288)) # add 512k
+	size=$((size / 512))
+	dd if=/dev/zero of=${TGT}/boot/efi.img bs=512 count=${size} || return 1
+	echo "formatting ${TGT}/boot/efi.img - vfat"
+	mkdosfs ${TGT}/boot/efi.img
 	FREE_DEV=`losetup -f`
-	echo "mounting ${TGT}/efi.img on /tmp/efi_img"
-	losetup $FREE_DEV ${TGT}/efi.img || return 2
+	echo "mounting ${TGT}/boot/efi.img on /tmp/efi_img"
+	losetup $FREE_DEV ${TGT}/boot/efi.img || return 2
 	mount -t vfat $FREE_DEV /tmp/efi_img || \
 		(losetup -d $FREE_DEV;return 3)
 	sync
@@ -94,8 +97,6 @@ OUT=${WOOF_OUTPUT}/${ISO_BASENAME}.iso
 
 #======================================================
 
-[ -n "$FIXUSB" ] && cp -a $FIXUSB $BUILD
-
 # grub4dos
 mkdir -p ${BUILD}/boot/grub/
 cp -f ${PX}/usr/share/boot-dialog/menu.lst ${BUILD}/boot/grub/
@@ -103,57 +104,79 @@ cp -f ${PX}/usr/share/boot-dialog/menu_phelp.lst ${BUILD}/boot/grub/
 sed -i 's%configfile.*/menu%configfile /boot/grub/menu%' ${BUILD}/boot/grub/menu*
 if [ -f ${PX}/usr/share/boot-dialog/grldr ] ; then # 0.4.6a
 	cp -f ${PX}/usr/share/boot-dialog/grldr ${BUILD}/boot/grub/
-	sed -i 's%#splashimage%splashimage% ; s%#graphicsmode%graphicsmode%' ${BUILD}/boot/grub/menu.lst
+	sed -i 's%#graphicsmode%graphicsmode%' ${BUILD}/boot/grub/menu.lst
+	sed -i 's%#splashimage%splashimage%' ${BUILD}/boot/grub/menu.lst
 elif [ -f ${PX}/usr/lib/grub4dos/grldr ] ; then # grub4dosconfig
 	cp -f ${PX}/usr/lib/grub4dos/grldr ${BUILD}/boot/grub/
 fi
 
 # isolinux 4.07
-cp -f ${PX}/usr/share/boot-dialog/isolinux/chain.c32 ${BUILD}/boot/
+cp -af ${PX}/usr/share/boot-dialog/isolinux ${BUILD}/boot/
 cp -f ${PX}/usr/share/boot-dialog/isolinux/isolinux.bin ${BUILD}/
-cp -f ${PX}/usr/share/boot-dialog/isolinux/isolinux.cfg ${BUILD}/
 
 # grub2
 if [ "$UEFI_ISO" ] ; then
 	cp -f ${PX}/usr/share/boot-dialog/grub.cfg ${BUILD}/
+	cp -f ${PX}/usr/share/boot-dialog/grub.cfg ${BUILD}/boot/grub/
+	GRUB_CFG="${BUILD}/grub.cfg ${BUILD}/boot/grub/grub.cfg"
+	#mkdir -p ${BUILD}/EFI/debian
+	#cp -f ${PX}/usr/share/boot-dialog/grub.cfg ${BUILD}/EFI/debian
+	#GRUB_CFG="$GRUB_CFG ${BUILD}/EFI/debian/grub.cfg"
+fi
+
+if [ -f ${PX}/etc/os-release ] ; then
+	. ${PX}/etc/os-release # need $PRETTY_NAME
+else
+	PRETTY_NAME="$DISTRO_NAME $DISTRO_VERSION"
 fi
 
 sed -i -e "s/DISTRO_FILE_PREFIX/${DISTRO_FILE_PREFIX}/g" \
-		-e "s/DISTRO_DESC/${DISTRO_FILE_PREFIX} ${DISTRO_VERSION}/g" \
-		-e "s/#distrodesc#/${DISTRO_FILE_PREFIX} ${DISTRO_VERSION}/g" \
-		${BUILD}/*.cfg ${BUILD}/boot/grub/menu*
+		-e "s/DISTRO_DESC/${PRETTY_NAME}/g" \
+		-e "s/#distrodesc#/${PRETTY_NAME}/g" \
+		${GRUB_CFG} ${BUILD}/boot/grub/menu*
 
-sed -i -e "s% /splash.jpg% /boot/splash.jpg%" ${BUILD}/*.cfg ${BUILD}/boot/grub/menu*
+sed -i -e "s% /splash.jpg% /boot/splash.jpg%" ${GRUB_CFG} ${BUILD}/boot/grub/menu*
+sed -i -e "s% /splash.png% /boot/splash.png%" ${GRUB_CFG} ${BUILD}/boot/grub/menu*
+
+cp ${PX}/usr/sbin/fix-usb.sh $BUILD/boot
 
 #======================================================
 
 # build the efi image
 if [ "$UEFI_ISO" ] ; then
 	# update and transfer the skeleton files
-	if type pngtopnm 2>/dev/null && type pnmtojpeg 2>/dev/null ; then
+	if type pngtopnm 2>/dev/null && type pnmtopng 2>/dev/null ; then
 		# custom backdrop
-		pic=puppy
-		case ${DISTRO_FILE_PREFIX} in
-			[Tt]ahr*)pic=tahr;;
-			[Ss]lacko*)pic=slacko;;
-			[Xx]enial*)pic=xenial;;
-		esac
-		#--
-		if type ppmlabel 2>/dev/null ; then # label the image with version
-			pngtopnm < ${PX}/usr/share/boot-dialog/${pic}.png | \
-			ppmlabel -x 680 -y 380 ${TEXT} | \
-			pnmtojpeg -quality=100 > ${BUILD}/boot/splash.jpg
+		if [ -f ${PX}/usr/share/boot-dialog/splash.jpg ] ; then
+			cp -f ${PX}/usr/share/boot-dialog/splash.jpg ${BUILD}/boot/splash.jpg
+			pic='splash.jpg'
+		elif [ -f ${PX}/usr/share/boot-dialog/splash.png ] ; then
+			cp -f ${PX}/usr/share/boot-dialog/splash.png ${BUILD}/boot/splash.png
+			pic='splash.png'
 		else
-			pngtopnm < ${PX}/usr/share/boot-dialog/${pic}.png | \
-			pnmtojpeg -quality=100 > ${BUILD}/boot/splash.jpg
+			cp -f ${PX}/usr/share/boot-dialog/puppy.png ${BUILD}/boot/splash.png
+			pic='puppy.png'
 		fi
+		case ${DISTRO_FILE_PREFIX} in
+			[Tt]ahr*)   pic='tahr.png'   ;;
+			[Ss]lacko*) pic='slacko.png' ;;
+			[Xx]enial*) pic='xenial.png' ;;
+		esac
+		echo $pic
+		#--
+		case $pic in
+			*.png)
+				cp -f ${PX}/usr/share/boot-dialog/${pic} ${BUILD}/boot/splash.png
+				pngtopnm < ${BUILD}/boot/splash.png | \
+				pnmtojpeg -quality=100 > ${BUILD}/boot/splash.jpg
+				;;
+			*.jpg)
+				cp -f ${PX}/usr/share/boot-dialog/${pic} ${BUILD}/boot/splash.jpg
+				jpegtopnm < ${BUILD}/boot/splash.jpg | \
+				pnmtopng > ${BUILD}/boot/splash.png
+				;;
+		esac
 		#-
-		if [ -f ${BUILD}/boot/splash.png ] ; then
-			# someone is cheating
-			pngtopnm < ${BUILD}/boot/splash.png | \
-			pnmtojpeg -quality=100 > ${BUILD}/boot/splash.jpg
-			rm -f ${BUILD}/boot/splash.png
-		fi
 	fi
 
 	mk_efi_img $BUILD
