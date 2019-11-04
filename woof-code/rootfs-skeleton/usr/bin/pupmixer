@@ -1,0 +1,280 @@
+#!/bin/bash
+#Written by mistfire
+#A simple audio mixer
+
+clear_caches(){
+rm -rf $HOME/.cache/pupmixer/* 2>/dev/null	
+}
+
+trap clear_caches EXIT
+trap clear_caches SIGTERM
+trap clear_caches SIGQUIT
+trap clear_caches SIGKILL
+
+[ ! -e $HOME/.cache/pupmixer ] && mkdir -p $HOME/.cache/pupmixer
+
+cards=$(cat /proc/asound/cards | grep "\[" | cut -f 1 -d '[' | sed -e "s#\ ##g" | tr '\n' ' ')
+
+TABS=""
+
+if [ "$(which Multiple-Sound-Card-Wizard)" != "" ]; then
+ DEFAULTCARD='
+<button>
+<label>Default Sound Card</label>
+<action>Multiple-Sound-Card-Wizard &</action>
+<input file stock="gtk-execute"></input>
+</button>
+ '
+fi
+
+process_controls(){
+
+card1="$1"
+
+for ctrl in $(amixer -c $card1 scontrols | sed -e "s#Simple\ mixer\ control\ ##g" -e "s#\ #___#g")
+do
+
+ nctrl="$(echo "$ctrl" | sed -e "s#___#\ #g")"
+ 
+ VARNAME="C_$card1_$(echo "$nctrl" | sed -e "s#'##g" -e "s#,#\ #g" -e "s#\ #_#g")"
+ 
+ mode1="mono"
+ val="$(amixer -c $card1 get "$nctrl" 2>/dev/null | grep "Mono: Playback" | grep "\[" | grep -o ".[0-9][0-9]%" | sed -e "s#\[##g" -e "s#%##g")"
+ 
+ if [ "$val" == "" ]; then
+   val="$(amixer -c $card1 get "$nctrl" 2>/dev/null | grep 'Left:' | awk -F'[][]' '{ print $2 }' | sed -e "s#%##g")"
+   [ "$val" != "" ] && mode1="stereo"
+ fi
+ 
+ mute1=""
+ 
+ mute1="$(amixer -c $card1 get "$nctrl" 2>/dev/null 2>/dev/null | grep -oE "\[on\]|\[off\]" | sed -e "s#\[##g" -e "s#\]##g" | tail -n 1)"
+  
+ if [ "$mute1" != "" ]; then
+ 
+  if [ "$mute1" == "off" ]; then
+   mute1="true"
+  else
+   mute1="false"
+  fi
+  
+    MUTEBUTTON='<vbox space-expand="false" space-fill="false">
+			 <hbox space-expand="true" space-fill="false">
+			 <togglebutton>
+			 <height>4</height>
+			 <width>4</width>
+			 <label>Mute</label>
+			 <default>'${mute1}'</default>
+			 <variable>'$VARNAME'_MUTE</variable>
+			 <action>amixer -c '$card1' sset '$nctrl' toggle >/dev/null 2>&1</action>
+			 </togglebutton>
+			</hbox>
+		 </vbox>'
+  
+ else
+  mute1=""
+  MUTEBUTTON='<vbox space-expand="false" space-fill="false">
+			 <hbox space-expand="true" space-fill="false">
+			 <button>
+			 <height>4</height>
+			 <width>4</width>
+			 <label>"Mute"</label>
+			 <variable>'$VARNAME'_MUTE</variable>
+			 <sensitive>false</sensitive>
+			 </button>
+			</hbox>
+		 </vbox>
+  '
+ fi
+ 
+ 
+ #echo "$nctrl: $val"
+ 
+ if [ "$val" != "" ]; then
+    
+   #echo "$val" > $HOME/.cache/pupmixer/card$card1/${VARNAME}
+    
+   if [ "$(echo "$nctrl" | cut -f 2 -d ',')" != "0" ]; then
+    LNAME="$(echo "$nctrl" | sed -e "s#'##g" -e "s#,#\ #g")"
+   else
+    LNAME="$(echo "$nctrl" | cut -f 1 -d ',' | sed -e "s#'##g")"
+   fi
+   
+   if [ "$mode1" != "stereo" ]; then
+   
+   
+   echo '<frame>
+     <vbox space-expand="true" space-fill="true">
+		<vbox space-expand="true" space-fill="true">
+		 <vscale scale-min="0" scale-max="100" scale-step="1" value-pos="2" digits="0" inverted="true">
+			<variable export="true">'$VARNAME'</variable>
+			<default>'$val'</default>
+			<action>amixer -c '$card1' sset '$nctrl' "${'$VARNAME'}%" >/dev/null 2>&1</action>
+		 </vscale>
+		 </vbox>
+         '$MUTEBUTTON'
+		 <hseparator space-fill="true"></hseparator>
+	     <text><label>'$LNAME'</label></text>
+	</vbox>
+	</frame>
+	'
+	
+	else
+	
+	 lval=""
+	 rval=""
+	
+	 lval="$(amixer -c $card1 get "$nctrl" 2>/dev/null | grep 'Left:' | awk -F'[][]' '{ print $2 }' | sed -e "s#%##g")"
+     rval="$(amixer -c $card1 get "$nctrl" 2>/dev/null | grep 'Right:' | awk -F'[][]' '{ print $2 }' | sed -e "s#%##g")"
+     mval="$(expr $(expr $lval + $rval) / 2)"
+     
+     echo "$mval" > $HOME/.cache/pupmixer/card$card1/${VARNAME}
+     echo "$lval" > $HOME/.cache/pupmixer/card$card1/${VARNAME}_L
+     echo "$rval" > $HOME/.cache/pupmixer/card$card1/${VARNAME}_R
+	
+     echo '<frame>
+     <vbox space-expand="true" space-fill="true">
+		<vbox space-expand="true" space-fill="true">
+			<vbox visible="true" space-expand="true" space-fill="true">
+				 <eventbox>
+					 <hbox space-expand="true">
+					 <vscale scale-min="0" scale-max="100" scale-step="1" value-pos="2" digits="0" inverted="true">
+					    <input file>'$HOME'/.cache/pupmixer/card'$card1'/'$VARNAME'_L</input>
+						<variable export="true">'$VARNAME'_L</variable>
+						<default>'$lval'</default>
+						<action>echo $'$VARNAME'_L >'$HOME'/.cache/pupmixer/card'$card1'/'$VARNAME'_L</action>
+						<action>expr $(expr $'$VARNAME'_L + $'$VARNAME'_R) / 2 >'$HOME'/.cache/pupmixer/card'$card1'/'$VARNAME'</action>
+						<action>refresh:'$VARNAME'</action>
+						<action>amixer -c '$card1' sset '$nctrl' "${'$VARNAME'_L}%","${'$VARNAME'_R}%" >/dev/null 2>&1</action>
+					 </vscale>
+					 <vscale scale-min="0" scale-max="100" scale-step="1" value-pos="2" digits="0" inverted="true">
+					    <input file>'$HOME'/.cache/pupmixer/card'$card1'/'$VARNAME'_R</input>
+						<variable export="true">'$VARNAME'_R</variable>
+						<default>'$rval'</default>
+						<action>echo $'$VARNAME'_R >'$HOME'/.cache/pupmixer/card'$card1'/'$VARNAME'_R</action>
+						<action>expr $(expr $'$VARNAME'_L + $'$VARNAME'_R) / 2 >'$HOME'/.cache/pupmixer/card'$card1'/'$VARNAME'</action>
+						<action>refresh:'$VARNAME'</action>
+						<action>amixer -c '$card1' sset '$nctrl' "${'$VARNAME'_L}%","${'$VARNAME'_R}%" >/dev/null 2>&1</action>
+					 </vscale>
+					 </hbox>
+				 </eventbox>
+			 <variable>'$VARNAME'_STEREO</variable>	 
+			 </vbox>
+			 <vbox visible="false" space-expand="true" space-fill="true">
+				 <eventbox>
+					 <hbox space-expand="true">
+						 <vscale scale-min="0" scale-max="100" scale-step="1" value-pos="2" digits="0" inverted="true">
+						    <input file>'$HOME'/.cache/pupmixer/card'$card1'/'$VARNAME'</input>
+							<variable export="true">'$VARNAME'</variable>
+							<default>'$mval'</default>
+							<action condition="active_is_true('$VARNAME'_SYNC)">echo $'$VARNAME' >'$HOME'/.cache/pupmixer/card'$card1'/'$VARNAME'_L</action> 
+							<action condition="active_is_true('$VARNAME'_SYNC)">echo $'$VARNAME' >'$HOME'/.cache/pupmixer/card'$card1'/'$VARNAME'_R</action> 
+							<action>amixer -c '$card1' sset '$nctrl' "${'$VARNAME'}%","${'$VARNAME'}%" >/dev/null 2>&1</action>
+						 </vscale>
+					 </hbox>
+				 </eventbox>
+			 <variable>'$VARNAME'_MONO</variable>	 
+			 </vbox>
+		 </vbox>
+		 <hbox space-expand="false">
+         <hbox space-expand="true">
+         '$MUTEBUTTON'
+         <vbox space-expand="false" space-fill="false">
+			 <hbox space-expand="true" space-fill="false">
+			 <togglebutton>
+			 <variable>'$VARNAME'_SYNC</variable>
+			 <height>4</height>
+			 <width>4</width>
+			 <label>Sync</label>
+			 <action>if true show:'$VARNAME'_MONO</action>
+			 <action>if true hide:'$VARNAME'_STEREO</action>
+			 <action>if false hide:'$VARNAME'_MONO</action>
+			 <action>if false show:'$VARNAME'_STEREO</action>
+			 <action>if false refresh:'$VARNAME'_L</action>
+			 <action>if false refresh:'$VARNAME'_R</action>			 
+			 </togglebutton>
+	     </hbox>
+	     </vbox>
+	     </hbox>
+	     </hbox>
+		 <hseparator space-fill="true"></hseparator>
+	     <text><label>'$LNAME'</label></text>
+	</vbox>
+	</frame>
+	'
+	
+	fi
+ fi
+ 
+done		
+}
+
+LABELS=""
+TABS=""
+
+for c1 in $cards
+do
+
+CNAME=$(cat /proc/asound/cards | grep "$c1 \[" | cut -f 2 -d ":" | sed -e "s#\ \-\ #|#g" | cut -f 2 -d '|')
+
+mkdir -p $HOME/.cache/pupmixer/card$c1
+
+MIXER=""
+MIXER="$(process_controls $c1)"
+
+#process_controls $c1
+
+#echo $MIXER
+
+if [ "$MIXER" != "" ]; then
+
+ TABS=$TABS'<vbox margin="8">
+ <frame '$CNAME'>
+ <hbox space-expand="true" scrollable="true" margin="6">'$MIXER'</hbox></frame></vbox>'
+ 
+ if [ "$LABELS" == "" ]; then
+  LABELS="Card $c1|"
+ else
+  LABELS="$LABELS|Card $c1"
+ fi
+
+fi
+
+done
+
+if [ "$TABS" != "" ]; then
+ CONTROLS='<notebook labels="'$LABELS'">'$TABS'</notebook>'
+else
+ CONTROLS='<text><label>NO SOUNDCARDS FOUND</label></text>'
+fi
+
+export MIXERGUI='
+<window width-request="538" height-request="320" title="pupmixer-1.0" icon-name="gtk-preferences">
+<vbox space-expand="true" space-fill="true">
+
+'$CONTROLS'
+
+<hbox space-expand="false" space-fill="false">
+'$DEFAULTCARD'
+<button>
+<label>Refresh</label>
+<action>EXIT:refresh</action>
+<input file stock="gtk-refresh"></input>
+</button>
+<button cancel>
+</button>
+</hbox>
+</vbox>
+</window>'
+
+#echo $MIXERGUI > /root/test.xml
+
+RETPARAMS=$(gtkdialog -cp MIXERGUI)
+
+rm -rf $HOME/.cache/pupmixer/* 2>/dev/null
+
+result=`echo $RETPARAMS | grep "refresh"`
+
+if [ "$result" != "" ]; then
+ $0
+fi
