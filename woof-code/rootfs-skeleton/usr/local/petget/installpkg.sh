@@ -593,13 +593,31 @@ xpkgname="$(echo "$DB_ENTRY" | cut -f 2 -d '|')"
 installed_pkg="$(cat /root/.packages/user-installed-packages | grep "|$xpkgname|")"
 
 if [ "$installed_pkg" != "" ]; then
+  #There is an already installed package. Just update the package file list
   installed_files="$(echo "$installed_pkg" | cut -f 1 -d '|')"
   if [ "$installed_files" != "" ]; then
+   #Check if the old package file list exists
     if [ -e /root/.packages/${installed_files}.files ]; then
+    
 	while IFS= read -r xline
 	do
+	 #Check if the file was a part of the newly installed package
   	 if [ "$(cat /root/.packages/${DLPKG_NAME}.files | grep "$xline")" == "" ]; then
-	  echo "$xline" >> /root/.packages/${DLPKG_NAME}.files
+	  #Not a part of newly installed package. Do action
+
+	   #Delete the file which is not a part of upgrade
+	   if [ -e "$xline" ] && [ ! -d "$xline" ]; then
+	    
+	    if [ -d "/initrd/pup_rw$xline" ] && [ ! -L "/initrd/pup_rw$xline" ]; then
+	     rm -f "/initrd/pup_rw$xline"
+	    fi
+	    
+	    [ -e "/initrd${SAVE_LAYER}${xline}" ] && rm -f "/initrd${SAVE_LAYER}${xline}"
+	    
+	    [ -e "$xline" ] && rm -f "$xline"
+	   
+	   fi
+
 	 fi
 	done < /root/.packages/${installed_files}.files
 	
