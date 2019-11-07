@@ -213,27 +213,53 @@ function get_git_kernel() {
 
 	[ "$USE_GIT_KERNEL" == '' ] && exit_error "Error: USE_GIT_KERNEL must be specified before calling get_git_kernel()"
 
-	if [ ! -f /tmp/${kernel_git_dir}_done -o ! -d sources/${kernel_git_dir}/.git ] ; then
-		mkdir -p sources/kernels
-		cd sources
-		if [ ! -d ${kernel_git_dir}/.git ] ; then
-			git clone --depth=1 ${USE_GIT_KERNEL} ${kernel_git_dir}
-			[ $? -ne 0 ] && exit_error "Error: failed to download the kernel sources."
-			touch /tmp/${kernel_git_dir}_done
-		else
-			cd ${kernel_git_dir}
-			echo "Updating ${kernel_git_dir}"
-			git fetch --depth=1 origin
-			if [ $? -ne 0 ] ; then
-				log_msg "WARNING: 'git fetch --depth=1 origin' command failed" && sleep 5
-			else
-				git checkout origin >/dev/null 2>&1
-				[ $? -ne 0 ] && exit_error "Error: unable to checkout ${kernel_git_dir}"
-
+	if [ ! $1 -a ! $2 ] ; then
+		if [ ! -f /tmp/${kernel_git_dir}_done -o ! -d sources/${kernel_git_dir}/.git ] ; then
+			mkdir -p sources/kernels
+			cd sources
+			if [ ! -d ${kernel_git_dir}/.git ] ; then
+				git clone --depth=1 ${USE_GIT_KERNEL} ${kernel_git_dir}
+				[ $? -ne 0 ] && exit_error "Error: failed to download the kernel sources."
 				touch /tmp/${kernel_git_dir}_done
+			else
+				cd ${kernel_git_dir}
+				echo "Updating ${kernel_git_dir}"
+				git fetch --depth=1 origin
+				if [ $? -ne 0 ] ; then
+					log_msg "WARNING: 'git fetch --depth=1 origin' command failed" && sleep 5
+				else
+					git checkout origin >/dev/null 2>&1
+					[ $? -ne 0 ] && exit_error "Error: unable to checkout ${kernel_git_dir}"
+	
+					touch /tmp/${kernel_git_dir}_done
+				fi
 			fi
+			cd $MWD
 		fi
-		cd $MWD
+	else # build from a certain commit defined in /tmp/checkout
+		if [ ! -f /tmp/${kernel_git_dir}_done -o ! -d sources/${kernel_git_dir}/.git ] ; then
+			mkdir -p sources/kernels
+			cd sources
+			if [ ! -d ${kernel_git_dir}/.git ] ; then
+				git clone --depth=$2 ${USE_GIT_KERNEL} ${kernel_git_dir}
+				[ $? -ne 0 ] && exit_error "Error: failed to download the kernel sources."
+				git checkout $1
+				touch /tmp/${kernel_git_dir}_done
+			else
+				cd ${kernel_git_dir}
+				echo "Updating ${kernel_git_dir}"
+				git fetch --depth=$2 origin
+				if [ $? -ne 0 ] ; then
+					log_msg "WARNING: 'git fetch --depth=$2 origin' command failed" && sleep 5
+				else
+					git checkout $1 >/dev/null 2>&1
+					[ $? -ne 0 ] && exit_error "Error: unable to checkout ${kernel_git_dir} $1"
+	
+					touch /tmp/${kernel_git_dir}_done
+				fi
+			fi
+			cd $MWD
+		fi
 	fi
 
 }

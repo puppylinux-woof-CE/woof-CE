@@ -174,8 +174,11 @@ esac
 
 if [ "$USE_GIT_KERNEL" ] ; then
 	kernel_git_dir="`expr match "$USE_GIT_KERNEL" '.*/\([^/]*/[^/]*\)' | sed 's\/\_\'`"_git
-
-	get_git_kernel # from funcs.sh
+	# !IMPORTANT - /tmp/checkout contains the sha commit number and the approx number of commits since commited
+	# delimited by the '|' character
+	# eg: 6d8bf28fa4b1ca0a35c0cd1dcb267fb216daf720|1000
+	[ -e /tmp/checkout ] && opt1=`cat /tmp/checkout | cut -d '|' -f1` opt2=`cat /tmp/checkout | cut -d '|' -f2`
+	get_git_kernel $opt1 $opt2 # from funcs.sh
 	kernel_version="`print_git_kernel_version`" # from funcs.sh
 
 	if [ "$USE_GIT_KERNEL_CONFIG" ]; then
