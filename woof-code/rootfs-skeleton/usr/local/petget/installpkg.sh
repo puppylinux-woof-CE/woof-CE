@@ -592,7 +592,7 @@ fi
 xpkgname="$(echo "$DB_ENTRY" | cut -f 2 -d '|')"
 installed_pkg="$(cat /root/.packages/user-installed-packages | grep "|$xpkgname|")"
 
-if [ "$installed_pkg" != "" ]; then
+if [ "$xpkgname" != "" ] && [ "$installed_pkg" != "" ]; then
   #There is an already installed package. Just update the package file list
   installed_files="$(echo "$installed_pkg" | cut -f 1 -d '|')"
   if [ "$installed_files" != "" ]; then
