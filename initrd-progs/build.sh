@@ -1,44 +1,21 @@
 #!/bin/bash
 
-. ./build.conf
-
 ARCH_LIST="i686 x86_64 arm aarch64"
 
 SITE=http://01micko.com/wdlkmpx/woof-CE
-
 INITRD_PROGS_STATIC=initrd_progs-20190714-static.tar.xz
-
 PREBUILT_BINARIES="${SITE}/${INITRD_PROGS_STATIC}"
 
 ARCH=`uname -m`
-OS_ARCH=$ARCH
 
-#@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-
-function get_initrd_progs() {
-	local var=INITRD_PROGS
-	[ "$1" = "-pkg" ] && { var=PACKAGES ; shift ; }
-	local arch=$1
-	[ "$arch" = "" ] && arch=`uname -m`
-	case "$arch" in i?86) arch="x86" ;; esac
-	case "$arch" in arm*) arch='arm' ;; esac
-	eval echo \$$var \$${var}_${arch} #ex: $PACKAGES $PACKAGES_x86, $INITRD_PROGS $INITRD_PROGS_x86
-}
-
-#@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-
-function fatal_error() { echo -e "$@" ; exit 1 ; }
-function exit_error() { echo -e "$@" ; exit 1 ; }
+exit_error() { echo -e "$@" ; exit 1 ; }
 
 help_msg() {
-	echo "Build static apps in the queue defined in build.conf
-
-Usage:
+	echo "Usage:
   $0 <-arch target> [options]
 
 Options:
   -specs file : DISTRO_SPECS file to use
-  -help       : show help and exit
 
   Valid <targets> for -arch:
       ${ARCH_LIST} default
@@ -48,22 +25,19 @@ Options:
 ## command line ##
 while [ "$1" ] ; do
 	case $1 in
-		-prebuilt|-auto|-pkg|-pet) USE_PREBUILT=yes    ; shift ;;
+		-prebuilt|-auto|-pkg|-pet) shift ;;
 		-a|-arch)  TARGET_ARCH="$2"    ; shift 2
-			       [ "$TARGET_ARCH" = "" ] && fatal_error "$0 -arch: Specify a target arch" ;;
+			       [ "$TARGET_ARCH" = "" ] && exit_error "$0 -arch: Specify a target arch" ;;
 		-specs)    DISTRO_SPECS="$2"   ; shift 2
-			       [ ! -f "$DISTRO_SPECS" ] && fatal_error "$0 -specs: '${DISTRO_SPECS}' is not a regular file" ;;
+			       [ ! -f "$DISTRO_SPECS" ] && exit_error "$0 -specs: '${DISTRO_SPECS}' is not a regular file" ;;
 	-h|-help|--help) help_msg ; exit ;;
-		*)
-			echo "Unrecognized option: $1"
-			shift
-			;;
+		*) echo "Unrecognized option: $1" ; shift ;;
 	esac
 done
 
-#@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+#=======================================================
 
-function use_prebuilt_binaries() {
+use_prebuilt_binaries() {
 	zfile=0sources/${PREBUILT_BINARIES##*/}
 	if [ -f "$zfile" ] ; then
 		#verify file integrity
@@ -84,9 +58,7 @@ function use_prebuilt_binaries() {
 	}
 }
 
-#@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-
-function select_target_arch() {
+select_target_arch() {
 	if ! [ "$TARGET_ARCH" ] ; then
 		echo -e "\nMust specify target arch: -a <arch>"
 		echo "  <arch> can be one of these: $ARCH_LIST default"
@@ -100,39 +72,20 @@ function select_target_arch() {
 		arm64)   TARGET_ARCH=aarch64 ;;
 		arm*)    TARGET_ARCH=arm     ;;
 	esac
-	VALID_TARGET_ARCH=no
-	for a in $ARCH_LIST ; do
-		if [ "$TARGET_ARCH" = "$a" ] ; then
-			VALID_TARGET_ARCH=yes
-			ARCH=$a
-			break
-		fi
-	done
-	if [ "$VALID_TARGET_ARCH" = "no" ] ; then
+	if echo "$ARCH_LIST" | grep -qw "$TARGET_ARCH" ; then
+		ARCH="$TARGET_ARCH"
+	else
 		exit_error "Invalid target arch: $TARGET_ARCH"
 	fi
 }
 
-#@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-
-function generate_initrd() {
-	INITRD_FILE="initrd.gz"
-
+generate_initrd() {
 	rm -rf ZZ_initrd-expanded
-	mkdir -p ZZ_initrd-expanded
+	mkdir -p ZZ_initrd-expanded/bin
 	cp -rf 0initrd/* ZZ_initrd-expanded
 	cd ZZ_initrd-expanded
-
-	for PROG in $(get_initrd_progs ${ARCH}) ; do
-		case $PROG in ""|'#'*) continue ;; esac
-		if [ -f ../00_${ARCH}/bin/${PROG} ] ; then
-			file ../00_${ARCH}/bin/${PROG} | grep -E 'dynamically|shared' && exit 1
-			cp -a ${V} --remove-destination ../00_${ARCH}/bin/${PROG} bin
-		else
-			exit_error "00_${ARCH}/bin/${PROG} not found"
-		fi
-	done
-
+	cp -af --remove-destination ../00_${ARCH}/bin/* bin
+	
 	echo
 	if [ ! -f "$DISTRO_SPECS" -a -f ../DISTRO_SPECS ] ; then
 		DISTRO_SPECS='../DISTRO_SPECS'
@@ -143,26 +96,21 @@ function generate_initrd() {
 		. /etc/rc.d/PUPSTATE #PUPMODE
 	fi
 	[ -f "$DISTRO_SPECS" ] && cp -f ${V} "${DISTRO_SPECS}" .
-	[ -x ../init ] && cp -f ${V} ../init .
+	[ -x ../init ] && cp -f ../init .
 
 	. ./DISTRO_SPECS
 
 	find . | cpio -o -H newc > ../initrd 2>/dev/null
 	cd ..
-	gzip -f initrd
-	[ $? -eq 0 ] || exit_error "ERROR"
+	gzip -f initrd || exit_error "ERROR"
 
-	echo -e "\n***        INITRD: ${INITRD_FILE} [${ARCH}]"
+	echo -e "\n***        INITRD: initrd.gz [${ARCH}]"
 	echo -e "*** /DISTRO_SPECS: ${DISTRO_NAME} ${DISTRO_VERSION} ${DISTRO_TARGETARCH}"
-
 }
 
 ###############################################
-#                 MAIN
-###############################################
-
+# MAIN
 select_target_arch
 use_prebuilt_binaries
 generate_initrd
-
 ### END ###
