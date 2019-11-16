@@ -82,7 +82,29 @@ P2BYTES=$((P2SECTORS * BYTESPERSECTOR))
 P2STARTBYTES=$((P2STARTSECTORS * BYTESPERSECTOR))
 
 #=======================================================
- 
+
+if [ "$CREATE" ] ; then
+	LOOPDEV=$(losetup -f)
+	if losetup -o ${P1STARTBYTES} ${LOOPDEV} ${OUT_IMG} ; then
+		mkdosfs -v -I -F 32 ${LOOPDEV}
+		sync ; sleep 1
+		losetup -d ${LOOPDEV}
+	fi
+
+	LOOPDEV=$(losetup -f)
+	if losetup -o ${P2STARTBYTES} ${LOOPDEV} ${OUT_IMG} ; then
+		mkfs.ext4 -F ${LOOPDEV}
+		sync ; sleep 1
+		tune2fs -O ^has_journal ${LOOPDEV}
+		sync
+		e2fsck -y ${LOOPDEV}
+		sync ; sleep 1
+		losetup -d ${LOOPDEV}
+	fi
+fi
+
+#=======================================================
+
 echo
 echo "Copying Linux kernel to SD image file..."
 mkdir -p /mnt/sdimagep1
