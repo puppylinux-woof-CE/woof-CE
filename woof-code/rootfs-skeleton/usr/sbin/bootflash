@@ -1,4 +1,5 @@
 #!/bin/bash
+# requires /usr/sbin/pdsk
 
 export TEXTDOMAIN=bootflash
 export OUTPUT_CHARSET=UTF-8
@@ -257,6 +258,8 @@ create_grub4dos_bootable_drv() {
 	write_wee_mbr /dev/${XDEV} #install wee.mbr
 }
 
+#--
+
 unmountcdfunc() {
 	if [ "$CDDRIVE" -a "`mount | grep "^/dev/$CDDRIVE " | cut -f 3 -d ' '`" ];then
 		umount /dev/$CDDRIVE "`mount | grep "^/dev/$CDDRIVE " | cut -f 3 -d ' '`"
@@ -358,8 +361,6 @@ locate_puppy_src_files() { # set $SRCPATH $CDDRIVE
 	fi
 } #end locate_puppy_src_files function.
 
-
-
 #=================================================================
 #                     MAIN DIALOG
 #=================================================================
@@ -397,13 +398,18 @@ export ASKDIALOG='
     '${UEFI_USB_INSTALLER}'
 
      '$(create_dlg_item "$(gettext '<b>Create grub4dos USB (MBR - BIOS)</b>')" \
-		"$(gettext 'Does not support UEFI. Installs the running system. For computers booting with BIOS. Supported filesystems: FAT32, F2FS, EXT3, EXT4, NTFS')" \
-		install_options.svg 3
+		"$(gettext 'Does not support UEFI. Installs the running system. For computers booting with BIOS.')" \
+		install_options.svg 2
 		)'
 
-    '$(create_dlg_item "$(gettext '<b>Write Hybrid ISO file to USB drive</b> [Generic] ')" \
-		"$(gettext "Woof-CE/Fatdog hybrid uefi/bios ISOs are supported. You can also try any distro hybrid iso installers. It's probably only useful if you want to try other distros. Not recommended.")" \
-		cd_burn.svg 2
+    '$(create_dlg_item "$(gettext '<b>Write .img[.gz|.xz] file to USB drive</b>')" \
+		"$(gettext "IMG files meant to be written to usb sticks/SD cards...")" \
+		flashcard_usb_2.svg 3
+		)'
+
+    '$(create_dlg_item "$(gettext '<b>Write Hybrid ISO file to USB drive</b>')" \
+		"$(gettext "It's probably only useful if you want to try/install Linux distros that provide hybrid ISOs.")" \
+		cd_burn.svg 4
 		)'
 
   </frame>
@@ -480,47 +486,6 @@ case $EXIT in
 
 	2)
 		#========================
-		#   DD ISO TO USB DRV
-		#========================
-		iso_file=$(/usr/lib/gtkdialog/file_chooser --last-path "Select ISO file")
-		if [ ! "$iso_file" ] ; then
-			exit
-		fi
-		case $iso_file in *.[iI][sS][oO]) ok=1 ;;
-			*) /usr/lib/gtkdialog/box_ok "Error" error "$(gettext 'You did not select an ISO file..')"
-				exit;;
-		esac
-		finfo=$(file "$iso_file") 
-		echo "$finfo" | grep -q " DOS" || {
-			/usr/lib/gtkdialog/box_yesno --error --yes-label "$(gettext 'Continue')" --no-label "$(gettext 'Cancel')" "Non-hybrid ISO detected.." \
-			"$(gettext 'The file you selected does not seem to be a hybrid ISO. The usb drive will not be bootable. If you know the file is ok then you might want to conitnue anyway.')"
-			[ $? -ne 0 ] && exit
-		}
-		MYSELECTION="`echo "$xSELECTIONS" | grep "^${USBDRV} " | tr '"' ' ' | tr -s ' '`" #'geany
-		/usr/lib/gtkdialog/box_yesno --warning --yes-label "$(gettext 'Write ISO to USB')" \
-			--no-label "$(gettext 'Cancel')" "$(gettext 'Write ISO to USB')" \
-			"ISO: ${iso_file##*/}" \
-			"USB: /dev/${MYSELECTION}"
-		[ $? -ne 0 ] && exit
-		/usr/lib/gtkdialog/box_splash -close never -text "$(gettext 'Please wait, writing ISO file to usb drive...')" "${USBDRV}" &
-		X1PID=$!
-		dd if=${iso_file} of=/dev/${USBDRV}
-		kill $X1PID
-		res=$(yad --title="Bootflash - $USBDRV" --window-icon="gtk-yes" --button=gtk-ok:0 \
-		--center --sticky --on-top --fixed --form \
-		--field="$(gettext 'Now we are going to make the extra space usable again'):LBL" "" \
-		--field="$(gettext 'Filesystem'):CB" "ext4!ext3!ntfs!fat")
-		FS_TYPE=$(echo $res | cut -f 2 -d "|")
-		if [ -z "$FS_TYPE" ] ; then
-			FS_TYPE='ext4'
-		fi
-		fix-usb.sh -yes -fs ${FS_TYPE} /dev/${USBDRV}
-		/usr/lib/gtkdialog/box_ok "Done" info "$(gettext 'done!')"
-		exit
-		;;
-
-	3)
-		#========================
 		#        GRUB4DOS
 		#========================
 		export GRUB4DOS_DIALOG='<window title="'"BootFlash: $USBDRV"'" icon-name="gtk-preferences">
@@ -581,6 +546,77 @@ case $EXIT in
 			*) exit ;;
 		esac
 		;;
+
+	3)
+		#========================
+		#   DD IMG TO USB DRV
+		#========================
+		img_file=$(/usr/lib/gtkdialog/file_chooser --last-path "Select *.img / *.img.gz / *.img.xz file")
+		if [ ! "$img_file" ] ; then
+			exit
+		fi
+		case $img_file in *.img|*.img.gz|*.img.xz) ok=1 ;;
+			*) exec /usr/lib/gtkdialog/box_ok "Error" error "$(gettext 'Only .img/.img.gz/img.xz are supported..')" ;;
+		esac
+		MYSELECTION="`echo "$xSELECTIONS" | grep "^${USBDRV} " | tr '"' ' ' | tr -s ' '`" #'geany
+		/usr/lib/gtkdialog/box_yesno --warning --yes-label "$(gettext 'Write IMG to USB')" \
+			--no-label "$(gettext 'Cancel')" "$(gettext 'Write IMG to USB')" \
+			"IMG: ${img_file##*/}" \
+			"USB: /dev/${MYSELECTION}"
+		[ $? -ne 0 ] && exit
+		echo 'pdsk img2flash "'${img_file}'" /dev/'${USBDRV}'
+if [ $? -eq 0 ] ; then
+	/usr/lib/gtkdialog/box_ok Done info "Finished writing IMG file to /dev/'${USBDRV}'" "" "Hopefully no errors occurred.."
+else
+	/usr/lib/gtkdialog/box_ok Error error "Error writing img file to drive"
+fi
+' > /tmp/write_img_file_usb_drv_$$
+		xterm -title "Writing IMG to /dev/${USBDRV}" -e sh /tmp/write_img_file_usb_drv_$$
+		rm -f /tmp/write_img_file_usb_drv_$$
+		exit
+		;;
+
+	4)
+		#========================
+		#   DD ISO TO USB DRV
+		#========================
+		iso_file=$(/usr/lib/gtkdialog/file_chooser --last-path "Select ISO file")
+		if [ ! "$iso_file" ] ; then
+			exit
+		fi
+		case $iso_file in *.[iI][sS][oO]) ok=1 ;;
+			*) exec /usr/lib/gtkdialog/box_ok "Error" error "$(gettext 'You did not select an ISO file..')" ;;
+		esac
+		#---
+		MYSELECTION="`echo "$xSELECTIONS" | grep "^${USBDRV} " | tr '"' ' ' | tr -s ' '`" #'geany
+		/usr/lib/gtkdialog/box_yesno --warning --yes-label "$(gettext 'Write ISO to USB')" \
+			--no-label "$(gettext 'Cancel')" "$(gettext 'Write ISO to USB')" \
+			"ISO: ${iso_file##*/}" \
+			"USB: /dev/${MYSELECTION}"
+		[ $? -ne 0 ] && exit
+		/usr/lib/gtkdialog/box_splash -close never -text "$(gettext 'Please wait, writing ISO file to usb drive...')" "${USBDRV}" &
+		X1PID=$!
+		errmsg=$(pdsk iso2flash "$iso_file" /dev/${USBDRV})
+		if [ $? -ne 0 ] ; then
+			kill $X1PID
+			/usr/lib/gtkdialog/box_ok "Error" error "$errmsg"
+			exit 1
+		fi
+		sync
+		kill $X1PID
+		res=$(yad --title="Bootflash - $USBDRV" --window-icon="gtk-yes" \
+		--button=gtk-ok:0 --button=gtk-cancel:1 \
+		--center --sticky --on-top --fixed --form \
+		--field="$(gettext 'Now we are going to make the extra space usable again'):LBL" "" \
+		--field="$(gettext 'Filesystem'):CB" "ext4!ntfs!fat")
+		FS_TYPE=$(echo $res | cut -f 2 -d "|")
+		if [ "$FS_TYPE" ] ; then
+			fix-usb.sh -yes -fs ${FS_TYPE} /dev/${USBDRV}
+		fi
+		/usr/lib/gtkdialog/box_ok "Done" info "$(gettext 'Finished writing ISO file to') /dev/${USBDRV}" "" "Hopefully no errors occurred.."
+		exit
+		;;
+
 	*)
 		exit ;;
 esac

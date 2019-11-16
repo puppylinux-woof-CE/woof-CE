@@ -1,0 +1,227 @@
+#!/bin/bash
+# cli app
+
+usage() {
+	echo
+	echo "${0##*/} <cmd> <args>"
+	echo
+	echo "- img2flash <file.img[.gz|.xz]> <target_dev>"
+	echo "- iso2flash <image.iso> <target_dev>"
+	echo
+	exit
+}
+
+#=============================================================
+
+write_img_to_flash_drv() { #img2flash file drv
+	#-
+	local file=${1} # img file
+	local xdev=${2} # target dev
+	#-
+	local fs xdevname
+	#--
+	if ! [ -f "$file" ] ; then
+		echo "File $file does not exist"
+		return 2
+	fi
+	if ! [ -b "$xdev" ] ; then
+		echo "Output dev is not a block device"
+		return 2
+	fi
+	xdevname=$(basename $xdev)
+	if ! [ -e /sys/block/${xdevname} ] ; then
+		echo "Need to specify output drive - no partitions"
+		exit 2
+	fi
+	if [ -e /sys/block/${xdevname}/removable ] ; then
+		if [ "`cat /sys/block/${xdevname}/removable`" = "0" ] ; then
+			echo "$xdev is not removable"
+			return 3
+		fi
+	fi
+	#- validate file
+	local IMGBYTES='' UCOMP=''
+	case $file in
+		*.img)
+			UCOMP=
+			IMGBYTES=`stat -c %s "${file}"`
+			;;
+		*.img.gz)
+			if ! gunzip -t "$file" ; then
+				echo "File seems to be corrupted.."
+				return 4
+			fi
+			UCOMP='gunzip -c'
+			IMGBYTES=`gzip -l "${file}" | grep "${file%.gz}" | tr -s ' ' | cut -f 3 -d ' '`
+			;;
+		*.img.xz)
+			if ! unxz -t "$file" ; then
+				echo "File seems to be corrupted.."
+				return 4
+			fi
+			UCOMP='unxz -c'
+			;;
+		*)
+			echo "Invalid extension, must be: .img img.gz img.xz"
+			return 5
+			;;
+	esac
+	#- make sure file fits in xdev
+	if [ "$IMGBYTES" ] ; then
+		DRVBYTES=`LANG=C fdisk -l ${xdev} | grep "${xdev}:" | cut -f 2 -d ',' | cut -f 2 -d ' '`
+		if [ "$DRVBYTES" ] && [ $IMGBYTES -gt $DRVBYTES ] ; then
+			echo "The image file is bigger than the drive"
+			return 6
+		fi
+	fi
+	#- write img to device
+	if dd --help 2>&1 | grep -q progress ; then
+		progress='status=progress'
+	fi
+	echo
+	if [ "$UCOMP" ] ; then
+		echo "# $UCOMP "$file" | dd of=${xdev} ${progress} bs=1M"
+		$UCOMP "$file" | dd of=${xdev} ${progress} bs=1M
+	else
+		echo "# dd bs=1M if=${file} of=${xdev} ${progress}"
+		dd if=${file} of=${xdev} ${progress} bs=1M
+	fi
+	if [ $? -ne 0 ] ; then
+		echo ; echo "Could not finish writing IMG to target device"
+		return 7
+	fi
+	#-- update device
+	sync
+	sleep 1.5
+	echo 'change' > /sys/block/${xdevname}/uevent
+	sleep 4
+	#--
+	# check if need to resize ext4/f2fs partition (2)
+	if ! type parted >/dev/null ; then
+		echo 'parted not found'
+		return 0 # not possible
+	fi
+	if [ -e ${xdev}3 -o -e ${xdev}p3 ] ; then
+		return 0 # unknown img
+	fi
+	if [ -e ${xdev}2 ] ; then
+		part2=${xdev}2
+	elif [ -e ${xdev}p2 ] ; then
+		part2=${xdev}p2
+	else
+		return 0 # unknown img
+	fi
+	fs=$(busybox blkid "$part2" | grep -o ' TYPE=".*' | cut -d '"' -f 2)
+	case $fs in
+		ext*)
+			if ! type resize2fs >/dev/null ; then
+				return 0 # not possible
+			fi
+			RESIZE_CMD="resize2fs -pf ${part2}"
+			;;
+		f2fs)
+			if ! type resize.f2fs >/dev/null ; then
+				return 0 # not possible
+			fi
+			RESIZE_CMD="resize.f2fs ${part2}"
+			;;
+		*)
+			return 0 # unknown img
+			;;
+	esac
+	#-
+	echo -e "\nResizing $fs partition to fill the drive\n"
+	if [ "`parted --help 2>&1 | grep resizepart`" ] ; then # 3.2+
+		resizepart='resizepart'
+	else
+		resizepart='resize'
+	fi
+	echo "# parted --script -- ${xdev} ${resizepart} 2 100%"
+	parted --script -- ${xdev} ${resizepart} 2 100%
+	sync
+	sleep 1
+	echo "# $RESIZE_CMD"
+	${RESIZE_CMD} || return 8
+	sync
+	sleep 1
+	echo 'change' > /sys/block/${xdevname}/uevent
+	sleep 1.5
+	#-
+	return 0
+}
+
+#=============================================================
+
+write_iso_to_flash_drv() { # iso2flash file drv
+	#-
+	local file=${1} # $1: iso file
+	local xdev=${2} # $2: target dev
+	#-
+	local fs xdevname
+	if ! [ -f "$file" ] ; then
+		echo "File $file does not exist"
+		return 1
+	fi
+	if ! [ -b "$xdev" ] ; then
+		echo "Output dev is not a block device"
+		return 2
+	fi
+	xdevname=$(basename $xdev)
+	if ! [ -e /sys/block/${xdevname} ] ; then
+		echo "Need to specify output drive - no partitions"
+		exit 2
+	fi
+	if [ -e /sys/block/${xdevname}/removable ] ; then
+		if [ "`cat /sys/block/${xdevname}/removable`" = "0" ] ; then
+			echo "$xdev is not removable"
+			return 3
+		fi
+	fi
+	fs=$(busybox blkid "$file" | grep -o ' TYPE=".*' | cut -d '"' -f 2)
+	if [ "$fs" != "iso9660" ] ; then
+		echo "File is not a valid iso9660 ISO"
+		return 4
+	fi
+	x=$(LANG=C fdisk -l "$file"  | grep '*' | wc -l)
+	[ "$x" ] || x=1
+	if [ $x -lt 2 ] ; then
+		echo  "File does not seem to be a hybrid ISO. Refusing to continue.."
+		return 5
+	fi
+	if dd --help 2>&1 | grep -q progress ; then
+		progress='status=progress'
+	fi
+	#-----------------------------------------
+	echo "dd bs=1M if=${file} of=${xdev} ${progress}"
+	dd bs=1M if=${file} of=${xdev} ${progress}
+	#-----------------------------------------
+	if [ $? -ne 0 ] ; then
+		echo ; echo "Could not finish writing ISO to target device"
+		return 6
+	fi
+	sync
+	sleep 1.5
+	echo 'change' > /sys/block/${xdevname}/uevent
+	sleep 1.5
+	return 0
+}
+
+#=============================================================
+#                           MAIN
+#=============================================================
+
+case $1 in
+	iso2flash)
+		shift
+		write_iso_to_flash_drv "$1" "$2"
+		exit $?
+		;;
+	img2flash)
+		shift
+		write_img_to_flash_drv "$1" "$2"
+		exit $?
+		;;
+	*)
+		usage
+		;;
+esac
