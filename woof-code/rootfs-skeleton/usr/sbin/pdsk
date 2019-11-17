@@ -6,7 +6,7 @@ usage() {
 	echo "${0##*/} <cmd> <args>"
 	echo
 	echo "- img2flash <file.img[.gz|.xz]> <target_dev>"
-	echo "- iso2flash <image.iso> <target_dev>"
+	echo "- iso2flash <image.iso> <target_dev> [fs_for_extra_partition]"
 	echo
 	exit
 }
@@ -154,8 +154,9 @@ write_img_to_flash_drv() { #img2flash file drv
 
 write_iso_to_flash_drv() { # iso2flash file drv
 	#-
-	local file=${1} # $1: iso file
-	local xdev=${2} # $2: target dev
+	local file=${1}    # $1: iso file
+	local xdev=${2}    # $2: target dev
+	local extrafs=${3} # $3: fs to apply after recovering empty space
 	#-
 	local fs xdevname
 	if ! [ -f "$file" ] ; then
@@ -192,17 +193,68 @@ write_iso_to_flash_drv() { # iso2flash file drv
 		progress='status=progress'
 	fi
 	#-----------------------------------------
-	echo "dd bs=1M if=${file} of=${xdev} ${progress}"
+	echo "# dd bs=1M if=${file} of=${xdev} ${progress}"
 	dd bs=1M if=${file} of=${xdev} ${progress}
 	#-----------------------------------------
 	if [ $? -ne 0 ] ; then
+		sync
 		echo ; echo "Could not finish writing ISO to target device"
 		return 6
 	fi
 	sync
 	sleep 1.5
 	echo 'change' > /sys/block/${xdevname}/uevent
-	sleep 1.5
+	if [ ! "$extrafs" ] ; then
+		return 0 # don't attemt to recover empty space.
+	fi
+	# (C) jamesbond 2013, Jake SFR 2018
+	# - fix the "missing space" caused by dd-ing fatdog isohybrid to a flash drive
+	# - errors are non-fatal
+	if ! type sfdisk > /dev/null; then
+		return 0 # need sfdisk
+	fi
+	sleep 6
+	local RESERVED_SPACE=262144 #128 MB
+	# determine partition number
+	local PARTNUM=
+	local UEFI_ISO=$(sfdisk -uS  -l ${xdev} 2>/dev/null | grep "^${xdev}2" | grep ' EFI ')
+	if [ "$UEFI_ISO" ] ; then
+		PARTNUM=3
+	else
+		PARTNUM=2
+	fi
+	# paranoia check - partition $PARTNUM must be empty
+	local check=$(sfdisk -uS -l ${xdev} 2>/dev/null| grep "^${xdev}${PARTNUM}")
+	case $check in
+		*"Empty"*|'') ;;    # 1st for old sfdisk's output, 2nd for new sfdisk's output
+		*)	echo "Partition ${PARTNUM} of ${xdev} (${xdev}${PARTNUM}) is not empty."
+			return 0 ;;
+	esac
+	# check reserved space
+	ACTUAL_USED=$(sfdisk -uS -l ${xdev} 2>/dev/null | awk '/^\/.*\*/ {print $4}')
+	if [ $RESERVED_SPACE -lt $ACTUAL_USED ]; then
+		RESERVED_SPACE=$(( (($ACTUAL_USED/4096)+4)*4096 )) # round up to next nearest 4096 
+	fi
+	echo -e "\nReserving space for $RESERVED_SPACE sectors.\n"
+	# create the partition
+	echo "$RESERVED_SPACE,$(( $(sfdisk -s ${xdev} 2>/dev/null) * 2 - $RESERVED_SPACE)),$partition" | \
+		sfdisk -f -N${PARTNUM} -uS ${xdev}
+	sync
+	if [ ! -b ${xdev}${PARTNUM} ] ; then
+		echo "Could not create partition (${xdev}${PARTNUM})"
+		return 0
+	fi
+	case "$extrafs" in
+		fat|vfat)  mkdosfs -v ${xdev}${PARTNUM} ;;
+		ntfs)      mkntfs -F ${xdev}${PARTNUM} ;;
+		ext2|ext3) mkfs.${extrafs} -F ${xdev}${PARTNUM} ;;
+		ext4)      mkfs.ext4 -O ^has_journal -F ${xdev}${PARTNUM} ;;
+		*) mkfs.${extrafs} ${xdev}${PARTNUM} ;;
+	esac
+	sync
+	sleep 1
+	echo 'change' > /sys/block/${xdevname}/uevent
+	#--
 	return 0
 }
 
@@ -213,7 +265,7 @@ write_iso_to_flash_drv() { # iso2flash file drv
 case $1 in
 	iso2flash)
 		shift
-		write_iso_to_flash_drv "$1" "$2"
+		write_iso_to_flash_drv "$1" "$2" "$3"
 		exit $?
 		;;
 	img2flash)
