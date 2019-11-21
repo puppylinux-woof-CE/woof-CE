@@ -2,9 +2,8 @@
 
 ARCH_LIST="i686 x86_64 arm aarch64"
 
-SITE=http://01micko.com/wdlkmpx/woof-CE
-INITRD_PROGS_STATIC=initrd_progs-20190714-static.tar.xz
-PREBUILT_BINARIES="${SITE}/${INITRD_PROGS_STATIC}"
+INITRD_STATIC='initrd_progs-20191121-static.tar.xz'
+PREBUILT_BINARIES="https://sourceforge.net/projects/wstuff/files/w/${INITRD_STATIC}"
 
 ARCH=`uname -m`
 
