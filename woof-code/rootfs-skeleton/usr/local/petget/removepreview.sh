@@ -343,82 +343,9 @@ if [ "$UPDATE_MENUS" = "yes" ]; then
  fi
 fi
 
-PKGFILES="/root/.packages/${DB_pkgname}.files"
-
-if [ "`grep '/usr/share/glib-2.0/schemas' $PKGFILES`" != "" ];then
- [ -e /usr/bin/glib-compile-schemas ] && /usr/bin/glib-compile-schemas /usr/share/glib-2.0/schemas
-fi
-
-if [ "`grep '/usr/lib/gio/modules' $PKGFILES`" != "" ];then
- [ -e /usr/bin/gio-querymodules ] && /usr/bin/gio-querymodules /usr/lib/gio/modules
-fi
-
-if [ "`grep '/usr/share/applications/' $PKGFILES`" != "" ];then
- if [ -e /usr/bin/update-desktop-database ] ; then
-   rm -f /usr/share/applications/mimeinfo.cache
-   /usr/bin/update-desktop-database /usr/share/applications
- fi
-fi
-
-if [ "`grep '/usr/share/mime/' $PKGFILES`" != "" ];then
- [ -e /usr/bin/update-mime-database ] && /usr/bin/update-mime-database /usr/share/mime
-fi
-
-if [ "`grep '/usr/share/icons/hicolor/' $PKGFILES`" != "" ];then
- [ -e /usr/bin/gtk-update-icon-cache ] && /usr/bin/gtk-update-icon-cache /usr/share/icons/hicolor
-fi
-
-if [ "`grep '/usr/lib/gdk-pixbuf' $PKGFILES`" != "" ];then
- if [ "$(which update-gdk-pixbuf-loaders)" != "" ]; then
-  update-gdk-pixbuf-loaders
- else
-  gdk-pixbuf-query-loaders --update-cache 
- fi
-fi
-
-if [ "`grep '/usr/lib/gconv/' $PKGFILES`" != "" ];then
- iconvconfig
-fi
-
-if [ "`grep '/usr/lib/pango/' $PKGFILES`" != "" ];then
- if [ "$(which update-pango-querymodules)" != "" ]; then
-  update-pango-querymodules
- else
-  pango-querymodules --update-cache
- fi
-fi
-
-[ "$(which gtk-query-immodules)" != "" ] && gtk-query-immodules
-for gtkver in '1.0' '2.0' '3.0'
-do
- if [ "`grep "/usr/lib/gtk-$gtkver" $PKGFILES | grep "/immodules"`" != "" ];then
-  if [ "$gtkver" == "1.0" ]; then
-   if [ "$(which update-gtk-immodules)" != "" ]; then
-    update-gtk-immodules
-   elif [ "$(which update-gtk-immodules-$gtkver)" != "" ]; then
-    update-gtk-immodules-$gtkver
-   else
-    gtk-query-immodules-$gtkver --update-cache
-   fi
-  else
-   if  [ "$(which update-gtk-immodules-$gtkver)" != "" ]; then
-    update-gtk-immodules-$gtkver
-   else
-    [ -e /usr/bin/gtk-query-immodules-$gtkver ] && gtk-query-immodules-$gtkver --update-cache
-   fi
-  fi
- fi
-done
-
-if [ "`grep '/usr/share/fonts/' $PKGFILES`" != "" ];then
- fc-cache -f
-fi
-
-KERNVER="$(uname -r)"
-
-if [ "`grep "/lib/modules/$KERNVER/" $PKGFILES`" != "" ];then
- depmod -a
-fi
+PKGFILES=/root/.packages/${DB_pkgname}.files
+# update system cache
+/usr/local/petget/z_update_system_cache.sh "$PKGFILES"
 
 #what about any user-installed deps...
 remPATTERN='^'"$DB_pkgname"'|'
