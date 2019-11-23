@@ -121,6 +121,8 @@ if [ "$UEFI_ISO" ] ; then
 	GRUB_CFG="${BUILD}/boot/grub/grub.cfg"
 	cp -f ${PX}/usr/share/boot-dialog/grub.cfg ${BUILD}/
 	GRUB_CFG="$GRUB_CFG ${BUILD}/grub.cfg"
+	cp -f ${PX}/usr/share/boot-dialog/loopback.cfg ${BUILD}/boot/grub/
+	GRUB_CFG="$GRUB_CFG ${BUILD}/boot/grub/loopback.cfg"
 	#mkdir -p ${BUILD}/EFI/debian
 	#cp -f ${PX}/usr/share/boot-dialog/grub.cfg ${BUILD}/EFI/debian
 	#GRUB_CFG="$GRUB_CFG ${BUILD}/EFI/debian/grub.cfg"
