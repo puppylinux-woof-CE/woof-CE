@@ -32,7 +32,6 @@ tar -C ${BUILD} -xaf ${CDBOOT_TAR} || exit 1
 rm -f ${BUILD}/boot/*.sh # scripts
 
 if [ "$(ls ${PX}/usr/share/grub2-efi/grub*.efi* 2>/dev/null)" ] ; then
-	UFLG='-uefi'
 	UEFI_ISO=yes
 else
 	UEFI_ISO=
@@ -45,7 +44,7 @@ fi
 
 #===================================================
 
-ISO_BASENAME=${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${UFLG}${XTRA_FLG}
+ISO_BASENAME=${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${XTRA_FLG}
 WOOF_OUTPUT=../woof-output-${ISO_BASENAME}
 if [ -L ../woof-code ] ; then #zwoof-next
 	WOOF_OUTPUT=${WOOF_OUTPUT#../} #use current dir
