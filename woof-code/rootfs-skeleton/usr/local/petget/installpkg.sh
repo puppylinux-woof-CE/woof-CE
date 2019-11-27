@@ -249,13 +249,13 @@ case $DLPKG_BASE in
   if [ "`echo "$PETFILES" | grep -m1 '^\\./'`" != "" ];then
    #ttuuxx has created some pets with './' prefix...
    pPATTERN="s%^\\./${DLPKG_NAME}%%"
-   echo "$PETFILES" | sed -e "$pPATTERN" -e "s#^\.\/#\/#g" -e "s#^#\/#g" -e "s#^\/\/#\/#g" -e 's#^\/$##g' -e 's#^\/\.$##g' > /root/.packages/${DLPKG_NAME}.files
+   echo "$PETFILES" | sed -e "$pPATTERN" -e "s#^\.\/#\/#g" -e "s#^#\/#g" -e "s#^\/\/#\/#g" -e 's#^\/$##g' -e 's#^\/\.$##g' | sort > /root/.packages/${DLPKG_NAME}.files
    install_path_check
    tar -x --strip=2 --directory=${DIRECTSAVEPATH}/ -f ${tarball} #120102. 120107 remove --unlink-first
   else
    #new2dir and tgz2pet creates them this way...
    pPATTERN="s%^${DLPKG_NAME}%%"
-   echo "$PETFILES" | sed -e "$pPATTERN" -e "s#^\.\/#\/#g" -e "s#^#\/#g" -e "s#^\/\/#\/#g" -e 's#^\/$##g' -e 's#^\/\.$##g' > /root/.packages/${DLPKG_NAME}.files
+   echo "$PETFILES" | sed -e "$pPATTERN" -e "s#^\.\/#\/#g" -e "s#^#\/#g" -e "s#^\/\/#\/#g" -e 's#^\/$##g' -e 's#^\/\.$##g' | sort > /root/.packages/${DLPKG_NAME}.files
    install_path_check
    tar -x --strip=1 --directory=${DIRECTSAVEPATH}/ -f ${tarball} #120102. 120107. 131122
   fi
@@ -266,7 +266,7 @@ case $DLPKG_BASE in
   DLPKG_MAIN="`basename $DLPKG_BASE .deb`"
   PFILES="`dpkg-deb --contents $DLPKG_BASE | tr -s ' ' | cut -f 6 -d ' '`"
   [ $? -ne 0 ] && exit 1
-  echo "$PFILES" | sed -e "s#^\.\/#\/#g" -e "s#^#\/#g" -e "s#^\/\/#\/#g" -e 's#^\/$##g' -e 's#^\/\.$##g' > /root/.packages/${DLPKG_NAME}.files
+  echo "$PFILES" | sed -e "s#^\.\/#\/#g" -e "s#^#\/#g" -e "s#^\/\/#\/#g" -e 's#^\/$##g' -e 's#^\/\.$##g' | sort > /root/.packages/${DLPKG_NAME}.files
   install_path_check
   dpkg-deb -x $DLPKG_BASE ${DIRECTSAVEPATH}/
   [ $? -ne 0 ] && clean_and_die
@@ -279,7 +279,7 @@ case $DLPKG_BASE in
   DLPKG_MAIN=${DLPKG_MAIN%.t[gx]z}    #remove .t[gx]z extension
   DLPKG_MAIN=${DLPKG_MAIN%.tzst}    #remove .tzst extension
   PFILES="`tar --list -a -f $DLPKG_BASE`" || exit 1
-  echo "$PFILES" | sed -e "s#^\.\/#\/#g" -e "s#^#\/#g" -e "s#^\/\/#\/#g" -e 's#^\/$##g' -e 's#^\/\.$##g' > /root/.packages/${DLPKG_NAME}.files
+  echo "$PFILES" | sed -e "s#^\.\/#\/#g" -e "s#^#\/#g" -e "s#^\/\/#\/#g" -e 's#^\/$##g' -e 's#^\/\.$##g' | sort > /root/.packages/${DLPKG_NAME}.files
   install_path_check
   tar -x --directory=${DIRECTSAVEPATH}/ -f $DLPKG_BASE #120102. 120107
   [ $? -ne 0 ] && clean_and_die
@@ -290,7 +290,7 @@ case $DLPKG_BASE in
   [ $? -ne 0 ] && exit 1
   PFILES="`busybox rpm -qpl $DLPKG_BASE`"
   [ $? -ne 0 ] && exit 1
-  echo "$PFILES" | sed -e "s#^\.\/#\/#g" -e "s#^#\/#g" -e "s#^\/\/#\/#g" -e 's#^\/$##g' -e 's#^\/\.$##g' > /root/.packages/${DLPKG_NAME}.files
+  echo "$PFILES" | sed -e "s#^\.\/#\/#g" -e "s#^#\/#g" -e "s#^\/\/#\/#g" -e 's#^\/$##g' -e 's#^\/\.$##g' | sort > /root/.packages/${DLPKG_NAME}.files
   install_path_check
   #110705 rpm -i does not work for mageia pkgs...
   exploderpm -i $DLPKG_BASE
@@ -327,7 +327,7 @@ if [ "$PUPMODE" = "2" ]; then #from BK's quirky6.1
 	rm -f $DLPKG_MAIN.tar.gz 2>/dev/null
 	#pkgname.files may need to be fixed...
 	FIXEDFILES="`cat /root/.packages/${DLPKG_NAME}.files | grep -v '^\\./$'| grep -v '^/$' | sed -e 's%^\\.%%' -e 's%^%/%' -e 's%^//%/%'`"
-	echo "$FIXEDFILES" > /root/.packages/${DLPKG_NAME}.files 
+	echo "$FIXEDFILES" | sort > /root/.packages/${DLPKG_NAME}.files 
 	DIRECTSAVEPATH=/ # set it to the new cocation
 
 else #-- anything other than PUPMODE 2 (full install) --
@@ -337,7 +337,7 @@ else #-- anything other than PUPMODE 2 (full install) --
 
 	#pkgname.files may need to be fixed...
 	FIXEDFILES="`cat /root/.packages/${DLPKG_NAME}.files | grep -v '^\\./$'| grep -v '^/$' | sed -e 's%^\\.%%' -e 's%^%/%' -e 's%^//%/%'`"
-	echo "$FIXEDFILES" > /root/.packages/${DLPKG_NAME}.files
+	echo "$FIXEDFILES" | sort > /root/.packages/${DLPKG_NAME}.files
 
 	#flush unionfs cache, so files in pup_save layer will appear "on top"...
 	if [ "$DIRECTSAVEPATH" != "" ];then
