@@ -1,0 +1,271 @@
+#!/bin/ash
+
+# slack2pup
+# convert a Slackware PACKAGES.TXT repo file, into a Puppy compatible repo file.
+
+# @TODO1 - get package categories from /usr/local/petget/categories.dat
+# @TODO2 - fix field 11 of package entries (should show 'slackware64' on x64?)
+
+. /etc/DISTRO_SPECS
+
+
+#if [ "$DISTRO_BINARY_COMPAT" != "slackware" ];then #@TODO2
+#  echo "Sorry, you must be running a Slackware compatible Puppy Linux"
+#  echo "to use this tool. Your Puppy is based on '$DISTRO_BINARY_COMPAT'"
+#  exit 1
+#fi
+
+
+if [ "$1" = '-h' ] || [ "$1" = '-help' ] || [ "$1" = '--help' ] || [ "$(echo $1 | grep '^http')" = "" ];
+then
+  echo "slack2pup - convert Slackware repos to Puppy repo files"
+  echo ""
+  echo "Usage examples:"
+  echo ""
+  echo "  slack2pup http://site.com/path/to/PACKAGES.TXT"
+  echo
+  echo "  slack2pup http://site.com/path/to/PACKAGES.TXT.gz"
+  echo
+  exit 1
+fi
+
+
+rm /tmp/PACKAGES.TXT /tmp/PACKAGES.TXT.gz &>/dev/null
+
+output_file="/tmp/PACKAGES.TXT"
+if [ "$(echo $1 | grep 'PACKAGES.TXT.gz')" != "" ];then
+  output_file="/tmp/PACKAGES.TXT.gz"
+fi
+
+wget --quiet "$1" -O "$output_file" 1>/dev/null || download_failed=true
+
+if [ ! -f "$output_file" ] || [ "$download_failed" = true ];then
+  echo
+  echo "ERROR: the Slackware repo $1 not found"
+  echo
+  $0 -h
+  exit 1
+fi
+
+echo "Found URL:"
+echo
+echo "  ${1}"
+
+
+# we may have been given as repo name ($2)
+if [ "$2" != "" ];then
+  repo_name="$2"
+fi
+
+while [ "$repo_name" = "" ]
+do
+  # get repo name and filename
+  echo
+  echo "Choose a repo name (something like 'fatdog-720', 'alienbob-14.2', etc)"
+  bash -c 'read -e -p "Enter a repo name: " repo_name; echo $repo_name > /tmp/pkg/repo_name'
+  repo_name=$(cat /tmp/pkg/repo_name)
+done
+
+# replace any spaces or underscores with dashes, all lower case
+repo_name="$( echo "${repo_name// /-}" | tr '_' '-' | tr '[:upper:]' '[:lower:]' )"
+
+# if this repo is already added (its being updated), then we can get the repo filename
+repo_filename="$(cat ~/.pkg/sources-all | grep -m1 "^$repo_name|" | cut -f3 -d'|')"
+
+if [ "$DISTRO_BINARY_COMPAT" = "slackware" ];then
+  slackware_version=$DISTRO_FILE_PREFIX
+else
+  slackware_version="$(cat /root/.packages/$repo_filename | head -1 | cut -f12 -d'|')"
+fi
+
+# if we dont have a repo filename in ~/.pkg/sources-all, ask for one
+if [ "$(echo $repo_filename | grep '^Packages')" = "" ];then
+  echo
+  bash -c 'read -e -p "Enter a repo file name: " -i "Packages-slackware-$repo_name" repo_filename; echo $repo_filename > /tmp/pkg/repo_filename'
+  repo_filename=$(cat /tmp/pkg/repo_filename)
+
+  # replace any spaces or underscores with dashes, all lower case
+  repo_filename="$( echo "${repo_filename// /-}" | tr '_' '-' )"
+
+  # also ask for a slackware version
+  while [ "$slackware_version" = "" ]
+  do
+    echo
+    bash -c 'read -e -p "Enter the compatible Slackware version (14.0, 14.2, etc): " slackware_version; echo $slackware_version > /tmp/pkg/slackware_version'
+    slackware_version=$(cat /tmp/pkg/slackware_version)
+  done
+fi
+
+
+if [ "$output_file" = "/tmp/PACKAGES.TXT.gz" ];then
+  gunzip "$output_file"
+fi
+
+# we have the /tmp/PACKAGES.TXT file, lets convert it
+
+rm /tmp/slackrepo /tmp/slackpkg* /tmp/slack_pkgext &>/dev/null
+count=1
+
+echo
+echo "Processing packages, please wait... This may take a while.."
+
+cat /tmp/PACKAGES.TXT | while read line
+do
+   pkginfo="$(echo "$line" \
+                | grep -v '^PACKAGES.TXT;' \
+                | grep -m1 -E '^PACKAGE |)$' \
+                | grep -v '^PACKAGE DESCRIPTION:')"
+
+   if [ "$pkginfo" != "" ];then
+
+      echo "$line" >> "/tmp/slackpkg${count}"
+
+      #pkgname=''
+      #pkgname="$(echo "$pkginfo" | grep 'PACKAGE NAME' | cut -f4 -d' ')"
+      #[ "$pkgname" != '' ] && echo "Processing $pkgname"
+
+   fi
+
+   if [ "$line" = "" -o "$line" = "\n" -o ! "$line" ] && \
+      [ -f "/tmp/slackpkg${count}" ];then
+
+     pkgdesc=''
+     pkgdesc="$(cat "/tmp/slackpkg${count}" 2>/dev/null \
+                  | grep -E ')$' \
+                  | cut -f2 -d'(' \
+                  | cut -f1 -d')')"
+
+     if [ "pkgdesc" != "" -a "$pkgdesc" != "\n" -a "$pkgdesc" != " " ];then
+       echo "PACKAGE DESCRIPTION: $pkgdesc" >> "/tmp/slackpkg${count}"
+     fi
+
+     pkgfile="$(cat /tmp/slackpkg${count} | grep -E "^PACKAGE")"
+     echo "$pkgfile" > /tmp/slackpkg${count}
+
+    # we now have file like:
+    #  /tmp/slackpkg13
+    #
+    # containing stuff like:
+    #
+    #  PACKAGE NAME:  eudev32-1.7-i686-1.txz
+    #  PACKAGE LOCATION:  .
+    #  PACKAGE SIZE (compressed):  75 K
+    #  PACKAGE SIZE (uncompressed):  260 K
+    #  PACKAGE REQUIRED:  kmod32
+    #  PACKAGE CONFLICTS:
+    #  PACKAGE SUGGESTS:
+    #  PACKAGE DESCRIPTION: Device management
+
+    # we need to convert each of them into pet.spec entries, and add all
+    # those into a Puppy compatible repo file:
+
+    pkginfo="$(cat /tmp/slackpkg${count})"
+    pkg_fname="$(echo  "$pkginfo" | grep -m1 '^PACKAGE NAME' | cut -f4 -d' ')"
+    pkg_name="${pkg_fname//.txz/}"
+    pkg_ext="txz"
+
+    if [ "$pkg_name" = "$pkg_fname" ];then
+      pkg_name="${pkg_fname//.tar.xz/}"
+      pkg_ext="tar.xz"
+    fi
+    if [ "$pkg_name" = "$pkg_fname" ];then
+      pkg_name="${pkg_fname//.tgz/}"
+      pkg_ext="tgz"
+    fi
+    if [ "$pkg_name" = "$pkg_fname" ];then
+      pkg_name="${pkg_fname//.tar.gz/}"
+      pkg_ext="tar.gz"
+    fi
+
+    [ ! -f /tmp/slack_pkgext ] && echo -n "$pkg_ext" > /tmp/slack_pkgext
+
+    pkgname_only="$(echo ${pkg_name} | sed -e 's/-[0-9].*//g')"
+    dashes_in_name=$(echo "$pkgname_only" | tr '-' '\n' | wc -l)
+    cut_at=$((1 + ${dashes_in_name:-0}))
+    pkg_ver="$(echo ${pkg_name} | cut -f${cut_at} -d'-')"
+    pkg_build_no="$(echo ${pkg_name} | sed -e 's/.*-//' -e 's/_.*//g')"
+    pkg_cat="CATEGORY"
+    pkg_size="$(echo  "$pkginfo" | grep -m1 '^PACKAGE SIZE'    | cut -f5 -d' ')K"
+    pkg_path="$(echo "$pkginfo" | grep -m1 '^PACKAGE LOCATION' | cut -f4 -d' ' | sed -e 's/^\.//g' -e 's/^\///g')"
+    [ "$pkg_path" = "." ] && pkg_path=''
+    pkg_deps="$(echo "$pkginfo" | grep -m1 '^PACKAGE REQUIRED' | cut -f4-99 -d' ' | sed -e 's/,/,+/g' -e 's/,$//g' -e 's/ >= /-/g' -e 's/ <= /-/g' -e 's/ //g')"
+    [ "$pkg_deps" != "" ] && pkg_deps="+${pkg_deps}"
+    pkg_desc="$(echo  "$pkginfo" | grep -m1 '^PACKAGE DESCR' | cut -f3-200 -d' ')"
+    pkg_os="$DISTRO_BINARY_COMPAT"
+    pkg_os_ver="$DISTRO_FILE_PREFIX"
+
+    # @TODO2
+    entry="$pkg_name|$pkgname_only|${pkg_ver:-no_ver}|$pkg_build_no|$pkg_cat|$pkg_size|$pkg_path|$pkg_fname|$pkg_deps|$pkg_desc|slackware|${slackware_version:-$pkg_os_ver}|"
+
+    [ "$pkg_name" != "" ] && echo "$entry" >> /tmp/slackrepo
+
+    count=$(($count + 1))
+
+   fi
+
+   #[ $count -gt 5 ] && break # for testing only
+
+done
+
+# get the pkg extension
+pkg_ext=$(cat /tmp/slack_pkgext 2>/dev/null)
+[ "$pkg_ext" = '' ] && pkg_ext=txz
+
+if [ ! -f /tmp/slackrepo ];then
+  echo
+  echo "Repo file could not be generated, exiting.."
+  exit 1
+fi
+
+
+# repo file created - move it to the repo files dir
+mv /tmp/slackrepo /root/.packages/$repo_filename
+
+
+# build repo entry for ~/.pkg/sources
+repo_url="${1//PACKAGES.TXT.gz/}"
+repo_url="${repo_url//\/.gz/}"
+repo_url="${repo_url//.gz\//}"
+repo_url="${repo_url//\/PACKAGES.TXT/}"
+repo_url="${repo_url//PACKAGES.TXT/}"
+
+# add trailing slash, if needed
+if [ "$(echo "$repo_url" | grep -m1 "/$")" = '' ];then
+  repo_url="${repo_url}/"
+fi
+# create the repo entry for ~/.pkg/sources
+fallback_repos="$(pkg repo-list | grep -v $repo_name | tr '\n' ' ')"
+
+repo_entry="$repo_name|$pkg_ext|$repo_filename|$repo_url||||$fallback_repos"
+
+# if already added to ~/.pkg/sources[-all], remove it
+if [ "$(cat ~/.pkg/sources     | grep -m1 "^$repo_name|")" != "" ] || \
+   [ "$(cat ~/.pkg/sources-all | grep -m1 "^$repo_name|")" != "" ];then
+  cat ~/.pkg/sources | grep -v "^$repo_name|" > /tmp/pkgsources
+  cat ~/.pkg/sources-all | grep -v "^$repo_name|" > /tmp/pkgsources-all
+  mv /tmp/pkgsources ~/.pkg/sources
+  mv /tmp/pkgsources-all ~/.pkg/sources-all
+fi
+
+# add repo entry to ~/.pkg/sources
+echo
+pkg add-source "$repo_entry"
+echo
+
+# refresh list of available repos
+pkg update-sources
+echo
+echo "Repo info:"
+pkg repo-info $repo_name
+echo
+
+
+if [ "$(cat ~/.pkg/sources | grep -m1 "^$repo_name|")" != "" ];then
+  echo "Success! Repo added and available to use."
+  echo
+  echo "To use this repo, simply type the following and hit ENTER:"
+  echo "  pkg repo $repo_name"
+  echo
+fi
+
+exit 0

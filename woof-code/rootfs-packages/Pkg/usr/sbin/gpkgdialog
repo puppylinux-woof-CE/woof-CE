@@ -1,0 +1,1264 @@
+#!/bin/bash
+#290713 first bash at an X based gui for Pkg
+#150813 many fixes for building tree input files from repo files, fixes in find pkgs and deps.. support more categories.. improved tailbox.. added alt-f4 msg to popup.. 
+
+# hide first run message if needed
+[ -f $HOME/.pkg/firstrun ] && pkg -v &>/dev/null
+
+[ "$DISPLAY" = "" ] && pkgdialog && exit 0
+
+[ "`whoami`" != "root" ] && exec sudo -A ${0} ${@} #run as root only
+
+set -a
+
+#
+#setup script
+#
+{
+# get RC file settings
+. ${HOME}/.pkg/pkgrc
+
+export WORKDIR="$WORKDIR"
+export APPVER="0.5"
+export APPNAME="GPkgdialog $APPVER"
+export TEMPDIR=/tmp/gpkgdialog/`whoami`
+export AVAIL_LIST=$TEMPDIR/gpkgdialog-avail-list
+export INST_LIST=$TEMPDIR/gpkgdialog-inst-list
+export BSCRIPT_LIST=$TEMPDIR/gpkgdialog-buildscript-list
+export QUEUE_LIST=$TEMPDIR/gpkgdialog-queue-list
+mkdir -p "$WORKDIR" 
+mkdir -p "$TEMPDIR"
+chmod 1777 "$TEMPDIR"
+
+cd "$WORKDIR"
+
+# set defaults for settings tab
+[ "$PKGSCOPE" = one ] 				&& PKGSCOPEONE=true 	&& PKGSCOPEALL=false
+[ "$PKGSCOPE" = all ] 				&& PKGSCOPEONE=false	&& PKGSCOPEALL=true
+[ "$DEPSCOPE" = one ] 				&& DEPSCOPEONE=true 	&& DEPSCOPEALL=false
+[ "$DEPSCOPE" = all ] 				&& DEPSCOPEONE=false	&& DEPSCOPEALL=true
+[ "$BLEDGE" = yes ] 				&& BLEDGEON=true 		&& BLEDGEOFF=false
+[ "$BLEDGE" = no ] 					&& BLEDGEON=false 		&& BLEDGEOFF=true
+[ "$RDCHECK" = yes ] 				&& RDCHECKON=true		&& RDCHECKOFF=false
+[ "$RDCHECK" = no ] 				&& RDCHECKON=false 		&& RDCHECKOFF=true
+[ -f $TEMPDIR/gpkg-force ] 			&& FORCEON=true 		&& FORCEOFF=false 		&& export FORCEOPT="-f"
+[ -f $TEMPDIR/gpkg-allinstoff ]		&& ALLINSTON=false	 	&& ALLINSTOFF=true
+[ ! -f $TEMPDIR/gpkg-force ] 		&& FORCEOFF=true 		&& FORCEON=false 		&& export FORCEOPT=""
+[ ! -f $TEMPDIR/gpkg-allinstoff ] 	&& ALLINSTOFF=false		&& ALLINSTON=true
+
+export PKGSCOPEONE
+export PKGSCOPEALL
+export DEPSCOPEONE
+export DEPSCOPEALL
+export BLEDGEON
+export BLEDGEOFF
+export RDCHECKON
+export RDCHECKOFF
+export FORCEON
+export FORCEOFF
+export ALLINSTON
+export ALLINSTOFF
+
+# get repo file
+[ "$REPOFILE" != '' ] && export RFILE="$REPOFILE" || export RFILE=Packages-puppy-noarch-offical
+
+# remove flag that, when missing enables a popup loading msg for building tree1
+rm -f $TEMPDIR/gpkgdialog-popup-msg-done 2>/dev/null
+}
+
+
+#
+# funcs start below
+#
+{
+
+pkgr() {
+	PKG_TAB_COMPLETION=true pkg --no-color --quiet "$FORCEOPT" "$@" 2>/dev/null
+}
+
+set_gtkrc () { # set gtk theme for gui 
+	CURRFONTNAME="`cat $HOME/.gtkrc-2.0 | grep font_name | cut -d '=' -f2 | cut -d ' ' -f2,3 | sed 's/\"//g'`"
+	case "${CURRFONTNAME:-DejaVu}" in 
+		Deja*) FONTSIZE=11 ;;
+		Nimbus*) FONTSIZE=11 ;;
+		Ionic*) FONTSIZE=11 ;;
+		Sans*) FONTSIZE=11 ;;
+		Ubuntu*) FONTSIZE=12 ;;
+		*)FONTSIZE=11 ;;
+	esac
+
+#	echo "style \"specialsize\"
+#{
+#  font_name=\"$CURRFONTNAME $FONTSIZE\"
+#}
+#gtk-icon-sizes=\"panel-menu=13,13:panel=13,13:gtk-menu=13,13:gtk-large-toolbar=13,13:gtk-small-toolbar=13,13:gtk-button=13,13\"
+#widget \"*\" style \"specialsize\"
+#class \"*\" style \"specialsize\"" > "${HOME}/.vlc-gtk/gtkrc_size"
+#	export GTK2_RC_FILES="${HOME}/.vlc-gtk/gtkrc_size:${HOME}/.gtkrc-2.0"
+}
+
+
+save_settings () { # save settings to rcfile(s)
+	[ $PKGSCOPEONE = true ] && pkg --repo-pkg-scope one
+	[ $PKGSCOPEALL = true ] && pkg --repo-pkg-scope all && export NEWREPO=All
+	[ $DEPSCOPEONE = true ]	&& pkg --repo-dep-scope one
+	[ $DEPSCOPEALL = true ]	&& pkg --repo-dep-scope all
+	[ $BLEDGEON = true ]	&& pkg --bleeding-edge yes
+	[ $BLEDGEOFF = true ]	&& pkg --bleeding-edge no
+	#150813 added recursive dep check choice
+	[ $RDCHECKON = true ]	&& pkg --recursive-dep-check yes
+	[ $RDCHECKOFF = true ]	&& pkg --recursive-dep-check no
+	[ $FORCEON = true ]		&& export FORCEOPT="-f" 	&& echo -n '' > $TEMPDIR/gpkg-force
+	[ $FORCEOFF = true ]	&& export FORCEOPT='' 		&& rm  $TEMPDIR/gpkg-force &>/dev/null
+	[ $ALLINSTOFF = true ]	&& export ALLINST=false	&& echo -n '' > $TEMPDIR/gpkg-allinstoff
+	[ $ALLINSTON = true ]	&& export ALLINST=true  	&& rm  $TEMPDIR/gpkg-allinstoff &>/dev/null
+	
+	Xdialog --title "$APPNAME" --msgbox "Settings updated" 6 32
+}
+
+
+switch_repo () { # change the repo
+	# get rc file settings
+	. ${HOME}/.pkg/pkgrc
+	
+	if [ "$NEWREPO" = "" ];then
+		exit 1
+	fi
+	
+	# check and set the repo to use ($NEWREPO or 'All')
+	if [ "$NEWREPO" = "All" ];then
+		pkg --repo-pkg-scope all
+		export PKGSCOPEALL=true
+		export PKGSCOPEONE=false
+		echo -n "All" > $TEMPDIR/gpkg-repofile
+	else
+		pkg --repo $NEWREPO
+		pkg --repo-pkg-scope one
+		export PKGSCOPEALL=false
+		export PKGSCOPEONE=true
+		RFILE="`pkg --repo-info "$NEWREPO" | grep ^'Repo file' | cut -f2 -d':' | sed -e 's/ //g'`"
+		export RFILE=`echo $RFILE`
+		echo -n "$RFILE" > $TEMPDIR/gpkg-repofile
+	fi
+	# now get latest RC values again
+	. ${HOME}/.pkg/pkgrc
+}
+
+
+ur_tailbox () { # update_repo popup box
+	# set the popup GUI for showing Repo updates
+	INFILE="$1"
+	RTBOX="<window title=\"Updating Repos\">
+	<vbox>
+	<edit auto-refresh=\"true\">
+	<width>400</width>
+	<height>200</height>
+	<input file>$INFILE</input>
+	</edit>
+	<button><label>OK</label><input file stock=\"gtk-ok\"></input></button>
+	</vbox>
+	</window>"
+	export RTBOX
+	gtkdialog -p RTBOX -c
+    #Xdialog --title "$PKGONLY : $MENU" --no-ok --cancel-label=Close --tailbox $PKGLOG 25 85
+}
+
+
+update_scope_settings () { 
+	# get RC settings
+	. ${HOME}/.pkg/pkgrc
+	# keep the radiobuttons and dropdowns up to date
+	echo -n $PKGSCOPEONE > /tmp/PKGSCOPEONE; echo -n $PKGSCOPEALL > /tmp/PKGSCOPEALL;
+	echo -n $DEPSCOPEONE > /tmp/DEPSCOPEONE; echo -n $DEPSCOPEALL > /tmp/DEPSCOPEALL;
+}
+
+
+build_repo_dropdown () { #rebuild the dropdown list of repos in fallback order
+	
+	# get RC settings
+	. ${HOME}/.pkg/pkgrc
+	
+	# delete olf repo list
+	rm /tmp/repolist &>/dev/null
+	
+	#build repo list, keep last chosen at top, get from /tmp/gpkgdialog/gpkg-repofile
+
+	GPKG_REPOFILE="`cat $TEMPDIR/gpkg-repofile 2>/dev/null`"
+	GPKGREPO="`cat ${HOME}/.pkg/sources | grep "|$GPKG_REPOFILE|" | cut -f1 -d'|'`"
+	[ "$GPKGREPO" = "" -o "$PKGSCOPE" = "all" ] && GPKGREPO=All
+	
+	# set as current repo from pkgrc, if not set as all, to be safe
+	[ "$REPONAME" != '' -a "$GPKGREPO" != "All" ] && GPKGREPO="$REPONAME"
+	
+	REPOS="`pkg --repo-list`"
+	REPOLIST=''
+	
+	# for each repo
+	for repo in $REPOS; do
+		# add to list if not current repo
+		[ "$repo" != "$GPKGREPO" ] && REPOLIST="$REPOLIST
+$repo"
+	done
+	
+	# now add current repo
+	[ "$GPKGREPO" != "" ] && REPOLIST="`pkg -r`$REPOLIST"
+	
+	# add option for all repos (if not already all repos)
+	[ "$GPKGREPO" != "All" -a "$REPOLIST" != "" ] && REPOLIST="$REPOLIST
+All"
+	export ALL="All
+"
+	echo "$REPOLIST" > /tmp/repolist
+	
+	# now update gpkgdialog repofile with actual Pkg repofile
+	echo -n "$RFILE" > $TEMPDIR/gpkg-repofile
+}
+
+
+build_tree1_input () { #build the list of available packages
+	
+	# get RC file settings
+	. ${HOME}/.pkg/pkgrc
+	
+	# remove the old list
+	rm $AVAIL_LIST &>/dev/null
+	
+	# splash msg
+	XPID=''
+	if [ ! -f $TEMPDIR/gpkgdialog-popup-msg-done ];then
+		gtkdialog-splash -bg yellow -fg black -border false -text "Please wait, building package list.." &
+		XPID=$!
+		echo done > $TEMPDIR/gpkgdialog-popup-msg-done
+	fi
+	
+	# get repo file
+	RFILE="`cat $TEMPDIR/gpkg-repofile | head -1`"
+	[ "$RFILE" = '' ] && RFILE="${REPOFILE}"
+	RFILE=`find ~/.packages/ -iname ${RFILE}`
+	
+	# get all repo files if pkgscope is ALL
+	[ "$PKGSCOPE" = one ] || RFILE=`find ~/.packages/ -iname "Packages-*-*" -o -iname "livepackages*.txt"| grep -v -E '.bak|_BACKUP|_subdirs$'`
+
+	# get pkg names (generic names, no versions) of all installed pkgs (builtins, devx and user installed)
+	cut -f1 -d'|' ${HOME}/.packages/user-installed-packages \
+		${HOME}/.packages/devx-only-installed-packages \
+		${HOME}/.packages/woof-installed-packages 2>/dev/null \
+		| tr '\n' '|' \
+		| sed -e "s/|\$//" \
+		| uniq > $TEMPDIR/gpkgdialog-installed-list
+	
+	# get all pkgs or a matching search result
+	if [ ! "$1" ];then
+		cut -f1,5,6,10 -d'|' ${RFILE} | grep -vE '^lib|BuildingBlock|_DEV' | sort -u > $TEMPDIR/gpkgdialog-avail-list1
+		comm -23 $TEMPDIR/gpkgdialog-avail-list1 $TEMPDIR/gpkgdialog-installed-list > $AVAIL_LIST
+	else
+		cat ${RFILE} | grep -i "$1" | cut -f1,5,6,10 -d'|' | sort -u > $TEMPDIR/gpkgdialog-avail-list1
+		comm -23 $TEMPDIR/gpkgdialog-avail-list1 $TEMPDIR/gpkgdialog-installed-list > $AVAIL_LIST
+	fi
+	
+	#clean up the categories
+	for CAT in Archiving Business Desktop Develop Development System Setup Utility Filesystem Document Calculate Graphic Personal Help Network Internet Multimedia Fun BuildingBlock
+	do
+		 CAT=${CAT%;*}
+		 sed -i "s/|$CAT /|$CAT|/g" $AVAIL_LIST ###
+		 sed -i "s/$CAT;*/$CAT/g" $AVAIL_LIST ###
+	done
+	kill $XPID &>/dev/null
+}
+
+
+build_tree2_input () { #build the list of installed packages
+	# get RC settings
+	. ${HOME}/.pkg/pkgrc
+	
+	# remove old list
+	rm $INST_LIST &>/dev/null
+	
+	# splash msg
+	#gtkdialog-splash -bg yellow -fg black -text "Please wait.. Building list of installed packages" &
+	#XPID=$!
+	
+	# get current repo file name, and the the file
+	RFILE="`cat $TEMPDIR/gpkg-repofile 2>/dev/null | head -1`"
+	[ "$RFILE" = '' ] && RFILE="${REPOFILE}"
+	RFILE=`find ~/.packages/ -iname $RFILE`
+	
+	# remove the old list
+	rm $INST_LIST 2>/dev/null
+	
+	#  if showing installed pkgs from all repos or current only, build the appropriate list
+	if [ -f $TEMPDIR/gpkg-allinstoff ];then
+		cut -f1,5,6,10 -d'|' "${RFILE}" 2>/dev/null | uniq > $INST_LIST
+	else
+		cut -f1,5,6,10 -d'|' "${HOME}/.packages/user-installed-packages" 2>/dev/null | uniq >> $INST_LIST
+	fi
+
+	# refine list if a pkg search
+	if [ "$1" ];then
+		cat $INST_LIST 2>/dev/null | grep "$1" >> "${INST_LIST}2"
+		mv "${INST_LIST}2" ${INST_LIST}
+	fi
+
+	# clean up the categories
+	for CAT in Archiving Business Desktop Develop Development System Setup Utility Filesystem Document Calculate Graphic Personal Help Network Internet Multimedia Fun BuildingBlock
+	do
+		 CAT=${CAT%;*}
+		 sed -i "s/|$CAT /|$CAT|/g" $INST_LIST
+	done
+	#kill $XPID
+}
+
+
+build_tree3_input () { #build the list of build scripts
+	
+	#rm "$BSCRIPT_LIST" 2>/dev/null
+	#rm "${BSCRIPT_LIST}2" 2>/dev/null
+	
+	if [ -f "$BSCRIPT_LIST" ];then
+		return 0
+	fi
+	
+	# get BULDTOOL from RC file
+	. ${HOME}/.pkg/pkgrc
+	
+	if [ "$BUILDTOOL" = petbuild ];then
+
+		# generating the list of build scripts is slow, so give a msg
+		Xdialog --title "$APPNAME" --no-close --no-buttons --no-ok --no-cancel --msgbox "Please wait, first run initialisation" 0 0 &
+		init_msg_pid=$!
+
+		# Pkg will auto install petbuild if it is not installed
+		[ ! -d /usr/share/petbuild ] && pkg --pbl 1>/dev/null
+		
+		thelist=''
+		# now find all build scripts
+		for bscript in `find /usr/share/petbuild -type f -iname "*.petbuild" | sort | tr '\n' ' '`
+		do
+			info="`cat $bscript`"
+			PKG="`echo "$info" | grep "^PKG="| cut -f2 -d'=' | cut -f1 -d' ' | cut -f1 -d'#'`"
+			VER="`echo "$info" | grep "^VER="| cut -f2 -d'=' | cut -f1 -d' ' | cut -f1 -d'#'`"
+			CAT="`echo "$info"| grep "^CAT=" | cut -f2 -d'=' | cut -f1 -d'#'`"
+			DESC="`echo "$info"| grep "^DESC=" | cut -f2 -d'=' | cut -f1 -d'#'`"
+			DEPS="`echo "$info"| grep "^DEPS=" | cut -f2 -d'='| cut -f1 -d' ' | cut -f1 -d'#'`"
+			thelist="${PKG}-${VER}|${DESC//\"/}|${CAT}|${DEPS}
+$thelist"
+		done
+
+		echo "$thelist" | grep -v "^\$" > $BSCRIPT_LIST
+
+		# refine by given pkg name
+		if [ "$1" ];then
+			cat $BSCRIPT_LIST | grep "^$1" >> "${BSCRIPT_LIST}2"
+			mv "${BSCRIPT_LIST}2" ${BSCRIPT_LIST}
+		fi
+		
+	elif [ "$BUILDTOOL" = buildpet ];then
+
+		# find all build scripts
+		find /usr/share/buildpet -type f -iname "*.bp" | while read bscript
+		do
+			. $bscript
+			echo "$PKG_NAME-$PKG_VER|$PKG_DESC|$PKG_CAT|$PKG_DEPS" >> $BSCRIPT_LIST
+		done
+
+		# refine by given pkg name
+		if [ "$1" ];then
+			cat $BSCRIPT_LIST | grep "^$1" >> "${BSCRIPT_LIST}2"
+			mv "${BSCRIPT_LIST}2" ${BSCRIPT_LIST}
+		fi
+	
+	elif [ "$BUILDTOOL" = sbopkg ];then
+		echo "" > $BSCRIPT_LIST
+	
+	elif [ "$BUILDTOOL" = src2pkg ] ;then
+		echo "" > $BSCRIPT_LIST
+	fi
+	
+	# kill the first run splash msg
+	kill -9 $init_msg_pid &>/dev/null
+}
+
+
+popup_menu () { #build the popup menu that appears when a user clicks on a package
+	# get RC settings
+	. ${HOME}/.pkg/pkgrc
+	
+	PKGSEARCHCMD="pkg -n"
+	if [ "$PKGSEARCH" = list_all_pkg_names ];then
+		PKGSEARCHCMD="pkg -na"
+	fi
+	
+	# if nothing given exit
+	[ "$1" = "" ] && exit 1
+	[ "$1" = " " ] && exit 1
+	[ "$1" = "|" ] && exit 1
+	
+	# get file given
+	PKGFILE="$1"
+	
+	# get pkg name only (no version)
+	[ "`echo "$1" | grep ".$EX"`" != "" ] && PKGONLY="`basename "${1%.*}"`" || PKGONLY="`basename "${1}"`" 
+    
+    [ "$PKGONLY" = '' ] && exit 1
+    
+	local pkg_is_installed=`pkg --pkg-installed $PKGONLY`
+	local pkg_has_deps=`pkg --has-deps $PKGONLY`
+	local pkg_in_cur_dir=`find . -maxdepth 1 -name $(basename $1)`
+	local pkg_in_current_repo=`pkg -n $PKGONLY | head -1`
+
+    # get repo of pkg
+    PKGREPO="`pkg --which-repo "$PKGONLY" | cut -f2 -d' ' &`"
+    
+    # set the log file
+    PKGLOG=$TEMPDIR/pkg-$PKGONLY-log.txt
+
+	ITEM2=""; 
+	
+	# check option/action given
+	case $2 in
+	Uninstall) 
+		OPT1=Uninstall
+		ITEM2='<item stock="gtk-apply">Repackage</item>'
+		HEIGHT=290
+		;;
+
+	Build) 
+		OPT1=Build; HEIGHT=165
+		;;
+
+	*) 
+		OPT1=Install
+		ITEM2='<item stock="gtk-apply">Install without deps</item>'
+		HEIGHT=290
+		;;
+	esac
+	
+	# build the list
+	ITEMS='<item stock="gtk-apply">'$OPT1'</item>
+	<item stock="gtk-apply">Force Install</item>
+	'$ITEM2'
+	<item stock="gtk-apply">Contents</item>
+	<item stock="gtk-apply">Download Only</item>
+	<item stock="gtk-apply">Convert</item>
+	<item stock="gtk-apply">Combine</item>
+	<item stock="gtk-apply">Install dependencies</item>
+	<item stock="gtk-apply">Download dependencies</item>
+	<item stock="gtk-apply">Add to Queue ('$OPT1')</item>
+	<item stock="gtk-jump-to">Pkg Status</item>'
+	
+	# if 'Build' option given
+	if [ "$OPT1" = "Build" ];then 
+		
+		# only show build script options if Pkg is setup to use buildscripts (petbuild or buildpet)
+		if [ "$BUILDTOOL" = petbuild -o "$BUILDTOOL" = petbuild ];then
+		# add build option to list
+		ITEMS='<item stock="gtk-apply">Build</item>
+		<item stock="gtk-apply">Add to Queue ('$OPT1')</item>
+		<item stock="gtk-edit">Edit buildscript</item>'
+		#HEIGHT=100
+		fi
+	fi
+	
+	PROCESSQ=''
+	# if a queue exists, add queue options to the list
+	[ -f $QUEUE_LIST ] && PROCESSQ='<item stock="gtk-apply">Process Queue</item><item stock="gtk-delete">Clear Queue</item>' && HEIGHT=`expr $HEIGHT + 50`
+  
+	# if local file, and installing or uninstalling, remove the download and repackage options
+	if [ -f "$1" -o "$pkg_in_cur_dir" != "" ] && [ "$OPT1" = "Install" -o "$OPT1" = "Uninstall" ];then
+	  export ITEMS="`echo "$ITEMS" | grep -v '<item stock="gtk-apply">Download Only</item>'`" && HEIGHT=`expr $HEIGHT - 20`
+      export ITEMS="`echo "$ITEMS" | grep -v '<item stock="gtk-apply">Repackage</item>'`" && HEIGHT=`expr $HEIGHT - 20`
+	fi
+	
+	# if Pkg is set to search all repos, switch to the repo of the chosen file if poss, then do all operations - to include deps, etc
+	OLDREPO=''; OLDPKGSCOPE=''; OLDDEPSCOPE=''
+	GPKGREPOFILE="`cat $TEMPDIR/gpkg-repofile`"
+	GPKGREPO="`cat ${HOME}/.pkg/sources | grep -m1 ^$GPKGREPOFILE | cut -f1 -d'|'`"
+	
+	 # if viewing all repos in gpkgdialog pkg/dep scope is all repos, then switch to repo of pkg
+	 if [ "$GPKGREPO" = "All" -o "$PKGSCOPE" = "all" -o "$DEPSCOPE" = "all" ];then
+		OLDREPO="$REPONAME"
+		OLDPKGSCOPE=$PKGSCOPE
+		OLDDEPSCOPE=$DEPSCOPE
+		# if a repo was found for the file, then switch to that repo only, for this bit...
+		if [ "$PKGREPO" != "" -a "$PKGREPO" != "[]" ];then
+			pkg --repo $PKGREPO
+			pkg --repo-pkg-scope one
+			. ${HOME}/.pkg/pkgrc
+		fi
+	fi
+
+	# if not in repo generally, do not offer download option
+	#if [ "`$PKGSEARCHCMD $PKGONLY`" = "" -a "`echo $ITEMS | grep 'Download Only'`" != "" ];then
+		ITEMS="`echo "$ITEMS" | grep -v '<item stock="gtk-apply">Download Only</item>'`"
+		HEIGHT=`expr $HEIGHT - 20`
+	#fi
+	
+	# remove dep options if pkg has no deps
+	if [ "$pkg_has_deps" = false ];then
+	   ITEMS="`echo "$ITEMS" | grep -v '<item stock="gtk-apply">Install without deps</item>'`"  && HEIGHT=`expr $HEIGHT - 20`
+	   ITEMS="`echo "$ITEMS" | grep -v '<item stock="gtk-apply">Install dependencies</item>'`"  && HEIGHT=`expr $HEIGHT - 20`
+	   ITEMS="`echo "$ITEMS" | grep -v '<item stock="gtk-apply">Download dependencies</item>'`" && HEIGHT=`expr $HEIGHT - 20`
+	fi
+
+	# if not a local file, and no deps found in current repo, remove the combine option..
+	[ ! -f "$1" -a "`find . -maxdepth 1 -name "$(basename "$1")"`" = "" ] \
+		&& [ "$OPT1" = "Install" -o "$OPT1" = "Uninstall" ]  \
+		&& [ "$pkg_has_deps" = false ] \
+		&& ITEMS="`echo "$ITEMS" | grep -v '<item stock="gtk-apply">Combine</item>'`" \
+		&& HEIGHT=`expr $HEIGHT - 20`
+
+	# if not a local file, and not installed, remove the Contents option
+	[ ! -f "$1" -a "$pkg_is_installed" = "false" ] && ITEMS="`echo "$ITEMS" | grep -v '<item stock="gtk-apply">Contents</item>'`" && HEIGHT=`expr $HEIGHT - 20`
+
+	# remove combine option if in current repo and none found
+	[ "`$PKGSEARCHCMD $PKGONLY`" != "" -a "$pkg_has_deps" = false ] && ITEMS="`echo "$ITEMS" | grep -v '<item stock="gtk-apply">Combine</item>'`" && HEIGHT=`expr $HEIGHT - 20`
+
+	# create the menu
+	menu='<window title="'$1'" decorated="true" skip_taskbar_hint="false">
+    <vbox>
+     <text use-markup="true"><label>"<b>'$1' options:</b>"</label></text>
+     <tree hover-selection="true" headers-visible="false">
+      <label>a</label>
+      <variable>MENU</variable>
+      <height>'$HEIGHT'</height><width>200</width>
+      '$ITEMS'
+      '$PROCESSQ'
+      <item stock="gtk-cancel">Cancel (Alt-F4)</item>
+      <action signal="button-release-event">EXIT:exit</action>
+     </tree>
+    </vbox>
+   </window>'
+   export menu
+   RETVAL="`gtkdialog -p menu -c`"
+  
+   # get user choice
+   eval "$RETVAL"
+
+   # flatten menu onto 1 line
+   MENU="`echo $MENU`"
+   
+   # if menu has no options, ext
+   [ "$MENU" != "" -a "$MENU" != "Cancel (Alt-F4)" ] || exit 1
+   
+   # set --force or not
+   [ $FORCEON = true ]  && export FORCEOPT="-f" && echo "Force option enabled."
+   [ $FORCEOFF = true ] && export FORCEOPT=""   && echo "Force option disabled."
+   
+   # if adding install local file to queue, that is not in ANY repo, then use install only
+   [ "$MENU" = "Add to Queue (Install)" -a "$pkg_in_cur_dir" != "" -a "$PKGREPO" != ""  ] && OPT1="Install only"
+   
+   # if installing a local file, not in current repo, then install only: install only will check each repo for the package and install deps if poss
+   [ "`echo $MENU| grep ^Install`" != "" -a "$OPT1" = "Install" -a "$pkg_in_cur_dir" != "" -a "$pkg_in_current_repo" = ""  ] && MENU="Install only"
+   
+   # build tailbox command
+   tailbox(){ #200813 updated to use gtkdialog tailbox
+	   [ ! "$1" ] && INFILE="$PKGLOG" || INFILE="$1"
+	   [ ! "$2" ] && THEIGHT=350 || THEIGHT="$2"
+	   [ ! "$3" ] && TWIDTH=400  || TWIDTH="$3"
+	   TBOX="<window resizable=\"true\" allow-shrink=\"false\" allow-grow=\"true\" title=\"$PKGONLY : $MENU\">
+		<vbox width=\"400\" height=\"480\">
+		<edit auto-refresh=\"true\">
+		    <width>$TWIDTH</width>
+		    <height>$THEIGHT</height>
+		    <input file>$INFILE</input>
+		</edit>"
+		[ "`echo $MENU | grep 'Pkg Status'`" != "" ] && TBOX="${TBOX}<button><label>Install</label><input file stock=\"gtk-ok\"></input></button>"
+		TBOX="${TBOX}<button><label>Exit</label><input file stock=\"gtk-cancel\"></input></button>
+		</vbox>
+		</window>"
+		export TBOX
+		RETVAL="`gtkdialog -p TBOX -c`"
+
+		# get the user choice
+		eval "$RETVAL"
+		
+		# process it
+		if [ "$EXIT" = "Install" ];then
+			echo -n > $PKGLOG
+			tailbox $PKGLOG &
+			echo 'Downloading...' >>$PKGLOG
+			pkgr -d "$PKGONLY" >>$PKGLOG
+			echo 'Installing...' >>$PKGLOG
+			pkgr -i "$PKGONLY" >>$PKGLOG
+			pkgr -e "$PKGONLY" >>$PKGLOG
+			echo 'Checking for missing libraries...' >>$PKGLOG
+			pkgr -ec "$PKGONLY" >>$PKGLOG;
+			echo "Finished." >> $PKGLOG
+		fi
+		
+		
+		#Xdialog --title "$PKGONLY : $MENU" --no-ok --cancel-label=Close --tailbox $PKGLOG 25 85
+   }
+   
+   # now run chosen menu option
+   case $MENU in
+    Add*to*Queue*)  
+		if [ "$OPT1" = "Install only" ];then
+			echo "pkgr --install $1" >> $QUEUE_LIST
+		else
+			[ "$OPT1" = "Install" ] && { echo "pkgr -d $1" >> $QUEUE_LIST; echo "pkgr -i $1" >> $QUEUE_LIST;} 
+			[ "$OPT1" = "Uninstall" ] && echo "pkgr -u $1" >> $QUEUE_LIST 
+			[ "$OPT1" = "Build" ] && echo "pkgr --pkg-build ${1%%-*}" >> $QUEUE_LIST 
+		fi
+		;;
+    Clear*Queue) 
+		rm $QUEUE_LIST $TEMPDIR/gpkgdialog-queue-log.txt &>/dev/null
+		;;
+    Process*Queue)
+		echo -n '' > $TEMPDIR/gpkgdialog-queue-log.txt
+		#Xdialog --title "${APPNAME}" --no-ok --cancel-label=Close --tailbox $TEMPDIR/gpkgdialog-queue-log.txt 25 85 &
+		tailbox $TEMPDIR/gpkgdialog-queue-log.txt & #200813 use gtkdialog tailbox
+		cat $QUEUE_LIST | while read LINE; do
+			if [ "$LINE" != "" -a "$LINE" != " " ];then
+				$LINE &>>$TEMPDIR/gpkgdialog-queue-log.txt
+				echo "Finished." >> $TEMPDIR/gpkgdialog-queue-log.txt
+			fi
+		done
+		echo "Queue Completed." >> $TEMPDIR/gpkgdialog-queue-log.txt
+		rm $QUEUE_LIST &>/dev/null
+		;;
+    Install*without*deps)
+		echo -n > $PKGLOG
+		tailbox $PKGLOG &
+		pkgr -d "$PKGONLY" &>>$PKGLOG
+		pkgr -i "$PKGONLY" &>>$PKGLOG
+		echo "Finished." >> $PKGLOG
+		;;
+	Install*only) # install only will force install of pkg, without download, and if pkgname is from a repo, will then temporarily switch to that repo, and install deps of pkg
+    	OLDREPO=$REPONAME
+		PKGREPO="`pkg --which-repo $PKGONLY | cut -f2 -d' '`"
+		[ "$PKGREPO" != "" ] && pkg --repo $PKGREPO && echo "$PKGONLY in $PKGREPO repo." > $PKGLOG || echo -n > $PKGLOG
+		tailbox $PKGLOG &
+		FORCEOPT='=f' pkgr -i "$1" &>>$PKGLOG
+		[ "`pkg --list-deps $1`" != "" ] && { pkgr -e "$1" &>>$PKGLOG; pkgr -ec "$1" &>>$PKGLOG; }
+		echo "Finished." >> $PKGLOG
+		[ "$PKGREPO" != "" ] && pkg --repo $OLDREPO
+		;;
+    Install*depend*)
+		echo -n > $PKGLOG
+		tailbox $PKGLOG & 
+		pkgr -e $PKGONLY &>>$PKGLOG
+		pkgr -ec $PKGONLY &>>$PKGLOG  && echo "Finished." >> $PKGLOG
+		;;
+    Install*) 
+		echo -n > $PKGLOG
+		tailbox $PKGLOG &
+		echo 'Downloading...' >>$PKGLOG
+		pkgr -d "$PKGONLY" >>$PKGLOG
+		echo 'Installing...' >>$PKGLOG
+		pkgr -i "$PKGONLY" >>$PKGLOG
+		pkgr -e "$PKGONLY" >>$PKGLOG
+		echo 'Checking for missing libraries...' >>$PKGLOG
+		pkgr -ec "$PKGONLY" >>$PKGLOG;
+		echo "Finished." >> $PKGLOG
+		;;
+    Force*Install*) 
+		echo -n > $PKGLOG
+		tailbox $PKGLOG & 
+		pkgr -d "$PKGONLY" &>>$PKGLOG 
+		FORCEOPT='-f' pkgr -i "$PKGONLY" &>>$PKGLOG && [ "`pkg --list-deps $PKGONLY`" != "" ] && { FORCEOPT='-f' pkgr -e "$PKGONLY" &>>$PKGLOG; }
+		pkgr -ec "$PKGONLY" &>>$PKGLOG
+		echo "Finished." >> $PKGLOG
+		;;
+    Download*depend*)
+		echo -n > $PKGLOG
+		tailbox $PKGLOG &
+		pkgr -ed $PKGONLY &>>$PKGLOG
+		echo "Finished." >> $PKGLOG
+		;;
+    Download*)
+		echo -n > $PKGLOG
+		tailbox $PKGLOG &
+		pkgr -d "$PKGONLY" &>>$PKGLOG
+		echo "Finished." >> $PKGLOG
+		;;
+    Uninstall*)
+		echo -n > $PKGLOG
+		tailbox $PKGLOG &
+		pkgr -u "$PKGONLY" &>>$PKGLOG
+		echo "Finished." >> $PKGLOG
+		;;
+    Repackage*)
+		echo -n > $PKGLOG
+		tailbox $PKGLOG &
+		pkgr --pkg-repack "$PKGONLY" &>>$PKGLOG
+		echo "Finished." >> $PKGLOG
+		;;
+	Convert*) 
+		Xdialog --msgbox "${MENU} $1" 0 0 ## not done yet
+		;;
+	
+	Combine*) #200813 use gtkdialog not xdialog
+		COMB_GUI="<window title=\"$APPNAME: $MENU\"><vbox><text><label>What format do you want to convert to, after combining '$PKGONLY' with its dependencies?</label></text>
+		<hbox>
+		<button>
+		<label>PET</label>
+		</button>
+		<button>
+		<label>SFS</label>
+		</button>
+		<button>
+		<label>Cancel</label>
+		</button>
+		</hbox>
+		</vbox></window>";
+		export COMB_GUI; EXIT=''
+		RETVAL="`gtkdialog -c -p COMB_GUI`"
+
+		# get the user choice
+		eval "$RETVAL"
+		
+		# process it
+		if [ "$EXIT" = "PET" ];then
+			EXT=pet
+			echo -n > $PKGLOG
+			tailbox $PKGLOG &
+			pkgr -pc $PKGONLY &>>$PKGLOG
+			echo "Finished." >> $PKGLOG
+		elif [ "$EXIT" = "SFS" ];then
+			EXT=sfs
+			echo -n > $PKGLOG
+			tailbox $PKGLOG &
+			pkgr -sc $PKGONLY &>>$PKGLOG
+			echo "Finished." >> $PKGLOG
+		fi
+		;;
+	Pkg*Status*)
+		echo -e "Please wait, gathering package information...\n" > $TEMPDIR/pkg-$PKGONLY-status.txt
+		tailbox $TEMPDIR/pkg-$PKGONLY-status.txt &
+		pkgr -ps $1 | sed -e 's/Repo file:/Repo file:	/g' -e 's/In Repo:/In Repo:	/g' -e 's/Dependencies:	/Dependencies:\n\n/g' | fold -s -w62 >> $TEMPDIR/pkg-$PKGONLY-status.txt
+		;;
+    Contents*)
+		pkgr --contents $PKGONLY > $TEMPDIR/pkg-$PKGONLY-contents.txt
+		tailbox $TEMPDIR/pkg-$PKGONLY-contents.txt
+		;;
+    Build*)
+		cd "$WORKDIR"
+		echo -n > $PKGLOG
+		tailbox $PKGLOG & pkgr --pkg-build ${1%%-*} &>>$PKGLOG  && echo "Finished." >> $PKGLOG
+		;;
+    Edit*buildscript)
+		. ${HOME}/.pkg/pkgrc
+		
+		if [ "$BUILDTOOL" = buildpet -a "$1" != '' ];then
+			BFILE="`find /usr/share/buildpet/ -type -f -iname "*${1%%-*}*" | head -1`"
+			echo BFILE="$BFILE"
+			[ -f "$BFILE" ] && defaulttexteditor "$BFILE"
+		elif [ "$BUILDTOOL" = petbuild -a "$1" != '' ];then
+			BFILE="`find /usr/share/petbuild/ -type -f -iname "*${1%%-*}*" | head -1`"
+			echo BFILE="$BFILE"
+			[ -f "$BFILE" ] && defaulttexteditor "$BFILE"
+		fi
+		;;
+    Quit*)
+		echo quit
+		;;
+   esac
+
+   export MENU
+
+  # if we changed repo, switch back
+  if [ "$OLDREPO" != "" ];then
+  	pkg --repo $OLDREPO
+  	pkg --repo-pkg-scope $OLDPKGSCOPE
+  fi
+}
+
+
+}
+#
+# end of funcs
+#
+
+# set default settings
+update_scope_settings
+build_repo_dropdown
+set_gtkrc #update gtk styles
+
+echo -n > $AVAIL_LIST # clear 
+#build_tree1_input
+build_tree2_input # always build list of installed packages on first open
+
+BUILDTOOL_UI='' # the list of build scripts in gtkdialog form
+LABELS="Available packages|Installed packages|Settings|Help" # the main tabs
+
+# only add build tool stuff if using a supported buildtool (one with buildscripts we can list)
+if [ "$BUILDTOOL" = petbuild -o "$BUILDTOOL" = buildpet ];then
+	
+	# generate build script list
+	if [ "$BSCRIPT_LIST" != "" ];then
+		build_tree3_input
+	fi
+
+	# add build script section to main tabs
+	LABELS="Available packages|Installed packages|Build from source|Settings|Help" # the main tabs
+	
+	# the main build script lists/menu
+	BUILDTOOL_UI='<vbox>
+<tree auto-refresh="true" auto-sort="true" hover-selection="true" icon="pupget">
+<label>Name|Description|Category|Dependencies and Size</label>
+<height>250</height><width>600</width>
+<variable>TREE3</variable>
+<input>cat $BSCRIPT_LIST</input>
+<action signal="button-release-event">[ "`echo $TREE3`" != "" ] && popup_menu $TREE3 Build; build_tree3_input "$SEARCH"; build_tree3_input "$SEARCH"</action>
+<action signal="button-release-event">build_tree3_input;</action>
+<action signal="button-release-event">refresh:TREE3</action>
+</tree>
+</vbox>'
+	
+fi
+
+
+# build GUI
+{
+
+# create help info
+HELP_INFO='==================================
+'$APPNAME' is a frontend for '`pkg -v`'.
+==================================
+
+Pkg is a package manager: use it to find, download & install software 
+packages from a variety of online sources. Pkg can also help you 
+convert packages, build tar archives, combine packages, analyse 
+dependencies, and more.
+
+All files are downloaded to '$WORKDIR', and all files that have been 
+converted end up there as well. You should ideally move any packages 
+you create to another directory.
+
+Settings for this program are inside the hidden folder '$HOME'/.pkg/, 
+which holds the info of the current repo. This lets you limit searches 
+to that repo only.
+
+By default, Pkg wil search only the current repository unless told to 
+do otherwise.
+
+Pkg keeps a list of sources  -all the available repos on your system. 
+You can update your sources if they change, or add more. Your sources 
+are in '$HOME'/.packages/, and are named Packages-*-* or 
+livepackages*.txt
+
+==================================
+Tabs at the top of the interface:
+==================================
+
+Available packages: 
+		lists all packages available in the chosen repo.
+
+Possible options, when you click on an available package:
+
+	- install:
+		download and install the package and all dependencies
+
+	- install without deps:
+		download and install the package, do not install dependencies
+
+	- download only:
+		download the chosen package to '$WORKDIR', dont install
+
+	- convert:
+		convert a PET package to another format
+
+	- combine:
+		 combine a package with all its dependencies into a new package
+
+	- install dependencies:
+		download and install the dependencies of the chosen package
+
+	- download dependencies:
+		download the deps of the chosen package, dont install
+
+	- add to queue [OPT]:
+		add the package to the queue (see process queue, below)
+
+	- process queue:
+		for all packages in the queue, install, uninstall, or build
+
+	- package status:
+		get package info like installed or not, missing deps, size, etc
+
+==================================
+
+Installed packages tab:
+		lists all packages installed from the chosen repo.
+
+Possible options, when you click on an installed package:
+
+	- uninstall:
+		delete (remove) all files installed by the package
+
+	- force re-install:
+		this will re-install the package over the previous install
+
+	- contents:
+		see the contents of the package, to see which files it contains
+
+	- download only:
+		download the chosen packages to '$WORKDIR', dont install
+
+	- convert:
+		convert a PET package to another format
+
+	- combine:
+		 combine a package with all its dependencies into a new package
+
+	- repack:
+		 get list of installed files and re-package into a PET
+
+	- install dependencies:
+		download and install the dependencies of the chosen package
+
+	- download dependencies:
+		download the deps of the chosen package, dont install
+
+	- package status:
+		get package info like size, repo, missing deps, etc
+
+==================================
+
+Build from source tab:
+		lists all build scripts available to build programs from source
+
+	- build:
+		compile and package up the chosen program
+
+	- edit buildscript: 
+		open the build script in a text editor and make changes to it
+
+==================================
+
+Settings tab:
+
+	- Package search scope: 
+		search for packages in all repos or the current repo only
+
+	- Package dependency search scope: 
+		search for deps in the current repo or all repos
+
+	- Recursive dependency checks: 
+		if false Pkg will only search for deps 1 level deep
+
+(( NOTE: The above options in the setting tab are really important! 
+
+Searching for packages in all repos is quite clear, but you can still limit 
+these searches to only the current repo, while searching all repos for 
+dependencies.
+
+If you choose to search all repos, then every time you click on a local .pet 
+file, it also means '$APPNAME' will check its repo for deps, if it was found 
+in any repo.
+
+If searching only the current repo, then packages from other (or no) repos 
+will be installed without any dependency checking, etc - just like so called 
+alien packages..
+
+This also means if searching only current repo, then Install Dependencies, 
+Combine, and other options that rely on dependency checking will not be 
+available for local .pet files.
+
+The above options use the fallback list, this ia a list of repos, ordered by 
+preference. To see the fallback list for the current repo, see the dropdown 
+repo list, or in the terminal you can type : pkg --repo-info   ))
+
+==================================
+
+Other options:
+
+- Show installed pkgs only from current repo:  
+		if disabled, the list of installed packages will include all packages, 
+		from all repos, and also any locally installed packages. If enabled, 
+		only installed packages found in the current repo will be listed
+
+- Bleeding Edge package search:  
+		if enabled, the fallback list will be ignored, and the most recent version 
+		of a package will be returned in package or dependency searches
+
+- Force download, install etc: 
+		this will make Pkg force all downloads and installs etc to be completed, 
+		even if a package is already downloaded, or installed, etc
+
+For a complete set of options, run Pkg in the terminal.
+To see all its options, type:
+
+pkg -H'
+
+
+
+# check screen size
+while read a b c ; do
+	case $a in -geometry)
+		SCRNXY=${b%%+*} #1366x768
+		read SCRN_X SCRN_Y <<< "${SCRNXY//x/ }"
+		break
+	esac
+done <<< "$(LANG=C xwininfo -root)"
+
+if [ "$SCRN_X" ] ; then
+	WIDTH="1000"
+	[ "$SCRN_X" -le 1010 ] && WIDTH="$((SCRN_X-10))"
+else
+	WIDTH="700"
+fi
+
+#
+#
+# build the main GUI
+GUI='
+<window title="'${APPNAME}'" width-request="'${WIDTH}'">
+   <notebook labels="'$LABELS'">
+   <vbox>
+      <text height-request="2"><label>""</label></text>
+      <hbox>
+         <hbox width-request="150">
+            <comboboxtext auto-refresh="false">
+               <variable>NEWREPO</variable>
+               <input file>/tmp/repolist</input>
+            </comboboxtext>
+         </hbox>
+         <button tooltip-text="choose a repo">
+            <input file stock="gtk-apply"></input>
+            <action>switch_repo; update_scope_settings; build_repo_dropdown; build_tree1_input; build_tree2_input;</action>
+            <action>refresh:NEWREPO</action>
+            <action>refresh:TREE1</action>
+            <action>refresh:TREE2</action>
+         </button>
+         <text width-request="10"><label>""</label></text>
+         <hbox width-request="150">
+            <entry>
+               <variable>SEARCH</variable>
+            </entry>
+         </hbox>
+         <button tooltip-text="search for packages">
+            <input file stock="gtk-find"></input>
+            <action>build_tree1_input "$SEARCH"; build_tree2_input "$SEARCH"; build_tree3_input "$SEARCH"</action>
+            <action>refresh:TREE1</action>
+            <action>refresh:TREE2</action>
+            <action>refresh:TREE3</action>
+         </button>
+         <text width-request="10"><label>""</label></text>
+         <button tooltip-text="refresh all package lists">
+            <input file stock="gtk-refresh"></input>
+            <action>export SEARCH=''; build_tree1_input; build_tree2_input; build_tree3_input</action>
+            <action>refresh:TREE1</action>
+            <action>refresh:TREE2</action>
+            <action>refresh:TREE3</action>
+            <action>clear:SEARCH</action>
+         </button>
+         <button tooltip-text="update the package repos">
+            <input file stock="gtk-connect"></input>
+            <action>. ${HOME}/.pkg/pkgrc; OLDREPO=$REPONAME; ur_tailbox $TEMPDIR/gpkg-repo-update & pkg --repo-update > $TEMPDIR/gpkg-repo-update; pkg --repo $OLDREPO</action>
+            <action>export SEARCH=''; build_tree1_input; build_tree2_input; build_tree3_input</action>
+            <action>refresh:TREE1</action>
+            <action>refresh:TREE2</action>
+            <action>refresh:TREE3</action>
+            <action>clear:SEARCH</action>
+            <action>echo "Finished." >> $TEMPDIR/gpkg-repo-update</action>
+         </button>
+         <button tooltip-text="exit this program">
+            <input file stock="gtk-quit"></input>
+         </button>
+         <text width-request="2"><label>""</label></text>
+      </hbox>
+
+      <tree has_focus="true" auto-refresh="true" hover-selection="true">
+         <label>Name|Category|Size|Description</label>
+         <height>250</height><width>600</width>
+         <variable>TREE1</variable>
+         <input>cat $AVAIL_LIST</input>
+         <action signal="button-release-event">[ "`echo $TREE1`" != "" ] && popup_menu $TREE1 & build_tree1_input "$SEARCH"; build_tree2_input "$SEARCH"</action>
+         <action signal="button-release-event">refresh:TREE1</action>
+         <action signal="button-release-event">refresh:TREE2</action>
+      </tree>
+   </vbox>
+
+   <vbox>
+      <tree auto-refresh="true" auto-sort="true" hover-selection="true">
+         <label>Name|Category|Size|Description</label>
+         <height>250</height><width>600</width>
+         <variable>TREE2</variable>
+         <input>cat $INST_LIST</input>
+         <action signal="button-release-event">[ "`echo $TREE2`" != "" ] && popup_menu $TREE2 Uninstall; build_tree1_input "$SEARCH"; build_tree2_input "$SEARCH"</action>
+         <action signal="button-release-event">refresh:TREE2</action>
+         <action signal="button-release-event">refresh:TREE1</action>
+      </tree>
+   </vbox>
+
+   '${BUILDTOOL_UI}'
+
+   <vbox>
+      <frame>
+         <text use-markup="true"><label>"<b>Search settings</b>"</label></text>
+         <text><label>""</label></text>
+         <hbox>
+            <text><label>"Package search scope:"</label></text>
+            <radiobutton auto-refresh="true" tooltip-text="search for packages only in the the current repo">
+               <input file>/tmp/PKGSCOPEONE</input>
+               <variable>PKGSCOPEONE</variable>
+               <action>update_scope_settings</action>
+               <default>"'$PKGSCOPEONE'"</default>
+               <label>Current repo only</label>
+            </radiobutton>
+            <radiobutton auto-refresh="true" tooltip-text="search for packages in all repos">
+               <input file>/tmp/PKGSCOPEALL</input>
+               <variable>PKGSCOPEALL</variable>
+               <action>update_scope_settings</action>
+               <action>NEWREPO=All; export NEWREPO;</action>
+               <default>"'$PKGSCOPEALL'"</default>
+               <label>All repos</label>
+            </radiobutton>
+         </hbox>
+         <hbox>
+            <text><label>"Package dependency search scope:"</label></text>
+            <radiobutton auto-refresh="true" tooltip-text="search for package dependencies in the current repo only">
+               <input file>/tmp/DEPSCOPEONE</input>
+               <variable>DEPSCOPEONE</variable>
+               <action>update_scope_settings</action>
+               <default>"'$DEPSCOPEONE'"</default>
+               <label>Current repo only</label>
+            </radiobutton>
+            <radiobutton auto-refresh="true" tooltip-text="search for package dependencies in all repos">
+               <input file>/tmp/DEPSCOPEALL</input>
+               <variable>DEPSCOPEALL</variable>
+               <action>update_scope_settings</action>
+               <default>"'$DEPSCOPEALL'"</default>
+               <label>All repos</label>
+            </radiobutton>
+         </hbox>
+         <hbox>
+            <text><label>"Recursive dependency checking:"</label></text>
+            <radiobutton tooltip-text="search for dependencies of every package installed">
+               <variable>RDCHECKON</variable>
+               <default>"'$RDCHECKON'"</default>
+               <label>Enabled</label>
+            </radiobutton>
+            <radiobutton tooltip-text="search for dependencies of only one level deep, dont search for deps of deps">
+               <variable>RDCHECKOFF</variable>
+               <default>"'$RDCHECKOFF'"</default>
+               <label>Disabled</label>
+            </radiobutton>
+         </hbox>
+         <hbox>
+            <text><label>"Bleeding edge package search:"</label></text>
+            <radiobutton tooltip-text="search for the latest version of a package, from any repo">
+               <variable>BLEDGEON</variable>
+               <default>"'$BLEDGEON'"</default>
+               <label>Enabled</label>
+            </radiobutton>
+            <radiobutton tooltip-text="search for packages in the current repo, then fallback to other repos">
+               <variable>BLEDGEOFF</variable>
+               <default>"'$BLEDGEOFF'"</default>
+               <label>Disabled</label>
+            </radiobutton>
+         </hbox>
+
+         <text><label>""</label></text>
+         <text use-markup="true"><label>"<b>Other settings</b>"</label></text>
+         <text><label>""</label></text>
+
+         <hbox>
+            <text><label>"Show installed packages only from current repo:"</label></text>
+            <radiobutton tooltip-text="In the installed package list, show only packages that belong to the currently selected repository.">
+               <variable>ALLINSTOFF</variable>
+               <default>"'$ALLINSTOFF'"</default>
+               <label>Enabled</label>
+               <action>export ALLINST="true"</action>
+            </radiobutton>
+            <radiobutton tooltip-text="In the installed package list, show installed packages from all repositories, and including locally installed packages.">
+               <variable>ALLINSTON</variable>
+               <default>"'$ALLINSTON'"</default>
+               <label>Disabled</label>
+               <action>export ALLINST="false"</action>
+            </radiobutton>
+         </hbox>
+         <hbox>
+            <text><label>"Force install, download, uninstall, etc:"</label></text>
+            <radiobutton tooltip-text="force downloads and installations etc, even if they have been done already">
+               <variable>FORCEON</variable>
+               <default>"'$FORCEON'"</default>
+               <label>Enabled</label>
+               <action>export FORCEOPT="-f"</action>
+            </radiobutton>
+            <radiobutton tooltip-text="do not force downloads or installations">
+               <variable>FORCEOFF</variable>
+               <default>"'$FORCEOFF'"</default>
+               <label>Disabled</label>
+               <action>export FORCEOPT=""</action>
+            </radiobutton>
+         </hbox>
+         <text><label>""</label></text>
+         <hbox>
+            <button>
+               <input file stock="gtk-open"></input>
+               <label>View Logfiles</label>
+               <action>rox /tmp/gpkgdialog/ &</action>
+            </button>
+            <button>
+               <input file stock="gtk-save"></input>
+               <label>Save Settings</label>
+               <action>if [ "$PKGSCOPEALL" = "true" ];then REPOLIST="`cat /tmp/repolist | grep -v "^All"`"; REPOLIST2="$ALL$REPOLIST"; echo -n "$REPOLIST2" > /tmp/repolist; fi;</action>
+               <action>if [ "$PKGSCOPEALL" = "false" ];then . ${HOME}/.pkg/pkgrc; REPOLIST="`cat /tmp/repolist | grep -v "^$REPONAME"`"; REPOLIST2="$REPONAME@$REPOLIST"; echo -n "$REPOLIST2" | tr "@" "\n" > /tmp/repolist; echo -n "$REPOFILE" > $TEMPDIR/gpkg-repofile; fi;</action>
+               <action>. ${HOME}/.pkg/pkgrc; export NEWREPO=$REPONAME; save_settings; switch_repo;</action>
+               <action>build_tree1_input; build_tree2_input; build_tree3_input;</action>
+               <action>refresh:TREE1</action>
+               <action>refresh:TREE2</action>
+               <action>refresh:NEWREPO</action>
+            </button>
+         </hbox>
+      </frame>
+   </vbox>
+
+   <vbox>
+      <edit indent="20" editable="false">
+         <width>500</width><height>300</height>
+         <variable>HELPTXT</variable>
+         <default>"
+'$HELP_INFO'
+         "</default>
+      </edit>
+   </vbox>
+   </notebook>
+
+</window>
+'
+export GUI
+}
+
+
+# process CLI options 
+#
+# if we were passed a file on load up
+
+# process some basic command line options
+if [ "$1" = '-v' -o "$1" = '--version' ];then
+	echo "$APPVER"
+	exit 0
+fi
+
+if [ -f "$1" ];then
+	# get latest settings
+	. ${HOME}/.pkg/pkgrc
+	SKIP_DEL=false
+	# get pkg into workdir
+	[ "`dirname "$1"`" = "$WORKDIR" ] || cp "$1" $WORKDIR
+	# if its a buildpet build script
+	if [ "`echo $(dirname "$1") | grep /usr/share/buildpet`" != "" ];then
+		popup_menu "`basename "$1"`" Build
+	# if its a petbuild build script
+	elif [ "`echo $(dirname "$1") | grep /usr/share/petbuild`" != "" ];then
+		popup_menu "`basename "$1"`" Build
+	# if its an installed pkg
+	elif [ "`pkgr -li "$(basename "${1%.*}")"`" != "" ];then
+		popup_menu "`basename "$1"`" Uninstall
+	# else show generic menu
+	else
+		popup_menu "$1"
+	fi
+	# if done, and no queue to process, remove file from workdir
+	[ "`dirname "$1"`" = "$WORKDIR" -o "`echo "$MENU" | grep Queue`" != "" ] || rm $WORKDIR/$(basename "$1") &>/dev/null
+	exit 0
+fi
+
+# run the GUI
+gtkdialog -s <<< "$GUI" 1>/dev/null
+
+exit 0

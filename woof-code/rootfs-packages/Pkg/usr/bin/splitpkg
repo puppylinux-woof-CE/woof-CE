@@ -1,0 +1,124 @@
+#!/bin/sh
+
+# splitpkg: splits a binary package
+
+# the usage message
+USAGE="Usage: splitpkg [PKG] [DIRECTORY]"
+
+# check the number of command-line arguments
+case $# in
+	2)
+		;;
+	*)
+		echo $USAGE
+		exit 1
+		;;
+esac
+
+# make sure the package directory exists
+if [ ! -d "$2" ]
+then
+	echo $USAGE
+	exit 1
+fi
+
+# the full path to the package
+PKG_PATH="$(realpath $2)"
+
+# the base name of the package directory
+PKG_DIR_NAME=$(basename "$PKG_PATH")
+
+# the package name
+PKG_NAME="$1"
+
+# the parent directory of the package
+PARENT_DIR="$(dirname $PKG_PATH)"
+
+# the sub-package names
+EXE_PKG="$PKG_NAME"
+DEV_PKG="$(echo $PKG_DIR_NAME | sed s/^$PKG_NAME/${PKG_NAME}_DEV/)"
+DOC_PKG="$(echo $PKG_DIR_NAME | sed s/^$PKG_NAME/${PKG_NAME}_DOC/)"
+NLS_PKG="$(echo $PKG_DIR_NAME | sed s/^$PKG_NAME/${PKG_NAME}_NLS/)"
+
+# make sure the package directory begins with the given package name
+case $(basename "$PKG_PATH") in
+	$PKG_NAME-*)
+		;;
+	*)
+		echo $USAGE
+		exit 1
+		;;
+esac
+
+cd "$PKG_PATH"
+
+for i in $(find -mindepth 1)
+do
+	# if the file no longer exists, skip this iteration
+	[ ! -e "$i" ] && continue
+
+	FILE_NAME=$(basename "$i")
+
+	case "$FILE_NAME" in
+		*.la|*.a|*.o|*.prl|pkgconfig|include|*.m4|*.h|*.c|*.cpp)
+			PKG="$DEV_PKG"
+			;;
+		gdb)
+			[ -d $i ] && PKG="$DEV_PKG"
+			;;
+		dir)
+			[ -f $i ] && PKG="$DOC_PKG"
+			;;
+		doc|*-doc|gtk-doc|Help|HELP|readme.*|README.*|ABOUT|about.txt|ABOUT.TXT|readme|README|manual|MANUAL|faq|FAQ|todo|TODO|examples|EXAMPLES|LessTif|man-html|E-docs)
+			PKG="$DOC_PKG"
+			;;
+		help)
+			[ -d $i ] && PKG="$DOC_PKG"
+			;;
+		man|info) # if it's a directory named "man" or "info", move to doc
+			[ -d $i ] && PKG="$DOC_PKG"
+			 ;;
+		locale|locales|lang|strings) # if it's a directory named "locale", move to nls
+			[ -d $i ] && PKG="$NLS_PKG"
+			;;
+		i18n|nls)
+			PKG="$NLS_PKG"
+			;;
+		system.profile-*|*.strings|normal.awt-*) # AbiWord stores its locale information in those files
+			[ "$PKG_NAME" = "abiword" ] && PKG="$NLS_PKG"
+			;;
+		*)
+			PKG="$EXE_PKG"
+			;;
+	esac
+
+	# verbosity, output the redirection for each redirected file
+	case "$PKG" in
+		$DEV_PKG|$DOC_PKG|$NLS_PKG)
+			SUFFIX="$(echo $SUFFIX | tr [:lower:] [:upper:])"
+
+			echo "$FILE_NAME -> $PKG"
+
+			# detect the sub_directory inside the package
+			SUB_DIR="${i%/$FILE_NAME}"
+			SUB_DIR="${SUB_DIR:2}"
+
+			# create the directory under the sub-package directory
+			mkdir -p "$PARENT_DIR/$PKG/$SUB_DIR"
+
+			# move the file to the sub-package
+			mv "$i" "$PARENT_DIR/$PKG/$SUB_DIR"
+
+			# get rid of empty directories in the EXE package
+			rmdir "$SUB_DIR" > /dev/null 2>&1
+			;;
+	esac
+
+	unset PKG
+done
+
+# if the EXE package is empty, remove it
+is_empty=$(find "$PKG_PATH" -type f)
+[ -z "$is_empty" ] && rm -rf "$PKG_PATH"
+
+exit 0

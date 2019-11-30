@@ -1,0 +1,356 @@
+#!/bin/bash
+
+# ppa2pup
+# convert an Ubuntu PPA repo file, into a Puppy compatible repo file.
+
+# @TODO1 - fix last few fields of package entries (should contain the supported ubuntu distro, not current system)
+
+. /etc/DISTRO_SPECS
+
+#if [ "$DISTRO_BINARY_COMPAT" != "ubuntu" ] && [ "$DISTRO_BINARY_COMPAT" != "debian" ];then
+#  echo "Sorry, you must be running a .deb compatible Puppy Linux"
+#  echo "to use this tool. Your Puppy is based on '$DISTRO_BINARY_COMPAT'"
+#  exit 1
+#fi
+
+
+if [ ! "$1" ] || [ "$1" = "-h" ] || [ "$1" = "-help" ]
+then
+
+  echo "This script creates a Puppy-compatible repo file from a PPA or Debian repo."
+  echo
+  echo "For Launchpad PPA repos:"
+  echo
+  echo "  Usage: ppa2pup ppa:<user>/<repo> [debian|ubuntu] [bionic|stretch|artful|etc] [main|all|contrib|non-free|etc]"
+  echo
+  echo "Examples:"
+  echo
+  echo "  ppa2pup ppa:team-xbmc/ppa"
+  echo
+  echo "  ppa2pup ppa:team-xbmc/ppa ubuntu bionic"
+  echo
+  echo "  ppa2pup ppa:team-xbmc/ppa ubuntu artful"
+  echo
+  echo "  ppa2pup ppa:team-xbmc/ppa debian stretch"
+  echo
+  echo
+  echo "For other third-party Debian repos:"
+  echo
+  echo "  Usage: ppa2pup http://site.com/[debian|ubuntu]/ [stretch|bionic|etc] [main|contrib|non-free|etc]"
+  echo
+  echo "Examples:"
+  echo
+  echo "  ppa2pup http://rpms.litespeedtech.com/debian/"
+  echo
+  echo "  ppa2pup http://rpms.litespeedtech.com/debian/ stretch main"
+  echo
+  echo "  ppa2pup http://repo.steampowered.com/steam/ precise steam"
+  echo
+  echo "  ppa2pup http://http.kali.org/kali/ kali-bleeding-edge main contrib non-free"
+  echo
+  echo "NOTE: Any ommitted distro names or versions will be guessed."
+  echo
+  exit 1
+
+fi
+
+
+# create a dir to work in
+mkdir -p /tmp/ppa_pkgs
+
+# remove any old files
+rm /tmp/ppa_pkgs/* 2>/dev/null
+
+
+# we need to find the correct Packages.gz for the distro (debian/ubuntu),
+# distro version (stretch/bionic/etc), and architecture (i386/amd64)
+
+arch='i386'
+case $(uname -m) in
+  i*86) arch='i386'  ;;
+  *64)  arch='amd64' ;;
+esac
+
+
+
+if [[ "$1" =~ 'ppa:' ]]
+then
+
+  # we got a 'PPA' URL, lets parse it and get the Packages.gz
+  ppaname="${1/*\//}"
+  username="${1/\/*/}"
+  username="${username//ppa:/}"
+  ppaname="${ppaname//ppa:/}"
+
+  # get username, but strip special chars
+  PPA_NAME="${username//[-_:]/}"
+
+  distro=${2:-$DISTRO_BINARY_COMPAT}
+  distro_ver=${3:-$DISTRO_COMPAT_VERSION}
+  repo_name="$distro_ver-$PPA_NAME"
+  repo_filename="Packages-$distro-$distro_ver-${PPA_NAME}"
+  repo_stream=${4:-main}
+  repo_stream2=''
+  repo_stream3=''
+  repo_stream4=''
+  [ "$5" != '' ] && repo_stream2=${5}
+  [ "$6" != '' ] && repo_stream3=${6}
+  [ "$7" != '' ] && repo_stream4=${7}
+
+
+  URL=http://ppa.launchpad.net/${username}/${ppaname}/${distro}/dists/${distro_ver}/${repo_stream}/binary-${arch}/Packages.gz
+  repo_url=http://ppa.launchpad.net/${username}/${ppaname}/${distro}/
+
+elif [[ "$1" =~ 'http://' ]] || [[ "$1" =~ 'https://' ]];then
+
+  # we got a Debian repo source URL, lets parse it and get the Packages.gz
+
+  distro=${DISTRO_BINARY_COMPAT}
+  distro_ver=${2:-$DISTRO_COMPAT_VERSION}
+  repo_url=$(echo $1 | sed -e 's#/$##g')/
+  repo_stream=${3:-main}
+  repo_stream2=''
+  repo_stream3=''
+  repo_stream4=''
+  [ "$4" != '' ] && repo_stream2=${4}
+  [ "$5" != '' ] && repo_stream3=${5}
+  [ "$6" != '' ] && repo_stream4=${6}
+
+  URL=$(echo $1 | sed -e 's#/$##g')/dists/${distro_ver}/${repo_stream}/binary-${arch}/Packages.gz
+
+else
+
+  # didnt get ppa:foo/bar, exit with usage
+  $0 -h
+  exit 1
+
+fi
+
+
+for stream in $repo_stream $repo_stream2 $repo_stream3 $repo_stream4
+do
+
+  [ "$stream" = '' ] && continue
+
+  rm /tmp/ppa_Packages /tmp/ppa_Packages.gz 2>/dev/null
+  download_failed=false
+
+  download_url=${URL//$repo_stream/$stream}
+
+  wget --quiet $download_url -O /tmp/ppa_Packages.gz 1>/dev/null \
+    || download_failed=true
+
+  if [ ! -f /tmp/ppa_Packages.gz ] || [ $download_failed = true ];then
+    echo
+    echo "ERROR: the PPA repo '$repo_name' not found for $distro $distro_ver:"
+    echo
+    echo "  $download_url"
+    echo
+    echo "You could try a different version of the repo."
+    echo
+    $0 -h
+    exit 1
+  fi
+
+
+  gunzip /tmp/ppa_Packages.gz
+
+
+  # if Packages file is empty, dont create a repo for it
+  if [ -z /tmp/ppa_Packages ] || [ ! -s /tmp/ppa_Packages ];then
+    continue
+  fi
+
+  # if we didn't get the name from the ppa:foo/bar style URL
+  if [[ ! "$1" =~ 'ppa:' ]]
+  then
+
+    # check if this repo is already installed (find its name in Pkg sources files)
+    PPA_NAME="$(grep -m1 "^${distro_ver}-${stream:-main}|" /root/.pkg/sources-all | cut -f1 -d'|' 2>/dev/null)"
+
+    # get repo name and filename
+    if [ "$PPA_NAME" = "" ];then
+      echo
+      read -e -p "Enter a repo name, such as '${distro_ver}-${stream:-main}':  " -i "${distro_ver}-${stream:-main}" PPA_NAME
+    fi
+    # replace any spaces or underscores with dashes, all lower case
+    PPA_NAME="$( echo "${PPA_NAME// /-}" | tr '_' '-' | tr '[:upper:]' '[:lower:]' )"
+
+    repo_name="$PPA_NAME"
+    repo_filename="Packages-$distro-${PPA_NAME}"
+
+  fi
+
+  echo
+  echo "Found URL:"
+  echo
+  echo "  $download_url"
+  echo
+  echo "Repo to create:"
+  echo "   $repo_name"
+  echo
+  echo "Repo file to create:"
+  echo "   ~/.packages/$repo_filename"
+  echo
+
+  # break Packages file into separate files
+  number=1
+  cat /tmp/ppa_Packages | while read line
+  do
+
+    echo "$line" | grep -qE '^Priority|^Installed-Size|^Maintainer|^MD5|^SHA|^Description-md5|^Suggests|^Provides|^Source|^Conflicts|^Breaks' && continue
+    echo "$line" >> /tmp/ppa_pkgs/pkginfo$number
+    [ "$line" = "" ] && number=$(($number + 1))
+
+    #[ $number -gt 5 ] && break # for testing only
+
+  done
+
+
+  rm /tmp/$repo_filename ~/.packages/$repo_filename &>/dev/null
+
+  # go through each file and make a pet.spec entry from it,
+  # and append that entry tp /tmp/ppa_pkgs/$repo_filename
+  for pkginfo_file in $(ls -1 /tmp/ppa_pkgs/)
+  do
+
+    [ ! -f /tmp/ppa_pkgs/$pkginfo_file ] && continue
+
+    pkginfo="`cat /tmp/ppa_pkgs/$pkginfo_file 2>/dev/null`"
+    [ "$pkginfo" = "" ] && continue
+
+    # convert deps list from:
+    #
+    #  nginx-full (<< 1.14.0-0+bionic0.1~) | libc6 (>= 2.4), libpam0g (>= 0.99.7.1)
+    #
+    # into:
+    #
+    #  +nginx-full-1.14.0-0+bionic0,+libc6-2.4,+libpam0g-0.99.7.1
+    #
+
+    pkgdeps=`echo "$pkginfo" | grep '^Depends: '`
+
+    newpkgdeps="$(echo "$pkgdeps" \
+      | sed \
+        -e 's/  / /g'     \
+        -e 's/ (= 2:/_/g' \
+        -e 's/ (= 1:/_/g' \
+        -e 's/ (<< /-/g'  \
+        -e 's/ (= /-/g'   \
+        -e 's/ (>= /-/g'  \
+        -e 's/ (<= /-/g'  \
+        -e 's/) / /g'     \
+        -e 's/), /,/g'    \
+        -e 's/)//g'       \
+        -e 's/, /,/g'     \
+        -e 's/ | /,/g'    \
+        -e 's/| /,/g'     \
+        -e 's/ |/,/g'     \
+        -e "s/,$//g"      \
+        -e 's/\.1~//g'    \
+        -e 's/\.2~//g'    \
+        -e 's/,/,+/g'     \
+        -e 's/-2:/_/g'    \
+        -e 's/-1:/_/g'    \
+        -e 's/Depends: /Depends: +/g' \
+      2>/dev/null)"
+
+    # replace olddeps entry with new one in the file
+    if [ ! -z "pkgdeps" ] && [ ! -z "$newpkgdeps" ] && [ -f /tmp/ppa_pkgs/$pkginfo_file ]
+    then
+
+      sed -i "s/${pkgdeps}/${newpkgdeps}/" /tmp/ppa_pkgs/$pkginfo_file 2>/dev/null
+
+    fi
+
+
+    # deps should now be in the right format in the file itself,
+    # update our info var
+    pkginfo="$(cat /tmp/ppa_pkgs/$pkginfo_file)"
+
+    # so lets build pet.specs entry:
+    # like this one:
+    #   pkgname-1.2.3-4|pkgname|1.2.3|4|Category|54kb|/path/to/pkg|pkgname-1.2.3.pet|+dep1,+dep2|the description|debian|stretch||
+
+    case $DISTRO_BINARY_COMPAT in
+      debian|ubuntu|trisquel|devuan) ver_sep='_';;
+      *) ver_sep='-';;
+    esac
+
+    pkg_build_no=''  # need to get this out of version
+    pkg_name="$(echo  "$pkginfo" | grep -m1 '^Package: ' | cut -f2 -d' ')"
+
+    pkgname_only="$pkg_name"
+    pkg_ver="$(echo   "$pkginfo" | grep -m1 '^Version: ' | sed -e 's/Version: [0-9]://g' -e 's/Version: //g')"
+    pkg_name="$pkg_name${ver_sep}$pkg_ver"
+    pkg_cat="$(echo   "$pkginfo" | grep -m1 '^Section: ' | cut -f2 -d' ')"
+    pkg_size="$(echo  "$pkginfo" | grep -m1 '^Size: '    | cut -f2 -d' ')"
+    pkg_size="$(($pkg_size / 1024))K"
+    pkg_path="$(echo "$pkginfo" | grep -m1 '^Filename: '| cut -f2 -d' ')"
+    pkg_fname="$(basename "$pkg_path")"
+    pkg_path="$(dirname "$pkg_path")"
+    pkg_deps="$(echo "$pkginfo" | grep -m1 '^Depends: ' | cut -f2 -d' ')"
+    pkg_desc="$(echo  "$pkginfo" | grep -m1 '^Descripti' | cut -f2-200 -d' ')"
+    pkg_os="$DISTRO_BINARY_COMPAT"
+    pkg_os_ver="$DISTRO_COMPAT_VERSION"
+
+    entry="$pkg_name|$pkgname_only|$pkg_ver|$pkg_build_no|$pkg_cat|$pkg_size|$pkg_path|$pkg_fname|$pkg_deps|$pkg_desc|$pkg_os|$pkg_os_ver|"
+
+    echo "$entry" >> /tmp/$repo_filename
+
+  done
+
+
+  rm /tmp/ppa_pkgs/* /tmp/${repo_filename}_sorted 2>/dev/null
+
+
+  # sort & move the repo file
+  sort -u /tmp/$repo_filename > /tmp/${repo_filename}_sorted 2>/dev/null
+
+
+  if [ ! -f /tmp/${repo_filename}_sorted ];then
+    echo "Error: Repo file not created!"
+    exit 1
+  fi
+
+  mv  /tmp/${repo_filename}_sorted  ~/.packages/$repo_filename
+  echo "Success! File created."
+  echo
+
+  fallback_repos="$(pkg repo-list | grep -v $repo_name | tr '\n' ' ')"
+  repo_entry="$repo_name|deb|$repo_filename|$repo_url||||$fallback_repos"
+
+
+  # if already added to ~/.pkg/sources[-all], remove it
+  if [ "$(cat ~/.pkg/sources     | grep -m1 "^$repo_name|")" != "" ] || \
+     [ "$(cat ~/.pkg/sources-all | grep -m1 "^$repo_name|")" != "" ];then
+    cat ~/.pkg/sources | grep -v "^$repo_name|" > /tmp/pkgsources
+    cat ~/.pkg/sources-all | grep -v "^$repo_name|" > /tmp/pkgsources-all
+    mv /tmp/pkgsources ~/.pkg/sources
+    mv /tmp/pkgsources-all ~/.pkg/sources-all
+  fi
+
+
+  # add repo entry to ~/.pkg/sources
+  pkg add-source "$repo_entry"
+  echo
+
+  # refresh list of available repos
+  pkg update-sources
+  echo
+  echo "Repo info:"
+  pkg repo-info $repo_name
+  echo
+
+
+  if [ "$(cat ~/.pkg/sources | grep -m1 "^$repo_name|")" != "" ];then
+    echo "Success! Repo added and available to use."
+    echo
+    echo "To use this repo, simply type the following and hit ENTER:"
+    echo "  pkg repo $repo_name"
+    echo
+  fi
+
+done
+
+exit 0

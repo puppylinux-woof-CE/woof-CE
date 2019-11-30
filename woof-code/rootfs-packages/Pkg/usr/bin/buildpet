@@ -1,0 +1,195 @@
+#!/bin/sh
+
+# This is a modified version of Iguleders' buildpkg script
+
+# the usage message
+USAGE="Usage: buildpet [SCRIPT]
+( scripts are in /usr/share/buildpet/ ) "
+
+# check the number of command-line arguments
+case $# in
+	1)
+		;;
+	*)
+		echo $USAGE
+		exit 1
+		;;
+esac
+
+# make sure the package directory exists
+if [ ! -f "$1" ]
+then
+	echo $USAGE
+	exit 1
+fi
+
+# include the build profile
+PKG_PROFILE="/usr/share/buildpet/buildpet.profile"
+. $PKG_PROFILE
+
+# include the build script
+PKG_BASENAME=$(basename "$1")
+if [ $PKG_BASENAME == $1 ]; then
+# fix the error when running buildpet in the same folder as the script
+	. ./"$1"
+else
+	. "$1"
+fi
+
+# re-include the build profile
+. $PKG_PROFILE
+
+# include the puplet information file
+. /etc/DISTRO_SPECS
+
+
+case $DISTRO_FILE_PREFIX in
+artful)
+	PKG_ENDING="artful";;
+bionic)
+	PKG_ENDING="bionic";;
+dpup)
+	PKG_ENDING="dpup";;
+lupu|luci|luma|upup|lupq|stud)
+	PKG_ENDING="lucid";;
+macpup)
+	PKG_ENDING="macpup";;
+precise)
+	PKG_ENDING="precise";;
+qrky|qret)
+	PKG_ENDING="q1";;
+racy)
+	PKG_ENDING="racy";;
+saluki|luki)
+	PKG_ENDING="saluki";;
+slacko)
+	PKG_ENDING="slacko";;
+solid)
+	PKG_ENDING="solid";;
+stretch)
+	PKG_ENDING="stretch";;
+spup|slacko|slacky)
+	PKG_ENDING="s";;
+tahr)
+	PKG_ENDING="tahr";;
+wary*)
+	PKG_ENDING="w5";;
+xenial)
+	PKG_ENDING="xenial";;
+*)  #Everything else
+	PKG_ENDING="$PKG_ARCH";;
+esac
+
+# add arch to end of package name
+#PKG_ENDING="${PKG_ENDING}-${PKG_ARCH}"
+
+# extra info folder
+INFO_DIR="/tmp/buildpet_info"
+if [ ! -d $INFO_DIR ];then
+	mkdir -p $INFO_DIR
+fi
+
+# the directory the script runs in
+. ~/.pkg/pkgrc
+
+WORK_DIR="$HOME/my-pets"
+[ "$WORKDIR" != '' ] && WORK_DIR="$WORKDIR"
+[ ! -d "$WORKDIR" ] && mkdir -p "$WORKDIR"
+cd "$WORK_DIR"
+
+# the installation directory for packages                     
+INSTALL_DIR="$WORK_DIR/$PKG_NAME-$PKG_VER-$PKG_ENDING"
+
+# clear old temp folders leftover, due to errors during compiling
+rm -rf tmp.* 2>/dev/null
+sleep 0.2
+# create a build directory
+echo "Preparing a build environment"
+BUILD_DIR=$(mktemp -d -p "$WORK_DIR")
+BUILD_DIR_NAME=$(basename "$BUILD_DIR")
+cd $BUILD_DIR
+
+# download the sources
+echo "Downloading the sources"
+download
+[ $? -eq 1 ] && exit 1
+
+# create symlinks to the sources
+#for file in *
+#do
+#	[ "$file" != "../$BUILD_DIR_NAME" ] && ln -s $file .
+#done
+
+#tar up the source if a dir
+if [ -d $WORK_DIR/$PKG_NAME-$PKG_VER ] && [ ! -f $WORK_DIR/$PKG_NAME-$PKG_VER.tar.bz2 ];then
+	cd $WORK_DIR
+	tar -cjf $PKG_NAME-$PKG_VER.tar.bz2 $PKG_NAME-$PKG_VER 
+	cd $BUILD_DIR
+fi
+
+# build the package
+echo "Building"
+build
+[ $? -eq 1 ] && echo "Error: Failed building pkg.." && exit 1
+
+# the installation directory for packages.. set it again, PKG_VER may have changed
+INSTALL_DIR="$WORK_DIR/$PKG_NAME-$PKG_VER-$PKG_ENDING"
+
+# create the package
+echo "Installing"
+package
+[ $? -eq 1 ] && echo "Error: Can't package it up.." && exit 1
+
+# go back to the working directory and remove the build directory
+cd "$WORK_DIR"
+rm -rf "$BUILD_DIR"
+
+# remove the source dir, if its been tarballed
+if [ -f $WORK_DIR/$PKG_NAME-$PKG_VER.tar.bz2 ] && [ -d $WORK_DIR/$PKG_NAME-$PKG_VER ];then
+	rm -rf "$WORK_DIR/$PKG_NAME-$PKG_VER"
+fi
+
+# strip the package
+echo "Stripping"
+strippkg "$INSTALL_DIR"
+[ $? -eq 1 ] && echo "Error: Stripping failed.." && exit 1
+
+# fix the package permissions
+chown -R root:root $INSTALL_DIR
+
+# split the package to EXE, DEV, DOC and NLS
+echo "Splitting"
+splitpkg $PKG_NAME "$INSTALL_DIR"
+[ $? -eq 1 ] && echo "Error: Splitting failed.." && exit 1
+
+# create the PET packages
+echo "Creating package(s):"
+for suffix in "" _DEV _DOC _NLS
+do
+	PKG_FILE_NAME="$PKG_NAME$suffix-$PKG_VER-$PKG_ENDING"
+	[ ! -d "$PKG_FILE_NAME" ] && continue
+	
+	echo "$PKG_FILE_NAME"
+	
+	PKG_SIZE="$(du -s -k $PKG_FILE_NAME | cut -f 1)K"
+
+	# create the pet.specs file
+	echo "$PKG_NAME$suffix-$PKG_VER-$PKG_ENDING|$PKG_NAME$suffix|$PKG_VER-$PKG_ENDING||$PKG_CAT|$PKG_SIZE|$PKG_PATH|$PKG_FILE_NAME.pet|$PKG_DEPS|$PKG_DESC|$DISTRO_BINARY_COMPAT|$DISTRO_COMPAT_VERSION|" > $PKG_FILE_NAME/pet.specs
+	#[ $? -eq 1 ] && exit 1
+		
+	# create the package
+	tar -c $PKG_FILE_NAME | gzip -9 > $PKG_FILE_NAME.pet
+	[ $? -eq 1 ] && echo "Error: Package not created.." && exit 1
+	
+	# recompress the package
+	[ "`which advdef`" != "" ] && advdef -z4 $PKG_FILE_NAME.pet
+
+	# get the tarball MD5 and append it
+	echo -n "$(md5sum $PKG_FILE_NAME.pet | cut -f 1 -d \ )" >> $PKG_FILE_NAME.pet
+	[ $? -eq 1 ] && echo "Error: Md5 not appended.." && exit 1
+
+	rm -rf $PKG_FILE_NAME
+	
+done
+    echo "If successful, the pets should be in $WORK_DIR"
+exit 0

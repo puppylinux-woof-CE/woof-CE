@@ -1,0 +1,130 @@
+#!/bin/sh
+
+PKG_NAME="dropbear"
+PKG_VER="2013.58"
+PKG_REV="1"
+PKG_DESC="SSH2 server and client"
+PKG_CAT="Network"
+PKG_DEPS="+xauth"
+
+# the programs to build
+PROGRAMS="dbclient dropbearkey dropbearconvert scp"
+
+download() {
+	# download the sources
+	[ -f $PKG_NAME-$PKG_VER.tar.bz2 ] && return 0
+	wget --no-check-certificate http://matt.ucc.asn.au/dropbear/releases/$PKG_NAME-$PKG_VER.tar.bz2
+	[ $? -ne 0 ] && return 1
+	return 0
+}
+
+build() {
+	# extract the sources
+	tar -xjvf $PKG_NAME-$PKG_VER.tar.bz2
+	[ $? -ne 0 ] && return 1
+
+	cd $PKG_NAME-$PKG_VER
+
+	# configure the package
+	./configure $BASE_CONFIGURE_ARGS \
+	            --prefix=${BASE_PATH_PREFIX} \
+	            --disable-pam \
+	            --disable-syslog \
+	            --disable-lastlog \
+	            --disable-utmp \
+	            --disable-utmpx \
+	            --disable-wtmp \
+	            --disable-wtmpx
+	[ $? -ne 0 ] && return 1
+	
+	# set the xauth path
+	sed -i s~"${BASE_PATH_PREFIX}/bin/X11/xauth"~"${BASE_PATH_PREFIX}/bin/xauth"~ options.h
+	[ $? -ne 0 ] && return 1
+	
+	# build the package
+	make -j $BUILD_THREADS PROGRAMS="dropbear $PROGRAMS" MULTI=1
+	[ $? -ne 0 ] && return 1
+
+	return 0
+}
+
+package() {	
+	# install the package
+	install -m755 -D dropbearmulti $INSTALL_DIR${BASE_PATH_PREFIX}/bin/dropbear
+	[ $? -ne 0 ] && return 1
+
+	# install the license
+	install -m644 -D LICENSE $INSTALL_DIR${BASE_PATH_PREFIX}/share/doc/legal/dropbear/LICENSE
+	[ $? -ne 0 ] && return 1
+
+	# install the man page
+	install -m644 -D dbclient.1 $INSTALL_DIR${BASE_PATH_PREFIX}/share/man/man1/dhclient.1
+	[ $? -ne 0 ] && return 1
+	
+	# create symlinks
+	for i in $PROGRAMS ssh
+	do
+		ln -s dropbear $INSTALL_DIR${BASE_PATH_PREFIX}/bin/$i
+		[ $? -ne 0 ] && return 1
+	done
+	
+	# add an init script
+	mkdir -p $INSTALL_DIR/etc/init.d
+	[ $? -ne 0 ] && return 1
+	echo -n '#!/bin/sh
+
+case "$1" in
+
+	start)
+		# create the configuration directory
+		if [ ! -d /etc/dropbear ]
+		then
+			mkdir /etc/dropbear
+			if [ $? -ne 0 ]
+			then
+				echo "Error: failed to create the configuration directory."
+				exit 1
+			fi
+		fi
+		
+		# generate the keys
+		for i in rsa dss
+		do
+			[ -f /etc/dropbear/dropbear_${i}_host_key ] && continue
+			dropbearkey -t $i -f /etc/dropbear/dropbear_${i}_host_key
+			if [ $? -ne 0 ]
+			then
+				echo "Error: failed to generate the $(echo $i | tr \[:lower:\] \[:upper:\]) key."
+				exit 1
+			fi
+		done
+
+		# start the server
+		dropbear -P /var/run/dropbear.pid
+		exit $?
+		;;
+		
+	stop) 
+		kill $(pidof dropbear)
+		success=$?
+		[ -f /var/run/dropbear.pid ] && rm -f /var/run/dropbear.pid
+		exit $success
+		;;
+		
+	restart)
+		"$0" stop
+		"$0" start
+		;;
+		
+	*)
+		echo "dropbear {start|stop|restart}"
+		exit 1
+		;;
+		
+esac' > $INSTALL_DIR/etc/init.d/dropbear
+	[ $? -ne 0 ] && return 1
+	chmod 644 $INSTALL_DIR/etc/init.d/dropbear
+	[ $? -ne 0 ] && return 1	
+	
+	return 0
+}

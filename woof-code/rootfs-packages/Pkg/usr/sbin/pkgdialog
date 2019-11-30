@@ -1,0 +1,830 @@
+#!/bin/ash
+# sc0ttman, GPL
+# frontend for /usr/sbin/pkg (a command line package manager)
+
+######## setup script ###########
+
+[ "`which pkg`" = "" ] && echo "Pkg not found." && exit 1
+
+# speed up
+USER_LANG=$LANG
+USER_LC_ALL=$LC_ALL
+export LANG=C
+export LC_ALL=C
+
+set -a
+
+#set pkg to not use coloured output, messes up pkgdialog output
+# also set tab completion true, to suppress warnings
+npkg () {
+	PKG_TAB_COMPLETION=true PKG_NO_COLOURS=true pkg --quiet "$@" 2>/dev/null
+}
+
+getpkg () {
+	PKG_TAB_COMPLETION=true	PKG_NO_COLOURS=true pkg --quiet -g $@ && echo "Finished."
+}
+
+installpkg () {
+	PKG_TAB_COMPLETION=true PKG_NO_COLOURS=true pkg -i "$@" && echo "Finished."
+}
+
+uninstallpkg () {
+	PKG_TAB_COMPLETION=true PKG_NO_COLOURS=true pkg -u "$@" && echo "Finished."
+}
+
+# hide first run message if needed
+[ -f $HOME/.pkg/firstrun ] && pkg -v &>/dev/null
+
+# set app name, title, version
+APPNAME="Pkgdialog"
+APPVER="0.6"
+PKG_VER="`NO_COLOURS=true pkg -v`"
+BACKTITLE=""
+SEARCHTYPE='-ss'
+
+export SELF=$(basename $0)
+export TMPFILE=/tmp/pkgdialog_$(whoami)
+export CURDIR="`pwd`"
+export WORKDIR=~/pkg
+mkdir -p "$WORKDIR" 2>/dev/null # probably already exists
+
+# set dialog settings, set default as dialog, allow override
+# if called as Xpkgdialog, use Xdialog
+# then apply fixes if using Xdialog
+[ -z "$DIALOG" ] && DIALOG=dialog
+[ "`basename $0`" = "Xpkgdialog" ] && DIALOG=Xdialog
+[ "$DIALOG" = "Xdialog" ] && BACKTITLE="--title \"$APPTITLE\"" && APPNAME="Xpkgdialog"
+
+APPTITLE="$APPNAME - package manager interface"
+
+# get repo details
+. ${HOME}/.pkg/pkgrc
+[ ! -f "${HOME}/.packages/$REPOFILE" -o ! -f "${HOME}/.pkg/sources" ] && pkg --repo noarch
+
+
+
+####### ####### ####### ####### funcs ####### ####### ####### #######
+
+get_pkg_ext(){
+	[ ! "$1" ] && return
+	case "$1" in
+		*.pet)        echo pet					;;
+		*.deb)        echo deb					;;
+		*.pkg.tar.gz) echo pkg.tar.gz 	;;
+		*.pkg.tar.xz) echo pkg.tar.xz 	;;
+		*.pkg.tgz) 	  echo pkg.tgz			;;
+		*.pkg.txz) 	  echo pkg.txz			;;
+		*.tar.gz)     echo tar.gz				;;
+		*.tar.xz)     echo tar.xz				;;
+		*.tgz)        echo tgz					;;
+		*.txz)        echo txz					;;
+		*.tcz)        echo tcz					;;
+		*.gz)         echo gz						;;
+		*.xz)         echo xz						;;
+		*.rpm)        echo rpm					;;
+		*.tpkg)       echo tpkg					;;
+		*.apk)        echo apk					;;
+	esac
+}
+
+help () {
+	echo '' > /tmp/pkgdialog_${whoami}_box_contents
+	npkg -H >> /tmp/pkgdialog_${whoami}_box_contents
+	$DIALOG $BACKTITLE --title "$APPTITLE" \
+	  --no-shadow --no-collapse \
+	  --exit-label "Return to menu" \
+	  --textbox /tmp/pkgdialog_${whoami}_box_contents 28 80
+	main_menu
+}
+
+build_pkgs () {
+
+	LIST='' NAME='' CAT=''
+
+	# get the right build scripts, depending on the buildtool backend
+	case $BUILDTOOL in
+	  buildpet)	BUILDSCRIPTS="`find /usr/share/buildpet -iname "*.bp"`" ;;
+	  petbuild)	BUILDSCRIPTS="`find /usr/share/petbuild -iname "*.petbuild"`" ;;
+	  sbopkg)	BUILDSCRIPTS=''; sbopkg; sleep 5; $0 ;;
+	  src2pkg)
+		BUILDSCRIPTS=''
+		FILE=$(dialog --stdout --title "Please choose a source package" --fselect $HOME/ 14 48)
+		[ ! -z "$FILE" ] && NEWFILE="/tmp/`basename "$FILE"`"
+		cp "$FILE" "$NEWFILE"
+		[ -f "$NEWFILE" ] || exit 1
+		src2pkg "$NEWFILE"
+		rm -rf "$NEWFILE" 2>/dev/null
+		sleep 5
+		$0 ;;
+	esac
+
+	for BS in $BUILDSCRIPTS; do #loop through all, build list for dialog
+		[ ! -f "$BS" ] && continue;
+		case $BUILDTOOL in
+		  buildpet)	NAME="`basename $BS .bp`"; CAT="`echo "$BS" | cut -f5 -d'/'`" ;;
+		  petbuild)	NAME="`basename $BS .petbuild`"; CAT="`grep -m1 '^CAT=' "$BS"| cut -f2 -d'='`";;
+		  sbopkg)	NAME="`basename "$BS" .SlackBuild`"; CAT='' ;;
+		  src2pkg)	NAME=''; CAT='';;
+		esac
+
+		if [ "$CAT" = "" ];then
+      CAT="build"
+		fi
+
+		[ "$LIST" = "" ] && LIST="$NAME $CAT off" || LIST="$LIST
+$NAME $CAT off"
+	done
+
+	# run dialog
+	if [ "$LIST" != "" ];then
+	  $DIALOG $BACKTITLE \
+	    --title "$APPTITLE" \
+	    --no-shadow \
+	    --no-collapse \
+	    --cancel-label "Back" \
+	    --checklist "
+Choose a package to compile (devx required) using $BUILDTOOL" 22 74 22 \
+`echo "$LIST" | sort` 2>$TMPFILE
+  fi
+
+	# quit if 'Cancel' button used
+	RETVAL=$?
+	if [ $RETVAL -eq 1 -o $RETVAL -eq 255 ];then
+		rm $TMPFILE 2>/dev/null
+		main_menu
+	fi
+	# get chosen buildscript
+	BS="`cat $TMPFILE 2>/dev/null`"
+	[ "$BS" = "" ] && exit 1
+	clear
+	# build it
+	npkg --pkg-build "${BS//\"/}"
+	sleep 5
+	main_menu
+}
+
+
+choose_repo () {
+	# get repo details
+	. ${HOME}/.pkg/pkgrc
+	REPOLIST="`npkg --repo-list`"
+	REPOSFILE='' LIST=''
+	for REPO in $REPOLIST; do #loop through each repo available, build a list for dialog
+		REPOSFILE="`cat ${HOME}/.pkg/sources-all | grep -v "^#" | grep -v "^\$" | grep -m1 "^$REPO|" | cut -f3 -d'|'`"
+		[ "$LIST" = "" ] && LIST="$REPO $REPOSFILE" || LIST="$LIST
+$REPO $REPOSFILE"
+	done
+	# run dialog
+	[ "$LIST" != "" ] && $DIALOG $BACKTITLE --title "$APPTITLE" --no-shadow --no-collapse --cancel-label "Back" --menu "
+Choose a package repository" 22 74 22 \
+$LIST 2>$TMPFILE
+	# quit if 'Cancel' button used
+	RETVAL=$?
+	if [ $RETVAL -eq 1 -o $RETVAL -eq 255 ];then
+		rm $TMPFILE 2>/dev/null
+		main_menu
+	fi
+	set_repos
+}
+
+
+set_repos () {
+	# get repo details
+	. ${HOME}/.pkg/pkgrc
+	REPO2USE="`cat $TMPFILE 2>/dev/null`"
+	EXT=`cat ${HOME}/.pkg/sources-all  		| grep -m1 ^$REPO2USE | cut -f2 -d'|'`
+	FILE=`cat ${HOME}/.pkg/sources-all 		| grep -m1 ^$REPO2USE | cut -f3 -d'|'`
+	URL1=`cat ${HOME}/.pkg/sources-all 		| grep -m1 ^$REPO2USE | cut -f4 -d'|'`
+	URL2=`cat ${HOME}/.pkg/sources-all 		| grep -m1 ^$REPO2USE | cut -f5 -d'|'`
+	URL3=`cat ${HOME}/.pkg/sources-all 		| grep -m1 ^$REPO2USE | cut -f6 -d'|'`
+	URL4=`cat ${HOME}/.pkg/sources-all 		| grep -m1 ^$REPO2USE | cut -f7 -d'|'`
+	FALLBACKS=`cat ${HOME}/.pkg/sources-all 	| grep -m1  $REPO2USE | cut -f8 -d'|'`
+	# run dialog
+	[ "$REPO2USE" != "" ] && $DIALOG $BACKTITLE --title "$APPTITLE" --no-shadow --no-collapse --cancel-label "Back" --yesno "
+Do you want to use the '$REPO2USE' repository?
+
+Package Type: 		$EXT
+Repo file: 		/root/.packages/$FILE
+Total packages: 		`wc -l /root/.packages/$FILE | cut -f1 -d' '`
+
+Fallback order: $FALLBACKS
+" 0 0
+	# quit if 'Cancel' button used
+	RETVAL=$?
+	if [ $RETVAL -eq 1 -o $RETVAL -eq 255 ];then
+		rm $TMPFILE 2>/dev/null
+		main_menu
+	fi
+	if [ "$RETVAL" = 0 ];then
+		clear
+		npkg --repo "$REPO2USE"
+	fi
+	main_menu
+}
+
+
+show_pkgsetup () {
+	echo "These are your current settings:
+
+`npkg --show-config`
+" > /tmp/pkgdialog_${whoami}_box_contents
+	$DIALOG $BACKTITLE --title "$APPTITLE" \
+	  --no-shadow --no-collapse \
+	  --exit-label "Return to menu" \
+	  --textbox /tmp/pkgdialog_${whoami}_box_contents 22 74
+	# quit if 'Cancel' button used
+	RETVAL=$?
+	if [ $RETVAL -eq 1 -o $RETVAL -eq 255 ];then
+		rm $TMPFILE 2>/dev/null
+		main_menu
+	fi
+	main_menu
+}
+
+
+installed_pkgs () {
+	LIST=''
+	# build list for dialog
+	LIST="`pkg -li | while read LINE; do
+echo \"$LINE uninstall off\"
+done`"
+	# run dialog
+	if [ "$LIST" != "" ];then
+	  $DIALOG $BACKTITLE --title "$APPTITLE" \
+	    --no-shadow --no-collapse \
+	    --cancel-label "Back" \
+	    --checklist "
+Choose a package to see its status and optionally uninstall." 22 74 22 \
+$LIST 2>$TMPFILE
+  fi
+	# quit if 'Cancel' button used
+	RETVAL=$?
+	if [ $RETVAL -eq 1 -o $RETVAL -eq 255 ];then
+		rm $TMPFILE 2>/dev/null
+		main_menu
+	fi
+
+	THEPKG="`cat $TMPFILE 2>/dev/null| sed -e 's/\"//g' | tr ' ' '\n'`"
+	echo "$THEPKG" | while read LINE
+	do
+		if [ "$LINE" = "" -o ! -f "${WORKDIR}/${LINE}" ];then
+		  echo "NOT FOUND: ${WORKDIR}/${LINE}"
+		  rm $TMPFILE 2>/dev/null
+		  main_menu
+		fi
+		PKG2UNINSTALL=$LINE
+		uninstall_pkgs
+	done
+}
+
+
+update_pkgs () {
+	LIST=''
+	# build list
+	LIST="`HIDE_INSTALLED=${HIDE_INSTALLED:-true} npkg -li | while read LINE; do
+echo "$LINE" update
+done`"
+	# run dialog
+	[ "$LIST" != "" ] && $DIALOG $BACKTITLE --title "$APPTITLE" --no-shadow --no-collapse --cancel-label "Back" --menu "
+Choose a package to check for updates for that package" 22 74 22 \
+$LIST 2>$TMPFILE
+	# quit if 'Cancel' button used
+	RETVAL=$?
+	if [ $RETVAL -eq 1 -o $RETVAL -eq 255 ];then
+		rm $TMPFILE 2>/dev/null
+		main_menu
+	fi
+	# get chosen pkg
+	PKG2UPDATE="`cat $TMPFILE 2>/dev/null | head -1`"
+
+	[ "$PKG2UPDATE" = '' ] && main_menu
+
+	echo '' > /tmp/pkgdialog_${whoami}_box_contents
+	npkg --pkg-update  "$PKG2UPDATE" >> /tmp/pkgdialog_${whoami}_box_contents &
+	$DIALOG $BACKTITLE --title "$APPTITLE" --no-shadow --no-collapse --exit-label "Return" --tailbox /tmp/pkgdialog_${whoami}_box_contents 19 70
+	main_menu
+}
+
+
+installed_pkgs () {
+	LIST=''
+	# build list
+	LIST="`npkg -li | while read LINE; do
+echo "$LINE uninstall off"
+done`"
+	if [ "$LIST" != "" ];then
+	  $DIALOG $BACKTITLE \
+	    --title "$APPTITLE" \
+	    --no-shadow \
+	    --no-collapse \
+	    --cancel-label "Back" \
+	    --checklist "\nThe packages below are already installed" 22 74 22 $LIST 2>$TMPFILE
+	fi
+	# quit if 'Cancel' button used
+	RETVAL=$?
+	if [ $RETVAL -eq 1 -o $RETVAL -eq 255 ];then
+		continue
+	fi
+
+	THEPKG="`cat $TMPFILE 2>/dev/null| sed -e 's/\"//g' | tr ' ' '\n'`"
+	echo "$THEPKG" | while read LINE
+	do
+		PKG2UNINSTALL=$LINE
+		uninstall_pkgs
+	done
+	rm $TMPFILE 2>/dev/null
+	main_menu
+}
+
+
+downloaded_pkgs () {
+	LIST=''
+	# build list
+	LIST="`npkg -ld | while read LINE; do
+echo "$LINE (un)install off"
+done`"
+	if [ "$LIST" != "" ];then
+	  $DIALOG $BACKTITLE \
+	    --title "$APPTITLE" \
+	    --no-shadow \
+	    --no-collapse \
+	    --cancel-label "Back" \
+	    --checklist "\nPress SPACE to select one or more packages, and ENTER to continue.\nThe packages below are downloaded in $WORKDIR" \
+	    22 74 22 $LIST 2>$TMPFILE
+  fi
+
+	# quit if 'Cancel' button used
+	RETVAL=$?
+	if [ $RETVAL -eq 1 -o $RETVAL -eq 255 ];then
+		continue
+	fi
+	THEPKG="`cat $TMPFILE 2>/dev/null| sed -e 's/\"//g' | tr ' ' '\n'`"
+
+	echo "$THEPKG" | while read LINE
+	do
+		# if pkg installed , offer to remove it, vice versa
+		[ "`npkg --pkg-installed $LINE`" = true ] && PKGACTION=uninstall || PKGACTION=install
+		[ "$LINE" = "" -o ! -f "${WORKDIR}/${LINE}" ] && echo "NOT FOUND: ${WORKDIR}/${LINE}" && rm $TMPFILE 2>/dev/null && main_menu
+		PKG2INSTALL=$LINE; PKG2UNINSTALL=$LINE
+		[ "$PKGACTION" = install   ] && install_pkgs
+		[ "$PKGACTION" = uninstall ] && uninstall_pkgs
+	done
+	rm $TMPFILE 2>/dev/null
+	main_menu
+}
+
+
+combine_pkgs () {
+	#search
+	rm $TMPFILE &>/dev/null
+	$DIALOG $BACKTITLE --title "$APPTITLE" --cancel-label "Back" --inputbox "
+Enter the package name or search term
+" 0 0 2>$TMPFILE
+	# quit if 'Cancel' button used
+	RETVAL=$?
+	if [ $RETVAL -eq 1 -o $RETVAL -eq 255 ];then
+		rm $TMPFILE 2>/dev/null
+		main_menu
+	fi
+
+	SEARCH_TERM="`cat $TMPFILE 2>/dev/null`"
+	[ "$SEARCH_TERM" = '' ] && rm $TMPFILE 2>/dev/null && main_menu
+
+	# find results
+	RESULTS="`HIDE_INSTALLED=${HIDE_INSTALLED:-false} npkg -na "$SEARCH_TERM"`"
+	LINE=''
+
+	for RESPKG in $RESULTS; do # loop through results. build list and  and choose 1
+		[ "$RESPKG" = "" ] && continue
+		[ "`npkg -ld $RESPKG`" != "" ] && RESPKG_ACTION="combine" || RESPKG_ACTION="download-and-combine"
+		[ "$LINE" = "" ] && LINE="$RESPKG $RESPKG_ACTION off" || LINE="$LINE
+$RESPKG $RESPKG_ACTION off"
+	done
+
+	[ "$LINE" != "" ] && $DIALOG $BACKTITLE --title "$APPTITLE" --cancel-label "Back" --checklist "
+Combine a package plus all its dependencies." 19 70 19 \
+	$LINE 2>$TMPFILE
+
+	# quit if 'Cancel' button used
+	RETVAL=$?
+	if [ $RETVAL -eq 1 -o $RETVAL -eq 255 ];then
+		continue
+	fi
+	PKG2COMBINE="`cat $TMPFILE 2>/dev/null | head -1`"
+
+	[ "$PKG2COMBINE" = '' ] && main_menu
+
+	echo "$PKG2COMBINE" | while read LINE
+	do
+		[ "`npkg -ld $LINE`" != "" ] && continue
+		# choose format
+		LIST="pet PET-package
+	sfs Squash-Filesystem"
+		[ "$LIST" != "" ] && $DIALOG $BACKTITLE --title "$APPTITLE" --cancel-label "Back" --menu "
+Choose a final package format for $LINE." 19 70 19 \
+		$LIST 2>$TMPFILE
+		# quit if 'Cancel' button used
+		RETVAL=$?
+		if [ $RETVAL -eq 1 -o $RETVAL -eq 255 ];then
+			continue
+		fi
+		echo '' > /tmp/pkgdialog_${whoami}_box_contents
+		ACTION="`cat $TMPFILE 2>/dev/null`"
+		[ "$RESPKG_ACTION" = "download-and-combine" ] && npkg -d "${LINE//\"/}"
+		# repackage in chosen format
+		case $ACTION in
+		pet) npkg --pkg-combine "${LINE//\"/}" >> /tmp/pkgdialog_${whoami}_box_contents & ;;
+		sfs) npkg --sfs-combine "${LINE//\"/}" >> /tmp/pkgdialog_${whoami}_box_contents & ;;
+		esac
+	done
+
+	$DIALOG $BACKTITLE --title "$APPTITLE" --no-shadow --no-collapse --exit-label "Return" --tailbox /tmp/pkgdialog_${whoami}_box_contents 19 70
+	rm $TMPFILE 2>/dev/null
+	main_menu
+}
+
+
+convert_pkgs () {
+	rm $TMPFILE 2>/dev/null
+	# get repo details
+	. ${HOME}/.pkg/pkgrc
+
+	$DIALOG $BACKTITLE \
+	  --title "$APPTITLE" \
+	  --no-shadow \
+	  --no-collapse \
+	  --cancel-label "Back" \
+	  --inputbox "
+Enter a package name to convert
+" 0 0 2>$TMPFILE
+
+	# quit if 'Cancel' button used
+	RETVAL=$?
+	if [ $RETVAL -eq 1 -o $RETVAL -eq 255 ];then
+		rm $TMPFILE 2>/dev/null
+		main_menu
+	fi
+
+	SEARCH_TERM="`cat $TMPFILE 2>/dev/null`"
+	[ "$SEARCH_TERM" = '' ] && rm $TMPFILE 2>/dev/null && main_menu
+
+	# find results
+	RESULTS=''
+	RESULTS="`HIDE_INSTALLED=${HIDE_INSTALLED:-false} npkg -na "$SEARCH_TERM"`"
+
+	if [ "$RESULTS" = "" ];then
+  	$DIALOG $BACKTITLE \
+  	  --title "$APPTITLE" \
+  	  --no-shadow \
+  	  --no-collapse \
+  	  --cancel-label "Back" \
+  	  --msgbox "\nNo matching packages found, can't convert.\n" 6 55
+	  rm $TMPFILE 2>/dev/null
+	  main_menu
+	fi
+
+	LINE=''
+	for RESPKG in $RESULTS; do # for all pkgs found, build list
+		[ "$RESPKG" = "" ] && continue
+		[ "`npkg -ld $RESPKG`" != "" ] && RESPKG_ACTION="convert" || RESPKG_ACTION="download-and-convert"
+		[ "$LINE" = "" ] && LINE="$RESPKG $RESPKG_ACTION off" || LINE="$LINE
+$RESPKG $RESPKG_ACTION off"
+	done
+
+	# run dialog
+	if [ "$LINE" != "" ];then
+	  $DIALOG $BACKTITLE \
+	    --title "$APPTITLE" \
+	    --no-shadow \
+	    --no-collapse \
+	    --cancel-label "Back" \
+	    --checklist "
+Convert a package from the '$REPONAME' repository." 22 74 22 $LINE 2>$TMPFILE
+  fi
+
+	# quit if 'Cancel' button used
+	RETVAL=$?
+	if [ $RETVAL -eq 1 -o $RETVAL -eq 255 ];then
+		continue
+	fi
+	choose_pkg_format
+	rm $TMPFILE 2>/dev/null
+	main_menu
+}
+
+
+choose_pkg_format () {
+	# get repo details
+	. ${HOME}/.pkg/pkgrc
+
+	PKG2CONVERT="`cat $TMPFILE 2>/dev/null| sed -e 's/\"//g' | tr ' ' '\n'`"
+
+	[ "$PKG2CONVERT" = '' ] && main_menu
+
+	[ "`npkg -ssa $PKG2CONVERT`" = '' ] && main_menu
+
+
+	echo "$PKG2CONVERT" | while read LINE
+	do
+		# build list of formats to convert to
+		LIST="pet PET-package
+	sfs Squash-Filesystem
+	tgz Gzipped-Tar"
+		[ "$LIST" != "" ] && $DIALOG $BACKTITLE --title "$APPTITLE" --no-shadow --no-collapse --cancel-label "Back" --menu "
+Convert $LINE, in '$REPONAME' repo, into another format." 22 74 22 \
+		$LIST 2>$TMPFILE
+
+		# quit if 'Cancel' button used
+		RETVAL=$?
+		if [ $RETVAL -eq 1 -o $RETVAL -eq 255 ];then
+			continue
+		fi
+		ACTION="`cat $TMPFILE 2>/dev/null`"
+
+		echo '' > /tmp/pkgdialog_${whoami}_box_contents
+
+		# convert to chosen format
+		case $ACTION in
+		pet) OPT="--${EX}2pet" ; npkg $OPT $LINE >> /tmp/pkgdialog_${whoami}_box_contents &;;
+		sfs) npkg --pet2sfs $LINE >> /tmp/pkgdialog_${whoami}_box_contents &;;
+		tgz) npkg --pet2tgz $LINE >> /tmp/pkgdialog_${whoami}_box_contents &;;
+		esac
+	done
+
+	$DIALOG $BACKTITLE --title "$APPTITLE" --no-shadow --no-collapse --exit-label "Return" --tailbox /tmp/pkgdialog_${whoami}_box_contents 19 70
+	rm $TMPFILE 2>/dev/null
+	main_menu
+}
+
+
+install_pkgs () {
+	#show confimation before install
+	#PKG2INSTALL="`cat $TMPFILE 2>/dev/null`"
+
+	[ "$$PKG2UNINSTALL" = '' ] && return
+
+	$DIALOG $BACKTITLE --title "$APPTITLE" \
+	  --no-shadow \
+	  --no-collapse \
+	  --cancel-label "Back" \
+	  --yesno "
+Do you want to install '$PKG2INSTALL'?
+
+`npkg --pkg-status $PKG2INSTALL| sed -s 's/Status:	/Status:/'| fold -w 80 -s`
+
+" 0 0
+
+	# quit if 'Cancel' button used
+	RETVAL=$?; #[ "$RETVAL" = 1 ] && rm $TMPFILE 2>/dev/null && main_menu
+
+	if [ "$RETVAL" = 0 ];then #do it
+		echo '' > /tmp/pkgdialog_${whoami}_box_contents
+		getpkg "${PKG2INSTALL//.$EX/}".$EX >> /tmp/pkgdialog_${whoami}_box_contents &
+
+		$DIALOG $BACKTITLE \
+		  --title "$APPTITLE" \
+		  --no-shadow \
+		  --no-collapse \
+		  --exit-label "Return" \
+		  --tailbox /tmp/pkgdialog_${whoami}_box_contents 19 70
+	fi
+}
+
+
+uninstall_pkgs () {
+	#show confimation before uninstall
+	#PKG2UNINSTALL="`cat $TMPFILE 2>/dev/null`"
+
+	[ "$PKG2UNINSTALL" = '' ] && return
+
+	$DIALOG $BACKTITLE \
+	  --title "$APPTITLE" \
+	  --no-shadow \
+	  --no-collapse \
+	  --cancel-label "Back" \
+	  --yesno "
+Do you want to uninstall '$PKG2UNINSTALL'?
+
+`npkg --pkg-status $PKG2UNINSTALL`
+
+" 0 0
+
+	# quit if 'Cancel' button used
+	RETVAL=$?; #[ "$RETVAL" = 1 ] && rm $TMPFILE 2>/dev/null && main_menu
+
+	if [ "$RETVAL" = 0 ];then #do it
+		echo '' > /tmp/pkgdialog_${whoami}_box_contents
+		uninstallpkg "$PKG2UNINSTALL" >> /tmp/pkgdialog_${whoami}_box_contents &
+		$DIALOG $BACKTITLE \
+		  --title "$APPTITLE" \
+		  --no-shadow \
+		  --no-collapse \
+		  --exit-label "Return" \
+		  --tailbox /tmp/pkgdialog_${whoami}_box_contents 19 70
+	fi
+}
+
+
+search_pkgs () {
+
+	# just in case
+	[ -z "$SEARCHTYPE" ] && SEARCHTYPE="-ss"
+
+	# get repo details
+	. ${HOME}/.pkg/pkgrc
+
+	# if no pkg given
+	if [ "$1" = "" ];then
+		RETURN=main_menu
+
+		# create a search box
+		$DIALOG $BACKTITLE --title "  $APPTITLE  " \
+		  --no-shadow --no-collapse \
+		  --cancel-label "Back" \
+		  --inputbox "\nEnter the package name or search term\n" 0 0 2>$TMPFILE
+
+		# quit if 'Cancel' button used
+		RETVAL=$?
+		if [ $RETVAL -eq 1 -o $RETVAL -eq 255 ];then
+		  rm $TMPFILE 2>/dev/null
+		  $RETURN
+		fi
+
+		# get search term given
+		SEARCH_TERM="`cat $TMPFILE 2>/dev/null`"
+
+		if [ "$SEARCH_TERM" = "" ];then
+		  $RETURN
+		fi
+
+		# create header text
+		[ "$SEARCHTYPE" = "-ss"  ] && SUBTITLE="Press SPACE to select one or more packages, and ENTER to continue.\nPackages matching '$SEARCH_TERM' in the '$REPONAME' repo:"
+		[ "$SEARCHTYPE" = "-ssa" ] && SUBTITLE="Press SPACE to select one or more packages, and ENTER to continue.\nPackages matching '$SEARCH_TERM' in all repos:"
+
+	else # pkg as given
+		RETURN=browse_pkgs
+		SEARCH_TERM="$1"
+		SUBTITLE="Press SPACE to select one or more packages, and ENTER to continue."
+	fi
+
+	[ "$SEARCH_TERM" = '' ] && $RETURN
+	[ "$SEARCHTYPE" = '' ] && $RETURN
+
+	# get search results
+	RESULTS="`HIDE_INSTALLED=true npkg $SEARCHTYPE $SEARCH_TERM 2>/dev/null`"
+
+  # return to main menu if no results found
+  if [ "$RESULTS" = "" ];then
+    $DIALOG $BACKTITLE \
+      --title "$APPTITLE" \
+      --no-shadow \
+      --no-collapse \
+      --exit-label "Return to menu" \
+      --msgbox "\nNo packages found matching '$SEARCH_TERM'\n" \
+      7 55
+      7 55
+      $RETURN
+  fi
+
+	LINE="`echo "$RESULTS" | sed 's/$/ (un)install off/g'`"
+
+	# run dialog
+	if [ "$LINE" != "" ];then
+	  $DIALOG $BACKTITLE --title "$APPTITLE" \
+	    --no-shadow --no-collapse \
+	    --cancel-label "Back" --checklist "\n$SUBTITLE" 22 74 22 \
+	    $LINE 2>$TMPFILE
+	fi
+
+	# quit if 'Cancel' button used
+	RETVAL=$?
+	if [ $RETVAL -eq 1 -o $RETVAL -eq 255 ];then
+		rm $TMPFILE 2>/dev/null
+		$RETURN
+	fi
+
+	# get pkg to install .. remove quotes and / chars, put pkgs on newlines
+	PKG2INSTALL="`cat $TMPFILE 2>/dev/null | sed -e 's/\"//g' -e 's/\//\n/g'| tr ' ' '\n'`"
+
+	echo "$PKG2INSTALL" | while read LINE
+	do
+		[ "$LINE" = "" ] && continue
+		# install/uninstall it
+		PKG2INSTALL=$LINE
+		PKG2UNINSTALL=$LINE
+		[ "`npkg --pkg-installed ${LINE}`" = false ] && install_pkgs || uninstall_pkgs
+	done
+
+	main_menu
+
+}
+
+
+browse_pkgs () {
+	# get repo details
+	. ${HOME}/.pkg/pkgrc
+
+	$DIALOG $BACKTITLE --title "  $APPTITLE  " --no-shadow --no-collapse --cancel-label "Back" --menu "
+Choose a package category" 22 74 22 \
+"Desktop" "window managers, graphics drivers, etc" \
+"System" "system tools and utilities" \
+"Setup" "system setup and configuration" \
+"Utility" "misc utils and small programs" \
+"Filesystem" "manage your drives, files and folders" \
+"Graphic" "drawing, painting and editing images" \
+"Document" "office programs, word processors" \
+"Calculate" "calculators, spreadsheets, databases" \
+"Personal" "manage data, finances, contacts, more" \
+"Network" "network connections and management" \
+"Internet" "browsers, torrent clients, messengers etc" \
+"Multimedia" "audio/video players, downloaders, editors" \
+"Fun" "games, puzzles, board games, shooters, more" \
+"BuildingBlock" "important libraries for your system" 2>$TMPFILE
+
+	RETVAL=$?;
+	if [ $RETVAL -eq 1 -o $RETVAL -eq 255 ];then
+		rm $TMPFILE 2>/dev/null
+		main_menu
+	fi
+	[ -z ${TMPFILE} ] && rm $TMPFILE 2>/dev/null && main_menu
+
+	SEARCHTYPE="${SEARCHTYPE}" search_pkgs "`cat ${TMPFILE}`"
+
+}
+
+
+main_menu () {
+	# get repo details
+	. ${HOME}/.pkg/pkgrc
+	#main menu
+	$DIALOG $BACKTITLE --title "$APPTITLE" --no-shadow --no-collapse --cancel-label "Exit" --menu "
+Choose an action for the '$REPONAME' repository." 22 74 22 \
+"Search" "Search the '$REPONAME' repository" \
+"Search All" "Search all available repositories" \
+"Browse" "Browse the '$REPONAME' repo by category" \
+"Build" "Compile and build a package from source" \
+"Downloaded" "List downloaded packages" \
+"Installed" "List installed packages" \
+"Update" "View potential updates for installed packages" \
+"Combine" "Combine a package with all its dependencies" \
+"Convert" "Convert a package into another format" \
+"Repo" "Choose a different package repository" \
+"Settings" "Show the current $PKG_VER config settings" \
+"Help" "Read the $PKG_VER help documentation" 2>$TMPFILE
+	# quit if 'Cancel' button used
+	RETVAL=$?
+	if [ $RETVAL -eq 1 -o $RETVAL -eq 255 ];then
+		rm $TMPFILE 2>/dev/null
+		exit 1
+	fi
+	case "`cat $TMPFILE 2>/dev/null`" in
+		Search)  	SEARCHTYPE='-ss'; search_pkgs ;;
+		Search*All) SEARCHTYPE='-ssa'; search_pkgs ;;
+		Browse)  	SEARCHTYPE='-ss'; browse_pkgs ;;
+		Build) 		build_pkgs ;;
+		Downloaded) downloaded_pkgs ;;
+		Installed) 	installed_pkgs ;;
+		Update) 	update_pkgs ;;
+		Combine) 	combine_pkgs ;;
+		Convert) 	convert_pkgs ;;
+		Repo) 		choose_repo ;;
+		Settings) 	show_pkgsetup ;;
+		Help) 		help ;;
+		Exit)  		rm $TMPFILE 2>/dev/null; clear; exit 0 ;;
+	esac
+}
+
+
+########### file input handling #############
+
+# if user passed a file to pkgdialog
+if [ -f "$1" ];then
+
+	# get extension
+	ext=`get_pkg_ext "$1"`
+
+	# check if its an installed package
+	pkg_installed="`pkg -li $(basename "$1" .${ext:-pet})`"
+
+	# if not yet installed
+	if [ "$pkg_installed" = '' ];then
+		# install it
+		PKG2INSTALL="$1"
+		install_pkgs
+
+	else # pkg already installed, offer to uninstall it
+		PKG2UNINSTALL="$1"
+		uninstall_pkgs
+	fi
+else
+	main_menu
+fi
+
+# reset lang options as we found them
+LANG=$USER_LANG
+LC_ALL=$USER_LC_ALL
+
+rm $TMPFILE 2>/dev/null
+
+clear
+exit 0
