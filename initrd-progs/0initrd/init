@@ -665,6 +665,36 @@ umount_unneeded() {
  done
 }
 
+check_resize_part() { #must be fast, no partitions can be mounted, can't work out pupmode at this stage
+ DEVICE=/dev/mmcblk0 # sd card only for now
+ grep "$DEVICE" /tmp/probedisk.log | grep -q 'card' || return
+ FS=`tail -n1 /tmp/probepart.log | cut -f 2 -d '|'`
+ case $FS in
+  ext*|f2fs)
+  echo "$FS : checking if it needs resizing"
+  ;;
+  *)
+  return
+  ;;
+ esac
+ DEVICE_SIZE=`fdisk -l $DEVICE | grep -o 'GB,.*bytes' | cut -f 2 -d ' '`
+ DEVICE_SIZE=$(($DEVICE_SIZE / 1024)) # kb
+ ACT_SIZE=0
+ grep 'mmcblk0p' /proc/partitions | while read EACH_PART ; do
+  PART_SIZE=`echo $EACH_PART | rev | cut -f 2 -d ' ' |rev` # kb
+  ACT_SIZE=$(($PART_SIZE + $ACT_SIZE ))
+  echo -n $ACT_SIZE > /tmp/actualsizekb
+ done
+ USED_SIZE=`cat /tmp/actualsizekb`
+ DIFF_SIZE=$(($DEVICE_SIZE - $USED_SIZE))
+ if [ $DIFF_SIZE -lt 10000 ] ; then # ~10 MB, can do it later
+  return
+ else
+  /sbin/resize_part $FS
+  check_status $?
+ fi
+}
+
 fatal_error() {
 # "$1" - message - ex: puppy_tahr_6.0.5.sfs not found
 # "$2" - pre-status-message - ex: Finding puppy
@@ -773,6 +803,7 @@ SAVE_BP_DIR=""
 [ -f /${Y_DEF_FN} ] && { YDRV="rootfs,rootfs,/$Y_DEF_FN"; Y_DEF_FN=""; }
 
 get_part_info
+check_resize_part
 grep -v '^sr' /tmp/ALLDRVS0 > /tmp/ATADRIVES0
 ATAOPTICALDRIVES="$(grep '^sr' /tmp/ALLDRVS0 | tr '\n' ' ')"
 
