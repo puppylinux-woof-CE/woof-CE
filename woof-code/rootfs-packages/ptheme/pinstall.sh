@@ -179,9 +179,9 @@ cp -f "usr/share/ptheme/gtkdialog/$PTHEME_GTKDIALOG" root/.config/ptheme/gtkdial
 echo "gtkdialog: ${PTHEME_GTKDIALOG}"
 
 #### update JWMRC
-JWMRCVER=$(grep JWMRC_VERSION etc/xdg/templates/_root_.jwmrc | cut -f 4 -d '_' | cut -f 1 -d ' ')
-UPDATEVER=$(grep JWMRC_VERSION etc/rc.d/rc.update | cut -f 3 -d '_' | cut -f 1 -d ' ')
-[ "$JWMRCVER" != "$UPDATEVER" ] && sed -i "s/$UPDATEVER/$JWMRCVER/" etc/rc.d/rc.update
+#JWMRCVER=$(grep JWMRC_VERSION etc/xdg/templates/_root_.jwmrc | cut -f 4 -d '_' | cut -f 1 -d ' ')
+#UPDATEVER=$(grep JWMRC_VERSION etc/rc.d/rc.update | cut -f 3 -d '_' | cut -f 1 -d ' ')
+#[ "$JWMRCVER" != "$UPDATEVER" ] && sed -i "s/$UPDATEVER/$JWMRCVER/" etc/rc.d/rc.update
 
 # pt_buntoo
 [ -f etc/DISTRO_SPECS ] && . etc/DISTRO_SPECS
