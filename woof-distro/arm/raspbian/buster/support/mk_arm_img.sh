@@ -49,22 +49,25 @@ _mk_img() {
 _parted_img() {
 	IM=$1
 	echo "partitioning $IM"
-	echo "$fatSIZE ."
 	# make partition table
+	echo 'partition table'
 	parted -s "$IM" mklabel msdos || return 1
 	# make vfat partition 
+	echo 'fat32 partition'
 	parted -s "$IM" mkpart primary fat32 2048s ${fatSIZE}MiB || return 1
 	sync
 	# make swap partition 
 	NEXTPART=$((1 + $fatSIZE))
 	if [ "$SWAP" = 'y' ] ; then  
+		echo 'swap partition'
 		SWAPART=$((1 + $fatSIZE + $swapSIZE))
 		parted -s "$IM" mkpart primary linux-swap $((1 + $fatSIZE))MiB ${SWAPART}MiB || return 1
 		sync
 		NEXTPART=$SWAPART
 	fi
 	# make the other partition
-	parted -s "$IM" mkpart primary ext2 ${SWAPART}MiB -- -1 || return 1
+	echo 'linux partition'
+	parted -s "$IM" mkpart primary ext2 ${NEXTPART}MiB -- -1 || return 1
 	sync
 	return 0
 }
