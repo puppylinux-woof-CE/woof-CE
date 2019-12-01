@@ -53,18 +53,18 @@ _parted_img() {
 	# make partition table
 	parted -s "$IM" mklabel msdos || return 1
 	# make vfat partition 
-	parted -s "$IM" mkpart primary fat32 2048s $fatSIZE || return 1
+	parted -s "$IM" mkpart primary fat32 2048s ${fatSIZE}MiB || return 1
 	sync
 	# make swap partition 
 	NEXTPART=$((1 + $fatSIZE))
 	if [ "$SWAP" = 'y' ] ; then  
 		SWAPART=$((1 + $fatSIZE + $swapSIZE))
-		parted -s "$IM" mkpart primary linux-swap $((1 + $fatSIZE)) $SWAPART || return 1
+		parted -s "$IM" mkpart primary linux-swap $((1 + $fatSIZE))MiB ${SWAPART}MiB || return 1
 		sync
 		NEXTPART=$SWAPART
 	fi
 	# make the other partition
-	parted -s "$IM" mkpart primary ext2 $SWAPART -- -1 || return 1
+	parted -s "$IM" mkpart primary ext2 ${SWAPART}MiB -- -1 || return 1
 	sync
 	return 0
 }
