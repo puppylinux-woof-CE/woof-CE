@@ -539,7 +539,11 @@ cp -a sources/${aufs_git_dir} aufs_sources
 log_msg "Extracting the kernel sources"
 if [ "$USE_GIT_KERNEL" ] ; then
 	rm -rf linux-${kernel_version}
-	cp -a sources/${kernel_git_dir} linux-${kernel_version}
+	mkdir linux-${kernel_version}
+	for file in `ls -a sources/${kernel_git_dir} | grep -vE '^\.$|^\.\.$|^\.git$'` # don't copy .git
+	do
+		cp -a sources/${kernel_git_dir}/$file linux-${kernel_version}/
+	done
 elif [ "$USE_STABLE_KERNEL" ] ; then
 	rm -rf linux-${kernel_version}
 	cp -a sources/${STABLE_KERNEL_DIR} linux-${kernel_version}
