@@ -174,15 +174,17 @@ esac
 
 if [ "$USE_GIT_KERNEL" ] ; then
 	kernel_git_dir="`expr match "$USE_GIT_KERNEL" '.*/\([^/]*/[^/]*\)' | sed 's\/\_\'`"_git
-	# !IMPORTANT - /tmp/checkout contains the sha commit number and the approx number of commits since commited
-	# delimited by the '|' character
-	# eg: 6d8bf28fa4b1ca0a35c0cd1dcb267fb216daf720|1000
-	[ -e /tmp/checkout ] && opt1=`cat /tmp/checkout | cut -d '|' -f1` opt2=`cat /tmp/checkout | cut -d '|' -f2`
-	get_git_kernel $opt1 $opt2 # from funcs.sh
+	get_git_kernel # from funcs.sh
 	kernel_version="`print_git_kernel_version`" # from funcs.sh
 
 	if [ "$USE_GIT_KERNEL_CONFIG" ]; then
 		configure_git_kernel # from funcs.sh
+	fi
+elif [ "$USE_STABLE_KERNEL" ]; then
+	get_stable_kernel # from funcs.sh
+	kernel_version="`print_git_kernel_version $STABLE_KERNEL_DIR`" # from funcs.sh
+	if [ "$USE_GIT_KERNEL_CONFIG" ]; then
+		configure_git_kernel $STABLE_KERNEL_DIR # from funcs.sh
 	fi
 fi
 
@@ -323,6 +325,8 @@ elif [ "$USE_MAINLINE_KERNEL_PLUS_PATCH" = "yes" ] ; then
 	download_mainline_kernel_plus_patch # from funcs.sh
 	DOWNLOAD_KERNEL=0
 elif [ "$USE_GIT_KERNEL" ] ; then
+	DOWNLOAD_KERNEL=0
+elif [ "$USE_STABLE_KERNEL" ] ; then
 	DOWNLOAD_KERNEL=0
 else
 	DOWNLOAD_KERNEL=1
@@ -536,6 +540,9 @@ log_msg "Extracting the kernel sources"
 if [ "$USE_GIT_KERNEL" ] ; then
 	rm -rf linux-${kernel_version}
 	cp -a sources/${kernel_git_dir} linux-${kernel_version}
+elif [ "$USE_STABLE_KERNEL" ] ; then
+	rm -rf linux-${kernel_version}
+	cp -a sources/${STABLE_KERNEL_DIR} linux-${kernel_version}
 elif [ "$USE_MAINLINE_KERNEL_PLUS_PATCH" = "yes" ] ; then
 	rm -rf linux-${kernel_version}
 	mkdir linux-${kernel_version}

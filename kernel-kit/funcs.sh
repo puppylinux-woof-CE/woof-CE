@@ -213,59 +213,53 @@ function get_git_kernel() {
 
 	[ "$USE_GIT_KERNEL" == '' ] && exit_error "Error: USE_GIT_KERNEL must be specified before calling get_git_kernel()"
 
-	if [ ! $1 -a ! $2 ] ; then
-		if [ ! -f /tmp/${kernel_git_dir}_done -o ! -d sources/${kernel_git_dir}/.git ] ; then
-			mkdir -p sources/kernels
-			cd sources
-			if [ ! -d ${kernel_git_dir}/.git ] ; then
-				git clone --depth=1 ${USE_GIT_KERNEL} ${kernel_git_dir}
-				[ $? -ne 0 ] && exit_error "Error: failed to download the kernel sources."
-				touch /tmp/${kernel_git_dir}_done
+	log_msg "building latest"
+	if [ ! -f /tmp/${kernel_git_dir}_done -o ! -d sources/${kernel_git_dir}/.git ] ; then
+		mkdir -p sources/kernels
+		cd sources
+		if [ ! -d ${kernel_git_dir}/.git ] ; then
+			git clone --depth=1 ${USE_GIT_KERNEL} ${kernel_git_dir}
+			[ $? -ne 0 ] && exit_error "Error: failed to download the kernel sources."
+			touch /tmp/${kernel_git_dir}_done
+		else
+			cd ${kernel_git_dir}
+			echo "Updating ${kernel_git_dir}"
+			git checkout master
+			git checkout rpi-4.19.y
+			git fetch --depth=1 origin
+			if [ $? -ne 0 ] ; then
+				log_msg "WARNING: 'git fetch --depth=1 origin' command failed" && sleep 5
 			else
-				cd ${kernel_git_dir}
-				echo "Updating ${kernel_git_dir}"
-				git fetch --depth=1 origin
-				if [ $? -ne 0 ] ; then
-					log_msg "WARNING: 'git fetch --depth=1 origin' command failed" && sleep 5
-				else
-					git checkout origin >/dev/null 2>&1
-					[ $? -ne 0 ] && exit_error "Error: unable to checkout ${kernel_git_dir}"
-	
-					touch /tmp/${kernel_git_dir}_done
-				fi
-			fi
-			cd $MWD
-		fi
-	else # build from a certain commit defined in /tmp/checkout
-		if [ ! -f /tmp/${kernel_git_dir}_done -o ! -d sources/${kernel_git_dir}/.git ] ; then
-			mkdir -p sources/kernels
-			cd sources
-			if [ ! -d ${kernel_git_dir}/.git ] ; then
-				git clone --depth=$2 ${USE_GIT_KERNEL} ${kernel_git_dir}
-				[ $? -ne 0 ] && exit_error "Error: failed to download the kernel sources."
-				git checkout $1
+				git checkout origin >/dev/null 2>&1
+				[ $? -ne 0 ] && exit_error "Error: unable to checkout ${kernel_git_dir}"
+
 				touch /tmp/${kernel_git_dir}_done
-			else
-				cd ${kernel_git_dir}
-				echo "Updating ${kernel_git_dir}"
-				git fetch --depth=$2 origin
-				if [ $? -ne 0 ] ; then
-					log_msg "WARNING: 'git fetch --depth=$2 origin' command failed" && sleep 5
-				else
-					git checkout $1 >/dev/null 2>&1
-					[ $? -ne 0 ] && exit_error "Error: unable to checkout ${kernel_git_dir} $1"
-	
-					touch /tmp/${kernel_git_dir}_done
-				fi
 			fi
-			cd $MWD
 		fi
+		cd $MWD
+
 	fi
 
 }
 
+function get_stable_kernel() {
+	
+	[ "$USE_STABLE_KERNEL" == '' ] && exit_error "Error: USE_STABLE_KERNEL must be specified before calling get_stable_kernel()"
+	log_msg "building stable"
+	GITHUB=$USE_STABLE_KERNEL
+	STABLE_URL=`curl ${GITHUB}/raspberrypi/linux/releases | grep 'tar\.gz' | head -n1 | grep -o 'raspberrypi\/.*gz'`
+	STABLE_KERNEL_PKG=${STABLE_URL##*/}
+	STABLE_KERNEL_DIR=linux-${STABLE_KERNEL_PKG/\.tar.*/}
+	mkdir -p sources/kernels
+	cd sources
+	[ -e "$STABLE_KERNEL_PKG" ] || wget ${GITHUB}/${STABLE_URL}
+	[ -e "$STABLE_KERNEL_DIR" ] || tar xf $STABLE_KERNEL_PKG
+	cd $MWD
+}
+
 function print_git_kernel_version() {
 
+	[ -n "$1" ] && kernel_git_dir="$1" # hack
 	cd sources/${kernel_git_dir}
 
 	makefile_version="`grep '^VERSION = ' Makefile`"
@@ -286,6 +280,7 @@ function configure_git_kernel() {
 # arch/arm/configs/bcmrpi_defconfig and
 # arch/arm/configs/bcm2709_defconfig
 
+	[ -n "$1" ] && kernel_git_dir="$1" # hack
 	[ "$USE_GIT_KERNEL_CONFIG" == '' ] && exit_error "Error: USE_GIT_KERNEL_CONFIG must be specified before calling configure_git_kernel()"
 
 	echo "Using USE_GIT_KERNEL_CONFIG"
