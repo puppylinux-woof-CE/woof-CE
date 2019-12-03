@@ -101,8 +101,7 @@ touch /tmp/petget_proc/install_pets_quietly
 . /root/.packages/DISTRO_PKGS_SPECS
 . /root/.packages/PKGS_MANAGEMENT #has PKG_REPOS_ENABLED, PKG_NAME_ALIASES
 
-
-
+RXVT="rxvt -bg yellow -title \"$(gettext 'Databases Update')\"  -e "
 
                ##################################################
                ##                                              ##
@@ -110,6 +109,13 @@ touch /tmp/petget_proc/install_pets_quietly
                ##                                              ##
                ##################################################
 
+restart_ppm() {
+
+for I in `grep -E "PPM_GUI|pkg_chooser|/usr/local/bin/ppm" <<< "$(ps -eo pid,command)" | awk '{print $1}' `; do kill -9 $I; done
+sleep 0.5
+/usr/local/petget/pkg_chooser.sh &
+	
+}
 
 pkg_info() {
 	# Exit if called spuriously
@@ -430,6 +436,13 @@ S='<window title="'$(gettext 'Package Manager v')''${VERSION}'" width-request="'
           '"`/usr/lib/gtkdialog/xml_button-icon help`"'
           <action>defaulthtmlviewer file://'${HELPFILE}' & </action>
         </button>
+	
+	<button tooltip-text="'$(gettext 'Update package database')'" space-expand="false" space-fill="false">
+          '"`/usr/lib/gtkdialog/xml_button-icon refresh`"'
+          <action>'${RXVT}' /usr/local/petget/0setup</action>
+          <action>restart_ppm</action>
+        </button>
+	
         <button tooltip-text="'$(gettext 'Configure package manager')'" space-expand="false" space-fill="false">
           '"`/usr/lib/gtkdialog/xml_button-icon preferences`"'
           <action>/usr/local/petget/configure.sh</action>
