@@ -153,11 +153,13 @@ if [ ! -f /tmp/petget_proc/install_quietly ] ; then
  <hbox>
   '${DEPBUTTON}'
   <button>
+   <input file stock=\"gtk-go-down\"></input>
    <label>'$(gettext 'Install')' PKG '${ONLYMSG}'</label>
    <action>echo "'${TREE1}'" > /tmp/petget_proc/petget_installpreview_pkgname</action>
    <action type="exit">BUTTON_INSTALL</action>
   </button>
   <button>
+   <input file stock=\"gtk-go-down\"></input>
    <label>'$(gettext 'Download-only')'</label>
    <action type="exit">BUTTON_PKGS_DOWNLOADONLY</action>
   </button>
@@ -289,6 +291,7 @@ if [ ! -f /tmp/petget_proc/install_quietly ]; then
  <hbox>
    <text space-expand=\"true\" space-fill=\"true\"><label>Number of missing depedencies: $DEP_CNT</label></text>
    <button space-expand=\"true\" space-fill=\"false\">
+    <input file stock=\"gtk-dialog-info\"></input>
     <label>$(gettext 'View hierarchy of dependencies')</label>
     <action>/usr/local/bin/defaulttextviewer /tmp/petget_proc/petget_deps_visualtreelog & </action>
    </button>
@@ -305,10 +308,12 @@ if [ ! -f /tmp/petget_proc/install_quietly ]; then
  
  <hbox space-expand=\"true\" space-fill=\"true\">
   <button>
+   <input file stock=\"gtk-go-down\"></input>
    <label>$(gettext 'DOWNLOAD ONLY')</label>
    <action type=\"exit\">BUTTON_PKGS_DOWNLOADONLY</action>
   </button>
   <button>
+   <input file stock=\"gtk-go-down\"></input>
    <label>$(gettext 'INSTALL selected pkgs')</label>
    <action type=\"exit\">BUTTON_PKGS_INSTALL</action>
   </button>
