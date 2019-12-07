@@ -108,7 +108,7 @@ EOF
    <hbox space-expand="false" space-fill="false">
      <button>
        <label>'$(gettext 'View details')'</label>
-       '"`/usr/lib/gtkdialog/xml_button-icon document_viewer`"'
+       <input file stock="gtk-dialog-info"></input>
        <action>defaulttextviewer /tmp/petget_proc/overall_remove_report &</action>
      </button>
      <button ok></button>
