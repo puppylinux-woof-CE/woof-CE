@@ -193,7 +193,7 @@ $(gettext 'These needed libraries exist but are not in the library search path (
   #101013 improvement suggested by L18L...
   CURRLOCALES="`locale -a | grep _ | cut -d '_' -f 1`"
   LISTLOCALES="`echo -e -n "en\n${CURRLOCALES}" | sort -u | tr -s '\n' | tr '\n' ',' | sed -e 's%,$%%'`"
-  export PPM_TRIM_DIALOG="<window title=\"$(gettext 'Puppy Package Manager')\" icon-name=\"gtk-about\">
+  export PPM_TRIM_DIALOG="<window title=\"$(gettext 'Puppy Package Manager')\" icon-name=\"gtk-about\" resizable=\"false\">
   <vbox>
    <pixmap><input file>/usr/share/pixmaps/puppy/dialog-question.svg</input></pixmap>
    <text><label>$(gettext "You have chosen to 'trim the fat' of these installed packages:")</label></text>
@@ -346,7 +346,7 @@ check_total_size () {
  fi
  if [ "$NEEDEDK" -ge "$AVAILABLE" -o "$NEEDEDKDOWN" -ge "$SAVEAVAILABLE" ]; then
   export PPM_error='
-  <window title="PPM - '$(gettext 'Space needed')'" icon-name="gtk-no">
+  <window title="PPM - '$(gettext 'Space needed')'" icon-name="gtk-no" resizable="false">
   <vbox space-expand="true" space-fill="true">
     <frame '$(gettext 'Error')'>
       <hbox homogeneous="true">
