@@ -130,7 +130,7 @@ $(gettext 'These needed libraries exist but are not in the library search path (
  fi
 
  if [ -s /tmp/petget_proc/petget-installed-pkgs-log ];then
-  BUTTON_TRIM="<button><label>$(gettext 'Trim the fat')</label><action type=\"exit\">BUTTON_TRIM_FAT</action></button>"
+  BUTTON_TRIM="<button><input file stock=\"gtk-execute\"></input><label>$(gettext 'Trim the fat')</label><action type=\"exit\">BUTTON_TRIM_FAT</action></button>"
  fi
 
  export REPORT_DIALOG='
@@ -175,7 +175,7 @@ $(gettext 'These needed libraries exist but are not in the library search path (
      <button ok></button>
      <button>
       <label>'$(gettext 'View details')'</label>
-      <input file stock=\"gtk-dialog-info\"></input>
+      <input file stock="gtk-dialog-info"></input>
       <action>defaulttextviewer /tmp/petget_proc/overall_install_report &</action>
      </button>
      '${BUTTON_TRIM}'
