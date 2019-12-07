@@ -54,6 +54,10 @@ Categories=WebBrowser;' > /usr/share/applications/google-chrome.desktop
    fi
   fi
  ;;
+ chromium-browser|xchat*|pidgin*|hexchat*)
+  DT_FILE=`find /usr/share/applications/ -type f -name "${INSTALLEDPKG}*.desktop"`
+  for e in $DT_FILE ; do sed -i 's/Exec=/Exec=run-as-spot /g' $e ; done
+ ;;
  jwm_theme_*)
   #120924 DejaVu font no good for non-Latin languages...
   #see also langpack_* pinstall.sh (template is in /usr/share/doc/langpack-template/pinstall.sh, read by momanager).
