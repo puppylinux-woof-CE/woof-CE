@@ -175,7 +175,7 @@ $(gettext 'These needed libraries exist but are not in the library search path (
      <button ok></button>
      <button>
       <label>'$(gettext 'View details')'</label>
-      '"`/usr/lib/gtkdialog/xml_button-icon document_viewer`"'
+      <input file stock=\"gtk-dialog-info\"></input>
       <action>defaulttextviewer /tmp/petget_proc/overall_install_report &</action>
      </button>
      '${BUTTON_TRIM}'
