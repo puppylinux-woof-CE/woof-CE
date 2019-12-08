@@ -133,10 +133,12 @@ do
  
  <hbox>
   <button>
+   <input file stock=\"gtk-execute\"></input>
    <label>$(gettext 'Test URLs')</label>
    <action>/usr/local/petget/testurls.sh</action>
   </button>
   <button>
+   <input file stock=\"gtk-go-down\"></input>
    <label>$(gettext 'Download packages')</label>
    <action type=\"exit\">BUTTON_PKGS_DOWNLOAD</action>
   </button>
