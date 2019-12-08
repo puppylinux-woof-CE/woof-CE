@@ -130,7 +130,7 @@ $(gettext 'These needed libraries exist but are not in the library search path (
  fi
 
  if [ -s /tmp/petget_proc/petget-installed-pkgs-log ];then
-  BUTTON_TRIM="<button><label>$(gettext 'Trim the fat')</label><action type=\"exit\">BUTTON_TRIM_FAT</action></button>"
+  BUTTON_TRIM="<button><input file stock=\"gtk-execute\"></input><label>$(gettext 'Trim the fat')</label><action type=\"exit\">BUTTON_TRIM_FAT</action></button>"
  fi
 
  export REPORT_DIALOG='
@@ -175,7 +175,7 @@ $(gettext 'These needed libraries exist but are not in the library search path (
      <button ok></button>
      <button>
       <label>'$(gettext 'View details')'</label>
-      '"`/usr/lib/gtkdialog/xml_button-icon document_viewer`"'
+      <input file stock="gtk-dialog-info"></input>
       <action>defaulttextviewer /tmp/petget_proc/overall_install_report &</action>
      </button>
      '${BUTTON_TRIM}'
@@ -193,7 +193,7 @@ $(gettext 'These needed libraries exist but are not in the library search path (
   #101013 improvement suggested by L18L...
   CURRLOCALES="`locale -a | grep _ | cut -d '_' -f 1`"
   LISTLOCALES="`echo -e -n "en\n${CURRLOCALES}" | sort -u | tr -s '\n' | tr '\n' ',' | sed -e 's%,$%%'`"
-  export PPM_TRIM_DIALOG="<window title=\"$(gettext 'Puppy Package Manager')\" icon-name=\"gtk-about\">
+  export PPM_TRIM_DIALOG="<window title=\"$(gettext 'Puppy Package Manager')\" icon-name=\"gtk-about\" resizable=\"false\">
   <vbox>
    <pixmap><input file>/usr/share/pixmaps/puppy/dialog-question.svg</input></pixmap>
    <text><label>$(gettext "You have chosen to 'trim the fat' of these installed packages:")</label></text>
@@ -346,7 +346,7 @@ check_total_size () {
  fi
  if [ "$NEEDEDK" -ge "$AVAILABLE" -o "$NEEDEDKDOWN" -ge "$SAVEAVAILABLE" ]; then
   export PPM_error='
-  <window title="PPM - '$(gettext 'Space needed')'" icon-name="gtk-no">
+  <window title="PPM - '$(gettext 'Space needed')'" icon-name="gtk-no" resizable="false">
   <vbox space-expand="true" space-fill="true">
     <frame '$(gettext 'Error')'>
       <hbox homogeneous="true">
