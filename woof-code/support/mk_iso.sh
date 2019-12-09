@@ -7,7 +7,7 @@
 # called from 3builddistro (or build-iso.sh)
 
 # this file contains the cd 'skeleton'
-CDBOOT='https://sourceforge.net/projects/wstuff/files/w/cdboot-20191126.tar.xz'
+CDBOOT='http://distro.ibiblio.org/puppylinux/initrd_progs/cdboot-20191126.tar.xz'
 CDBOOT_TAR=${CDBOOT##*/}           #basename
 dlfile_sh=${0%/*}/download_file.sh #dirname + /download_file.sh
 
