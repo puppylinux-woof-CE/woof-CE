@@ -3,7 +3,7 @@
 ARCH_LIST="i686 x86_64 arm aarch64"
 
 INITRD_STATIC='initrd_progs-20191121-static.tar.xz'
-PREBUILT_BINARIES="https://sourceforge.net/projects/wstuff/files/w/${INITRD_STATIC}"
+PREBUILT_BINARIES="http://distro.ibiblio.org/puppylinux/initrd_progs/${INITRD_STATIC}"
 
 ARCH=`uname -m`
 
