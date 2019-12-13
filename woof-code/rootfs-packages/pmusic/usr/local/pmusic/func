@@ -39,6 +39,7 @@ case "$1" in
 		[[ "$NAME" && "$ADR" = *youtube.com* ]] && break
 		sleep 1
 	done
+#	TMP="$(ffmpeg -i )"
 	echo "${STORAGE_DIR}/youtube/${NAME}.m4a" > $WORKDIR/YOUTUBE_OUTFILE #why m4a? see: http://superuser.com/questions/349518/how-to-use-ffmpeg-to-add-metadata-to-an-aac-file-without-reencoding
 	echo 3 > $WORKDIR/maingui_notebook_page
 	echo true > $WORKDIR/UPDATE_GUI
@@ -350,6 +351,82 @@ $(gettext 'Requested filter:') $TMP"
 			;;
 		pmusicbrowse_podcast:*) #look inside podcast channel
 			$APPDIR/func_podcast -expand_channel ${SOURCE#*:}
+			echo true > $WORKDIR/UPDATE_SOURCELIST
+			;;
+		pmusicbrowse_MBartist_expand:*)
+			echo -n > ${WORKDIR}/tmp_discography1
+			MB_AID=${SOURCE##*pmusicbrowse_MBartist_expand:}
+			#discography
+			#musicbrainz allows max 100 items in browse-result. We need to combine several requests if required
+			XML_CONV=""; A=false; OFFSET=0; RELEASE_COUNT=0
+			while [ $A != true ] ; do
+				TMP="$(LC_ALL=C wget -q "https://musicbrainz.org/ws/2/release-group/?artist=$MB_AID&limit=100&&offset=$OFFSET&type=album" -O-)"
+				TMP2="$(sed "s/\&amp\;/\&/g;s/\&quot\;/\"/g;s/\&apos;/\'/g;s/\&lt\;/</g;s/\&gt\;/>/g" <<< "$TMP" | tr '>' '\n')"
+				XML_CONV="${XML_CONV} $TMP2"
+				OFFSET=$(($OFFSET+100))
+				[ $RELEASE_COUNT = 0 ] && RELEASE_COUNT="`echo "$XML" | grep -Fm1 'release-list count=' | cut -d'"' -f2`"
+				[[ $OFFSET -gt $RELEASE_COUNT || ! "$RELEASE_COUNT" ]] && A=true
+			done
+			#---
+			grep -F '<release-group id' <<< $XML_CONV | awk -F'id="' '{print $2}' | cut -d'"' -f1 | tac > ${WORKDIR}/tmp_discography #reverse order to prefer oldest release
+			while read I; do
+				TMP="`grep -FA3 "$I" <<< "$XML_CONV" | grep -F '</title'`" #title
+				TMP1="`grep -FA5 "$I" <<< "$XML_CONV" | grep -Fm1 '</first-release-date'`" #year of release
+				echo "pmusicbrowse_MBrelease_expand:"$I'|||'${TMP%%<*}'||'${TMP1%%</first-release-date*}'|||||||||gtk-audio_playlist' >> ${WORKDIR}/tmp_discography1
+			done < ${WORKDIR}/tmp_discography
+			ALBUMS="`sort -rn -t'|' -k6,6 ${WORKDIR}/tmp_discography1`"
+			[ ! "$ALBUMS" ] && ALBUMS="|$(gettext 'Nothing found')"
+			echo "$ALBUMS" > ${WORKDIR}/discography
+			#---
+			SOURCELIST_SELECT="`grep -F "$SOURCE" $WORKDIR/sourcelist | sed 's/pmusicbrowse_MBartist_expand/pmusicbrowse_MBartist_collapse/'`"
+			SOURCELIST_PRE="`grep -B 1000 -F "$SOURCE" $WORKDIR/sourcelist | grep -vF "$SOURCE"`"
+			SOURCELIST_POST="`grep -A 1000 -F "$SOURCE" $WORKDIR/sourcelist | grep -vF "$SOURCE"`"
+			echo "$SOURCELIST_PRE" > $WORKDIR/sourcelist
+			echo "$SOURCELIST_SELECT" >> $WORKDIR/sourcelist
+			echo "$ALBUMS" >> $WORKDIR/sourcelist
+			echo 'MBartist_expand_end|' >> $WORKDIR/sourcelist
+			echo "$SOURCELIST_POST" >> $WORKDIR/sourcelist
+			echo true > $WORKDIR/UPDATE_SOURCELIST
+			;;
+		pmusicbrowse_MBartist_collapse:*)
+			SOURCELIST_SELECT="`grep -F "$SOURCE" $WORKDIR/sourcelist | sed 's/pmusicbrowse_MBartist_collapse/pmusicbrowse_MBartist_expand/'`"
+			SOURCELIST_PRE="`grep -B 1000 -F "$SOURCE" $WORKDIR/sourcelist | grep -vF "$SOURCE"`"
+			SOURCELIST_POST="`grep -A 1000 -F "$SOURCE" $WORKDIR/sourcelist | grep -vF "$SOURCE"`"
+			[ "$SOURCELIST_PRE" ] && echo "$SOURCELIST_PRE" > $WORKDIR/sourcelist || echo -n > $WORKDIR/sourcelist
+			echo "$SOURCELIST_SELECT" >> $WORKDIR/sourcelist
+			#remove track-lines
+			TMP=`grep -m1 -n 'MBartist_expand_end' <<< "$SOURCELIST_POST" | tail -n1`
+			echo "$SOURCELIST_POST" | tac | head -n -${TMP%%:*} | tac >> $WORKDIR/sourcelist
+			echo true > $WORKDIR/UPDATE_SOURCELIST
+			;;
+		pmusicbrowse_MBrelease_expand:*)
+			MB_RGID=${SOURCE##*pmusicbrowse_MBrelease_expand:}
+			MB_ARTIST="$(grep -B100 "$SOURCE" $WORKDIR/sourcelist | tac | grep -m1 'pmusicbrowse_MBartist_collapse': | cut -d'|' -f2)"
+			echo -n > ${WORKDIR}/tmp_MB_tracklist
+			XML="$(LC_ALL=C wget -q "https://musicbrainz.org/ws/2/recording/?query=rgid:$MB_RGID&limit=100" -O-)"
+			XML_CONV="$(sed "s/\&amp\;/\&/g;s/\&quot\;/\"/g;s/\&apos;/\'/g;s/\&lt\;/</g;s/\&gt\;/>/g" <<< "$XML" | tr '>' '\n')"
+			while read I; do
+				echo "MBtrack:"$MB_ARTIST' - '$I'||'$I'||||||||||||gtk-audio' >> ${WORKDIR}/tmp_MB_tracklist
+			done <<< "`echo "$XML_CONV" | grep -FA3 '<recording id=' | grep -F '</title' | cut -d '<' -f 1`"
+			SOURCELIST_SELECT="`grep -F "$SOURCE" $WORKDIR/sourcelist | sed 's/pmusicbrowse_MBrelease_expand/pmusicbrowse_MBrelease_collapse/'`"
+			SOURCELIST_PRE="`grep -B 1000 -F "$SOURCE" $WORKDIR/sourcelist | grep -vF "$SOURCE"`"
+			SOURCELIST_POST="`grep -A 1000 -F "$SOURCE" $WORKDIR/sourcelist | grep -vF "$SOURCE"`"
+			echo "$SOURCELIST_PRE" > $WORKDIR/sourcelist
+			echo "$SOURCELIST_SELECT" >> $WORKDIR/sourcelist
+			awk '!A[$0]++' ${WORKDIR}/tmp_MB_tracklist >> $WORKDIR/sourcelist
+			echo 'MBrelease_expand_end|' >> $WORKDIR/sourcelist
+			echo "$SOURCELIST_POST" >> $WORKDIR/sourcelist
+			echo true > $WORKDIR/UPDATE_SOURCELIST
+			;;
+		pmusicbrowse_MBrelease_collapse:*)
+			SOURCELIST_SELECT="`grep -F "$SOURCE" $WORKDIR/sourcelist | sed 's/pmusicbrowse_MBrelease_collapse/pmusicbrowse_MBrelease_expand/'`"
+			SOURCELIST_PRE="`grep -B 1000 -F "$SOURCE" $WORKDIR/sourcelist | grep -vF "$SOURCE"`"
+			SOURCELIST_POST="`grep -A 1000 -F "$SOURCE" $WORKDIR/sourcelist | grep -vF "$SOURCE"`"
+			[ "$SOURCELIST_PRE" ] && echo "$SOURCELIST_PRE" > $WORKDIR/sourcelist || echo -n > $WORKDIR/sourcelist
+			echo "$SOURCELIST_SELECT" >> $WORKDIR/sourcelist
+			#remove track-lines
+			TMP=`grep -m1 -n 'MBrelease_expand_end' <<< "$SOURCELIST_POST" | tail -n1`
+			echo "$SOURCELIST_POST" | tac | head -n -${TMP%%:*} | tac >> $WORKDIR/sourcelist
 			echo true > $WORKDIR/UPDATE_SOURCELIST
 			;;
 	esac
@@ -1185,7 +1262,7 @@ Be aware that use of some special chars (like \"|) in filename clears value.')"
 	;;
 -search2)
 	#this is searching while typing -- only use this for local files (speed issue)
-	[[ $SEARCH_MYMUSIC = false && $SEARCH_RADIO = false && $SEARCH_JAMENDO = false && $SEARCH_YOUTUBE = false ]] && exit
+	[[ $SEARCH_MYMUSIC = false && $SEARCH_RADIO = false && $SEARCH_JAMENDO = false && $SEARCH_MUSICBRAINZ = false && $SEARCH_YOUTUBE = false ]] && exit
 	#---
 	echo "export LC_ALL=C" > $WORKDIR/tmp_exec
 	echo -n "cat " >> $WORKDIR/tmp_exec
@@ -1245,6 +1322,8 @@ Be aware that use of some special chars (like \"|) in filename clears value.')"
 	;;
 -search_sources) #this is also used to update the content of sourclist (ie. to update tags).
 	SEARCH="$2"
+	
+	
 	NO_UPDATE="$3" #point result to another target, or udating of sourcelist is done in gui-code to give an imidiate response
 	#this seperates searchresults in different groups
 	echo > $WORKDIR/tmp_exec
@@ -1263,6 +1342,39 @@ Be aware that use of some special chars (like \"|) in filename clears value.')"
 		SEARCH_YOUTUBE=false
 		SEARCH_JAMENDO=false
 		SEARCH_FILES=false
+		SEARCH_MUSICBRAINZ=false
+	fi
+
+	#musicbrainz
+	if [ $SEARCH_MUSICBRAINZ = true ]; then
+		#define nr of hits
+		if [ -s $WORKDIR/MBartist_limit ]; then
+			read MB_ARTIST_LIMIT < $WORKDIR/MBartist_limit 
+			rm $WORKDIR/MBartist_limit
+		else
+			MB_ARTIST_LIMIT=5
+		fi
+		#---
+		cat >> $WORKDIR/tmp_exec << EOL
+		echo -e '\n|__  $(gettext 'D I S C O G R A P H Y')  __' >> $WORKDIR/search_sources
+		XML="\$(wget -q "https://musicbrainz.org/ws/2/artist/?query=${SEARCH/ /%20}&limit=$MB_ARTIST_LIMIT" -O-)"
+		XML_CONV="\$(sed "s/\&amp\;/\&/g;s/\&quot\;/\"/g;s/\&apos;/\'/g;s/\&lt\;/</g;s/\&gt\;/>/g" <<< "\$XML" | tr '>' '\n')"
+		grep -F '<artist id=' <<<  "\$XML_CONV" | cut -d'"' -f2 > $WORKDIR/tmp_search
+		while read I; do
+			TMP="\$(grep -FA3 "\$I" <<<  "\$XML_CONV" | grep -F '</name' | cut -d'<' -f1)" #name
+			TMP1="\$(grep -FA50 "\$I" <<<  "\$XML_CONV" | grep -Fm1 '</disambiguation' | cut -d'<' -f1)" #comment
+			TMP2="\$(grep -FA15 "\$I" <<<  "\$XML_CONV" | grep -Fm1 -A3 'type="Country"' | grep -F '</name' | cut -d'<' -f1)" #country
+			
+			echo "pmusicbrowse_MBartist_expand:\${I}|\$TMP|||||\${TMP1} \${TMP2}||||||||gtk-artist|" >> $WORKDIR/search_sources
+		done < $WORKDIR/tmp_search
+		#check connection
+		if [ ! -s $WORKDIR/tmp_search ]; then #no hits from musicbrainz
+			LC_ALL=C wget --spider --tries 1 -T 3 -F --max-redirect 0 $PING_SERVER 2> $WORKDIR/tmp_ping
+			[ ! "`LC_ALL=C grep -F connected $WORKDIR/tmp_ping`" ] && echo "|$(gettext 'No internet connection')|||||||||||||gtk-info" >> $WORKDIR/search_sources
+		else
+			[ $MB_ARTIST_LIMIT = 5 ] && echo "pmusic_MBartist_more|...$(gettext 'more')|||||||||||||gtk-go-down" >> $WORKDIR/search_sources
+		fi
+EOL
 	fi
 
 	#pfilesearch
@@ -1287,20 +1399,19 @@ Be aware that use of some special chars (like \"|) in filename clears value.')"
 		if [ $SEARCH_COLLECTIONS = true ]; then
 			#search inside MyMusic index
 			if [ -s "$STORAGE_DIR/index_mymusic" ]; then
-				echo "echo -e '\n|__  $(gettext 'M Y   L I S T S')  __' > $WORKDIR/tmp_search_sources" >> $WORKDIR/tmp_exec
-				echo "grep -HiE \"\.pmu\||\.pmd\||\.m3u\||\.pls\|\" $WORKDIR/tmp_search | grep -vF \"$STORAGE_DIR/pmu\" > $WORKDIR/tmp_search_sources2" >> $WORKDIR/tmp_exec
-				echo "[ -s $WORKDIR/tmp_search_sources2 ] && cat $WORKDIR/tmp_search_sources $WORKDIR/tmp_search_sources2 >> $WORKDIR/search_sources" >> $WORKDIR/tmp_exec
-				#---
-				echo "echo -e '\n|__  $(gettext 'A L B U M S')  __' > $WORKDIR/tmp_search_sources" >> $WORKDIR/tmp_exec
+				echo "echo -e '\n|__  $(gettext 'P L A Y L I S T')  __' > $WORKDIR/tmp_search_sources" >> $WORKDIR/tmp_exec
+				#system lists (pmu)
 				echo "grep -HF \"$STORAGE_DIR/pmu\" $WORKDIR/tmp_search  > $WORKDIR/tmp_search_sources2" >> $WORKDIR/tmp_exec
+				#personal lists
+				echo "grep -HiE \"\.pmu\||\.pmd\||\.m3u\||\.pls\|\" $WORKDIR/tmp_search | grep -vF \"$STORAGE_DIR/pmu\" >> $WORKDIR/tmp_search_sources2" >> $WORKDIR/tmp_exec
 				echo "[ -s $WORKDIR/tmp_search_sources2 ] && cat $WORKDIR/tmp_search_sources $WORKDIR/tmp_search_sources2 >> $WORKDIR/search_sources" >> $WORKDIR/tmp_exec
-				#---
+
 				echo "sed -i 's%$WORKDIR/tmp_search%pmusicbrowse_expand%g' $WORKDIR/search_sources" >> $WORKDIR/tmp_exec
 			fi
 		fi
 		if [ $SEARCH_MYMUSIC = true ]; then
 			#db tracks
-			echo "echo -e '\npmusic_index|__  $(gettext 'M Y   T R A C K S')  __' >> $WORKDIR/search_sources" >> $WORKDIR/tmp_exec
+			echo "echo -e '\npmusic_index|__  $(gettext 'T R A C K S')  __' >> $WORKDIR/search_sources" >> $WORKDIR/tmp_exec
 			[ -s "$STORAGE_DIR/index_mymusic" ] && echo "grep -ivE \"\.pmu\||\.m3u\||\.pls\||\.pmd\|\" $WORKDIR/tmp_search > $WORKDIR/tmp_search_tracks" >> $WORKDIR/tmp_exec
 			echo 'if [ -s $WORKDIR/tmp_search_tracks ]; then' >> $WORKDIR/tmp_exec
 			#update icons and visible rating coloumn in db
@@ -1358,15 +1469,12 @@ Be aware that use of some special chars (like \"|) in filename clears value.')"
 	#jamendo.com
 	if [ $SEARCH_JAMENDO = true ]; then
 		echo "echo -e '\npmusic_jamendo_setup|__  J A M E N D O  __' >> $WORKDIR/search_sources" >> $WORKDIR/tmp_exec
-		#search youtube
-
 		if [ -s "$STORAGE_DIR/index_jamendo" ]; then
 			echo -n "cut -c 2- \"$STORAGE_DIR/index_jamendo\"" >> $WORKDIR/tmp_exec
 			for I in $SEARCH; do echo -n '| grep -iF "'${I//\"/\\\"}'" ' >> $WORKDIR/tmp_exec; done
 			#jamendo index is shrinked with a cut down url. We need to expand URL
 			echo " | awk -F \"|\" '{print \"http://api.jamendo.com/get2/stream/track/redirect/?streamencoding=mp31&id=\"\$1\"|\"\$2\"|\"\$3\"|\"\$4\"|\"\$5\"|\"\$6\"|\"\$7\"|\"\$8\"|\"\$9\"|\"\$10\"|\"\$11\"|\"\$12 }' >> $WORKDIR/search_sources" >> $WORKDIR/tmp_exec
 		else #if no indexes is present - search jamendo.com
-		
 			echo "echo -e \"|$(gettext 'Missing index limits search')\n|    - $(gettext 'Much SLOWER')\n|    - $(gettext 'No multitag search')\n|    - $(gettext 'Max results is 500 pr search')\n|$(gettext 'See Setup in Music-sources menu')\" >> $WORKDIR/search_sources" >> $WORKDIR/tmp_exec
 			echo "wget -t 1 --connect-timeout=1 -O - \"http://api.jamendo.com/get2/id+artist_name+name+album_name+numalbum+dates+genre+duration/track/plain/track_album+album_artist/?searchquery=${SEARCH// /+}&order=searchweight_desc&n=500\" | tr '\t' '|' | sed -e 's/http:/  96      /g' -e 's/Array//g' -e 's/^/http:\/\/api.jamendo.com\/get2\/stream\/track\/redirect\/?streamencoding=mp31\&id=/g' > $WORKDIR/tmp_wget" >> $WORKDIR/tmp_exec
 			echo "if grep -F http: $WORKDIR/tmp_wget; then cat $WORKDIR/tmp_wget >> $WORKDIR/search_sources; echo >> $WORKDIR/search_sources; fi" >> $WORKDIR/tmp_exec
@@ -1376,6 +1484,7 @@ Be aware that use of some special chars (like \"|) in filename clears value.')"
 	#youtube.com
 	if [ $SEARCH_YOUTUBE = true ]; then
 		echo "echo -e '\n|__  Y O U T U B E  __' >> $WORKDIR/search_sources" >> $WORKDIR/tmp_exec
+		
 		echo "$APPDIR/func -search_youtube \"$SEARCH\" &" >> $WORKDIR/tmp_exec
 	fi
 
@@ -1491,9 +1600,15 @@ Be aware that use of some special chars (like \"|) in filename clears value.')"
 -search_youtube) #search youtube is slow, so we run this in background to show indexed quickly
 	wget -O - -t 1 -U "$USERAGENT" "http://google.com/search?q=YouTube $2 music" | sed -e 's/http:/\nhttp:/g' -e 's/ - <b>YouTube/\n - <b>YouTube/g' -e 's/href/\nhref/g' | grep  -F  'youtube.com/watch'  | grep -F 'class="BNeawe vvjwJb AP7Wnd">' > $WORKDIR/tmp_ytsearch
 	cut -d'&' -f1 $WORKDIR/tmp_ytsearch | awk -F '%3Fv%3D' '{print $2}' > $WORKDIR/tmp_ytsearch_id
-	awk -F '<div class="BNeawe vvjwJb AP7Wnd">' '{print $2}' $WORKDIR/tmp_ytsearch | awk -F ' - YouTube</div>' '{print $1}' > $WORKDIR/tmp_ytsearch1
-	sed -f $APPDIR/sed_html2txt -i $WORKDIR/tmp_ytsearch1
-	paste -d'|' $WORKDIR/tmp_ytsearch_id $WORKDIR/tmp_ytsearch1 | awk -F "|" '{print "https://www.youtube.com/watch?v="$1"|"$2"|||||||||128|||https://www.youtube.com/watch?v="$1"|gtk-audio_youtube|" }' >> $WORKDIR/sourcelist
+	#check connection
+	if [ ! -s $WORKDIR/tmp_ytsearch_id ]; then #no hits from musicbrainz
+		LC_ALL=C wget --spider --tries 1 -T 3 -F --max-redirect 0 $PING_SERVER 2> $WORKDIR/tmp_ping
+		[ ! "`LC_ALL=C grep -F connected $WORKDIR/tmp_ping`" ] && echo "|$(gettext 'No internet connection')|||||||||||||gtk-info" >> $WORKDIR/sourcelist
+	else
+		awk -F '<div class="BNeawe vvjwJb AP7Wnd">' '{print $2}' $WORKDIR/tmp_ytsearch | awk -F ' - YouTube</div>' '{print $1}' > $WORKDIR/tmp_ytsearch1
+		sed -f $APPDIR/sed_html2txt -i $WORKDIR/tmp_ytsearch1
+		paste -d'|' $WORKDIR/tmp_ytsearch_id $WORKDIR/tmp_ytsearch1 | awk -F "|" '{print "https://www.youtube.com/watch?v="$1"|"$2"|||||||||128|||https://www.youtube.com/watch?v="$1"|gtk-audio_youtube|" }' >> $WORKDIR/sourcelist
+	fi
 	echo true > $WORKDIR/UPDATE_SOURCELIST
 	;;
 
@@ -1518,11 +1633,15 @@ Be aware that use of some special chars (like \"|) in filename clears value.')"
 	HEADING="$(gettext 'I want music')"
 	IMG='info'
 	FRAME="$(gettext 'info')"
-	TXT1="$(gettext 'In addition to be an audioplayer and music manager, pMusic is also a tool to build up your own local music collection. This includes music, podcasts, radio programs, lyrics, album art and album playlists.
+	TXT1="$(gettext 'The short answer: You got it! Search for an artist, dig into the discography and doubleclick to play a track. Most likely it will play.
+	
+In addition to be an audioplayer and music manager, pMusic is also a tool to build up your own local music collection. This includes music, podcasts, radio programs, lyrics, album art and album playlists.
+
+Browsing discography gives opportunity to play tracks either from a local file or from Youtube. pMusic also supports searching for music directly from Youtube. When playing such a track, you are offered the option to download it.
 
 In the Music-Source menu, you will find different ways to access music. One of the sources is the Radio Grabber that records a radio station and splits the music tracks into different files with correct naming. More info there...
 
-Jamendo.com is a website for free music, and is available via pMusic. It contains a huge amount of music; freely available for you. pMusic also supports searching for music on Youtube. When playing such a track, you are offered the option to download it.
+Jamendo.com is a website for free music, and is available via pMusic. It contains a huge amount of music; freely available for you.
 
 When it comes to lyrics, album art and album playlists, these are downloaded while playing a track. pMusic can store them to a given directory. This is set in the preferences.
 
