@@ -64,6 +64,7 @@ function git_aufs_branch() {
 		;;
 	4.19) aufsv=4.19
 		vercmp ${kernel_version} ge 4.19.17 && aufsv='4.19.17+'
+		vercmp ${kernel_version} ge 4.19.63 && aufsv='4.19.63+'
 		;;
 	4.20) aufsv=4.20
 		vercmp ${kernel_version} ge 4.20.4 && aufsv='4.20.4+'
@@ -72,7 +73,12 @@ function git_aufs_branch() {
 	#### k5.0 #####
 	5.0)  aufsv=5.0 ;;
 	5.1)  aufsv=5.1 ;;
- esac
+	5.2)  aufsv=5.2
+		vercmp ${kernel_version} ge 5.2.5 && aufsv='5.2.5+'
+		;;
+	5.3)  aufsv=5.3 ;;
+	5.4)  aufsv=5.4 ;;
+esac
 }
 #======================================================================
 
