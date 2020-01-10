@@ -108,7 +108,7 @@ if [ "$RETPARAMS" -o "$(cat /var/local/petget/sd_category 2>/dev/null)" != "true
  for ONEFILE in $FNDFILES
  do
   ISANEXEC="`file --brief "${ONEFILE}"`"
-  case "$ISANEXEC" in *"LSB executable"*|*"shared object"*)
+  case "$ISANEXEC" in *"LSB"*"executable"*|*"shared object"*)
    MISSINGLIBS="`ldd "${ONEFILE}" | grep "not found"`"
    if [ ! "$MISSINGLIBS" = "" ];then
     MISSINGLIBS="`echo "$MISSINGLIBS" | cut -f 2 | cut -f 1 -d " " | tr "\n" " "`"
