@@ -1,5 +1,5 @@
 #!/bin/sh
-#choose an installed pkg and find all its dependencies.x
+#choose an installed pkg and find all its dependencies.
 #when entered with a passed param, it is a list of pkgs, '|' delimited,
 #ex: abiword-1.2.3|aiksaurus-3.4.5|yabby-5.0
 #100718 bug fix: code block copied from /usr/local/petget/pkg_chooser.sh
