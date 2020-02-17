@@ -588,6 +588,29 @@ if [ "$DESKTOPFILE" != "" ];then
  fi
 fi
 
+CRITICALFILES="/bin/busybox
+/lib/libBrokenLocale.so.1
+/lib/libanl.so.1
+/lib/libc.so.6
+/lib/ld-linux.so.2
+/lib/libcrypt.so.1
+/lib/libdl.so.2
+/lib/libm.so.6
+/lib/libnsl.so.1
+/lib/libnss_compat.so.2
+/lib/libnss_dns.so.2
+/lib/libnss_files.so.2
+/lib/libnss_hesiod.so.2
+/lib/libnss_nis.so.2
+/lib/libnss_nisplus.so.2
+/lib/libpthread.so.0
+/lib/libresolv.so.2
+/lib/librt.so.1
+/lib/libthread_db.so.1
+/lib/libutil.so.1
+"
+
+
 #If there is an already installed package, just update the package files list and its database entry
 xpkgname="$(echo "$DB_ENTRY" | cut -f 2 -d '|')"
 installed_pkg="$(cat /root/.packages/user-installed-packages | grep "|$xpkgname|")"
@@ -605,19 +628,26 @@ if [ "$xpkgname" != "" ] && [ "$installed_pkg" != "" ]; then
   	 if [ "$(cat /root/.packages/${DLPKG_NAME}.files | grep "$xline")" == "" ]; then
 	  #Not a part of newly installed package. Do action
 
-	   #Delete the file which is not a part of upgrade
-	   if [ -e "$xline" ] && [ ! -d "$xline" ]; then
+	  if [ "$(echo "$CRITICALFILES" | grep -E "^$xline\$")" == "" ] && [ "$(echo "$xline" | grep -E "^\/")" != "" ] && [ "$(cat "/root/.packages/${DLPKG_NAME}.files" | grep "$xline")" == "" ]; then
+	    #Delete the file which is not a part of upgrade
+	    if [ -e "$xline" ] && [ ! -d "$xline" ]; then
 	    
-	    if [ -d "/initrd/pup_rw$xline" ] && [ ! -L "/initrd/pup_rw$xline" ]; then
-	     rm -f "/initrd/pup_rw$xline"
-	    fi
+	      xSTR="$(echo "${xline}" | sed -e "s#\-#\\\-#g" -e "s#\/#\\\/#g" -e "s#\.#\\\.#g" -e "s#\ #\\\ #g")"
 	    
-	    [ -e "/initrd${SAVE_LAYER}${xline}" ] && rm -f "/initrd${SAVE_LAYER}${xline}"
+	      if [ "$(grep -E "^${xSTR}\$" /root/.packages/*.files | grep -v "/${DLPKG_NAME}.files:")" == "" ]; then
+	       
+	        if [ -d "/initrd/pup_rw$xline" ] && [ ! -L "/initrd/pup_rw$xline" ]; then
+	         rm -f "/initrd/pup_rw$xline"
+	        fi
 	    
-	    [ -e "$xline" ] && rm -f "$xline"
-	   
-	   fi
-
+	        [ -e "/initrd${SAVE_LAYER}${xline}" ] && rm -f "/initrd${SAVE_LAYER}${xline}"	    
+	        [ -e "$xline" ] && rm -f "$xline"
+	       
+	      fi
+	      
+	    fi  
+	  fi
+	
 	 fi
 	done < /root/.packages/${installed_files}.files
 	
