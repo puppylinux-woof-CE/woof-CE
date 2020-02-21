@@ -15,7 +15,7 @@ case $DLPKG in
 		exit $?
 		;;
 	*.t[gx]z|*.tar.*)
-		tar -tf "$DLPKG" >/dev/null 2>&1
+		tar -tf --force-local  "$DLPKG" >/dev/null 2>&1
 		exit $?
 		;;
 esac
