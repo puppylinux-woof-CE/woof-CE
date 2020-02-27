@@ -260,18 +260,19 @@ $(gettext "Please cancel installation, close the Puppy Package Manager, then cli
    fi
    ADDSIZEK=0
    [ "$DEP_SIZE" != "" ] && ADDSIZEK=${DEP_SIZE%[A-Z]} #remove suffix: K M B .. etc
-   INSTALLEDSIZEK=$(( $INSTALLEDSIZEK + $ADDSIZEK ))
+   INSTALLEDSIZEK=$(echo "$INSTALLEDSIZEK + $ADDSIZEK" | bc )
    echo "$INSTALLEDSIZEK" > /tmp/petget_proc/petget_installedsizek
   done < $ONEDEPSLIST
   INSTALLEDSIZEK=`cat /tmp/petget_proc/petget_installedsizek`
  done
  MOREFRAMES="`cat /tmp/petget_proc/petget_moreframes`"
  
- INSTALLEDSIZEM=$(( $INSTALLEDSIZEK / 1024))
+ INSTALLEDSIZEM=$(echo "$INSTALLEDSIZEK / 1024" | bc)
  MSGWARN2="$(gettext "If that looks OK, click the 'Install' button...")"
- testSIZEK=$(( $INSTALLEDSIZEK / 3 ))
- testSIZEK=$(( $INSTALLEDSIZEK + $testSIZEK ))
- testSIZEK=$(( $testSIZEK + 8000 ))
+ testSIZEK=$(echo "$INSTALLEDSIZEK / 3" | bc )
+ testSIZEK=$(echo "$INSTALLEDSIZEK + $testSIZEK" | bc)
+ testSIZEK=$(echo "$testSIZEK + 8000" | bc)
+ testSIZEK=$(printf "%.0f\n" $testSIZEK) 
  [ $testSIZEK -gt $SIZEFREEK ] && MSGWARN2="$(gettext "Not too good! recommend that you make more space before installing -- see 'Resize personal storage file' in the 'Utility' menu.")"
 if [ ! -f /tmp/petget_proc/install_quietly ]; then
  export DEPS_DIALOG="<window title=\"$(gettext 'Puppy Package Manager: dependencies')\" icon-name=\"gtk-about\">
