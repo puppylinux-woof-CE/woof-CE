@@ -385,7 +385,8 @@ fi
 
 #now do the actual install...
 PASSEDPRM=""
-if [ -f /tmp/petget_proc/download_only_pet_quietly ]; then
+if [ -f /tmp/petget_proc/download_only_pet_quietly ] ||
+   [ "`echo "$RETPARAMS" | grep '^EXIT' | grep 'BUTTON_PKGS_DOWNLOADONLY'`" != "" ] ; then
   PASSEDPRM="DOWNLOADONLY"
   touch /tmp/petget_proc/manual_pkg_download
 fi
