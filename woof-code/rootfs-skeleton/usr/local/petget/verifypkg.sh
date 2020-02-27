@@ -8,16 +8,16 @@ case $DLPKG in
 		pet2tgz tempfileonly.pet
 		RETVAL=$?
 		rm -rf tempfileonly.*
-		exit $RETVAL
 		;;
 	*.deb)
 		dpkg-deb -c "$DLPKG" >/dev/null 2>&1
-		exit $?
+		RETVAL=$?
 		;;
 	*.t[gx]z|*.tar.*)
 		tar --force-local -tf "$DLPKG" >/dev/null 2>&1
-		exit $?
+		RETVAL=$?
 		;;
 esac
-
+[ $RETVAL -ne 0 ] && echo "$DLPKG" >> /tmp/petget_proc/pgks_failed_to_install_forced && rm -f $DLPKG
+exit $RETVAL
 ### END ###
