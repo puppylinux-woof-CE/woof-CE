@@ -283,12 +283,17 @@ do
    if [ "$PASSEDPARAM" = "DOWNLOADONLY" ];then
     echo "$(gettext 'Verifying'): ${ONEFILE}" > /tmp/petget_proc/petget/install_status
     /usr/local/petget/verifypkg.sh $DLPKG
+    RETVAL=$?
    else
     echo "$(gettext 'Installing'): ${ONEFILE}" > /tmp/petget_proc/petget/install_status
     /usr/local/petget/installpkg.sh $DLPKG
+    RETVAL=$?
+    INSTALLED_PATTERNS_SYS="`cat /root/.packages/layers-installed-packages | cut -f 2 -d '|' | sed -e 's%^%|%' -e 's%$%|%' -e 's%\\-%\\\\-%g'`"
+    echo "$INSTALLED_PATTERNS_SYS" > /tmp/petget_proc/petget_installed_patterns_system
+    cp -f /tmp/petget_proc/petget_installed_patterns_system /tmp/petget_proc/petget_installed_patterns_all
     #...appends pkgname and category to /tmp/petget_proc/petget-installed-pkgs-log if successful.
    fi
-   if [ $? -ne 0 ];then
+   if [ $RETVAL -ne 0 ];then
     LASTPKG=$(tail -n 1 /tmp/petget_proc/pgks_failed_to_install_forced)
     if [ $(echo ${DLPKG} | grep ${LASTPKG}) = "" ]; then
      /usr/lib/gtkdialog/box_ok "$(gettext 'Puppy Package Manager')" error "<b>$(gettext 'Faulty download of') ${DLPKG}</b>"
