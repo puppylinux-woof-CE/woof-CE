@@ -368,7 +368,7 @@ do
  REPOCUT="`echo -n "$ONEREPO" | cut -f 2-4 -d '-'`"
  [ "$REPOS_RADIO" = "" ] && FIRST_DB="$REPOCUT"
  xREPOCUT="$(echo -n "$REPOCUT" | sed -e 's%\-official$%%')" #120905 window too wide.
- REPOS_RADIO="${REPOS_RADIO}<radiobutton space-expand=\"false\" space-fill=\"false\"><label>${xREPOCUT}</label><action>/tmp/petget_proc/filterversion.sh ${REPOCUT}</action><action>/usr/local/petget/filterpkgs.sh</action><action>refresh:TREE1</action></radiobutton>"
+ REPOS_RADIO="${REPOS_RADIO}<radiobutton space-expand=\"false\" space-fill=\"false\"><label>${xREPOCUT}</label><action>/tmp/petget_proc/filterversion.sh ${REPOCUT}</action><action>/usr/local/petget/filterpkgs.sh"' $CATEGORY'"</action><action>refresh:TREE1</action></radiobutton>"
  echo "$REPOCUT" >> /tmp/petget_proc/petget_active_repo_list #120903 needed in findnames.sh
  repocnt=$(( $repocnt + 1 ))
  #[ $repocnt -ge 5 ] && break	# SFR: no limit
@@ -423,6 +423,8 @@ UO_6="</vbox>"
 WIDTH="$UO_1"
 [ "$SCRN_X" -le 1000 ] && WIDTH="$((SCRN_X-5))"
 
+[ -z "$PPM_CATEGORIES" ] && PPM_CATEGORIES="ALL Desktop System Setup Utility Filesystem Graphic Document Business Personal Network Internet Multimedia Fun"
+PPM_CATEGORIES_PRINT="$(echo "$PPM_CATEGORIES" | tr "[:space:]" "\n" |  sed -n -E '/^[[:space:]]*$/! {s%(.*)%<item>\1</item>%;p}')"
 S='<window title="'$(gettext 'Package Manager v')''${VERSION}'" width-request="'${WIDTH}'" icon-name="gtk-about" default_height="440">
 <vbox space-expand="true" space-fill="true">
   <vbox space-expand="true" space-fill="true">
@@ -541,19 +543,7 @@ S='<window title="'$(gettext 'Package Manager v')''${VERSION}'" width-request="'
           <frame '$(gettext 'Category')'>
            <comboboxtext width-request="150" space-expand="false" space-fill="false">
             <variable>CATEGORY</variable>
-             <item>Desktop</item>
-             <item>System</item>
-             <item>Setup</item>
-             <item>Utility</item>
-             <item>Filesystem</item>
-             <item>Graphic</item>
-             <item>Document</item>
-             <item>Business</item>
-             <item>Personal</item>
-             <item>Network</item>
-             <item>Internet</item>
-             <item>Multimedia</item>
-             <item>Fun</item>
+             '$(echo "${PPM_CATEGORIES_PRINT}")'
              <action>/usr/local/petget/filterpkgs.sh $CATEGORY</action>
              <action>refresh:TREE1</action>
            </comboboxtext>
