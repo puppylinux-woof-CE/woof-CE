@@ -153,13 +153,13 @@ if [ ! -f /tmp/petget_proc/install_quietly ] ; then
  <hbox>
   '${DEPBUTTON}'
   <button>
-   <input file stock=\"gtk-go-down\"></input>
+   <input file stock="gtk-go-down"></input>
    <label>'$(gettext 'Install')' PKG '${ONLYMSG}'</label>
    <action>echo "'${TREE1}'" > /tmp/petget_proc/petget_installpreview_pkgname</action>
    <action type="exit">BUTTON_INSTALL</action>
   </button>
   <button>
-   <input file stock=\"gtk-go-down\"></input>
+   <input file stock="gtk-go-down"></input>
    <label>'$(gettext 'Download-only')'</label>
    <action type="exit">BUTTON_PKGS_DOWNLOADONLY</action>
   </button>
