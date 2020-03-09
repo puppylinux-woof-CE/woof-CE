@@ -1,13 +1,13 @@
-#!/bin/sh
+#!/bin/bash
 #written by mistfire
 #automatically generate xorg configuration
 
-MODLIST="$(busybox lsmod 2>/dev/null)"
+MODLIST="$(busybox lsmod)"
 PCILIST="$(busybox lspci 2>/dev/null)"
 XORG_PATHS="/usr/lib/X11 /usr/lib/xorg /usr/lib64/X11 /usr/lib64/xorg"
 
-[ "$MODLIST" == "" ] && MODLIST="$(lsmod 2>/dev/null)"
-[ "$PCILIST" == "" ] && PCILIST="$(lspci -nD | sed "s#^0000:##g")" 
+[ "$MODLIST" == "" ] && MODLIST="$(lsmod 2>/dev/null)" 
+[ "$PCILIST" == "" ] && PCILIST="$(lspci -nD 2>/dev/null | sed "s#^0000:##g")" 
 
 probe_intel(){
 
@@ -21,7 +21,7 @@ case $devid in
  7800)
   drv="i740"
  ;;
- 0412|2562|2772|27a2|5a85|0126)
+ 0412|2562|2772|27a2|27ae|5a85|0126)
   drv="intel"
   accel="uxa"
  ;;
@@ -580,6 +580,7 @@ EndSection
 
 xorg_mod_path=""
 
+#Look for xorg module path
 for xpath in $XORG_PATHS
 do
  if [ -e $xpath/modules ]; then
@@ -588,6 +589,41 @@ do
  fi
 done
 
+#Look for available input drivers
+if [ ! -e $xorg_mod_path/input/kbd_drv.so ]; then
+ KBDRV=""
+else
+ KBDRV="kbd"
+fi
+
+if [ ! -e $xorg_mod_path/input/mouse_drv.so ]; then
+  MOUSEDRV=""
+else
+  MOUSEDRV="mouse"
+fi
+
+if [ "$KBDRV" == "" ] || [ "$MOUSEDRV" == "" ]; then
+ AUTOADD="true"
+else
+ AUTOADD="false"
+fi
+
+#Setup server layout input devices
+if [ "$MOUSEDRV" != "" ]; then
+ MOUSEDEV='InputDevice    "Mouse0" "CorePointer"'
+ SYNAPDEV='#	InputDevice "Synaptics Mouse" "AlwaysCore" #serverlayoutsynaptics'
+else
+ MOUSEDEV='#InputDevice    "Mouse0" "CorePointer"'
+ SYNAPDEV=''
+fi
+
+if [ "$KBDRV" != "" ]; then
+ KBDEV='InputDevice    "Keyboard0" "CoreKeyboard"'
+else
+ KBDEV='#InputDevice    "Keyboard0" "CoreKeyboard"'
+fi
+
+#Generate Server Flags Section
 echo '# **********************************************************************
 # Server flags section.
 # **********************************************************************
@@ -610,7 +646,7 @@ Section "ServerFlags"
 # With this, Xorg wont talk to HAL to add evdev devices and youll be back
 # with the old Xorg behavior (pre-7.4)...
 
-    Option "AutoAddDevices" "false"
+    Option "AutoAddDevices" "'$AUTOADD'"
 
 # For no-Hal, kirk also suggests this...
 
@@ -624,11 +660,11 @@ EndSection
 
 
 Section "ServerLayout"
-#	InputDevice "Synaptics Mouse" "AlwaysCore" #serverlayoutsynaptics
+'$SYNAPDEV'
 	Identifier     "X.org Configured"
 	Screen      0  "Screen0" 0 0
-	InputDevice    "Mouse0" "CorePointer"
-	InputDevice    "Keyboard0" "CoreKeyboard"
+	'$MOUSEDEV'
+	'$KBDEV'
 EndSection
 
 
@@ -671,6 +707,9 @@ echo 'EndSection
 
 fi
 
+#Generate keyboard config
+if [ "$KBDRV" == "kbd" ]; then
+
 echo 'Section "InputDevice"
 	Identifier  "Keyboard0"
 	Driver      "kbd"
@@ -678,10 +717,16 @@ echo 'Section "InputDevice"
 	Option      "XkbModel" "pc102" #xkbmodel0
 	Option      "XkbLayout" "us" #xkeymap0
 	#Option      "XkbVariant" "" #xkbvariant0
+	Option      "XkbOptions" "terminate:ctrl_alt_bksp" #xkboptions0
 EndSection
+'
 
+fi
 
-Section "InputDevice"
+#Generate mouse config
+if [ "$MOUSEDRV" == "mouse" ]; then
+
+echo 'Section "InputDevice"
 	Identifier  "Mouse0"
 	Driver      "mouse"
 	Option	    "Protocol" "IMPS/2" #mouse0protocol
@@ -690,9 +735,11 @@ Section "InputDevice"
 	#Option      "Emulate3Timeout" "50"
 	Option      "ZAxisMapping" "4 5" #scrollwheel
 EndSection
-
 '
 
+fi
+
+#Generate Monitor and Modes Section
 echo 'Section "Monitor"
 	Identifier   "Monitor0"
 	VendorName   "Monitor Vendor"
@@ -710,6 +757,8 @@ Section "Modes"
 EndSection
 
 '
+
+#Probe video cards and generate configuration
 
 vcards=$(ls /sys/class/drm/card*/device/vendor | sed -e "s#\/device\/vendor##g" | xargs basename)
 
@@ -756,6 +805,7 @@ done
 
 scrnum=0
 
+#Generate Screen Section
 echo '
 Section "Screen"
 	Identifier "Screen0"
