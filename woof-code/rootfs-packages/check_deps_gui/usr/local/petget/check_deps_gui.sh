@@ -240,7 +240,7 @@ PKGS="$APKGNAME"
 [ $1 ] && PKGS="`echo -n "${1}" | tr '|' ' '`"
 
 #120905 vertical scrollbars, fix window too high...
-if [ ! -f /tmp/petget_proc/install_quietly ]; then
+
 export DEPS_DIALOG="<window title=\"$(gettext 'Puppy Package Manager')\" icon-name=\"gtk-about\">
   <vbox>
    <text><label>$(gettext 'Puppy has searched for any missing shared libraries of these packages:')</label></text>
@@ -260,14 +260,5 @@ export DEPS_DIALOG="<window title=\"$(gettext 'Puppy Package Manager')\" icon-na
  </window>
 " 
  RETPARAMS="`gtkdialog4 --center --program=DEPS_DIALOG`"
-else
- RETPARAMS='EXIT="OK"'
- rm -f /tmp/petget_proc/petget_missing_dbentries-* 2>/dev/null
- cat /tmp/petget_proc/petget_missingpkgs_patterns_with_versioning >> \
-  /tmp/petget_proc/overall_petget_missingpkgs_patterns.txt
- rm -f /tmp/petget_proc/petget_missingpkgs_patterns* 2>/dev/null
- cat /tmp/petget_proc/missinglibs.txt >> /tmp/petget_proc/overall_missing_libs.txt
- cat /tmp/petget_proc/missinglibs_hidden.txt >> /tmp/petget_proc/overall_missing_libs_hidden.txt
- rm -f /tmp/petget_proc/missinglibs* 2>/dev/null
-fi
+
 ###END###
