@@ -365,7 +365,7 @@ bPRE="`echo -n "$PKG_REPOS_ENABLED" | tr ' ' '\n' | grep '\-puppy\-' | tr -s '\n
 for ONEREPO in $aPRE $bPRE #ex: ' Packages-puppy-precise-official Packages-puppy-noarch-official Packages-ubuntu-precise-main Packages-ubuntu-precise-multiverse '
 do
  [ ! -f /root/.packages/$ONEREPO ] && continue
- REPOCUT="`echo -n "$ONEREPO" | cut -f 2-4 -d '-'`"
+ REPOCUT="`echo -n "$ONEREPO" | cut -f 2- -d '-'`"
  [ "$REPOS_RADIO" = "" ] && FIRST_DB="$REPOCUT"
  xREPOCUT="$(echo -n "$REPOCUT" | sed -e 's%\-official$%%')" #120905 window too wide.
  REPOS_RADIO="${REPOS_RADIO}<radiobutton space-expand=\"false\" space-fill=\"false\"><label>${xREPOCUT}</label><action>/tmp/petget_proc/filterversion.sh ${REPOCUT}</action><action>/usr/local/petget/filterpkgs.sh"' $CATEGORY'"</action><action>refresh:TREE1</action></radiobutton>"
