@@ -8,6 +8,7 @@
 
 #/root/.packages/usr-installed-packages has the list of installed pkgs...
 touch /root/.packages/user-installed-packages
+mkdir -p /tmp/petget_proc/petget
 cut -f 1,5,10 -d '|' /root/.packages/user-installed-packages > /tmp/petget_proc/petget/installedpkgs.results
 
 #120529 may have app icons displayed in main window...
