@@ -43,7 +43,7 @@ DB_FILE=Packages-`cat /tmp/petget_proc/petget/current-repo-triad` #ex: Packages-
 tPATTERN='^'"$TREE1"'|'
 
 #120827 'examine dependencies' button does not work if pkg already installed...
-EXAMDEPSFLAG='yes'
+EXAMDEPSFLAG=${EXAMDEPSFLAG:-yes}
 ttPTN='^'"$TREE1"'|.*ALREADY INSTALLED'
 if [ "`grep "$ttPTN" /tmp/petget_proc/petget/filterpkgs.results.post`" != "" ];then #created by postfilterpkgs.sh
  EXAMDEPSFLAG='no'
@@ -101,30 +101,31 @@ else
  MSGWARN1="<text use-markup=\"true\"><label>\"<b>$(gettext 'Unfortunately the provider of the package database has not supplied the size of this package when installed. If you are able to see the size of the compressed package, multiple that by 3 to get the approximate installed size. The free available space, which is') ${SIZEFREEM}MB (${SIZEFREEK}KB), $(gettext 'should be at least 4 times greater.')</b>\"</label></text>"
 fi
 
-
-#find missing dependencies...
-if [ "$DB_dependencies" = "" ];then
- DEPINFO="<text><label>$(gettext 'It seems that all dependencies are already installed. Sometimes though, the dependency information in the database is incomplete, however a check for presence of needed shared libraries will be done after installation.')</label></text>"
-else
-
- #find all missing pkgs...
- /usr/local/petget/findmissingpkgs.sh "$DB_dependencies"
- #...returns /tmp/petget_proc/petget_installed_patterns_all, /tmp/petget_proc/petget_pkg_deps_patterns, /tmp/petget_proc/petget_missingpkgs_patterns
- MISSINGDEPS_PATTERNS="`cat /tmp/petget_proc/petget_missingpkgs_patterns`"
- #/tmp/petget_proc/petget_missingpkgs_patterns has a list of missing dependencies, format ex:
- #|kdebase|
- #|kdelibs|
- #|mesa|
- #|qt|
-
- DEPBUTTON=""
- ONLYMSG=""
- if [ "$MISSINGDEPS_PATTERNS" = "" ];then
-  DEPINFO="<text><label>$(gettext 'It seems that all dependencies are already installed. Sometimes though, the dependency information in the database is incomplete, however a check for presence of needed shared libraries will be done after installation.')</label></text>"
-  EXAMDEPSFLAG=no
- else
-  EXAMDEPSFLAG=yes
- fi 
+if [ "$EXAMDEPSFLAG" != no ]; then
+	#find missing dependencies...
+	if [ "$DB_dependencies" = "" ];then
+	 DEPINFO="<text><label>$(gettext 'It seems that all dependencies are already installed. Sometimes though, the dependency information in the database is incomplete, however a check for presence of needed shared libraries will be done after installation.')</label></text>"
+	else
+	
+	 #find all missing pkgs...
+	 /usr/local/petget/findmissingpkgs.sh "$DB_dependencies"
+	 #...returns /tmp/petget_proc/petget_installed_patterns_all, /tmp/petget_proc/petget_pkg_deps_patterns, /tmp/petget_proc/petget_missingpkgs_patterns
+	 MISSINGDEPS_PATTERNS="`cat /tmp/petget_proc/petget_missingpkgs_patterns`"
+	 #/tmp/petget_proc/petget_missingpkgs_patterns has a list of missing dependencies, format ex:
+	 #|kdebase|
+	 #|kdelibs|
+	 #|mesa|
+	 #|qt|
+	
+	 DEPBUTTON=""
+	 ONLYMSG=""
+	 if [ "$MISSINGDEPS_PATTERNS" = "" ];then
+	  DEPINFO="<text><label>$(gettext 'It seems that all dependencies are already installed. Sometimes though, the dependency information in the database is incomplete, however a check for presence of needed shared libraries will be done after installation.')</label></text>"
+	  EXAMDEPSFLAG=no
+	 else
+	  EXAMDEPSFLAG=yes
+	 fi 
+	fi
 fi
 
 [ ! -f /tmp/petget_proc/install_quietly ] && kill $X1PID || echo
@@ -203,7 +204,8 @@ if [ "$EXAMDEPSFLAG" = "yes" ] ; then
  #120904
  FNDMISSINGDBENTRYFILE="`ls -1 /tmp/petget_proc/petget_missing_dbentries-* 2>/dev/null`"
  if [ "$FNDMISSINGDBENTRYFILE" = "" -a ! -f /tmp/petget_proc/install_quietly ];then
-  . pupdialog --title "$(gettext 'PPM: examine dependencies')" --background LightYellow --msgbox "$(gettext 'There seem to be no missing dependencies.')
+   export EXAMDEPSFLAG=no
+   pupdialog --title "$(gettext 'PPM: examine dependencies')" --background LightYellow --msgbox "$(gettext 'There seem to be no missing dependencies.')
 
 $(gettext 'Note: if the previous window indicated that there are missing dependencies, they were not found. Sometimes, a package database lists a dependency that does not actually exist anymore and is not required.')" 0 0
   exec /usr/local/petget/installpreview.sh #reenter.
