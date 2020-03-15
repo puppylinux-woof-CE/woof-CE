@@ -29,7 +29,7 @@ else
 	#exit 1
 fi
 
-FIRMWARE_SFS="sources/fdrv_${kernel_version}_${package_name_suffix}.sfs"
+FIRMWARE_SFS="output/${FDRV}"
 FIRMWARE_RESULT_DIR='zfirmware_workdir/lib/firmware'
 FIRMWARE_EXTRA_DIR='zfirmware_workdir/lib/linux-firmware'
 

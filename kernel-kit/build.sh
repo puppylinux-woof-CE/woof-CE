@@ -63,7 +63,7 @@ which cc >/dev/null 2>&1 || ln -sv $(which gcc) /usr/bin/cc
 
 if [ "$AUTO" = "yes" ] ; then
 	[ ! "$DOTconfig_file" -a ! "$USE_GIT_KERNEL_CONFIG" ] && exit_error "Must specify DOTconfig_file=<file> in build.conf"
-	[ ! "$FW_PKG_URL" ] && exit_error "Must specify FW_PKG_URL=<url> in build.conf"
+	[[ -n "$FW_PKG_URL" || -n "$fw_flag" || -n "$CUTBYTES" ]] || exit_error "Must specify FW_PKG_URL=<url>, fw_flag or CUTBYTES in build.conf"
 fi
 
 ## determine number of jobs for make
@@ -405,12 +405,12 @@ if [ ! -f /tmp/aufs-util_done -o ! -d sources/aufs-util_git/.git ] ; then
 fi
 
 ## download firmware tarball/fdrv - specified in build.conf (**)
+export FDRV=fdrv.sfs-${kernel_version}-${package_name_suffix}
 if [ "$FW_PKG_URL" ] ; then
 	if [ "$FW_PKG_URL" = "none" ] ; then
 		: # do nothing
 	else
 	fw_pkg=${FW_PKG_URL##*/} #basename
-	FDRV=fdrv.sfs-${kernel_version}-${package_name_suffix}
 	if [ ! -f sources/${fw_pkg} ] ; then
 		if [ ! -f "$FW_PKG_URL" ] ; then #may be a local file
 			log_msg "Downloading $FW_PKG_URL"
@@ -419,6 +419,28 @@ if [ "$FW_PKG_URL" ] ; then
 		fi
 	fi
 	fi
+elif [ "$fw_flag" -o "$CUTBYTES" ] ; then
+	FIRMWARE_OPT=git
+	echo "You have chosen to get the latest firmware from kernel.org"
+	if [ -e ../linux-firmware ] ; then #outside kernel-kit
+		if [ -d ../linux-firmware -a ! -h ../linux-firmware ];then # move legacy
+			if [ -e ../../local-repositories ];then
+				echo "  wait while we move the repository..."
+				mv -f ../linux-firmware ../../local-repositories
+				( cd .. ; ln -snf ../local-repositories/linux-firmware . )
+				echo "  repo moved!"
+			fi
+		fi
+		cd ../linux-firmware
+		echo "Updating the git firmware repo"
+		git pull || log_msg "Warning: 'git pull' failed"
+	else
+		log_msg "This may take a long time as the firmware repository is around 200MB"
+		cd ..
+		git clone git://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git
+		[ $? -ne 0 ] && exit
+	fi
+	cd $CWD
 else
 	# menu
 	echo
@@ -521,7 +543,13 @@ if [ "$aufs_util_branch" ] ; then
 	echo "* aufs-util branch: $aufs_util_branch"
 	git checkout aufs${aufs_util_branch} #>> ${BUILD_LOG} 2>&1
 	cp Makefile Makefile-orig
-	sed -i -e 's/-static //' -e 's|ver_test ||' -e 's|BuildFHSM = .*||' Makefile
+	if grep -q '^CONFIG_AUFS_FHSM=y' ../DOTconfig >/dev/null 2>&1 ; then
+		log_msg "BuildFHSM = true"
+		sed -i -e 's/-static //' -e 's|ver_test ||' -e 's|BuildFHSM = .*|BuildFHSM = yes|' Makefile 
+	else
+		log_msg "BuildFHSM = false"
+		sed -i -e 's/-static //' -e 's|ver_test ||' -e 's|BuildFHSM = .*|BuildFHSM = no|' Makefile
+	fi
 	diff -ru Makefile-orig Makefile > ../output/patches-${kernel_version}-${HOST_ARCH}/aufs-util.patch
 	cd ..
 else
@@ -960,7 +988,6 @@ if [ "$FW_PKG_URL" ] ; then
 	fw_pkg=${FW_PKG_URL##*/} #basename
 	case $fw_pkg in
 		*.sfs)
-			FDRV=fdrv.sfs-${kernel_version}-${package_name_suffix}
 			[ -f "$FW_PKG_URL" ] && cp "$FW_PKG_URL" output/${FDRV} #may be a local file
 			[ -f sources/${fw_pkg} ] && cp sources/${fw_pkg} output/${FDRV}
 			;;
@@ -982,7 +1009,7 @@ else
 	git)
 		## run the firmware script and re-enter here
 		export GIT_ALREADY_DOWNLOADED=yes
-		./fw.sh ${fw_flag} # optonal param; see fw.sh and build.conf
+		[ -n "$CUTBYTES" ] && ./fw.sh || ./fw.sh ${fw_flag} # optonal param; see fw.sh and build.conf
 		if [ $? -eq 0 ] ; then
 			log_msg "Extracting firmware from the kernel.org git repo has succeeded."
 		else
