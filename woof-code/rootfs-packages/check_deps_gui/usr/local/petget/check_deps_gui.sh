@@ -16,7 +16,7 @@
 [ "$(cat /var/local/petget/nt_category 2>/dev/null)" != "true" ] && \
  [ -f /tmp/petget_proc/install_quietly ] && set -x
  #; mkdir -p /tmp/petget_proc/PPM_LOGs ; NAME=$(basename "$0"); exec 1>> /tmp/petget_proc/PPM_LOGs/"$NAME".log 2>&1
-
+mkdir -p /tmp/petget_proc/petget
 export TEXTDOMAIN=petget___check_deps.sh
 export OUTPUT_CHARSET=UTF-8
 
