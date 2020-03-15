@@ -1052,7 +1052,7 @@ else
 log_msg "Huge compatible kernel packages are ready to package./"
 log_msg "Packaging huge-${OUTPUT_VERSION} kernel"
 tar -cjvf huge-${OUTPUT_VERSION}.tar.bz2 \
-	vmlinuz-${OUTPUT_VERSION} ${FDRV} \
+	vmlinuz-${OUTPUT_VERSION} \
 	${KERNEL_MODULES_SFS_NAME} || exit 1
 	echo "huge-${OUTPUT_VERSION}.tar.bz2 is in output"
 	md5sum huge-${OUTPUT_VERSION}.tar.bz2 > huge-${OUTPUT_VERSION}.tar.bz2.md5.txt
