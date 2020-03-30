@@ -20,6 +20,8 @@
 #120203 BK: internationalized.
 #120323 replace 'xmessage' with 'pupmessage'.
 
+[ ! -e /root/.packages/package-files ] && mkdir -p /root/.packages/package-files
+
 [ "$(cat /var/local/petget/nt_category 2>/dev/null)" != "true" ] && \
  [ -f /tmp/petget_proc/remove_pets_quietly ] && set -x
  #; mkdir -p /tmp/petget_proc/PPM_LOGs ; NAME=$(basename "$0"); exec 1>> /tmp/petget_proc/PPM_LOGs/"$NAME".log 2>&1
@@ -62,9 +64,9 @@ if [ $PUPMODE -eq 13 ];then
   done
 fi
 
-if [ -f /root/.packages/${DB_pkgname}.files ];then
+if [ -f /root/.packages/package-files/${DB_pkgname}.files ];then
 
-  cat /root/.packages/${DB_pkgname}.files | sort -r |
+  cat /root/.packages/package-files/${DB_pkgname}.files | sort -r |
   while read ONESPEC
   do
      
@@ -107,7 +109,7 @@ if [ -f /root/.packages/${DB_pkgname}.files ];then
   done
 
  #do it again, looking for empty directories...
- cat /root/.packages/${DB_pkgname}.files | sort -r |
+ cat /root/.packages/package-files/${DB_pkgname}.files | sort -r |
  while read ONESPEC
  do
   if [ "$ONESPEC" != "" ] && [ "$ONESPEC" != "/" ] && [ -d "$ONESPEC" ];then
@@ -184,7 +186,7 @@ REMLIST="${DB_pkgname}"
 mkdir -p /tmp/petget_proc/petget
 echo -n "" > /tmp/petget_proc/petget/FILECLASHES
 echo -n "" > /tmp/petget_proc/petget/CLASHPKGS
-grep -v '/$' /root/.packages/${DB_pkgname}.files > /tmp/petget_proc/petget/${DB_pkgname}.filesFILESONLY #/ on end, it is a directory entry.
+grep -v '/$' /root/.packages/package-files/${DB_pkgname}.files > /tmp/petget_proc/petget/${DB_pkgname}.filesFILESONLY #/ on end, it is a directory entry.
 LATERINSTALLED="$(cat /root/.packages/user-installed-packages | cut -f 1 -d '|' | tr '\n' ' ' | grep -o " ${DB_pkgname} .*" | cut -f 3- -d ' ')"
 for ALATERPKG in $LATERINSTALLED
 do
@@ -221,9 +223,9 @@ fi
 #131230 from here down, use busybox applets only...
 export LANG=C
 #delete files...
-busybox cat /root/.packages/${DB_pkgname}.files | busybox grep -v '/$' | busybox xargs busybox rm -f #/ on end, it is a directory entry.
+busybox cat /root/.packages/package-files/${DB_pkgname}.files | busybox grep -v '/$' | busybox xargs busybox rm -f #/ on end, it is a directory entry.
 #do it again, looking for empty directories...
-busybox cat /root/.packages/${DB_pkgname}.files |
+busybox cat /root/.packages/package-files/${DB_pkgname}.files |
 while read ONESPEC
 do
  if [ -d "$ONESPEC" ];then
@@ -334,8 +336,8 @@ if [ "$UPDATE_MENUS" = "yes" ]; then
  ##to speed things up, find the help files in the new pkg only...
 
  #110706 update menu if .desktop file exists...
- if [ -f /root/.packages/${DB_pkgname}.files ];then
-  if [ "`grep '\.desktop$' /root/.packages/${DB_pkgname}.files`" != "" ];then
+ if [ -f /root/.packages/package-files/${DB_pkgname}.files ];then
+  if [ "`grep '\.desktop$' /root/.packages/package-files/${DB_pkgname}.files`" != "" ];then
    #Reconstruct configuration files for JWM, Fvwm95, IceWM...
    nohup /usr/sbin/fixmenus
    [ "`pidof jwm`" != "" ] && { jwm -reload || jwm -restart ; }
@@ -343,7 +345,7 @@ if [ "$UPDATE_MENUS" = "yes" ]; then
  fi
 fi
 
-PKGFILES=/root/.packages/${DB_pkgname}.files
+PKGFILES=/root/.packages/package-files/${DB_pkgname}.files
 # update system cache
 /usr/local/petget/z_update_system_cache.sh "$PKGFILES"
 
@@ -352,16 +354,16 @@ remPATTERN='^'"$DB_pkgname"'|'
 #110211 shinobar: was the dependency logic inverted...
 DEP_PKGS="`grep "$remPATTERN" /root/.packages/user-installed-packages | cut -f 9 -d '|' | tr ',' '\n' | grep -v '^\\-' | sed -e 's%^+%%' | cut -f1 -d '&'`"
 #remove records of pkg...
-rm -f /root/.packages/${DB_pkgname}.files
+rm -f /root/.packages/package-files/${DB_pkgname}.files
 grep -v "$remPATTERN" /root/.packages/user-installed-packages > /tmp/petget_proc/petget-user-installed-pkgs-rem
 cp -f /tmp/petget_proc/petget-user-installed-pkgs-rem /root/.packages/user-installed-packages
 
 #v424 .pet pckage may have post-uninstall script, which was originally named puninstall.sh
 #but /usr/local/petget/installpkg.sh moved it to /root/.packages/$DB_pkgname.remove
-if [ -f /root/.packages/${DB_pkgname}.remove ];then
- nohup /bin/sh /root/.packages/${DB_pkgname}.remove &
+if [ -f /root/.packages/package-files/${DB_pkgname}.remove ];then
+ nohup /bin/sh /root/.packages/package-files/${DB_pkgname}.remove &
  sleep 0.2
- rm -f /root/.packages/${DB_pkgname}.remove
+ rm -f /root/.packages/package-files/${DB_pkgname}.remove
 fi
 
 #remove temp file so main gui window will re-filter pkgs display...
