@@ -30,11 +30,11 @@ if grep -q -m 1 '/usr/share/mime/' $PKGFILES ; then
 	fi
 fi
 
-if grep -q -m 1 '/usr/share/icons/hicolor/' $PKGFILES ; then
+if grep -q -m 1 '/usr/share/icons/' $PKGFILES ; then
 	if [ -e /usr/bin/gtk-update-icon-cache ] ; then
-		/usr/bin/gtk-update-icon-cache /usr/share/icons/hicolor
+	  find "/usr/share/icons" -maxdepth 1 -name "*" -exec gtk-update-icon-cache -f -i '{}' \;
 	fi
-fi
+fiz
 
 if grep -q -m 1 '/usr/lib/gdk-pixbuf' $PKGFILES ; then
 	if [ -e /usr/bin/update-gdk-pixbuf-loaders ] ; then
