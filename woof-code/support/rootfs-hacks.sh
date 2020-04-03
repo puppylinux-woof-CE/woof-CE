@@ -191,12 +191,6 @@ done
 [ -d ${SR}/usr/share/xine/libxine1/fonts ] && rm -rf ${SR}/usr/share/xine/libxine1/fonts
 [ -f ${SR}/usr/share/applications/qv4l2.desktop ] && rm ${SR}/usr/share/applications/qv4l2.desktop #slackware
 
-# in puppy 'run' is a relative link to 'tmp'
-if [ -d ${SR}/run ] && [ ! -L ${SR}/run ] ; then
-	rm -rf ${SR}/run
-	ln -sv tmp ${SR}/run
-fi
-
 # gutenprint_FIXUPHACK
 if [ -d ${SR}/usr/share/gutenprint/samples ] ; then
 	rm -rf ${SR}/usr/share/gutenprint/samples
