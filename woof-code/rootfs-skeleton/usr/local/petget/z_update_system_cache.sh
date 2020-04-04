@@ -34,7 +34,7 @@ if grep -q -m 1 '/usr/share/icons/' $PKGFILES ; then
 	if [ -e /usr/bin/gtk-update-icon-cache ] ; then
 	  find "/usr/share/icons" -maxdepth 1 -name "*" -exec gtk-update-icon-cache -f -i '{}' \;
 	fi
-fiz
+fi
 
 if grep -q -m 1 '/usr/lib/gdk-pixbuf' $PKGFILES ; then
 	if [ -e /usr/bin/update-gdk-pixbuf-loaders ] ; then
