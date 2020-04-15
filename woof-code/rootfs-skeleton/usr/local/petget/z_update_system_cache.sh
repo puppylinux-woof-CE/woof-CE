@@ -28,6 +28,10 @@ do
 	if [ -e /usr/bin/update-mime-database ] ; then
 	  /usr/bin/update-mime-database $usrfld/share/mime 2>/dev/null
 	fi
+	
+	if [ -e "$usrfld/share/mime/packages" ] && [ "$(ls -1 "$usrfld/share/mime/packages")" == "" ]; then
+	 rm -rf $usrfld/share/mime/*
+	fi
   fi
 
   if grep -q -m 1 "$usrfld/lib/gio/modules" $PKGFILES ; then
