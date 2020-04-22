@@ -76,6 +76,7 @@
 #190213 replace functions validip with validip4, dotquad with ip2dec.
 #190217 v2.1: shorten wait after link timeout; remember choice of interface for boot-up; stop interfaces other than that selected, before starting selected interface; separate 'running' test and 'current exec' logic, so exec change avoided if main window aborted (X); refine 'already running' dialog & add to locale files.
 #190223 v2.1.1: Avoid exec change on exiting if no interface buttons used.
+#200412 v2.1.2: Increase wait for ethtool link detected, to 15 secs.
 
 # $1: interface
 interface_is_wireless() {
@@ -1058,12 +1059,13 @@ $ERROR
 
 	echo "X"
 	LINK_DETECTED=no
-	for i in 1 2 3 4 5 ; do
+	TIMEOUT=15 #200412
+	while [ $TIMEOUT -ge 0 ]; do #200412
 		if ethtool "$INTERFACE" | grep -Fq 'Link detected: yes' ; then
 			LINK_DETECTED="yes"
 			break
 		fi
-		[ $i -lt 5 ] && sleep 1.3 || sleep 0.5 #190217
+		[ $((--TIMEOUT)) -ge 0 ] && sleep 1 || sleep 0.5 #190217 200412
 		echo "X"
 	done
 	if [ "$LINK_DETECTED" = "no" ] ; then

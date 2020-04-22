@@ -10,6 +10,8 @@
 #180104 check for ethernet bridge hardware if controller not detected; increase wait for detection; move sleep to after test; change report of wait time.
 #180624 add check for predictable network interface device names (e.g. enp0s25).
 #190209 increase wait for ethtool link detected, to 7.5 secs total).
+#200206 replace deprecated ifconfig & iwconfig with busybox ip.
+#200412 increase wait for ethtool link detected, to 15 secs.
 
 export LANG='C'
 
@@ -26,7 +28,7 @@ interface_is_wireless() {
 	fi
 	# k3.2.x: my problematic wireless pci adapter is only recognized by iwconfig..
 	# hmm with 2 pci wireless adapters only iwconfig does the trick
-	if iwconfig ${1} 2>&1 | grep -q 'no wireless' ; then
+	if iw dev ${1} link 2>&1 | grep -q 'Not connected' ; then #200206
 		return 1 #no
 	fi
 	return 0 #yes
@@ -39,7 +41,7 @@ if [ $ethCNT -eq 0 ] ; then
 	ethCNT=$(lspci -nn | grep ' \[0680\]: .* Ethernet ' | wc -l) #180104
 fi
 while [ $ifCNT -lt $ethCNT ];do
- ifCNT=$(ifconfig -a | grep -E '^eth[0-9] |^en[oPps][0-9]|^enx[0-9a-f]' | wc -l) #180624
+ ifCNT=$(ip link show | grep -B 1 'link/ether' | grep -E ': eth[0-9]|: en[oPps][0-9]|: enx[0-9a-f]' | wc -l) #200206
  [ $ifCNT -gt 0 -o $loopCNT -ge 30 ] && break #finding one i/f is enough, other may not have a driver. 180104
  sleep 1 #180104
  loopCNT=$(($loopCNT+1))
@@ -47,26 +49,27 @@ done
 [ $loopCNT -gt 0 ] && echo "rc.network_eth: waited for ethernet interfaces: seconds = ${loopCNT}" >&2 #180104
 
 #code adapted from /usr/local/simple_network_setup/rc.network...
-INTERFACES="`ifconfig -a | grep -F 'Link encap:Ethernet' | cut -f1 -d' ' | tr '\n' ' '`"
+INTERFACES="`ip link show | grep -B 1 'link/ether' | grep '^[0-9]' | cut -f 2 -d ':' | tr -d '\n'`" #200206
 for INTERFACE in $INTERFACES #exs: wlan0 eth0
 do
  if interface_is_wireless ${INTERFACE} ; then
    continue #only want wired.
  fi
 
- ifconfig $INTERFACE up
+ ip link set $INTERFACE up #200206
  [ $? -ne 0 ] && continue
 
  LINK_DETECTED=no
- for i in 1 2 3 4 5 ; do
+ TIMEOUT=15 #200412
+ while [ $TIMEOUT -ge 0 ]; do #200412
    if ethtool "$INTERFACE" | grep -Fq 'Link detected: yes' ; then
      LINK_DETECTED="yes"
      break
    fi
-   sleep 1.5 #190209
+   [ $((--TIMEOUT)) -ge 0 ] && sleep 1 #200412
  done
  if [ "$LINK_DETECTED" = "no" ] ; then
-   ifconfig $INTERFACE down
+   ip link set $INTERFACE down #200206
    continue #no network.
  fi
 
@@ -78,7 +81,7 @@ do
   which sns >/dev/null 2>&1 && echo "$INTERFACE" > /tmp/sns_interface_success
   exit #success.
  else
-  ifconfig $INTERFACE down
+  ip link set $INTERFACE down #200206
   dhcpcd --release $INTERFACE 2>/dev/null
   ip route flush dev $INTERFACE
  fi
