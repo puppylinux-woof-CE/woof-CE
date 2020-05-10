@@ -98,6 +98,85 @@ function create_local_repos_dirs() {
 	[ ! -e kernel-kit/tools ] && ln -s ../../local-repositories/kernel-kit/tools kernel-kit/tools # check exist.
 }
 
+function pkg_get() {
+	DDIR=../local-repositories
+	PKGDIR=pkg
+	PKGREPO=https://github.com/puppylinux-woof-CE/Pkg.git
+	
+	if [ -d ${DDIR}/${PKGDIR} ] ; then
+		(
+		cd ${DDIR}/${PKGDIR}
+		[ -e '.git' ] && git pull || return 1
+		)
+	else
+		(
+		cd ${DDIR}
+		git clone --depth=1 $PKGREPO $PKGDIR || return 1
+		)
+	fi
+	cat >> sandbox3/pinstall.sh <<EOD
+
+
+######## Pkg pinstall ########	
+
+echo "Setting up Pkg for $DISTRO_DB_SUBNAME"
+
+# pkgrc
+while read line 
+do 
+	case "\$line" in
+	WORKDIR*)echo "\$line" > /tmp/pkgrc.new ;;
+	REPONAME*)echo "REPONAME=$DISTRO_DB_SUBNAME" >> /tmp/pkgrc.new ;;
+	EX*|REPOFILE*|REPOURL*)n=1
+		grep -m1 "^${DISTRO_DB_SUBNAME/\./\\\.}" root/.pkg/sources-all | while read -d '|' word
+		do
+			case "\$word" in
+			$DISTRO_DB_SUBNAME) continue ;;
+			pet|txz|tgz|deb)grep -q "\$word" /tmp/pkgrc.new || echo "EX=\$word" >> /tmp/pkgrc.new ;;
+			Packages-puppy*)grep -q "\$word" /tmp/pkgrc.new || ( echo "\$word" | grep -m1 -q "$DISTRO_DB_SUBNAME" && echo "REPOFILE=\$word" >> /tmp/pkgrc.new );;
+			http://*|https://*|"")grep -q "REPOURL\${n}" /tmp/pkgrc.new || echo "REPOURL\${n}=\$word" >> /tmp/pkgrc.new ; n=\$((\$n + 1));;
+			esac
+		done
+		continue
+		;;
+	PKGSEARCH*|DEPSEARCH*)echo "\$line" >> /tmp/pkgrc.new ;;
+	REPOFALL*)FALLBACKS="\$(grep -m1 "^${DISTRO_DB_SUBNAME}" root/.pkg/sources-all | tr "|" "\n" | tail -n1)"
+		echo -e "REPOFALLBACKS=\"\$FALLBACKS\"" >> /tmp/pkgrc.new;;
+	*)echo "\$line" >> /tmp/pkgrc.new ;;
+	esac
+done < root/.pkg/pkgrc	
+	
+# sources	
+arch=$DISTRO_TARGETARCH
+while read repo
+do
+	echo "\$repo" | grep -m1 "^${DISTRO_DB_SUBNAME/\./\\\.}" | grep -q 'pet' && echo "\$repo" > /tmp/sources.new
+	echo "\$repo" | cut -d "|" -f1 | grep -q "patches" && continue
+	echo "\$repo" | grep -qE "^${DISTRO_BINARY_COMPAT}${DISTRO_COMPAT_VERSION}|^${DISTRO_BINARY_COMPAT}\-${DISTRO_COMPAT_VERSION}|^${DISTRO_COMPAT_VERSION}\-" && echo "\$repo" >> /tmp/sources.new
+done < 	root/.pkg/sources-all
+			
+while read ent
+do
+	case \$arch in
+	x86) [ "\${ent:0:6}" = "noarch" ] && echo "\$ent" >> /tmp/sources.new
+		[ "\${ent:0:8}" = "common32" ] && echo "\$ent" >> /tmp/sources.new ;;
+	x86_64) [ "\${ent:0:6}" = "noarch" ] && echo "\$ent" >> /tmp/sources.new
+		[ "\${ent:0:8}" = "common64" ] && echo "\$ent" >> /tmp/sources.new ;;
+	*)[ "\${ent:0:6}" = "noarch" ] && echo "\$ent" >> /tmp/sources.new ;;
+	esac
+	
+done < 	root/.pkg/sources
+
+# copy over new files
+cp -af /tmp/pkgrc.new root/.pkg/pkgrc
+cp -af /tmp/sources.new root/.pkg/sources
+
+## END Pkg ##
+EOD
+	
+	return 0
+}
+
 function set_layer_type() { # sets $LAYER_TYPE
 	LAYER_TYPE='aufs'
 	modprobe aufs >/dev/null 2>&1
