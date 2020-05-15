@@ -247,4 +247,17 @@ do
 	${i} "$@"
 done
 
+#pwsget and pmirrorget: replace old mini-icons
+if [ -e ${SR}/usr/sbin/pwsget ] ; then
+	sed -i \
+		-e 's%<input file>/usr/local/lib/X11/mini.*%<input file>/usr/share/pixmaps/puppy/open.svg</input> <height>20</height>%' \
+			${SR}/usr/sbin/pwsget
+fi
+
+if [ -e ${SR}/usr/bin/pmwget ] ; then
+	sed -i \
+		-e 's%<input file>/usr/local/lib/X11/mini.*%<input file>/usr/share/pixmaps/puppy/apply.svg</input> <height>20</height>%' \
+			${SR}/usr/bin/pmwget
+fi
+
 ### END ###
