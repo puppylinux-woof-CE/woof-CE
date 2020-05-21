@@ -2,12 +2,79 @@
 #written by mistfire
 #automatically generate xorg configuration
 
-MODLIST="$(busybox lsmod 2>/dev/null)"
-PCILIST="$(busybox lspci 2>/dev/null)"
 XORG_PATHS="/usr/lib/xorg /usr/lib64/xorg /usr/lib/X11 /usr/lib64/X11"
 
+MODLIST="$(busybox lsmod)"
+PCILIST="$(busybox lspci 2>/dev/null)"
 [ "$MODLIST" == "" ] && MODLIST="$(lsmod 2>/dev/null)" 
-[ "$PCILIST" == "" ] && PCILIST="$(lspci -nD 2>/dev/null | sed "s#^0000:##g")" 
+[ "$PCILIST" == "" ] && PCILIST="$(lspci -nD 2>/dev/null | sed "s#^0000:##g")"
+
+#Detect udev
+UDEVD="$(which udevd)" 
+[ "$UDEVD" == "" ] && UDEVD="$(which systemd-udevd)" 
+
+if [ "$UDEVD" == "" ] && [ -e /usr/lib/systemd/systemd-udevd ]; then
+ UDEVD="/usr/lib/systemd/systemd-udevd"
+elif [ "$UDEVD" == "" ] && [ -e /lib/systemd/systemd-udevd ]; then
+ UDEVD="/lib/systemd/systemd-udevd"  
+fi 
+
+#Look for Xorg executable
+if [ "$(which Xorg)" != "" ]; then
+ XEXEC="$(which Xorg)" 
+else
+ XEXEC="$(which X)"
+fi
+
+#Look for xorg version
+XORG_VERSION="$($XEXEC -version 2>&1 | grep -oE "X Server.*" | grep -oE "[0-9]\..*\.[0-9]")"
+
+#Look for Xorg module path
+XORG_MODULE_PATH="$($XEXEC -showDefaultModulePath 2>&1)"
+[ "$XORG_MODULE_PATH" == "" ] && XORG_MODULE_PATH="/usr/lib/xorg/modules"
+
+if [ "$XORG_MODULE_PATH" == "" ] || [ ! -e "$XORG_MODULE_PATH" ]; then
+ for xpath in $XORG_PATHS
+ do
+  if [ -e "$xpath/modules" ]; then
+   XORG_MODULE_PATH="$xpath/modules"
+   break
+  fi
+ done
+fi
+
+vercomp() {
+	
+    if [[ $1 == $2 ]]
+    then
+        return 0
+    fi
+    local IFS=.
+    local i ver1=($1) ver2=($2)
+    # fill empty fields in ver1 with zeros
+    for ((i=${#ver1[@]}; i<${#ver2[@]}; i++))
+    do
+        ver1[i]=0
+    done
+    for ((i=0; i<${#ver1[@]}; i++))
+    do
+        if [[ -z ${ver2[i]} ]]
+        then
+            # fill empty fields in ver2 with zeros
+            ver2[i]=0
+        fi
+        if ((10#${ver1[i]} > 10#${ver2[i]}))
+        then
+            return 1
+        fi
+        if ((10#${ver1[i]} < 10#${ver2[i]}))
+        then
+            return 2
+        fi
+    done
+    return 0
+    
+}
 
 probe_intel(){
 
@@ -76,13 +143,7 @@ esac
 
 drvfound=""
 
-for xpath in $XORG_PATHS
-do
- if [ -e $xpath/modules/drivers/${drv}_drv.so ]; then
-  drvfound="1"
-  break
- fi
-done
+[ -e $XORG_MODULE_PATH/drivers/${drv}_drv.so ] && drvfound="1"
 
 if [ "$drvfound" == "" ]; then
  if [ -e /sys/firmware/efi ]; then
@@ -187,24 +248,12 @@ esac
 
 drvfound=""
 
-for xpath in $XORG_PATHS
-do
- if [ -e $xpath/modules/drivers/${drv}_drv.so ]; then
-  drvfound="1"
-  break
- fi
-done
+[ -e $XORG_MODULE_PATH/drivers/${drv}_drv.so ] && drvfound="1"
 
 if [ "$drvfound" == "" ] && [ "$drv" == "amdgpu" ]; then
-
-	for xpath in $XORG_PATHS
-	do
-	 if [ -e $xpath/modules/drivers/radeon_drv.so ]; then
-	  drvfound="1"
-	  break
-	 fi
-	done
-	
+    
+    [ -e $XORG_MODULE_PATH/drivers/radeon_drv.so ] && drvfound="1"
+    
 	if [ "$drvfound" != "" ]; then
 	  drv="radeon"
 	  accel=""
@@ -218,13 +267,7 @@ fi
 
 if [ "$drvfound" == "" ] && [ "$drv" != "ati" ]; then
 
-	for xpath in $XORG_PATHS
-	do
-	 if [ -e $xpath/modules/drivers/ati_drv.so ]; then
-	  drvfound="1"
-	  break
-	 fi
-	done
+    [ -e $XORG_MODULE_PATH/drivers/ati_drv.so ] && drvfound="1"
 	
 	if [ "$drvfound" != "" ]; then
 	 drv="ati"
@@ -273,57 +316,6 @@ fi
 	
 }
 
-write_generic(){
-	
-devid="$(echo "$1" | cut -f 2 -d ':')"
-cnum="$2"
-drvname="$3"
-bid="$(echo "$PCILIST" | grep "$1" | cut -f 1 -d ' ' | sed -e "s#^0##g" -e "s#:0#:#g" -e "s#\.#:#g")"
-
-drvfound=""
-
-for xpath in $XORG_PATHS
-do
- if [ -e $xpath/modules/drivers/${drvname}_drv.so ]; then
-  drvfound="1"
-  break
- fi
-done
-
-if [ "$drvfound" == "" ]; then
- modfound="$(echo "$MODLIST" | grep -E "^$drvname")"
- [ "$modfound" != "" ] && drvname="modesetting"
-fi
-
-for xpath in $XORG_PATHS
-do
- if [ -e $xpath/modules/drivers/${drvname}_drv.so ]; then
-  drvfound="1"
-  break
- fi
-done
-
-if [ "$drvfound" == "" ]; then
- if [ -e /sys/firmware/efi ]; then
-  drvname="fbdev"
- else
-  if [ "$(ls /dev/fb* 2>/dev/null)" != "" ]; then
-   drvname="fbdev"
-  else
-   drvname="vesa"
-  fi
- fi
-fi
-		
-echo 'Section "Device"
-	Identifier  "Card'$cnum'"
-	Driver      "'$drvname'" #card'$cnum'driver
-	BusID       "'$bid'" #card'$cnum'busid
-EndSection
-'	
-	
-}
-
 probe_s3(){
 
 devid="$(echo "$1" | cut -f 2 -d ':')"
@@ -344,13 +336,7 @@ esac
 
 drvfound=""
 
-for xpath in $XORG_PATHS
-do
- if [ -e $xpath/modules/drivers/${drv}_drv.so ]; then
-  drvfound="1"
-  break
- fi
-done
+[ -e $XORG_MODULE_PATH/drivers/${drv}_drv.so ] && drvfound="1"
 
 if [ "$drvfound" == "" ]; then
  if [ -e /sys/firmware/efi ]; then
@@ -392,13 +378,7 @@ esac
 
 drvfound=""
 
-for xpath in $XORG_PATHS
-do
- if [ -e $xpath/modules/drivers/${drv}_drv.so ]; then
-  drvfound="1"
-  break
- fi
-done
+[ -e $XORG_MODULE_PATH/drivers/${drv}_drv.so ] && drvfound="1"
 
 if [ "$drvfound" == "" ]; then
  if [ -e /sys/firmware/efi ]; then
@@ -440,13 +420,7 @@ esac
 
 drvfound=""
 
-for xpath in $XORG_PATHS
-do
- if [ -e $xpath/modules/drivers/${drv}_drv.so ]; then
-  drvfound="1"
-  break
- fi
-done
+[ -e $XORG_MODULE_PATH/drivers/${drv}_drv.so ] && drvfound="1"
 
 if [ "$drvfound" == "" ]; then
  if [ -e /sys/firmware/efi ]; then
@@ -498,13 +472,7 @@ probe_nvidia(){
  
 drvfound=""
 
-for xpath in $XORG_PATHS
-do
- if [ -e $xpath/modules/drivers/${drv}_drv.so ]; then
-  drvfound="1"
-  break
- fi
-done
+[ -e $XORG_MODULE_PATH/drivers/${drv}_drv.so ] && drvfound="1"
 
 if [ "$drvfound" == "" ]; then
  if [ -e /sys/firmware/efi ]; then
@@ -544,13 +512,7 @@ probe_via(){
  
 drvfound=""
 
-for xpath in $XORG_PATHS
-do
- if [ -e $xpath/modules/drivers/${drv}_drv.so ]; then
-  drvfound="1"
-  break
- fi
-done
+[ -e $XORG_MODULE_PATH/drivers/${drv}_drv.so ] && drvfound="1"
 
 if [ "$drvfound" == "" ]; then
  if [ -e /sys/firmware/efi ]; then
@@ -614,25 +576,13 @@ elif  [ "$(ls /sys/class/misc/mali* 2>/dev/null)" != "" ]; then
  
  drvfound=""
  
- for xpath in $XORG_PATHS
- do
-  if [ -e $xpath/modules/drivers/${armdrv}_drv.so ]; then
-   drvfound="1"
-   break
-  fi
- done
+ [ -e $XORG_MODULE_PATH/drivers/${armdrv}_drv.so ] && drvfound="1"
  
  if [ "$drvfound" == "" ]; then
  
 	 armdrv="fbturbo"
 	 
-	 for xpath in $XORG_PATHS
-	 do
-	  if [ -e $xpath/modules/drivers/${armdrv}_drv.so ]; then
-	   drvfound="1"
-	   break
-	  fi
-	 done
+	 [ -e $XORG_MODULE_PATH/drivers/${armdrv}_drv.so ] && drvfound="1"
  
  fi
  
@@ -681,13 +631,7 @@ elif [ -e /sys/devices/platform/omapdss ]; then
  drvfound=""
  armdrv="omap"
 
- for xpath in $XORG_PATHS
- do
-  if [ -e $xpath/modules/drivers/${armdrv}_drv.so ]; then
-   drvfound="1"
-   break
-  fi
- done
+ [ -e $XORG_MODULE_PATH/drivers/${armdrv}_drv.so ] && drvfound="1"
  
  [ "$drvfound" == "" ] && armdrv="fbdev"
 
@@ -734,20 +678,48 @@ EndSection
 
 }
 
-xorg_mod_path=""
+write_generic(){
+	
+devid="$(echo "$1" | cut -f 2 -d ':')"
+cnum="$2"
+drvname="$3"
+bid="$(echo "$PCILIST" | grep "$1" | cut -f 1 -d ' ' | sed -e "s#^0##g" -e "s#:0#:#g" -e "s#\.#:#g")"
 
-#Look for xorg module path
-for xpath in $XORG_PATHS
-do
- if [ -e $xpath/modules ]; then
-  xorg_mod_path="$xpath/modules"
-  break
+drvfound=""
+
+[ -e $XORG_MODULE_PATH/drivers/${drvname}_drv.so ] && drvfound="1"
+
+if [ "$drvfound" == "" ]; then
+ modfound="$(echo "$MODLIST" | grep -wE "^$drvname")"
+ [ "$modfound" != "" ] && drvname="modesetting"
+fi
+
+[ -e $XORG_MODULE_PATH/drivers/${drvname}_drv.so ] && drvfound="1"
+
+if [ "$drvfound" == "" ]; then
+ if [ -e /sys/firmware/efi ]; then
+  drvname="fbdev"
+ else
+  if [ "$(ls /dev/fb* 2>/dev/null)" != "" ]; then
+   drvname="fbdev"
+  else
+   drvname="vesa"
+  fi
  fi
-done
+fi
+		
+echo 'Section "Device"
+	Identifier  "Card'$cnum'"
+	Driver      "'$drvname'" #card'$cnum'driver
+	BusID       "'$bid'" #card'$cnum'busid
+EndSection
+'	
+	
+}
 
 #Look for available input drivers
-if [ ! -e $xorg_mod_path/input/kbd_drv.so ]; then
- if [ -e $xorg_mod_path/input/evdev_drv.so ]; then 
+if [ ! -e $XORG_MODULE_PATH/input/kbd_drv.so ]; then
+ if [ -e $XORG_MODULE_PATH/input/evdev_drv.so ]; then 
   KBDRV="evdev"
  else
   KBDRV=""
@@ -756,24 +728,71 @@ else
  KBDRV="kbd"
 fi
 
-if [ ! -e $xorg_mod_path/input/mouse_drv.so ]; then
+if [ ! -e $XORG_MODULE_PATH/input/mouse_drv.so ]; then
   MOUSEDRV=""
 else
   MOUSEDRV="mouse"
 fi
 
-TOUCHSCREEN="$(udevadm info --export-db | grep "ID_INPUT_TOUCHSCREEN=1")"
-APPLECOMP="$(grep -i '^Apple' /sys/class/dmi/id/board_vendor)"
 ARMCPU="$(uname -m | grep -E "arm*|aarch*")"
 
-if [ "$KBDRV" == "" ] || [ "$MOUSEDRV" == "" ]; then
- AUTOADD="true"
-elif [ "$TOUCHSCREEN" != "" ]; then
- AUTOADD="true"
-elif [ "$APPLECOMP" != "" ] || [ "$ARMCPU" != "" ]; then
- AUTOADD="true"
+
+#Detect xorg version otherwise use fallback method
+if [ "$XORG_VERSION" != "" ]; then
+
+	if [ "$(which vercmp)" != "" ]; then
+	 vercmp $XORG_VERSION ge 1.8.0
+	 retval=$?
+	else
+
+	 vercomp "$XORG_VERSION" "1.7.0"
+	 retval2=$?
+	 
+	 if [ $retval2 -eq 1 ]; then
+	  retval=0
+	 else
+	  retval=1
+	 fi 
+	 
+	fi
+	
+	if [ $retval -eq 0 ] && [ "$UDEVD" != "" ]; then
+	 AUTOADD="true"
+	else
+	 AUTOADD="false"
+	fi
+
 else
- AUTOADD="false"
+
+	TOUCHSCREEN="$(udevadm info --export-db | grep "ID_INPUT_TOUCHSCREEN=1")"
+	APPLECOMP="$(grep -i '^Apple' /sys/class/dmi/id/board_vendor)"
+
+	if [ "$KBDRV" == "" ] || [ "$MOUSEDRV" == "" ]; then
+	 AUTOADD="true"
+	elif [ "$TOUCHSCREEN" != "" ]; then
+	 AUTOADD="true"
+	elif [ "$APPLECOMP" != "" ] || [ "$ARMCPU" != "" ]; then
+	 AUTOADD="true"
+	else
+	 AUTOADD="false"
+	fi
+
+fi
+
+
+#Setup server layout input devices
+if [ "$MOUSEDRV" != "" ] && [ "$MOUSEDRV" == "mouse" ]; then
+ MOUSEDEV='InputDevice    "Mouse0" "CorePointer"'
+else
+ MOUSEDEV='#InputDevice    "Mouse0" "CorePointer"'
+fi
+
+if [ "$(echo "$MODLIST" | grep "vboxguest")" != "" ] && [ -e $XORG_MODULE_PATH/input/vboxmouse_drv.so ]; then
+ VBOXMOUSEDEV='InputDevice    "VboxMouse" "CorePointer"'
+ vboxfound=1
+else
+ VBOXMOUSEDEV='#	InputDevice    "VboxMouse" "CorePointer"'
+ vboxfound=0
 fi
 
 [ "`grep 'Elantech' /proc/bus/input/devices`" ] && TOUCHPAD='Elantech'
@@ -790,18 +809,11 @@ fi
 [ "`grep 'Vendor=06cb' /proc/bus/input/devices`" ] && TOUCHPAD='Synaptics'
 
 if [ "$TOUCHPAD" != "" ] && [ "$AUTOADD" == "false" ];then
- SYNAPDEV='InputDevice "Synaptics Mouse" "AlwaysCore" #serverlayoutsynaptics'
+ SYNAPDEV='	InputDevice "Synaptics Mouse" "AlwaysCore" #serverlayoutsynaptics'
  LOADSYNAP='	Load "synaptics" #loadsynaptics'
 else
- SYNAPDEV='#InputDevice "Synaptics Mouse" "AlwaysCore" #serverlayoutsynaptics'
+ SYNAPDEV='#	InputDevice "Synaptics Mouse" "AlwaysCore" #serverlayoutsynaptics'
  LOADSYNAP='#	Load "synaptics" #loadsynaptics'
-fi
-
-#Setup server layout input devices
-if [ "$MOUSEDRV" != "" ] && [ "$MOUSEDRV" == "mouse" ]; then
- MOUSEDEV='InputDevice    "Mouse0" "CorePointer"'
-else
- MOUSEDEV='#InputDevice    "Mouse0" "CorePointer"'
 fi
 
 if [ "$KBDRV" != "" ] && [ "$KBDRV" == "kbd" ]; then
@@ -811,19 +823,19 @@ else
 fi
 
 #Generate Server Flags Section
-echo '# Generated by xorg-autoconf
-
-# **********************************************************************
+echo '# **********************************************************************
 # Server flags section.
 # **********************************************************************
 
 Section "ServerFlags"
 
+    Option "IgnoreABI" "true"
+
 # Uncomment this to disable the <Crtl><Alt><Fn> VT switch sequence
 # (where n is 1 through 12).  This allows clients to receive these key
 # events.
 
-#    Option "DontVTSwitch"
+    Option "DontVTSwitch" "true"
 
 # Enables mode switching with xrandr
 # There is a report that this can cause Xorg not to work on some
@@ -852,13 +864,14 @@ Section "ServerLayout"
 	Identifier     "X.org Configured"
 	Screen      0  "Screen0" 0 0
 	'$SYNAPDEV'
+	'$VBOXMOUSEDEV'	
 	'$MOUSEDEV'
 	'$KBDEV'
 EndSection
 
 
 Section "Files"
-	ModulePath   "'$xorg_mod_path'"
+	ModulePath   "'$XORG_MODULE_PATH'"
 	FontPath     "/usr/share/fonts/local"
 	FontPath     "/usr/share/fonts/TTF"
 	FontPath     "/usr/share/fonts/OTF"
@@ -880,18 +893,19 @@ EndSection
 
 '
 
-xorg_mods=$(ls "$xorg_mod_path/extensions" 2>/dev/null | grep -vE "\.la" | sed -e "s#^lib##g" -e "s#\.so\$##g" -e "s#\.o\$##g" -e "s#\.a\$##g")
+xorg_mods=$(ls "$XORG_MODULE_PATH/extensions" 2>/dev/null | grep -vE "\.la" | sed -e "s#^lib##g" -e "s#\.so\$##g" -e "s#\.o\$##g" -e "s#\.a\$##g")
 
 if [ "$xorg_mods" != "" ]; then
 
 echo 'Section "Module"'
-echo " $LOADSYNAP"
+echo $LOADSYNAP
+
 	for xmod in $xorg_mods
 	do
 	 echo '	Load  "'$xmod'"'
 	done 
-echo 'EndSection
 
+echo 'EndSection
 '
 
 fi
@@ -933,8 +947,8 @@ if [ "$MOUSEDRV" == "mouse" ]; then
 echo 'Section "InputDevice"
 	Identifier  "Mouse0"
 	Driver      "mouse"
-	Option	    "Protocol" "IMPS/2" #mouse0protocol
-	Option	    "Device" "/dev/mouse"
+	Option	    "Protocol" "auto" #mouse0protocol
+	Option	    "Device" "/dev/input/mice"
 	#Option      "Emulate3Buttons"
 	#Option      "Emulate3Timeout" "50"
 	Option      "ZAxisMapping" "4 5" #scrollwheel
@@ -943,16 +957,42 @@ EndSection
 
 fi
 
-#Generate touchpad config
-if [ "$TOUCHPAD" != "" ] && [ "$AUTOADD" == "false" ];then
+if [ $vboxfound -ne 0 ]; then
+
+echo 'Section "InputDevice"
+        Identifier  "VBoxMouse"
+        Driver      "vboxmouse"
+        Option      "CorePointer"
+EndSection
+'
+
+fi
+
+
+if [ "$AUTOADD" == "true" ]; then
+
+echo 'Section "InputClass"
+	Identifier "Keyboard Defaults"
+	MatchIsKeyboard "yes"
+	Option      "XkbModel" "pc104" #xkbmodel0
+	Option      "XkbLayout" "us" #xkeymap0
+	#Option      "XkbVariant" "" #xkbvariant0
+	Option      "XkbOptions" "terminate:ctrl_alt_bksp" #xkboptions0
+EndSection
+'
+
+fi
+
+if [ "$TOUCHPAD" != "" ] && [ "$AUTOADD" == "false" ]; then
+
 echo 'Section "InputDevice"
 	Identifier "Synaptics Mouse"
 	Driver "synaptics"
 	Option "SHMConfig" "on"
 EndSection
 '
-fi
 
+fi
 
 #Generate Monitor and Modes Section
 echo 'Section "Monitor"
@@ -992,11 +1032,11 @@ do
 
 	case $vid in
 		8086) probe_intel "${vid}:${dvid}" "$cnum" ;;
-		1002|1022) probe_amd "${vid}:${dvid}" "$cnum" ;;
 		5333) probe_s3 "${vid}:${dvid}" "$cnum" ;;
 		121a) probe_3dfx "${vid}:${dvid}" "$cnum" ;;
 		18ca) probe_xgi "${vid}:${dvid}" "$cnum" ;;
 		10de) probe_nvidia "${vid}:${dvid}" "$cnum" ;;
+		1002|1022) probe_amd "${vid}:${dvid}" "$cnum" ;;		
 		1412|1106) probe_via "${vid}:${dvid}" "$cnum" ;;
 		1013) write_generic "${vid}:${dvid}" "$cnum" cirrus ;;
 		1039) write_generic "${vid}:${dvid}" "$cnum" sis ;;
@@ -1009,7 +1049,6 @@ do
 		1142) write_generic "${vid}:${dvid}" "$cnum" apm ;;
 		edd8) write_generic "${vid}:${dvid}" "$cnum" ark ;;
 		102c) write_generic "${vid}:${dvid}" "$cnum" chips ;;
-		1115|104c) write_generic "${vid}:${dvid}" "$cnum" glint ;;
 		105d) write_generic "${vid}:${dvid}" "$cnum" chips ;;
 		126f) write_generic "${vid}:${dvid}" "$cnum" siliconmotion ;;
 		1011) write_generic "${vid}:${dvid}" "$cnum" tga ;;
@@ -1018,8 +1057,10 @@ do
 		10a9) write_generic "${vid}:${dvid}" "$cnum" newport ;;
 		100b) write_generic "${vid}:${dvid}" "$cnum" nsc ;;
 		1163) write_generic "${vid}:${dvid}" "$cnum" rendition ;;
+		80ee) write_generic "${vid}:${dvid}" "$cnum" vboxvideo ;;
+		1115|104c) write_generic "${vid}:${dvid}" "$cnum" glint ;;		
 		15ad|fffe) write_generic "${vid}:${dvid}" "$cnum" vmware ;;
-		*) write_fallback "${vid}:${dvid}" "$cnum" ;;
+		*) write_fallback "${vid}:${dvid}" "$cnum";;
 	esac
 
 done
