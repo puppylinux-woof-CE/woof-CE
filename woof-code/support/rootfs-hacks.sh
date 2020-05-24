@@ -126,6 +126,7 @@ done
 [ -e ${SR}/etc/sudoers ] && chmod 640 ${SR}/etc/sudoers
 [ -e ${SR}/tmp ] && chmod 1777 ${SR}/tmp
 [ -e ${SR}/var ] && chmod 777 ${SR}/var
+[ -e ${SR}/var/local ] && chmod 1777 ${SR}/var/local
 
 # ensure application_x-bittorrent is assigned to defaulttorrent..
 if [ -f ${SR}/etc/xdg/rox.sourceforge.net/MIME-types/application_x-bittorrent ] ; then
