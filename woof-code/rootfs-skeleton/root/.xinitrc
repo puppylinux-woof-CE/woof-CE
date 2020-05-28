@@ -39,6 +39,8 @@ if [ -f $usermodmap ]; then
     xmodmap $usermodmap
 fi
 
+xhost +local: 2>/dev/null
+
 CURRENTWM="`cat /etc/windowmanager`"
 if [ "$CURRENTWM" = "startkde" ];then
  /sbin/pup_event_frontend_d & #130525
@@ -66,6 +68,8 @@ if [ -e /tmp/videomode ];then #xvesa only: testing a video mode
 fi
 
 [ -f /usr/local/bin/agenda_chk ] && agenda_chk &
+
+
 
 #v1.0.7 set by xrandrshell, part of xorg wizard... v3.99...
 if [ -f /etc/xrandrindex ];then
