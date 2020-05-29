@@ -69,6 +69,10 @@ if [ "$(grep -q -m 1 '/usr/share/fonts/' $PKGFILES)" != "" ] || [ "$(grep -q -m 
   fc-cache -f
 fi
 
+if [ "$(grep -q -m 1 '/udev/hwdb.d/' $PKGFILES)" != "" ]; then
+  [ "$(udevadm --help 2>&1 | grep hwdb)" != "" ] && udevadm hwdb --update
+fi
+
 if grep -q -m 1 "/lib/modules/$(uname -r)/" $PKGFILES ; then
   depmod -a
 fi
