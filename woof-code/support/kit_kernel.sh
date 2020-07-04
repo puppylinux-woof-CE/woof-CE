@@ -319,6 +319,7 @@ if [ "$CHOSEN_KERNEL" != "" ]; then
 
 	if [ "${DISTRO_TARGETARCH}" = "arm" ]; then
 		[ -f vmlinuz-*-v7+* ] && mv -f vmlinuz-*-v7* vmlinuz7
+		[ -f vmlinuz-*-v7-* ] && mv -f vmlinuz-*-v7* vmlinuz7
 		[ -f vmlinuz-* ] && mv -f vmlinuz-* vmlinuz
 	else
 		[ -f vmlinuz-* ] && mv -f vmlinuz-* vmlinuz
@@ -333,6 +334,7 @@ if [ "${DISTRO_TARGETARCH}" = "arm" -a "$CHOSEN_KERNEL7" != "" ]; then
 	[ "$?" = 0 ] || exit 1
 
 	[ -f vmlinuz-*-v7+* ] && mv -f vmlinuz-*-v7+* vmlinuz7
+	[ -f vmlinuz-*-v7-* ] && mv -f vmlinuz-*-v7-* vmlinuz7
 	[ -f vmlinuz-* ] && mv -f vmlinuz-* vmlinuz
 fi
 
@@ -343,7 +345,7 @@ if [ "${DISTRO_TARGETARCH}" = "arm" -a "$CHOSEN_KERNEL7L" != "" ]; then
 	tar -xvf "../../../local-repositories/${DISTRO_TARGETARCH}/kernels/${CHOSEN_KERNEL7L}"
 	[ "$?" = 0 ] || exit 1
 
-	[ -f vmlinuz-*-v7l+* ] && mv -f vmlinuz-*-v7l+* vmlinuz7l
+	[ -f vmlinuz-*-v7l* ] && mv -f vmlinuz-*-v7l* vmlinuz7l
 	[ -f vmlinuz-* ] && mv -f vmlinuz-* vmlinuz
 fi
 
