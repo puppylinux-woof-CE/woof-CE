@@ -567,11 +567,7 @@ cp -a sources/${aufs_git_dir} aufs_sources
 log_msg "Extracting the kernel sources"
 if [ "$USE_GIT_KERNEL" ] ; then
 	rm -rf linux-${kernel_version}
-	mkdir linux-${kernel_version}
-	for file in `ls -a sources/${kernel_git_dir} | grep -vE '^\.$|^\.\.$|^\.git$'` # don't copy .git
-	do
-		cp -a sources/${kernel_git_dir}/$file linux-${kernel_version}/
-	done
+	cp -a sources/${kernel_git_dir} linux-${kernel_version}
 elif [ "$USE_STABLE_KERNEL" ] ; then
 	rm -rf linux-${kernel_version}
 	cp -a sources/${STABLE_KERNEL_DIR} linux-${kernel_version}
@@ -639,8 +635,11 @@ elif [ "$kernel_is_plus_version" = "yes" ]; then
 		local_version=${CONFIG_LOCALVERSION#CONFIG_LOCALVERSION=}
 		local_version="${local_version//\"/}"
 	fi
-	# add the '+' to the suffix
-	custom_suffix="${local_version}+"
+	# add the '+' to the suffix - 3, 4 versions
+	case $kernel_series in
+		3|4)custom_suffix="${local_version}+" ;;
+		5)custom_suffix="${local_version}"    ;;
+	esac
 fi
 diff -up Makefile-orig Makefile || diff -up Makefile-orig Makefile > ../output/patches-${kernel_version}-${HOST_ARCH}/version.patch
 rm Makefile-orig

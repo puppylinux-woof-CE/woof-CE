@@ -253,7 +253,7 @@ function get_stable_kernel() {
 	[ "$USE_STABLE_KERNEL" == '' ] && exit_error "Error: USE_STABLE_KERNEL must be specified before calling get_stable_kernel()"
 	log_msg "building stable"
 	GITHUB=$USE_STABLE_KERNEL
-	STABLE_URL=`curl ${GITHUB}/raspberrypi/linux/releases | grep 'tar\.gz' | head -n1 | grep -o 'raspberrypi\/.*gz'`
+	STABLE_URL=`curl ${GITHUB}/raspberrypi/linux/releases | grep 'tar\.gz' | head -n3 | grep -o 'raspberrypi\/.*gz' | grep -v 'arm64' | head -n1`
 	STABLE_KERNEL_PKG=${STABLE_URL##*/}
 	STABLE_KERNEL_DIR=linux-${STABLE_KERNEL_PKG/\.tar.*/}
 	mkdir -p sources/kernels
