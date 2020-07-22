@@ -33,7 +33,7 @@ done
 
 if [ $DO_CLEAN ] ; then
 	echo "Please wait..."
-	rm -rf ./{aufs*,kernel*,build.log*,linux-*}
+	rm -rf ./{aufs*,kernel*,build.log*,linux-*} output/*
 	echo "Cleaning complete"
 	exit 0
 fi
@@ -63,7 +63,6 @@ which cc >/dev/null 2>&1 || ln -sv $(which gcc) /usr/bin/cc
 
 if [ "$AUTO" = "yes" ] ; then
 	[ ! "$DOTconfig_file" -a ! "$USE_GIT_KERNEL_CONFIG" ] && exit_error "Must specify DOTconfig_file=<file> in build.conf"
-	[[ -n "$FW_PKG_URL" || -n "$fw_flag" || -n "$CUTBYTES" ]] || exit_error "Must specify FW_PKG_URL=<url>, fw_flag or CUTBYTES in build.conf"
 fi
 
 ## determine number of jobs for make
@@ -187,7 +186,6 @@ elif [ "$USE_STABLE_KERNEL" ]; then
 		configure_git_kernel $STABLE_KERNEL_DIR # from funcs.sh
 	fi
 fi
-
 log_msg "kernel_version=${kernel_version}"
 log_msg "kernel_version_info=${kernel_version_info}"
 case "$kernel_version" in
@@ -199,8 +197,9 @@ if [ "$Choice" != "New" -a ! -f DOTconfig ] ; then
 	exit_error "\033[1;31m""ERROR: No DOTconfig found ..quiting""\033[0m"
 fi
 
+export kernel_version
 #------------------------------------------------------------------
-FW_URL=${FW_URL:-http://distro.ibiblio.org/puppylinux/firmware}
+
 # $package_name_suffix $custom_suffix $kernel_ver
 aufs_git_3="git://github.com/puppylinux-woof-CE/aufs3-standalone.git"
 aufs_git_4="git://github.com/sfjro/aufs4-standalone.git"
@@ -404,23 +403,13 @@ if [ ! -f /tmp/aufs-util_done -o ! -d sources/aufs-util_git/.git ] ; then
 	cd $MWD
 fi
 
-## download firmware tarball/fdrv - specified in build.conf (**)
-export FDRV=fdrv.sfs-${kernel_version}-${package_name_suffix}
-if [ "$FW_PKG_URL" ] ; then
-	if [ "$FW_PKG_URL" = "none" ] ; then
-		: # do nothing
-	else
-	fw_pkg=${FW_PKG_URL##*/} #basename
-	if [ ! -f sources/${fw_pkg} ] ; then
-		if [ ! -f "$FW_PKG_URL" ] ; then #may be a local file
-			log_msg "Downloading $FW_PKG_URL"
-			wget ${WGET_OPT} -c ${FW_PKG_URL} -P sources
-			[ $? -ne 0 ] && exit_error "failed to download ${fw_pkg}"
-		fi
-	fi
-	fi
-elif [ "$fw_flag" -o "$CUTBYTES" ] ; then
+export FDRV=fdrv-${kernel_version}-${package_name_suffix}.sfs
+
+if [ -n "$fware" ] ; then
 	FIRMWARE_OPT=git
+	
+	case $fware in 
+	b|f)
 	echo "You have chosen to get the latest firmware from kernel.org"
 	if [ -e ../linux-firmware ] ; then #outside kernel-kit
 		if [ -d ../linux-firmware -a ! -h ../linux-firmware ];then # move legacy
@@ -441,83 +430,26 @@ elif [ "$fw_flag" -o "$CUTBYTES" ] ; then
 		[ $? -ne 0 ] && exit
 	fi
 	cd $CWD
+	;;
+	n*) echo "no firmware download was chosen"
+		FIRMWARE_OPT=manual ;;
+	esac
 else
 	# menu
 	echo
 	log_msg "-- Pausing"
 	log_msg "Extra firmware to be added after compiling the kernel"
-	echo "Choose an option (generating list...):"
-	## download the fw or offer to copy
-	tmpfw=/tmp/fw$$
-	x=1
-	wget -q ${FW_URL} -O - | \
-		sed '/href/!d; /\.tar\./!d; /md5\.txt/d; s/.*href="//; s/".*//' | \
-		while read f;do
-			[ "$f" ] && echo "$x $f" >> ${tmpfw}
-			x=$(($x + 1 ))
-		done
-	y=`cat ${tmpfw} | wc -l `
-	[ "$y" = 0 ] && echo "WARNING: no firmware at that URL" # we carry on
-	x=$(($x + $y))
-	echo "$x I'll copy in my own." >> ${tmpfw}
-	x=$(($x + 1))
-	echo "$x I'll grab the latest firmware from kernel.org. (slow)" >> ${tmpfw}
-	cat ${tmpfw}
-	echo -n "Enter a number, 1 to $x:  "
+	echo "Choose an option b for firmware builtin, f for firmware in fdrive
+n for no firmware at all but you can add some later.
+"
+	echo -n "Enter b, f or n ..."
 	read fw
 	case $fw in
-		[0-9]*) ok=1 ;;
-		*)	log_msg "invalid option... falling back to option $(($x - 1))"
-			fw=$(($x - 1))
+		b|B|f|F)FIRMWARE_OPT=git;;
+		*)FIRMWARE_OPT=manual
+		echo "You have chosen to opt out of firmware. You can add it later"
 			;;
 	esac
-	echo
-	## if $fw is not a number then the conditionals below will fail
-	if [ "$fw" -gt "$x" ] ; then
-		exit_error "error, wrong number"
-	elif [ "$fw" = "$(($x - 1))" ] ; then
-		FIRMWARE_OPT=manual
-		log_msg "you will manually add firmware after the kernel is compiled"
-		sleep 6
-	elif [ "$fw" = "$x" ] ; then
-		FIRMWARE_OPT=git
-		## fw.sh - linux-firmware git ##
-		echo "You have chosen to get the latest firmware from kernel.org"
-		if [ -e ../linux-firmware ] ; then #outside kernel-kit
-			if [ -d ../linux-firmware -a ! -h ../linux-firmware ];then # move legacy
-				if [ -e ../../local-repositories ];then
-					echo "  wait while we move the repository..."
-					mv -f ../linux-firmware ../../local-repositories
-					( cd .. ; ln -snf ../local-repositories/linux-firmware . )
-					echo "  repo moved!"
-				fi
-			fi
-			cd ../linux-firmware
-			echo "Updating the git firmware repo"
-			git pull || log_msg "Warning: 'git pull' failed"
-		else
-			log_msg "This may take a long time as the firmware repository is around 180MB"
-			cd ..
-			git clone git://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git
-			[ $? -ne 0 ] && exit
-		fi
-		cd $CWD
-	else
-		FIRMWARE_OPT=tarball
-		fw_pkg=`grep ^$fw ${tmpfw}`
-		fw_pkg=${fw_pkg##* }
-		if [ -f sources/${fw_pkg} ] ; then
-			log_msg "Verifying sources/${fw_pkg}"
-			tar -tf sources/${fw_pkg} >/dev/null 2>&1
-			[ $? -ne 0 ] && exit_error "failed verify ${fw_pkg##* }"
-		else
-			log_msg "You chose ${fw_pkg}. If that isn't correct change it manually later."
-			log_msg "downloading ${FW_URL}/${fw_pkg}"
-			wget ${WGET_OPT} -c ${FW_URL}/${fw_pkg} -P sources
-			[ $? -ne 0 ] && exit_error "failed to download ${fw_pkg##* }"
-		fi
-		FW_PKG_URL=${fw_pkg}
-	fi
 fi
 
 #echo "HOST_ARCH = $HOST_ARCH"
@@ -784,6 +716,7 @@ if [ "$kit_kernel" = "yes" ]; then
 else
 	linux_kernel_dir=linux_kernel-${kernel_version}-${package_name_suffix}
 fi
+export linux_kernel_dir
 #.....................................................................
 
 ## kernel headers
@@ -982,47 +915,33 @@ sha256sum output/${KERNEL_SOURCES_DIR}.sfs > output/${KERNEL_SOURCES_DIR}.sfs.sh
 
 #==============================================================
 
-#firmware pkg/fdrv (*)
-if [ "$FW_PKG_URL" ] ; then
-	fw_pkg=${FW_PKG_URL##*/} #basename
-	case $fw_pkg in
-		*.sfs)
-			[ -f "$FW_PKG_URL" ] && cp "$FW_PKG_URL" output/${FDRV} #may be a local file
-			[ -f sources/${fw_pkg} ] && cp sources/${fw_pkg} output/${FDRV}
-			;;
-		*.tar.*)
-			mkdir -p output/${linux_kernel_dir}/lib
-			tar -xf sources/${fw_pkg} -C output/${linux_kernel_dir}/lib/
-			[ $? -ne 0 ] && exit_error "failed to unpack ${fw_pkg}"
-			;;
-	esac
-else
-	log_msg "Pausing here to add extra firmware."
-	case ${FIRMWARE_OPT} in
-	manual)
-		log_msg "once you have manually added firmware to "
-		log_msg "output/${linux_kernel_dir}/lib/firmware"
-		echo "hit ENTER to continue"
-		read firm
-	;;
-	git)
-		## run the firmware script and re-enter here
-		export GIT_ALREADY_DOWNLOADED=yes
-		[ -n "$CUTBYTES" ] && ./fw.sh || ./fw.sh ${fw_flag} # optonal param; see fw.sh and build.conf
-		if [ $? -eq 0 ] ; then
-			log_msg "Extracting firmware from the kernel.org git repo has succeeded."
-		else
-			log_msg "WARNING: Extracting firmware from the kernel.org git repo has failed."
-			log_msg "While your kernel is built, your firmware is incomplete."
-		fi
-	;;
-	esac
-fi
+
+log_msg "Pausing here to add extra firmware."
+case ${FIRMWARE_OPT} in
+manual)
+	log_msg "once you have manually added firmware to "
+	log_msg "output/${linux_kernel_dir}/lib/firmware"
+	echo "hit ENTER to continue"
+	read firm
+;;
+git)
+	## run the firmware script and re-enter here
+	export GIT_ALREADY_DOWNLOADED=yes
+	[ "$fware" = 'b' -o "$fware" = 'f' ] && ./firmware_picker.sh ${fware} # optonal param; see firmware_pickerw.sh and build.conf
+	if [ $? -eq 0 ] ; then
+		log_msg "Extracting firmware from the kernel.org git repo has succeeded."
+	else
+		log_msg "WARNING: Extracting firmware from the kernel.org git repo has failed."
+		log_msg "While your kernel is built, your firmware is incomplete."
+	fi
+;;
+esac
+
 
 if [ "$kit_kernel" = "yes" ]; then
 	KERNEL_MODULES_SFS_NAME="kernel-modules-${kernel_version}${custom_suffix}-${package_name_suffix}.sfs"
 else
-	KERNEL_MODULES_SFS_NAME="kernel-modules.sfs-${kernel_version}-${package_name_suffix}"
+	KERNEL_MODULES_SFS_NAME="kernel-modules-${kernel_version}-${package_name_suffix}.sfs"
 fi
 
 if [ "$STRIP_KMODULES" = "yes" ] ; then
@@ -1039,20 +958,26 @@ mksquashfs output/${linux_kernel_dir} output/${KERNEL_MODULES_SFS_NAME} $COMP
 
 cd output/
 if [ "$kit_kernel" = "yes" ]; then
-log_msg "Kit_Kernel compatible kernel package is ready to package./"
-log_msg "Packaging kit-kernel-${OUTPUT_VERSION} kernel"
-tar -cJvf kit-kernel-${OUTPUT_VERSION}.tar.xz \
+	log_msg "Kit_Kernel compatible kernel package is ready to package./"
+	log_msg "Packaging kit-kernel-${OUTPUT_VERSION} kernel"
+	tar -cJvf kit-kernel-${OUTPUT_VERSION}.tar.xz \
 	vmlinuz-${OUTPUT_VERSION} ${BOOT_DIR} \
 	${KERNEL_MODULES_SFS_NAME} || exit 1
 	echo "kit-kernel-${OUTPUT_VERSION}.tar.xz is in output"
 	md5sum kit-kernel-${OUTPUT_VERSION}.tar.xz > kit-kernel-${OUTPUT_VERSION}.tar.xz.md5.txt
 	sha256sum kit-kernel-${OUTPUT_VERSION}.tar.xz > kit-kernel-${OUTPUT_VERSION}.tar.xz.sha256.txt
 else
-log_msg "Huge compatible kernel packages are ready to package./"
-log_msg "Packaging huge-${OUTPUT_VERSION} kernel"
-tar -cjvf huge-${OUTPUT_VERSION}.tar.bz2 \
-	vmlinuz-${OUTPUT_VERSION} \
-	${KERNEL_MODULES_SFS_NAME} || exit 1
+	log_msg "Huge compatible kernel packages are ready to package."
+	log_msg "Packaging huge-${OUTPUT_VERSION} kernel"
+	if [ -f "${FDRV}" ];then
+		tar -cjvf huge-${OUTPUT_VERSION}.tar.bz2 \
+		vmlinuz-${OUTPUT_VERSION} ${FDRV} \
+		${KERNEL_MODULES_SFS_NAME} || exit 1
+	else
+		tar -cjvf huge-${OUTPUT_VERSION}.tar.bz2 \
+		vmlinuz-${OUTPUT_VERSION} \
+		${KERNEL_MODULES_SFS_NAME} || exit 1	
+	fi
 	echo "huge-${OUTPUT_VERSION}.tar.bz2 is in output"
 	md5sum huge-${OUTPUT_VERSION}.tar.bz2 > huge-${OUTPUT_VERSION}.tar.bz2.md5.txt
 	sha256sum huge-${OUTPUT_VERSION}.tar.bz2 > huge-${OUTPUT_VERSION}.tar.bz2.sha256.txt
