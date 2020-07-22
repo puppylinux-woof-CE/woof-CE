@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # this script changes a kernel in woof-ce based puppy linux
-# 3rd revision. GPL v2,(c)Michael Amadio, 01micko@gmail.com, 2015
+# 4th revision. GPL v2,(c)Michael Amadio, 01micko@gmail.com, 2020
 
 set -e
 
@@ -18,11 +18,12 @@ set -e
 # 22 - no valid kernel modules sfs (zdrv_xxx_xxx.sfs)
 # 100 - backup on same date found - technically not an error
 # 23 - failed to backup vmlinuz
-# 24 - failed to backup zdrv_xxx_xxx.sfs
+# 24 - failed to backup zdrv_xxx_xxx.sfs or fdrv
 # 25 - failed to copy new vmlinuz
-# 26 - failed to copy new zdrv_xxx_xxx.sfs
+# 26 - failed to copy new zdrv_xxx_xxx.sfs or fdrv
 # 123 - failed to restore vmlinuz backup
 # 124 - failed to restore zdr_xxx_xx.sfs backup
+# 69 - unknown
 
 export TEXTDOMAIN=change_kernels
 export OUTPUT_CHARSET=UTF-8
@@ -30,6 +31,8 @@ export OUTPUT_CHARSET=UTF-8
 # current running kernel - throw away appendages
 CURK=`uname -r`
 CURK=${CURK%%-*}
+
+uname -m | grep -qE 'arm|aarch' && exit 0 # doesn't work with arm
 
 # Translations
 # buttons
@@ -64,7 +67,7 @@ BUTTONC="<button>
 
 # dialogs
 OR=$(gettext "OR")
-MSG1=$(gettext "Please choose an option below. Either download a kernel from the repository and enter it in the entry on the first page <b>or</b> enter a vmlinuz and zdrv_XXX_XXX.sfs into the first and second entries on the second page. You can <b>drag and drop</b> files to the entry boxes.")
+MSG1=$(gettext "Please choose an option below. Either download a kernel from the repository or find a kernel you already have and enter it in the entry on the first page <b>or</b> enter a vmlinuz and zdrv_XXX_XXX.sfs into the first and second entries on the second page (mandatory) and a an fdrv_XXXXX.sfs into the third entry (optional). You can <b>drag and drop</b> files to the entry boxes.")
 BMSG=$(gettext "Your puppy is too old or broken")
 CMSG=$(gettext "Unfortunately this doesn't work in CD/DVD installs")
 FMSG=$(gettext "Unfortunately this doesn't work in full installs")
@@ -74,6 +77,7 @@ KMSG=$(gettext "Not a valid kernel file")
 MMSG=$(gettext "Not a valid module file")
 FMMSG=$(gettext "Failed to move")
 WARN=$(gettext "WARNING:")
+CERR=$(gettext "Something went wrong. Are the entries filled correctly?")
 KTARBALL=$(gettext "Kernel Tarball")
 DKERNELS=$(gettext "Download Kernels")
 IF_DOWNLOAD=$(gettext "If you download a kernel you can enter it in the box below.")
@@ -83,6 +87,7 @@ CHOOSE_LOC=$(gettext "Choose the location of kernel tarball named")
 CHOOSE_LOC1=$(gettext "Choose the location of kernel file named")
 CHOOSE_LOC2=$(gettext "or similar")
 FIND_MOD=$(gettext "Find the module file named")
+FIND_FIRM=$(gettext "Firmware for the kernel modules may be needed. This is optional. Find the firmware file named")
 FND_KRN=$(gettext "We have found that your kernel is located at:")
 VMSG=$(gettext "Failed to copy vmlinuz: restoring original")
 FSMSG1=$(gettext "Failed to copy")
@@ -104,6 +109,8 @@ OVERMSG=$(gettext "backup from today with kernel version")
 OVERMSG1=$(gettext "already exists. Press 'Yes' to overwrite, 'No' to continue without overwriting or 'Cancel' to exit")
 INF=$(gettext "Info")
 FMNT=$(gettext "Failed to mount")
+WAIT1=$(gettext "Please wait while the kernel package is extracted ...")
+WAIT2=$(gettext "Please wait while the kernel files are rearranged ...")
 
 # help
 HHELP=HELP
@@ -116,6 +123,8 @@ HVMLINUZ=$(gettext "Find a vmlinuz file for the second page.")
 HMODULES1=$(gettext "Find a zdrive file (which may have an obscure name like")
 HMODULES2=$(gettext "'kernel-modules.sfs-XXXXX'if it was built it in kernel-kit)")
 HMODULES3=$(gettext "for the second entry box on the second page.")
+HFIRM1=$(gettext "Optionally you can find a firmwware file named something like ")
+HFIRM2=$(gettext "'fdrv_XXXXX.sfs' for the third entry box.")
 HMATCH=$(gettext "These files MUST match!")
 HROX=$(gettext "If you use Rox Filer you can drag and drop to the entry boxes.")
 HOK=$(gettext "Hit OK.")
@@ -124,10 +133,10 @@ HFAIL=$(gettext "IF IT FAILS")
 HBACK1=$(gettext "There are backups of the old vmlinuz and zdrive in place appended")
 HBACK2=$(gettext "with the today's date. Hit the Rollback button to restore a backup.")
 HGOOD=$(gettext "GOOD LUCK")
-HBUG=$(gettext "Bugs to 01micko @ murga forum")
+HBUG=$(gettext "Bugs to 01micko @ github")
 HGPL=GPL2
 HCARE=$(gettext "While all care is taken, no responsibility accepted.")
-export HHELP HWARN HSYS HTAR HTARBALL HOR HVMLINUZ HMODULES1 HMODULES2 HMODULES3 HMATCH HROX HOK HID2 HFAIL HBACK1 HBACK2 HGOOD HBUG HGPL HCARE
+export HHELP HWARN HSYS HTAR HTARBALL HOR HVMLINUZ HMODULES1 HMODULES2 HMODULES3 HFIRM1 HFIRM2 HMATCH HROX HOK HID2 HFAIL HBACK1 HBACK2 HGOOD HBUG HGPL HCARE
 
 EXITVAL=""
 
@@ -210,10 +219,23 @@ else
 fi
 DATE=`date +%y%m%d`
 
+cleanup() { 
+	rm -f /tmp/kernelhelp.txt
+	ls /tmp | grep 'vmlinuz' && rm -f /tmp/vmlinuz* /tmp/kernel-modules* /tmp/fdrv*
+}
+trap cleanup EXIT
 # the main operation
 change() {
 	echo "$1" | grep -q 'vmlinuz' || _msg $ERR "$KMSG" 21
-	echo "$2" | grep 'sfs' | egrep -q 'zdrv|kernel\-modules' || _msg $ERR "$MMSG" 22
+	echo "$2" | grep 'sfs' | grep -qE 'zdrv|kernel\-modules' || _msg $ERR "$MMSG" 22
+	if [ "$3" ];then # fdrv exists
+		FDSFS="				<hbox space-expand=\"true\" space-fill=\"true\">
+					<text use-markup=\"true\">
+						<label>\"<b>${3##*/}</b>\"</label>
+					</text>
+				</hbox>"
+		FF=1
+	fi
 	export SURE="<window title=\"$CTITLE\">
 		<vbox>
 			<frame>
@@ -232,6 +254,7 @@ change() {
 						<label>\"<b>${2##*/}</b>\"</label>
 					</text>
 				</hbox>
+				$FDSFS
 				<hseparator></hseparator>
 				<hbox space-expand=\"true\" space-fill=\"true\">
 					<text use-markup=\"true\">
@@ -249,7 +272,7 @@ change() {
 	case $EXIT in
 		No|abort)echo "abort"; exit 0;;
 	esac
-	# move it
+	# move it to backup
 	OV=yes
 	if [ -f "$KERNEL_HOME/vmlinuz.${DATE}-${CURK}" ];then
 		_msg "$EXISTS" "vmlinuz.${DATE}-${CURK} $OVERMSG $CURK $OVERMSG1" 100 cancel
@@ -263,13 +286,26 @@ change() {
 		[ $? -ne 0 ] && _msg $ERR "$FMMSG ${1##*/}" 23
 		mv -f $MODULES_HOME/$DISTRO_ZDRVSFS $MODULES_HOME/$DISTRO_ZDRVSFS.${DATE}-${CURK}
 		[ $? -ne 0 ] && _msg $ERR "$FMMSG ${2##*/}" 24
+		if [ -f "$MODULES_HOME/$DISTRO_FDRVSFS" ];then
+			mv -f $MODULES_HOME/$DISTRO_FDRVSFS $MODULES_HOME/$DISTRO_FDRVSFS.${DATE}-${CURK}
+			[ $? -ne 0 ] && _msg $ERR "$FMMSG ${3##*/}" 24
+		fi
 	fi
+	# copy the new kernel files
 	cp -a "$1" $KERNEL_HOME/vmlinuz
 	[ $? -ne 0 ] && mv -f $KERNEL_HOME/vmlinuz.${DATE}-${CURK} $KERNEL_HOME/vmlinuz \
 	&& _msg $ERR "$VMSG" 25
 	cp -a "$2" $MODULES_HOME/$DISTRO_ZDRVSFS
 	[ $? -ne 0 ] && mv -f $MODULES_HOME/${DISTRO_ZDRVSFS}.${DATE}-${CURK} $MODULES_HOME/$DISTRO_ZDRVSFS \
 	&& _msg $ERR "$FSMSG1 $DISTRO_ZDRVSFS: $FSMSG2" 26
+	if [ "$FF" = '1' ];then
+		cp -a "$3" $MODULES_HOME/$DISTRO_FDRVSFS
+		[ $? -ne 0 ] && mv -f $MODULES_HOME/${DISTRO_FDRVSFS}.${DATE}-${CURK} $MODULES_HOME/$DISTRO_FDRVSFS \
+		&& _msg $ERR "$FSMSG1 $DISTRO_FDRVSFS: $FSMSG2" 26
+	fi
+	echo $1 | grep -q 'tmp' && rm $1 $2 $3 # cleanup /tmp
+	
+	# problem with deb based 64 not installing correctly with slacko64 kernels
 	change_lib64_to_lib $MODULES_HOME/$DISTRO_ZDRVSFS $MODULES_HOME
 	echo $?
 	[ "$UMT" = "1" ] && umount $KERNEL_HOME
@@ -278,15 +314,18 @@ change() {
 
 # extract
 extract_kernel() {
-	gtkdialog-splash -bg orange -close box -text "Wait..." &
+	gtkdialog-splash -bg orange -close box -text "$WAIT1" &
 	epid=$!
 	tar -xf "$1" -C /tmp
 	kill -9 $epid
 	VML=$(ls /tmp | grep -m1 '^vmlinuz')
 	VMODS=$(ls /tmp | grep -m1 '^kernel\-modules')
-	change /tmp/$VML /tmp/$VMODS
-	rm /tmp/$VML /tmp/$VMODS
-	kill -9 $epid
+	VFD=$(ls /tmp | grep -m1 '^fdrv')
+	if [ -f "/tmp/$VFD" ];then
+		change /tmp/$VML /tmp/$VMODS /tmp/$VFD
+	else
+		change /tmp/$VML /tmp/$VMODS
+	fi
 }
 
 change_lib64_to_lib() {
@@ -297,7 +336,7 @@ change_lib64_to_lib() {
 	WDIR=$2
 	ZDIR=${ZSFS%\.*}
 	cd $WDIR
-	gtkdialog-splash -bg orange -close box -text "Wait..." &
+	gtkdialog-splash -bg orange -close box -text "$WAIT2" &
 	cpid=$!
 	unsquashfs -d $ZDIR $ZSFS
 	rm $ZSFS
@@ -340,6 +379,7 @@ rollback() {
 		2*) #any yymmdd date over 2000
 			KIMAGE=vmlinuz.${EXIT}
 			KMODULES=${DISTRO_ZDRVSFS}.${EXIT}
+			[ -f "${DISTRO_FDRVSFS}.${EXIT}" ] && KFIRM=${DISTRO_FDRVSFS}.${EXIT} && echo $KFIRM
 			echo $KIMAGE $KMODULES;;
 		*)echo bad; exit 99;;
 	esac
@@ -349,6 +389,7 @@ rollback() {
 	[ $? -ne 0 ] && _msg $ERR "$FMMSG ${KIMAGE}" 123
 	cp -af $MODULES_HOME/${KMODULES} $MODULES_HOME/${DISTRO_ZDRVSFS} &&
 	[ $? -ne 0 ] && _msg $ERR "$FMMSG ${DISTRO_ZDRVSFS}" 124
+	[ -n "$KFIRM" ] && cp -af $MODULES_HOME/${KFIRM} $MODULES_HOME/${DISTRO_FDRVSFS}
 	[ "$UMT" = "1" ] && umount $KERNEL_HOME
 	_msg $SUCC "$RMSG" 0
 }
@@ -356,16 +397,18 @@ rollback() {
 help_me() {
 	cat > /tmp/kernelhelp.txt << _EOF
 ${HHELP}
-=========================== $HWARN ===================================
+=========================== $HWARN ==================================
 		${HSYS}
-=========================== $HWARN ===================================
+=========================== $HWARN ==================================
 ${HTAR}
 ${HTARBALL}
-**************************** ${HOR}  *************************************
+**************************** ${HOR} *************************************
 ${HVMLINUZ}
 ${HMODULES1}
 ${HMODULES2}
 ${HMODULES3}
+${HFIRM1}
+${HFIRM2}
 ${HMATCH}
 ${HROX}
 ${HOK}
@@ -379,7 +422,6 @@ ${HGPL}
 ${HCARE} 
 _EOF
 	defaulttextviewer /tmp/kernelhelp.txt
-	rm /tmp/kernelhelp.txt
 }
 export -f help_me
 
@@ -429,7 +471,7 @@ export GUI="<window title=\"Change Kernels\" icon-name=\"application-kernel\">
 					</button>
 				</hbox>
 				<hbox space-expand=\"true\" space-fill=\"true\">
-					<text><label>$FIND_MOD zdrv_XXX_XXX.sfs $KERNMSG</label></text>
+					<text><label>$FIND_MOD fdrv_XXX_XXX.sfs $KERNMSG</label></text>
 				</hbox>	
 				<hbox space-expand=\"true\" space-fill=\"true\">
 					<entry accept=\"file\" tooltip-text=\"$TT\" space-expand=\"true\" space-fill=\"true\">
@@ -438,6 +480,18 @@ export GUI="<window title=\"Change Kernels\" icon-name=\"application-kernel\">
 					<button space-fill=\"false\">
 						<input file stock=\"gtk-open\"></input>
 						<action type=\"fileselect\">MODULES</action>
+					</button>
+				</hbox>
+				<hbox space-expand=\"true\" space-fill=\"true\">
+					<text><label>$FIND_FIRM zdrv_XXX_XXX.sfs</label></text>
+				</hbox>	
+				<hbox space-expand=\"true\" space-fill=\"true\">
+					<entry accept=\"file\" tooltip-text=\"$TT\" space-expand=\"true\" space-fill=\"true\">
+						<variable>FIRM</variable>
+					</entry>
+					<button space-fill=\"false\">
+						<input file stock=\"gtk-open\"></input>
+						<action type=\"fileselect\">FIRM</action>
 					</button>
 				</hbox>
 			</vbox>
@@ -473,10 +527,14 @@ export GUI="<window title=\"Change Kernels\" icon-name=\"application-kernel\">
 eval $(gtkdialog -p GUI -c)
 case $EXIT in
 	OK)
-	if [ -n "$VMLINUZ" -a -n "$MODULES" ] ; then 
+	if [ -n "$VMLINUZ" -a -n "$MODULES" -a -z "$FIRM" ] ; then 
+		change $VMLINUZ $MODULES 
+	elif [ -n "$VMLINUZ" -a -n "$MODULES" -a -n "$FIRM" ] ; then 
 		change $VMLINUZ $MODULES 
 	elif [ -n "$VTARBALL" ] ;then 
 		extract_kernel $VTARBALL
+	else
+		_msg $ERR "$CERR" 69
 	fi
 	;;
 	roll) rollback;;
