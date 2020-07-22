@@ -215,8 +215,9 @@ cd build
 tar -xvf huge-${KERNEL_VERSION}.tar.*
 [ "$?" = 0 ] || exit 1
 rm -f huge-${KERNEL_VERSION}.tar.* #remove pkg
-mv -f kernel-modules.sfs-$KERNEL_VERSION $ZDRVSFS
+mv -f kernel-modules*$KERNEL_VERSION* $ZDRVSFS
 mv -f vmlinuz-$KERNEL_VERSION vmlinuz
+mv -f fdrv* $FDRVSFS
 cd ..
 
 exit 0
