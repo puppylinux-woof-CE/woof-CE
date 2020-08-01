@@ -8,6 +8,7 @@
 # to the fdrv (option 'f') or zdrv (builtin - option 'b')
 
 export LANG=C #faster
+. ./build.conf
 
 # vars
 CWD=`pwd`
@@ -116,7 +117,7 @@ licence_func
 case $1 in
 	f)[ -f "$FIRMWARE_SFS" ] && rm $FIRMWARE_SFS
 		[ -d "output/${linux_kernel_dir}/lib/firmware/" ] && rm -rf output/${linux_kernel_dir}/lib/firmware/ # redundant; also not in newer kernels
-		mksquashfs zfirmware_workdir $FIRMWARE_SFS -comp xz
+		mksquashfs zfirmware_workdir $FIRMWARE_SFS $COMP
 		(cd output/;md5sum ${FIRMWARE_SFS##*/} > ${FIRMWARE_SFS##*/}.md5.txt);;
 	b)[ -d "output/${linux_kernel_dir}/lib/firmware/" ] && rm -r output/${linux_kernel_dir}/lib/firmware/* ||\
 			mkdir -p output/${linux_kernel_dir}/lib/firmware/
