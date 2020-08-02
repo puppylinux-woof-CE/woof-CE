@@ -91,7 +91,7 @@ do
 		fw_dir=${fw%\/*} # dirname
 		if [ "$fw" = "$fw_dir" ];then # not in subdir
 			if [ -e "$SRC_FW_DIR/$fw" ];then
-				cp -d $SRC_FW_DIR/$fw $FIRMWARE_RESULT_DIR
+				cp -L $SRC_FW_DIR/$fw $FIRMWARE_RESULT_DIR
 				fw_msg $fw $fw_list # log to zdrv
 			else
 				fw_msg "${fw} non-free" $fw_list # log to zdrv
@@ -100,7 +100,7 @@ do
 		else
 			if [ -e "$SRC_FW_DIR/$fw" ];then
 				mkdir -p $FIRMWARE_RESULT_DIR/$fw_dir
-				cp -d $SRC_FW_DIR/$fw $FIRMWARE_RESULT_DIR/$fw_dir
+				cp -L $SRC_FW_DIR/$fw $FIRMWARE_RESULT_DIR/$fw_dir
 				fw_msg $fw $fw_list # log to zdrv
 			else
 				fw_msg "${fw} non-free" $fw_list # log to zdrv
