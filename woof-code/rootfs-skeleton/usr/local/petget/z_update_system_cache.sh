@@ -29,7 +29,7 @@ do
 	  /usr/bin/update-mime-database $usrfld/share/mime 2>/dev/null
 	fi
 	
-	if [ -e "$usrfld/share/mime/packages" ] && [ "$(ls -1 "$usrfld/share/mime/packages")" == "" ]; then
+	if [ -e "$usrfld/share/mime/packages" ] && [ "$(ls -1 "$usrfld/share/mime/packages" 2>/dev/null)" == "" ]; then
 	 rm -rf $usrfld/share/mime/*
 	fi
   fi
