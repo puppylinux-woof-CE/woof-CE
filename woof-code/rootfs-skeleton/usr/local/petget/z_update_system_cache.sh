@@ -49,6 +49,10 @@ do
 
 done
 
+if [ "$(grep -q -m 1 '/gconv/' $PKGFILES)" != "" ]; then
+  iconvconfig 2>/dev/null
+fi
+
 if [ "$(grep -q -m 1 '/usr/lib/gdk-pixbuf' $PKGFILES)" != "" ] || [ "$(grep -q -m 1 '/usr/local/lib/gdk-pixbuf' $PKGFILES)" != "" ]; then
 	if [ -e /usr/bin/update-gdk-pixbuf-loaders ] ; then
 	 update-gdk-pixbuf-loaders
