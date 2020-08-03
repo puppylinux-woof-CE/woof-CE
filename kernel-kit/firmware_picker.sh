@@ -78,6 +78,7 @@ mkdir -p $FIRMWARE_RESULT_DIR
 firmware_list_dir=output/${linux_kernel_dir}/etc/modules/
 mkdir -p $firmware_list_dir
 fw_list=${firmware_list_dir}/firmware.lst.${kernel_version}
+fw_tmp_list=/tmp/firmware.lst.${kernel_version}
 echo "### If 'non-free' is after a firmware entry it is non-free and will need to be found elsewhere" > $fw_list
 
 # find the modules and see what firmware they need
@@ -91,24 +92,24 @@ do
 		fw_dir=${fw%\/*} # dirname
 		if [ "$fw" = "$fw_dir" ];then # not in subdir
 			if [ -e "$SRC_FW_DIR/$fw" ];then
-				cp -L $SRC_FW_DIR/$fw $FIRMWARE_RESULT_DIR
-				fw_msg $fw $fw_list # log to zdrv
+				cp -L -n $SRC_FW_DIR/$fw $FIRMWARE_RESULT_DIR
+				fw_msg $fw $fw_tmp_list # log to zdrv
 			else
-				fw_msg "${fw} non-free" $fw_list # log to zdrv
-				continue
+				fw_msg "${fw} non-free" $fw_tmp_list # log to zdrv
 			fi
 		else
 			if [ -e "$SRC_FW_DIR/$fw" ];then
 				mkdir -p $FIRMWARE_RESULT_DIR/$fw_dir
-				cp -L $SRC_FW_DIR/$fw $FIRMWARE_RESULT_DIR/$fw_dir
-				fw_msg $fw $fw_list # log to zdrv
+				cp -L -n $SRC_FW_DIR/$fw $FIRMWARE_RESULT_DIR/$fw_dir
+				fw_msg $fw $fw_tmp_list # log to zdrv
 			else
-				fw_msg "${fw} non-free" $fw_list # log to zdrv
-				continue
+				fw_msg "${fw} non-free" $fw_tmp_list # log to zdrv
 			fi
 		fi		
 	done
 done
+sort -u < $fw_tmp_list >> $fw_list
+rm $fw_tmp_list
 
 # extract licences
 licence_func
