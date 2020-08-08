@@ -10,7 +10,7 @@ mount-FULL -o loop,noatime,offset=${P2STARTBYTES} devuan-beowulf-c201-libre-2GB.
 dd if=build/devsus-kernel/boot/vmlinux.kpart of=devuan-beowulf-c201-libre-2GB.img conv=notrunc seek=${P1BYTES}
 cp -a build/devsus-kernel/lib /mnt/sdimagep2/
 cp -a rootfs-complete/* /mnt/sdimagep2/
-wget -O- https://github.com/dimkr/devsus/releases/latest/download/devsus-templates.tar.gz | tar -xzf- -C /mnt/sdimagep2 --strip-components=1
+wget -O- https://github.com/dimkr/devsus/releases/latest/download/devsus-firmware.tar.gz | tar -xzf- -C /mnt/sdimagep2 --strip-components=1
 mkdir -p /mnt/sdimagep2/opt/devsus
 echo -e '#!/bin/sh\nexec /sbin/init initrd_full_install' > /mnt/sdimagep2/opt/devsus/init
 chmod 755 /mnt/sdimagep2/opt/devsus/init
