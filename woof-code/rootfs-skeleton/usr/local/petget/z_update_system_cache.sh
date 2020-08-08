@@ -29,7 +29,7 @@ do
 	  /usr/bin/update-mime-database $usrfld/share/mime 2>/dev/null
 	fi
 	
-	if [ -e "$usrfld/share/mime/packages" ] && [ "$(ls -1 "$usrfld/share/mime/packages")" == "" ]; then
+	if [ -e "$usrfld/share/mime/packages" ] && [ "$(ls -1 "$usrfld/share/mime/packages" 2>/dev/null)" == "" ]; then
 	 rm -rf $usrfld/share/mime/*
 	fi
   fi
@@ -48,6 +48,10 @@ do
   fi
 
 done
+
+if [ "$(grep -q -m 1 '/gconv/' $PKGFILES)" != "" ]; then
+  iconvconfig 2>/dev/null
+fi
 
 if [ "$(grep -q -m 1 '/usr/lib/gdk-pixbuf' $PKGFILES)" != "" ] || [ "$(grep -q -m 1 '/usr/local/lib/gdk-pixbuf' $PKGFILES)" != "" ]; then
 	if [ -e /usr/bin/update-gdk-pixbuf-loaders ] ; then
