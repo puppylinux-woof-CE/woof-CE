@@ -43,3 +43,6 @@ if [ "$(pwd)" = "/" ];then
   sed -i '/pgprs\.svg/ s/svg/png/' usr/share/applications/pgprs-connect.desktop
  fi
 fi
+
+#Replace placeholder with /usr/sbin link to moved pgprs script.
+ln -snf /usr/local/pgprs/pgprs usr/sbin/
