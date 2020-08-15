@@ -119,3 +119,6 @@ if [ "$(pwd)" = "/" ];then
  #Remove replaced options file, if not used by pgprs.
  [ -f usr/sbin/pgprs ] && rm -f etc/ppp/options.gprs
 fi
+
+#Replace placeholder with /usr/local/bin link to moved script.
+ln -snf /usr/local/frisbee/frisbee usr/local/bin/
