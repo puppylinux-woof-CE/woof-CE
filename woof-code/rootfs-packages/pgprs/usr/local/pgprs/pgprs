@@ -1,103 +1,25 @@
 #! /bin/bash
+# shellcheck disable=SC1091 #Skip sourced checks.
 # PGPRS 2.x: Common interface to Puppy Generic GPRS Modem Utility
 
-#set -x; test -f /tmp/xerrs.log && exec 1>&2 || exec &>/tmp/debug.log #send feedback and trace to xerrs.log or debug.log
+#200622 (v3.0) Offer to disconnect existing connection; become current manager after setup; remove lock usage; move version & help options out of main loop; move etc gprs.conf; complete internationalization; resolve shellcheck warnings.
+
+export VERSION='3.0'  #UPDATE this with each release!
 
 export TEXTDOMAIN=pgprs
 export OUTPUT_CHARSET=UTF-8
 . gettext.sh
 
-export VERSION='2.0.2'  #UPDATE this with each release!
-
-[ -f /root/.config/gprs.conf ] \
- || echo -e "GPRSDEV=\nGPRSAPN=\nGPRSNBR=\nGPRSPIN=\nGPRSUSER=\nGPRSPAPONLY=" > /root/.config/gprs.conf
-mkdir -p /var/lock/gprs
-mkdir -p /tmp/.pgprs
-ICONLIB=/usr/local/lib/X11/pixmaps
-[ -f /usr/share/pixmaps/pgprs.svg ] \
- && export PGPRSICON=/usr/share/pixmaps/pgprs.svg \
- || export PGPRSICON=/usr/share/pixmaps/pgprs.png
-
-#Lock management - for unblocked locking only.
-eval $(grep '^GPRS_SETUP_LOCK_FD=' /etc/ppp/gprs.conf)
-eval $(grep '^GPRS_CONNECT_LOCK_FD=' /etc/ppp/gprs.conf)
-[ "$GPRS_SETUP_LOCK_FD" -a "$GPRS_CONNECT_LOCK_FD" ] || exit 1 
-eval exec "$GPRS_SETUP_LOCK_FD>/var/lock/gprs/setup"
-eval exec "$GPRS_CONNECT_LOCK_FD>/var/lock/gprs/connect"
-
-function disconnect_gprs {
- local PPPDPID=$(cat /var/run/ppp-gprs.pid)
- local CONNECTEDDEV
- [ "$PPPDPID" ] \
-  && CONNECTEDDEV="$(ps -p $PPPDPID | grep 'pppd' | grep -v 'grep' | grep -o '/dev/[a-z][^ ]*')"
- if [ "$CONNECTEDDEV" ];then
-  kill $PPPDPID
-  rm -f /var/run/ppp-gprs.pid
-  gtkdialog-splash -timeout 10 -placement center -bg orange -text "$(eval_gettext "Modem device \\\$CONNECTEDDEV disconnected")"
- fi
-}
-
 OPTION="$1"
 case $(basename "$0") in
- pgprs-shell) OPTION="--setup" ;;
- pgprs-connect) OPTION="--connect" ;;
- pgprs) [ -z "$OPTION" ] && OPTION="--setup" ;;
+    pgprs-shell) OPTION="--setup" ;;
+    pgprs-connect) OPTION="--connect" ;;
+    pgprs) [ -z "$OPTION" ] && OPTION="--setup" ;;
 esac
-
-while [ "$OPTION" ]; do
- OPT=$OPTION; OPTION=''
- case "$OPT" in
-  -s|--setup)
-   if [ -z "$(busybox pidof pgprs-connect)" ] \
-     && flock --exclusive --nonblock $GPRS_SETUP_LOCK_FD; then #lock setup
-    /usr/local/pgprs/pgprs-setup
-    [ $? -eq 2 -a -z "$(busybox pidof pgprs-connect)" ] \
-     && OPTION='--connect'
-    flock --unlock $GPRS_SETUP_LOCK_FD #unlock setup
-   else
-    if [ -n "$(busybox pidof pgprs-setup)" -o -n "$(busybox pidof pgprs-connect)" ]; then
-     Xdialog --center --wmclass pgprs --title "Pgprs $(gettext 'GPRS Setup')" --icon $ICONLIB/error.xpm --msgbox "\n$(gettext 'PGPRS cannot start now because it is already active.')\n\n$(gettext 'Please use the active PGPRS session.')\n" 0 70
-    elif [ -n "$(busybox pidof frisbee-main)" ]; then
-     Xdialog --center --wmclass pgprs --title "Pgprs $(gettext 'GPRS Setup')" --icon $ICONLIB/error.xpm --ok-label "OK" --cancel-label $(gettext 'Retry') --yesno "\n$(gettext 'PGPRS cannot start now because the Frisbee network manager is active.')\n\n$(gettext 'If you terminate Frisbee, you can Retry PGPRS.')\n" 0 70
-     [ $? -eq 1 ] && OPTION='--setup' #1 = retry
-    else #stale lock - delete, recreate and retry
-     rm -f /var/lock/gprs/setup
-     eval exec "$GPRS_SETUP_LOCK_FD>/var/lock/gprs/setup"
-     echo "basename $0: Stale 'setup' lock detected and replaced" 1>&2
-     OPTION='--setup'
-    fi
-   fi
-   ;;
-  -c|--connect)
-   #If no setup in place, do it now...
-   . /root/.config/gprs.conf
-   if [ "$GPRSDEV" -a "$GPRSNBR" -a "$GPRSAPN" ]; then
-    if flock --exclusive --nonblock $GPRS_CONNECT_LOCK_FD; then #lock if no dialog active
-     /usr/local/pgprs/pgprs-connect
-     [ $? -eq 0 -a -z "$(busybox pidof pgprs-setup)" ] \
-      && OPTION='--setup'
-     flock --unlock $GPRS_CONNECT_LOCK_FD #unlock connect
-    elif [ -n "$(busybox pidof pgprs-connect)" -o -n "$(busybox pidof frisbee-gprs-connect)" ]; then
-     Xdialog --center --wmclass pgprs --title "Pgprs $(gettext 'GPRS Connect')" --icon $ICONLIB/info.xpm --msgbox "\n$(eval_gettext "Modem device '\$GPRSDEV' connection window is active.")\n\n$(gettext 'Please go to the active GPRS Connection Log window.')\n" 0 70
-    else #stale lock - delete, recreate and retry
-     rm -f /var/lock/gprs/connect
-     eval exec "$GPRS_CONNECT_LOCK_FD>/var/lock/gprs/connect"
-     echo "basename $0: Stale 'connect' lock detected and replaced" 1>&2
-     OPTION='--connect'
-    fi
-   else
-    OPTION='--setup'
-   fi
-   ;;
-  -d|--disconnect)
-   if [ -s /var/run/ppp-gprs.pid ];then
-    disconnect_gprs
-   fi
-   ;;
-  -v|--version)
-		echo "$VERSION"
-		;;
- *) echo "$(gettext 'Usage: pgprs [option]')
+case "$OPTION" in
+    -s|--setup|-c|--connect|-d|--disconnect) ;;
+    -v|--version) echo "$VERSION"; exit ;;
+    *) echo "$(gettext 'Usage: pgprs [option]')
  
 $(gettext 'Manage 3G/GPRS network connections')
 
@@ -107,8 +29,61 @@ $(gettext 'Options'):
   -d, --disconnect  $(gettext 'Disconnect from active GPRS network')
   -v, --version     $(gettext 'Display pgprs version')
   -h, --help        $(gettext 'Display this help and exit')
-"
-   ;;
- esac
+"; exit ;;
+esac
+
+[ -f /root/.config/gprs.conf ] \
+  || echo -e "GPRSDEV=\nGPRSAPN=\nGPRSNBR=\nGPRSPIN=\nGPRSUSER=\nGPRSPAPONLY=" > /root/.config/gprs.conf
+mkdir -p /tmp/.pgprs
+export ICONLIB=/usr/local/lib/X11/pixmaps
+if [ -f /usr/share/pixmaps/pgprs.svg ]; then
+    export PGPRSICON=/usr/share/pixmaps/pgprs.svg
+else
+    export PGPRSICON=/usr/share/pixmaps/pgprs.png
+fi
+
+function disconnect_gprs {
+    local GPRS_PPPD_PID
+    local CONNECTED_DEVICE
+    GPRS_PPPD_PID="$(cat /var/run/ppp-gprs.pid 2>/dev/null)"
+    if [ -n "$GPRS_PPPD_PID" ]; then
+# shellcheck disable=SC2034 # Variable used in gettext message
+        CONNECTED_DEVICE="$(pgrep -ax 'pppd' | grep -w "^$GPRS_PPPD_PID" | grep -o '/dev/[^ ]*')"
+        kill "$GPRS_PPPD_PID"
+        sleep 0.1 #200607
+        rm -f /var/run/ppp-gprs.pid
+        gtkdialog-splash -timeout 10 -placement center -bg orange -text "$(eval_gettext "Modem device \$CONNECTED_DEVICE disconnected")"
+    fi
+}
+
+while [ "$OPTION" ]; do
+    OPT=$OPTION; OPTION=''
+    case "$OPT" in
+      -s|--setup)
+        if pgrep -x 'pgprs' | grep -qwv "$$"; then #200622...
+            Xdialog --center --wmclass pgprs --title "$(gettext 'Pgprs GPRS Setup')" --icon $ICONLIB/error.xpm --ok-label "$(gettext 'OK')" --msgbox "\n$(gettext 'PGPRS cannot start now because it is already active.')\n\n$(gettext 'Please use the active PGPRS session.')\n" 0 70
+            exit
+        fi
+        /usr/local/pgprs/pgprs-setup
+        STATUS=$? #200611...
+        [ $STATUS -eq 2 ] && OPTION='--connect'
+        [ $STATUS -eq 0 ] || [ $STATUS -eq 2 ] && which connectwizard_exec >/dev/null 2>&1 \
+          && connectwizard_exec pgprs
+        ;;
+      -c|--connect)
+        #If no setup in place, do it now...
+        . /root/.config/gprs.conf
+        if [ "$GPRSDEV" ] && [ "$GPRSNBR" ] && [ "$GPRSAPN" ]; then
+            /usr/local/pgprs/pgprs-connect && OPTION='--setup' #0 = configure, 1 = done, 255 = abort
+        else
+            OPTION='--setup'
+        fi
+        ;;
+      -d|--disconnect)
+        if [ -s /var/run/ppp-gprs.pid ]; then
+            disconnect_gprs
+        fi
+        ;;
+    esac
 done
 exit 0
