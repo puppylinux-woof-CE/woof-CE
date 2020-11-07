@@ -447,7 +447,7 @@ else
  dlPATTERN='|'"`echo -n "$DLPKG_BASE" | sed -e 's%\\-%\\\\-%'`"'|'
  DB_ENTRY="`cat /tmp/petget_proc/petget_missing_dbentries-Packages-* | grep "$dlPATTERN" | head -n 1`"
  
- if [ "$DB_ENTRY" = "" ]; then
+ if [ "$DB_ENTRY" == "" ]; then
   DB_ENTRY="$DLPKG_NAME|$DLPKG_NAME|1.0.0|1||||${DLPKG_BASE}|||"
  fi
 
