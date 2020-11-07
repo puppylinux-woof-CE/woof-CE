@@ -116,7 +116,30 @@ install_path_check() {
 
 #get the pkg name ex: scite-1.77 ...
 dbPATTERN='|'"$DLPKG_BASE"'|'
+
 DLPKG_NAME="`cat /tmp/petget_proc/petget_missing_dbentries-Packages-* | grep "$dbPATTERN" | head -n 1 | cut -f 1 -d '|'`"
+
+if [ "$DLPKG_NAME" == "" ]; then
+
+ #fallback if DLPKG_NAME was empty
+
+ case $DLPKG_BASE in
+  *.pet) EXT=".pet" ;;
+  *.deb) EXT=".deb" ;;
+  *.tgz) EXT=".tgz" ;;
+  *.txz) EXT=".txz" ;;
+  *.tzst) EXT=".tzst" ;;
+  *.rpm) EXT=".rpm" ;;
+  *.tar.gz) EXT=".tar.gz" ;;
+  *.tar.xz) EXT=".tar.xz" ;;
+  *.tar.zst) EXT=".tar.zst" ;;
+  *) EXT="" ;;
+ esac
+
+ DLPKG_NAME="$(basename "$DLPKG_BASE" $EXT)"
+
+fi
+
 
 #131222 do not allow duplicate installs...
 PTN1='^'"$DLPKG_NAME"'|'
@@ -423,6 +446,11 @@ else
  [ -f $DIRECTSAVEPATH/pet.specs ] && rm -f $DIRECTSAVEPATH/pet.specs #w482 remove zero-byte file.
  dlPATTERN='|'"`echo -n "$DLPKG_BASE" | sed -e 's%\\-%\\\\-%'`"'|'
  DB_ENTRY="`cat /tmp/petget_proc/petget_missing_dbentries-Packages-* | grep "$dlPATTERN" | head -n 1`"
+ 
+ if [ "$DB_ENTRY" = "" ]; then
+  DB_ENTRY="$DLPKG_NAME|$DLPKG_NAME|1.0.0|1||||${DLPKG_BASE}|||"
+ fi
+
 fi
 ##+++2011-12-27 KRG check if $DLPKG_BASE matches DB_ENTRY 1 so uninstallation works :Ooops:
 db_pkg_name=`echo "$DB_ENTRY" |cut -f 1 -d '|'`
