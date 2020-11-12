@@ -443,7 +443,7 @@ cat /var/packages/package-files/${DLPKG_NAME}.files | grep -E '*\.so$|*\.so\.*' 
 while IFS= read -r line
 do
 
-if [ -f $line ]; then
+if [ -f "$line" ]; then
 
   dname3="$(dirname $line)"
   soname="$(basename $line)"
@@ -454,7 +454,7 @@ if [ -f $line ]; then
   
    if [ "$(cat /var/packages/package-files/${DLPKG_NAME}.files | grep "$slink")" == "" ]; then
   
-      srcf=$(readlink $slink 2>/dev/null)
+      srcf=$(readlink "$slink" 2>/dev/null)
     
       if [ "$srcf" != "" ]; then
      
