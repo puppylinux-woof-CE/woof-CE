@@ -54,6 +54,10 @@ elif [ ! "$DISPLAY" ]; then
  [ $? -ne 0 ] && exit 0
 fi
 
+if [ "$ISLAYEREDFS" != "" ];then
+ busybox mount -t aufs -o remount,udba=notify unionfs /
+fi
+
 #111228 if snapmergepuppy running, wait for it to complete (see also /usr/local/petget/installpkg.sh)...
 #note, inverse true, /sbin/pup_event_frontend_d will not run snapmergepuppy if removepreview.sh running.
 if [ $PUPMODE -eq 13 ];then
@@ -319,6 +323,11 @@ export LANG="$ORIGLANG"
 
 fi
 
+if [ "$ISLAYEREDFS" != "" ];then
+ #now re-evaluate all the layers...
+	busybox mount -t aufs -o remount,udba=reval unionfs / #remount with faster evaluation mode.
+fi
+
 UPDATE_MENUS=''
 if [ -f /tmp/petget_proc/remove_pets_quietly ]; then
  LEFT=$(cat /tmp/petget_proc/pkgs_left_to_remove | wc -l)
@@ -326,7 +335,6 @@ if [ -f /tmp/petget_proc/remove_pets_quietly ]; then
 else
   UPDATE_MENUS=yes
 fi
-
 
 if [ "$UPDATE_MENUS" = "yes" ]; then
  #fix menu...
