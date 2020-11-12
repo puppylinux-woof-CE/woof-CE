@@ -458,7 +458,7 @@ if [ -f $line ]; then
     
       if [ "$srcf" != "" ]; then
      
-        so_bname="$(basename $srcf 2>/dev/null)"
+        so_bname="$(basename "$srcf" 2>/dev/null)"
           
 	  #check if the source file of the symlink was correct
           if [ $so_bname != "" ] && [ "$so_bname" == "$soname" ]; then    
