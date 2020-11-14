@@ -1,0 +1,71 @@
+#!/bin/ash
+
+[ "$1" ] || exit 1
+[ -e "$1" ] || exit 1
+
+. gettext.sh # enables use of eval_gettext (several named variables) and ngettext (plurals)
+export TEXTDOMAIN=shutdownconfig
+
+. /etc/rc.d/PUPSTATE
+installPART="${PUPSFS%%,*}"
+installDIR="${PUPSFS#*,*,}"
+#installDIR="${installDIR%%,*}"
+installDIR="${installDIR%/*}"
+
+MOUNTED="$(grep -m1 "$installPART" /proc/mounts | cut -f 2 -d ' ')"
+if [ "$MOUNTED" ]; then
+	installMTPT="$MOUNTED"
+else
+	installMTPT="/mnt/$installPART"
+	[ -d "$installMTPT" ] || mkdir -p "$installMTPT"
+	mount "/dev/$installPART" "$installMTPT"
+	[ $? -eq 0 ] || exit 1
+fi
+[ "$installMTPT" ] || exit 1
+[ -d "${installMTPT}${installDIR}" ] || exit 1
+
+installPARTfstype="$(blkid /dev/$installPART 2>/dev/null | grep -o ' TYPE=.*' | cut -f 2 -d '"')"
+doASKdialog=''
+installPARTlinux=''
+case $installPARTfstype in
+	ext4|ext3|ext2|f2fs|reiserfs|btrfs|minix) installPARTlinux='yes' ;;
+	vfat|exfat)  ;;
+	ntfs) [ -e "${installMTPT}/Windows" ] && doASKdialog='yes' ;;
+	*) ;;
+esac
+
+if [ "$doASKdialog" = 'yes' ]; then
+	DIALOGEXE="pupdialog"
+	BACKGROUNDYELLOW='--background \#FFFF80' #110924 change to pale-yellow. yellow' #only works pupdialog. \Z1\Zn
+	TITLEPARAM='--backtitle'
+
+	T_writetitle="$(gettext 'First shutdown: confirm write')"
+	T_yesno="`eval_gettext \"About to write the file \Z5\\\${installDIR}/SAVESPEC\Zn,
+to \Z5\\\${installPART}\Zn, which is an \Zbntfs\ZB partition,
+containing a \Z5/Windows\Zn folder.\"`
+
+$(gettext "May be an issue if this is a Windows \ZbC:\ZB drive,
+and \ZbFast Startup\ZB is not disabled in Windows.")
+
+`eval_gettext \"If \Z5\\\${installPART}\Zn is not a Windows \ZbC:\ZB drive,
+or \ZbFast Startup\ZB is disabled in Windows,
+click the \ZbYes\ZB button to continue with the write.\"`
+
+$(gettext "If you are not sure, click \ZbNo\ZB to avoid the write.")"
+	${DIALOGEXE} ${BACKGROUNDYELLOW} ${TITLEPARAM} "$T_writetitle" --colors --yesno "$T_yesno" 0 0
+	if [ $? -ne 0 ]; then
+		[ "$MOUNTED" ] || umount "$installMTPT" 2>/dev/null
+		exit 1
+	fi
+fi
+
+if [ "$installPARTlinux" != 'yes' ]; then
+	[ "$(file "$1" | grep 'ASCII text' | grep -v 'executable')" = "" ] || unix2dos "$1"
+fi
+
+#echo "cp -af $1 ${installMTPT}${installDIR}/"
+cp -af "$1" "${installMTPT}${installDIR}/"
+
+[ "$MOUNTED" ] || umount "$installMTPT" 2>/dev/null
+
+exit 0
