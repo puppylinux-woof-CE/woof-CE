@@ -96,6 +96,18 @@ echo "$ORANGEGTKRC" > /tmp/orange_gtkrc${$}
 
 #================================================================
 
+get_DRV() {
+  # "$1" - partition - ex: sda3
+  ret_DRV=''
+  [ "$1" ] || return 1
+  local xPART="$1"
+  while [ ${#xPART} -gt 2 ]; do
+    [ -e /sys/block/$xPART ] && { ret_DRV="$xPART"; break; }
+    xPART=${xPART%?}
+  done
+  return 0
+}
+
 choosepartfunc() {
  #dialog to choose what partition to create ${DISTRO_FILE_PREFIX}save.2fs on...
  case "$PMEDIA" in ""|cd|scsicd|satacd|idecd|atacd|usbcd) PCHOOSE="yes" ;; esac
@@ -458,7 +470,6 @@ enmount() {
 changefolder() {
    T_choosefoldertitle="$(gettext 'First shutdown: choose folder')"
    T_inputbox="$(gettext 'Edit path. '/' means top-level of partition.
-You are only allowed to save one-deep, for example: '/puppy300'.
 If folder does not exist, it will be created. Spaces are not allowed.
 If uncertain, just click OK button.')"
    NEWSAVEPATH="`${DIALOGEXE} ${BACKGROUNDYELLOW} ${TITLEPARAM} "$T_choosefoldertitle" --screen-center --stdout --no-cancel --inputbox "$T_inputbox" 0 0 "$SAVEPATH"`"
@@ -628,6 +639,17 @@ fi
 
 [ ! "$DEV1FS" ] && xDEVFS='xxx' #this will enable choice of create a save-file.
 
+if [ "$PSAVEPART" ]; then
+    DSAVEPART="$PSAVEPART"
+else
+    DSAVEPART="$xPDEV"
+fi
+if [ "$PSAVEDIR" ]; then
+    DSAVEDIR="${PSAVEDIR%/}"
+else
+    DSAVEDIR="$PSUBDIR"
+fi
+
 SAVECHOICE=255
 
 # some word processing now...
@@ -774,24 +796,54 @@ LABEL ${SAVEFILE##*/}
    umount ${MOUNTED} 2>/dev/null
   fi
  fi
-else
- # Add a savemark file if we save in a diffrent partition
- # But not if defined by PSAVEPART or PSAVEMARK in PUPSTATE
- if [ "${PSAVEPART}" = "" -a "${PSAVEMARK}" = "" -a "${SAVEPART}" != "${xPDEV}" ];then
-  SAVEDISK=$(echo "${SAVEPART}" |  sed 's/[0-9]*//g')
-  PDEV1DISK=$(echo "${xPDEV}" |  sed 's/[0-9]*//g')
-  xSAVEMARK=$(echo "${SAVEPART}" |  sed 's/[^0-9]*//g')
-  if [ "${SAVEDISK}" = "${PDEV1DISK}" ];then
-   MOUNTED=$(grep "${xPDEV}" /proc/mounts)
-   if [ "$MOUNTED" ]; then
-    echo "${xSAVEMARK}" > /mnt/${xPDEV}${xPSUBDIR}/SAVEMARK
-   else
-    mkdir -p /mnt/${xPDEV} && mount /dev/${xPDEV} /mnt/${xPDEV}
-    echo "${xSAVEMARK}" > /mnt/${xPDEV}${xPSUBDIR}/SAVEMARK
-   fi
-   umount /mnt/${xPDEV} 2>/dev/null
+elif [ "$PUPMODE" = "128" -a "$DEV1FS" != "iso9660" ]; then
+  # Add a SAVESPEC file if save in a diffrent partition or different directory
+  SPEC_DIR="/tmp/shutdown$$"
+  [ -d "$SPEC_DIR" ] || mkdir -p "$SPEC_DIR"
+  SPEC_FN="$SPEC_DIR/SAVESPEC"
+  [ -e "$SPEC_FN" ] && rm "$SPEC_FN"
+  if [ "${SAVEPART}" != "${DSAVEPART}" -o "${SAVEPATH}" != "${DSAVEDIR}" ]; then
+    SAVEID="$(busybox blkid /dev/${SAVEPART} | grep -o ' LABEL=.*' | cut -f2 -d '"')"
+    [ "$SAVEID" ] || SAVEID="$(busybox blkid /dev/${SAVEPART} | grep -o ' UUID=.*' | cut -f2 -d '"')"
+    if [ "$SAVEID" ]; then
+      echo "SS_ID='$SAVEID'" >> "$SPEC_FN"
+      [ "$SAVEPATH" ] || SAVEPATH='/'
+      echo "SS_DIR='$SAVEPATH'" >> "$SPEC_FN"
+    fi
   fi
- fi
+  get_DRV "${SAVEPART}"
+  if [ "${ret_DRV}" ]; then
+    SAVEDRV="${ret_DRV}"
+    get_DRV "${PUPSFS%%,*}"
+    if [ "${SAVEDRV}" != "${ret_DRV}" ]; then
+      # check and set SAVEMEDIA for SAVEPART
+      DRVTYPE="`probedisk | grep "$SAVEDRV" | cut -f 2 -d '|'`"
+      case "$DRVTYPE" in
+        drive)
+          if [ "$(cat /sys/block/$SAVEDRV/queue/rotational 2>/dev/null)" = "0" -a "$SAVEFS" != 'f2fs' ]; then
+            xMEDIA='ataflash'
+          else
+            xMEDIA='atahd'
+          fi
+          ;;
+        usbdrv)
+          if [ "$(cat /sys/block/$SAVEDRV/removable 2>/dev/null)" = "1" -a "$SAVEFS" != 'f2fs' ]; then
+            xMEDIA='usbflash'
+          else
+            xMEDIA='usbhd'
+          fi
+          ;;
+        *)
+          xMEDIA=''
+          ;;
+      esac
+      if [ "$xMEDIA" ]; then
+        [ "$xMEDIA" = "$PMEDIA" ] || echo "SS_MEDIA='$xMEDIA'" >> "$SPEC_FN"
+      fi
+    fi
+  fi
+  [ -e "$SPEC_FN" ] && copy2installdir "$SPEC_FN"
+  rm -rf "$SPEC_DIR"
 fi
 
 exit 0
