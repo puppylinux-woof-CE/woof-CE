@@ -1,6 +1,7 @@
 # Profile for Java JDK and JRE
 # Supports 64/32-bit, openjdk, Oracle Javas.
 #190904 Renamed to z-java.sh from java.sh, to override JAVA_HOME and paths possibly set by java package profiles; add support of openjdk & icedtea (javaws) deb packages.
+#201121 Correct tests for java library path.
 
 JAVADIR="$(javaiffind)" #Latest installed java and icedtea paths 
 ICEDTEADIR="$(echo -n "$JAVADIR " | cut -f 2 -d ' ')"
@@ -30,11 +31,11 @@ if [ -n "$JAVADIR" ]; then
   -e 's%:[^:]*/java/[^:]*%%g')${JAVAPATH}${JREPATH}${ICEDTEAPATH}"
 
  # Add library path to libjvm.
- if [ -f $JAVADIR/lib/server/libjvm ]; then
+ if [ -f $JAVADIR/lib/server/libjvm.so ]; then #201121
   JAVALIBDIR="$JAVADIR/lib/server"
- elif [ -f $JAVADIR/jre/lib/*/server/libjvm ]; then
+ elif [ -f $JAVADIR/jre/lib/*/server/libjvm.so ]; then #201121
   JAVALIBDIR="$(ls -d $JAVADIR/jre/lib/*/server)"
- elif [ -f $JAVADIR/lib/*/server/libjvm ]; then
+ elif [ -f $JAVADIR/lib/*/server/libjvm.so ]; then #201121
   JAVALIBDIR="$(ls -d $JAVADIR/lib/*/server)"
  fi
  if [ -n "$JAVALIBDIR" ]; then
