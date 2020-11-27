@@ -117,6 +117,7 @@ fi
 
 #ConsoleKit2 hack
 if [ "$(cat "$PKGFILES" | grep "/ConsoleKit/scripts/ck-system-restart")" != "" ]; then
+
  for flck in $(cat "$PKGFILES" | grep "/ConsoleKit/scripts/ck-system-restart")
  do
  rm -f $flck
@@ -125,22 +126,25 @@ echo "#!/bin/sh
 shutdown_system(){
 
  . /etc/rc.d/PUPSTATE
-
- if [ $PUPMODE -eq 5 ]; then 
-	shutdownconfig
+ 
+ if [ \$PUPMODE -eq 5 ]; then 
+   shutdownconfig
+ elif [ \$PUPMODE -eq 13 ]; then 
+   asktosave_session
  fi
-
- $@
- exit $?
 		
 }
 
 
 #Try for common tools
 if [ -x \"/sbin/shutdown\" ] ; then
-	shutdown_system \"/sbin/shutdown\" -r now
+	shutdown_system
+	/sbin/shutdown -r now
+	exit \$?
 elif [ -x \"/usr/sbin/shutdown\" ] ; then
-	shutdown_system \"/usr/sbin/shutdown\" -r now
+	shutdown_system
+	/usr/sbin/shutdown -r now
+	exit \$?
 else
 	exit 1
 fi
@@ -152,6 +156,7 @@ fi
 
 
 if [ "$(cat "$PKGFILES" | grep "/ConsoleKit/scripts/ck-system-stop")" != "" ]; then
+
  for flck in $(cat "$PKGFILES" | grep "/ConsoleKit/scripts/ck-system-stop")
  do
  rm -f $flck
@@ -160,22 +165,24 @@ echo "#!/bin/sh
 shutdown_system(){
 
  . /etc/rc.d/PUPSTATE
-
- if [ $PUPMODE -eq 5 ]; then 
-	shutdownconfig
+ 
+ if [ \$PUPMODE -eq 5 ]; then 
+   shutdownconfig
+ elif [ \$PUPMODE -eq 13 ]; then 
+   asktosave_session
  fi
-
- $@
- exit $?
 		
 }
 
-
 #Try for common tools
 if [ -x \"/sbin/shutdown\" ] ; then
-	shutdown_system \"/sbin/shutdown\" -h now
+	shutdown_system
+	/sbin/shutdown -h now
+	exit \$?
 elif [ -x \"/usr/sbin/shutdown\" ] ; then
-	shutdown_system \"/usr/sbin/shutdown\" -h now
+	shutdown_system
+	/usr/sbin/shutdown -h now
+	exit \$?
 else
 	exit 1
 fi
