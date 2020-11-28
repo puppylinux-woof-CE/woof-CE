@@ -16,7 +16,7 @@ cat << EOF > kernel.its
 	images {
 		kernel {
 			description = "vmlinuz";
-			data = /incbin/("boot/vmlinuz");
+			data = /incbin/("build/vmlinuz");
 			type = "kernel_noload";
 			arch = "$1";
 			os = "linux";
@@ -63,7 +63,7 @@ echo "console=tty1 rootwait" > cmdline
 
 mkimage -D "-I dts -O dtb -p 2048" -f kernel.its vmlinux.uimg
 dd if=/dev/zero of=bootloader.bin bs=512 count=1
-vbutil_kernel --pack build/boot/vmlinux.kpart \
+vbutil_kernel --pack build/vmlinux.kpart \
               --version 1 \
               --vmlinuz vmlinux.uimg \
               --arch arm \
@@ -71,7 +71,7 @@ vbutil_kernel --pack build/boot/vmlinux.kpart \
               --signprivate /usr/share/vboot/devkeys/kernel_data_key.vbprivk \
               --config cmdline \
               --bootloader bootloader.bin
-dd if=build/boot/vmlinux.kpart of=devuan-beowulf-c201-libre-2GB.img conv=notrunc seek=${P1BYTES}
+dd if=build/vmlinux.kpart of=devuan-beowulf-c201-libre-2GB.img conv=notrunc seek=${P1BYTES}
 cp -f build/*.sfs /mnt/sdimagep2/
 wget -O- https://github.com/dimkr/devsus/releases/latest/download/devsus-firmware.tar.gz | tar -xzf- -C /mnt/sdimagep2 --strip-components=1
 busybox umount /mnt/sdimagep2 2>/dev/null
