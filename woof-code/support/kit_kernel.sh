@@ -30,7 +30,7 @@ download_kernel() {
 	local URL="$1"
 	../support/download_file.sh "$URL" "../../local-repositories/${DISTRO_TARGETARCH}/kernels"
 	if [ $? -ne 0 ] ; then
-		../support/download_file.sh "URL" "../../local-repositories/${DISTRO_TARGETARCH}/kernels"
+		../support/download_file.sh "$URL" "../../local-repositories/${DISTRO_TARGETARCH}/kernels"
 		[ $? -ne 0 ] && exit 1
 	fi
 }
