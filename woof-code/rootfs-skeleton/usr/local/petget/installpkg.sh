@@ -116,7 +116,30 @@ install_path_check() {
 
 #get the pkg name ex: scite-1.77 ...
 dbPATTERN='|'"$DLPKG_BASE"'|'
+
 DLPKG_NAME="`cat /tmp/petget_proc/petget_missing_dbentries-Packages-* | grep "$dbPATTERN" | head -n 1 | cut -f 1 -d '|'`"
+
+if [ "$DLPKG_NAME" == "" ]; then
+
+ #fallback if DLPKG_NAME was empty
+
+ case $DLPKG_BASE in
+  *.pet) EXT=".pet" ;;
+  *.deb) EXT=".deb" ;;
+  *.tgz) EXT=".tgz" ;;
+  *.txz) EXT=".txz" ;;
+  *.tzst) EXT=".tzst" ;;
+  *.rpm) EXT=".rpm" ;;
+  *.tar.gz) EXT=".tar.gz" ;;
+  *.tar.xz) EXT=".tar.xz" ;;
+  *.tar.zst) EXT=".tar.zst" ;;
+  *) EXT="" ;;
+ esac
+
+ DLPKG_NAME="$(basename "$DLPKG_BASE" $EXT)"
+
+fi
+
 
 #131222 do not allow duplicate installs...
 PTN1='^'"$DLPKG_NAME"'|'
@@ -409,6 +432,56 @@ if [ -f $DIRECTSAVEPATH/puninstall.sh ];then
  mv -f $DIRECTSAVEPATH/puninstall.sh /root/.packages/${DLPKG_NAME}.remove
 fi
 
+
+#Look for symbolic links created by post-scripts and update package file list
+#remove temp list first
+rm -rf /tmp/slink-append.txt 2>/dev/null
+
+#List all the library files in the package
+cat /var/packages/${DLPKG_NAME}.files | grep -E '*\.so$|*\.so\.*' > /tmp/libfiles2.txt
+
+#Evaluate the library files
+while IFS= read -r line
+do
+
+if [ -f "$line" ]; then
+
+  dname3="$(dirname $line)"
+  soname="$(basename $line)"
+  soname2="${soname%*.so.*}"
+ 
+  for slink in $(find $dname -name "${soname2}.so*" -maxdepth 1 -type l)
+  do
+  
+   if [ "$(cat /var/packages/${DLPKG_NAME}.files | grep "$slink")" == "" ]; then
+  
+      srcf=$(readlink "$slink" 2>/dev/null)
+    
+      if [ "$srcf" != "" ]; then
+     
+        so_bname="$(basename "$srcf" 2>/dev/null)"
+          
+	  #check if the source file of the symlink was correct
+          if [ $so_bname != "" ] && [ "$so_bname" == "$soname" ]; then    
+	     if [ ! -f /tmp/slink-append.txt ]; then
+	      echo "$slink" > /tmp/slink-append.txt
+	     elif [ "$(cat /tmp/slink-append.txt | grep "$slink")" == "" ]; then
+	      echo "$slink" >> /tmp/slink-append.txt
+	     fi
+          fi
+      fi
+    fi
+ 
+   done
+ 
+fi
+ 
+done < /tmp/libfiles2.txt
+
+cat /tmp/slink-append.txt >> /var/packages/${DLPKG_NAME}.files
+rm -rf /tmp/slink-append.txt 2>/dev/null
+
+
 #w465 <pkgname>.pet.specs is in older pet pkgs, just dump it...
 #maybe a '$APKGNAME.pet.specs' file created by dir2pet script...
 rm -f $DIRECTSAVEPATH/*.pet.specs 2>/dev/null
@@ -423,6 +496,11 @@ else
  [ -f $DIRECTSAVEPATH/pet.specs ] && rm -f $DIRECTSAVEPATH/pet.specs #w482 remove zero-byte file.
  dlPATTERN='|'"`echo -n "$DLPKG_BASE" | sed -e 's%\\-%\\\\-%'`"'|'
  DB_ENTRY="`cat /tmp/petget_proc/petget_missing_dbentries-Packages-* | grep "$dlPATTERN" | head -n 1`"
+ 
+ if [ "$DB_ENTRY" == "" ]; then
+  DB_ENTRY="$DLPKG_NAME|$DLPKG_NAME|1.0.0|1||||${DLPKG_BASE}|||"
+ fi
+
 fi
 ##+++2011-12-27 KRG check if $DLPKG_BASE matches DB_ENTRY 1 so uninstallation works :Ooops:
 db_pkg_name=`echo "$DB_ENTRY" |cut -f 1 -d '|'`

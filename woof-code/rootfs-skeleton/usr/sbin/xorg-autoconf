@@ -9,6 +9,14 @@ PCILIST="$(busybox lspci 2>/dev/null)"
 [ "$MODLIST" == "" ] && MODLIST="$(lsmod 2>/dev/null)" 
 [ "$PCILIST" == "" ] && PCILIST="$(lspci -nD 2>/dev/null | sed "s#^0000:##g")"
 
+if [ -e /etc/keymap.conf ]; then
+ KBSELECT="$(cat /etc/keymap.conf | head -n 1)"
+elif [ -e /etc/keymap ]; then
+ KBSELECT="$(cat /etc/keymap | head -n 1)"
+else
+ KBSELECT="us"
+fi
+
 #Detect udev
 UDEVD="$(which udevd)" 
 [ "$UDEVD" == "" ] && UDEVD="$(which systemd-udevd)" 
@@ -317,6 +325,13 @@ bid="$(decode_busid "$xbid")"
 accel=""
 
 case $devid in
+2081)
+ drv="geode"
+;;
+980*)
+ drv="radeon"
+ accel=""
+;;
 15dd|683f|6800|6819|6798|679a|67b1|67b0|665c|665f|6938|7300|67ef|67df|699f|67ff|6fdf|9874|aad8|aae8)
  if [ "$(echo "$MODLIST" | awk '{ print $1 }' | grep -E "^amdgpu")" != "" ]; then
   drv="amdgpu"
@@ -330,9 +345,6 @@ case $devid in
  else
   drv="radeon"
  fi
-;;
-2081)
- drv="geode"
 ;;
 4742|4744|4749|474d|474e|474f|4750|4752|4753|4756|4757|4759|475a)
  drv="r128"
@@ -378,13 +390,22 @@ if [ "$drvfound" == "" ] && [ "$drv" == "amdgpu" ]; then
 	  drv="modesetting"
 	  accel=""
 	fi
-	
 fi
 
+[ -e $XORG_MODULE_PATH/drivers/${drv}_drv.so ] && drvfound="1"
+
+if [ "$drvfound" == "" ] && [ "$drv" == "radeon" ]; then    
+    if [ "$(echo "$MODLIST" | awk '{ print $1 }' | grep -E "^radeon")" != "" ]; then
+	  drv="modesetting"
+	  accel=""
+    fi
+fi
+
+[ -e $XORG_MODULE_PATH/drivers/${drv}_drv.so ] && drvfound="1"
 
 if [ "$drvfound" == "" ] && [ "$drv" != "ati" ]; then
 
-    [ -e $XORG_MODULE_PATH/drivers/ati_drv.so ] && drvfound="1"
+   [ -e $XORG_MODULE_PATH/drivers/ati_drv.so ] && drvfound="1"
 	
 	if [ "$drvfound" != "" ]; then
 	 drv="ati"
@@ -592,6 +613,14 @@ probe_nvidia(){
  esac	
  
 drvfound=""
+
+[ -e $XORG_MODULE_PATH/drivers/${drv}_drv.so ] && drvfound="1"
+
+if [ "$drvfound" == "" ]; then
+ if [ "$(echo "$MODLIST" | awk '{ print $1 }' | grep -E "^nouveau")" != "" ]; then
+  drv="modesetting"
+ fi
+fi
 
 [ -e $XORG_MODULE_PATH/drivers/${drv}_drv.so ] && drvfound="1"
 
@@ -1154,18 +1183,25 @@ Section "Files"
 	FontPath     "/usr/share/fonts/OTF"
 	FontPath     "/usr/share/fonts/Type1"
 	FontPath     "/usr/share/fonts/misc"
+	FontPath     "/usr/share/fonts/truetype"
+	FontPath     "/usr/share/fonts/opentype"
+	FontPath     "/usr/share/fonts/woff"
 	FontPath     "/usr/share/fonts/CID"
 	FontPath     "/usr/share/fonts/75dpi/:unscaled"
 	FontPath     "/usr/share/fonts/100dpi/:unscaled"
 	FontPath     "/usr/share/fonts/75dpi"
 	FontPath     "/usr/share/fonts/100dpi"
 	FontPath     "/usr/share/fonts/cyrillic"
-	FontPath     "/usr/share/fonts/X11/misc/"
-	FontPath     "/usr/share/fonts/X11/TTF/"
-	FontPath     "/usr/share/fonts/X11/OTF/"
-	FontPath     "/usr/share/fonts/X11/Type1/"
-	FontPath     "/usr/share/fonts/X11/100dpi/"
-	FontPath     "/usr/share/fonts/X11/75dpi/"
+	FontPath     "/usr/share/fonts/X11/misc"
+	FontPath     "/usr/share/X11/fonts/misc"
+	FontPath     "/usr/share/fonts/X11/TTF"
+	FontPath     "/usr/share/fonts/X11/OTF"
+	FontPath     "/usr/share/fonts/X11/Type1"
+	FontPath     "/usr/share/fonts/X11/100dpi"
+	FontPath     "/usr/share/fonts/X11/75dpi"
+	FontPath     "/usr/share/X11/fonts"
+	FontPath     "/usr/local/share/fonts"
+	FontPath     "/usr/local/share/X11/fonts"
 EndSection
 
 '
@@ -1195,7 +1231,7 @@ echo 'Section "InputDevice"
 	Driver      "kbd"
 	Option      "XkbRules" "xorg"
 	Option      "XkbModel" "pc102" #xkbmodel0
-	Option      "XkbLayout" "us" #xkeymap0
+	Option      "XkbLayout" "'$KBSELECT'" #xkeymap0
 	#Option      "XkbVariant" "" #xkbvariant0
 	Option      "XkbOptions" "terminate:ctrl_alt_bksp" #xkboptions0
 EndSection
@@ -1237,7 +1273,7 @@ echo 'Section "InputClass"
 	Identifier "Keyboard Defaults"
 	MatchIsKeyboard "yes"
 	Option      "XkbModel" "pc104" #xkbmodel0
-	Option      "XkbLayout" "us" #xkeymap0
+	Option      "XkbLayout" "'$KBSELECT'" #xkeymap0
 	#Option      "XkbVariant" "" #xkbvariant0
 	Option      "XkbOptions" "terminate:ctrl_alt_bksp" #xkboptions0
 EndSection
@@ -1298,14 +1334,13 @@ do
 		121a) probe_3dfx "${vid}:${dvid}" "$cnum" ;;
 		18ca) probe_xgi "${vid}:${dvid}" "$cnum" ;;
 		10de) probe_nvidia "${vid}:${dvid}" "$cnum" ;;
-		1023) probe_trident "${vid}:${dvid}" "$cnum" ;;
 		1092) probe_diamond "${vid}:${dvid}" "$cnum" ;;
-		1002|1022) probe_amd "${vid}:${dvid}" "$cnum" ;;		
+		1023) probe_trident "${vid}:${dvid}" "$cnum" ;;
+                1002|1022) probe_amd "${vid}:${dvid}" "$cnum" ;;		
 		1412|1106) probe_via "${vid}:${dvid}" "$cnum" ;;
 		15ad|fffe) probe_vmware "${vid}:${dvid}" "$cnum" ;;
 		1013) write_generic "${vid}:${dvid}" "$cnum" cirrus ;;
 		1039) write_generic "${vid}:${dvid}" "$cnum" sis ;;
-		15ad) write_generic "${vid}:${dvid}" "$cnum" vmware ;;
 		102b) write_generic "${vid}:${dvid}" "$cnum" mga ;;
 		10c8) write_generic "${vid}:${dvid}" "$cnum" neomagic ;;
 		100c) write_generic "${vid}:${dvid}" "$cnum" tseng ;;
@@ -1325,7 +1360,7 @@ do
 		104e) write_generic "${vid}:${dvid}" "$cnum" oak ;;
 		003d) write_generic "${vid}:${dvid}" "$cnum" i740 ;;
 		10b4) write_generic "${vid}:${dvid}" "$cnum" s3virge ;;
-		1023|1179) write_generic "${vid}:${dvid}" "$cnum" trident ;;
+		1179) write_generic "${vid}:${dvid}" "$cnum" trident ;;
 		1115|104c|3d3d) write_generic "${vid}:${dvid}" "$cnum" glint ;;		
 		*) write_fallback "${vid}:${dvid}" "$cnum";;
 	esac

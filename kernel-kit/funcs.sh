@@ -96,6 +96,30 @@ function log_ver() {
 	) | tee -a ${BUILD_LOG}
 }
 
+function get_latest_kernels() {
+	TMP=/tmp/kernels.txt
+	rm -f $TMP
+	x=0
+	s=
+	curl -s https://www.kernel.org | while read a ; do
+		if [ $x = 1 ]; then
+			echo $a | grep -q 'EOL' && x=0 && continue
+			e=${a#*\>}
+			e=${e#*\>}
+			e=${e%%\<*}
+			echo "$e ($s)" >> $TMP
+			x=0
+		fi
+		if echo "$a" | grep -qE 'longterm:|stable:' ;then
+			x=$(($x + 1))
+			echo "$a" | grep -q 'stable:' && s=stable || s=longterm
+		else
+			continue
+		fi
+	done	
+	cat $TMP
+}
+
 #======================================================================
 
 #y = builtin

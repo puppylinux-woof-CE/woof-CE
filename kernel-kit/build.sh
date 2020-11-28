@@ -65,6 +65,36 @@ if [ "$AUTO" = "yes" ] ; then
 	[ ! "$DOTconfig_file" -a ! "$USE_GIT_KERNEL_CONFIG" ] && exit_error "Must specify DOTconfig_file=<file> in build.conf"
 fi
 
+case $(uname -m) in
+	i?86)   HOST_ARCH=x86 ;;
+	x86_64) HOST_ARCH=x86_64 ;;
+	arm*)   HOST_ARCH=arm ;;
+	*)      HOST_ARCH=$(uname -m) ;;
+esac
+
+if [ -n "$DOTconfig_file" -a -n "$LatestK" ] ; then
+	get_latest_kernels
+	[ -e "$DOTconfig_file" ] || exit_error "$DOTconfig_file doesn't exist"
+	IFS='-' read a b c <<< $DOTconfig_file
+	DOTconfig_sver=${b%\.*}
+	DOTconfig_new_ver_pre=`grep "$DOTconfig_sver" /tmp/kernels.txt`
+	if [ -z "$DOTconfig_new_ver_pre" ] ; then
+		log_msg "No latest stable or longterm kernel for Linux $b, Continuing with $DOTconfig_file"
+	elif [ "$b" == "${DOTconfig_new_ver_pre% *}" ] ; then
+		log_msg "$DOTconfig_file is up to date. Continuing." # unlikely but possible
+	else
+		DOTconfig_new_ver=${DOTconfig_new_ver_pre% *}
+		DOTconfig_type=${DOTconfig_new_ver_pre#* }
+		log_msg "Latest Linux $DOTconfig_new_ver $DOTconfig_type"
+		NEW_DOTconfig_file=`echo $DOTconfig_file | sed "s%$b%$DOTconfig_new_ver%"`
+		log_msg "New DOTconfig_file is $NEW_DOTconfig_file"
+		mv $DOTconfig_file $NEW_DOTconfig_file
+		sed -i "s%$DOTconfig_file%$NEW_DOTconfig_file%" build.conf
+		log_msg "Your build.conf and $DOTconfig_file have been updated"
+		DOTconfig_file=$NEW_DOTconfig_file # update the var
+	fi
+fi
+
 ## determine number of jobs for make
 if [ ! "$JOBS" ] ; then
 	JOBS=$(grep "^processor" /proc/cpuinfo | wc -l)
@@ -77,13 +107,6 @@ fi
 if [ "$DOTconfig_file" -a ! -f "$DOTconfig_file" ] ; then
 	exit_error "File not found: $DOTconfig_file (see build.conf - DOTconfig_file=)"
 fi
-
-case $(uname -m) in
-	i?86)   HOST_ARCH=x86 ;;
-	x86_64) HOST_ARCH=x86_64 ;;
-	arm*)   HOST_ARCH=arm ;;
-	*)      HOST_ARCH=$(uname -m) ;;
-esac
 
 if [ -f "$DOTconfig_file" ] ; then
 	CONFIGS_DIR=${DOTconfig_file%/*} #dirname  $DOTconfig_file

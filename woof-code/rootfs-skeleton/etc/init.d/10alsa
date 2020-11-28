@@ -62,6 +62,7 @@ LOG=1 #1 = log to file, 0 = /dev/null
 case "$1" in
 
  start|restart)
+ 
 	if [ "$LOG" = "1" ] ; then
 		mkdir -p /tmp/services
 		logfile='/tmp/services/10alsa.start.log'
@@ -73,6 +74,16 @@ case "$1" in
 	modinfo snd-mixer-oss >/dev/null 2>&1 && modprobe snd-mixer-oss #/dev/mixer http://alsa.opensrc.org/Snd-mixer-oss
 	modinfo snd-seq-oss >/dev/null 2>&1 && modprobe snd-seq-oss     #oss midi   http://alsa.opensrc.org/Snd-seq-oss
 	modinfo snd-pcm-oss >/dev/null 2>&1 && modprobe snd-pcm-oss     #/dev/dsp /dev/audio http://alsa.opensrc.org/Snd-pcm-oss
+   
+	if [ -e /tmp/snd-kmod.lst ]; then
+	 #Reload the kernel modules
+	 for $modx in $(cat /tmp/snd-kmod.lst)
+	 do
+	  [ "$(lsmod | grep "$modx")" == "" ] && modprobe "$modx"
+	 done
+	 rm -f /tmp/snd-kmod.lst
+	fi
+
 
 	if [ "$LOG" = "1" ] ; then
 		. /etc/DISTRO_SPECS && echo "$DISTRO_NAME $DISTRO_VERSION"
@@ -128,6 +139,36 @@ case "$1" in
 		alsactl -d -f /etc/asound.state restore #from /etc/asound.state.
 		echo "alsactl: exit code $?"
 	fi
+	
+	
+	if [ "$(which pulseaudio)" != "" ]; then
+	 if [ -e /etc/asound.conf ] && [ "$(cat /etc/asound.conf | grep "ctl.pulse")" == "" ]; then
+	  echo "pcm.pulse {
+			type pulse
+		}
+
+		ctl.pulse {
+			type pulse
+		}
+		
+		pcm.default pulse
+		ctl.default pulse
+		" > /etc/asound.conf
+	  
+	 elif [ ! -e /etc/asound.conf ]; then
+	  echo "pcm.pulse {
+			type pulse
+		}
+
+		ctl.pulse {
+			type pulse
+		}
+		
+		pcm.default pulse
+                ctl.default pulse
+		" > /etc/asound.conf
+	 fi
+	fi
 
 	if 	[ "$1" = "restart" ] ; then #no need at boot
 		if [ "$(busybox pidof retrovol)" ] ; then
@@ -135,6 +176,7 @@ case "$1" in
 			retrovol -hide &
 		fi
 	fi
+	
 	) &> ${logfile}
 	;;
 
@@ -153,8 +195,14 @@ case "$1" in
 	[ -f /proc/asound/seq/clients -a -x aconnect ] && aconnect --removeall
 	# mute master to avoid clicks at unload
 	amixer set Master mute
+	
+	#Remember the soundcard kernel modules temporarily
+	lsmod | grep "^snd" | grep -E '0 $|0$' | grep -Ev "(snd-page-alloc|snd_page_alloc)" > /tmp/snd-kmod.lst
+	[ "$(lsmod | grep "^soundcore|^gameport")" != "" ] && lsmod | grep "^soundcore|^gameport" | grep -E '0 $|0$' >> /tmp/snd-kmod.lst
+	
 	# remove all sound modules...
 	# karl godt: refer: http://www.murga-linux.com/puppy/viewtopic.php?t=71767&start=390
+		
 	c=0
 	while [ "`lsmod | grep 'snd_'`" ];do
 		lsmod | grep "^snd" | grep -E '0 $|0$' | grep -Ev "(snd-page-alloc|snd_page_alloc)" |
@@ -163,6 +211,7 @@ case "$1" in
 		done
 		c=$((c+1));[ "$c" = '6' ] && break #precaution if neverending loop
 	done
+	
 	# remove the 2.2 soundcore module (if possible)
 	rmmod soundcore
 	rmmod gameport

@@ -80,7 +80,7 @@ if [ "$(pwd)" = "/" ];then
  fi
 
  # Allow installer to make frisbee the default network manager.
- if Xdialog  --title "Frisbee" --default-no --timeout 60 --ok-label "Yes, set as default" --cancel-label "No" --left --yesno "$(gettext "Frisbee is installed as one of the Connect Wizard network manager options.")\n\n$(gettext "Do you want frisbee to be the default network manager at the next boot-up or\nat the initial boot of a distro package?")" 0 0;then
+ if Xdialog  --title "$(gettext 'Frisbee')" --default-no --timeout 60 --ok-label "$(gettext 'Yes, set as default')" --cancel-label "$(gettext 'No')" --left --wrap --yesno "$(gettext 'Frisbee is installed as one of the Connect Wizard network manager options.')\n\n$(gettext 'Do you want frisbee to be the default network manager?')" 0 60;then
   echo -e '#!/bin/sh\nexec frisbee' > usr/local/bin/defaultconnect
   sed -i -e '/^frisbee_mode=/ s/=.*/=1/' \
   -e '/^wireless_enabled=/ s/=.*/=1/' \
@@ -112,10 +112,15 @@ if [ "$(pwd)" = "/" ];then
    root/.packages/frisbee-1.*.files
  fi
 
+#Remove old gprs.conf, to use new one. 200607
+rm -f etc/ppp/gprs.conf
+
  #Remove old gprs.conf, to generate new one.
- rm -f etc/gprs.conf
- rm -f root/.config/gprs.conf
+rm -f root/.config/gprs.conf
 
  #Remove replaced options file, if not used by pgprs.
  [ -f usr/sbin/pgprs ] && rm -f etc/ppp/options.gprs
 fi
+
+#v2.0 Replace placeholder with /usr/local/bin link to moved script.
+ln -snf /usr/local/frisbee/frisbee usr/local/bin/

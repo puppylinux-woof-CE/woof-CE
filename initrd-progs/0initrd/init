@@ -1,5 +1,5 @@
 #!/bin/sh
-# see also /sbin scripts: usablefs, set_plang, wait4usb, switch
+# see also /sbin scripts: usablefs, set_plang, switch
 #
 # _FN = _FILENAME
 # _MP = _MOUNTPOINT
@@ -28,7 +28,8 @@ L_UPGRADE_NO="Backing off, not using personal storage, booting in RAM only, PUPM
 L_LOADING_FROM_CD="Loading folder %s from CD/DVD..." #printf
 L_RAM_DISK_FULL="RAM disk full, copy failed at %s" #printf
 L_ADDING_SAVE_LAYER_FAILED="adding %s to aufs stack failed." #printf
-L_WAITING_FOR_USB="Waiting for USB storage."
+L_WAITING_FOR_DEV='Waiting %s seconds for slow storage devices.' #printf
+L_WAITING_FOR_PART='Waiting for partition [%s]' #printf
 L_LOADING_KEYBOARD_LAYOUT="Loading '%s' keyboard layout..." #printf
 L_COPY_MESSAGE="copying to ram"
 L_LOAD_MESSAGE="main"
@@ -177,19 +178,50 @@ decode_spec() {
  fi
 }
 
-decode_id() {
- ONE_PART=""
- [ "${1}" ] || return
- if [ "$(echo -n ${1} | grep -E '^[a-z]+[0-9]')" -a "$(grep -m1 "${1}$" /proc/partitions)" ];then
-  ONE_PART="$1"  #is a real partition
- else
-  [ "$BLKIDOUT" ] || BLKIDOUT="$(blkid)"
-  ONE_PART="$(echo "$BLKIDOUT" | grep -m1 -E " LABEL=.${1}| UUID=.${1}" | cut -f1 -d: | cut -f3 -d/)" #is LABEL or UUID
-  # handle iso_file /dev/loopX - see /sbin/isoboot &&&
-  if [ ! "$ONE_PART" ] && [ "${1}" = "${ISO_LOOP##*/}" ] ; then
-     ONE_PART="$1"
+wait_for_blkid() {
+ # $1 is a pattern
+ # $2 is a value that replaces '~' in $1 and in message
+ BLKID_PART=''
+ [ "$1" ] || exit 1
+ [ "$2" ] || exit 1
+ local SUBST PAT PART DIDMSG NUM
+ case "$1" in
+  *~*) SUBST='yes'; PAT="$(echo -n "$1" | sed s/~/$2/g)" ;;
+  *) SUBST=''; PAT="$1" ;;
+ esac
+ DIDMSG=''
+ # use loop to wait for device, if not found immediately
+ for NUM in $(seq 1 15); do
+  if [ "$SUBST" ]; then
+   PART="$(blkid | grep "$2" | grep -E "$PAT" | cut -f1 -d':' | cut -f3 -d'/')"
+  else
+   PART="$(blkid | grep -E "$PAT" | cut -f1 -d':' | cut -f3 -d'/')"
+  fi
+  [ "$PART" ] && break
+  [ $NUM -eq 1 ] && { echo -n "$(printf "$L_WAITING_FOR_PART" "${2}")" > /dev/console; DIDMSG='yes'; }
+  sleep 1
+  echo -en "\\033[1;33m.\\033[0;39m" >/dev/console #yellow dot
+ done
+ [ "$PART" ] && BLKID_PART="$PART"
+ if [ "$DIDMSG" ];then
+  get_part_info
+  if [ "$PART" ];then
+   check_status 0
+  else
+   check_status 1
   fi
  fi
+}
+
+decode_id() {
+ ONE_PART=''
+ [ "${1}" ] || return
+ if grep -q " ${1}$" /proc/partitions;then #known partition name
+  ONE_PART="$1"
+  return
+ fi
+ wait_for_blkid '^/dev/~| LABEL=.~| UUID=.~' "$1"
+ ONE_PART="$BLKID_PART"
 }
 
 decode_other_ids() {
@@ -214,9 +246,12 @@ log_part_id() {
 ensure_mounted() {
 # "$1" - partition - ex: sda3
 # "$2" - mountpoint - ex: /mnt/pdrv
- ONE_MP="$(mount | grep -m1 "/dev/${1} " | cut -f 3 -d ' ')"
- [ "$ONE_MP" ] && return
- ONE_FS="$(echo "$HAVE_PARTS" | grep -m1 "${1}|" | cut -f 2 -d '|')"
+ ONE_MP="$(grep -m1 "^/dev/${1} " /proc/mounts | cut -f 2 -d ' ')"
+ if [ "$ONE_MP" ];then
+  ONE_FS="$(grep -m1 "^/dev/${1} " /proc/mounts | cut -f 3 -d ' ')"
+  return
+ fi
+ ONE_FS="$(blkid /dev/${1} | grep -o ' TYPE=.*' | cut -f 2 -d '"')"
  ONE_MP="${2}"
  if [ "$PFSCKP" = "yes" ] ; then # pfix=fsckp
    fsck_func /dev/${1} $ONE_FS
@@ -273,8 +308,10 @@ find_drv_file() {
  ONE_FN=""
  [ "${1}" ] || [ "${2}" ] || return
  if [ "${1}" ];then
-  ONE_TRY_FN="${1}"
-  [ "${ONE_TRY_FN:$((${#ONE_TRY_FN} - 1))}" = "/" ] && ONE_TRY_FN="${ONE_TRY_FN}${2}" #last char
+  case ${1} in
+   */) ONE_TRY_FN="${1}${2}" ;;
+   *) ONE_TRY_FN="${1}" ;;
+  esac
  else
   ONE_TRY_FN="${PSUBDIR}/${2}"
  fi
@@ -608,13 +645,6 @@ $TRY_PARTS_LAST"
  else
   TRY_PARTS="$HAVE_PARTS"
  fi
- ## set by /sbin/isoboot
- if [ "$ISO_LOOP" ] ; then
-    TRY_PARTS="${ISO_PSAVE}|${ISO_PSAVE_FS}
-${ISO_LOOP##*/}|iso9660
-${TRY_PARTS}"
- fi
- ##
  echo "TRY_PARTS='${TRY_PARTS}'" #debug
  [ "$TRY_PARTS" ] || return
  for ONETRY in $TRY_PARTS;do
@@ -653,13 +683,14 @@ get_part_info() {
  [ "$PDEBUG" ] && echo "$HAVE_PARTS" > /tmp/HAVE_PARTS
 }
 
-wait_for_usb() {
- [ -e /tmp/flag-usb-ready ] && return
- echo -n "${L_WAITING_FOR_USB}" > /dev/console 
- /sbin/wait4usb
+wait_for_dev() {
+ echo -n "$(printf "$L_WAITING_FOR_DEV" "$WAITDEV")" > /dev/console
+ for NUM in $(seq 1 $WAITDEV);do
+  sleep 1
+  echo -en "\\033[1;33m.\\033[0;39m" >/dev/console #yellow dot
+ done
  get_part_info
- BLKIDOUT=""
- check_status 0
+ echo ""  > /dev/console
 }
 
 umount_unneeded() {
@@ -751,12 +782,15 @@ echo -e "\\033[0;34m ***\\033[0;39m"
 [ $pimod ] && PIMOD=$pimod
 #wireless credentials passed to main system
 [ $pwireless ] && PWIRELESS=$pwireless # ex: pwireless=myssid:mypassword
+if [ $waitdev ];then
+ WAITDEV=$waitdev
+else
+ WAITDEV=5
+fi
+
 #[ $pdebug ] && PDEBUG=$pdebug
 PDEBUG=1
 TOTAL_SIZEK_SFS_RAM=0
-
-# Booting from external USB disks may not find files on time. Wait early.
-[ "${PMEDIA:0:3}" = "usb" ] && wait_for_usb
 
 RDSH=""
 if [ "$pfix" ];then
@@ -814,27 +848,29 @@ SAVE_BP_DIR=""
 [ "$PWIRELESS" ] && echo -e "SSID=${PWIRELESS%:*}\nPSWD=${PWIRELESS#*:}" > /tmp/wireless.conf
 
 get_part_info
-check_resize_part
-grep -v '^sr' /tmp/ALLDRVS0 > /tmp/ATADRIVES0
-ATAOPTICALDRIVES="$(grep '^sr' /tmp/ALLDRVS0 | tr '\n' ' ')"
 
 PUP_SAVES=""
 KEEPMOUNTED=""
 FSCKDPARTS=""
-BLKIDOUT=""
 
 [ "$PDEBUG" ] && echo "1: PDRV=$PDRV P_BP_ID=$P_BP_ID P_BP_FN=$P_BP_FN"
+
+#"pdrv" is not specified on CD, so look for CD file system
+if [ "$PMEDIA" = "cd" ];then
+# wait_for_blkid ' TYPE=.iso9660| TYPE=.udf' CDROM
+ wait_for_blkid ' TYPE=.~' 'iso9660'
+ if [ "$BLKID_PART" ];then
+  if [ "$(echo $BLKID_PART | wc -w)" = "1" ];then
+   P_BP_ID="$BLKID_PART"
+  fi
+ fi
+fi
 
 #establish PDRV
 P_PART=""; LOOK_PUP=""; LOOK_SAVE=""
 if [ "$P_BP_ID" ];then #specified as parameter
  decode_id "$P_BP_ID"
  [ "$ONE_PART" ] && { P_PART="$ONE_PART"; P_BP_ID=""; }
- if [ "$P_PART"  = "" ];then
-  wait_for_usb
-  decode_id "$P_BP_ID"
-  [ "$ONE_PART" ] && { P_PART="$ONE_PART"; P_BP_ID=""; }
- fi
  find_onepupdrv "$P_PART" "$P_BP_FN" "$P_DEF_FN" "p"
  [ "$ONE_FN" ] && { PDRV="$ONE_PART,$ONE_FS,$ONE_FN"; P_MP="$ONE_MP"; }
  [ "$PDEBUG" ] && echo "2: ONE_PART=$ONE_PART ONE_FN=$ONE_FN ONE_MP=$ONE_MP"
@@ -849,7 +885,7 @@ fi
 if [ "$LOOK_PUP" -o "$LOOK_SAVE" ];then #something to search for
  [ "${PMEDIA:0:3}" != "usb" ] && search_func
  if [ "$P_PART" = "" ];then
-  wait_for_usb
+  wait_for_dev
   USBDRVS="$(find /sys/block -maxdepth 1 -name 'sd*' -o -name 'sr*' | xargs -n 1 readlink 2>/dev/null | grep '/usb[0-9]' | rev | cut -f 1 -d '/' | rev | tr '\n' '|')"
   [ "$PDEBUG" ] && echo "2: USBDRVS=$USBDRVS -> ${USBDRVS%|}"
   if [ "$USBDRVS" ] ; then
@@ -866,12 +902,12 @@ if [ "$PDRV" = "" ];then
  fatal_error "$ONE_PART $ONE_TRY_FN not found." "Finding puppy main sfs file."
 fi
 
+check_resize_part
+grep -v '^sr' /tmp/ALLDRVS0 > /tmp/ATADRIVES0
+ATAOPTICALDRIVES="$(grep '^sr' /tmp/ALLDRVS0 | tr '\n' ' ')"
+
 #establish SAVEPART
 decode_other_ids
-if [ "$Z_BP_ID" -o "$F_BP_ID" -o "$A_BP_ID" -o "$Y_BP_ID" -o "$SAVE_BP_ID" ];then
- wait_for_usb
- decode_other_ids
-fi
 if [ "$P_PART" ];then
  BOOTDRV="$(echo -n "$P_PART" | grep -o -f /tmp/ALLDRVS0)" #110205 ex: sda1 becomes sda.
  if [ "$SAVEPART" = "" ];then #setup SAVEPART
@@ -1132,12 +1168,6 @@ echo -n $(($TOTAL_SIZEK_SFS_RAM - 5)) > /tmp/sfs_ram_sizek
 
 [ "$DEV1FS" ] || DEV1FS="$(echo "$PDRV" | cut -f 2 -d ',')"
 [ "$ATADRIVES" ] || ATADRIVES="$(cat /tmp/ATADRIVES0 | tr '\n' ' ')"
-
-if [ "$ISO_LOOP" ] ; then # /sbin/isoboot
-  if [ "$(cat /sys/block/${ISO_PSAVE}/device/type 2>/dev/null)" != "5" ] ; then
-    PSAVEPART=${ISO_PSAVE} # ISO is not on CD, fix PUPSTATE
-  fi
-fi
 
 mkdir -p /pup_new/etc/rc.d
 ( # > /pup_new/etc/rc.d/PUPSTATE
