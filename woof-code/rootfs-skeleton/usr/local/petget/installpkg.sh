@@ -432,12 +432,13 @@ if [ -f $DIRECTSAVEPATH/puninstall.sh ];then
  mv -f $DIRECTSAVEPATH/puninstall.sh /root/.packages/${DLPKG_NAME}.remove
 fi
 
+
 #Look for symbolic links created by post-scripts and update package file list
 #remove temp list first
 rm -rf /tmp/slink-append.txt 2>/dev/null
 
 #List all the library files in the package
-cat /var/packages/package-files/${DLPKG_NAME}.files | grep -E '*\.so$|*\.so\.*' > /tmp/libfiles2.txt
+cat /var/packages/${DLPKG_NAME}.files | grep -E '*\.so$|*\.so\.*' > /tmp/libfiles2.txt
 
 #Evaluate the library files
 while IFS= read -r line
@@ -452,7 +453,7 @@ if [ -f "$line" ]; then
   for slink in $(find $dname -name "${soname2}.so*" -maxdepth 1 -type l)
   do
   
-   if [ "$(cat /var/packages/package-files/${DLPKG_NAME}.files | grep "$slink")" == "" ]; then
+   if [ "$(cat /var/packages/${DLPKG_NAME}.files | grep "$slink")" == "" ]; then
   
       srcf=$(readlink "$slink" 2>/dev/null)
     
@@ -477,9 +478,8 @@ fi
  
 done < /tmp/libfiles2.txt
 
-cat /tmp/slink-append.txt >> /var/packages/package-files/${DLPKG_NAME}.files
+cat /tmp/slink-append.txt >> /var/packages/${DLPKG_NAME}.files
 rm -rf /tmp/slink-append.txt 2>/dev/null
-
 
 
 #w465 <pkgname>.pet.specs is in older pet pkgs, just dump it...

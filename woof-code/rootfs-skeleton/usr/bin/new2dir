@@ -72,25 +72,61 @@ CURRDIR="`pwd`"
 UPONE="`dirname "$CURRDIR"`"
 PKGDIR="../`basename "$CURRDIR"`"
 xPKGDIR="`basename "$CURRDIR"`"
-if [ "`echo "$PKGDIR" | grep '[0-9]'`" = "" ];then
+if [ ! -d ".git" ] && [ "`echo "$PKGDIR" | grep '[0-9]'`" = "" ];then
  PKGDIR="../../`basename "$UPONE"`"
  xPKGDIR="`basename "$UPONE"`"
 fi
+symlinked_dir_with_ver=
+git_commit_hash=
 if [ "`echo "$PKGDIR" | grep '[0-9]'`" = "" ];then
- echo "$PKGDIR does not seem to be the package directory with version"
- echo "number. Unfortunately, some source package tarballs expand to a"
- echo "directory that does not have version number in it's name. SeaMonkey"
- echo "is an example of this, it expands to a directory named just 'mozilla'."
- echo "This script will create a package with the same name as the directory"
- echo "and it absolutely must have the version number in it which must commence"
- echo "with a numeric digit. So, you must now close this rxvt terminal window"
- echo "then rename the directory. For example, for SeaMonkey version 1.0.7"
- echo "rename the directory from 'mozilla' to 'seamonkey-1.0.7'"
- echo "A dash '-' must be used to separate the package name from version."
- echo "A directory name like 'seamonkey-alpha1' is NOT allowed as the version"
- echo "number must start with a numeric digit, example 'seamonkey-1.0.7alpha1'."
- echo "Exiting script."
- exit
+  # if this is a git repo, get the latest commit hash and use the date built,
+  # plus the commit hash as the version in the package name
+  git_commit_hash=$(git rev-parse HEAD 2>/dev/null | cut -b1-7)
+  if [ "$git_commit_hash" != "" ];then
+    # run a sub-shell to work out how many dirs up to go
+    (up=''
+    while [ ! -d $xPKGDIR ];do
+      builtin cd ..
+      up="${up}../"
+      echo "$up" > /tmp/upcount
+      [ "$(pwd)" = "/" ] && break
+    done)
+    up=$(cat /tmp/upcount 2>/dev/null && rm /tmp/upcount)
+
+    # if this commit is tagged, and the tag starts with a number, then
+    # use the tag as the version
+    git_release=
+    git_release=$(git tag -l --contains $git_commit_hash 2>/dev/null)
+    git_release=$(echo "$git_release" | sed 's/^v//g')
+    # now create the new package name
+    if [ "$(echo "$git_release" | grep '[0-9]')" != "" ];then
+      symlinked_dir_with_ver=$xPKGDIR-$git_release
+    else
+      symlinked_dir_with_ver=$xPKGDIR-$(date -u +"%Y%m%d")$git_commit_hash
+    fi
+
+    # create a symlink of that name, pointing to $CURRDIR, and
+    # set our PKGDIR as the versioned symlink to $CURRDIR
+    ln -sf $xPKGDIR ${up}$symlinked_dir_with_ver \
+      && PKGDIR="${up}$symlinked_dir_with_ver" \
+      && xPKGDIR="$symlinked_dir_with_ver" \
+      && CURRDIR="$(pwd)"
+  else
+    echo "$PKGDIR does not seem to be the package directory with version"
+    echo "number. Unfortunately, some source package tarballs expand to a"
+    echo "directory that does not have version number in it's name. SeaMonkey"
+    echo "is an example of this, it expands to a directory named just 'mozilla'."
+    echo "This script will create a package with the same name as the directory"
+    echo "and it absolutely must have the version number in it which must commence"
+    echo "with a numeric digit. So, you must now close this rxvt terminal window"
+    echo "then rename the directory. For example, for SeaMonkey version 1.0.7"
+    echo "rename the directory from 'mozilla' to 'seamonkey-1.0.7'"
+    echo "A dash '-' must be used to separate the package name from version."
+    echo "A directory name like 'seamonkey-alpha1' is NOT allowed as the version"
+    echo "number must start with a numeric digit, example 'seamonkey-1.0.7alpha1'."
+    echo "Exiting script."
+    exit 1
+  fi
 fi
 
 fixfilelistfunc() {
@@ -151,7 +187,7 @@ fi
 EXE_TARGETDIR="${PKGDIR}-${CPUTYPE}" #relative path.
 EXE_PKGNAME="`basename $EXE_TARGETDIR`"
 RELPATH="`dirname $EXE_TARGETDIR`"
-#difficult task, separate package name from version part... 
+#difficult task, separate package name from version part...
 #not perfect, some start with non-numeric version info...
 xNAMEONLY="`echo -n "$xPKGDIR" | sed -e 's/\-[0-9].*$//g'`"
 #...if that fails, do it the old way...
@@ -185,7 +221,7 @@ if [ "$auto" -eq 0 ];then
 	echo "have what is absolutely needed in the 'executables' PET package, but"
 	echo "the extra components can be installed if needed."
 	echo -en "\\033[1;31mWARNING: "
-	echo -en "\\033[0;39m" 
+	echo -en "\\033[0;39m"
 	echo "The automatic splitting performed by this script may not be"
 	echo "         perfect and you may have to modify the contents of the created"
 	echo "         separate directories before the final step of converting them"
@@ -201,7 +237,7 @@ if [ "$auto" -eq 0 ];then
 	echo " Example: exe,dev,doc  (in this example, nls component is left in the"
 	echo " main package, that is, the exe component)."
 	echo -n "Type response (just press ENTER if in doubt): "
-	
+
 	read SPLITPETS
 	[ "$SPLITPETS" = "" ] && SPLITPETS="exe"
 	[ "$SPLITPETS" = "1" ] && SPLITPETS="exe"
@@ -235,27 +271,66 @@ if [ "$auto" = 0 ];then
 	echo "(and optionally ${DEV_TARGETDIR}, ${DOC_TARGETDIR}, ${NLS_TARGETDIR})"
 	echo -n "Press ENTER key to continue: "
 	read goforit
-	
+
 	installwatch -o /tmp/pkginstall.list ${@}
 else
 	installwatch -o /tmp/pkginstall.list ${@}
 fi
+
 sync
 #create list of installed files...
-cat /tmp/pkginstall.list | grep '#success$' | tr -s '\t' | tr '&' ' ' | tr '\t' '&' | egrep '^[345]&open&|^0&chmod&' | grep --extended-regexp -v '&/dev/tty&|&/dev/null&|&/root/\.packages/|&/tmp/|&/root/\.icewm/|&/proc/|&/sys/|DotPupTmpDir|/\.myownmenuerc' | grep -E -v '&/initrd|&/mnt/' | cut -f 3 -d '&' | sort -u > ${RELPATH}/${EXE_PKGNAME}.files #120220 120602
+cat /tmp/pkginstall.list \
+  | grep '#success$' \
+  | tr -s '\t' \
+  | tr '&' ' ' \
+  | tr '\t' '&' \
+  | egrep '^[345]&open&|^0&chmod&' \
+  | grep --extended-regexp -v '&/dev/tty&|&/dev/null&|&/root/\.packages/|&'"$PWD"'|&/root/'"$PWD"'|&/tmp/|&/root/\.icewm/|&/proc/|&/sys/|DotPupTmpDir|/\.myownmenuerc' \
+  | grep -E -v '&/initrd|&/mnt/|&/root/.*/CMakeFiles/' \
+  | cut -f3 -d'&' \
+  | sort -u > ${RELPATH}/${EXE_PKGNAME}.files #120220 120602
+
 #...list will only have created files, not created directories, so an empty
 #   directory won't get recorded.
 
 #bad if we miss out installing an empty directory...
-cat /tmp/pkginstall.list | grep '#success$' | tr -s '\t' | tr '&' ' ' | tr '\t' '&' | grep '^0&mkdir&' | grep --extended-regexp -v '&/dev/tty&|&/dev/null&|&/root/\.packages/|&/tmp/|&/root/\.icewm/|&/proc/|&/sys/|DotPupTmpDir|/\.myownmenuerc' | grep -E -v '&/initrd|&/mnt/' | cut -f 3 -d '&' | sed -e 's/^\/\//\//g' > /tmp/${EXE_PKGNAME}.dirs
+cat /tmp/pkginstall.list \
+  | grep '#success$' \
+  | tr -s '\t' \
+  | tr '&' ' ' \
+  | tr '\t' '&' \
+  | grep '^0&mkdir&' \
+  | grep --extended-regexp -v '&/dev/tty&|&/dev/null&|&/root/\.packages/|&'"$PWD"'|&/root/'"$PWD"'|&/tmp/|&/root/\.icewm/|&/proc/|&/sys/|DotPupTmpDir|/\.myownmenuerc' \
+  | grep -E -v '&/initrd|&/mnt/|&/root/.*/CMakeFiles/' \
+  | cut -f 3 -d '&' \
+  | sed -e 's/^\/\//\//g' > /tmp/${EXE_PKGNAME}.dirs
 
 sync
 #pick up created symlinks...
-cat /tmp/pkginstall.list | grep '#success$' | tr -s '\t' | tr '&' ' ' | tr '\t' '&' | grep '^0&symlink&' | grep --extended-regexp -v '&/dev/tty&|&/dev/null&|&/root/\.packages/|&/tmp/|&/root/\.icewm/|&/proc/|&/sys/|DotPupTmpDir|/\.myownmenuerc' | grep -E -v '&/initrd|&/mnt/' | cut -f 4 -d '&' >> ${RELPATH}/${EXE_PKGNAME}.files
+cat /tmp/pkginstall.list \
+  | grep '#success$' \
+  | tr -s '\t' \
+  | tr '&' ' ' \
+  | tr '\t' '&' \
+  | grep '^0&symlink&' \
+  | grep --extended-regexp -v '&/dev/tty&|&/dev/null&|&/root/\.packages/|&'"$PWD"'|&/root/'"$PWD"'|&/tmp/|&/root/\.icewm/|&/proc/|&/sys/|DotPupTmpDir|/\.myownmenuerc' \
+  | grep -E -v '&/initrd|&/mnt/|&/root/.*/CMakeFiles/' \
+  | cut -f 4 -d '&' >> ${RELPATH}/${EXE_PKGNAME}.files
 
 sync
 #problem if there is a post-install script that moves or renames a file...
-cat /tmp/pkginstall.list | grep '#success$' | tr -s '\t' | tr '&' ' ' | tr '\t' '&' | grep '^0&rename&' | grep --extended-regexp -v '&/dev/tty&|&/dev/null&|&/root/\.packages/|&/tmp/|&/root/\.icewm/|&/proc/|&/sys/|DotPupTmpDir|/\.myownmenuerc' | grep -E -v '&/initrd|&/mnt/' | cut -f 3,4 -d '&' | tr '\n' ' ' > /tmp/${EXE_PKGNAME}.moved.files
+cat /tmp/pkginstall.list \
+  | grep '#success$' \
+  | tr -s '\t' \
+  | tr '&' ' ' \
+  | tr '\t' '&' \
+  | grep '^0&rename&' \
+  | grep --extended-regexp -v '&/dev/tty&|&/dev/null&|&/root/\.packages/|&'"$PWD"'|&/root/'"$PWD"'|&/tmp/|&/root/\.icewm/|&/proc/|&/sys/|DotPupTmpDir|/\.myownmenuerc' \
+  | grep -E -v '&/initrd|&/mnt/|&/root/.*/CMakeFiles/' \
+  | cut -f 3,4 -d '&' \
+  | tr '\n' ' ' > /tmp/${EXE_PKGNAME}.moved.files
+
+
 #find out if any installed file got moved/renamed...
 if [ -s /tmp/${EXE_PKGNAME}.moved.files ];then
  for ONEMOVED in `cat /tmp/${EXE_PKGNAME}.moved.files`
@@ -285,7 +360,7 @@ do
  echo "Processing ${ONEFILE}"
 
  #strip the file...
- if [ ! -h "$ONEFILE" ];then #make sure it isn't a symlink
+ if [ ! -h "$ONEFILE" ];then #make sure it isnt a symlink
   [ ! "`file "$ONEFILE" | grep 'ELF' | grep 'shared object'`" = "" ] && strip --strip-debug "$ONEFILE"
   [ ! "`file "$ONEFILE" | grep 'ELF' | grep 'executable'`" = "" ] && strip --strip-unneeded "$ONEFILE"
  fi
@@ -341,7 +416,7 @@ do
     cp -af "$ONEFILE" "${DEV_TARGETDIR}/${ONEPATH}/" 2>/dev/null
     [ $? -ne 0 ] && fixfilelistfunc "$ONEFILE"
     continue
-  fi  
+  fi
  fi
 
  #anything left over goes into the main 'executable' package...
@@ -374,6 +449,10 @@ fi
 sync
 cp -af /tmp/${EXE_PKGNAME}.files ${RELPATH}/${EXE_PKGNAME}.files
 
+# remove symlinked dir with git version, if we created one
+[ -e ${RELPATH:-notfound}/${symlinked_dir_with_ver:-notfound} ] \
+  && rm ${RELPATH}/${symlinked_dir_with_ver:-notfound}
+
 if [ "$auto" -ne 0 ];then
 	echo "all done"
 	exit
@@ -404,24 +483,28 @@ read nextphase
 cd ${RELPATH}
 if [ -d ${xNAMEONLY}-${VERONLY}-${CPUTYPE} ];then
  dir2pet ${xNAMEONLY}-${VERONLY}-${CPUTYPE}
+ rm nohup.out &>/dev/null
  echo -n "${xNAMEONLY}-${VERONLY}-${CPUTYPE}.pet created. Press ENTER to continue: "
  read domore
 fi
 
 if [ -d ${xNAMEONLY}_DEV-${VERONLY}-${CPUTYPE} ];then
  dir2pet ${xNAMEONLY}_DEV-${VERONLY}-${CPUTYPE}
+ rm nohup.out &>/dev/null
  echo -n "${xNAMEONLY}_DEV-${VERONLY}-${CPUTYPE}.pet created. Press ENTER to continue: "
  read domore
 fi
 
 if [ -d ${xNAMEONLY}_DOC-${VERONLY}-${CPUTYPE} ];then
  dir2pet ${xNAMEONLY}_DOC-${VERONLY}-${CPUTYPE}
+ rm nohup.out &>/dev/null
  echo -n "${xNAMEONLY}_DOC-${VERONLY}-${CPUTYPE}.pet created. Press ENTER to continue: "
  read domore
 fi
 
 if [ -d ${xNAMEONLY}_NLS-${VERONLY}-${CPUTYPE} ];then
  dir2pet ${xNAMEONLY}_NLS-${VERONLY}-${CPUTYPE}
+ rm nohup.out &>/dev/null
  echo -n "${xNAMEONLY}_NLS-${VERONLY}-${CPUTYPE}.pet created. Press ENTER to continue: "
  read domore
 fi
