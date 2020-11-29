@@ -73,7 +73,6 @@ vbutil_kernel --pack build/vmlinux.kpart \
               --bootloader bootloader.bin
 dd if=build/vmlinux.kpart of=devuan-beowulf-c201-libre-2GB.img conv=notrunc seek=${P1BYTES}
 cp -f build/*.sfs /mnt/sdimagep2/
-wget -O- https://github.com/dimkr/devsus/releases/latest/download/devsus-firmware.tar.gz | tar -xzf- -C /mnt/sdimagep2 --strip-components=1
 busybox umount /mnt/sdimagep2 2>/dev/null
 
 OUT_IMG_SIZE=2048  ; ZSIZE=2gb
