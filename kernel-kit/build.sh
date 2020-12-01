@@ -390,7 +390,7 @@ fi
 if [ ! -f /tmp/${aufs_git_dir}_done -o ! -d sources/${aufs_git_dir}/.git ] ; then
 	cd sources
 	if [ ! -d ${aufs_git_dir}/.git ] ; then
-		git clone ${aufs_git} ${aufs_git_dir}
+		git clone --depth 1 ${aufs_git} ${aufs_git_dir}
 		[ $? -ne 0 ] && exit_error "Error: failed to download the Aufs sources."
 		touch /tmp/${aufs_git_dir}_done
 	else
@@ -410,8 +410,8 @@ if [ ! -f /tmp/aufs-util_done -o ! -d sources/aufs-util_git/.git ] ; then
 	cd sources
 	if [ ! -d aufs-util_git/.git ] ; then
 		log_msg "Downloading aufs-utils for userspace"
-		git clone git://git.code.sf.net/p/aufs/aufs-util.git aufs-util_git || \
-		git clone git://github.com/puppylinux-woof-CE/aufs-util.git aufs-util_git
+		git clone --depth 1 git://git.code.sf.net/p/aufs/aufs-util.git aufs-util_git || \
+		git clone --depth 1 git://github.com/puppylinux-woof-CE/aufs-util.git aufs-util_git
 		[ $? -ne 0 ] && exit_error "Error: failed to download the Aufs utils..."
 		touch /tmp/aufs-util_done
 	else
@@ -449,7 +449,7 @@ if [ -n "$fware" ] ; then
 	else
 		log_msg "This may take a long time as the firmware repository is around 200MB"
 		cd ..
-		git clone git://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git
+		git clone --depth 1 git://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git
 		[ $? -ne 0 ] && exit
 	fi
 	cd $CWD
