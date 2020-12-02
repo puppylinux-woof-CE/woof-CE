@@ -466,6 +466,10 @@ S='<window title="'$(gettext 'Package Manager v')''${VERSION}'" width-request="'
           <action>if false hide:VBOX_REMOVE</action>
         </togglebutton>
       
+	<hbox>
+        
+        <text space-expand="false" space-fill="false"><label>"'$(gettext 'Search Package:')'"</label></text>
+      
         <entry width-request="250" activates-default="true" is-focus="true" primary-icon-stock="gtk-clear" secondary-icon-stock="gtk-find">
           <variable>ENTRY1</variable>
           <action signal="activate">/usr/local/petget/findnames.sh all</action>
@@ -477,13 +481,12 @@ S='<window title="'$(gettext 'Package Manager v')''${VERSION}'" width-request="'
           <action signal="primary-icon-release">clear:ENTRY1</action>
         </entry>
 
-        <text space-expand="false" space-fill="false"><label>"   "</label></text>
-
         <comboboxtext width-request="150" space-expand="false" space-fill="false">
           <variable>INSTALL_MODE</variable>
           '$PPM_MODES'
           <action>change_mode</action>
         </comboboxtext>
+        
         <button space-expand="false" space-fill="false">
           <variable>BUTTON_INSTALL</variable>
           '"`/usr/lib/gtkdialog/xml_button-icon package_add`"'
@@ -495,7 +498,9 @@ S='<window title="'$(gettext 'Package Manager v')''${VERSION}'" width-request="'
           <action>enable:VBOX_MAIN</action>
           <action>enable:DEP_INFO</action>
         </button>
-        <text space-expand="true" space-fill="true"><label>""</label></text>
+        
+        </hbox>
+
       </hbox>
     </vbox>
 
