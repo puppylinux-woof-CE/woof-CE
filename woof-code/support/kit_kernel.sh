@@ -289,7 +289,7 @@ if [ "$1" = "download" ]; then
 	exit 0
 fi
 
-NR_OF_KERNELS="`ls ../../local-repositories/${DISTRO_TARGETARCH}/kernels/*.tar.* 2>/dev/null | wc -l`"
+NR_OF_KERNELS="`ls ../../local-repositories/${DISTRO_TARGETARCH}/kernels/*.tar.xz 2>/dev/null | wc -l`"
 
 if [ "$NR_OF_KERNELS" = "0" ]; then
 	echo "ERROR: No kernels found."

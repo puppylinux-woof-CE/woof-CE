@@ -18,7 +18,7 @@ cat << EOF > kernel.its
 			description = "vmlinuz";
 			data = /incbin/("build/vmlinuz");
 			type = "kernel_noload";
-			arch = "$1";
+			arch = "arm";
 			os = "linux";
 			compression = "none";
 			load = <0>;
@@ -29,19 +29,9 @@ cat << EOF > kernel.its
 		};
 		fdt {
 			description = "dtb";
-			data = /incbin/("$2");
+			data = /incbin/("`echo build/boot-*/rk3288-veyron-speedy.dtb`");
 			type = "flat_dt";
-			arch = "$1";
-			compression = "none";
-			hash {
-				algo = "sha1";
-			};
-		};
-		ramdisk {
-			description = "initramfs";
-			data = /incbin/("build/initrd.gz");
-			type = "ramdisk";
-			arch = "$1";
+			arch = "arm";
 			compression = "none";
 			hash {
 				algo = "sha1";
@@ -53,13 +43,12 @@ cat << EOF > kernel.its
 		conf{
 			kernel = "kernel";
 			fdt = "fdt";
-			ramdisk = "ramdisk";
 		};
 	};
 };
 EOF
 
-echo "console=tty1 rootwait" > cmdline
+echo "console=tty1 root=PARTUUID=%U/PARTNROFF=1 init=/init rootfstype=ext4 rootwait rw" > cmdline
 
 mkimage -D "-I dts -O dtb -p 2048" -f kernel.its vmlinux.uimg
 dd if=/dev/zero of=bootloader.bin bs=512 count=1
@@ -73,6 +62,8 @@ vbutil_kernel --pack build/vmlinux.kpart \
               --bootloader bootloader.bin
 dd if=build/vmlinux.kpart of=devuan-beowulf-c201-libre-2GB.img conv=notrunc seek=${P1BYTES}
 cp -f build/*.sfs /mnt/sdimagep2/
+echo -e '#!/bin/sh\nexec /sbin/init initrd_full_install' > /mnt/sdimagep2/init
+chmod 755 /mnt/sdimagep2/init
 busybox umount /mnt/sdimagep2 2>/dev/null
 
 OUT_IMG_SIZE=2048  ; ZSIZE=2gb
