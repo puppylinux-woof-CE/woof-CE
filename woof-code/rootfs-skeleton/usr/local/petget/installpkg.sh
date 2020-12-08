@@ -62,7 +62,7 @@ export LANG=C
 
 . /etc/xdg/menus/hierarchy #w478 has PUPHIERARCHY variable.
 
-[ "$PUPMODE" = "2" ] && [ ! -d /audit ] && mkdir -p /audit
+[ "$PUPMODE" = "2" -o "$PUPMODE" = "6" ] && [ ! -d /audit ] && mkdir -p /audit
 
 DLPKG="$1"
 DLPKG_BASE="`basename "$DLPKG"`" #ex: scite-1.77-i686-2as.tgz
@@ -164,7 +164,7 @@ read -r TFS TMAX TUSED TMPK TPERCENT TMNTPT <<<$(df -k | grep -w '^tmpfs') #free
 SIZEB=`stat -c %s "${DLPKG_PATH}"/${DLPKG_BASE}`
 SIZEK=$(( $SIZEB / 1024 ))
 EXPK=$(( $SIZEK * 5)) #estimated worst-case expanded size.
-if [ "$PUPMODE" = "2" ]; then # from BK's quirky6.1
+if [ "$PUPMODE" = "2" -o "$PUPMODE" = "6" ]; then # from BK's quirky6.1
 	#131220  131229 detect if not enough room in /tmp...
 	DIRECTSAVEPATH="/tmp/petget_proc/petget/directsavepath"
 	NEEDK=$EXPK
@@ -321,7 +321,7 @@ case $DLPKG_BASE in
  ;;
 esac
 
-if [ "$PUPMODE" = "2" ]; then #from BK's quirky6.1
+if [ "$PUPMODE" = "2" -o "$PUPMODE" = "6" ]; then #from BK's quirky6.1
 	mkdir /audit/${DLPKG_NAME}DEPOSED
 	echo -n '' > /tmp/petget_proc/petget/FLAGFND
 	find ${DIRECTSAVEPATH}/ -mindepth 1 | sed -e "s%${DIRECTSAVEPATH}%%" |
@@ -353,7 +353,7 @@ if [ "$PUPMODE" = "2" ]; then #from BK's quirky6.1
 	echo "$FIXEDFILES" | sed -e "s#^\.\/#\/#g" -e "s#^#\/#g" -e "s#^\/\/#\/#g" -e 's#^\/$##g' -e 's#^\/\.$##g' | sort > /root/.packages/${DLPKG_NAME}.files 
 	DIRECTSAVEPATH=/ # set it to the new cocation
 
-else #-- anything other than PUPMODE 2 (full install) --
+else #-- anything other than PUPMODE 2 or 6 (full install) --
 
 	[ "$DL_SAVE_FLAG" != "true" ] &&  rm -f $DLPKG_BASE 2>/dev/null
 	rm -f $DLPKG_MAIN.tar.${EXT} 2>/dev/null #131122

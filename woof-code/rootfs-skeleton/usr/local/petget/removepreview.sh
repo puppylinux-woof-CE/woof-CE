@@ -159,7 +159,7 @@ $possible5"
 fi
 
 
-if [ "$PUPMODE" = "2" ]; then
+if [ "$PUPMODE" = "2" -o "$PUPMODE" = "6" ]; then
 #any user-installed deps?...
 remPATTERN='^'"$DB_pkgname"'|'
 DEP_PKGS="`grep "$remPATTERN" /root/.packages/user-installed-packages | cut -f 9 -d '|' | tr ',' '\n' | grep -v '^\\-' | sed -e 's%^+%%' |cut -f1 -d '&'`" #names-only, one each line. 
