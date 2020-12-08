@@ -892,7 +892,11 @@ mv ${linux_kernel_dir} ../output ## ../output/${linux_kernel_dir}
 
 ## make fatdog kernel module package
 if [ "$kit_kernel" = "yes" ]; then
-	OUTPUT_VERSION="${kernel_version}${custom_suffix}-${package_name_suffix}"
+	if [ "$remove_sublevel" = "yes" ] ; then
+		OUTPUT_VERSION="`grep 'Kernel Configuration' .config | cut -f 3 -d ' ' | cut -f 1-2 -d .`${custom_suffix}-${package_name_suffix}"
+	else
+		OUTPUT_VERSION="${kernel_version}${custom_suffix}-${package_name_suffix}"
+	fi
 else
 	OUTPUT_VERSION="${kernel_version}-${package_name_suffix}"
 fi
