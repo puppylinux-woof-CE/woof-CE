@@ -390,7 +390,7 @@ fi
 if [ ! -f /tmp/${aufs_git_dir}_done -o ! -d sources/${aufs_git_dir}/.git ] ; then
 	cd sources
 	if [ ! -d ${aufs_git_dir}/.git ] ; then
-		git clone --depth 1 ${aufs_git} ${aufs_git_dir}
+		git clone ${aufs_git} ${aufs_git_dir}
 		[ $? -ne 0 ] && exit_error "Error: failed to download the Aufs sources."
 		touch /tmp/${aufs_git_dir}_done
 	else
