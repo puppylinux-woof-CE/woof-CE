@@ -1,12 +1,11 @@
-wget -O- https://github.com/dimkr/devsus/releases/latest/download/devsus-templates.tar.gz | tar -xzf-
-
-mkdir -p /mnt/sdimagep2
-
 BYTESPERSECTOR=512
 P1BYTES=8192
 P2STARTBYTES=$(((P1BYTES + 65536) * BYTESPERSECTOR))
 
-mount-FULL -o loop,noatime,offset=${P2STARTBYTES} devuan-beowulf-c201-libre-2GB.img /mnt/sdimagep2
+OUT_IMG_BASE=${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}-ext4-2gb.img
+SSD_IMG_BASE=${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}-ext4-16gb.img
+OUT_IMG=../${WOOF_OUTPUT}/${OUT_IMG_BASE}
+
 cat << EOF > kernel.its
 /dts-v1/;
 
@@ -49,7 +48,6 @@ cat << EOF > kernel.its
 EOF
 
 echo "console=tty1 root=PARTUUID=%U/PARTNROFF=1 init=/init rootfstype=ext4 rootwait rw" > cmdline
-
 mkimage -D "-I dts -O dtb -p 2048" -f kernel.its vmlinux.uimg
 dd if=/dev/zero of=bootloader.bin bs=512 count=1
 vbutil_kernel --pack build/vmlinux.kpart \
@@ -60,15 +58,27 @@ vbutil_kernel --pack build/vmlinux.kpart \
               --signprivate /usr/share/vboot/devkeys/kernel_data_key.vbprivk \
               --config cmdline \
               --bootloader bootloader.bin
+
+mkdir -p /mnt/sdimagep2 /mnt/ssdimagep2
+
+wget -O- https://github.com/dimkr/devsus/releases/latest/download/devsus-templates.tar.gz | tar -xzf-
+
+dd if=build/vmlinux.kpart of=devuan-beowulf-c201-libre-16GB.img conv=notrunc seek=${P1BYTES}
 dd if=build/vmlinux.kpart of=devuan-beowulf-c201-libre-2GB.img conv=notrunc seek=${P1BYTES}
-cp -f build/*.sfs /mnt/sdimagep2/
-wget --tries=1 --timeout=10 -O /mnt/sdimagep2/init https://github.com/dimkr/frugalify/releases/latest/download/frugalify-aufs-arm
-chmod 755 /mnt/sdimagep2/init
+
+mount-FULL -o loop,noatime,offset=${P2STARTBYTES} devuan-beowulf-c201-libre-16GB.img /mnt/ssdimagep2
+mount-FULL -o loop,noatime,offset=${P2STARTBYTES} devuan-beowulf-c201-libre-2GB.img /mnt/sdimagep2
+
+cp -f build/*.sfs /mnt/ssdimagep2/
+wget --tries=1 --timeout=10 -O /mnt/ssdimagep2/init https://github.com/dimkr/frugalify/releases/latest/download/frugalify-aufs-arm
+chmod 755 /mnt/ssdimagep2/init
+cp -a /mnt/ssdimagep2/* /mnt/sdimagep2/
+
+busybox umount /mnt/ssdimagep2 2>/dev/null
+
+# put the 16 GB image inside the 2 GB one
+cp -f --sparse=always devuan-beowulf-c201-libre-16GB.img /mnt/sdimagep2/${SSD_IMG_BASE}
+
 busybox umount /mnt/sdimagep2 2>/dev/null
-
-OUT_IMG_SIZE=2048  ; ZSIZE=2gb
-
-OUT_IMG_BASE=${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}-ext4-${ZSIZE}.img
-OUT_IMG=../${WOOF_OUTPUT}/${OUT_IMG_BASE}
 
 mv -f devuan-beowulf-c201-libre-2GB.img $OUT_IMG
