@@ -410,8 +410,8 @@ if [ ! -f /tmp/aufs-util_done -o ! -d sources/aufs-util_git/.git ] ; then
 	cd sources
 	if [ ! -d aufs-util_git/.git ] ; then
 		log_msg "Downloading aufs-utils for userspace"
-		git clone --depth 1 git://git.code.sf.net/p/aufs/aufs-util.git aufs-util_git || \
-		git clone --depth 1 git://github.com/puppylinux-woof-CE/aufs-util.git aufs-util_git
+		git clone git://git.code.sf.net/p/aufs/aufs-util.git aufs-util_git || \
+		git clone git://github.com/puppylinux-woof-CE/aufs-util.git aufs-util_git
 		[ $? -ne 0 ] && exit_error "Error: failed to download the Aufs utils..."
 		touch /tmp/aufs-util_done
 	else
