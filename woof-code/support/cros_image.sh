@@ -62,7 +62,7 @@ vbutil_kernel --pack build/vmlinux.kpart \
               --bootloader bootloader.bin
 dd if=build/vmlinux.kpart of=devuan-beowulf-c201-libre-2GB.img conv=notrunc seek=${P1BYTES}
 cp -f build/*.sfs /mnt/sdimagep2/
-echo -e '#!/bin/sh\nexec /sbin/init initrd_full_install' > /mnt/sdimagep2/init
+wget --tries=1 --timeout=10 -O /mnt/sdimagep2/init https://github.com/dimkr/frugalify/releases/latest/download/frugalify-aufs-arm
 chmod 755 /mnt/sdimagep2/init
 busybox umount /mnt/sdimagep2 2>/dev/null
 
