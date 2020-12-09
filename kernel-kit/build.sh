@@ -1038,6 +1038,6 @@ Output files:
 fi
 
 echo "Done!"
-[ -f /usr/share/sounds/2barks.au ] && aplay /usr/share/sounds/2barks.au
+[ ! -f /usr/share/sounds/2barks.au ] || aplay /usr/share/sounds/2barks.au
 
 ### END ###
