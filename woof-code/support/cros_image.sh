@@ -2,9 +2,11 @@ BYTESPERSECTOR=512
 P1BYTES=8192
 P2STARTBYTES=$(((P1BYTES + 65536) * BYTESPERSECTOR))
 
-OUT_IMG_BASE=${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}-ext4-2gb.img
+# we create two bootable 2 GB images: one of contains a 16 GB SSD image that can be dd'ed to the internal SSD
+SD_IMG_BASE=${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}-ext4-2gb.img
+INSTALL_IMG_BASE=${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}-ext4-2gb-install.img
+
 SSD_IMG_BASE=${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}-ext4-16gb.img
-OUT_IMG=../${WOOF_OUTPUT}/${OUT_IMG_BASE}
 
 cat << EOF > kernel.its
 /dts-v1/;
@@ -61,24 +63,41 @@ vbutil_kernel --pack build/vmlinux.kpart \
 
 mkdir -p /mnt/sdimagep2 /mnt/ssdimagep2
 
-wget -O- https://github.com/dimkr/devsus/releases/latest/download/devsus-templates.tar.gz | tar -xzf-
+create_image() {
+	# it's a sparse file - that's how we fit a 16GB image inside a 2GB one
+	dd if=/dev/zero of=$1 bs=$2 count=$3 conv=sparse
+	parted --script $1 mklabel gpt
+	cgpt create $1
+	cgpt add -i 1 -t kernel -b 8192 -s 65536 -l Kernel -S 1 -T 5 -P 10 $1
+	start=$((8192 + 65536))
+	end=`cgpt show $1 | grep 'Sec GPT table' | awk '{print $1}'`
+	size=$(($end - $start))
+	cgpt add -i 2 -t data -b $start -s $size -l Root $1
+	# $size is in 512 byte blocks while ext4 uses a block size of 1024 bytes
+	mkfs.ext4 -F -b 1024 -m 0 -O ^has_journal -E offset=$(($start * 512)) $1 $(($size / 2))
+}
 
-dd if=build/vmlinux.kpart of=devuan-beowulf-c201-libre-16GB.img conv=notrunc seek=${P1BYTES}
-dd if=build/vmlinux.kpart of=devuan-beowulf-c201-libre-2GB.img conv=notrunc seek=${P1BYTES}
+create_image ${SD_IMG_BASE} 50M 40
+create_image ${SSD_IMG_BASE} 512 30785536
 
-mount-FULL -o loop,noatime,offset=${P2STARTBYTES} devuan-beowulf-c201-libre-16GB.img /mnt/ssdimagep2
-mount-FULL -o loop,noatime,offset=${P2STARTBYTES} devuan-beowulf-c201-libre-2GB.img /mnt/sdimagep2
+dd if=build/vmlinux.kpart of=${SSD_IMG_BASE} conv=notrunc seek=${P1BYTES}
+dd if=build/vmlinux.kpart of=${SD_IMG_BASE} conv=notrunc seek=${P1BYTES}
+
+mount-FULL -o loop,noatime,offset=${P2STARTBYTES} ${SSD_IMG_BASE} /mnt/ssdimagep2
+mount-FULL -o loop,noatime,offset=${P2STARTBYTES} ${SD_IMG_BASE} /mnt/sdimagep2
 
 cp -f build/*.sfs /mnt/ssdimagep2/
 wget --tries=1 --timeout=10 -O /mnt/ssdimagep2/init https://github.com/dimkr/frugalify/releases/latest/download/frugalify-aufs-arm
 chmod 755 /mnt/ssdimagep2/init
-cp -a /mnt/ssdimagep2/* /mnt/sdimagep2/
-
+cp -a /mnt/ssdimagep2/*.sfs /mnt/ssdimagep2/init /mnt/sdimagep2/
+busybox umount /mnt/sdimagep2 2>/dev/null
 busybox umount /mnt/ssdimagep2 2>/dev/null
 
-# put the 16 GB image inside the 2 GB one
-cp -f --sparse=always devuan-beowulf-c201-libre-16GB.img /mnt/sdimagep2/${SSD_IMG_BASE}
+cp -f --sparse=always ${SD_IMG_BASE} ../${WOOF_OUTPUT}/
 
+# put the 16 GB image inside the 2 GB one
+mount-FULL -o loop,noatime,offset=${P2STARTBYTES} ${SD_IMG_BASE} /mnt/sdimagep2
+cp -f --sparse=always ${SSD_IMG_BASE} /mnt/sdimagep2/
 busybox umount /mnt/sdimagep2 2>/dev/null
 
-mv -f devuan-beowulf-c201-libre-2GB.img $OUT_IMG
+mv -f ${SD_IMG_BASE} ../${WOOF_OUTPUT}/${INSTALL_IMG_BASE}
