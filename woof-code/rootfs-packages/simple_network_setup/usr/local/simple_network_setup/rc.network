@@ -35,6 +35,7 @@
 #190210 v2.2: Avoid wait after link timeout.
 #190525 v2.3: Allow for udev list updates; correct module loading & connection checks; add/restore wait for interfaces to configure.
 #200412 v2.3.1: Increase wait for ethtool link detected, to 15 secs.
+#201017 v2.4: Change module detection to handle multiple aliases for a device and driver preferences; ignore driver names when gathering connection MAC addresses; remove use of devpaths, which are no longer created; wait for link up 1 second as well as 3 & 5. 
 
 #If version is changed, ensure that new VERSION is set in the sns script. #190525
 
@@ -127,49 +128,64 @@ CONNECTION_DRIVER_LIST="$(cut -f 3 -d '|' /etc/simple_network_setup/connections 
 [ -z "$CONNECTION_DRIVER_LIST" ] && exit
 CONNECTION_DRIVER_COUNT="$(echo "$CONNECTION_DRIVER_LIST" | grep -vE '^$' | wc -l)" #190525
 CONNECTION_DRIVER_PATTERNS="$(echo "$CONNECTION_DRIVER_LIST" | sed 's%.*%/&.ko%')"
-CONNECTION_BUILTIN_PATTERNS="$(grep -soF "${CONNECTION_DRIVER_PATTERNS}" /lib/modules/$(uname -r)/modules.builtin | sed 's%/\(.*\)\.ko%|\1|%')"
-
-WAITCNT=0 ; WAITDRVRS=8 ; WAITMAX=12 #180108 190525
-#wait for interfaces to become available...
-#note, do not test for wlan0 or wlan1 (etc) to become available, as these can change depending on plugged-in devices.
-[ "$ARGUMENT" != 'start' ] && sleep 1 # Unless started by sns, allow time for all module loading to be initiated. #190525
-while [ 1 ];do #190525
- # Collect names of modules identified by udev events...
- UDEV_RULE_LIST="$(ls -1 /tmp/simple_network_setup/udevmodulelist/ 2>/dev/null)"
- # Collect names of any modules substituted by backend_modprobe...
- SUBSTITUTE_LIST="$(grep -sho '^MODULE=[^ ]*' /tmp/pup_event_backend/pup_event_module_devpath_log* \
-   | cut -f2 -d =)"
- LOADED_CONNECTION_MODULE_PATTERNS=''
- if [ -n "${UDEV_RULE_LIST}${SUBSTITUTE_LIST}${CONNECTION_BUILTIN_PATTERNS}" ];then #190525
-  # Get names of connection modules being loaded & the number of them (except substitutes)...
-  ACTIVE_CONNECTION_MODULE_LIST="$(echo "$CONNECTION_DRIVER_LIST" | grep -xF "${UDEV_RULE_LIST}${SUBSTITUTE_LIST}" | grep -vE '^$')"
-  ACTIVE_CONNECTION_MODULE_COUNT="$(echo "$CONNECTION_DRIVER_LIST" | grep -xF "${UDEV_RULE_LIST}" | grep -vE '^$' | wc -l)"
-  if [ $ACTIVE_CONNECTION_MODULE_COUNT -ge $CONNECTION_DRIVER_COUNT ] \
-    || [ $WAITCNT -ge $WAITDRVRS ];then #190525
-   LOADED_CONNECTION_MODULE_PATTERNS="$(lsmod | cut -f 1 -d ' ' | grep -xF "${ACTIVE_CONNECTION_MODULE_LIST}" | sed 's%^.*%|&|%')"
-   LOADED_CONNECTION_MODULE_COUNT="$(echo "$LOADED_CONNECTION_MODULE_PATTERNS" | grep -vE '^$' | wc -l)"
-   [ $LOADED_CONNECTION_MODULE_COUNT -ge $ACTIVE_CONNECTION_MODULE_COUNT ] && break
+CONNECTION_BUILTIN_DRIVERS="$(grep -soF "${CONNECTION_DRIVER_PATTERNS}" /lib/modules/$(uname -r)/modules.builtin | sed 's%.*/\([^/]*\)\.ko%\1%')" #201017...
+if [ -n "$CONNECTION_BUILTIN_DRIVERS" ];then
+ CONNECTION_MODULE_LIST="$(echo -n "$CONNECTION_DRIVER_LIST" | grep -vF "$CONNECTION_BUILTIN_DRIVERS")"
+else
+ CONNECTION_MODULE_LIST="$CONNECTION_DRIVER_LIST"
+fi
+if [ -n "$CONNECTION_MODULE_LIST" ];then #201017
+ WAITCNT=0 ; WAITDRVRS=8 ; WAITMAX=12 #180108 190525
+ #wait for interfaces to become available...
+ #note, do not test for wlan0 or wlan1 (etc) to become available, as these can change depending on plugged-in devices.
+ [ "$ARGUMENT" != 'start' ] && sleep 1 # Unless started by sns, allow time for all module loading to be initiated. #190525
+ while [ 1 ];do #190525
+  # Collect names of modules identified by udev events...
+  UDEV_RULE_LIST="$(ls -1 /tmp/simple_network_setup/udevmodulelist/ 2>/dev/null)"
+  # Collect names of any modules substituted by backend_modprobe...
+  #201017 udevmodulelist may include files for multiple drivers for same device; they identify the module expected to be loaded, based on default (last alias listed), blacklisting and preference.
+  LOADED_CONNECTION_MODULE_PATTERNS=''
+  if [ -n "$UDEV_RULE_LIST" ];then #190525 201017
+   # Get names of connection modules being loaded & the number of them (except substitutes)...
+   ACTIVE_CONNECTION_MODULE_NAME_PATH_LIST="$(echo "$CONNECTION_MODULE_LIST" | \
+     grep -xF "${UDEV_RULE_LIST}" | \
+     sed 's%^.*%/tmp/simple_network_setup/udevmodulelist/&%' | tr '\n' ' ')" #201017
+   if [ -n "$ACTIVE_CONNECTION_MODULE_NAME_PATH_LIST" ];then #201017
+    ACTIVE_CONNECTION_MODULE_LOAD_LIST="$(cat $ACTIVE_CONNECTION_MODULE_NAME_PATH_LIST | \
+      sort -u | sed 's%^.*/%%')" #201017
+    if [ -n "$ACTIVE_CONNECTION_MODULE_LOAD_LIST" ];then #201017
+     ACTIVE_CONNECTION_MODULE_COUNT="$(echo "$ACTIVE_CONNECTION_MODULE_LOAD_LIST" | wc -l)" #201017
+     if [ $ACTIVE_CONNECTION_MODULE_COUNT -ge $CONNECTION_DRIVER_COUNT ] \
+       || [ $WAITCNT -ge $WAITDRVRS ];then #190525
+      LOADED_CONNECTION_MODULE_PATTERNS="$(lsmod | cut -f 1 -d ' ' | \
+        grep -xF "${ACTIVE_CONNECTION_MODULE_LOAD_LIST}" | sed 's%^.*%|&|%')" #201017
+      LOADED_CONNECTION_MODULE_COUNT="$(echo "$LOADED_CONNECTION_MODULE_PATTERNS" | grep -vE '^$' | wc -l)"
+      [ $LOADED_CONNECTION_MODULE_COUNT -ge $ACTIVE_CONNECTION_MODULE_COUNT ] && break
+     fi #190525
+    fi #201017
+   fi #201017
   fi #190525
- fi #190525
- [ $WAITCNT -ge $WAITDRVRS ] && break #all modules not loaded.
- sleep 1
- WAITCNT=$(($WAITCNT + 1))
-done
-
-AVAILABLE_CONNECTIONS='' #190525...
-if [ -n "${LOADED_CONNECTION_MODULE_PATTERNS}${CONNECTION_BUILTIN_PATTERNS}" ];then
- CONNECTION_MACADDRESSES="$(grep -F "${LOADED_CONNECTION_MODULE_PATTERNS}${CONNECTION_BUILTIN_PATTERNS}" /etc/simple_network_setup/connections |  cut -f 6 -d '|' | sort -u)"
- CONNECTION_MACADDRESS_COUNT="$(echo "$CONNECTION_MACADDRESSES" | grep -vE '^$' | wc -l)"
- while [ 1 ];do
-  ACTIVE_MACADDRESS_PATTERNS="$(ifconfig -a | grep 'Link encap:Ethernet' | grep -o 'HWaddr .*' | cut -f 2 -d ' ' | sed 's%^.*%|&|%')"
-  AVAILABLE_CONNECTIONS="$(grep -F "${LOADED_CONNECTION_MODULE_PATTERNS}${CONNECTION_BUILTIN_PATTERNS}" /etc/simple_network_setup/connections | grep -F "${ACTIVE_MACADDRESS_PATTERNS}")"
-  AVAILABLE_CONNECTION_COUNT="$(echo "$AVAILABLE_CONNECTIONS" | grep -vE '^$' | wc -l)"
-  [ $AVAILABLE_CONNECTION_COUNT -ge $CONNECTION_MACADDRESS_COUNT ] && break
-  [ $WAITCNT -ge $WAITMAX ] && break 
+  [ $WAITCNT -ge $WAITDRVRS ] && break #all modules not loaded.
   sleep 1
   WAITCNT=$(($WAITCNT + 1))
  done
-fi
+fi #201017
+[ -z "$LOADED_CONNECTION_MODULE_PATTERNS" ] \
+  && [ -z "$CONNECTION_BUILTIN_DRIVERS" ] \
+  && cancel_splash_and_exit #201017
+
+AVAILABLE_CONNECTIONS='' #190525...
+CONNECTION_MACADDRESSES="$(cut -f 6 -d '|' /etc/simple_network_setup/connections | sort -u)" #201017
+CONNECTION_MACADDRESS_COUNT="$(echo "$CONNECTION_MACADDRESSES" | grep -vE '^$' | wc -l)"
+while [ 1 ];do
+ ACTIVE_MACADDRESS_PATTERNS="$(ifconfig -a | grep 'Link encap:Ethernet' | grep -o 'HWaddr .*' | cut -f 2 -d ' ' | sed 's%^.*%|&|%')"
+ AVAILABLE_CONNECTIONS="$(grep -F "${ACTIVE_MACADDRESS_PATTERNS}" /etc/simple_network_setup/connections)" #201017
+ AVAILABLE_CONNECTION_COUNT="$(echo "$AVAILABLE_CONNECTIONS" | wc -l)"
+ [ $AVAILABLE_CONNECTION_COUNT -ge $CONNECTION_MACADDRESS_COUNT ] && break
+ [ $WAITCNT -ge $WAITMAX ] && break 
+ sleep 1
+ WAITCNT=$(($WAITCNT + 1))
+done
 [ $WAITCNT -gt 0 ] && echo "SNS rc.network: waited for ethernet interfaces: seconds=${WAITCNT}" #180115
 echo "$AVAILABLE_CONNECTIONS" > /tmp/sns_connections_available
 [ -z "$AVAILABLE_CONNECTIONS" ] && cancel_splash_and_exit #181109 end
@@ -209,11 +225,11 @@ if [ -s /tmp/sns_connections_wireless ];then #170924
   ifconfig $INTERFACE up
   [ $? -ne 0 ] && continue
   echo " SUCCESS: ifconfig ${INTERFACE} up" >> /tmp/simple_network_setup/rc_network_wireless_connection_log
-  sleep 3
-  SECS=3
+  sleep 1 #201017
+  SECS=1 #201017
   ESSID_PATTERNS="$(sed 's/.*/ESSID:"&"/' /tmp/simple_network_setup/essids-want)"
   echo " EXECUTING SCAN: iwlist ${INTERFACE} scan | grep -E (messages & labels)" >> /tmp/simple_network_setup/rc_network_wireless_connection_log #180706
-  for I in 1 2;do
+  for I in 1 2 3;do #201017
    SCANRESULT="`iwlist $INTERFACE scan | grep -E 'Address:|Channel:|Frequency:|Quality[:=]|Encryption key:|ESSID:|Scan completed|No scan results'`" ###SCANNING### 110203 180706
    echo " SCANRESULT=${SCANRESULT}" >> /tmp/simple_network_setup/rc_network_wireless_connection_log
    #note, possible to get: 'wlan0     No scan results' so delay then try again...
@@ -222,9 +238,9 @@ if [ -s /tmp/sns_connections_wireless ];then #170924
    else
     SCAN_WANTS="$(echo "$SCANRESULT" | grep -m 1 'Scan completed')"
    fi
-   [ "$SCANRESULT" != "" -o $I -gt 1 ] && break
+   [  -n "$SCANRESULT" ] || [ $I -ge 3 ] && break #201017
    sleep 2
-   SECS=5
+   SECS=$(($SECS + 2)) #201017
    echo " EXECUTING SCAN AGAIN: iwlist ${INTERFACE} scan | grep -E (messages & labels)" >> /tmp/simple_network_setup/rc_network_wireless_connection_log #180706
   done
   ifconfig $INTERFACE down
