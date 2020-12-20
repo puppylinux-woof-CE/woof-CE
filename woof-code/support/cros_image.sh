@@ -87,8 +87,9 @@ mount-FULL -o loop,noatime,offset=${P2STARTBYTES} ${SSD_IMG_BASE} /mnt/ssdimagep
 mount-FULL -o loop,noatime,offset=${P2STARTBYTES} ${SD_IMG_BASE} /mnt/sdimagep2
 
 cp -f build/*.sfs /mnt/ssdimagep2/
-wget --tries=1 --timeout=10 -O /mnt/ssdimagep2/init https://github.com/dimkr/frugalify/releases/latest/download/frugalify-aufs-arm
-chmod 755 /mnt/ssdimagep2/init
+mkdir -p ../../local-repositories/frugalify
+[ ! -f ../../local-repositories/frugalify/frugalify-aufs-arm ] && wget --tries=1 --timeout=10 -O ../../local-repositories/frugalify/frugalify-aufs-arm  https://github.com/dimkr/frugalify/releases/latest/download/frugalify-aufs-arm
+install -m 755 ../../local-repositories/frugalify/frugalify-aufs-arm /mnt/ssdimagep2/init
 cp -a /mnt/ssdimagep2/*.sfs /mnt/ssdimagep2/init /mnt/sdimagep2/
 busybox umount /mnt/sdimagep2 2>/dev/null
 busybox umount /mnt/ssdimagep2 2>/dev/null
