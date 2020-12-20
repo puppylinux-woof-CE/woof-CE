@@ -78,7 +78,7 @@ for icon in $Dir/*; do
     if [ "`which rsvg-convert`" ]; then
         rsvg-convert -w 48 -h 48 -o root/.jwm/window_buttons/${newicon} ${icon}
     else
-        ln -sf ${icon} root/.jwm/window_buttons/${newicon}
+        ln -sf /${icon} root/.jwm/window_buttons/${newicon}
     fi
 done
 echo "jwm buttons: ${PTHEME_JWM_BUTTONS}"
