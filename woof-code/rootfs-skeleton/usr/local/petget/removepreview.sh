@@ -27,9 +27,11 @@
 export TEXTDOMAIN=petget___removepreview.sh
 export OUTPUT_CHARSET=UTF-8
 [ "$(locale | grep '^LANG=' | cut -d '=' -f 2)" ] && ORIGLANG="$(locale | grep '^LANG=' | cut -d '=' -f 2)"
-. /etc/rc.d/PUPSTATE  #111228 this has PUPMODE and SAVE_LAYER.
+[ -e /etc/rc.d/PUPSTATE ] && . /etc/rc.d/PUPSTATE  #111228 this has PUPMODE and SAVE_LAYER.
 . /etc/DISTRO_SPECS #has DISTRO_BINARY_COMPAT, DISTRO_COMPAT_VERSION
 . /root/.packages/DISTRO_PKGS_SPECS
+
+[ "$PUPMODE" == "" ] && PUPMODE=2
 
 #Check if the / is layered fs
 ISLAYEREDFS="$(mount | grep "on / type" | grep "unionfs")"

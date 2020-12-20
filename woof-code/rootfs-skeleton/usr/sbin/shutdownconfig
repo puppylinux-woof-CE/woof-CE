@@ -96,6 +96,18 @@ echo "$ORANGEGTKRC" > /tmp/orange_gtkrc${$}
 
 #================================================================
 
+get_DRV() {
+  # "$1" - partition - ex: sda3
+  ret_DRV=''
+  [ "$1" ] || return 1
+  local xPART="$1"
+  while [ ${#xPART} -gt 2 ]; do
+    [ -e /sys/block/$xPART ] && { ret_DRV="$xPART"; break; }
+    xPART=${xPART%?}
+  done
+  return 0
+}
+
 choosepartfunc() {
  #dialog to choose what partition to create ${DISTRO_FILE_PREFIX}save.2fs on...
  case "$PMEDIA" in ""|cd|scsicd|satacd|idecd|atacd|usbcd) PCHOOSE="yes" ;; esac
@@ -148,7 +160,7 @@ $(eval_gettext "or \Zb${T_cd}\ZB button to save your session back to the CD/DVD.
  fi
 
  #130216 add f2fs...
- PARTSLIST="`probepart -m 2> /dev/null | grep '^/dev/' | grep "$expBOOTDRV" | grep -E 'f2fs|ext2|ext3|ext4|reiserfs|btrfs|minix|msdos|vfat|exfat|ntfs' | cut -f 1-3 -d '|' | sed -e 's/msdos/vfat/g'`"
+ PARTSLIST="`probepart -m 2> /dev/null | grep '^/dev/' | grep -E 'f2fs|ext2|ext3|ext4|reiserfs|btrfs|minix|msdos|vfat|exfat|ntfs' | cut -f 1-3 -d '|' | sed -e 's/msdos/vfat/g'`"
 
  #nothing to save to...
  if [ "$PARTSLIST" = "" ];then
@@ -169,13 +181,29 @@ $(eval_gettext "or \Zb${T_cd}\ZB button to save your session back to the CD/DVD.
  SCHOICES=""; DEFTAG=""
  rm -f /tmp/schoices.txt
  rm -f /tmp/shutdownconfig_deftag
+ rm -f /tmp/shutdownconfig_parts_list
+ rm -f /tmp/pdev1islinux
+ maxLIN=0; maxOTHER=0
+ varLEN=${#expBOOTDRV}
  echo "$PARTSLIST" | grep -qw "$PDEV1" && INSTALLED="y" || INSTALLED=""
  echo "$PARTSLIST" |
  while read APART
  do
   ATAG="`echo -n "$APART" | cut -f 1 -d '|' | cut -f 3 -d '/'`"
+  [ "${ATAG:0:4}" = "zram" ] && continue
   ASIZE="`echo -n "$APART" | cut -f 3 -d '|'`"
+  [ $ASIZE -lt 600 ] && continue
   AFS="`echo -n "$APART" | cut -f 2 -d '|'`"
+  case $AFS in
+   ext4|ext3|ext2|f2fs|reiserfs|btrfs|minix)
+    [ "$ATAG" = "$PDEV1" ] && touch /tmp/pdev1islinux
+    [ $ASIZE -gt $maxLIN ] && { echo "$ATAG" > /tmp/maxlintag; maxLIN=$ASIZE; }
+    ;;
+   *)
+    [ "${APART:0:${varLEN}}" = "$expBOOTDRV" ] || continue
+    [ $ASIZE -gt $maxOTHER ] && { echo "$ATAG" > /tmp/maxothertag; maxOTHER=$ASIZE; }
+    ;;
+  esac
   AFREE=`df -m | grep "/dev/${ATAG} " | tr -s " " | cut -f 4 -d " "`
   if [ ! $AFREE ];then
    mount -t $AFS /dev/$ATAG /mnt/data > /dev/null 2>&1
@@ -208,20 +236,26 @@ $(gettext "Instead, you should first run Microsoft Windows -- most often this pr
      umount /mnt/data
    fi
   fi
-  if [ $AFREE -ne 0 ];then
-   if [ -z "$INSTALLED" ] && [ $AFREE -gt 512 ] && [ ! -s /tmp/shutdownconfig_deftag ];then
-     case $AFS in
-     ext?|reiserfs|minix|btrfs|f2fs) echo -n " --default-item ${ATAG}" > /tmp/shutdownconfig_deftag;;
-     esac 
-   fi
-   if [ "$ATAG" = "$PDEV1" -a $AFREE -gt 256 ];then #120327
-    echo -n " --default-item ${ATAG}" > /tmp/shutdownconfig_deftag
-    echo "${ATAG} \"f.s.: $AFS  `gettext 'Size:'` ${ASIZE}M  `gettext 'Free:'` ${AFREE}M `gettext '*RECOMMENDED*'`\" " >> /tmp/schoices.txt
-   else
-    echo "${ATAG} \"`gettext 'Filesystem:'` $AFS  `gettext 'Size:'` ${ASIZE}M  `gettext 'Free:'` ${AFREE}M\" " >> /tmp/schoices.txt
-   fi
-  fi
+  [ $AFREE -gt 256 ] && echo "$ATAG \"%s $AFS  `gettext 'Size:'` ${ASIZE}M  `gettext 'Free:'` ${AFREE}M %s\" " >> /tmp/shutdownconfig_parts_list
  done
+ defTAG=''
+ [ -e /tmp/pdev1islinux ] && defTAG="$PDEV1"
+ if [ "$defTAG" = "" ]; then
+  [ -s /tmp/maxlintag ] && read defTAG < /tmp/maxlintag
+ fi
+ if [ "$defTAG" = "" ]; then
+  [ -s /tmp/maxothertag ] && read defTAG < /tmp/maxothertag
+ fi
+ [ "$defTAG" ] || defTAG="$PDEV1"
+ echo -n " --default-item ${defTAG}" > /tmp/shutdownconfig_deftag
+ while read ONE_PART
+ do
+  if [ "${ONE_PART%% *}" = "$defTAG" ]; then
+   echo "$(printf "$ONE_PART" "f.s.:" "`gettext '*RECOMMENDED*'`")" >> /tmp/schoices.txt
+  else
+   echo "$(printf "$ONE_PART" "`gettext 'Filesystem:'`" "")" >> /tmp/schoices.txt
+  fi
+ done < /tmp/shutdownconfig_parts_list
  kill $ppPID
 
  [ -s /tmp/shutdownconfig_deftag ] && DEFTAG="`cat /tmp/shutdownconfig_deftag`"
@@ -458,7 +492,6 @@ enmount() {
 changefolder() {
    T_choosefoldertitle="$(gettext 'First shutdown: choose folder')"
    T_inputbox="$(gettext 'Edit path. '/' means top-level of partition.
-You are only allowed to save one-deep, for example: '/puppy300'.
 If folder does not exist, it will be created. Spaces are not allowed.
 If uncertain, just click OK button.')"
    NEWSAVEPATH="`${DIALOGEXE} ${BACKGROUNDYELLOW} ${TITLEPARAM} "$T_choosefoldertitle" --screen-center --stdout --no-cancel --inputbox "$T_inputbox" 0 0 "$SAVEPATH"`"
@@ -485,7 +518,22 @@ pupsavefunc() {
   SAVEPATH=$(dirname "$SAVEFILE")
   [ "$SAVEPATH" = '/' ] && SAVEPATH=''
   NAMEONLY=$(basename "$SAVEFILE")
-  T_sanitext="`eval_gettext \"\Zb\Z1FINAL SANITY CHECK:\Zn\ZB
+  if [ "$PSAVEDIR" ]; then
+   T_sanitext="`eval_gettext \"\Zb\Z1FINAL SANITY CHECK:\Zn\ZB
+Partition you are saving to:      \Zb\\\${SAVEPART}\ZB
+The filesystem of \\\${SAVEPART} partition: \Zb\\\${SAVEFS}\ZB
+Name of the save file:            \Zb\\\${NAMEONLY}\ZB
+Path (folder) of the save file:   \Zb\\\${SAVEPATH}\ZB
+Size of save file:                \Zb\\\${SIZEPFILE}KB (\\\${AAAMB}MB)\ZB
+Filesystem inside save file:      \Zb\\\${SFFS}\ZB
+
+If they definitely look right, choose \Zb\\\${T_saniyes}\ZB button...
+If anything looks wrong, choose \Zb\\\${T_notsave}\ZB...\"`"
+   ${DIALOGEXE} ${BACKGROUNDYELLOW} ${TITLEPARAM} "$T_sanititle" --colors --no-collapse --ok-label "$T_saniyes" --cancel-label "$T_notsave" --yesno "$T_sanitext" 0 0 #110926
+   [ $? -eq 0 ] || return 1
+   break
+  else
+   T_sanitext="`eval_gettext \"\Zb\Z1FINAL SANITY CHECK:\Zn\ZB
 Partition you are saving to:      \Zb\\\${SAVEPART}\ZB
 The filesystem of \\\${SAVEPART} partition: \Zb\\\${SAVEFS}\ZB
 Name of the save file:            \Zb\\\${NAMEONLY}\ZB
@@ -496,15 +544,16 @@ Filesystem inside save file:      \Zb\\\${SFFS}\ZB
 If they definitely look right, choose \Zb\\\${T_saniyes}\ZB button...
 Looks ok, but you want to change the folder, choose \Zb\\\${T_sanichange}\ZB...
 If anything looks wrong, choose \Zb\\\${T_notsave}\ZB...\"`"
-  ${DIALOGEXE} ${BACKGROUNDYELLOW} ${TITLEPARAM} "$T_sanititle" --colors --no-collapse --extra-button --ok-label "$T_saniyes"  --extra-label "$T_sanichange" --cancel-label "$T_notsave" --yesno "$T_sanitext" 0 0 #110926
-  SANITYRET=$?
-  [ $SANITYRET -ne 0 -a $SANITYRET -ne 3 ] && return 1
-  [ $SANITYRET -eq 0 ] && break
-  if [ $SANITYRET -eq 3 ];then #change folder.
+   ${DIALOGEXE} ${BACKGROUNDYELLOW} ${TITLEPARAM} "$T_sanititle" --colors --no-collapse --extra-button --ok-label "$T_saniyes"  --extra-label "$T_sanichange" --cancel-label "$T_notsave" --yesno "$T_sanitext" 0 0 #110926
+   SANITYRET=$?
+   [ $SANITYRET -ne 0 -a $SANITYRET -ne 3 ] && return 1
+   [ $SANITYRET -eq 0 ] && break
+   if [ $SANITYRET -eq 3 ];then #change folder.
     changefolder
-  else
-   SAVEFILE="${SAVEPATH}${NAMEONLY}"
-   PUPSAVE="$SAVEPART,$SAVEFS,$SAVEFILE"
+   else
+    SAVEFILE="${SAVEPATH}${NAMEONLY}"
+    PUPSAVE="$SAVEPART,$SAVEFS,$SAVEFILE"
+   fi
   fi
  done
  [ -f ${SMNTPT}${SAVEPATH} ] && return 1 #abort. must be a directory.
@@ -573,7 +622,19 @@ save_directory() {
   SAVEPATH=$(dirname "$SAVEFILE")
   [ "$SAVEPATH" = '/' ] && SAVEPATH=''
   NAMEONLY=$(basename "$SAVEFILE")
-  T_sanitext="`eval_gettext \"\Zb\Z1FINAL SANITY CHECK:\Zn\ZB
+  if [ "$PSAVEDIR" ]; then
+   T_sanitext="`eval_gettext \"\Zb\Z1FINAL SANITY CHECK:\Zn\ZB
+Partition you are saving to:      \Zb\\\${SAVEPART}\ZB
+The filesystem of \\\${SAVEPART} partition: \Zb\\\${SAVEFS}\ZB
+Path (folder) of the pupsave:   \Zb\\\${SAVEPATH}/${NAMEONLY}\ZB
+
+If they definitely look right, choose \Zb\\\${T_saniyes}\ZB button...
+If anything looks wrong, choose \Zb\\\${T_notsave}\ZB...\"`"
+   ${DIALOGEXE} ${BACKGROUNDYELLOW} ${TITLEPARAM} "$T_sanititle" --colors --no-collapse --ok-label "$T_saniyes" --cancel-label "$T_notsave" --yesno "$T_sanitext" 0 0 #110926
+   [ $? -eq 0 ] || return 1
+   break
+  else
+   T_sanitext="`eval_gettext \"\Zb\Z1FINAL SANITY CHECK:\Zn\ZB
 Partition you are saving to:      \Zb\\\${SAVEPART}\ZB
 The filesystem of \\\${SAVEPART} partition: \Zb\\\${SAVEFS}\ZB
 Path (folder) of the pupsave:   \Zb\\\${SAVEPATH}/${NAMEONLY}\ZB
@@ -581,15 +642,16 @@ Path (folder) of the pupsave:   \Zb\\\${SAVEPATH}/${NAMEONLY}\ZB
 If they definitely look right, choose \Zb\\\${T_saniyes}\ZB button...
 Looks ok, but you want to change the folder, choose \Zb\\\${T_sanichange}\ZB...
 If anything looks wrong, choose \Zb\\\${T_notsave}\ZB...\"`"
-  ${DIALOGEXE} ${BACKGROUNDYELLOW} ${TITLEPARAM} "$T_sanititle" --colors --no-collapse --extra-button --ok-label "$T_saniyes"  --extra-label "$T_sanichange" --cancel-label "$T_notsave" --yesno "$T_sanitext" 0 0 #110926
-  SANITYRET=$?
-  [ $SANITYRET -ne 0 -a $SANITYRET -ne 3 ] && return 1
-  [ $SANITYRET -eq 0 ] && break
-  if [ $SANITYRET -eq 3 ];then #change folder.
+   ${DIALOGEXE} ${BACKGROUNDYELLOW} ${TITLEPARAM} "$T_sanititle" --colors --no-collapse --extra-button --ok-label "$T_saniyes"  --extra-label "$T_sanichange" --cancel-label "$T_notsave" --yesno "$T_sanitext" 0 0 #110926
+   SANITYRET=$?
+   [ $SANITYRET -ne 0 -a $SANITYRET -ne 3 ] && return 1
+   [ $SANITYRET -eq 0 ] && break
+   if [ $SANITYRET -eq 3 ];then #change folder.
     changefolder
-  else
-   SAVEFILE="${SAVEPATH}${NAMEONLY}"
-   PUPSAVE="$SAVEPART,$SAVEFS,$SAVEFILE"
+   else
+    SAVEFILE="${SAVEPATH}${NAMEONLY}"
+    PUPSAVE="$SAVEPART,$SAVEFS,$SAVEFILE"
+   fi
   fi
  done
 
@@ -613,20 +675,67 @@ If anything looks wrong, choose \Zb\\\${T_notsave}\ZB...\"`"
  expBOOTDRV=${expBOOTDRV}
 } #end sace_directory
 
+autosavefunc() {
+ [ $PUPMODE -eq 5 ] || return 1
+ if [ "$SAVEPART" = "" ];then
+   if [ "$PSAVEPART" != "" ];then
+     SAVEPART="${PSAVEPART}"
+   else
+     SAVEPART="${PUPSFS%%,*}"
+   fi
+ fi
+ if [ "$SAVEPART" != "" ];then
+   spPATTERN='/dev/'"$SAVEPART"'|'
+   SAVEFS="`probepart -m | grep "$spPATTERN" | cut -f 2 -d '|'`"
+   case $SAVEFS in
+     ext?|reiserfs|minix|btrfs|f2fs) SAVEFS_IS_LINUX="y";;
+     *) SAVEFS_IS_LINUX="";;
+   esac
+   if [ "$SAVEFS_IS_LINUX" = "y" ];then
+     if [ "$PSAVEDIR" ];then
+       SAVEFILE="${PSAVEDIR}${DISTRO_FILE_PREFIX}save"
+     else
+       SAVEFILE="$PSUBDIR/${DISTRO_FILE_PREFIX}save"
+     fi
+     enmount
+     if [ ! -e "${SMNTPT}${SAVEFILE%/*}/AUTOSAVE" ];then
+       umount ${SMNTPT} 2>/dev/null
+       SMNTPT=''
+       return 1
+     fi
+     if [ -e "${SMNTPT}${SAVEFILE}" ];then
+       umount ${SMNTPT} 2>/dev/null
+       SMNTPT=''
+       return 1
+     fi
+     mkdir -p "${SMNTPT}${SAVEFILE}" 2>/dev/null
+     cp -f /usr/share/pixmaps/puppy/puppy_save.svg  "${SMNTPT}${SAVEFILE}/.DirIcon"
+     SAVEPATH=$(dirname "$SAVEFILE")
+     [ "$SAVEPATH" = '/' ] && SAVEPATH=''
+     PUPMODE=128
+     return 0
+   fi
+ fi
+ return 1
+}
+
 #================================================================
 
 xDEVFS="$DEV1FS"
 xPDEV="$PDEV1"
-if [ "$PSAVEMARK" != "" -a "$PDEV1" != "" ];then #see /etc/rc.d/PUPSTATE
- devnameonly="`echo -n "$PDEV1" | sed -e 's/[0-9]*$//'`"
- SAVEPART="${devnameonly}${PSAVEMARK}" #partition that will-have ${DISTRO_FILE_PREFIX}save.
- spPATTERN='/dev/'"$SAVEPART"'|'
- SAVEFS="`probepart -m | grep "$spPATTERN" | cut -f 2 -d '|'`"
- xDEVFS="$SAVEFS"
- xPDEV="$SAVEPART"
-fi
 
 [ ! "$DEV1FS" ] && xDEVFS='xxx' #this will enable choice of create a save-file.
+
+if [ "$PSAVEPART" ]; then
+    DSAVEPART="$PSAVEPART"
+else
+    DSAVEPART="$xPDEV"
+fi
+if [ "$PSAVEDIR" ]; then
+    DSAVEDIR="${PSAVEDIR%/}"
+else
+    DSAVEDIR="$PSUBDIR"
+fi
 
 SAVECHOICE=255
 
@@ -690,7 +799,9 @@ fi
 
 case $SAVECHOICE in
  0)
-  if choosepartfunc; then
+  if autosavefunc; then
+    echo "$(gettext 'Doing autosave')"
+  elif choosepartfunc; then
     enmount
     case $SAVEFS in
       ext?|reiserfs|minix|btrfs|f2fs) SAVEFS_IS_LINUX="y";;
@@ -774,24 +885,54 @@ LABEL ${SAVEFILE##*/}
    umount ${MOUNTED} 2>/dev/null
   fi
  fi
-else
- # Add a savemark file if we save in a diffrent partition
- # But not if defined by PSAVEPART or PSAVEMARK in PUPSTATE
- if [ "${PSAVEPART}" = "" -a "${PSAVEMARK}" = "" -a "${SAVEPART}" != "${xPDEV}" ];then
-  SAVEDISK=$(echo "${SAVEPART}" |  sed 's/[0-9]*//g')
-  PDEV1DISK=$(echo "${xPDEV}" |  sed 's/[0-9]*//g')
-  xSAVEMARK=$(echo "${SAVEPART}" |  sed 's/[^0-9]*//g')
-  if [ "${SAVEDISK}" = "${PDEV1DISK}" ];then
-   MOUNTED=$(grep "${xPDEV}" /proc/mounts)
-   if [ "$MOUNTED" ]; then
-    echo "${xSAVEMARK}" > /mnt/${xPDEV}${xPSUBDIR}/SAVEMARK
-   else
-    mkdir -p /mnt/${xPDEV} && mount /dev/${xPDEV} /mnt/${xPDEV}
-    echo "${xSAVEMARK}" > /mnt/${xPDEV}${xPSUBDIR}/SAVEMARK
-   fi
-   umount /mnt/${xPDEV} 2>/dev/null
+elif [ "$PUPMODE" = "128" -a "$DEV1FS" != "iso9660" ]; then
+  # Add a SAVESPEC file if save in a diffrent partition or different directory
+  SPEC_DIR="/tmp/shutdown$$"
+  [ -d "$SPEC_DIR" ] || mkdir -p "$SPEC_DIR"
+  SPEC_FN="$SPEC_DIR/SAVESPEC"
+  [ -e "$SPEC_FN" ] && rm "$SPEC_FN"
+  if [ "${SAVEPART}" != "${DSAVEPART}" -o "${SAVEPATH}" != "${DSAVEDIR}" ]; then
+    SAVEID="$(busybox blkid /dev/${SAVEPART} | grep -o ' LABEL=.*' | cut -f2 -d '"')"
+    [ "$SAVEID" ] || SAVEID="$(busybox blkid /dev/${SAVEPART} | grep -o ' UUID=.*' | cut -f2 -d '"')"
+    if [ "$SAVEID" ]; then
+      echo "SS_ID='$SAVEID'" >> "$SPEC_FN"
+      [ "$SAVEPATH" ] || SAVEPATH='/'
+      echo "SS_DIR='$SAVEPATH'" >> "$SPEC_FN"
+    fi
   fi
- fi
+  get_DRV "${SAVEPART}"
+  if [ "${ret_DRV}" ]; then
+    SAVEDRV="${ret_DRV}"
+    get_DRV "${PUPSFS%%,*}"
+    if [ "${SAVEDRV}" != "${ret_DRV}" ]; then
+      # check and set SAVEMEDIA for SAVEPART
+      DRVTYPE="`probedisk | grep "$SAVEDRV" | cut -f 2 -d '|'`"
+      case "$DRVTYPE" in
+        drive)
+          if [ "$(cat /sys/block/$SAVEDRV/queue/rotational 2>/dev/null)" = "0" -a "$SAVEFS" != 'f2fs' ]; then
+            xMEDIA='ataflash'
+          else
+            xMEDIA='atahd'
+          fi
+          ;;
+        usbdrv)
+          if [ "$(cat /sys/block/$SAVEDRV/removable 2>/dev/null)" = "1" -a "$SAVEFS" != 'f2fs' ]; then
+            xMEDIA='usbflash'
+          else
+            xMEDIA='usbhd'
+          fi
+          ;;
+        *)
+          xMEDIA=''
+          ;;
+      esac
+      if [ "$xMEDIA" ]; then
+        [ "$xMEDIA" = "$PMEDIA" ] || echo "SS_MEDIA='$xMEDIA'" >> "$SPEC_FN"
+      fi
+    fi
+  fi
+  [ -e "$SPEC_FN" ] && copy2installdir "$SPEC_FN"
+  rm -rf "$SPEC_DIR"
 fi
 
 exit 0
