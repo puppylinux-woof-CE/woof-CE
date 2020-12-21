@@ -74,11 +74,10 @@ for icon in $Dir/*; do
     ifile=$(basename $icon)
     ext=${ifile##*.}
     newicon=`echo $ifile|sed "s%${ext}$%png%"`
-    #JWM does a crappy svg convert, so we help out if rsvg-convert is installed
     if [ "`which rsvg-convert`" ]; then
         rsvg-convert -w 48 -h 48 -o root/.jwm/window_buttons/${newicon} ${icon}
     else
-        ln -sf /${icon} root/.jwm/window_buttons/${newicon}
+        chroot . rsvg-convert -w 48 -h 48 -o root/.jwm/window_buttons/${newicon} /${icon}
     fi
 done
 echo "jwm buttons: ${PTHEME_JWM_BUTTONS}"
