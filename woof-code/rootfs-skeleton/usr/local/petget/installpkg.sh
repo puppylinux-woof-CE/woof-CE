@@ -452,7 +452,7 @@ if [ -f "$line" ]; then
   soname="$(basename $line)"
   soname2="${soname%*.so.*}"
  
-  for slink in $(find $dname -name "${soname2}.so*" -maxdepth 1 -type l)
+  for slink in $(find "$dname3" -name "${soname2}.so*" -maxdepth 1 -type l)
   do
   
    if [ "$(cat /var/packages/${DLPKG_NAME}.files | grep "$slink")" == "" ]; then
