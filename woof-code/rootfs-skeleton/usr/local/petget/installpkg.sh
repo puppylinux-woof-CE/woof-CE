@@ -446,41 +446,67 @@ cat /var/packages/${DLPKG_NAME}.files | grep -E '*\.so$|*\.so\.*' > /tmp/libfile
 while IFS= read -r line
 do
 
-if [ -f "$line" ]; then
+if [ -f $line ]; then
 
   dname3="$(dirname $line)"
   soname="$(basename $line)"
   soname2="${soname%*.so.*}"
- 
+  
   for slink in $(find "$dname3" -name "${soname2}.so*" -maxdepth 1 -type l)
   do
-  
-   if [ "$(cat /var/packages/${DLPKG_NAME}.files | grep "$slink")" == "" ]; then
-  
-      srcf=$(readlink "$slink" 2>/dev/null)
     
+   slinkpt="$(echo $slink | sed -e 's#\+#\\\+#g' -e 's#\/#\\\/#g' -e 's#\-#\\\-#g' -e 's#\.#\\\.#g')"
+
+   if [ "$(cat /var/packages/package-files/${DLPKG_NAME}.files | grep -E "${slinkpt}\$")" == "" ]; then
+
+      srcf="$(readlink "$slink" 2>/dev/null)"
+
       if [ "$srcf" != "" ]; then
-     
-        so_bname="$(basename "$srcf" 2>/dev/null)"
-          
-	  #check if the source file of the symlink was correct
-          if [ $so_bname != "" ] && [ "$so_bname" == "$soname" ]; then    
+
+        so_bname="$(basename $srcf 2>/dev/null)"
+        srcfpt="$(echo "$so_bname" | sed -e 's#\+#\\\+#g' -e 's#\/#\\\/#g' -e 's#\-#\\\-#g' -e 's#\.#\\\.#g')"
+
+	    #check if the source file of the symlink was correct
+        if [ "$so_bname" != "" ] && [ "$so_bname" == "$soname" ]; then  
 	     if [ ! -f /tmp/slink-append.txt ]; then
 	      echo "$slink" > /tmp/slink-append.txt
-	     elif [ "$(cat /tmp/slink-append.txt | grep "$slink")" == "" ]; then
+	     elif [ "$(cat /tmp/slink-append.txt | grep -E "${slinkpt}\$")" == "" ]; then
 	      echo "$slink" >> /tmp/slink-append.txt
 	     fi
-          fi
+	     
+	    #Check if the source symlink already on the package file list 
+	    elif [ "$so_bname" != "" ] && [ "$(cat /var/packages/package-files/${DLPKG_NAME}.files  | grep -E "\/${srcfpt}\$")" != "" ]; then
+	     if [ ! -f /tmp/slink-append.txt ]; then
+	      echo "$slink" > /tmp/slink-append.txt
+	     elif [ "$(cat cat /var/packages/package-files/*.files 2>/dev/null | grep -E "${slinkpt}\$")" == "" ]; then
+	      if [ "$(cat /tmp/slink-append.txt | grep -E "${slinkpt}\$")" == "" ]; then
+	       echo "$slink" >> /tmp/slink-append.txt
+	      fi
+	     fi
+	    
+	    #Check if the source symlink was owned by other packages
+        elif [ "$so_bname" != "" ] && [ "$(cat /var/packages/package-files/*.files 2>/dev/null | grep -E "\/${srcfpt}\$")" == "" ]; then
+	     if [ ! -f /tmp/slink-append.txt ]; then
+	      echo "$slink" > /tmp/slink-append.txt
+	     elif [ "$(cat cat /var/packages/package-files/*.files 2>/dev/null | grep -E "${slinkpt}\$")" == "" ]; then
+	      if [ "$(cat /tmp/slink-append.txt | grep -E "${slinkpt}\$")" == "" ]; then
+	       echo "$slink" >> /tmp/slink-append.txt
+	      fi
+	     fi
+        fi
+        
       fi
+      
     fi
- 
+
    done
- 
+   
 fi
- 
+
 done < /tmp/libfiles2.txt
 
-cat /tmp/slink-append.txt >> /var/packages/${DLPKG_NAME}.files
+
+[ -e /tmp/slink-append.txt ] && cat /tmp/slink-append.txt >> /var/packages/${DLPKG_NAME}.files
 rm -rf /tmp/slink-append.txt 2>/dev/null
 
 
@@ -686,15 +712,16 @@ if [ "$xpkgname" != "" ] && [ "$installed_pkg" != "" ]; then
 	  #Not a part of newly installed package. Do action
 
 	   #Delete the file which is not a part of upgrade
-	   if [ -e "$xline" ] && [ ! -d "$xline" ]; then
+	   if [ -e "$xline" ] || [ -L "$xline" ]; then
 	    
-	    if [ -d "/initrd/pup_rw$xline" ] && [ ! -L "/initrd/pup_rw$xline" ]; then
-	     rm -f "/initrd/pup_rw$xline"
-	    fi
+	    [ -e "/initrd/pup_rw$xline" ] && rm -f "/initrd/pup_rw$xline"
+	    [ -L "/initrd/pup_rw$xline" ] && rm -f "/initrd/pup_rw$xline"
 	    
 	    [ -e "/initrd${SAVE_LAYER}${xline}" ] && rm -f "/initrd${SAVE_LAYER}${xline}"
+	    [ -L "/initrd${SAVE_LAYER}${xline}" ] && rm -f "/initrd${SAVE_LAYER}${xline}"
 	    
 	    [ -e "$xline" ] && rm -f "$xline"
+	    [ -L "$xline" ] && rm -f "$xline"
 	   
 	   fi
 
