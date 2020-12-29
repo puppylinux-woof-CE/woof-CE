@@ -37,14 +37,14 @@ do
 	done
 done
 
-# do the same for rootfs-packages
-if [ -f /tmp/rootfs-packages.specs ];then
+# do the same for rootfs-packages and rootfs-petbuilds
+list_pkgs() {
 	while read line
 	do
 		PKGL=`echo $line | cut -d '|'  -f 2`
 		echo -n "${PKGL} "
-		find -H ../rootfs-packages/$PKGL -type f -o -type l | \
-			sed -e "s%^\\.\\./rootfs-packages/${PKGL}/%/%" | \
+		find -H $2/$PKGL -type f -o -type l | \
+			sed -e "s%^$3/${PKGL}/%/%" | \
 			sort > /tmp/0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}/${PKGL}.files
 		sync
 		while read ONELINE ; do
@@ -52,9 +52,12 @@ if [ -f /tmp/rootfs-packages.specs ];then
 				echo "${ONELINE}" >> 0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${PACKAGES_DIR}/builtin_files/${PKGL}
 			fi
 		done < /tmp/0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}/${PKGL}.files
-	done < /tmp/rootfs-packages.specs
-	rm -f /tmp/rootfs-packages.specs
-fi
+	done < $1
+	rm -f $1
+}
+
+[ -f /tmp/rootfs-packages.specs ] && list_pkgs /tmp/rootfs-packages.specs ../rootfs-packages \\.\\./rootfs-packages
+[ -f /tmp/rootfs-petbuilds.specs ] && list_pkgs /tmp/rootfs-petbuilds.specs ../../local-repositories/petbuilds \\.\\./\\.\\./local-repositories/petbuilds/
 
 echo
 rm -f 0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}.tar.gz
