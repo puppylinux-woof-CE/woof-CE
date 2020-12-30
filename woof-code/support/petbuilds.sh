@@ -89,7 +89,7 @@ for i in ../rootfs-petbuilds/*; do
 
         for EXTRAFILE in ../rootfs-petbuilds/${NAME}/*; do
             case "${EXTRAFILE##*/}" in
-            petbuild|*.patch|sha256.sum) ;;
+            petbuild|*.patch|sha256.sum|*-*) ;;
             *) cp -a $EXTRAFILE ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}/
             esac
         done
