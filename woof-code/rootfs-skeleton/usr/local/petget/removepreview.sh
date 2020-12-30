@@ -89,13 +89,13 @@ if [ -f /root/.packages/${DB_pkgname}.files ];then
         #Check if is layered fs.
         if [ "$ISLAYEREDFS" != "" ];then
          
-         #In case the PUPMODE was 13
-         if [ -d /initrd/pup_rw ] && [ ! -L /initrd/pup_rw ]; then
-          [ -e "/initrd/pup_rw${ONESPEC}" ] && rm -f "/initrd/pup_rw${ONESPEC}"
-         fi
-    
+	 #Delete at pup_rw layer
+         [ -e "/initrd/pup_rw${ONESPEC}" ] && rm -f "/initrd/pup_rw${ONESPEC}"
+  	 [ -L "/initrd/pup_rw${ONESPEC}" ] && rm -f "/initrd/pup_rw${ONESPEC}"
+  
          #Delete file at save layer 
          [ -e "/initrd${SAVE_LAYER}${ONESPEC}" ] && rm -f "/initrd${SAVE_LAYER}${ONESPEC}" #normally /pup_ro1
+         [ -L "/initrd${SAVE_LAYER}${ONESPEC}" ] && rm -f "/initrd${SAVE_LAYER}${ONESPEC}" #normally /pup_ro1
          
          BN="`basename "$ONESPEC"`"
          DN="`dirname "$ONESPEC"`"
