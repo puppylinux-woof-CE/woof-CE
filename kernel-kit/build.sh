@@ -449,7 +449,7 @@ if [ -n "$fware" ] ; then
 	else
 		log_msg "This may take a long time as the firmware repository is around 200MB"
 		cd ..
-		git clone git://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git
+		git clone --depth 1 git://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git
 		[ $? -ne 0 ] && exit
 	fi
 	cd $CWD
