@@ -57,7 +57,7 @@ list_pkgs() {
 }
 
 [ -f /tmp/rootfs-packages.specs ] && list_pkgs /tmp/rootfs-packages.specs ../rootfs-packages \\.\\./rootfs-packages
-[ -f /tmp/rootfs-petbuilds.specs ] && list_pkgs /tmp/rootfs-petbuilds.specs ../../local-repositories/petbuilds \\.\\./\\.\\./local-repositories/petbuilds/
+[ -f /tmp/rootfs-petbuilds.specs ] && list_pkgs /tmp/rootfs-petbuilds.specs ../../local-repositories/${DISTRO_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX} \\.\\./\\.\\./local-repositories/${DISTRO_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}
 
 echo
 rm -f 0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}.tar.gz
