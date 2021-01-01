@@ -15,9 +15,15 @@ MAKEFLAGS=-j`nproc`
 
 HAVE_ROOTFS=0
 HERE=`pwd`
+PKGS=
 
 for i in ../rootfs-petbuilds/*; do
     NAME=${i#../rootfs-petbuilds/}
+
+    if grep -q "^yes|${NAME}|" ../DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}; then
+        echo "Skipping ${NAME}, using a package"
+        continue
+    fi
 
     if [ ! -d "../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}" ]; then
         if [ $HAVE_ROOTFS -eq 0 ]; then
@@ -94,13 +100,13 @@ for i in ../rootfs-petbuilds/*; do
             esac
         done
     fi
+
+    PKGS="$PKGS $NAME"
 done
 
 [ $HAVE_ROOTFS -eq 1 ] && rm -rf petbuild-rootfs-complete
 
-for i in ../rootfs-petbuilds/*; do
-    NAME=${i#../rootfs-petbuilds/}
-
+for NAME in $PKGS; do
     echo "Copying ${NAME}"
 
     rm -f rootfs-complete/pinstall.sh
