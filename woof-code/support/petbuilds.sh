@@ -8,9 +8,20 @@ fi
 
 [ -z "$WOOF_CXXFLAGS"] && WOOF_CXXFLAGS="$WOOF_CFLAGS"
 
+HAVE_CCACHE=0
+[ -e devx/usr/bin/ccache ] && HAVE_CCACHE=1
+
+WOOF_CC=gcc
+WOOF_CXX=g++
+if [ $HAVE_CCACHE -eq 1 ]; then
+    WOOF_CC="ccache gcc"
+    WOOF_CXX="ccache g++"
+fi
+
 WOOF_CFLAGS="$WOOF_CFLAGS -Os -fomit-frame-pointer -ffunction-sections -fdata-sections -fmerge-all-constants"
 WOOF_CXXCFLAGS="$WOOF_CXXCFLAGS -Os -fomit-frame-pointer -ffunction-sections -fdata-sections -fmerge-all-constants"
 WOOF_LDFLAGS="$WOOF_LDFLAGS -Wl,--gc-sections -Wl,--sort-common -Wl,-s"
+
 MAKEFLAGS=-j`nproc`
 
 HAVE_ROOTFS=0
@@ -37,6 +48,8 @@ for i in ../rootfs-petbuilds/*; do
             rm -f sh petbuild-rootfs-complete/bin/sh
             ln -s bash petbuild-rootfs-complete/bin/sh
 
+            [ $HAVE_CCACHE -eq 1 ] && mkdir -p ../../local-repositories/${WOOF_TARGETARCH}/petbuilds-ccache
+
             HAVE_ROOTFS=1
         fi
 
@@ -58,15 +71,18 @@ for i in ../rootfs-petbuilds/*; do
         mount -t aufs -o br=../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}:devx:petbuild-rootfs-complete petbuild petbuild-rootfs-complete-${NAME}
 
         mkdir -p petbuild-rootfs-complete-${NAME}/proc petbuild-rootfs-complete-${NAME}/sys petbuild-rootfs-complete-${NAME}/dev petbuild-rootfs-complete-${NAME}/tmp
+        [ $HAVE_CCACHE -eq 1 ] && mkdir -p petbuild-rootfs-complete-${NAME}/root/.ccache
         mount --bind /proc petbuild-rootfs-complete-${NAME}/proc
         mount --bind /sys petbuild-rootfs-complete-${NAME}/sys
         mount --bind /dev petbuild-rootfs-complete-${NAME}/dev
         mount -t tmpfs -o size=1G petbuild-tmp-${NAME} petbuild-rootfs-complete-${NAME}/tmp
+        [ $HAVE_CCACHE -eq 1 ] && mount --bind ../../local-repositories/${WOOF_TARGETARCH}/petbuilds-ccache petbuild-rootfs-complete-${NAME}/root/.ccache
 
         cp -a ../../local-repositories/sources/${NAME}/* petbuild-rootfs-complete-${NAME}/tmp/
         cp -a ../rootfs-petbuilds/${NAME}/* petbuild-rootfs-complete-${NAME}/tmp/
-        CFLAGS="$WOOF_CFLAGS" CXXFLAGS="$WOOF_CXXFLAGS" LDFLAGS="$WOOF_LDFLAGS" MAKEFLAGS="$MAKEFLAGS" chroot petbuild-rootfs-complete-${NAME} sh -ec "cd /tmp && . ./petbuild && build"
+        CC="$WOOF_CC" CXX="$WOOF_CXX" CFLAGS="$WOOF_CFLAGS" CXXFLAGS="$WOOF_CXXFLAGS" LDFLAGS="$WOOF_LDFLAGS" MAKEFLAGS="$MAKEFLAGS" chroot petbuild-rootfs-complete-${NAME} sh -ec "cd /tmp && . ./petbuild && build"
         ret=$?
+        [ $HAVE_CCACHE -eq 1 ] && umount -l petbuild-rootfs-complete-${NAME}/root/.ccache
         umount -l petbuild-rootfs-complete-${NAME}/tmp
         umount -l petbuild-rootfs-complete-${NAME}/dev
         umount -l petbuild-rootfs-complete-${NAME}/sys
