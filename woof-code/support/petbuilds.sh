@@ -28,7 +28,8 @@ HAVE_ROOTFS=0
 HERE=`pwd`
 PKGS=
 
-for i in ../rootfs-petbuilds/*; do
+# busybox must be first, so other petbuilds can use coreutils commands
+for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
     NAME=${i#../rootfs-petbuilds/}
 
     if grep -q "^yes|${NAME}|" ../DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}; then
@@ -42,7 +43,16 @@ for i in ../rootfs-petbuilds/*; do
             rm -rf petbuild-rootfs-complete
             cp -a rootfs-complete petbuild-rootfs-complete
 
-            install -D -m 755 ../packages-${DISTRO_FILE_PREFIX}/busybox/bin/busybox petbuild-rootfs-complete/bin/
+            if [ ! -f petbuild-rootfs-complete/bin/busybox ]; then
+                if [ -f ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/busybox/bin/busybox ]; then # busybox petbuild
+                    install -D -m 755 ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/busybox/bin/busybox petbuild-rootfs-complete/bin/
+                elif [ -f ../packages-${DISTRO_FILE_PREFIX}/busybox/bin/busybox ]; then # prebuilt busybox
+                    install -D -m 755 ../packages-${DISTRO_FILE_PREFIX}/busybox/bin/busybox petbuild-rootfs-complete/bin/
+                elif [ "$NAME" != "busybox"]; then
+                    echo "No busybox in the build environment!"
+                    exit 1
+                fi
+            fi
             ../support/busybox_symlinks.sh petbuild-rootfs-complete
 
             rm -f sh petbuild-rootfs-complete/bin/sh
@@ -111,7 +121,7 @@ for i in ../rootfs-petbuilds/*; do
 
         for EXTRAFILE in ../rootfs-petbuilds/${NAME}/*; do
             case "${EXTRAFILE##*/}" in
-            petbuild|*.patch|sha256.sum|*-*) ;;
+            petbuild|*.patch|sha256.sum|*-*|DOTconfig) ;;
             *) cp -a $EXTRAFILE ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}/
             esac
         done
