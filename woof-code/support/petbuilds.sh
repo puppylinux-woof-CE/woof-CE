@@ -48,7 +48,7 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
                     install -D -m 755 ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/busybox/bin/busybox petbuild-rootfs-complete/bin/
                 elif [ -f ../packages-${DISTRO_FILE_PREFIX}/busybox/bin/busybox ]; then # prebuilt busybox
                     install -D -m 755 ../packages-${DISTRO_FILE_PREFIX}/busybox/bin/busybox petbuild-rootfs-complete/bin/
-                elif [ "$NAME" != "busybox"]; then
+                elif [ "$NAME" != "busybox" ]; then
                     echo "No busybox in the build environment!"
                     exit 1
                 fi
