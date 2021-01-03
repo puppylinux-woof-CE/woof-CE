@@ -107,6 +107,7 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
             exit 1
         fi
 
+        [ $HAVE_CCACHE -eq 1 ] && rm -rf ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}/root/.ccache
         rm -rf ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}/tmp ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}/etc/ssl ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}/etc/resolv.conf ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}/usr/share/man ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}/usr/share/info ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}/root/.wget-hsts ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}/usr/share/icons/hicolor/icon-theme.cache
         rmdir ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}/* 2>/dev/null
         find ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME} -name '.wh*' -delete
