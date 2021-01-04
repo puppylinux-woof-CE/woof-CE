@@ -1,3 +1,3 @@
 #!/bin/sh
 
-chroot . /usr/sbin/pup-advert-blocker start
+./usr/sbin/pup-advert-blocker start ./etc/hosts
