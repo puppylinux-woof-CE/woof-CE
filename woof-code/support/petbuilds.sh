@@ -25,6 +25,7 @@ WOOF_LDFLAGS="$WOOF_LDFLAGS -Wl,--gc-sections -Wl,--sort-common -Wl,-s"
 MAKEFLAGS=-j`nproc`
 
 HAVE_ROOTFS=0
+HAVE_BUSYBOX=0
 HERE=`pwd`
 PKGS=
 
@@ -43,24 +44,27 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
             rm -rf petbuild-rootfs-complete
             cp -a rootfs-complete petbuild-rootfs-complete
 
-            if [ ! -f petbuild-rootfs-complete/bin/busybox ]; then
-                if [ -f ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/busybox/bin/busybox ]; then # busybox petbuild
-                    install -D -m 755 ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/busybox/bin/busybox petbuild-rootfs-complete/bin/
-                elif [ -f ../packages-${DISTRO_FILE_PREFIX}/busybox/bin/busybox ]; then # prebuilt busybox
-                    install -D -m 755 ../packages-${DISTRO_FILE_PREFIX}/busybox/bin/busybox petbuild-rootfs-complete/bin/
-                elif [ "$NAME" != "busybox" ]; then
-                    echo "No busybox in the build environment!"
-                    exit 1
-                fi
-            fi
-            ../support/busybox_symlinks.sh petbuild-rootfs-complete
-
             rm -f sh petbuild-rootfs-complete/bin/sh
             ln -s bash petbuild-rootfs-complete/bin/sh
 
             [ $HAVE_CCACHE -eq 1 ] && mkdir -p ../../local-repositories/${WOOF_TARGETARCH}/petbuilds-ccache
 
             HAVE_ROOTFS=1
+        fi
+
+        if [ $HAVE_BUSYBOX -eq 0 -a "$NAME" != "busybox" ]; then
+            if [ ! -f petbuild-rootfs-complete/bin/busybox ]; then
+                if [ -f ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/busybox/bin/busybox ]; then # busybox petbuild
+                    install -D -m 755 ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/busybox/bin/busybox petbuild-rootfs-complete/bin/busybox
+                elif [ -f ../packages-${DISTRO_FILE_PREFIX}/busybox/bin/busybox ]; then # prebuilt busybox
+                    install -D -m 755 ../packages-${DISTRO_FILE_PREFIX}/busybox/bin/busybox petbuild-rootfs-complete/bin/busybox
+                elif [ "$NAME" != "busybox" ]; then
+                    echo "No busybox in the build environment!"
+                    exit 1
+                fi
+            fi
+            ../support/busybox_symlinks.sh petbuild-rootfs-complete
+            HAVE_BUSYBOX=1
         fi
 
         echo "Downloading ${NAME}"
