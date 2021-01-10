@@ -91,329 +91,9 @@ interface_is_wireless() {
 	return 0 #yes
 }
 
-#firewall
-if which firewall_ng 2>&1 >/dev/null;then
- FW_EXEC=firewall_ng
-else
- FW_EXEC="urxvt -e firewallinstallshell"
-fi
+setup_wifi(){
 
-BIGGESTCNT=0
-echo -n '' > /tmp/sns_interfaces
-INTERFACES="`ifconfig -a | grep -F 'Link encap:Ethernet' | cut -f1 -d' ' | tr '\n' ' '`"
-for INTERFACE in $INTERFACES #exs: wlan0 eth0
-do
-
- FINDTYPE="`readlink /sys/class/net/$INTERFACE/device/driver`"
- IF_DRIVER=${FINDTYPE##*/} #basename - ex: ath5k
- IF_BUS=
- IF_INFO=
- while read F1 F2plus ; do
-	case $F1 in
-		"description:") IF_INFO="$F2plus" ;; #description: Support for Atheros 802.11n wireless LAN cards.
-		"alias:") IF_BUS="${F2plus%%:*}" ;;  #alias: pci:v0000168Cd00000027sv*sd*bc*sc*i*
-	esac
- done <<< "$(modinfo $IF_DRIVER 2>/dev/null)"
- if [ ! "$IF_BUS" ] && [ "$FINDTYPE" ];then
-	case $FINDTYPE in
-		*/bus/usb*) IF_BUS="usb" ;;
-		*/bus/pci*) IF_BUS="pci" ;;
-	esac
- fi
- [ "$IF_BUS" = "" ] && IF_BUS="x"
- [ "$IF_INFO" = "" ] && IF_INFO="x"
- if [ "$IF_DRIVER" == "ndiswrapper" ];then
-  WINDRVR="`ndiswrapper -l | grep '^[a-zA-Z0-9]' | cut -f 1 -d ' '`"
-  IF_INFO="MS Windows driver '${WINDRVR}'"
- fi
-
- #want to manipulate the info string for display purposes...
- CNTLINE=0;FINALINFO=""
- for ONEWORD in $IF_INFO
- do
-  CNTWORD=`echo "$ONEWORD" | wc -c`
-  CNTLINE=`expr $CNTLINE + $CNTWORD`
-  [ $CNTLINE -gt $BIGGESTCNT ] && BIGGESTCNT=$CNTLINE #use for window width.
-  [ $CNTLINE -gt 60 ] && break
-  FINALINFO="${FINALINFO}${ONEWORD} " #ensures whole words only in string.
- done
- IF_INFO="`echo -n "$FINALINFO"  | tr '[&|"<>]' ' ' | tr -s ' '`" #'geany. filter out chars that mess up xml.
-
- IF_INTTYPE='Wired'
- if interface_is_wireless ${INTERFACE} ; then
-   IF_INTTYPE='Wireless'
- fi
- #accumulate the results into columns...
- ALL_IF_INTERFACE="${ALL_IF_INTERFACE}|${INTERFACE}"
- ALL_IF_INTTYPE="${ALL_IF_INTTYPE}|${IF_INTTYPE}"
- ALL_IF_DRIVER="${ALL_IF_DRIVER}|${IF_DRIVER}"
- ALL_IF_BUS="${ALL_IF_BUS}|${IF_BUS}"
- ALL_IF_INFO="${ALL_IF_INFO}|${IF_INFO}"
- INTERFACEBUTTONS="${INTERFACEBUTTONS} 
- <button><label>${INTERFACE}</label><action type=\"exit\">Interface_${INTERFACE}</action></button>"
- #save all data about each interface on one line...
- #ex: wlan1|Wireless|ath5k|pci|Support for 5xxx series of Atheros 802.11 wireless LAN cards
- echo "${INTERFACE}|${IF_INTTYPE}|${IF_DRIVER}|${IF_BUS}|${IF_INFO}" >> /tmp/sns_interfaces
-done
-ALL_IF_INTERFACE="`echo -n "$ALL_IF_INTERFACE" | sed -e 's%^|%%' | tr '|' '\n'`"
-ALL_IF_INTTYPE="`echo -n "$ALL_IF_INTTYPE" | sed -e 's%^|%%' | tr '|' '\n'`"
-ALL_IF_DRIVER="`echo -n "$ALL_IF_DRIVER" | sed -e 's%^|%%' | tr '|' '\n'`"
-ALL_IF_BUS="`echo -n "$ALL_IF_BUS" | sed -e 's%^|%%' | tr '|' '\n'`"
-ALL_IF_INFO="`echo -n "$ALL_IF_INFO" | sed -e 's%^|%%' | tr '|' '\n'`"
-
-INTERFACEDESCR="    <hbox border-width=\"7\" spacing=\"10\">
-      <text use-markup=\"true\"><label>\"<b>$(gettext 'Interface')</b>
-$ALL_IF_INTERFACE\"</label></text>
-      <text use-markup=\"true\"><label>\"<b>$(gettext 'Type')</b>
-$ALL_IF_INTTYPE\"</label></text>
-      <text use-markup=\"true\"><label>\"<b>$(gettext 'Driver')</b>
-$ALL_IF_DRIVER\"</label></text>
-      <text use-markup=\"true\"><label>\"<b>$(gettext 'Bus')</b>
-$ALL_IF_BUS\"</label></text>
-      <text use-markup=\"true\"><label>\"<b>$(gettext 'Description')</b>
-$ALL_IF_INFO\"</label></text>
-    </hbox>"
-
-#test if connected to internet...
-FLAGINTERNETSTATUS='no'
-WORKINGIF=''
-if [ "`pidof dhcpcd udhcpc`" != "" ];then #201110
- if [ "`grep -v '^#' /etc/resolv.conf`" != "" ];then
-  PSALL="`busybox ps`"
-  PSDHCPCD="`echo "$PSALL" | grep -E 'dhcpcd|udhcpc'`" #201110
-  for ONEIF in `ifconfig | grep '^[a-z]' | cut -f 1 -d ' ' | grep -v '^lo' | tr '\n' ' '`
-  do
-   if [ "`echo "$PSDHCPCD" | grep "$ONEIF"`" != "" ];then
-    WORKINGIF="${WORKINGIF}${ONEIF} "
-    FLAGINTERNETSTATUS='yes'
-   fi
-  done
- fi
-fi
-if [ "$FLAGINTERNETSTATUS" == "yes" ];then
- WORKINGIF="`echo -n "$WORKINGIF" | sed -e 's% $%%'`"
- MSGWIF="interface <b>${WORKINGIF}</b>"
- [ `echo -n "$WORKINGIF" | wc -w` -gt 1 ] && MSGWIF="interfaces <b>${WORKINGIF}</b>"
- MSGSTATUS="$(gettext 'Currently a working Internet connection on') ${MSGWIF}"
- COLOR_BG='#80CE7F'; COLOR_FG='#235123'
-else
- MSGSTATUS="$(gettext 'Currently no Internet connection')"
- COLOR_BG='#CE837F'; COLOR_FG='#512323'
-fi
-
-CLICKMSG="`/usr/lib/gtkdialog/xml_info fixed "internet_connect.svg" 60 "$(gettext 'Puppy has identified these network interfaces on your computer. Click a button to configure the interface for use.')"`"
-#100313 add a button for loading a Windows driver...
-modprobe -n ndiswrapper 2>/dev/null
-if [ $? -eq 0 -a "`echo "$ALL_IF_DRIVER" | grep 'ndiswrapper'`" == "" ];then
- CLICKMSG="`/usr/lib/gtkdialog/xml_info fixed "internet_connect.svg" 60 "$(gettext 'Puppy has identified these network interfaces on your computer. Click a button to configure the interface for use, or click 'Windows' button if you want to install and use a MS Windows driver.')"`"
- INTERFACEBUTTONS="${INTERFACEBUTTONS} 
-  <button><label>Windows</label><action type=\"exit\">Interface_Windows</action></button>"
-else
- INTERFACEBUTTONS="${INTERFACEBUTTONS}
-  <button><label>Windows</label><sensitive>false</sensitive></button>"
-fi
-
-connect_button_splash() { #170505...
-	yaf-splash -bg orange -close never -fontsize large -text "Please wait..." &
-	echo $! >/tmp/sns_splash_pid
-}
-export -f connect_button_splash #170505 end
-
-#120107 new 'Profile' frame...
-PROFILE_XML=""
-echo "<b>$(gettext 'Interface')</b>" >/tmp/sns_I_P;  echo "<b>$(gettext 'Type')</b>" >/tmp/sns_T_P; echo "<b>$(gettext 'Driver')</b>" >/tmp/sns_D_P; echo "<b>$(gettext 'Bus')</b>" >/tmp/sns_B_P; echo "<b>$(gettext 'Hardware')</b>" >/tmp/sns_M_P; echo "" >/tmp/sns_S_P; echo "" >/tmp/sns_DEL_BTN; echo "" >/tmp/sns_CNT_P; echo "<b>$(gettext 'Security')</b>" >/tmp/sns_SEC_P
-if [ -s /etc/simple_network_setup/connections ];then
- CNT=0
- [ "grep '|Wireless|' /etc/simple_network_setup/connections" != "" ] && echo "<b>$(gettext 'Network')</b>" >/tmp/sns_S_P
- cat /etc/simple_network_setup/connections |
- while read ONECONNECTION
- do
-  CNT=$(($CNT + 1))
-  echo "<b>$CNT</b>" >> /tmp/sns_CNT_P
-  INTERFACE_P="`echo -n "$ONECONNECTION" | cut -f 1 -d '|'`"
-  echo "$INTERFACE_P" >> /tmp/sns_I_P
-  TYPE_P="`echo -n "$ONECONNECTION" | cut -f 2 -d '|'`"
-  echo "$TYPE_P" >> /tmp/sns_T_P
-  DRIVER_P="`echo -n "$ONECONNECTION" | cut -f 3 -d '|'`"
-  echo "$DRIVER_P" >> /tmp/sns_D_P
-  BUS_P="`echo -n "$ONECONNECTION" | cut -f 4 -d '|'`"
-  echo "$BUS_P" >> /tmp/sns_B_P
-  MAC_P="`echo -n "$ONECONNECTION" | cut -f 6 -d '|'`"
-  echo "$MAC_P" >> /tmp/sns_M_P
-  if [ "$TYPE_P" = "Wireless" ];then
-   SSID_P="`echo -n "$ONECONNECTION" | cut -f 12 -d '|'`"
-   echo "$SSID_P" >> /tmp/sns_S_P
-   SEC_P="`echo -n "$ONECONNECTION" | cut -f 14 -d '|'`"
-   [ "$SEC_P" = "" ] && SEC_P="none"
-   echo "$SEC_P" >> /tmp/sns_SEC_P
-  else
-   echo " " >> /tmp/sns_S_P
-   echo " " >> /tmp/sns_SEC_P
-  fi
-  if [ $CNT -gt 12 ];then
-   echo "<i>more...</i>"  >> /tmp/sns_I_P
-   break
-  fi
-  xCONNECTION="$(echo -n "$ONECONNECTION" | tr \" .)" #170529
-  echo "<button><label>${CNT}</label><action>grep -v \"${xCONNECTION}\" /etc/simple_network_setup/connections > /tmp/sns_action1</action><action>mv -f /tmp/sns_action1 /etc/simple_network_setup/connections</action><action type=\"exit\">EXITRESTART></action></button>" >> /tmp/sns_DEL_BTN #170529
- done
- which connectwizard_exec >/dev/null 2>&1 \
-  && CONNECTWIZEXEC_XML="<action>$(which connectwizard_exec) sns</action>" \
-  || CONNECTWIZEXEC_XML='' #190223
- if [ "$FLAGINTERNETSTATUS" = "yes" ];then
-  grep -qswv 'sns' /root/.connectwizardrc \
-   && DISCONNECT_EXIT='EXITRESTART' \
-   || DISCONNECT_EXIT='EXITNOW' #190223
-  CONNECTBTN_XML="<button>`/usr/lib/gtkdialog/xml_button-icon internet_connect_no.svg`<label>$(gettext 'Disconnect Now')</label>$CONNECTWIZEXEC_XML<action>/usr/sbin/networkdisconnect</action><action type=\"exit\">${DISCONNECT_EXIT}</action></button>" #190223 201110
- else
-  CONNECTBTN_XML="<button>`/usr/lib/gtkdialog/xml_button-icon internet_connect_yes.svg`<label>$(gettext 'Connect Now')</label>$CONNECTWIZEXEC_XML<action>/usr/sbin/networkdisconnect</action><action>/usr/local/simple_network_setup/rc.network start & </action><action>connect_button_splash</action><action type=\"exit\">EXITNOW</action></button>" #170505 190223 201110
- fi
- grep -qswv 'sns' /root/.connectwizardrc \
-  && DISCONNECT_XML="$(gettext '<b>Note:</b> The current connection was started by another network tool.  To control it with SNS, disconnect now, then re-connect or choose an interface.')" \
-  || DISCONNECT_XML='' #190223
- PROFILE_XML="`/usr/lib/gtkdialog/xml_info fixed "internet_connect.svg" 60 "$(gettext 'Connection profiles have previously been created by SNS.')" "$(gettext "The <b>Connect</b> button will try to establish an internet connection by any of the available profiles.")" "${DISCONNECT_XML}"`
- <hbox border-width=\"7\" spacing=\"10\"><text use-markup=\"true\"><label>\"`cat /tmp/sns_CNT_P`\"</label></text><text use-markup=\"true\"><label>\"`cat /tmp/sns_I_P`\"</label></text><text use-markup=\"true\"><label>\"`cat /tmp/sns_T_P`\"</label></text><text use-markup=\"true\"><label>\"`cat /tmp/sns_D_P`\"</label></text><text use-markup=\"true\"><label>\"`cat /tmp/sns_B_P`\"</label></text><text use-markup=\"true\"><label>\"`cat /tmp/sns_M_P`\"</label></text><text use-markup=\"true\"><label>\"`cat /tmp/sns_S_P`\"</label></text><text use-markup=\"true\"><label>\"`cat /tmp/sns_SEC_P`\"</label></text></hbox>
- <hbox><text><label>$(gettext 'Delete:')</label></text>`cat /tmp/sns_DEL_BTN`</hbox>
-" #190223
-fi
-
-if [ "$PROFILE_XML" ]; then
- PAGE_NR=0
-else
- PAGE_NR=1
- PROFILE_XML="`/usr/lib/gtkdialog/xml_info scale "internet_connect.svg" 60 "$(gettext '<b>No profiles</b>')" "$(gettext 'Set up an interface first, and when connected, a profile will be built for next run.')"`"
-fi
-
-#bring up the main window...
-export SNS_main='
-<window title="SNS '$VERSION' - '$(gettext "Barry's Simple Network Setup")'" icon-name="gtk-network">
-<vbox spacing="0" space-expand="true" space-fill="true">
-  <eventbox name="status" space-expand="false" space-fill="false">
-    <text name="status_text" wrap="false" height-request="20" use-markup="true" space-expand="true" space-fill="true"><label>"'${MSGSTATUS}'"</label></text>
-  </eventbox>
-  <text height-request="7" space-expand="false" space-fill="false"><label>""</label></text>
-  <vbox spacing="5" space-expand="true" space-fill="true">
-    <notebook tab-pos="2" page="'$PAGE_NR'" labels="'$(gettext 'Profiles')'|'$(gettext 'Interfaces')'" space-expand="true" space-fill="true">
-      <frame '$(gettext 'Profiles')'>
-        '${PROFILE_XML}'
-        <text height-request="5" space-expand="false" space-fill="false"><label>""</label></text>
-      </frame>
-      <frame '$(gettext 'Interfaces')'>
-        '${CLICKMSG}'
-        '${INTERFACEDESCR}'
-        <hbox space-expand="false" space-fill="false">'${INTERFACEBUTTONS}'</hbox>
-        <text height-request="5" space-expand="false" space-fill="false"><label>""</label></text>
-      </frame>
-    </notebook>
-    <hbox space-expand="false" space-fill="false">
-      <button>
-        <label>'$(gettext "Help")'</label>
-        '"`/usr/lib/gtkdialog/xml_button-icon help`"'
-        <action>/usr/local/simple_network_setup/help_profiles &</action>
-      </button>
-      <button space-expand="false" space-fill="false">
-        <label>'$(gettext 'Network Information')'</label>
-        '"`/usr/lib/gtkdialog/xml_button-icon info`"'
-        <action>ipinfo & </action>
-      </button>
-      <text space-expand="true" space-fill="true"><label>""</label></text>
-      '${CONNECTBTN_XML}'
-      <button space-expand="false" space-fill="false">
-        '"`/usr/lib/gtkdialog/xml_button-icon quit`"'
-        <label>'$(gettext 'Quit')'</label>
-        <action type="exit">QUIT</action>
-        </button>
-    </hbox>
-  </vbox>
-</vbox>
-</window>' #170505 190217
-
-echo 'style "status"
-{
-  fg[NORMAL] = "'$COLOR_FG'"
-  bg[NORMAL] = "'$COLOR_BG'"
-}
-widget "*status*" style "status"' > /tmp/gtkrc_sns
-export GTK2_RC_FILES=/tmp/gtkrc_sns:/root/.gtkrc-2.0
-
-. /usr/lib/gtkdialog/xml_info gtk #build bg_pixmap for gtk-theme
-RETSTRING="`gtkdialog -p SNS_main`" ###main window### #170505
-
-echo "$RETSTRING"
-EXIT="`echo "$RETSTRING" | grep '^EXIT' | cut -f2 -d'"'`" #'geany
-[ "`echo "$EXIT" | grep 'EXITRESTART'`" != "" ] && exec sns ###restarting sns###
-[ "`echo "$EXIT" | grep 'Interface'`" = "" ] && exit
- 
-INTERFACE="`echo -n "$EXIT" | cut -f2 -d '_'`" #ex: wlan1
-
-if [ "$INTERFACE" == "Windows" ];then #100313
- if [ -d /etc/ndiswrapper ];then
-  if [ "`ls /etc/ndiswrapper/*/*.inf 2>/dev/null`" != "" ];then
-   modprobe ndiswrapper
-   sleep 1
-   exec sns
-  fi
- fi
- INFFILE=$(/usr/lib/gtkdialog/file_chooser "$(gettext 'SNS: Install MS Windows driver')" \
- "$(gettext "Select the '.inf' file of the required MS Windows driver. If on a CD, you will have to mount it, then navigate to where the '.inf' file is. Note, choose a Windows XP driver if available...")")
- if [ -f "$INFFILE" ];then
-  case "$INFFILE" in
-   *.[iI][nN][fF]) 
-    FLAGND=""
-    ndiswrapper -i "$INFFILE" #installs driver at /etc/ndiswrapper.
-    if [ $? -eq 0 ];then
-     ndiswrapper -l #tests the driver
-     if [ $? -eq 0 ];then
-      modprobe ndiswrapper
-      [ $? -eq 0 ] && FLAGND="ok"
-      [ "$FLAGND" != "ok" ] && rmmod ndiswrapper 2>/dev/null
-     fi
-    fi
-    [ "$FLAGND" != "ok" ] && rm -rf /etc/ndiswrapper
-    [ "$FLAGND" != "ok" ] && /usr/lib/gtkdialog/box_ok "SNS" error "$(gettext 'Windows driver does not seem to work, it has been uninstalled')"
-    [ "$FLAGND" == "ok" ] && sleep 1
-   ;;
-   *) 
-    /usr/lib/gtkdialog/box_ok "SNS" error "`eval_gettext \"ERROR, \\\${INFFILE} is not a .inf file\"`"
-   ;;
-  esac
- fi
- exec sns
-fi
-
-which connectwizard_exec >/dev/null 2>&1 \
- && connectwizard_exec sns #Update current exec name. 170329 190223
-
-if [ -n "$WORKINGIF" ];then  #190525...
- ifPATTERN='^'"$WORKINGIF"' '
- if [ "`ifconfig | grep "$ifPATTERN"`" != "" ];then
-  yaf-splash -bg orange -placement center -text "$(gettext 'Please wait, bringing down') '$WORKINGIF'..." &
-  PIDX1=$!
-  ifconfig $WORKINGIF down
-  [ "`iwconfig $WORKINGIF | grep "$WORKINGIF" | grep "ESSID"`" != "" ] && iwconfig $WORKINGIF essid off
-  iwconfig $WORKINGIF key off #100320 think need this for when I'm experimenting with different wep/wpa/open settings on the same interface.
-  dhcpcd --release $WORKINGIF 2>/dev/null
-  ip route flush dev $WORKINGIF #100703
-  sleep 1
-  kill $PIDX1 2>/dev/null
- fi #190525 end
-fi
-
-fPATTERN='^'"${INTERFACE}"'|'
-IFDATA="`grep "$fPATTERN" /tmp/sns_interfaces`"
-IF_INTTYPE="`echo "$IFDATA" | cut -f2 -d'|'`" #ex: Wireless
-IF_DRIVER="`echo "$IFDATA" | cut -f3 -d'|'`" #ex: ath5k
-IF_BUS="`echo "$IFDATA" | cut -f4 -d'|'`" #ex: pci
-IF_INFO="`echo "$IFDATA" | cut -f5 -d'|'`"
-MACADDRESS="`ifconfig $INTERFACE | grep -o 'HWaddr .*' | cut -f 2 -d ' '`"
-
-############WIRELESS SETUP###############
-if [ "$IF_INTTYPE" == "Wireless" ];then
- #scan for networks...
- if rfkill list wlan | grep -q 'Soft blocked: yes' ; then
-   rfkill unblock wlan
- fi
- FLAGERR=
+FLAGERR=
  rm -f /tmp/sns_scan_radiobuttons
  rm -f /tmp/sns_scan_radiobuttons_shield
  rm -f /tmp/sns_scan_radiobuttons_strength
@@ -627,6 +307,11 @@ if [ "$IF_INTTYPE" == "Wireless" ];then
     '${FRAME1}'
     '${FRAME2}'
     <hbox space-expand="false" space-fill="false">
+      <button space-expand="false" space-fill="false">
+        <label>'$(gettext "Rescan")'</label>
+        '"`/usr/lib/gtkdialog/xml_button-icon refresh`"'
+        <action type="exit">BUT_RESCAN</action>
+      </button>
       '${WIN2BUT2}'
       <text space-expand="true" space-fill="true"><label>""</label></text>
       <button space-expand="false" space-fill="false">
@@ -657,6 +342,7 @@ if [ "$IF_INTTYPE" == "Wireless" ];then
   RETSTRING="`gtkdialog -p SNS_setup`" 
   [ "`echo "$RETSTRING" | grep '^EXIT' | grep 'BUT_GOBACK'`" != "" ] && exec sns
   [ "`echo "$RETSTRING" | grep '^EXIT' | grep 'BUT_CONNECT'`" == "" ] && exit
+  [ "`echo "$RETSTRING" | grep '^EXIT' | grep 'BUT_RESCAN'`" == "" ] && setup_wifi
 
   SEC_MGMT=""; WPA_ENC=""
   SEC_KEY="`echo "$RETSTRING" | grep '^PASS_HIDDEN' | cut -f 2 -d '"' | tr -d '-'`" #'geany
@@ -985,8 +671,333 @@ network={
   RETSTRING="`gtkdialog -p SNS_error --center`"
   [ "`echo "$RETSTRING" | grep '^EXIT' | grep 'BUT_GOBACK'`" != "" ] && exec sns
  fi
-
  exit
+}
+
+
+#firewall
+if which firewall_ng 2>&1 >/dev/null;then
+ FW_EXEC=firewall_ng
+else
+ FW_EXEC="urxvt -e firewallinstallshell"
+fi
+
+BIGGESTCNT=0
+echo -n '' > /tmp/sns_interfaces
+INTERFACES="`ifconfig -a | grep -F 'Link encap:Ethernet' | cut -f1 -d' ' | tr '\n' ' '`"
+for INTERFACE in $INTERFACES #exs: wlan0 eth0
+do
+
+ FINDTYPE="`readlink /sys/class/net/$INTERFACE/device/driver`"
+ IF_DRIVER=${FINDTYPE##*/} #basename - ex: ath5k
+ IF_BUS=
+ IF_INFO=
+ while read F1 F2plus ; do
+	case $F1 in
+		"description:") IF_INFO="$F2plus" ;; #description: Support for Atheros 802.11n wireless LAN cards.
+		"alias:") IF_BUS="${F2plus%%:*}" ;;  #alias: pci:v0000168Cd00000027sv*sd*bc*sc*i*
+	esac
+ done <<< "$(modinfo $IF_DRIVER 2>/dev/null)"
+ if [ ! "$IF_BUS" ] && [ "$FINDTYPE" ];then
+	case $FINDTYPE in
+		*/bus/usb*) IF_BUS="usb" ;;
+		*/bus/pci*) IF_BUS="pci" ;;
+	esac
+ fi
+ [ "$IF_BUS" = "" ] && IF_BUS="x"
+ [ "$IF_INFO" = "" ] && IF_INFO="x"
+ if [ "$IF_DRIVER" == "ndiswrapper" ];then
+  WINDRVR="`ndiswrapper -l | grep '^[a-zA-Z0-9]' | cut -f 1 -d ' '`"
+  IF_INFO="MS Windows driver '${WINDRVR}'"
+ fi
+
+ #want to manipulate the info string for display purposes...
+ CNTLINE=0;FINALINFO=""
+ for ONEWORD in $IF_INFO
+ do
+  CNTWORD=`echo "$ONEWORD" | wc -c`
+  CNTLINE=`expr $CNTLINE + $CNTWORD`
+  [ $CNTLINE -gt $BIGGESTCNT ] && BIGGESTCNT=$CNTLINE #use for window width.
+  [ $CNTLINE -gt 60 ] && break
+  FINALINFO="${FINALINFO}${ONEWORD} " #ensures whole words only in string.
+ done
+ IF_INFO="`echo -n "$FINALINFO"  | tr '[&|"<>]' ' ' | tr -s ' '`" #'geany. filter out chars that mess up xml.
+
+ IF_INTTYPE='Wired'
+ if interface_is_wireless ${INTERFACE} ; then
+   IF_INTTYPE='Wireless'
+ fi
+ #accumulate the results into columns...
+ ALL_IF_INTERFACE="${ALL_IF_INTERFACE}|${INTERFACE}"
+ ALL_IF_INTTYPE="${ALL_IF_INTTYPE}|${IF_INTTYPE}"
+ ALL_IF_DRIVER="${ALL_IF_DRIVER}|${IF_DRIVER}"
+ ALL_IF_BUS="${ALL_IF_BUS}|${IF_BUS}"
+ ALL_IF_INFO="${ALL_IF_INFO}|${IF_INFO}"
+ INTERFACEBUTTONS="${INTERFACEBUTTONS} 
+ <button><label>${INTERFACE}</label><action type=\"exit\">Interface_${INTERFACE}</action></button>"
+ #save all data about each interface on one line...
+ #ex: wlan1|Wireless|ath5k|pci|Support for 5xxx series of Atheros 802.11 wireless LAN cards
+ echo "${INTERFACE}|${IF_INTTYPE}|${IF_DRIVER}|${IF_BUS}|${IF_INFO}" >> /tmp/sns_interfaces
+done
+ALL_IF_INTERFACE="`echo -n "$ALL_IF_INTERFACE" | sed -e 's%^|%%' | tr '|' '\n'`"
+ALL_IF_INTTYPE="`echo -n "$ALL_IF_INTTYPE" | sed -e 's%^|%%' | tr '|' '\n'`"
+ALL_IF_DRIVER="`echo -n "$ALL_IF_DRIVER" | sed -e 's%^|%%' | tr '|' '\n'`"
+ALL_IF_BUS="`echo -n "$ALL_IF_BUS" | sed -e 's%^|%%' | tr '|' '\n'`"
+ALL_IF_INFO="`echo -n "$ALL_IF_INFO" | sed -e 's%^|%%' | tr '|' '\n'`"
+
+INTERFACEDESCR="    <hbox border-width=\"7\" spacing=\"10\">
+      <text use-markup=\"true\"><label>\"<b>$(gettext 'Interface')</b>
+$ALL_IF_INTERFACE\"</label></text>
+      <text use-markup=\"true\"><label>\"<b>$(gettext 'Type')</b>
+$ALL_IF_INTTYPE\"</label></text>
+      <text use-markup=\"true\"><label>\"<b>$(gettext 'Driver')</b>
+$ALL_IF_DRIVER\"</label></text>
+      <text use-markup=\"true\"><label>\"<b>$(gettext 'Bus')</b>
+$ALL_IF_BUS\"</label></text>
+      <text use-markup=\"true\"><label>\"<b>$(gettext 'Description')</b>
+$ALL_IF_INFO\"</label></text>
+    </hbox>"
+
+#test if connected to internet...
+FLAGINTERNETSTATUS='no'
+WORKINGIF=''
+if [ "`pidof dhcpcd udhcpc`" != "" ];then #201110
+ if [ "`grep -v '^#' /etc/resolv.conf`" != "" ];then
+  PSALL="`busybox ps`"
+  PSDHCPCD="`echo "$PSALL" | grep -E 'dhcpcd|udhcpc'`" #201110
+  for ONEIF in `ifconfig | grep '^[a-z]' | cut -f 1 -d ' ' | grep -v '^lo' | tr '\n' ' '`
+  do
+   if [ "`echo "$PSDHCPCD" | grep "$ONEIF"`" != "" ];then
+    WORKINGIF="${WORKINGIF}${ONEIF} "
+    FLAGINTERNETSTATUS='yes'
+   fi
+  done
+ fi
+fi
+if [ "$FLAGINTERNETSTATUS" == "yes" ];then
+ WORKINGIF="`echo -n "$WORKINGIF" | sed -e 's% $%%'`"
+ MSGWIF="interface <b>${WORKINGIF}</b>"
+ [ `echo -n "$WORKINGIF" | wc -w` -gt 1 ] && MSGWIF="interfaces <b>${WORKINGIF}</b>"
+ MSGSTATUS="$(gettext 'Currently a working Internet connection on') ${MSGWIF}"
+ COLOR_BG='#80CE7F'; COLOR_FG='#235123'
+else
+ MSGSTATUS="$(gettext 'Currently no Internet connection')"
+ COLOR_BG='#CE837F'; COLOR_FG='#512323'
+fi
+
+CLICKMSG="`/usr/lib/gtkdialog/xml_info fixed "internet_connect.svg" 60 "$(gettext 'Puppy has identified these network interfaces on your computer. Click a button to configure the interface for use.')"`"
+#100313 add a button for loading a Windows driver...
+modprobe -n ndiswrapper 2>/dev/null
+if [ $? -eq 0 -a "`echo "$ALL_IF_DRIVER" | grep 'ndiswrapper'`" == "" ];then
+ CLICKMSG="`/usr/lib/gtkdialog/xml_info fixed "internet_connect.svg" 60 "$(gettext 'Puppy has identified these network interfaces on your computer. Click a button to configure the interface for use, or click 'Windows' button if you want to install and use a MS Windows driver.')"`"
+ INTERFACEBUTTONS="${INTERFACEBUTTONS} 
+  <button><label>Windows</label><action type=\"exit\">Interface_Windows</action></button>"
+else
+ INTERFACEBUTTONS="${INTERFACEBUTTONS}
+  <button><label>Windows</label><sensitive>false</sensitive></button>"
+fi
+
+connect_button_splash() { #170505...
+	yaf-splash -bg orange -close never -fontsize large -text "Please wait..." &
+	echo $! >/tmp/sns_splash_pid
+}
+export -f connect_button_splash #170505 end
+
+#120107 new 'Profile' frame...
+PROFILE_XML=""
+echo "<b>$(gettext 'Interface')</b>" >/tmp/sns_I_P;  echo "<b>$(gettext 'Type')</b>" >/tmp/sns_T_P; echo "<b>$(gettext 'Driver')</b>" >/tmp/sns_D_P; echo "<b>$(gettext 'Bus')</b>" >/tmp/sns_B_P; echo "<b>$(gettext 'Hardware')</b>" >/tmp/sns_M_P; echo "" >/tmp/sns_S_P; echo "" >/tmp/sns_DEL_BTN; echo "" >/tmp/sns_CNT_P; echo "<b>$(gettext 'Security')</b>" >/tmp/sns_SEC_P
+if [ -s /etc/simple_network_setup/connections ];then
+ CNT=0
+ [ "grep '|Wireless|' /etc/simple_network_setup/connections" != "" ] && echo "<b>$(gettext 'Network')</b>" >/tmp/sns_S_P
+ cat /etc/simple_network_setup/connections |
+ while read ONECONNECTION
+ do
+  CNT=$(($CNT + 1))
+  echo "<b>$CNT</b>" >> /tmp/sns_CNT_P
+  INTERFACE_P="`echo -n "$ONECONNECTION" | cut -f 1 -d '|'`"
+  echo "$INTERFACE_P" >> /tmp/sns_I_P
+  TYPE_P="`echo -n "$ONECONNECTION" | cut -f 2 -d '|'`"
+  echo "$TYPE_P" >> /tmp/sns_T_P
+  DRIVER_P="`echo -n "$ONECONNECTION" | cut -f 3 -d '|'`"
+  echo "$DRIVER_P" >> /tmp/sns_D_P
+  BUS_P="`echo -n "$ONECONNECTION" | cut -f 4 -d '|'`"
+  echo "$BUS_P" >> /tmp/sns_B_P
+  MAC_P="`echo -n "$ONECONNECTION" | cut -f 6 -d '|'`"
+  echo "$MAC_P" >> /tmp/sns_M_P
+  if [ "$TYPE_P" = "Wireless" ];then
+   SSID_P="`echo -n "$ONECONNECTION" | cut -f 12 -d '|'`"
+   echo "$SSID_P" >> /tmp/sns_S_P
+   SEC_P="`echo -n "$ONECONNECTION" | cut -f 14 -d '|'`"
+   [ "$SEC_P" = "" ] && SEC_P="none"
+   echo "$SEC_P" >> /tmp/sns_SEC_P
+  else
+   echo " " >> /tmp/sns_S_P
+   echo " " >> /tmp/sns_SEC_P
+  fi
+  if [ $CNT -gt 12 ];then
+   echo "<i>more...</i>"  >> /tmp/sns_I_P
+   break
+  fi
+  xCONNECTION="$(echo -n "$ONECONNECTION" | tr \" .)" #170529
+  echo "<button><label>${CNT}</label><action>grep -v \"${xCONNECTION}\" /etc/simple_network_setup/connections > /tmp/sns_action1</action><action>mv -f /tmp/sns_action1 /etc/simple_network_setup/connections</action><action type=\"exit\">EXITRESTART></action></button>" >> /tmp/sns_DEL_BTN #170529
+ done
+ which connectwizard_exec >/dev/null 2>&1 \
+  && CONNECTWIZEXEC_XML="<action>$(which connectwizard_exec) sns</action>" \
+  || CONNECTWIZEXEC_XML='' #190223
+ if [ "$FLAGINTERNETSTATUS" = "yes" ];then
+  grep -qswv 'sns' /root/.connectwizardrc \
+   && DISCONNECT_EXIT='EXITRESTART' \
+   || DISCONNECT_EXIT='EXITNOW' #190223
+  CONNECTBTN_XML="<button>`/usr/lib/gtkdialog/xml_button-icon internet_connect_no.svg`<label>$(gettext 'Disconnect Now')</label>$CONNECTWIZEXEC_XML<action>/usr/sbin/networkdisconnect</action><action type=\"exit\">${DISCONNECT_EXIT}</action></button>" #190223 201110
+ else
+  CONNECTBTN_XML="<button>`/usr/lib/gtkdialog/xml_button-icon internet_connect_yes.svg`<label>$(gettext 'Connect Now')</label>$CONNECTWIZEXEC_XML<action>/usr/sbin/networkdisconnect</action><action>/usr/local/simple_network_setup/rc.network start & </action><action>connect_button_splash</action><action type=\"exit\">EXITNOW</action></button>" #170505 190223 201110
+ fi
+ grep -qswv 'sns' /root/.connectwizardrc \
+  && DISCONNECT_XML="$(gettext '<b>Note:</b> The current connection was started by another network tool.  To control it with SNS, disconnect now, then re-connect or choose an interface.')" \
+  || DISCONNECT_XML='' #190223
+ PROFILE_XML="`/usr/lib/gtkdialog/xml_info fixed "internet_connect.svg" 60 "$(gettext 'Connection profiles have previously been created by SNS.')" "$(gettext "The <b>Connect</b> button will try to establish an internet connection by any of the available profiles.")" "${DISCONNECT_XML}"`
+ <hbox border-width=\"7\" spacing=\"10\"><text use-markup=\"true\"><label>\"`cat /tmp/sns_CNT_P`\"</label></text><text use-markup=\"true\"><label>\"`cat /tmp/sns_I_P`\"</label></text><text use-markup=\"true\"><label>\"`cat /tmp/sns_T_P`\"</label></text><text use-markup=\"true\"><label>\"`cat /tmp/sns_D_P`\"</label></text><text use-markup=\"true\"><label>\"`cat /tmp/sns_B_P`\"</label></text><text use-markup=\"true\"><label>\"`cat /tmp/sns_M_P`\"</label></text><text use-markup=\"true\"><label>\"`cat /tmp/sns_S_P`\"</label></text><text use-markup=\"true\"><label>\"`cat /tmp/sns_SEC_P`\"</label></text></hbox>
+ <hbox><text><label>$(gettext 'Delete:')</label></text>`cat /tmp/sns_DEL_BTN`</hbox>
+" #190223
+fi
+
+if [ "$PROFILE_XML" ]; then
+ PAGE_NR=0
+else
+ PAGE_NR=1
+ PROFILE_XML="`/usr/lib/gtkdialog/xml_info scale "internet_connect.svg" 60 "$(gettext '<b>No profiles</b>')" "$(gettext 'Set up an interface first, and when connected, a profile will be built for next run.')"`"
+fi
+
+#bring up the main window...
+export SNS_main='
+<window title="SNS '$VERSION' - '$(gettext "Barry's Simple Network Setup")'" icon-name="gtk-network">
+<vbox spacing="0" space-expand="true" space-fill="true">
+  <eventbox name="status" space-expand="false" space-fill="false">
+    <text name="status_text" wrap="false" height-request="20" use-markup="true" space-expand="true" space-fill="true"><label>"'${MSGSTATUS}'"</label></text>
+  </eventbox>
+  <text height-request="7" space-expand="false" space-fill="false"><label>""</label></text>
+  <vbox spacing="5" space-expand="true" space-fill="true">
+    <notebook tab-pos="2" page="'$PAGE_NR'" labels="'$(gettext 'Profiles')'|'$(gettext 'Interfaces')'" space-expand="true" space-fill="true">
+      <frame '$(gettext 'Profiles')'>
+        '${PROFILE_XML}'
+        <text height-request="5" space-expand="false" space-fill="false"><label>""</label></text>
+      </frame>
+      <frame '$(gettext 'Interfaces')'>
+        '${CLICKMSG}'
+        '${INTERFACEDESCR}'
+        <hbox space-expand="false" space-fill="false">'${INTERFACEBUTTONS}'</hbox>
+        <text height-request="5" space-expand="false" space-fill="false"><label>""</label></text>
+      </frame>
+    </notebook>
+    <hbox space-expand="false" space-fill="false">
+      <button>
+        <label>'$(gettext "Help")'</label>
+        '"`/usr/lib/gtkdialog/xml_button-icon help`"'
+        <action>/usr/local/simple_network_setup/help_profiles &</action>
+      </button>
+      <button space-expand="false" space-fill="false">
+        <label>'$(gettext 'Network Information')'</label>
+        '"`/usr/lib/gtkdialog/xml_button-icon info`"'
+        <action>ipinfo & </action>
+      </button>
+      <text space-expand="true" space-fill="true"><label>""</label></text>
+      '${CONNECTBTN_XML}'
+      <button space-expand="false" space-fill="false">
+        '"`/usr/lib/gtkdialog/xml_button-icon quit`"'
+        <label>'$(gettext 'Quit')'</label>
+        <action type="exit">QUIT</action>
+        </button>
+    </hbox>
+  </vbox>
+</vbox>
+</window>' #170505 190217
+
+echo 'style "status"
+{
+  fg[NORMAL] = "'$COLOR_FG'"
+  bg[NORMAL] = "'$COLOR_BG'"
+}
+widget "*status*" style "status"' > /tmp/gtkrc_sns
+export GTK2_RC_FILES=/tmp/gtkrc_sns:/root/.gtkrc-2.0
+
+. /usr/lib/gtkdialog/xml_info gtk #build bg_pixmap for gtk-theme
+RETSTRING="`gtkdialog -p SNS_main`" ###main window### #170505
+
+echo "$RETSTRING"
+EXIT="`echo "$RETSTRING" | grep '^EXIT' | cut -f2 -d'"'`" #'geany
+[ "`echo "$EXIT" | grep 'EXITRESTART'`" != "" ] && exec sns ###restarting sns###
+[ "`echo "$EXIT" | grep 'Interface'`" = "" ] && exit
+ 
+INTERFACE="`echo -n "$EXIT" | cut -f2 -d '_'`" #ex: wlan1
+
+if [ "$INTERFACE" == "Windows" ];then #100313
+ if [ -d /etc/ndiswrapper ];then
+  if [ "`ls /etc/ndiswrapper/*/*.inf 2>/dev/null`" != "" ];then
+   modprobe ndiswrapper
+   sleep 1
+   exec sns
+  fi
+ fi
+ INFFILE=$(/usr/lib/gtkdialog/file_chooser "$(gettext 'SNS: Install MS Windows driver')" \
+ "$(gettext "Select the '.inf' file of the required MS Windows driver. If on a CD, you will have to mount it, then navigate to where the '.inf' file is. Note, choose a Windows XP driver if available...")")
+ if [ -f "$INFFILE" ];then
+  case "$INFFILE" in
+   *.[iI][nN][fF]) 
+    FLAGND=""
+    ndiswrapper -i "$INFFILE" #installs driver at /etc/ndiswrapper.
+    if [ $? -eq 0 ];then
+     ndiswrapper -l #tests the driver
+     if [ $? -eq 0 ];then
+      modprobe ndiswrapper
+      [ $? -eq 0 ] && FLAGND="ok"
+      [ "$FLAGND" != "ok" ] && rmmod ndiswrapper 2>/dev/null
+     fi
+    fi
+    [ "$FLAGND" != "ok" ] && rm -rf /etc/ndiswrapper
+    [ "$FLAGND" != "ok" ] && /usr/lib/gtkdialog/box_ok "SNS" error "$(gettext 'Windows driver does not seem to work, it has been uninstalled')"
+    [ "$FLAGND" == "ok" ] && sleep 1
+   ;;
+   *) 
+    /usr/lib/gtkdialog/box_ok "SNS" error "`eval_gettext \"ERROR, \\\${INFFILE} is not a .inf file\"`"
+   ;;
+  esac
+ fi
+ exec sns
+fi
+
+which connectwizard_exec >/dev/null 2>&1 \
+ && connectwizard_exec sns #Update current exec name. 170329 190223
+
+if [ -n "$WORKINGIF" ];then  #190525...
+ ifPATTERN='^'"$WORKINGIF"' '
+ if [ "`ifconfig | grep "$ifPATTERN"`" != "" ];then
+  yaf-splash -bg orange -placement center -text "$(gettext 'Please wait, bringing down') '$WORKINGIF'..." &
+  PIDX1=$!
+  ifconfig $WORKINGIF down
+  [ "`iwconfig $WORKINGIF | grep "$WORKINGIF" | grep "ESSID"`" != "" ] && iwconfig $WORKINGIF essid off
+  iwconfig $WORKINGIF key off #100320 think need this for when I'm experimenting with different wep/wpa/open settings on the same interface.
+  dhcpcd --release $WORKINGIF 2>/dev/null
+  ip route flush dev $WORKINGIF #100703
+  sleep 1
+  kill $PIDX1 2>/dev/null
+ fi #190525 end
+fi
+
+fPATTERN='^'"${INTERFACE}"'|'
+IFDATA="`grep "$fPATTERN" /tmp/sns_interfaces`"
+IF_INTTYPE="`echo "$IFDATA" | cut -f2 -d'|'`" #ex: Wireless
+IF_DRIVER="`echo "$IFDATA" | cut -f3 -d'|'`" #ex: ath5k
+IF_BUS="`echo "$IFDATA" | cut -f4 -d'|'`" #ex: pci
+IF_INFO="`echo "$IFDATA" | cut -f5 -d'|'`"
+MACADDRESS="`ifconfig $INTERFACE | grep -o 'HWaddr .*' | cut -f 2 -d ' '`"
+
+############WIRELESS SETUP###############
+if [ "$IF_INTTYPE" == "Wireless" ];then
+ #scan for networks...
+ if rfkill list wlan | grep -q 'Soft blocked: yes' ; then
+   rfkill unblock wlan
+ fi
+ setup_wifi 
 fi #end test "$IF_INTTYPE" == "Wireless"
 
 ############Wired setup###############
