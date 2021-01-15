@@ -47,8 +47,6 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
             rm -f sh petbuild-rootfs-complete/bin/sh
             ln -s bash petbuild-rootfs-complete/bin/sh
 
-            [ $HAVE_CCACHE -eq 1 ] && mkdir -p ../../local-repositories/${WOOF_TARGETARCH}/petbuilds-ccache
-
             HAVE_ROOTFS=1
         fi
 
@@ -90,7 +88,10 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
         mount --bind /sys petbuild-rootfs-complete-${NAME}/sys
         mount --bind /dev petbuild-rootfs-complete-${NAME}/dev
         mount -t tmpfs -o size=1G petbuild-tmp-${NAME} petbuild-rootfs-complete-${NAME}/tmp
-        [ $HAVE_CCACHE -eq 1 ] && mount --bind ../../local-repositories/${WOOF_TARGETARCH}/petbuilds-ccache petbuild-rootfs-complete-${NAME}/root/.ccache
+        if [ $HAVE_CCACHE -eq 1 ]; then
+            mkdir -p ../../local-repositories/${WOOF_TARGETARCH}/petbuilds-ccache-${NAME}
+            mount --bind ../../local-repositories/${WOOF_TARGETARCH}/petbuilds-ccache-${NAME} petbuild-rootfs-complete-${NAME}/root/.ccache
+        fi
 
         cp -a ../../local-repositories/sources/${NAME}/* petbuild-rootfs-complete-${NAME}/tmp/
         cp -a ../rootfs-petbuilds/${NAME}/* petbuild-rootfs-complete-${NAME}/tmp/
