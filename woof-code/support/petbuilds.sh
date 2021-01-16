@@ -38,7 +38,8 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
         continue
     fi
 
-    if [ ! -d "../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}" ]; then
+    HASH=`md5sum $i | awk '{print $1}'`
+    if [ ! -d "../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}-${HASH}" ]; then
         if [ $HAVE_ROOTFS -eq 0 ]; then
             echo "Preparing build environment"
             rm -rf petbuild-rootfs-complete
@@ -79,8 +80,8 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
 
         cd $HERE
 
-        mkdir -p ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME} petbuild-rootfs-complete-${NAME}
-        mount -t aufs -o br=../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}:devx:petbuild-rootfs-complete petbuild petbuild-rootfs-complete-${NAME}
+        mkdir -p ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}-${HASH} petbuild-rootfs-complete-${NAME}
+        mount -t aufs -o br=../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}-${HASH}:devx:petbuild-rootfs-complete petbuild petbuild-rootfs-complete-${NAME}
 
         mkdir -p petbuild-rootfs-complete-${NAME}/proc petbuild-rootfs-complete-${NAME}/sys petbuild-rootfs-complete-${NAME}/dev petbuild-rootfs-complete-${NAME}/tmp
         [ $HAVE_CCACHE -eq 1 ] && mkdir -p petbuild-rootfs-complete-${NAME}/root/.ccache
@@ -107,28 +108,28 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
 
         if [ $ret -ne 0 ]; then
             echo "ERROR: failed to build ${NAME}"
-            rm -rf ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}
+            rm -rf ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}-${HASH}
             rm -rf petbuild-rootfs-complete
             exit 1
         fi
 
-        [ $HAVE_CCACHE -eq 1 ] && rm -rf ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}/root/.ccache
-        rm -rf ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}/tmp ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}/etc/ssl ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}/etc/resolv.conf ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}/usr/share/man ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}/usr/share/info ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}/root/.wget-hsts ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}/usr/share/icons/hicolor/icon-theme.cache
-        rmdir ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}/* 2>/dev/null
-        find ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME} -name '.wh*' -delete
-        find ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME} -name '.git*' -delete
-        find ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME} -type l | while read LINK; do
+        [ $HAVE_CCACHE -eq 1 ] && rm -rf ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}-${HASH}/root/.ccache
+        rm -rf ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}-${HASH}/tmp ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}-${HASH}/etc/ssl ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}-${HASH}/etc/resolv.conf ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}-${HASH}/usr/share/man ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}-${HASH}/usr/share/info ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}-${HASH}/root/.wget-hsts ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}-${HASH}/usr/share/icons/hicolor/icon-theme.cache
+        rmdir ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}-${HASH}/* 2>/dev/null
+        find ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}-${HASH} -name '.wh*' -delete
+        find ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}-${HASH} -name '.git*' -delete
+        find ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}-${HASH} -type l | while read LINK; do
             [ "`readlink $LINK`" = "/bin/busybox" ] && rm -f $LINK
         done
 
-        find ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME} -type f | while read ELF; do
+        find ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}-${HASH} -type f | while read ELF; do
             strip --strip-all -R .note -R .comment ${ELF} 2>/dev/null
         done
 
         for EXTRAFILE in ../rootfs-petbuilds/${NAME}/*; do
             case "${EXTRAFILE##*/}" in
             petbuild|*.patch|sha256.sum|*-*|DOTconfig) ;;
-            *) cp -a $EXTRAFILE ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}/
+            *) cp -a $EXTRAFILE ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}-${HASH}/
             esac
         done
     fi
@@ -142,7 +143,7 @@ for NAME in $PKGS; do
     echo "Copying ${NAME}"
 
     rm -f rootfs-complete/pinstall.sh
-    cp -a ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}/* rootfs-complete/
+    cp -a ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}-${HASH}/* rootfs-complete/
 
     if [ -f rootfs-complete/pinstall.sh ]; then
         echo >> /tmp/rootfs_pkgs_pinstall.sh
