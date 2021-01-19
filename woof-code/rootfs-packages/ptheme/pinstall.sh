@@ -203,6 +203,12 @@ if [ -f "${DISTRO_FILE_PREFIX}-wall1.svg" ];then
 fi
 )
 
+if [ -d usr/share/themes/Flat-grey-rounded ]; then
+	echo 'PTHEME_GTK="Flat-grey-rounded"' >> "usr/share/ptheme/globals/Dark Gray"
+else
+	echo 'PTHEME_GTK="Raleigh"' >> "usr/share/ptheme/globals/Dark Gray"
+fi
+
 sync
 echo "done"
 echo
