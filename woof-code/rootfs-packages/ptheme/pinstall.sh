@@ -98,6 +98,14 @@ include "/root/.gtkrc-2.0.mine"
 # -- THEME AUTO-WRITTEN BY gtk-theme-switch2 DO NOT EDIT
 gtk-theme-name = "${PTHEME_GTK}"
 _EOF
+if [ -d usr/share/themes/${PTHEME_GTK}/gtk-3.0 ]; then
+	mkdir -p root/.config/gtk-3.0
+	cat > root/.config/gtk-3.0/settings.ini << _EOF
+[Settings]
+gtk-theme-name = ${PTHEME_GTK}
+_EOF
+_EOF
+
 echo "gtk: ${PTHEME_GTK}"
 
 # icon theme
@@ -112,6 +120,7 @@ fi
 if [ -d "usr/share/icons/$USE_ICON_THEME" ];then
 	# first global
 	echo -e "gtk-icon-theme-name = \"$USE_ICON_THEME\"" >> root/.gtkrc-2.0
+	[ -f root/.config/gtk-3.0/settings.ini ] && echo -e "gtk-icon-theme-name = $USE_ICON_THEME" >> root/.config/gtk-3.0/settings.ini
 	# then ROX
 	ROX_THEME_FILE="root/.config/rox.sourceforge.net/ROX-Filer/Options" # this could change in future
 	sed -i "s%<Option name=\"icon_theme\">.*%<Option name=\"icon_theme\">$USE_ICON_THEME</Option>%" $ROX_THEME_FILE
