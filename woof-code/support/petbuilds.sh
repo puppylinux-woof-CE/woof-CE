@@ -132,6 +132,9 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
             *) cp -a $EXTRAFILE ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}-${HASH}/
             esac
         done
+
+        rm -f ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}
+        ln -s ${NAME}-${HASH} ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}
     fi
 
     PKGS="$PKGS $NAME"
@@ -143,7 +146,7 @@ for NAME in $PKGS; do
     echo "Copying ${NAME}"
 
     rm -f rootfs-complete/pinstall.sh
-    cp -a ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}-${HASH}/* rootfs-complete/
+    cp -a ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}/* rootfs-complete/
 
     if [ -f rootfs-complete/pinstall.sh ]; then
         echo >> /tmp/rootfs_pkgs_pinstall.sh
