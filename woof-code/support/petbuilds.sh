@@ -132,10 +132,10 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
             *) cp -a $EXTRAFILE ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}-${HASH}/
             esac
         done
-
-        rm -f ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}
-        ln -s ${NAME}-${HASH} ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}
     fi
+
+    rm -f ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}
+    ln -s ${NAME}-${HASH} ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}
 
     PKGS="$PKGS $NAME"
 done
