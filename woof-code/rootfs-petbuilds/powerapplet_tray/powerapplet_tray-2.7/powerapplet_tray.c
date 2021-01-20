@@ -124,7 +124,6 @@ gboolean Update(gpointer ptr) {
     batpercentprev=batpercent;
     
     //update icon...
-    if (gtk_status_icon_get_blinking(tray_icon)==TRUE) gtk_status_icon_set_blinking(tray_icon,FALSE);
     if (charging==1) {
         if (batpercent < 10) gtk_status_icon_set_from_pixbuf(tray_icon,emptychg_pixbuf);
         else if (batpercent < 21) gtk_status_icon_set_from_pixbuf(tray_icon,twentychg_pixbuf);
@@ -141,7 +140,6 @@ gboolean Update(gpointer ptr) {
         else if (batpercent < 81) gtk_status_icon_set_from_pixbuf(tray_icon,eightydis_pixbuf);
         else gtk_status_icon_set_from_pixbuf(tray_icon,fulldis_pixbuf);
         /*100517 BK only blink icon if not charging...*/
-        if (batpercent < 10) { gtk_status_icon_set_blinking(tray_icon,TRUE); }
     }
     
     //update tooltip...
@@ -151,7 +149,7 @@ gboolean Update(gpointer ptr) {
     sprintf(strpercent,"%d",batpercent);
     strcat(memdisplaylong,strpercent);
     strcat(memdisplaylong,"%");
-    gtk_status_icon_set_tooltip(tray_icon, memdisplaylong);
+    gtk_status_icon_set_tooltip_text(tray_icon, memdisplaylong);
 }
 
 void tray_icon_on_click(GtkStatusIcon *status_icon, gpointer user_data)
@@ -190,7 +188,7 @@ static GtkStatusIcon *create_tray_icon() {
 
     gtk_status_icon_set_from_pixbuf(tray_icon,blank_pixbuf);
     
-    gtk_status_icon_set_tooltip(tray_icon, _("Battery charge"));
+    gtk_status_icon_set_tooltip_text(tray_icon, _("Battery charge"));
     gtk_status_icon_set_visible(tray_icon, TRUE);
 
     return tray_icon;
@@ -249,7 +247,7 @@ int main(int argc, char **argv) {
     gtk_init(&argc, &argv);
     tray_icon = create_tray_icon();
     
-    gtk_timeout_add(interval, Update, NULL);
+    g_timeout_add(interval, Update, NULL);
     Update(NULL);
 
     gtk_main();
