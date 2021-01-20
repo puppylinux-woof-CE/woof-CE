@@ -367,7 +367,7 @@ gboolean Update(gpointer ptr) {
 	    else
 			gtk_status_icon_set_from_pixbuf(tray_icon, neticon[flagtransfer]);
 	    //update tooltip...
-	    gtk_status_icon_set_tooltip(tray_icon, infomsg);
+	    gtk_status_icon_set_tooltip_text(tray_icon, infomsg);
 	    
     } else { //wireless
 		if (flagtransfer == 1) trans = 0;
@@ -375,7 +375,7 @@ gboolean Update(gpointer ptr) {
 		if (enable_polling == 0) {
 				gtk_status_icon_set_from_pixbuf(tray_icon, wiconset[4 + trans]); //arbitrary
 				sprintf(tipbuf, "%s\n%s", infomsg, _("Wifi stats disabled"));
-				gtk_status_icon_set_tooltip(tray_icon, tipbuf);
+				gtk_status_icon_set_tooltip_text(tray_icon, tipbuf);
 		} else { 
 			//wireless test
 			struct iface_info i_face = get_info();
@@ -392,7 +392,7 @@ gboolean Update(gpointer ptr) {
 				perror("insane value for wifi stats");
 				gtk_status_icon_set_from_pixbuf(tray_icon, wiconset[3 + trans]);
 				sprintf(tipbuf, "%s\n%s", infomsg, _("Wifi Stats unreadable - disable polling in the menu."));
-				gtk_status_icon_set_tooltip(tray_icon, tipbuf);
+				gtk_status_icon_set_tooltip_text(tray_icon, tipbuf);
 			} else {
 				if (wiQpc > 89)
 					wicon = 5 + trans;
@@ -409,7 +409,7 @@ gboolean Update(gpointer ptr) {
 		
 				gtk_status_icon_set_from_pixbuf(tray_icon, wiconset[wicon]);
 				sprintf(tipbuf, "%s\n%s %d%%", infomsg, strength, wiQpc);
-				gtk_status_icon_set_tooltip(tray_icon, tipbuf);
+				gtk_status_icon_set_tooltip_text(tray_icon, tipbuf);
 			}
 		}
 	}
@@ -564,7 +564,7 @@ static GtkStatusIcon *create_tray_icon() {
 		gtk_status_icon_set_from_pixbuf(tray_icon, wiconset[0]);
 	}
 	
-	gtk_status_icon_set_tooltip(tray_icon,_("No active network interfaces"));
+	gtk_status_icon_set_tooltip_text(tray_icon,_("No active network interfaces"));
 	gtk_status_icon_set_visible(tray_icon, TRUE);
 	return tray_icon;
 }
