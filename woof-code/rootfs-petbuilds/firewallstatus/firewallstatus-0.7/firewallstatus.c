@@ -31,11 +31,11 @@ gboolean Firestate(gpointer ptr) {    /* This is the constantly updated routine 
     fw_status = system("[ `iptables -L -n |wc -l` -gt 10 ]");
 	if (fw_status == 0) {
 		gtk_status_icon_set_from_file(tray_icon,"/usr/share/pixmaps/puppy/shield_yes.svg" );
-		gtk_status_icon_set_tooltip(tray_icon,_("Firewall On") );
+		gtk_status_icon_set_tooltip_text(tray_icon,_("Firewall On") );
 	}
 	else {
 		gtk_status_icon_set_from_file(tray_icon,"/usr/share/pixmaps/puppy/shield_no.svg" );
-		gtk_status_icon_set_tooltip(tray_icon, _("Firewall Off, Right click for menu") );
+		gtk_status_icon_set_tooltip_text(tray_icon, _("Firewall Off, Right click for menu") );
 	} 
 	return TRUE;
 }
@@ -169,7 +169,7 @@ static GtkStatusIcon *create_tray_icon() {
 	g_signal_connect(G_OBJECT(tray_icon), "popup-menu", G_CALLBACK(tray_icon_on_menu), NULL);
 
 	gtk_status_icon_set_from_file(tray_icon,"/usr/share/pixmaps/puppy/shield_no.svg" );
-	gtk_status_icon_set_tooltip(tray_icon, _("Firewall Off, Right click for menu") );
+	gtk_status_icon_set_tooltip_text(tray_icon, _("Firewall Off, Right click for menu") );
 	
 	gtk_status_icon_set_visible(tray_icon, TRUE);
 
