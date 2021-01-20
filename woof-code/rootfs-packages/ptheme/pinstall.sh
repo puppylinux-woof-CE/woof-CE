@@ -104,7 +104,7 @@ if [ -d usr/share/themes/${PTHEME_GTK}/gtk-3.0 ]; then
 [Settings]
 gtk-theme-name = ${PTHEME_GTK}
 _EOF
-_EOF
+fi
 
 echo "gtk: ${PTHEME_GTK}"
 
