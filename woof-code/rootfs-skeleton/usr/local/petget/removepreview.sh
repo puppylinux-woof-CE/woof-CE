@@ -111,27 +111,47 @@ if [ -f /root/.packages/${DB_pkgname}.files ];then
         fi
       fi
   done
-
+ 
  #do it again, looking for empty directories...
- cat /root/.packages/${DB_pkgname}.files | sort -r |
- while read ONESPEC
- do
-  if [ "$ONESPEC" != "" ] && [ "$ONESPEC" != "/" ] && [ -d "$ONESPEC" ];then
-   [ "`ls -1 "$ONESPEC"`" = "" ] && rmdir "$ONESPEC" 2>/dev/null #120107
-  fi
- done
  
  if [ -f /tmp/ppm-dirlists.txt ]; then
   cat /tmp/ppm-dirlists.txt | sort -r |
   while read ONESPEC
   do
-   if [ "$ONESPEC" != "" ] && [ "$ONESPEC" != "/" ] && [ -d "$ONESPEC" ]; then
-    [ "`ls -1 "$ONESPEC"`" = "" ] && rmdir "$ONESPEC" 2>/dev/null #120107
+   if [ "$ONESPEC" != "" ] && [ "$ONESPEC" != "/" ]; then
+    if [ -d "$ONESPEC" ]; then
+     if [ "$ISLAYEREDFS" != "" ]; then
+      #Delete folder if it was not builtin
+      if [ ! -d "/initrd${PUP_LAYER}${ONESPEC}" ]; then
+       [ "`ls -1 "$ONESPEC"`" == "" ] && rmdir "$ONESPEC" 2>/dev/null #120107
+      fi
+     else
+      [ "`ls -1 "$ONESPEC"`" == "" ] && rmdir "$ONESPEC" 2>/dev/null #120107
+     fi
+    fi
    fi
   done
   rm -f /tmp/ppm-dirlists.txt
- fi
- 
+ fi 
+
+
+ cat /root/.packages/${DB_pkgname}.files | sort -r |
+ while read ONESPEC
+ do
+   if [ "$ONESPEC" != "" ] && [ "$ONESPEC" != "/" ]; then
+    if [ -d "$ONESPEC" ]; then
+     if [ "$ISLAYEREDFS" != "" ]; then
+      #Delete folder if it was not builtin
+      if [ ! -d "/initrd${PUP_LAYER}${ONESPEC}" ]; then
+       [ "`ls -1 "$ONESPEC"`" == "" ] && rmdir "$ONESPEC" 2>/dev/null #120107
+      fi
+     else
+      [ "`ls -1 "$ONESPEC"`" == "" ] && rmdir "$ONESPEC" 2>/dev/null #120107
+     fi
+    fi
+   fi
+ done
+  
  ###+++2011-12-27 KRG
 else
  firstchar=`echo ${DB_pkgname} | cut -c 1`
