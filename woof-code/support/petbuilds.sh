@@ -68,7 +68,11 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
 
         echo "Downloading ${NAME}"
 
-        mkdir -p ../../local-repositories/sources/${NAME}
+        if [ -d ../../local-repositories/sources/${NAME} ]; then
+            rm -rf ../../local-repositories/sources/${NAME}/* 2>/dev/null
+        else
+            mkdir ../../local-repositories/sources/${NAME}
+        fi
         cd ../../local-repositories/sources/${NAME}
         . ${HERE}/../rootfs-petbuilds/${NAME}/petbuild
         download
