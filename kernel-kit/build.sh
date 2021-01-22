@@ -915,26 +915,27 @@ cd ..
 log_msg "Installing aufs-utils into kernel package"
 cp -a --remove-destination output/${AUFS_UTIL_DIR}/* \
 		output/${linux_kernel_dir}
-
-log_msg "Creating a kernel sources SFS"
 if [ "$kit_kernel" = "yes" ]; then
 	KERNEL_SOURCES_DIR="kernel_sources-${kernel_version}${custom_suffix}-${package_name_suffix}"
 else
 	KERNEL_SOURCES_DIR="kernel_sources-${kernel_version}-${package_name_suffix}"
 fi
-mkdir -p ${KERNEL_SOURCES_DIR}/usr/src
-mv linux-${kernel_version} ${KERNEL_SOURCES_DIR}/usr/src/linux
-mkdir -p ${KERNEL_SOURCES_DIR}/lib/modules/${kernel_version}${custom_suffix}
-ln -s /usr/src/linux ${KERNEL_SOURCES_DIR}/lib/modules/${kernel_version}${custom_suffix}/build
-if [ ! -f ${KERNEL_SOURCES_DIR}/usr/src/linux/include/linux/version.h ] ; then
-	ln -s /usr/src/linux/include/generated/uapi/linux/version.h \
-		${KERNEL_SOURCES_DIR}/usr/src/linux/include/linux/version.h
+if [ "$CREATE_SOURCES_SFS" != "no" ]; then
+	log_msg "Creating a kernel sources SFS"
+	mkdir -p ${KERNEL_SOURCES_DIR}/usr/src
+	mv linux-${kernel_version} ${KERNEL_SOURCES_DIR}/usr/src/linux
+	mkdir -p ${KERNEL_SOURCES_DIR}/lib/modules/${kernel_version}${custom_suffix}
+	ln -s /usr/src/linux ${KERNEL_SOURCES_DIR}/lib/modules/${kernel_version}${custom_suffix}/build
+	if [ ! -f ${KERNEL_SOURCES_DIR}/usr/src/linux/include/linux/version.h ] ; then
+		ln -s /usr/src/linux/include/generated/uapi/linux/version.h \
+			${KERNEL_SOURCES_DIR}/usr/src/linux/include/linux/version.h
+	fi
+	ln -s /usr/src/linux ${KERNEL_SOURCES_DIR}/lib/modules/${kernel_version}${custom_suffix}/source
+	rm -rf ${KERNEL_SOURCES_DIR}/usr/src/linux/.git* # don't need git history
+	mksquashfs ${KERNEL_SOURCES_DIR} output/${KERNEL_SOURCES_DIR}.sfs $COMP
+	md5sum output/${KERNEL_SOURCES_DIR}.sfs > output/${KERNEL_SOURCES_DIR}.sfs.md5.txt
+	sha256sum output/${KERNEL_SOURCES_DIR}.sfs > output/${KERNEL_SOURCES_DIR}.sfs.sha256.txt
 fi
-ln -s /usr/src/linux ${KERNEL_SOURCES_DIR}/lib/modules/${kernel_version}${custom_suffix}/source
-rm -rf ${KERNEL_SOURCES_DIR}/usr/src/linux/.git* # don't need git history
-mksquashfs ${KERNEL_SOURCES_DIR} output/${KERNEL_SOURCES_DIR}.sfs $COMP
-md5sum output/${KERNEL_SOURCES_DIR}.sfs > output/${KERNEL_SOURCES_DIR}.sfs.md5.txt
-sha256sum output/${KERNEL_SOURCES_DIR}.sfs > output/${KERNEL_SOURCES_DIR}.sfs.sha256.txt
 
 #==============================================================
 
