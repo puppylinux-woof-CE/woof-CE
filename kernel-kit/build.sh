@@ -977,10 +977,11 @@ else
 fi
 
 if [ "$STRIP_KMODULES" = "yes" ] ; then
- if [ "$(which strip)" != "" -a "$(strip --help | grep "\-\-strip\-unneeded")" != "" ]; then
+ [ -z "$STRIP" ] && STRIP=strip
+ if [ "$(which strip)" != "" -a "$($STRIP --help | grep "\-\-strip\-unneeded")" != "" ]; then
 	for mods1 in "$(find "$(pwd)/output/${linux_kernel_dir}" -type -f -name "*.ko")"
 	do
-		file "$mods1" | grep -q "unstripped" || strip --strip-unneeded "$mods1"
+		file "$mods1" | grep -q "unstripped" || $STRIP --strip-unneeded "$mods1"
 	done
  fi
 fi
