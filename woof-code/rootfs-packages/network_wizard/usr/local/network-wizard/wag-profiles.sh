@@ -627,10 +627,10 @@ buildProfilesWindow()
 			<text>
 				<label>\"$L_TEXT_Select_Profile\"</label>
 			</text>
-			<combobox>
+			<comboboxtext>
 				<variable>PROFILE_COMBO</variable>
 				${PROFILE_BUTTONS}
-			</combobox>
+			</comboboxtext>
 			<button>
 				<label>$L_BUTTON_Load</label>
 				<input file stock=\"gtk-apply\"></input>
