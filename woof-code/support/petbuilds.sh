@@ -9,7 +9,7 @@ fi
 [ -z "$WOOF_CXXFLAGS"] && WOOF_CXXFLAGS="$WOOF_CFLAGS"
 
 WOOF_CC="/ccache gcc"
-WOOF_CXX="/ccache g++""
+WOOF_CXX="/ccache g++"
 
 WOOF_CFLAGS="$WOOF_CFLAGS -Os -fomit-frame-pointer -ffunction-sections -fdata-sections -fmerge-all-constants"
 WOOF_CXXCFLAGS="$WOOF_CXXCFLAGS -Os -fomit-frame-pointer -ffunction-sections -fdata-sections -fmerge-all-constants"
