@@ -93,8 +93,8 @@ for SFS in build/*.sfs; do
 	ln -s ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}/${BASE} /mnt/ssdimagep2/${BASE}
 done
 mkdir -p ../../local-repositories/frugalify
-[ ! -f ../../local-repositories/frugalify/frugalify-aufs-arm ] && wget --tries=1 --timeout=10 -O ../../local-repositories/frugalify/frugalify-aufs-arm  https://github.com/dimkr/frugalify/releases/latest/download/frugalify-aufs-arm
-install -m 755 ../../local-repositories/frugalify/frugalify-aufs-arm /mnt/ssdimagep2/init
+[ ! -f ../../local-repositories/frugalify/frugalify-overlayfs-arm ] && wget --tries=1 --timeout=10 -O ../../local-repositories/frugalify/frugalify-overlayfs-arm  https://github.com/dimkr/frugalify/releases/latest/download/frugalify-overlayfs-arm
+install -m 755 ../../local-repositories/frugalify/frugalify-overlayfs-arm /mnt/ssdimagep2/init
 cp -a /mnt/ssdimagep2/${DISTRO_FILE_PREFIX}-${DISTRO_VERSION} /mnt/ssdimagep2/*.sfs /mnt/ssdimagep2/init /mnt/sdimagep2/
 busybox umount /mnt/sdimagep2 2>/dev/null
 busybox umount /mnt/ssdimagep2 2>/dev/null
