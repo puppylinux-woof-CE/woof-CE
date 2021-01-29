@@ -306,14 +306,14 @@ if [ "$AUFS" != "no" ] ; then
 	[ "$aufsv" ] || exit_error "You must specify 'aufsv=version' in build.conf"
 	log_msg "aufs=$aufsv"
 	log_msg "aufs_util=$aufs_util_branch"
-
-	#kernel mirror - Aufs series (must match the kernel version)
-	case $kernel_series in
-		3) ksubdir=${ksubdir_3} ; aufs_git=${aufs_git_3} ; aufs_git_dir=aufs3_sources_git ;;
-		4) ksubdir=${ksubdir_4} ; aufs_git=${aufs_git_4} ; aufs_git_dir=aufs4_sources_git ;;
-		5) ksubdir=${ksubdir_5} ; aufs_git=${aufs_git_5} ; aufs_git_dir=aufs5_sources_git ;;
-	esac
 fi
+
+#kernel mirror - Aufs series (must match the kernel version)
+case $kernel_series in
+	3) ksubdir=${ksubdir_3} ; aufs_git=${aufs_git_3} ; aufs_git_dir=aufs3_sources_git ;;
+	4) ksubdir=${ksubdir_4} ; aufs_git=${aufs_git_4} ; aufs_git_dir=aufs4_sources_git ;;
+	5) ksubdir=${ksubdir_5} ; aufs_git=${aufs_git_5} ; aufs_git_dir=aufs5_sources_git ;;
+esac
 
 ## create directories for the results
 rm -rf output/patches-${kernel_version}-${HOST_ARCH}
