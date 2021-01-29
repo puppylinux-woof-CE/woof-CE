@@ -247,7 +247,7 @@ if [ -f /etc/DISTRO_SPECS ] ; then
 	[ ! "$package_name_suffix" ] && package_name_suffix=${DISTRO_FILE_PREFIX}
 fi
 
-if [ -f DOTconfig ] ; then
+if [ "$AUFS" != "no" -a -f DOTconfig ] ; then
 	echo ; tail -n10 README ; echo
 	for i in CONFIG_AUFS_FS=y CONFIG_NLS_CODEPAGE_850=y
 	do
@@ -297,22 +297,23 @@ fi
 log_msg "Linux: ${kernel_major_version}${kmv}${kmr}" #${kernel_series}.
 
 # ===============================
-if [ ! "$aufsv" ] ; then
-	git_aufs_branch ${kernel_version} # sets $aufsv
+if [ "$AUFS" != "no" ] ; then
+	if [ ! "$aufsv" ] ; then
+		git_aufs_branch ${kernel_version} # sets $aufsv
+	fi
+	git_aufs_util_branch # sets $aufs_util_branch
+
+	[ "$aufsv" ] || exit_error "You must specify 'aufsv=version' in build.conf"
+	log_msg "aufs=$aufsv"
+	log_msg "aufs_util=$aufs_util_branch"
+
+	#kernel mirror - Aufs series (must match the kernel version)
+	case $kernel_series in
+		3) ksubdir=${ksubdir_3} ; aufs_git=${aufs_git_3} ; aufs_git_dir=aufs3_sources_git ;;
+		4) ksubdir=${ksubdir_4} ; aufs_git=${aufs_git_4} ; aufs_git_dir=aufs4_sources_git ;;
+		5) ksubdir=${ksubdir_5} ; aufs_git=${aufs_git_5} ; aufs_git_dir=aufs5_sources_git ;;
+	esac
 fi
-git_aufs_util_branch # sets $aufs_util_branch
-# ===============================
-
-[ "$aufsv" ] || exit_error "You must specify 'aufsv=version' in build.conf"
-log_msg "aufs=$aufsv"
-log_msg "aufs_util=$aufs_util_branch"
-
-#kernel mirror - Aufs series (must match the kernel version)
-case $kernel_series in
-	3) ksubdir=${ksubdir_3} ; aufs_git=${aufs_git_3} ; aufs_git_dir=aufs3_sources_git ;;
-	4) ksubdir=${ksubdir_4} ; aufs_git=${aufs_git_4} ; aufs_git_dir=aufs4_sources_git ;;
-	5) ksubdir=${ksubdir_5} ; aufs_git=${aufs_git_5} ; aufs_git_dir=aufs5_sources_git ;;
-esac
 
 ## create directories for the results
 rm -rf output/patches-${kernel_version}-${HOST_ARCH}
@@ -387,43 +388,45 @@ if [ -f linux-${kernel_version}/include/linux/compiler-gcc4.h ] ; then
 fi
 
 ## download Aufs
-if [ ! -f /tmp/${aufs_git_dir}_done -o ! -d sources/${aufs_git_dir}/.git ] ; then
-	cd sources
-	if [ ! -d ${aufs_git_dir}/.git ] ; then
-		git clone ${aufs_git} ${aufs_git_dir}
-		[ $? -ne 0 ] && exit_error "Error: failed to download the Aufs sources."
-		touch /tmp/${aufs_git_dir}_done
-	else
-		cd ${aufs_git_dir}
-		git pull --all
-		if [ $? -ne 0 ] ; then
-			log_msg "WARNING: 'git pull --all' command failed" && sleep 5
-		else
+if [ "$AUFS" != "no" ] ; then
+	if [ ! -f /tmp/${aufs_git_dir}_done -o ! -d sources/${aufs_git_dir}/.git ] ; then
+		cd sources
+		if [ ! -d ${aufs_git_dir}/.git ] ; then
+			git clone ${aufs_git} ${aufs_git_dir}
+			[ $? -ne 0 ] && exit_error "Error: failed to download the Aufs sources."
 			touch /tmp/${aufs_git_dir}_done
-		fi
-	fi
-	cd $MWD
-fi
-
-## download aufs-utils -- for after compiling the kernel (*)
-if [ ! -f /tmp/aufs-util_done -o ! -d sources/aufs-util_git/.git ] ; then
-	cd sources
-	if [ ! -d aufs-util_git/.git ] ; then
-		log_msg "Downloading aufs-utils for userspace"
-		git clone git://git.code.sf.net/p/aufs/aufs-util.git aufs-util_git || \
-		git clone git://github.com/puppylinux-woof-CE/aufs-util.git aufs-util_git
-		[ $? -ne 0 ] && exit_error "Error: failed to download the Aufs utils..."
-		touch /tmp/aufs-util_done
-	else
-		cd aufs-util_git
-		git pull --all
-		if [ $? -ne 0 ] ; then
-			log_msg "WARNING: 'git pull --all' command failed" && sleep 5
 		else
-			touch /tmp/aufs-util_done
+			cd ${aufs_git_dir}
+			git pull --all
+			if [ $? -ne 0 ] ; then
+				log_msg "WARNING: 'git pull --all' command failed" && sleep 5
+			else
+				touch /tmp/${aufs_git_dir}_done
+			fi
 		fi
+		cd $MWD
 	fi
-	cd $MWD
+
+	## download aufs-utils -- for after compiling the kernel (*)
+	if [ ! -f /tmp/aufs-util_done -o ! -d sources/aufs-util_git/.git ] ; then
+		cd sources
+		if [ ! -d aufs-util_git/.git ] ; then
+			log_msg "Downloading aufs-utils for userspace"
+			git clone git://git.code.sf.net/p/aufs/aufs-util.git aufs-util_git || \
+			git clone git://github.com/puppylinux-woof-CE/aufs-util.git aufs-util_git
+			[ $? -ne 0 ] && exit_error "Error: failed to download the Aufs utils..."
+			touch /tmp/aufs-util_done
+		else
+			cd aufs-util_git
+			git pull --all
+			if [ $? -ne 0 ] ; then
+				log_msg "WARNING: 'git pull --all' command failed" && sleep 5
+			else
+				touch /tmp/aufs-util_done
+			fi
+		fi
+		cd $MWD
+	fi
 fi
 
 export FDRV=fdrv-${kernel_version}-${package_name_suffix}.sfs
@@ -490,34 +493,36 @@ fi
 #                    compile the kernel
 #==============================================================
 
-log_msg "Extracting the Aufs-util sources"
-rm -rf aufs-util
-cp -a sources/aufs-util_git aufs-util
-if [ "$aufs_util_branch" ] ; then
-	cd aufs-util
-	echo "* aufs-util branch: $aufs_util_branch"
-	git checkout aufs${aufs_util_branch} #>> ${BUILD_LOG} 2>&1
-	cp Makefile Makefile-orig
-	if grep -q '^CONFIG_AUFS_FHSM=y' ../DOTconfig >/dev/null 2>&1 ; then
-		log_msg "BuildFHSM = true"
-		sed -i -e 's/-static //' -e 's|ver_test ||' -e 's|BuildFHSM = .*|BuildFHSM = yes|' Makefile 
+if [ "$AUFS" != "no" ] ; then
+	log_msg "Extracting the Aufs-util sources"
+	rm -rf aufs-util
+	cp -a sources/aufs-util_git aufs-util
+	if [ "$aufs_util_branch" ] ; then
+		cd aufs-util
+		echo "* aufs-util branch: $aufs_util_branch"
+		git checkout aufs${aufs_util_branch} #>> ${BUILD_LOG} 2>&1
+		cp Makefile Makefile-orig
+		if grep -q '^CONFIG_AUFS_FHSM=y' ../DOTconfig >/dev/null 2>&1 ; then
+			log_msg "BuildFHSM = true"
+			sed -i -e 's/-static //' -e 's|ver_test ||' -e 's|BuildFHSM = .*|BuildFHSM = yes|' Makefile
+		else
+			log_msg "BuildFHSM = false"
+			sed -i -e 's/-static //' -e 's|ver_test ||' -e 's|BuildFHSM = .*|BuildFHSM = no|' Makefile
+		fi
+		diff -ru Makefile-orig Makefile > ../output/patches-${kernel_version}-${HOST_ARCH}/aufs-util.patch
+		cd ..
 	else
-		log_msg "BuildFHSM = false"
-		sed -i -e 's/-static //' -e 's|ver_test ||' -e 's|BuildFHSM = .*|BuildFHSM = no|' Makefile
+		exit_error "aufs-util: cannot select git branch."
 	fi
-	diff -ru Makefile-orig Makefile > ../output/patches-${kernel_version}-${HOST_ARCH}/aufs-util.patch
-	cd ..
-else
-	exit_error "aufs-util: cannot select git branch."
-fi
 
-log_msg "Extracting the Aufs sources"
-rm -rf aufs_sources
-cp -a sources/${aufs_git_dir} aufs_sources
-(
-	cd aufs_sources ; git checkout aufs${aufsv}
-	../patches/aufs_sources/apply ${kernel_version}
-)
+	log_msg "Extracting the Aufs sources"
+	rm -rf aufs_sources
+	cp -a sources/${aufs_git_dir} aufs_sources
+	(
+		cd aufs_sources ; git checkout aufs${aufsv}
+		../patches/aufs_sources/apply ${kernel_version}
+	)
+fi
 ## extract the kernel
 log_msg "Extracting the kernel sources"
 if [ "$USE_GIT_KERNEL" ] ; then
@@ -552,27 +557,29 @@ fi
 cd linux-${kernel_version}
 #-------------------------
 
-log_msg "Adding Aufs to the kernel sources"
-## hack - Aufs adds this file in the mmap patch, but it may be already there
-if [ -f mm/prfile.c ] ; then
-	mmap=../aufs_sources/aufs${aufs_version}-mmap.patch
-	[ -f $mmap ] && grep -q 'mm/prfile.c' $mmap && rm -f mm/prfile.c #delete or mmap patch will fail
-fi
-for i in kbuild base standalone mmap; do #loopback tmpfs-idr vfs-ino
-	patchfile=../aufs_sources/aufs${aufs_version}-$i.patch
-	( echo ; echo "patch -N -p1 < ${patchfile##*/}" ) &>> ${BUILD_LOG}
-	patch -N -p1 < ${patchfile} &>> ${BUILD_LOG}
-	if [ $? -ne 0 ] ; then
-		log_msg "WARNING: failed to add some Aufs patches to the kernel sources."
-		log_msg "Check it manually and either CRTL+C to bail or hit enter to go on"
-		read goon
+if [ "$AUFS" != "no" ] ; then
+	log_msg "Adding Aufs to the kernel sources"
+	## hack - Aufs adds this file in the mmap patch, but it may be already there
+	if [ -f mm/prfile.c ] ; then
+		mmap=../aufs_sources/aufs${aufs_version}-mmap.patch
+		[ -f $mmap ] && grep -q 'mm/prfile.c' $mmap && rm -f mm/prfile.c #delete or mmap patch will fail
 	fi
-done
-cp -r ../aufs_sources/{fs,Documentation} .
-cp ../aufs_sources/include/linux/aufs_type.h include/linux 2>/dev/null
-cp ../aufs_sources/include/uapi/linux/aufs_type.h include/linux 2>/dev/null
-[ -d ../aufs_sources/include/uapi ] && \
-cp -r ../aufs_sources/include/uapi/linux/aufs_type.h include/uapi/linux
+	for i in kbuild base standalone mmap; do #loopback tmpfs-idr vfs-ino
+		patchfile=../aufs_sources/aufs${aufs_version}-$i.patch
+		( echo ; echo "patch -N -p1 < ${patchfile##*/}" ) &>> ${BUILD_LOG}
+		patch -N -p1 < ${patchfile} &>> ${BUILD_LOG}
+		if [ $? -ne 0 ] ; then
+			log_msg "WARNING: failed to add some Aufs patches to the kernel sources."
+			log_msg "Check it manually and either CRTL+C to bail or hit enter to go on"
+			read goon
+		fi
+	done
+	cp -r ../aufs_sources/{fs,Documentation} .
+	cp ../aufs_sources/include/linux/aufs_type.h include/linux 2>/dev/null
+	cp ../aufs_sources/include/uapi/linux/aufs_type.h include/linux 2>/dev/null
+	[ -d ../aufs_sources/include/uapi ] && \
+	cp -r ../aufs_sources/include/uapi/linux/aufs_type.h include/uapi/linux
+fi
 ################################################################################
 
 ## reset sublevel
@@ -630,18 +637,19 @@ if [ -f ../DOTconfig ] ; then
 	sed -i '/^kernel_version/d' .config
 fi
 
-## enable aufs in Kconfig
-if [ -f fs/aufs/Kconfig ] ; then
-	sed -i 's%support"$%support"\n\tdefault y%' fs/aufs/Kconfig
-	sed -i 's%aufs branch"%aufs branch"\n\tdefault n%' fs/aufs/Kconfig
+if [ "$AUFS" != "no" ] ; then
+	## enable aufs in Kconfig
+	if [ -f fs/aufs/Kconfig ] ; then
+		sed -i 's%support"$%support"\n\tdefault y%' fs/aufs/Kconfig
+		sed -i 's%aufs branch"%aufs branch"\n\tdefault n%' fs/aufs/Kconfig
+	fi
+	if ! grep -q "CONFIG_AUFS_FS=y" .config ; then
+		echo -e "\033[1;31m"
+		log_msg "For your kernel to boot AUFS as a built in is required:"
+		log_msg "File systems -> Miscellaneous filesystems -> AUFS"
+		echo -e "\033[0m" #reset to original
+	fi
 fi
-if ! grep -q "CONFIG_AUFS_FS=y" .config ; then
-	echo -e "\033[1;31m"
-	log_msg "For your kernel to boot AUFS as a built in is required:"
-	log_msg "File systems -> Miscellaneous filesystems -> AUFS" 
-	echo -e "\033[0m" #reset to original
-fi
-
 #----
 i386_specific_stuff #pae/nopae- funcs.sh
 #----
@@ -758,6 +766,7 @@ mv ${kheaders_dir} ../output
 #---------------------------------------------------------------------
 #  build aufs-utils userspace modules (**) - requires kernel headers 
 #---------------------------------------------------------------------
+if [ "$AUFS" != "no" ] ; then
 	log_msg "Building aufs-utils - userspace modules"
 	## see if fhsm is enabled in kernel config
 	ORIG_MAKE="$MAKE"
@@ -808,7 +817,7 @@ make DESTDIR=$CWD/output/${AUFS_UTIL_DIR} install
 	#---
 	[ -z "$OLDPATH" ] || export PATH=$OLDPATH
 	cd ..
-
+fi
 #------------------------------------------------------
 cd linux-${kernel_version}
 
@@ -912,9 +921,11 @@ $MAKE prepare >> ${BUILD_LOG} 2>&1
 cd ..
 #----
 
-log_msg "Installing aufs-utils into kernel package"
-cp -a --remove-destination output/${AUFS_UTIL_DIR}/* \
-		output/${linux_kernel_dir}
+if [ "$AUFS" != "no" ] ; then
+	log_msg "Installing aufs-utils into kernel package"
+	cp -a --remove-destination output/${AUFS_UTIL_DIR}/* \
+			output/${linux_kernel_dir}
+fi
 if [ "$kit_kernel" = "yes" ]; then
 	KERNEL_SOURCES_DIR="kernel_sources-${kernel_version}${custom_suffix}-${package_name_suffix}"
 else
