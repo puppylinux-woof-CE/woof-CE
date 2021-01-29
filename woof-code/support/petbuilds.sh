@@ -49,7 +49,7 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
                 cd ccache-3.7.12
                 CFLAGS=-O3 LDFLAGS="-static -Wl,-s" ./configure
                 MAKEFLAGS="$MAKEFLAGS" make
-                mv ccache ../../local-repositories/ccache/ccache
+                mv ccache ../../../local-repositories/ccache/ccache
                 cd ..
             fi
             install -m 755 ../../local-repositories/ccache/ccache petbuild-rootfs-complete/ccache
