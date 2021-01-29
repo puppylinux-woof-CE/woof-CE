@@ -99,8 +99,8 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
         mount --bind /sys petbuild-rootfs-complete-${NAME}/sys
         mount --bind /dev petbuild-rootfs-complete-${NAME}/dev
         mount -t tmpfs -o size=1G petbuild-tmp-${NAME} petbuild-rootfs-complete-${NAME}/tmp
-        mkdir -p ../../local-repositories/${WOOF_TARGETARCH}/petbuilds-ccache-${NAME}
-        mount --bind ../../local-repositories/${WOOF_TARGETARCH}/petbuilds-ccache-${NAME} petbuild-rootfs-complete-${NAME}/root/.ccache
+        mkdir -p ../../local-repositories/${WOOF_TARGETARCH}/petbuilds-ccache
+        mount --bind ../../local-repositories/${WOOF_TARGETARCH}/petbuilds-ccache petbuild-rootfs-complete-${NAME}/root/.ccache
 
         cp -a ../../local-repositories/sources/${NAME}/* petbuild-rootfs-complete-${NAME}/tmp/
         cp -a ../rootfs-petbuilds/${NAME}/* petbuild-rootfs-complete-${NAME}/tmp/
