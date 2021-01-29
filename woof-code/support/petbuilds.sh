@@ -44,7 +44,7 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
             # to speed up compilation, we build a static, native ccache executable
             if [ ! -f ../../local-repositories/ccache/ccache ]; then
                 mkdir -p ../../local-repositories/ccache
-                wget -t 1 -T 15 -O ../../local-repositories/ccache/ccache-3.7.12.tar.xz https://github.com/ccache/ccache/releases/download/v3.7.12/ccache-3.7.12.tar.xz
+                [ ! -f ../../local-repositories/ccache/ccache-3.7.12.tar.xz ] && wget -t 1 -T 15 -O ../../local-repositories/ccache/ccache-3.7.12.tar.xz https://github.com/ccache/ccache/releases/download/v3.7.12/ccache-3.7.12.tar.xz
                 tar -xJf ../../local-repositories/ccache/ccache-3.7.12.tar.xz
                 cd ccache-3.7.12
                 CFLAGS=-O3 LDFLAGS="-static -Wl,-s" ./configure
