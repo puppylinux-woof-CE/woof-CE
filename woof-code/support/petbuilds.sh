@@ -38,7 +38,7 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
         continue
     fi
 
-    HASH=`cat ../DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} $i/petbuild | md5sum | awk '{print $1}'`
+    HASH=`cat ../DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} ../DISTRO_COMPAT_REPOS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} ../DISTRO_PET_REPOS $i/petbuild | md5sum | awk '{print $1}'`
     if [ ! -d "../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}-${HASH}" ]; then
         if [ $HAVE_ROOTFS -eq 0 ]; then
             echo "Preparing build environment"
