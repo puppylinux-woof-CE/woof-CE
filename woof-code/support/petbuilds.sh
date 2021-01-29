@@ -59,8 +59,8 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
 
         if [ $HAVE_BUSYBOX -eq 0 -a "$NAME" != "busybox" ]; then
             if [ ! -f petbuild-rootfs-complete/bin/busybox ]; then
-                if [ -f ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/busybox/bin/busybox ]; then # busybox petbuild
-                    install -D -m 755 ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/busybox/bin/busybox petbuild-rootfs-complete/bin/busybox
+                if [ -f ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/busybox-latest/bin/busybox ]; then # busybox petbuild
+                    install -D -m 755 ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/busybox-latest/bin/busybox petbuild-rootfs-complete/bin/busybox
                 elif [ -f ../packages-${DISTRO_FILE_PREFIX}/busybox/bin/busybox ]; then # prebuilt busybox
                     install -D -m 755 ../packages-${DISTRO_FILE_PREFIX}/busybox/bin/busybox petbuild-rootfs-complete/bin/busybox
                 elif [ "$NAME" != "busybox" ]; then
