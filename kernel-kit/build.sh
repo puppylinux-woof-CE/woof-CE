@@ -821,10 +821,9 @@ make DESTDIR=$CWD/output/${AUFS_UTIL_DIR} install
 	log_msg "aufs-util-${kernel_version} is in output"
 	#---
 	[ -z "$OLDPATH" ] || export PATH=$OLDPATH
-	cd ..
+	cd ../linux-${kernel_version}
 fi
 #------------------------------------------------------
-cd linux-${kernel_version}
 
 # SET_MAKE_COMMAND is used for cross compiling ARM kernels
 if [ "$SET_MAKE_COMMAND" ]; then
