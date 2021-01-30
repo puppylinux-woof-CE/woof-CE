@@ -136,7 +136,7 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
 
         for EXTRAFILE in ../rootfs-petbuilds/${NAME}/*; do
             case "${EXTRAFILE##*/}" in
-            petbuild|*.patch|sha256.sum|*-*|DOTconfig) ;;
+            petbuild|pinstall.sh|pet.specs|*.patch|sha256.sum|*-*|DOTconfig) ;;
             *) cp -a $EXTRAFILE ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}-${HASH}/
             esac
         done
@@ -153,14 +153,12 @@ done
 for NAME in $PKGS; do
     echo "Copying ${NAME}"
 
-    rm -f rootfs-complete/pinstall.sh
     cp -a ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}-latest/* rootfs-complete/
 
-    if [ -f rootfs-complete/pinstall.sh ]; then
+    if [ -f ../rootfs-petbuilds/${NAME}/pinstall.sh ]; then
         echo >> /tmp/rootfs_pkgs_pinstall.sh
-        cat rootfs-complete/pinstall.sh >> /tmp/rootfs_pkgs_pinstall.sh
+        cat ../rootfs-petbuilds/${NAME}/pinstall.sh >> /tmp/rootfs_pkgs_pinstall.sh
         echo >> /tmp/rootfs_pkgs_pinstall.sh
-        rm -f rootfs-complete/pinstall.sh
     fi
 
     cat ../rootfs-petbuilds/${NAME}/pet.specs >> /tmp/rootfs-petbuilds.specs
