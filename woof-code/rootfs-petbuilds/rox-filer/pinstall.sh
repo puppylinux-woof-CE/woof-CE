@@ -1,2 +1,2 @@
 echo '#!/bin/sh
-exec rox "$@"' > usr/local/bin/defaultfilemanager
+exec roxfiler "$@"' > usr/local/bin/defaultfilemanager
