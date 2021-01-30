@@ -43,8 +43,8 @@ list_pkgs() {
 	do
 		PKGL=`echo $line | cut -d '|'  -f 2`
 		echo -n "${PKGL} "
-		find -H $2/$PKGL -type f -o -type l | \
-			sed -e "s%^$3/${PKGL}/%/%" | \
+		find -H $2/$PKGL$4 -type f -o -type l | \
+			sed -e "s%^$3/${PKGL}$4/%/%" | \
 			sort > /tmp/0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}/${PKGL}.files
 		sync
 		while read ONELINE ; do
@@ -56,8 +56,8 @@ list_pkgs() {
 	rm -f $1
 }
 
-[ -f /tmp/rootfs-packages.specs ] && list_pkgs /tmp/rootfs-packages.specs ../rootfs-packages \\.\\./rootfs-packages
-[ -f /tmp/rootfs-petbuilds.specs ] && list_pkgs /tmp/rootfs-petbuilds.specs ../../local-repositories/${DISTRO_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX} \\.\\./\\.\\./local-repositories/${DISTRO_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}
+[ -f /tmp/rootfs-packages.specs ] && list_pkgs /tmp/rootfs-packages.specs ../rootfs-packages \\.\\./rootfs-packages ""
+[ -f /tmp/rootfs-petbuilds.specs ] && list_pkgs /tmp/rootfs-petbuilds.specs ../../local-repositories/${DISTRO_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX} \\.\\./\\.\\./local-repositories/${DISTRO_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX} -latest
 
 echo
 rm -f 0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}.tar.gz
