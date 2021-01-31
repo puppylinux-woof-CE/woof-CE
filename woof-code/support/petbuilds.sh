@@ -64,10 +64,11 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
                 MAKEFLAGS="$MAKEFLAGS" make bash
                 mv bash ../../../local-repositories/bash/bash
                 cd ..
+
+                rm -f petbuild-rootfs-complete/bin/sh petbuild-rootfs-complete/bin/bash
+                install -m 755 ../../local-repositories/bash/bash petbuild-rootfs-complete/bin/bash
+                ln -s bash petbuild-rootfs-complete/bin/sh
             fi
-            rm -f petbuild-rootfs-complete/bin/sh petbuild-rootfs-complete/bin/bash
-            install -m 755 ../../local-repositories/bash/bash petbuild-rootfs-complete/bin/bash
-            ln -s bash petbuild-rootfs-complete/bin/sh
 
             HAVE_ROOTFS=1
         fi
