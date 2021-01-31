@@ -55,7 +55,7 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
             install -m 755 ../../local-repositories/ccache/ccache petbuild-rootfs-complete/ccache
 
             # speed configure scripts by using a native shell executable
-            if [ "$WOOF_HOSTARCH" != "$WOOF_TARGETARCH" && ! -f ../../local-repositories/bash/bash ]; then
+            if [ "$WOOF_HOSTARCH" != "$WOOF_TARGETARCH" -a ! -f ../../local-repositories/bash/bash ]; then
                 mkdir -p ../../local-repositories/bash
                 [ ! -f ../../local-repositories/bash/bash-5.1.tar.gz ] && wget -t 1 -T 15 -O ../../local-repositories/bash/bash-5.1.tar.gz https://ftp.gnu.org/gnu/bash/bash-5.1.tar.gz
                 tar -xzf ../../local-repositories/bash/bash-5.1.tar.gz
