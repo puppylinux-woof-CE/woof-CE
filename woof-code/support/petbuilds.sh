@@ -55,15 +55,17 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
             install -m 755 ../../local-repositories/ccache/ccache petbuild-rootfs-complete/ccache
 
             # speed configure scripts by using a native shell executable
-            if [ "$WOOF_HOSTARCH" != "$WOOF_TARGETARCH" -a ! -f ../../local-repositories/bash/bash ]; then
-                mkdir -p ../../local-repositories/bash
-                [ ! -f ../../local-repositories/bash/bash-5.1.tar.gz ] && wget -t 1 -T 15 -O ../../local-repositories/bash/bash-5.1.tar.gz https://ftp.gnu.org/gnu/bash/bash-5.1.tar.gz
-                tar -xzf ../../local-repositories/bash/bash-5.1.tar.gz
-                cd bash-5.1
-                CFLAGS=-O3 LDFLAGS="-static -Wl,-s" ./configure --enable-minimal-config
-                MAKEFLAGS="$MAKEFLAGS" make bash
-                mv bash ../../../local-repositories/bash/bash
-                cd ..
+            if [ "$WOOF_HOSTARCH" != "$WOOF_TARGETARCH" ]; then
+                if [ ! -f ../../local-repositories/bash/bash ]; then
+                    mkdir -p ../../local-repositories/bash
+                    [ ! -f ../../local-repositories/bash/bash-5.1.tar.gz ] && wget -t 1 -T 15 -O ../../local-repositories/bash/bash-5.1.tar.gz https://ftp.gnu.org/gnu/bash/bash-5.1.tar.gz
+                    tar -xzf ../../local-repositories/bash/bash-5.1.tar.gz
+                    cd bash-5.1
+                    CFLAGS=-O3 LDFLAGS="-static -Wl,-s" ./configure --enable-minimal-config
+                    MAKEFLAGS="$MAKEFLAGS" make bash
+                    mv bash ../../../local-repositories/bash/bash
+                    cd ..
+                fi
 
                 rm -f petbuild-rootfs-complete/bin/sh petbuild-rootfs-complete/bin/bash
                 install -m 755 ../../local-repositories/bash/bash petbuild-rootfs-complete/bin/bash
