@@ -670,6 +670,11 @@ function do_kernel_config() {
 	fi
 }
 
+# in CI, we want to speed up kernel building using ccache
+if [ -n "$GITHUB_ACTIONS" ] ; then
+	sed s~'$(CROSS_COMPILE)gcc'~'ccache &'~ -i Makefile
+fi
+
 if [ "$AUTO" = "yes" ] ; then
 	log_msg "$MAKE olddefconfig"
 	$MAKE olddefconfig
@@ -894,7 +899,11 @@ mv ${linux_kernel_dir} ../output ## ../output/${linux_kernel_dir}
 if [ "$kit_kernel" = "yes" ]; then
 	OUTPUT_VERSION="${kernel_version}${custom_suffix}-${package_name_suffix}"
 else
-	OUTPUT_VERSION="${kernel_version}-${package_name_suffix}"
+	if [ "$remove_sublevel" = "yes" ] ; then
+		OUTPUT_VERSION="`grep 'Kernel Configuration' .config | cut -f 3 -d ' ' | cut -f 1-2 -d .`-${package_name_suffix}"
+	else
+		OUTPUT_VERSION="${kernel_version}-${package_name_suffix}"
+	fi
 fi
 mv ../output/${linux_kernel_dir}/boot/vmlinuz \
 	../output/vmlinuz-${OUTPUT_VERSION}
@@ -1036,6 +1045,6 @@ Output files:
 fi
 
 echo "Done!"
-[ -f /usr/share/sounds/2barks.au ] && aplay /usr/share/sounds/2barks.au
+[ ! -f /usr/share/sounds/2barks.au ] || aplay /usr/share/sounds/2barks.au
 
 ### END ###
