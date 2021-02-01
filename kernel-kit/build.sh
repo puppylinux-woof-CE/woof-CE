@@ -670,6 +670,11 @@ function do_kernel_config() {
 	fi
 }
 
+# in CI, we want to speed up kernel building using ccache
+if [ -n "$GITHUB_ACTIONS" ] ; then
+	sed s~'$(CROSS_COMPILE)gcc'~'ccache &'~ -i Makefile
+fi
+
 if [ "$AUTO" = "yes" ] ; then
 	log_msg "$MAKE olddefconfig"
 	$MAKE olddefconfig
