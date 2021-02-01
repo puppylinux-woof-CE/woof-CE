@@ -430,6 +430,7 @@ if [ "$AUFS" != "no" ] ; then
 fi
 
 export FDRV=fdrv-${kernel_version}-${package_name_suffix}.sfs
+[ "$remove_sublevel" = "yes" ] && export FDRV=fdrv-`grep 'Kernel Configuration' .config | cut -f 3 -d ' ' | cut -f 1-2 -d .`-${package_name_suffix}.sfs
 
 if [ -n "$fware" ] ; then
 	FIRMWARE_OPT=git
@@ -983,8 +984,10 @@ esac
 
 if [ "$kit_kernel" = "yes" ]; then
 	KERNEL_MODULES_SFS_NAME="kernel-modules-${kernel_version}${custom_suffix}-${package_name_suffix}.sfs"
+	[ "$remove_sublevel" = "yes" ] && KERNEL_MODULES_SFS_NAME="kernel-modules-`grep 'Kernel Configuration' ${KERNEL_SOURCES_DIR}/usr/src/linux/.config | cut -f 3 -d ' ' | cut -f 1-2 -d .`${custom_suffix}-${package_name_suffix}.sfs"
 else
 	KERNEL_MODULES_SFS_NAME="kernel-modules-${kernel_version}-${package_name_suffix}.sfs"
+	[ "$remove_sublevel" = "yes" ] && KERNEL_MODULES_SFS_NAME="kernel-modules-`grep 'Kernel Configuration' ${KERNEL_SOURCES_DIR}/usr/src/linux/.config | cut -f 3 -d ' ' | cut -f 1-2 -d .`-${package_name_suffix}.sfs"
 fi
 
 if [ "$STRIP_KMODULES" = "yes" ] ; then
