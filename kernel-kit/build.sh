@@ -430,7 +430,7 @@ if [ "$AUFS" != "no" ] ; then
 fi
 
 export FDRV=fdrv-${kernel_version}-${package_name_suffix}.sfs
-[ "$remove_sublevel" = "yes" ] && export FDRV=fdrv-`grep 'Kernel Configuration' .config | cut -f 3 -d ' ' | cut -f 1-2 -d .`-${package_name_suffix}.sfs
+[ "$remove_sublevel" = "yes" ] && export FDRV=fdrv-`echo $kernel_version | cut -f 3 -d ' ' | cut -f 1-2 -d .`-${package_name_suffix}.sfs
 
 if [ -n "$fware" ] ; then
 	FIRMWARE_OPT=git
