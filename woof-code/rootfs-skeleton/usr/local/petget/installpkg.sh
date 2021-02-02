@@ -318,8 +318,19 @@ case $DLPKG_BASE in
   echo "$PFILES" | sed -e "s#^\.\/#\/#g" -e "s#^#\/#g" -e "s#^\/\/#\/#g" -e 's#^\/$##g' -e 's#^\/\.$##g' > /root/.packages/${DLPKG_NAME}.files
   install_path_check
   #110705 rpm -i does not work for mageia pkgs...
-  exploderpm -i $DLPKG_BASE
+  
+  if [ "$(cpio --help | grep "\-\-directory")" != "" ];  then
+   rpm2cpio $DLPKG_BASE | cpio -idmu -D ${DIRECTSAVEPATH}/
+  else
+   lastpath=$(pwd)
+   cd ${DIRECTSAVEPATH}/
+   rpm2cpio $DLPKG_BASE | cpio -idmu
+  fi
+  
   [ $? -ne 0 ] && clean_and_die
+  
+  [ "$lastpath" != "" ] && cd $lastpath
+  
  ;;
 esac
 
