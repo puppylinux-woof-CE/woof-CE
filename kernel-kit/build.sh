@@ -297,6 +297,16 @@ fi
 log_msg "Linux: ${kernel_major_version}${kmv}${kmr}" #${kernel_series}.
 
 # ===============================
+
+# if remove_sublevel=yes, we want use the kernel major version as the version of
+# the output - e.g. kernel_sources-4.19-slacko64.sfs for 4.19.172
+if [ "$remove_sublevel" = "yes" ]; then
+	package_version=${kernel_major_version}
+else
+	package_version=${kernel_version}
+fi
+
+# ===============================
 if [ "$AUFS" != "no" ] ; then
 	if [ ! "$aufsv" ] ; then
 		git_aufs_branch ${kernel_version} # sets $aufsv
@@ -429,7 +439,7 @@ if [ "$AUFS" != "no" ] ; then
 	fi
 fi
 
-export FDRV=fdrv-${kernel_version}-${package_name_suffix}.sfs
+export FDRV=fdrv-${package_version}-${package_name_suffix}.sfs
 
 if [ -n "$fware" ] ; then
 	FIRMWARE_OPT=git
@@ -905,13 +915,9 @@ mv ${linux_kernel_dir} ../output ## ../output/${linux_kernel_dir}
 
 ## make fatdog kernel module package
 if [ "$kit_kernel" = "yes" ]; then
-	OUTPUT_VERSION="${kernel_version}${custom_suffix}-${package_name_suffix}"
+	OUTPUT_VERSION="${package_version}${custom_suffix}-${package_name_suffix}"
 else
-	if [ "$remove_sublevel" = "yes" ] ; then
-		OUTPUT_VERSION="`grep 'Kernel Configuration' .config | cut -f 3 -d ' ' | cut -f 1-2 -d .`-${package_name_suffix}"
-	else
-		OUTPUT_VERSION="${kernel_version}-${package_name_suffix}"
-	fi
+	OUTPUT_VERSION="${package_version}-${package_name_suffix}"
 fi
 mv ../output/${linux_kernel_dir}/boot/vmlinuz \
 	../output/vmlinuz-${OUTPUT_VERSION}
@@ -935,9 +941,9 @@ if [ "$AUFS" != "no" ] ; then
 			output/${linux_kernel_dir}
 fi
 if [ "$kit_kernel" = "yes" ]; then
-	KERNEL_SOURCES_DIR="kernel_sources-${kernel_version}${custom_suffix}-${package_name_suffix}"
+	KERNEL_SOURCES_DIR="kernel_sources-${package_version}${custom_suffix}-${package_name_suffix}"
 else
-	KERNEL_SOURCES_DIR="kernel_sources-${kernel_version}-${package_name_suffix}"
+	KERNEL_SOURCES_DIR="kernel_sources-${package_version}-${package_name_suffix}"
 fi
 if [ "$CREATE_SOURCES_SFS" != "no" ]; then
 	log_msg "Creating a kernel sources SFS"
@@ -982,9 +988,9 @@ esac
 
 
 if [ "$kit_kernel" = "yes" ]; then
-	KERNEL_MODULES_SFS_NAME="kernel-modules-${kernel_version}${custom_suffix}-${package_name_suffix}.sfs"
+	KERNEL_MODULES_SFS_NAME="kernel-modules-${package_version}${custom_suffix}-${package_name_suffix}.sfs"
 else
-	KERNEL_MODULES_SFS_NAME="kernel-modules-${kernel_version}-${package_name_suffix}.sfs"
+	KERNEL_MODULES_SFS_NAME="kernel-modules-${package_version}-${package_name_suffix}.sfs"
 fi
 
 if [ "$STRIP_KMODULES" = "yes" ] ; then
