@@ -28,7 +28,7 @@ verify_not_running() {
 
 #=================================================
 
-for i in $HOME/.config/autostart/*.desktop
+for i in /etc/xdg/autostart/*.desktop
 do
 	if ! [ -f $i ] ; then
 		continue
@@ -41,12 +41,12 @@ done
 
 #=================================================
 
-for i in /etc/xdg/autostart/*.desktop
+for i in $HOME/.config/autostart/*.desktop
 do
 	if ! [ -f $i ] ; then
 		continue
 	fi
-	if [ -f $HOME/.config/autostart/${i} ] ; then
+	if [ -f /etc/xdg/autostart/${i} ] ; then
 		continue
 	fi
 	if ! verify_not_running $i ; then
