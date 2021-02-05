@@ -1,0 +1,80 @@
+name: c201
+
+on:
+  push:
+    branches:
+      - c201-v2
+      - testing
+    paths:
+      - 'woof-distro/x86_64/debian/bullseye/**'
+      - 'woof-code/**'
+      - 'merge2out'
+      - '!**.svg'
+      - '!**.png'
+      - '!**.htm'
+      - '!**.html'
+  schedule:
+    - cron: '0 0 * * 4'
+
+jobs:
+  build:
+    runs-on: ubuntu-20.04
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+    - name: Install dependencies
+      run: |
+        sudo apt-get install -y --no-install-recommends ccache vboot-kernel-utils cgpt
+        ccache --set-config=hash_dir=false --set-config=max_size=2.0G
+    - name: Create local-repositories
+      run: |
+        mkdir -p local-repositories
+        ln -s `pwd`/local-repositories ../local-repositories
+    - name: Get cached local-repositories
+      uses: actions/cache@v2
+      with:
+        path: local-repositories
+        key: ${{ github.workflow }}-local-repositories-${{ github.sha }}
+        restore-keys: |
+          ${{ github.workflow }}-local-repositories-
+    - name: Prepare build environment
+      run: |
+        [ -f local-repositories/vercmp ] || (curl https://raw.githubusercontent.com/puppylinux-woof-CE/initrd_progs/master/pkg/w_apps_static/w_apps/vercmp.c | gcc -x c -o ../local-repositories/vercmp -)
+        sudo install -m 755 local-repositories/vercmp /usr/local/bin/vercmp
+        sudo install -D -m 644 woof-code/rootfs-skeleton/usr/local/petget/categories.dat /usr/local/petget/categories.dat
+        echo "dash dash/sh boolean false" | sudo debconf-set-selections
+        sudo DEBIAN_FRONTEND=noninteractive dpkg-reconfigure dash
+        sudo ln -s /usr/bin/mount /usr/local/bin/mount-FULL
+    - name: Fix cache ownership
+      run: sudo chown -R root:root local-repositories
+    - name: merge2out
+      run: |
+        (echo 3; echo 1; echo 1; echo) | sudo -E ./merge2out
+    - name: 0setup
+      run: |
+        cd ../woof-out_x86_64_x86_64_debian_bullseye
+        sudo ./0setup
+    - name: 1download
+      run: |
+        cd ../woof-out_x86_64_x86_64_debian_bullseye
+        sudo ./1download
+    - name: Get cached ~/.ccache
+      uses: actions/cache@v2
+      with:
+        path: ~/.ccache
+        key: ${{ github.workflow }}-ccache-${{ github.sha }}
+        restore-keys: |
+          ${{ github.workflow }}-ccache-
+    - name: kernel-kit
+      run: |
+        cd ../woof-out_x86_64_x86_64_debian_bullseye/kernel-kit
+        sudo cp -f bullseye-build.conf build.conf
+        sudo -E ./build.sh
+    - name: 2createpackages
+      run: |
+        cd ../woof-out_x86_64_x86_64_debian_bullseye
+        echo | sudo ./2createpackages
+    - name: 3builddistro
+      run: |
+        cd ../woof-out_x86_64_x86_64_debian_bullseye
+        sudo -E ./3builddistro
