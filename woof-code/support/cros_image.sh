@@ -10,7 +10,6 @@ SSD_IMG_BASE=${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}-ext4-16gb.img
 
 echo "console=tty1 root=PARTUUID=%U/PARTNROFF=1 init=/init rootfstype=ext4 rootwait rw" > cmdline
 vmlinuz=boot/vmlinuz
-bootloader=
 case $WOOF_TARGETARCH in
 arm) # TODO: this specific to RK3288-based models
 	cat << EOF > kernel.its
@@ -55,12 +54,11 @@ arm) # TODO: this specific to RK3288-based models
 EOF
 	mkimage -D "-I dts -O dtb -p 2048" -f kernel.its vmlinux.uimg
 	vmlinuz=vmlinux.uimg
-	dd if=/dev/zero of=bootloader.bin bs=512 count=1
-	bootloader="--bootloader bootloader.bin"
 	;;
 # TODO: aarch64 support
 esac
 
+dd if=/dev/zero of=bootloader.bin bs=512 count=1
 vbutil_kernel --pack build/vmlinux.kpart \
               --version 1 \
               --vmlinuz $vmlinuz \
@@ -68,7 +66,7 @@ vbutil_kernel --pack build/vmlinux.kpart \
               --keyblock /usr/share/vboot/devkeys/kernel.keyblock \
               --signprivate /usr/share/vboot/devkeys/kernel_data_key.vbprivk \
               --config cmdline \
-              $bootloader
+              --bootloader bootloader.bin
 
 mkdir -p /mnt/sdimagep2 /mnt/ssdimagep2
 
