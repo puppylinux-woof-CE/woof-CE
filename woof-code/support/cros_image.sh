@@ -56,7 +56,7 @@ EOF
 	mkimage -D "-I dts -O dtb -p 2048" -f kernel.its vmlinux.uimg
 	vmlinuz=vmlinux.uimg
 	dd if=/dev/zero of=bootloader.bin bs=512 count=1
-	bootloader=--bootloader bootloader.bin
+	bootloader="--bootloader bootloader.bin"
 	;;
 # TODO: aarch64 support
 esac
