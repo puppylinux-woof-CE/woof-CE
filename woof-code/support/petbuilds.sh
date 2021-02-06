@@ -158,6 +158,26 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
         find ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}-${HASH} -name '*.a' -delete
         find ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}-${HASH} -name '*.la' -delete
 
+        LIBDIRS="lib usr/lib"
+        case $DISTRO_BINARY_COMPAT in
+        slackware64) # in slacko64, we move all shared libraries to lib64
+            for LIBDIR in $LIBDIRS; do
+                mkdir -p ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}-${HASH}/${LIBDIR}64
+                for SO in `ls ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}-${HASH}/${LIBDIR}/*.so* 2>/dev/null`; do
+                    mv -f $SO /../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}-${HASH}/${LIBDIR}64/
+                done
+            done
+            ;;
+
+        raspbian|debian|devuan|ubuntu|trisquel) # in debian, we move all shared libraries to ARCHDIR, e.g. lib/arm-linux-gnueabihf
+            for LIBDIR in $LIBDIRS; do
+                for SO in `ls ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}-${HASH}/${LIBDIR}/*.so* 2>/dev/null`; do
+                    mv -f $SO /../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}-${HASH}/${LIBDIR}/${ARCHDIR}/
+                done
+            done
+            ;;
+        esac
+
         rmdir ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}-${HASH}/usr/share/* 2>/dev/null
         rmdir ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}-${HASH}/usr/* 2>/dev/null
         rmdir ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}-${HASH}/* 2>/dev/null
