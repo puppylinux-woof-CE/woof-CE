@@ -109,7 +109,7 @@ gboolean Update(gpointer ptr) {
         if (charged == 1) batpercent=100; /*101006*/
 
     }
-    else if (pmtype == 2) { //apm
+    else if (pmtype == 1) { //apm
         if((fp = fopen("/proc/apm","r")) == NULL) return TRUE;
         fscanf(fp,"%*s %*s %*s %*s %*s %*s %7s %d %7s",strpercent,&num,time);
         num = num/(strcmp(time,"sec") == 0?60:1);
