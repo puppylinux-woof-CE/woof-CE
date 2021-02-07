@@ -20,6 +20,8 @@
 #include <glib/gstdio.h>
 #include <sys/types.h>
 #include <dirent.h>
+#include <glob.h>
+#include <libgen.h>
 
 #define _(STRING)    gettext(STRING)
 
@@ -107,13 +109,51 @@ gboolean Update(gpointer ptr) {
         if (charged == 1) batpercent=100; /*101006*/
 
     }
-    else { //apm
+    else if (pmtype == 2) { //apm
         if((fp = fopen("/proc/apm","r")) == NULL) return TRUE;
         fscanf(fp,"%*s %*s %*s %*s %*s %*s %7s %d %7s",strpercent,&num,time);
         num = num/(strcmp(time,"sec") == 0?60:1);
         sprintf(time,"%d:%02d",(num/60)%100,num%60);
         fclose(fp);
         batpercent=atoi(strpercent);
+        if (batpercent < 0) // APM emulation says charge is -1%
+            pmtype = 3;
+    }
+    if (pmtype == 3) { // /sys/class/power_supply
+        glob_t g = {0};
+        if ((glob("/sys/class/power_supply/*/charge_full", 0, NULL, &g) == 0) && (g.gl_pathc > 0)) {
+            for (size_t i = 0; i < g.gl_pathc; ++i) {
+                if (chdir(dirname(g.gl_pathv[i])) < 0)
+                    continue;
+
+                int full;
+                if((fp = fopen("charge_full","r")) == NULL) continue;
+                fscanf(fp,"%d",&full);
+                fclose(fp);
+
+                char status[sizeof("Discharging\n")];
+                status[0] = '\0';
+                if((fp = fopen("status","r")) == NULL) continue;
+                fscanf(fp,"%12s",status);
+                fclose(fp);
+                if (strcmp(status, "Full") == 0) {
+                    batpercent = 100;
+                    charging = 0;
+                } else {
+                    charging = (strcmp(status, "Charging") == 0);
+
+                    int now;
+                    if((fp = fopen("charge_now","r")) == NULL) continue;
+                    fscanf(fp,"%d",&now);
+                    fclose(fp);
+
+                    batpercent=(now*100)/full;
+                }
+
+                break;
+            }
+        }
+        globfree(&g);
     }
     
     //check for mad result...
