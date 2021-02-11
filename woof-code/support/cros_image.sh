@@ -7,6 +7,7 @@ SD_IMG_BASE=${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}-ext4-2gb.img
 INSTALL_IMG_BASE=${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}-ext4-2gb-install.img
 
 SSD_IMG_BASE=${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}-ext4-16gb.img
+LEGACY_IMG_BASE=${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}-ext4-2gb-legacy.img
 
 echo "console=tty1 root=PARTUUID=%U/PARTNROFF=1 init=/init rootfstype=ext4 rootwait rw" > cmdline
 vmlinuz=boot/vmlinuz
@@ -107,6 +108,36 @@ esac
 [ ! -f ../../local-repositories/frugalify/${FRUGALIFY} ] && wget --tries=1 --timeout=10 -O ../../local-repositories/frugalify/${FRUGALIFY} https://github.com/dimkr/frugalify/releases/latest/download/${FRUGALIFY}
 install -m 755 ../../local-repositories/frugalify/${FRUGALIFY} /mnt/ssdimagep2/init
 cp -a /mnt/ssdimagep2/${DISTRO_FILE_PREFIX}-${DISTRO_VERSION} /mnt/ssdimagep2/*.sfs /mnt/ssdimagep2/init /mnt/sdimagep2/
+
+case $WOOF_TARGETARCH in
+x86*)
+	dd if=/dev/zero of=${LEGACY_IMG_BASE} bs=50M count=40 conv=sparse
+	parted --script ${LEGACY_IMG_BASE} mklabel msdos
+	parted --script ${LEGACY_IMG_BASE} mkpart primary "" ext4 2048s 100%
+	parted --script ${LEGACY_IMG_BASE} set 1 boot on
+	LOOP=`losetup -Pf --show ${LEGACY_IMG_BASE}`
+	mkfs.ext4 -F -b 1024 -m 0 -O ^has_journal ${LOOP}p1
+
+	mkdir -p /mnt/legacyimagep1
+	mount-FULL -o noatime ${LOOP}p1 /mnt/legacyimagep1
+
+	cp -f boot/vmlinuz /mnt/legacyimagep1
+	extlinux -i /mnt/legacyimagep1
+	dd if=/usr/lib/EXTLINUX/mbr.bin of=${LOOP}
+	cat << EOF > /mnt/legacyimagep1/extlinux.conf
+DEFAULT puppy
+
+LABEL puppy
+	LINUX vmlinuz
+	APPEND init=/init rootfstype=ext4 rootwait rw
+EOF
+
+	cp -a /mnt/ssdimagep2/${DISTRO_FILE_PREFIX}-${DISTRO_VERSION} /mnt/ssdimagep2/*.sfs /mnt/ssdimagep2/init /mnt/legacyimagep1/
+	busybox umount /mnt/legacyimagep1 2>/dev/null
+	mv -f ${LEGACY_IMG_BASE} ../${WOOF_OUTPUT}/
+	;;
+esac
+
 busybox umount /mnt/sdimagep2 2>/dev/null
 busybox umount /mnt/ssdimagep2 2>/dev/null
 
