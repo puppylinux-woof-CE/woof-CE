@@ -54,7 +54,7 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
             fi
             install -m 755 ../../local-repositories/ccache/ccache petbuild-rootfs-complete/ccache
 
-            # speed configure scripts by using a native shell executable
+            # speed configure scripts by using a native shell executable and a native busybox
             if [ "$WOOF_HOSTARCH" != "$WOOF_TARGETARCH" ]; then
                 if [ ! -f ../../local-repositories/bash/bash ]; then
                     mkdir -p ../../local-repositories/bash
@@ -70,6 +70,20 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
                 rm -f petbuild-rootfs-complete/bin/sh petbuild-rootfs-complete/bin/bash
                 install -m 755 ../../local-repositories/bash/bash petbuild-rootfs-complete/bin/bash
                 ln -s bash petbuild-rootfs-complete/bin/sh
+
+                if [ ! -f ../../local-repositories/busybox/busybox ]; then
+                    mkdir -p ../../local-repositories/busybox
+                    [ ! -f ../../local-repositories/busybox/busybox-1.32.1.tar.bz2 ] && wget -t 1 -T 15 -O ../../local-repositories/busybox/busybox-1.32.1.tar.bz2 https://busybox.net/downloads/busybox-1.32.1.tar.bz2
+                    tar -xjf ../../local-repositories/busybox/busybox-1.32.1.tar.bz2
+                    cp -f ../rootfs-petbuilds/busybox/DOTconfig busybox-1.32.1/.config
+                    cd busybox-1.32.1
+                    make CONFIG_STATIC=y
+                    mv busybox ../../../local-repositories/busybox/busybox
+                    cd ..
+                fi
+
+                rm -f petbuild-rootfs-complete/bin/sh petbuild-rootfs-complete/bin/busybox
+                install -m 755 ../../local-repositories/busybox/busybox petbuild-rootfs-complete/bin/busybox
             fi
 
             HAVE_ROOTFS=1
