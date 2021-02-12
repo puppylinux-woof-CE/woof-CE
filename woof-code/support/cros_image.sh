@@ -112,10 +112,11 @@ cp -a /mnt/ssdimagep2/${DISTRO_FILE_PREFIX}-${DISTRO_VERSION} /mnt/ssdimagep2/*.
 case $WOOF_TARGETARCH in
 x86*)
 	dd if=/dev/zero of=${LEGACY_IMG_BASE} bs=50M count=40 conv=sparse
-	parted --script ${LEGACY_IMG_BASE} mklabel msdos
+	parted --script ${LEGACY_IMG_BASE} mklabel gpt
 	parted --script ${LEGACY_IMG_BASE} mkpart primary "" ext4 2048s 100%
-	parted --script ${LEGACY_IMG_BASE} set 1 boot on
+	parted --script ${LEGACY_IMG_BASE} set 1 legacy_boot on
 	LOOP=`losetup -Pf --show ${LEGACY_IMG_BASE}`
+	PARTUUID=`blkid -o value ${LOOP}p1 | tail -n 1`
 	mkfs.ext4 -F -b 1024 -m 0 -O ^has_journal ${LOOP}p1
 
 	mkdir -p /mnt/legacyimagep1
@@ -123,13 +124,13 @@ x86*)
 
 	cp -f build/vmlinuz /mnt/legacyimagep1
 	extlinux -i /mnt/legacyimagep1
-	dd if=/usr/lib/EXTLINUX/mbr.bin of=${LOOP}
+	dd if=/usr/lib/EXTLINUX/gptmbr.bin of=${LOOP}
 	cat << EOF > /mnt/legacyimagep1/extlinux.conf
 DEFAULT puppy
 
 LABEL puppy
 	LINUX vmlinuz
-	APPEND init=/init rootfstype=ext4 rootwait rw
+	APPEND root=PARTUUID=$PARTUUID init=/init rootfstype=ext4 rootwait rw
 EOF
 
 	cp -a /mnt/ssdimagep2/${DISTRO_FILE_PREFIX}-${DISTRO_VERSION} /mnt/ssdimagep2/*.sfs /mnt/ssdimagep2/init /mnt/legacyimagep1/
