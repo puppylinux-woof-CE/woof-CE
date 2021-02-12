@@ -82,7 +82,7 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
                     cd ..
                 fi
 
-                rm -f petbuild-rootfs-complete/bin/sh petbuild-rootfs-complete/bin/busybox
+                rm -f petbuild-rootfs-complete/bin/busybox
                 install -m 755 ../../local-repositories/busybox/busybox petbuild-rootfs-complete/bin/busybox
             fi
 
