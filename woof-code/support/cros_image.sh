@@ -10,7 +10,7 @@ SSD_IMG_BASE=${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}-ext4-16gb.img
 LEGACY_IMG_BASE=${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}-ext4-2gb-legacy.img
 
 echo "console=tty1 root=PARTUUID=%U/PARTNROFF=1 init=/init rootfstype=ext4 rootwait rw" > cmdline
-vmlinuz=boot/vmlinuz
+vmlinuz=build/vmlinuz
 case $WOOF_TARGETARCH in
 arm) # TODO: this specific to RK3288-based models
 	cat << EOF > kernel.its
@@ -121,7 +121,7 @@ x86*)
 	mkdir -p /mnt/legacyimagep1
 	mount-FULL -o noatime ${LOOP}p1 /mnt/legacyimagep1
 
-	cp -f boot/vmlinuz /mnt/legacyimagep1
+	cp -f build/vmlinuz /mnt/legacyimagep1
 	extlinux -i /mnt/legacyimagep1
 	dd if=/usr/lib/EXTLINUX/mbr.bin of=${LOOP}
 	cat << EOF > /mnt/legacyimagep1/extlinux.conf
