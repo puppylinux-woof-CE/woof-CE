@@ -122,7 +122,6 @@ x86*)
 	mkdir -p /mnt/legacyimagep1
 	mount-FULL -o noatime ${LOOP}p1 /mnt/legacyimagep1
 
-	cp -f build/vmlinuz /mnt/legacyimagep1
 	extlinux -i /mnt/legacyimagep1
 	dd if=/usr/lib/EXTLINUX/mbr.bin of=${LOOP}
 	cat << EOF > /mnt/legacyimagep1/extlinux.conf
@@ -134,6 +133,8 @@ LABEL puppy
 EOF
 
 	cp -a /mnt/ssdimagep2/${DISTRO_FILE_PREFIX}-${DISTRO_VERSION} /mnt/ssdimagep2/*.sfs /mnt/ssdimagep2/init /mnt/legacyimagep1/
+	cp -f build/vmlinuz /mnt/legacyimagep1/${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}/
+	ln -s ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}/vmlinuz /mnt/legacyimagep1/
 	busybox umount /mnt/legacyimagep1 2>/dev/null
 	mv -f ${LEGACY_IMG_BASE} ../${WOOF_OUTPUT}/
 	;;
