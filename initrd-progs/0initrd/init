@@ -102,6 +102,9 @@ LINUXFSLIST="ext2|ext3|ext4|btrfs|minix|f2fs|reiserfs"
 #Filesystem to be fsck
 FSCKLIST="ext2|ext3|ext4|vfat|msdos|exfat"
 
+#Total SFS size copied on RAM
+TOTAL_SIZEK_SFS_RAM=0
+
 #=============================================================
 #                        FUNCTIONS
 #=============================================================
@@ -385,33 +388,54 @@ setup_onepupdrv() {
   SIZESFSK=$(du -k $ONE_FN | cut -f 1)
   SIZESFSK=$(($SIZESFSK + 1000)) #some slack.
   MINRAM2CPY=$(($SIZESFSK * 2)) #100222 technosaurus: in case of very big puppies.
+  
   #decide whether to copy .sfs's to ram
-  if [ $RAMSIZE -gt 1048576 ] ; then
-   [ $RAMSIZE -gt $MINRAM2CPY ] && COPY2RAM="yes"
-  fi
+  [ $QRAMSIZEK -gt $SIZESFSK ] && COPY2RAM="yes"
+  
  fi
+ 
  ONE_LOOP="$(losetup -f)"
+ 
  if [ "$COPY2RAM" = "yes" ];then
+ 
   SIZEZK=$(du -k $ONE_FN | cut -f 1)
   TFREEK=$(df | grep -m1 ' /mnt/tmpfs' | tr -s ' ' | cut -f 4 -d ' ')
-  if [ $TFREEK -gt $SIZEZK ];then
+  
+  if [ $QRAMSIZEK -gt $SIZEZK ];then
+   
    if [ "$ONE_MP" = "" ];then #101101 humongous initrd.
     mv -f $ONE_FN /mnt/tmpfs/
-   else
-    echo -en " \\033[1;35m${L_COPY_MESSAGE}\\033[0;39m" > /dev/console #purple.
     TOTAL_SIZEK_SFS_RAM=$(($TOTAL_SIZEK_SFS_RAM + $SIZEZK))
-    cp -af $ONE_FN /mnt/tmpfs/
+    sync
+    losetup -r $ONE_LOOP /mnt/tmpfs/$ONE_BASENAME
+   else
+    
+    PRE_SFS_SIZEK=$(($TOTAL_SIZEK_SFS_RAM + $SIZEZK))
+
+    if [ $QRAMSIZEK -gt $PRE_SFS_SIZEK ];then
+     echo -en " \\033[1;35m${L_COPY_MESSAGE}\\033[0;39m" > /dev/console #purple.
+     cp -af $ONE_FN /mnt/tmpfs/
+     sync
+     losetup -r $ONE_LOOP /mnt/tmpfs/$ONE_BASENAME
+     TOTAL_SIZEK_SFS_RAM=$(($TOTAL_SIZEK_SFS_RAM + $SIZEZK))
+    else
+     #Can no longer copy to ram
+     losetup -r $ONE_LOOP $ONE_FN
+     [ "$ONE_PART" != "rootfs" ] && KEEPMOUNTED="${KEEPMOUNTED}${ONE_PART} "
+    fi
+   
    fi
-   sync
-   losetup -r $ONE_LOOP /mnt/tmpfs/$ONE_BASENAME
+ 
   else
    losetup -r $ONE_LOOP $ONE_FN
    [ "$ONE_PART" != "rootfs" ] && KEEPMOUNTED="${KEEPMOUNTED}${ONE_PART} "
   fi
+  
  else
-  losetup -r $ONE_LOOP $ONE_FN
-  [ "$ONE_PART" != "rootfs" ] && KEEPMOUNTED="${KEEPMOUNTED}${ONE_PART} "
+   losetup -r $ONE_LOOP $ONE_FN
+   [ "$ONE_PART" != "rootfs" ] && KEEPMOUNTED="${KEEPMOUNTED}${ONE_PART} "
  fi
+ 
  SFS_MP="/pup_${ONE_SFX}"
  [ "$ONE_SFX" = "p" ] && SFS_MP="/pup_ro2"
  [ -d "$SFS_MP" ] || mkdir $SFS_MP
@@ -790,7 +814,6 @@ fi
 
 #[ $pdebug ] && PDEBUG=$pdebug
 PDEBUG=1
-TOTAL_SIZEK_SFS_RAM=0
 
 RDSH=""
 if [ "$pfix" ];then
@@ -926,6 +949,7 @@ fi
 
 #have pup...sfs, now try to load it
 RAMSIZE=$(free | grep -o 'Mem: .*' | tr -s ' ' | cut -f 2 -d ' ') #total physical ram (less shared video). 110405
+QRAMSIZEK=`expr $RAMSIZE / 4` #Quarter physical ram
 
 mount -t tmpfs tmpfs /mnt/tmpfs
 [ -d "/mnt/tmpfs/pup_rw" ] || mkdir /mnt/tmpfs/pup_rw
