@@ -6,6 +6,7 @@
 /*110929 BK 2.6.39.4 kernel does not have /proc/acpi/info*/
 /*version 2.5 (20120519) rodin.s: added gettext*/
 /*version 2.6 (20131215) 01micko change to svg icons*/
+/*version 3.0 (20210218) 01micko dynamic svg icons*/
 
 #include <stddef.h>
 #include <string.h>
@@ -24,20 +25,22 @@
 #include <libgen.h>
 
 #define _(STRING)    gettext(STRING)
+#define SVGHEAD		"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<svg xmlns=\"http://www.w3.org/2000/svg\" version=\"1.1\" viewBox=\"0 0 128 128\">\n\t<defs>\n\t\t<linearGradient id=\"grad2\" x1=\"0%\" y1=\"0%\" x2=\"0%\" y2=\"100%\">\n\t\t<stop offset=\""
+#define SVGDEF1		"%\" style=\"stop-color:rgb(150,150,150);stop-opacity:1\" />\n\t\t<stop offset=\""
+#define SVGDEF2		"%\" style=\"stop-color:"
+#define SVGDEF3		";stop-opacity:1\" />\n\t\t</linearGradient>\n\t</defs>\n\t"
+#define SVGPATH1	"<path style=\"fill:#232323;stroke:none\" d=\"m 50 14 a 6 6 0 0 0 6 -6 l 16 0 a 6 6 0 0 0 6 6 z\"/>\n\t<path style=\"fill:url(#grad2);stroke:#232323;stroke-width:2\" d=\"m 42 14 44 0 a 10 10 0 0 1 10 10 l 0 80 a 10 10 0 0 1 -10 10 l -44 0  a 10 10 0 0 1 -10 -10 l 0 -80  a 10 10 0 0 1 10 -10 z\"/>\n\t"
+#define SVGFOOT		"\n</svg>"
+#define TEMP		"/tmp/powerapplet"
+#define ICON 		"/tmp/powerapplet/bat.svg"
+#define CHHIGH		"rgb(80,110,255)" 		// high charging blue
+#define DISHIGH		"rgb(255,160,125)"		// high discharging orange
+#define CHLOW		"rgb(204,80,255)"		// low charging purple
+#define DISLOW		"rgb(255,91,71)"		// low discharging red
+#define SYMBOLP		"<path style=\"fill:#FFF152;stroke:#000\" d=\"m 56 33 25 0 -13 35 11 -4 -25 38 7 -38 -11 6 z\"/>"
+#define SYMBOLM		"<path style=\"fill:#BB0000;stroke:none\" d=\"m 50 60 28 0 0 8 -28 0 z\"/>"
 
-GdkPixbuf *blank_pixbuf;
-GdkPixbuf *emptychg_pixbuf;
-GdkPixbuf *twentychg_pixbuf;
-GdkPixbuf *fortychg_pixbuf;
-GdkPixbuf *sixtychg_pixbuf;
-GdkPixbuf *eightychg_pixbuf;
-GdkPixbuf *fullchg_pixbuf;
-GdkPixbuf *emptydis_pixbuf;
-GdkPixbuf *twentydis_pixbuf;
-GdkPixbuf *fortydis_pixbuf;
-GdkPixbuf *sixtydis_pixbuf;
-GdkPixbuf *eightydis_pixbuf;
-GdkPixbuf *fulldis_pixbuf;
+GdkPixbuf *bat_pixbuf;
 
 GtkStatusIcon *tray_icon;
 unsigned int interval = 15000; /*update interval in milliseconds*/
@@ -46,6 +49,7 @@ int batpercentprev = 0;
 int charged;
 int pmtype = 0;
 FILE *fp;
+FILE *fx;
 char inbuf1[200];
 char inbuf2[200];
 char powerdesign[20]="5500";
@@ -61,7 +65,49 @@ char batpathstate[64]="/proc/acpi/battery/";
 
 GError *gerror = NULL;
 
-gboolean Update(gpointer ptr);
+/* makes the tray icon image to be displayed */
+int paint_icon(int state, int showpercent) {
+	char colour[20];
+	char symbol[110]; // + or -
+	if ( state == 1 ) {
+		if ( showpercent <= 15 ) {
+			strcpy(colour, CHLOW);
+		} else {
+			strcpy(colour,CHHIGH);
+		}
+		strcpy(symbol, SYMBOLP); // '+'
+	} else {
+		if ( showpercent <= 20 ) {
+			strcpy(colour, DISLOW);
+		} else {
+			strcpy(colour, DISHIGH);
+		}
+		strcpy(symbol, SYMBOLM); // '-'
+	}
+	int gradpc1 = 90 - showpercent ;
+	int gradpc2 = 100 - showpercent ;
+	if ( gradpc1 <= 0 )
+		gradpc1 = 0;
+		
+	int access_ok = access(TEMP, W_OK);
+	if (access_ok != 0) {
+		if (mkdir(TEMP, 01777) != 0 ) {
+			fprintf(stderr, "Couldn't create %s for writing\n", TEMP);
+			exit(1);
+		}
+	}
+	fx = fopen(ICON, "w");
+	if (!fx) {
+		fprintf(stderr, "Couldn't open %s for writing\n", ICON);
+		exit(1); 
+	}
+	
+	fprintf(fx, "%s%d%s%d%s%s%s%s%s%s", SVGHEAD, gradpc1, SVGDEF1, gradpc2, SVGDEF2, colour, SVGDEF3, SVGPATH1, symbol, SVGFOOT);
+	
+	fclose(fx);
+
+	return 0;
+}
 
 gboolean Update(gpointer ptr) {
     char strpercent[8];
@@ -164,24 +210,12 @@ gboolean Update(gpointer ptr) {
     batpercentprev=batpercent;
     
     //update icon...
-    if (charging==1) {
-        if (batpercent < 10) gtk_status_icon_set_from_pixbuf(tray_icon,emptychg_pixbuf);
-        else if (batpercent < 21) gtk_status_icon_set_from_pixbuf(tray_icon,twentychg_pixbuf);
-        else if (batpercent < 41) gtk_status_icon_set_from_pixbuf(tray_icon,fortychg_pixbuf);
-        else if (batpercent < 61) gtk_status_icon_set_from_pixbuf(tray_icon,sixtychg_pixbuf);
-        else if (batpercent < 81) gtk_status_icon_set_from_pixbuf(tray_icon,eightychg_pixbuf);
-        else gtk_status_icon_set_from_pixbuf(tray_icon,fullchg_pixbuf);
-    }
-    else {
-        if (batpercent < 10) gtk_status_icon_set_from_pixbuf(tray_icon,emptydis_pixbuf);
-        else if (batpercent < 21) gtk_status_icon_set_from_pixbuf(tray_icon,twentydis_pixbuf);
-        else if (batpercent < 41) gtk_status_icon_set_from_pixbuf(tray_icon,fortydis_pixbuf);
-        else if (batpercent < 61) gtk_status_icon_set_from_pixbuf(tray_icon,sixtydis_pixbuf);
-        else if (batpercent < 81) gtk_status_icon_set_from_pixbuf(tray_icon,eightydis_pixbuf);
-        else gtk_status_icon_set_from_pixbuf(tray_icon,fulldis_pixbuf);
-        /*100517 BK only blink icon if not charging...*/
-    }
-    
+	int icon_success = paint_icon(charging, batpercent);
+	if ( icon_success != 0 ) {
+		printf("Error: couldn't build icon.\n");
+		exit(1);
+	}
+	
     //update tooltip...
     memdisplaylong[0]=0;
     if (charging==0) strcat(memdisplaylong,_("Battery discharging, capacity "));
@@ -190,7 +224,11 @@ gboolean Update(gpointer ptr) {
     strcat(memdisplaylong,strpercent);
     strcat(memdisplaylong,"%");
     gtk_status_icon_set_tooltip_text(tray_icon, memdisplaylong);
+    bat_pixbuf = gdk_pixbuf_new_from_file(ICON,&gerror);
+	gtk_status_icon_set_from_pixbuf(tray_icon,bat_pixbuf);
+    return TRUE;
 }
+
 
 void tray_icon_on_click(GtkStatusIcon *status_icon, gpointer user_data)
 {
@@ -200,36 +238,19 @@ void tray_icon_on_click(GtkStatusIcon *status_icon, gpointer user_data)
     }
 }
 
-void tray_icon_on_menu(GtkStatusIcon *status_icon, guint button, guint activate_time, gpointer user_data)
-{
-    printf("Popup menu\n");
-}
-
 static GtkStatusIcon *create_tray_icon() {
 
     tray_icon = gtk_status_icon_new();
     g_signal_connect(G_OBJECT(tray_icon), "activate", G_CALLBACK(tray_icon_on_click), NULL);
-    g_signal_connect(G_OBJECT(tray_icon), "popup-menu", G_CALLBACK(tray_icon_on_menu), NULL);
 
     
-    blank_pixbuf=gdk_pixbuf_new_from_file("/usr/share/pixmaps/powerapplet/not.svg",&gerror);
-    emptychg_pixbuf=gdk_pixbuf_new_from_file("/usr/share/pixmaps/powerapplet/emptychg.svg",&gerror);
-    twentychg_pixbuf=gdk_pixbuf_new_from_file("/usr/share/pixmaps/powerapplet/twentychg.svg",&gerror);
-    fortychg_pixbuf=gdk_pixbuf_new_from_file("/usr/share/pixmaps/powerapplet/fortychg.svg",&gerror);
-    sixtychg_pixbuf=gdk_pixbuf_new_from_file("/usr/share/pixmaps/powerapplet/sixtychg.svg",&gerror);
-    eightychg_pixbuf=gdk_pixbuf_new_from_file("/usr/share/pixmaps/powerapplet/eightychg.svg",&gerror);
-    fullchg_pixbuf=gdk_pixbuf_new_from_file("/usr/share/pixmaps/powerapplet/fullchg.svg",&gerror);
-    emptydis_pixbuf=gdk_pixbuf_new_from_file("/usr/share/pixmaps/powerapplet/emptydis.svg",&gerror);
-    twentydis_pixbuf=gdk_pixbuf_new_from_file("/usr/share/pixmaps/powerapplet/twentydis.svg",&gerror);
-    fortydis_pixbuf=gdk_pixbuf_new_from_file("/usr/share/pixmaps/powerapplet/fortydis.svg",&gerror);
-    sixtydis_pixbuf=gdk_pixbuf_new_from_file("/usr/share/pixmaps/powerapplet/sixtydis.svg",&gerror);
-    eightydis_pixbuf=gdk_pixbuf_new_from_file("/usr/share/pixmaps/powerapplet/eightydis.svg",&gerror);
-    fulldis_pixbuf=gdk_pixbuf_new_from_file("/usr/share/pixmaps/powerapplet/fulldis.svg",&gerror);
+    bat_pixbuf=gdk_pixbuf_new_from_file(ICON,&gerror);
 
-    gtk_status_icon_set_from_pixbuf(tray_icon,blank_pixbuf);
+    gtk_status_icon_set_from_pixbuf(tray_icon,bat_pixbuf);
     
     gtk_status_icon_set_tooltip_text(tray_icon, _("Battery charge"));
     gtk_status_icon_set_visible(tray_icon, TRUE);
+    g_object_unref(bat_pixbuf);
 
     return tray_icon;
 }
@@ -253,7 +274,7 @@ int main(int argc, char **argv) {
         cntbats=0;
         dp = opendir ("/proc/acpi/battery");
         if (dp != NULL) {
-            while (ep = readdir (dp)) {
+            while ((ep = readdir (dp))) {
                 if (strcmp(ep->d_name,".") == 0) continue;
 		        if (strcmp(ep->d_name,"..") == 0) continue;
 		        if (strcmp(ep->d_name,"") == 0) continue;
@@ -281,12 +302,9 @@ int main(int argc, char **argv) {
             return 1;
         }
     }
-
-    GtkStatusIcon *tray_icon;
-
+	paint_icon(0,0); //needed to kick it off
     gtk_init(&argc, &argv);
     tray_icon = create_tray_icon();
-    
     g_timeout_add(interval, Update, NULL);
     Update(NULL);
 
