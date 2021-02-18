@@ -207,7 +207,7 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
 
         for EXTRAFILE in ../rootfs-petbuilds/${NAME}/*; do
             case "${EXTRAFILE##*/}" in
-            petbuild|pinstall.sh|pet.specs|*.patch|sha256.sum|*-*|DOTconfig) ;;
+            petbuild|pinstall.sh|pet.specs|*.patch|sha256.sum|*-*|DOTconfig|*.c) ;;
             *) cp -a $EXTRAFILE ../../local-repositories/${WOOF_TARGETARCH}/petbuilds/${DISTRO_FILE_PREFIX}/${NAME}-${HASH}/
             esac
         done
