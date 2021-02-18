@@ -1,4 +1,4 @@
-#!/bin/sh -ex
+#!/bin/sh -e
 
 command_qemu() {
     echo "$1" >> /tmp/qemu.in
