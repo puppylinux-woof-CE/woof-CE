@@ -962,10 +962,10 @@ unloadSpecificModule(){
     <text>
       <label>$L_COMBO_Module</label>
     </text>
-    <combobox>
+    <comboboxtext>
       <variable>COMBOBOX</variable>
       $LOADED_ITEMS
-    </combobox>
+    </comboboxtext>
   </hbox>
   <hbox>
    <button>

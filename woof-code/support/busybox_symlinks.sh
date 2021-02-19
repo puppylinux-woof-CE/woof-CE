@@ -22,7 +22,8 @@ cd $RFS
 
 rm -f /tmp/busybox.lst
 
-lst=$(./bin/busybox --list-full)
+lst=$(./bin/busybox --list-full 2>/dev/null)
+[ ! "$lst" ] && lst=$(chroot . /bin/busybox --list-full 2>/dev/null)
 if [ "$lst" ] ; then
 	echo "$lst" > /tmp/busybox.lst
 elif [ -f ./bin/busybox.lst ] ; then
