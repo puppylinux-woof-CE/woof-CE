@@ -84,6 +84,9 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
                 install -m 755 ../petbuild-cache/busybox petbuild-rootfs-complete/bin/busybox
             fi
 
+            # required for slacko
+            chroot petbuild-rootfs-complete ldconfig
+
             HAVE_ROOTFS=1
         fi
 
