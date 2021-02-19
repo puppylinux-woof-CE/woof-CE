@@ -9,9 +9,13 @@ wait_for_screenshot() {
     started=0
     sleep 1
     for i in `seq 1 $(($1 - 1))`; do
-        /bin/echo -ne "\033[H"
+        [ -n "$GITHUB_ACTIONS" ] || /bin/echo -ne "\033[H"
         [ -f /tmp/$2.pnm ] && img2txt -d none -H 24 /tmp/$2.pnm
-        echo -n "Waiting for $2 (${i}/$1) ... "
+        if [ -n "$GITHUB_ACTIONS" ]; then
+            echo "Waiting for $2 (${i}/$1) ... "
+        else
+            echo -n "Waiting for $2 (${i}/$1) ... "
+        fi
         command_qemu "screendump /tmp/$2.pnm"
         sleep 1
         composite -compose atop mask.xpm /tmp/$2.pnm /tmp/$2-masked.bmp
@@ -21,11 +25,11 @@ wait_for_screenshot() {
     done
 
     if [ $started -eq 0 ]; then
-        echo TIMEOUT
+        [ -n "$GITHUB_ACTIONS" ] || echo TIMEOUT
         return 1
     fi
 
-    echo PASS
+    [ -n "$GITHUB_ACTIONS" ] || echo PASS
     return 0
 }
 
@@ -44,7 +48,7 @@ for SHOT in *.pnm; do
     convert ${SHOT} /tmp/${SHOT%.pnm}.bmp
 done
 
-/bin/echo -ne "\033[2J\033[H"
+[ -n "$GITHUB_ACTIONS" ] || /bin/echo -ne "\033[2J\033[H"
 
 # wait until the desktop is ready
 wait_for_screenshot 360 quicksetup
