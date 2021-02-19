@@ -886,10 +886,10 @@ if [ "$kit_kernel" = "yes" ]; then
 else
 	cp .config ${linux_kernel_dir}/etc/modules/DOTconfig-${kernel_version}-${today}
 fi
-cp ${linux_kernel_dir}/lib/modules/${kernel_version}${custom_suffix}/modules.builtin \
-	${linux_kernel_dir}/etc/modules/modules.builtin-${kernel_version}${custom_suffix}
-cp ${linux_kernel_dir}/lib/modules/${kernel_version}${custom_suffix}/modules.order \
-	${linux_kernel_dir}/etc/modules/modules.order-${kernel_version}${custom_suffix}
+for i in `find ${linux_kernel_dir}/lib/modules -type f -name "modules.*"| grep -E 'order$|builtin$'`;do 
+	cp $i ${linux_kernel_dir}/etc/modules/${i##*/}-${kernel_version}${custom_suffix}
+	log_msg "copied ${i##*/} to ${linux_kernel_dir}/etc/modules/${i##*/}-${kernel_version}${custom_suffix}"
+done
 
 #cp arch/x86/boot/bzImage ${linux_kernel_dir}/boot/vmlinuz
 IMAGE=`find . -type f -name bzImage | head -1`
