@@ -9,7 +9,7 @@ Many Puppy packages need to be rebuilt against the brand new Slackware
 libs as they just don't run.
 
 Also, this is designed to run with the new petbuild OTF system that runs
-in 3builddistro, designed an fine tuned by @dimkr with a little bit of
+in 3builddistro, designed and fine tuned by @dimkr with a little bit of
 input and bugfixing by myself. See:
 https://github.com/puppylinux-woof-CE/woof-CE/pull/1984
 for a detailed rundown on what it does and how it was developed.
