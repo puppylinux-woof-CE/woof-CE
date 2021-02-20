@@ -48,10 +48,10 @@ export ppm_versions='<window title="PPM: '$(gettext 'Version differences')'" ico
       </text>
     </vbox>
     <vbox space-expand="true" space-fill="true">
-      <table space-expand="true" space-fill="true">
+      <tree space-expand="true" space-fill="true">
         <label>'$(gettext 'Found package')'|'$(gettext 'Installed package')'</label>
         '${DIFFVERITEMS}'
-      </table>
+      </tree>
     </vbox>
   </frame>
   <hbox space-expand="false" space-fill="false">
