@@ -596,7 +596,7 @@ fi
 cp Makefile Makefile-orig
 if [ "$remove_sublevel" = "yes" ] ; then
 	log_msg "Resetting the minor version number" #!
-	sed -i "s/^SUBLEVEL =.*/SUBLEVEL = 0/" Makefile
+	sed -i "s/^SUBLEVEL =.*/#&\nSUBLEVEL = 0/" Makefile
 fi
 ## custom suffix
 if [ -n "${custom_suffix}" ] ; then
