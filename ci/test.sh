@@ -69,4 +69,4 @@ command_qemu "sendkey ret"
 wait_for_screenshot 120 browser
 
 command_qemu "sendkey ctrl-t"
-wait_for_screenshot 30 tab
+wait_for_screenshot 60 tab
