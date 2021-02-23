@@ -61,3 +61,12 @@ wait_for_screenshot 5 desktop
 
 command_qemu "sendkey ctrl-alt-t"
 wait_for_screenshot 10 terminal
+
+for c in d e f a u l t b r o w s e r; do
+    command_qemu "sendkey $c"
+done
+command_qemu "sendkey ret"
+wait_for_screenshot 120 browser
+
+command_qemu "sendkey ctrl-t"
+wait_for_screenshot 30 tab
