@@ -5,32 +5,23 @@ command_qemu() {
 }
 
 wait_for_screenshot() {
-    rm -f /tmp/$2.pnm  /tmp/$2-masked.bmp
-    started=0
+    rm -f /tmp/$1.pnm  /tmp/$1-masked.bmp
     sleep 1
-    for i in `seq 1 $(($1 - 1))`; do
+    i=1
+    while :; do
         [ -n "$GITHUB_ACTIONS" ] || /bin/echo -ne "\033[H"
-        [ -f /tmp/$2.pnm ] && img2txt -d none -H 24 /tmp/$2.pnm
+        [ -f /tmp/$1.pnm ] && img2txt -d none -H 24 /tmp/$1.pnm
         if [ -n "$GITHUB_ACTIONS" ]; then
-            echo "Waiting for $2 (${i}/$1) ... "
+            echo "Waiting for $1 (${i}s) ... "
         else
-            echo -n "Waiting for $2 (${i}/$1) ... "
+            echo -n "Waiting for $1 (${i}s) ... "
         fi
-        command_qemu "screendump /tmp/$2.pnm"
+        command_qemu "screendump /tmp/$1.pnm"
         sleep 1
-        composite -compose atop mask.xpm /tmp/$2.pnm /tmp/$2-masked.bmp
-        cmp /tmp/$2.bmp /tmp/$2-masked.bmp > /dev/null || continue
-        started=1
-        break
+        composite -compose atop mask.xpm /tmp/$1.pnm /tmp/$1-masked.bmp
+        ! cmp /tmp/$1.bmp /tmp/$1-masked.bmp > /dev/null || break
+        i=$(($i + 1))
     done
-
-    if [ $started -eq 0 ]; then
-        [ -n "$GITHUB_ACTIONS" ] || echo TIMEOUT
-        return 1
-    fi
-
-    [ -n "$GITHUB_ACTIONS" ] || echo PASS
-    return 0
 }
 
 [ -p /tmp/qemu.in ] || mkfifo /tmp/qemu.in
@@ -51,22 +42,22 @@ done
 [ -n "$GITHUB_ACTIONS" ] || /bin/echo -ne "\033[2J\033[H"
 
 # wait until the desktop is ready
-wait_for_screenshot 360 quicksetup
+wait_for_screenshot quicksetup
 
 command_qemu "sendkey alt-f4"
-wait_for_screenshot 10 welcome1stboot
+wait_for_screenshot welcome1stboot
 
 command_qemu "sendkey alt-f4"
-wait_for_screenshot 5 desktop
+wait_for_screenshot desktop
 
 command_qemu "sendkey ctrl-alt-t"
-wait_for_screenshot 10 terminal
+wait_for_screenshot terminal
 
 for c in d e f a u l t b r o w s e r; do
     command_qemu "sendkey $c"
 done
 command_qemu "sendkey ret"
-wait_for_screenshot 120 browser
+wait_for_screenshot browser
 
 command_qemu "sendkey ctrl-t"
-wait_for_screenshot 60 tab
+wait_for_screenshot tab
