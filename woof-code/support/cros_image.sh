@@ -152,7 +152,7 @@ x86*)
 	;;
 esac
 cd ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}
-tar -c * > ../${WOOF_OUTPUT}/${TAR_BASE}
+tar -c * > ../../${WOOF_OUTPUT}/${TAR_BASE}
 cd ..
 
 busybox umount /mnt/sdimagep2 2>/dev/null
