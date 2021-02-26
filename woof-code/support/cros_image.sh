@@ -151,7 +151,9 @@ x86*)
 	cp -f build/vmlinuz ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}/
 	;;
 esac
-tar -c ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION} > ../${WOOF_OUTPUT}/${TAR_BASE}
+cd ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}
+tar -c * > ../${WOOF_OUTPUT}/${TAR_BASE}
+cd ..
 
 busybox umount /mnt/sdimagep2 2>/dev/null
 busybox umount /mnt/ssdimagep2 2>/dev/null
