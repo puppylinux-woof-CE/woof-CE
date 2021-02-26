@@ -1,0 +1,120 @@
+#!/bin/sh
+
+# this script looks for the newest GitHub release that matches
+# DISTRO_FILE_PREFIX and DISTRO_VERSION, downloads all assets named *.sfs or
+# vmlinuz to a new directory on the boot partition, then replaces the symlinks
+# at the partition root with symlinks to files under that directory
+
+. /etc/rc.d/PUPSTATE
+
+if [ $PUPMODE -ne 6 ]; then
+    echo "Update is supported only with PUPMODE=6"
+    exit 1
+fi
+
+. /etc/DISTRO_SPECS
+. /etc/pm6_updater.conf
+
+echo "Listing available releases"
+
+RELEASES=`wget -O- --header "Accept: application/vnd.github.v3+json" https://api.github.com/repos/${UPDATE_REPO}/releases`
+
+# choose the first compatible release
+COUNT=`echo "$RELEASES" | jq length`
+if [ -z "$COUNT" ] || [ $COUNT -eq 0 ]; then
+    echo "Failed to list releases"
+    exit 1
+fi
+RELEASE_CHOICE=-1
+for i in `seq 0 $(($COUNT - 1))`; do
+    # installations in the dev release channel update to any draft or prerelease or release
+    DRAFT=`echo "$RELEASES" | jq -r ".[$i].draft"`
+    [ "$DRAFT" = true -a "$RELEASE_CHANNEL" != dev ] && continue
+
+    # installations in the beta release channel update to any prerelease or release
+    PRERELEASE=`echo "$RELEASES" | jq -r ".[$i].prerelease"`
+    [ "$PRERELEASE" = true -a "$RELEASE_CHANNEL" = stable ] && continue
+
+    RELEASE_NAME=`echo "$RELEASES" | jq -r ".[$i].name"`
+    case "$RELEASE_NAME" in
+    ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}*)
+        echo "Selecting $RELEASE_NAME"
+        RELEASE_CHOICE=$i
+        break
+        ;;
+    esac
+done
+
+if [ $RELEASE_CHOICE -lt 0 ]; then
+    echo "No $RELEASE_CHANNEL update available"
+    exit 1
+fi
+
+RELEASE_TAG=`echo "$RELEASES" | jq -r ".[$RELEASE_CHOICE].tag_name"`
+
+# make sure we haven't updated yet
+if [ -e "/initrd/${RELEASE_TAG}" ]; then
+    echo "/initrd/${RELEASE_TAG} already exists"
+    exit 1
+fi
+
+mkdir "/initrd/${RELEASE_TAG}"
+if [ $? -ne 0 ]; then
+    echo "Failed to create /initrd/${RELEASE_TAG}"
+    exit 1
+fi
+
+RELEASE_ASSETS=`echo "$RELEASES" | jq -r ".[$RELEASE_CHOICE].assets"`
+COUNT=`echo "$RELEASE_ASSETS" | jq length`
+
+# download the kernel and every SFS in the release
+DOWNLOADED_ASSETS=""
+for i in `seq 0 $(($COUNT - 1))`; do
+    ASSET_NAME=`echo "$RELEASE_ASSETS" | jq -r ".[$i].name"`
+
+    case "$ASSET_NAME" in
+    *.sfs|vmlinuz) ;;
+    *) continue ;;
+    esac
+
+    # update only assets that have a symlink in the boot partition root
+    [ ! -e "/initrd/${ASSET_NAME}" ] && continue
+
+    ASSET_URL=`echo "$RELEASE_ASSETS" | jq -r ".[$i].url"`
+
+    echo "Downloading $ASSET_NAME"
+    wget -c --header "Accept: application/octet-stream" -O "/initrd/${RELEASE_TAG}/${ASSET_NAME}" "$ASSET_URL"
+    if [ $? -ne 0 ]; then
+        echo "Failed to download $ASSET_NAME"
+        rm -rf "/initrd/${RELEASE_TAG}"
+        exit 1
+    fi
+
+    DOWNLOADED_ASSETS="$DOWNLOADED_ASSETS $ASSET_NAME"
+done
+
+if [ -z "$DOWNLOADED_ASSETS" ]; then
+    echo "Failed to update to $RELEASE_TAG"
+    rm -rf "/initrd/${RELEASE_TAG}"
+    exit 1
+fi
+
+# it's important to make sure all assets are flushed to disk
+echo "Flushing /initrd/${RELEASE_TAG} to disk"
+sync
+
+# replace the symlinks on the boot partition with symlinks that point to the
+# downloaded assets
+echo "Updating symlinks"
+for ASSET_NAME in $DOWNLOADED_ASSETS; do
+    rm -f "/initrd/${ASSET_NAME}"
+    ln -s "${RELEASE_TAG}/${ASSET_NAME}" "/initrd/${ASSET_NAME}"
+done
+
+# if the symlinks are not flushed to disk, we're left in non-bootable state
+sync
+
+# TODO: when using the Chrome OS partition layout, vmlinuz needs to be written
+# to the kernel partition using dd
+
+# TODO: rc.update needs to be triggered in the first boot after update
