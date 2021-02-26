@@ -221,7 +221,7 @@ case $ppm_mode in
 		;;
 esac
 
-export -f pkg_info do_install change_mode
+export -f pkg_info do_install change_mode restart_ppm
 
 
 
