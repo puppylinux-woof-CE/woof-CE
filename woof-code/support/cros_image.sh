@@ -9,6 +9,9 @@ INSTALL_IMG_BASE=${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}-ext4-2gb-install.img
 SSD_IMG_BASE=${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}-ext4-16gb.img
 LEGACY_IMG_BASE=${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}-ext4-2gb-legacy.img
 
+# and an archive containing the files needed for update
+TAR_BASE=${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}.tar
+
 echo "console=tty1 root=PARTUUID=%U/PARTNROFF=1 init=/init rootfstype=ext4 rootwait rw" > cmdline
 vmlinuz=build/vmlinuz
 case $WOOF_TARGETARCH in
@@ -139,6 +142,16 @@ EOF
 	mv -f ${LEGACY_IMG_BASE} ../${WOOF_OUTPUT}/
 	;;
 esac
+
+# create an archive
+cp -a /mnt/ssdimagep2/${DISTRO_FILE_PREFIX}-${DISTRO_VERSION} .
+cp -a build/vmlinux.kpart /mnt/ssdimagep2/init ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}/
+case $WOOF_TARGETARCH in
+x86*)
+	cp -f build/vmlinuz ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}/
+	;;
+esac
+tar -c ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION} > ../${WOOF_OUTPUT}/${TAR_BASE}
 
 busybox umount /mnt/sdimagep2 2>/dev/null
 busybox umount /mnt/ssdimagep2 2>/dev/null
