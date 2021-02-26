@@ -79,7 +79,7 @@ create_image() {
 	dd if=/dev/zero of=$1 bs=$2 count=$3 conv=sparse
 	parted --script $1 mklabel gpt
 	cgpt create $1
-	cgpt add -i 1 -t kernel -b 8192 -s 65536 -l Kernel -S 1 -T 5 -P 10 $1
+	cgpt add -i 1 -t kernel -b 8192 -s 65536 -l Kernel -S 1 -T 5 -P 10 -u B361601A-103D-374C-BA2C-35B8533A199D $1
 	start=$((8192 + 65536))
 	end=`cgpt show $1 | grep 'Sec GPT table' | awk '{print $1}'`
 	size=$(($end - $start))
