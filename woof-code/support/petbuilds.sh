@@ -31,6 +31,27 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
         continue
     fi
 
+    ALTNAME=`echo ${NAME} | tr - _`
+    if grep -q "^yes|${ALTNAME}|" ../DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}; then
+        echo "Skipping ${NAME}, using alternate package ${ALTNAME}"
+        continue
+    fi
+
+    if [ "$NAME" = "pa-applet" ] && [ -z "`grep '^yes|pulseaudio|' ../DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}`" ]; then
+        echo "Skipping pa-applet, pulseaudio is not installed"
+        continue
+    fi
+
+    if [ "$NAME" = "xarchiver" ] && [ -z "`grep '^yes|xarchive|' ../DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}`" ]; then
+        echo "Skipping xarchiver, using xarchive"
+        continue
+    fi
+
+    if [ "$NAME" = "l3afpad" ] && [ -z "`grep '^yes|leafpad|' ../DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}`" ]; then
+        echo "Skipping l3afpad, using leafpad"
+        continue
+    fi
+
     HASH=`cat ../DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} ../DISTRO_COMPAT_REPOS ../DISTRO_COMPAT_REPOS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} ../DISTRO_PET_REPOS $i/petbuild 2>/dev/null | md5sum | awk '{print $1}'`
     if [ ! -d "../petbuild-output/${NAME}-${HASH}" ]; then
         if [ $HAVE_ROOTFS -eq 0 ]; then
