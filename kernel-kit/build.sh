@@ -12,6 +12,7 @@ WGET_OPT='--no-check-certificate '${WGET_SHOW_PROGRESS}
 
 MWD=$(pwd)
 BUILD_LOG=${MWD}/build.log
+[ -n "$GITHUB_ACTIONS" ] && BUILD_LOG=/proc/self/fd/1
 
 log_msg()    { echo -e "$@" ; echo -e "$@" >> ${BUILD_LOG} ; }
 exit_error() { log_msg "$@"  ; exit 1 ; }
