@@ -11,10 +11,13 @@ wget --help | grep -q '\-\-show\-progress' && WGET_SHOW_PROGRESS='-q --show-prog
 WGET_OPT='--no-check-certificate '${WGET_SHOW_PROGRESS}
 
 MWD=$(pwd)
-BUILD_LOG=${MWD}/build.log
-[ -n "$GITHUB_ACTIONS" ] && BUILD_LOG=/proc/self/fd/1
-
-log_msg()    { echo -e "$@" ; echo -e "$@" >> ${BUILD_LOG} ; }
+if [ -n "$GITHUB_ACTIONS" ] ; then
+	BUILD_LOG=/proc/self/fd/1
+	log_msg()    { echo -e "$@" ; }
+else
+	BUILD_LOG=${MWD}/build.log
+	log_msg()    { echo -e "$@" ; echo -e "$@" >> ${BUILD_LOG} ; }
+fi
 exit_error() { log_msg "$@"  ; exit 1 ; }
 
 for i in $@ ; do
@@ -851,7 +854,7 @@ fi
 echo "$MAKE ${JOBS} ${MAKE_TARGETS}
 $MAKE INSTALL_MOD_PATH=${linux_kernel_dir} modules_install" > compile ## debug
 
-log_msg "Compiling the kernel" | tee -a ${BUILD_LOG}
+log_msg "Compiling the kernel"
 $MAKE ${JOBS} ${MAKE_TARGETS} >> ${BUILD_LOG} 2>&1
 if [ "$kit_kernel" = "yes" ]; then
 	KCONFIG="output/DOTconfig-${kernel_version}${custom_suffix}-${HOST_ARCH}-${today}"
