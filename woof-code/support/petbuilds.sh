@@ -32,7 +32,9 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
     fi
 
     HASH=`cat ../DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} ../DISTRO_COMPAT_REPOS ../DISTRO_COMPAT_REPOS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} ../DISTRO_PET_REPOS $i/petbuild 2>/dev/null | md5sum | awk '{print $1}'`
-    if [ ! -d "../petbuild-output/${NAME}-${HASH}" ]; then
+    if [ -d "../petbuild-output/${NAME}-${HASH}" ]; then
+        echo "Skipping ${NAME}, using cached output"
+    else
         if [ $HAVE_ROOTFS -eq 0 ]; then
             echo "Preparing build environment"
             rm -rf petbuild-rootfs-complete
