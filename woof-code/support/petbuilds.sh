@@ -26,13 +26,13 @@ PKGS=
 for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
     NAME=${i#../rootfs-petbuilds/}
 
-    if grep -q "^yes|${NAME}|" ../DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}; then
+    if grep -iq "^yes|${NAME}|" ../DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}; then
         echo "Skipping ${NAME}, using a package"
         continue
     fi
 
     ALTNAME=`echo ${NAME} | tr - _`
-    if grep -q "^yes|${ALTNAME}|" ../DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}; then
+    if grep -iq "^yes|${ALTNAME}|" ../DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}; then
         echo "Skipping ${NAME}, using alternate package ${ALTNAME}"
         continue
     fi
