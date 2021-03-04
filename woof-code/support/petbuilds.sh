@@ -26,8 +26,29 @@ PKGS=
 for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
     NAME=${i#../rootfs-petbuilds/}
 
-    if grep -q "^yes|${NAME}|" ../DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}; then
+    if grep -iq "^yes|${NAME}|" ../DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}; then
         echo "Skipping ${NAME}, using a package"
+        continue
+    fi
+
+    ALTNAME=`echo ${NAME} | tr - _`
+    if grep -iq "^yes|${ALTNAME}|" ../DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}; then
+        echo "Skipping ${NAME}, using alternate package ${ALTNAME}"
+        continue
+    fi
+
+    if [ "$NAME" = "pa-applet" ] && [ -z "`grep '^yes|pulseaudio|' ../DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}`" ]; then
+        echo "Skipping pa-applet, pulseaudio is not installed"
+        continue
+    fi
+
+    if [ "$NAME" = "xarchiver" ] && [ -n "`grep '^yes|xarchive|' ../DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}`" ]; then
+        echo "Skipping xarchiver, using xarchive"
+        continue
+    fi
+
+    if [ "$NAME" = "l3afpad" ] && [ -n "`grep '^yes|leafpad|' ../DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}`" ]; then
+        echo "Skipping l3afpad, using leafpad"
         continue
     fi
 
