@@ -6,6 +6,12 @@
 . ./build.conf || exit 1
 . ./funcs.sh
 
+# if we're also building a Puppy, takes its SFS compression parameters
+if [ -f ../_00build.conf ] ; then
+	. ../_00build.conf
+	COMP=$SFSCOMP
+fi
+
 CWD=`pwd`
 wget --help | grep -q '\-\-show\-progress' && WGET_SHOW_PROGRESS='-q --show-progress'
 WGET_OPT='--no-check-certificate '${WGET_SHOW_PROGRESS}
