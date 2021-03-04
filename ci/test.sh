@@ -5,21 +5,21 @@ command_qemu() {
 }
 
 wait_for_screenshot() {
-    rm -f /tmp/$1.pnm  /tmp/$1-masked.bmp
+    rm -f /tmp/screenshot.pnm /tmp/screenshot-masked.bmp
     sleep 1
     i=1
     while :; do
         [ -n "$GITHUB_ACTIONS" ] || /bin/echo -ne "\033[H"
-        [ -f /tmp/$1.pnm ] && img2txt -d none -H 24 /tmp/$1.pnm
+        [ -f /tmp/screenshot.pnm ] && img2txt -d none -H 24 /tmp/screenshot.pnm
         if [ -n "$GITHUB_ACTIONS" ]; then
             echo "Waiting for $1 (${i}s) ... "
         else
             echo -n "Waiting for $1 (${i}s) ... "
         fi
-        command_qemu "screendump /tmp/$1.pnm"
+        command_qemu "screendump /tmp/screenshot.pnm"
         sleep 1
-        composite -compose atop mask.xpm /tmp/$1.pnm /tmp/$1-masked.bmp
-        ! cmp /tmp/$1.bmp /tmp/$1-masked.bmp > /dev/null || break
+        composite -compose atop mask.xpm /tmp/screenshot.pnm /tmp/screenshot-masked.bmp
+        ! cmp /tmp/$1.bmp /tmp/screenshot-masked.bmp > /dev/null || break
         i=$(($i + 1))
     done
 }
