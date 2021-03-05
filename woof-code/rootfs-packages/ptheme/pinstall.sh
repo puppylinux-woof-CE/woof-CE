@@ -120,7 +120,14 @@ fi
 if [ -d "usr/share/icons/$USE_ICON_THEME" ];then
 	# first global
 	echo -e "gtk-icon-theme-name = \"$USE_ICON_THEME\"" >> root/.gtkrc-2.0
-	[ -f root/.config/gtk-3.0/settings.ini ] && echo -e "gtk-icon-theme-name = $USE_ICON_THEME" >> root/.config/gtk-3.0/settings.ini
+	if [ -f root/.config/gtk-3.0/settings.ini ]; then
+		echo -e "gtk-icon-theme-name = $USE_ICON_THEME" >> root/.config/gtk-3.0/settings.ini
+		# fix for menuitem and button icons
+		cat >> root/.config/gtk-3.0/settings.ini <<EOF
+gtk-menu-images = 1
+gtk-button-images = 1				
+EOF
+	fi
 	# then ROX
 	ROX_THEME_FILE="root/.config/rox.sourceforge.net/ROX-Filer/Options" # this could change in future
 	sed -i "s%<Option name=\"icon_theme\">.*%<Option name=\"icon_theme\">$USE_ICON_THEME</Option>%" $ROX_THEME_FILE
