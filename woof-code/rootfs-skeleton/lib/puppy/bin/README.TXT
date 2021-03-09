@@ -1,0 +1,1 @@
+This folder for isolating puppy scripts. When placed the script on this path. The executable file will be the topmost priority. Also prevents puppy scripts to be overwritten by mainstream distro unless a packages directed to overwrite this folder
