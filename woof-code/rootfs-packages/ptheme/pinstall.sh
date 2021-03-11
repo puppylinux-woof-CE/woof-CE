@@ -134,6 +134,9 @@ EOF
 	echo "icon theme: $USE_ICON_THEME"
 fi
 
+install -D -m 644 root/.gtkrc-2.0 etc/gtk-2.0/gtkrc
+[ -f root/.config/gtk-3.0/settings.ini ] && install -D -m 644 root/.config/gtk-3.0/settings.ini etc/gtk-3.0/settings.ini
+
 ##### WALLPAPER #copy it as mv messes the themes
 ext="${PTHEME_WALL##*.}"
 cp -af usr/share/backgrounds/"${PTHEME_WALL}" usr/share/backgrounds/default.${ext}
