@@ -1020,9 +1020,15 @@ cd output/
 if [ "$kit_kernel" = "yes" ]; then
 	log_msg "Kit_Kernel compatible kernel package is ready to package./"
 	log_msg "Packaging kit-kernel-${OUTPUT_VERSION} kernel"
-	tar -cJvf kit-kernel-${OUTPUT_VERSION}.tar.xz \
-	vmlinuz-${OUTPUT_VERSION} ${BOOT_DIR} \
-	${KERNEL_MODULES_SFS_NAME} || exit 1
+	if [ -f "${FDRV}" ];then
+		tar -cJvf kit-kernel-${OUTPUT_VERSION}.tar.xz \
+		vmlinuz-${OUTPUT_VERSION} ${BOOT_DIR} ${FDRV} \
+		${KERNEL_MODULES_SFS_NAME} || exit 1
+	else
+		tar -cJvf kit-kernel-${OUTPUT_VERSION}.tar.xz \
+		vmlinuz-${OUTPUT_VERSION} ${BOOT_DIR} \
+		${KERNEL_MODULES_SFS_NAME} || exit 1
+	fi
 	echo "kit-kernel-${OUTPUT_VERSION}.tar.xz is in output"
 	md5sum kit-kernel-${OUTPUT_VERSION}.tar.xz > kit-kernel-${OUTPUT_VERSION}.tar.xz.md5.txt
 	sha256sum kit-kernel-${OUTPUT_VERSION}.tar.xz > kit-kernel-${OUTPUT_VERSION}.tar.xz.sha256.txt
