@@ -1,6 +1,6 @@
 #!/bin/sh
 
-timeout 650 ./test.sh $1
+timeout 900 ./test.sh $1
 ret=$?
 
 if [ $ret -eq 0 ]; then
