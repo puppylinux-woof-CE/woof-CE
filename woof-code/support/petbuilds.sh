@@ -108,6 +108,9 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
             # required for slacko
             chroot petbuild-rootfs-complete ldconfig
 
+            # the shared-mime-info PET used by fossa64 doesn't put its pkg-config file in /usr/lib/x86_64-linux-gnu/pkgconfig
+            PKG_CONFIG_PATH=`dirname $(find petbuild-rootfs-complete -name '*.pc') | sort | uniq | sed s/^petbuild-rootfs-complete//g | tr '\n' :`
+
             HAVE_ROOTFS=1
         fi
 
@@ -158,7 +161,7 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
 
         cp -a ../petbuild-sources/${NAME}/* petbuild-rootfs-complete-${NAME}/tmp/
         cp -a ../rootfs-petbuilds/${NAME}/* petbuild-rootfs-complete-${NAME}/tmp/
-        CC="$WOOF_CC" CXX="$WOOF_CXX" CFLAGS="$WOOF_CFLAGS" CXXFLAGS="$WOOF_CXXFLAGS" LDFLAGS="$WOOF_LDFLAGS" MAKEFLAGS="$MAKEFLAGS" CCACHE_DIR=/root/.ccache CCACHE_NOHASHDIR=1 chroot petbuild-rootfs-complete-${NAME} sh -ec "cd /tmp && . ./petbuild && build"
+        CC="$WOOF_CC" CXX="$WOOF_CXX" CFLAGS="$WOOF_CFLAGS" CXXFLAGS="$WOOF_CXXFLAGS" LDFLAGS="$WOOF_LDFLAGS" MAKEFLAGS="$MAKEFLAGS" CCACHE_DIR=/root/.ccache CCACHE_NOHASHDIR=1 PKG_CONFIG_PATH="$PKG_CONFIG_PATH" chroot petbuild-rootfs-complete-${NAME} sh -ec "cd /tmp && . ./petbuild && build"
         ret=$?
         umount -l petbuild-rootfs-complete-${NAME}/root/.ccache
         umount -l petbuild-rootfs-complete-${NAME}/tmp
