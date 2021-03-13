@@ -99,3 +99,7 @@ do
 	fi
   fi
 done
+
+if grep -q -m 1 "/etc/dconf/db/local.d/" $PKGFILES ; then
+  dconf update
+fi
