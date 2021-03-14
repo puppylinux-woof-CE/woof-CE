@@ -52,6 +52,16 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
         continue
     fi
 
+    if [ "$NAME" = "sylpheed" ] && [ -n "`grep '^yes|claws-mail|' ../DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}`" ]; then
+        echo "Skipping sylpheed, using claws-mail"
+        continue
+    fi
+
+    if [ "$NAME" = "gpicview" ] && [ -n "`grep '^yes|viewnior|' ../DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}`" ]; then
+        echo "Skipping gpicview, using viewnior"
+        continue
+    fi
+
     HASH=`cat ../DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} ../DISTRO_COMPAT_REPOS ../DISTRO_COMPAT_REPOS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} ../DISTRO_PET_REPOS $i/petbuild 2>/dev/null | md5sum | awk '{print $1}'`
     if [ ! -d "../petbuild-output/${NAME}-${HASH}" ]; then
         if [ $HAVE_ROOTFS -eq 0 ]; then
