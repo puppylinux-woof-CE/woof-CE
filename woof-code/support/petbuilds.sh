@@ -42,7 +42,7 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
         continue
     fi
 
-    if [ "$NAME" = "pa-applet" ] && [ -z "`grep '^yes|apulse|' ../DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}`" ]; then
+    if [ "$NAME" = "pa-applet" ] && [ -n "`grep '^yes|apulse|' ../DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}`" ]; then
         echo "Skipping pa-applet, apulse is installed"
         continue
     fi
