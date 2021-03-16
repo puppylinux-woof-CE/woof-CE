@@ -209,7 +209,7 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
             for LIBDIR in $LIBDIRS; do
                 mkdir -p ../petbuild-output/${NAME}-${HASH}/${LIBDIR}/${ARCHDIR}
                 for SO in `ls ../petbuild-output/${NAME}-${HASH}/${LIBDIR}/*.so* 2>/dev/null`; do
-                    mv -f $SO /../petbuild-output/${NAME}-${HASH}/${LIBDIR}/${ARCHDIR}/
+                    mv -f $SO ../petbuild-output/${NAME}-${HASH}/${LIBDIR}/${ARCHDIR}/
                 done
             done
             ;;
