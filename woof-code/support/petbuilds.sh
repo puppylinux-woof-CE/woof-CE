@@ -52,9 +52,14 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
         continue
     fi
 
-    if pkg-config --atleast-version=3.24.24 gtk+-3.0; then
-        [ "$NAME" = "leafpad" ] && continue
-    elif [ "$NAME" = "l3afpad" ]; then
+    if [ "$NAME" = "l3fpad" -a "$DISTRO_BINARY_COMPAT" = "slackware" -a "$DISTRO_COMPAT_VERSION" = "14.2" ]; then
+        echo "Skipping l3fpad, using leafpad"
+    elif [ "$NAME" = "l3fpad" -a "$DISTRO_BINARY_COMPAT" = "slackware64" -a "$DISTRO_COMPAT_VERSION" = "14.2" ]; then
+        echo "Skipping l3fpad, using leafpad"
+    elif [ "$NAME" = "l3fpad" -a "$DISTRO_BINARY_COMPAT" = "ubuntu" -a "$DISTRO_COMPAT_VERSION" = "focal" ]; then
+        echo "Skipping l3fpad, using leafpad"
+    elif [ "$NAME" = "leafpad" ]; then
+        echo "Skipping leafpad, using l3fpad"
         continue
     fi
 
