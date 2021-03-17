@@ -272,6 +272,7 @@ echo "Copying petbuilds to rootfs-complete"
 for NAME in $PKGS; do
     mkdir -p ../packages-${DISTRO_FILE_PREFIX}/${NAME}
     cp -a ../petbuild-output/${NAME}-latest/* ../packages-${DISTRO_FILE_PREFIX}/${NAME}/
+    (echo ":${NAME}:|pet|"; cat ../rootfs-petbuilds/${NAME}/pet.specs) >> ../status/findpkgs_FINAL_PKGS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}
 done
 
 (cd .. && copy_pkgs_to_build "$PKGS" rootfs-complete)
