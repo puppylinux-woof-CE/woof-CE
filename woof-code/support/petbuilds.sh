@@ -42,13 +42,34 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
         continue
     fi
 
+    if [ "$NAME" = "pa-applet" ] && [ -n "`grep '^yes|apulse|' ../DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}`" ]; then
+        echo "Skipping pa-applet, apulse is installed"
+        continue
+    fi
+
     if [ "$NAME" = "xarchiver" ] && [ -n "`grep '^yes|xarchive|' ../DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}`" ]; then
         echo "Skipping xarchiver, using xarchive"
         continue
     fi
 
-    if [ "$NAME" = "l3afpad" ] && [ -n "`grep '^yes|leafpad|' ../DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}`" ]; then
-        echo "Skipping l3afpad, using leafpad"
+    if [ "$NAME" = "l3fpad" -a "$DISTRO_BINARY_COMPAT" = "slackware" -a "$DISTRO_COMPAT_VERSION" = "14.2" ]; then
+        echo "Skipping l3fpad, using leafpad"
+    elif [ "$NAME" = "l3fpad" -a "$DISTRO_BINARY_COMPAT" = "slackware64" -a "$DISTRO_COMPAT_VERSION" = "14.2" ]; then
+        echo "Skipping l3fpad, using leafpad"
+    elif [ "$NAME" = "l3fpad" -a "$DISTRO_BINARY_COMPAT" = "ubuntu" -a "$DISTRO_COMPAT_VERSION" = "focal" ]; then
+        echo "Skipping l3fpad, using leafpad"
+    elif [ "$NAME" = "leafpad" ]; then
+        echo "Skipping leafpad, using l3fpad"
+        continue
+    fi
+
+    if [ "$NAME" = "sylpheed" ] && [ -n "`grep '^yes|claws-mail|' ../DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}`" ]; then
+        echo "Skipping sylpheed, using claws-mail"
+        continue
+    fi
+
+    if [ "$NAME" = "gpicview" ] && [ -n "`grep '^yes|viewnior|' ../DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}`" ]; then
+        echo "Skipping gpicview, using viewnior"
         continue
     fi
 
@@ -108,6 +129,9 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
             # required for slacko
             chroot petbuild-rootfs-complete ldconfig
 
+            # the shared-mime-info PET used by fossa64 doesn't put its pkg-config file in /usr/lib/x86_64-linux-gnu/pkgconfig
+            PKG_CONFIG_PATH=`dirname $(find petbuild-rootfs-complete devx -name '*.pc') | sed -e s/^petbuild-rootfs-complete//g -e s/^devx//g | sort | uniq | tr '\n' :`
+
             HAVE_ROOTFS=1
         fi
 
@@ -158,7 +182,7 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
 
         cp -a ../petbuild-sources/${NAME}/* petbuild-rootfs-complete-${NAME}/tmp/
         cp -a ../rootfs-petbuilds/${NAME}/* petbuild-rootfs-complete-${NAME}/tmp/
-        CC="$WOOF_CC" CXX="$WOOF_CXX" CFLAGS="$WOOF_CFLAGS" CXXFLAGS="$WOOF_CXXFLAGS" LDFLAGS="$WOOF_LDFLAGS" MAKEFLAGS="$MAKEFLAGS" CCACHE_DIR=/root/.ccache CCACHE_NOHASHDIR=1 chroot petbuild-rootfs-complete-${NAME} sh -ec "cd /tmp && . ./petbuild && build"
+        CC="$WOOF_CC" CXX="$WOOF_CXX" CFLAGS="$WOOF_CFLAGS" CXXFLAGS="$WOOF_CXXFLAGS" LDFLAGS="$WOOF_LDFLAGS" MAKEFLAGS="$MAKEFLAGS" CCACHE_DIR=/root/.ccache CCACHE_NOHASHDIR=1 PKG_CONFIG_PATH="$PKG_CONFIG_PATH" chroot petbuild-rootfs-complete-${NAME} sh -ec "cd /tmp && . ./petbuild && build"
         ret=$?
         umount -l petbuild-rootfs-complete-${NAME}/root/.ccache
         umount -l petbuild-rootfs-complete-${NAME}/tmp
@@ -209,7 +233,7 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
             for LIBDIR in $LIBDIRS; do
                 mkdir -p ../petbuild-output/${NAME}-${HASH}/${LIBDIR}/${ARCHDIR}
                 for SO in `ls ../petbuild-output/${NAME}-${HASH}/${LIBDIR}/*.so* 2>/dev/null`; do
-                    mv -f $SO /../petbuild-output/${NAME}-${HASH}/${LIBDIR}/${ARCHDIR}/
+                    mv -f $SO ../petbuild-output/${NAME}-${HASH}/${LIBDIR}/${ARCHDIR}/
                 done
             done
             ;;
