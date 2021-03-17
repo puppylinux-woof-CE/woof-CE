@@ -127,6 +127,8 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
             # the shared-mime-info PET used by fossa64 doesn't put its pkg-config file in /usr/lib/x86_64-linux-gnu/pkgconfig
             PKG_CONFIG_PATH=`dirname $(find petbuild-rootfs-complete devx -name '*.pc') | sed -e s/^petbuild-rootfs-complete//g -e s/^devx//g | sort | uniq | tr '\n' :`
 
+            find .. -name libgmp.so.10
+
             HAVE_ROOTFS=1
         fi
 
