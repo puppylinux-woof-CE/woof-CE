@@ -128,6 +128,8 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
             PKG_CONFIG_PATH=`dirname $(find petbuild-rootfs-complete devx -name '*.pc') | sed -e s/^petbuild-rootfs-complete//g -e s/^devx//g | sort | uniq | tr '\n' :`
 
             find .. -name libgmp.so.10
+            find ../packages-fossapup64/gmp
+            ls -la ../packages-fossapup64/gmp/usr
 
             HAVE_ROOTFS=1
         fi
