@@ -1,7 +1,31 @@
+# woof - the Puppy builder
+
 Woof-CE (woof-Community Edition) is  a fork of Barry Kauler's woof2 fossil 
 repository of Nov 11, 2013 commit f6332edbc4a75c262a8fec6e7d39229b0acf32cd.
 
-Currently supported: Slackware, Ubuntu, Debian
+Currently supported:
+
+- Slackware ![slacko64](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/slacko64.yml/badge.svg) ![slacko-7](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/slacko-7.yml/badge.svg) ![slacko64-7](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/slacko64-7.yml/badge.svg)
+- Ubuntu ![fossa64](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/fossa64.yml/badge.svg)
+- Debian
+
+# Building a Puppy: using GitHub Actions
+
+Puppy can be built directly on GitHub, saving the hassle of preparing a suitable building environment on a fast machine with adequate storage.
+
+0. Fork woof-CE.
+
+1. Clone your fork.
+
+2. Modify woof-CE, commit your changes and push them.
+
+3. [Trigger a woof-CE run on GitHub Actions](https://github.com/puppylinux-woof-CE/woof-CE/wiki/Building-a-Puppy-on-GitHub).
+
+4. Download your Puppy from the newly published release.
+
+5. Test your Puppy and open a pull request to woof-CE, if you want your changes to be officially incorporated into woof-CE.
+
+# Directory Structure
 
 Woof-CE has five directories:
 
@@ -23,11 +47,10 @@ So, you create woof-out without any confusing inappropriate content.
 
 So, to get going with WoofCE, open a terminal and do this:
 
-# ./merge2out
-# cd ../woof-out_<REST OF DIRNAME>
+    ./merge2out
+    cd ../woof-out_<REST OF DIRNAME>
 
-Preparation
------------
+# Preparation
 
 1. Suitable build environment
   - Linux partition (ext2/3/4)
@@ -43,36 +66,37 @@ Open file DISTRO_SPECS in a text editor and change this line:
 DISTRO_BINARY_COMPAT="ubuntu"
 to what you want: 'slackware', 'devuan', 'ubuntu', 'debian' or 'puppy'.
 
-
-Building a Puppy: using the commandline scripts
------------------------------------------------
+# Building a Puppy: using the commandline scripts
 
 0. Download package database files
 Open a terminal in the 'woof' directory, then run '0setup':
-# ./0setup
 
-1a. OPTIONAL: Tweak common PET package selection
-#  You can edit the variable PKGS_SPECS_TABLE in file DISTRO_PKGS_SPECS-* to choose
-the packages that you want in your build.
+    ./0setup
+
+1a. OPTIONAL: Tweak common PET package selection.
+You can edit the variable PKGS_SPECS_TABLE in file DISTRO_PKGS_SPECS-* to choose the packages that you want in your build.
 
 1. Download packages
 About 500MB drive space is required, but this may vary enormously
 depending on the package selection.
-# ./1download
+
+    ./1download
 
 2. Build the cut-down generic Puppy-packages
-# ./2createpackages
+
+    ./2createpackages
 
 3. Build Puppy live-CD
 This gets built in a directory named 'sandbox3' and as well as the live-CD iso
 file you will also find the individual built files and the 'devx' file.
-# ./3builddistro
 
-Building a Puppy: using the GUI
--------------------------------
+    ./3builddistro
+
+# Building a Puppy: using the GUI
+
 There is a simple frontend GUI for the above scripts (and then some).
 
-# ./woof_gui
+    ./woof_gui
 
 It will come up with a tabbed-interface, and basically you go from left-tab
 to right-tab.
@@ -90,13 +114,9 @@ SKIP THIS IF LATEST WOOF: 'Download dbs' tab: click the 'UPDATE' button.
 
 ...then you will have WoofCE live-CD ISO file and a 'devx' SFS file!
 
-------------------------------------------------------------------------------
+# TECHNICAL NOTES
 
-TECHNICAL NOTES
----------------
-
-packages-templates directory
-----------------------------
+## packages-templates directory
 
 any directory in the template, the files in the target pkg will be cut down to the same selection.
 (even if empty dir). Exception, file named 'PLUSEXTRAFILES' then target will have all files from deb.
@@ -116,42 +136,37 @@ As a last resort, if target pkg is wrong, a file 'FIXUPHACK' is a script that ca
 If a dir in template has files in it then target is cut down (unless PLUSEXTRAFILES present),
  however there are some exceptions (such as .so regular files).
 
-Packages-puppy-*
-----------------
+## Packages-puppy-*
+
 Notice that there are 'Packages-puppy-noarch-official',
 also 'Packages-puppy-common-official'
 
 The single-digit '-2-', '-3-', '-4-', '-5-' files reside on ibiblio.org also.
 These files list the complete contents of each repository.
 
-
-Puppy filenames
-===============
+## Puppy filenames
 
 The main Puppy files are:
 
-  vmlinuz, initrd.gz, puppy.sfs, zdrv.sfs, fdrv.sfs, adrv.sfs, ydrv.sfs
+    vmlinuz, initrd.gz, puppy.sfs, zdrv.sfs, fdrv.sfs, adrv.sfs, ydrv.sfs
 
 Versioning is put into the last two, for example:
 
-  vmlinuz, initrd.gz, puppy_slacko_7.0.0, zdrv_slacko_7.0.0.sfs
-  fdrv_slacko_7.0.0.sfs, adrv_slacko_7.0.0.sfs, ydrv_slacko_7.0.0.sfs
+    vmlinuz, initrd.gz, puppy_slacko_7.0.0, zdrv_slacko_7.0.0.sfs fdrv_slacko_7.0.0.sfs, adrv_slacko_7.0.0.sfs, ydrv_slacko_7.0.0.sfs
 
 ...those last two names are intended to be unique for that build of Puppy,
 so they can be found at bootup.
 
-
-DISTRO_SPECS file
-=================
+## DISTRO_SPECS file
 
 The filenames are stored in the built Puppy, in /etc/DISTRO_SPECS.
 For example:
 
-DISTRO_PUPPYSFS='puppy_slacko_7.0.0.sfs'
-DISTRO_ZDRVSFS='zdrv_slacko_7.0.0.sfs'
-DISTRO_FDRVSFS='fdrv_slacko_7.0.0.sfs'
-DISTRO_ADRVSFS='adrv_slacko_7.0.0.sfs'
-DISTRO_YDRVSFS='ydrv_slacko_7.0.0.sfs'
+    DISTRO_PUPPYSFS='puppy_slacko_7.0.0.sfs'
+    DISTRO_ZDRVSFS='zdrv_slacko_7.0.0.sfs'
+    DISTRO_FDRVSFS='fdrv_slacko_7.0.0.sfs'
+    DISTRO_ADRVSFS='adrv_slacko_7.0.0.sfs'
+    DISTRO_YDRVSFS='ydrv_slacko_7.0.0.sfs'
 
 So, any script that wants to know what the names are can read these variables.
 
@@ -165,14 +180,11 @@ in /etc/rc.d/PUPSTATE.
 In fact, to clarify the difference between these two sets of variables,
 I have put this comment into /etc/DISTRO_SPECS:
 
-  #Note, the .sfs files below are what the 'init' script in initrd.gz searches for,
-  #for the partition, path and actual files loaded, see PUPSFS and ZDRV in /etc/rc.d/PUPSTATE
+Note, the .sfs files below are what the 'init' script in initrd.gz searches for,
+for the partition, path and actual files loaded, see PUPSFS and ZDRV in /etc/rc.d/PUPSTATE
 
+# by 01micko
 
-=================================================================
-
-by 01micko
-----------
 Woof-CE, a fork of woof2 can build the same as woof2 however a new feature
 has been added as of today. It now has the ability to build a distro with out
 modules in the initrd.gz, a feature which had been pioneered by Fatdog 
@@ -202,7 +214,6 @@ choose the correct architecure. All 32 bit builds are suffixed with either
 i486, i686 or x86. All 64 bit builds are suffixed x86_64. At the end you will 
 end up with an iso image, devx and checksums as usual.
 
---------------
 Regards,
 Barry Kauler
 puppylinux.com
