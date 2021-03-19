@@ -1,17 +1,14 @@
 # woof - the Puppy builder
 
-Woof-CE (woof-Community Edition) is  a fork of Barry Kauler's woof2 fossil 
-repository of Nov 11, 2013 commit f6332edbc4a75c262a8fec6e7d39229b0acf32cd.
-
 Currently supported:
 
-- Slackware ![slacko64](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/slacko64.yml/badge.svg) ![slacko-7](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/slacko-7.yml/badge.svg) ![slacko64-7](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/slacko64-7.yml/badge.svg)
-- Ubuntu ![fossa64](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/fossa64.yml/badge.svg)
+- Slackware [![slacko64](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/slacko64.yml/badge.svg)](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/slacko64.yml) [![slacko-7](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/slacko-7.yml/badge.svg)](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/slacko-7.yml) [![slacko64-7](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/slacko64-7.yml/badge.svg)](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/slacko64-7.yml)
+- Ubuntu [![fossa64](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/fossa64.yml/badge.svg)](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/fossa64.yml)
 - Debian
 
 # Building a Puppy: using GitHub Actions
 
-Puppy can be built directly on GitHub, saving the hassle of preparing a suitable building environment on a fast machine with adequate storage.
+Puppy can be built directly on GitHub, saving the hassle of preparing a suitable build environment on a fast machine with adequate storage.
 
 0. Fork woof-CE.
 
@@ -29,26 +26,20 @@ Puppy can be built directly on GitHub, saving the hassle of preparing a suitable
 
 Woof-CE has five directories:
 
-- woof-arch   : architecture-dependent (x86, arm) files, mostly binary executables.
+- woof-arch   : architecture-dependent (x86_64, x86, ARM) files, mostly binary executables.
 - woof-code   : the core of Woof. Mostly scripts.
 - woof-distro : distro-configuration (Debian, Slackware, etc.) files.
 - kernel-kit  : scripts to download, patch, configure and build the kernel.
 - initrd-progs: scripts and files to generate the initial ramdisk
 
-To create a working directory, named 'woof-out_*', you first have to run the 'merge2out'
-script. This merges the 5 directories into a directory named 'woof-out-*'.
-You then 'cd' into woof-out_* and run the build scripts.
+To create a working directory, named `woof-out_*`, you first have to run the `merge2out` script. This merges the 5 directories into a directory named `woof-out_*`. You then `cd` into `woof-out_*` and run the build scripts.
 
-The great thing about this merge operation is that you can choose exactly what
-you want to go into woof-out. You can choose the host system that you are building
-on (usually x86), the target (exs: x86, arm), the compatible-distro (ex: debian),
-and the compat-distro version (ex: xenial).
-So, you create woof-out without any confusing inappropriate content.
+The great thing about this merge operation is that you can choose exactly what you want to go into woof-out. You can choose the host system that you are building on (usually x86_64), the target (exs: x86_64 x86, ARM), the compatible-distro (ex: slackware), and the compat-distro version (ex: 15.0). So, you create woof-out without any confusing inappropriate content.
 
-So, to get going with WoofCE, open a terminal and do this:
+So, to get going with woof-CE, open a terminal and do this:
 
     ./merge2out
-    cd ../woof-out_<REST OF DIRNAME>
+    cd ../woof-out_*
 
 # Preparation
 
@@ -57,92 +48,67 @@ So, to get going with WoofCE, open a terminal and do this:
   - At least 6-10GBs of space
 
 2. Host operating system
-  - A recent Woof-CE puppy with the devx (compilers, headers and other development tools) installed. Otherwise use run_woof
-  http://murga-linux.com/puppy/viewtopic.php?p=963764&sid=bb5882c97a03e39fff3ecb2a827a5155
+  - A recent Woof-CE puppy with the devx (compilers, headers and other development tools) installed. Otherwise use [run_woof](https://github.com/puppylinux-woof-CE/run_woof).
   
 3. Choose a compatible-distro.
-This is the distro whose packages you are going to 'borrow' to build your Puppy.
-Open file DISTRO_SPECS in a text editor and change this line:
-DISTRO_BINARY_COMPAT="ubuntu"
-to what you want: 'slackware', 'devuan', 'ubuntu', 'debian' or 'puppy'.
+
+This is the distro whose packages you are going to 'borrow' to build your Puppy. Open file DISTRO_SPECS in a text editor and change this line:
+
+    DISTRO_BINARY_COMPAT="ubuntu"
+
+to what you want: `slackware`, `devuan`, `ubuntu`, `debian` or `puppy`.
 
 # Building a Puppy: using the commandline scripts
 
+Open a terminal in the `woof-out_*` directory.
+
 0. Download package database files
-Open a terminal in the 'woof' directory, then run '0setup':
 
-    ./0setup
+       ./0setup
 
-1a. OPTIONAL: Tweak common PET package selection.
-You can edit the variable PKGS_SPECS_TABLE in file DISTRO_PKGS_SPECS-* to choose the packages that you want in your build.
+OPTIONAL: Tweak common PET package selection. You can edit the variable PKGS_SPECS_TABLE in file `DISTRO_PKGS_SPECS-*` to choose the packages that you want in your build.
 
 1. Download packages
-About 500MB drive space is required, but this may vary enormously
-depending on the package selection.
 
-    ./1download
+       ./1download
+
+About 500MB drive space is required, but this may vary enormously depending on the package selection.
 
 2. Build the cut-down generic Puppy-packages
 
-    ./2createpackages
+       ./2createpackages
 
 3. Build Puppy live-CD
-This gets built in a directory named 'sandbox3' and as well as the live-CD iso
-file you will also find the individual built files and the 'devx' file.
 
-    ./3builddistro
+       ./3builddistro
 
-# Building a Puppy: using the GUI
-
-There is a simple frontend GUI for the above scripts (and then some).
-
-    ./woof_gui
-
-It will come up with a tabbed-interface, and basically you go from left-tab
-to right-tab.
-
-For newcomers, I recommend that you perform a run-through without making any
-changes, to confirm that everything works.
-
-Newcomer instructions:
-
-SKIP THIS IF LATEST WOOF: 'Download dbs' tab: click the 'UPDATE' button.
-'Download pkgs' tab: click the 'DOWNLOAD' button.
-'Build pkgs' tab: click the 'BUILD ALL' button.
-'Kernel options' tab: choose the latest kernel.
-'Build distro' tab: click the 'BUILD DISTRO' button.
-
-...then you will have WoofCE live-CD ISO file and a 'devx' SFS file!
+This gets built in a directory named `sandbox3` and as well as the live-CD ISO file you will also find the individual built files and the `devx` file.
 
 # TECHNICAL NOTES
 
+## History
+
+Woof-CE (woof-Community Edition) is  a fork of Barry Kauler's woof2 fossil repository of Nov 11, 2013 commit f6332edbc4a75c262a8fec6e7d39229b0acf32cd.
+
 ## packages-templates directory
 
-any directory in the template, the files in the target pkg will be cut down to the same selection.
-(even if empty dir). Exception, file named 'PLUSEXTRAFILES' then target will have all files from deb.
-  0-size file, means get file of same name from deb (even if in different dir) to target.
-  non-zero file, means copy this file from template to target.
-  template files with '-FULL' suffix, rename target file also (exs: in coreutils, util-linux).
+any directory in the template, the files in the target pkg will be cut down to the same selection (even if empty dir). Exception, file named `PLUSEXTRAFILES` then target will have all files from deb.
+
+- 0-size file, means get file of same name from deb (even if in different dir) to target.
+- Non-zero file, means copy this file from template to target.
+- Template files with `-FULL` suffix, rename target file also (exs: in coreutils, util-linux).
   
-Any dir in template with 'PKGVERSION' in name, substitute actual pkg version number in target dir.
-Except for /dev, /var, all dirs in target are deleted to only those in template, except
-  if file 'PLUSEXTRADIRS' is found in template.
+Any dir in template with `PKGVERSION` in name, substitute actual pkg version number in target dir. Except for /dev, /var, all dirs in target are deleted to only those in template, except if file `PLUSEXTRADIRS` is found in template.
   
-As a last resort, if target pkg is wrong, a file 'FIXUPHACK' is a script that can be at top dir
-  in template. It executes in target, with current-dir set to where FIXUPHACK is located. (ex: perl_tiny).
-  Ran into problem slackware post-install scripts messing things up. See near bottom of '2createpackages'
-  how damage is limited. Also DISABLE_POST_INSTALL_SCRIPT=yes in FIXUPHACK to disable entirely.
+As a last resort, if target pkg is wrong, a file `FIXUPHACK` is a script that can be at top dir in template. It executes in target, with current-dir set to where `FIXUPHACK` is located. (ex: perl_tiny). Ran into problem slackware post-install scripts messing things up. See near bottom of '2createpackages' how damage is limited. Also `DISABLE_POST_INSTALL_SCRIPT=yes` in `FIXUPHACK` to disable entirely.
   
-If a dir in template has files in it then target is cut down (unless PLUSEXTRAFILES present),
- however there are some exceptions (such as .so regular files).
+If a dir in template has files in it then target is cut down (unless `PLUSEXTRAFILES` present), however there are some exceptions (such as .so regular files).
 
 ## Packages-puppy-*
 
-Notice that there are 'Packages-puppy-noarch-official',
-also 'Packages-puppy-common-official'
+Notice that there are `Packages-puppy-noarch-official`, also `Packages-puppy-common-official`
 
-The single-digit '-2-', '-3-', '-4-', '-5-' files reside on ibiblio.org also.
-These files list the complete contents of each repository.
+The single-digit `-2-`, `-3-`, `-4-`, `-5-` files reside on ibiblio.org also. These files list the complete contents of each repository.
 
 ## Puppy filenames
 
@@ -154,8 +120,7 @@ Versioning is put into the last two, for example:
 
     vmlinuz, initrd.gz, puppy_slacko_7.0.0, zdrv_slacko_7.0.0.sfs fdrv_slacko_7.0.0.sfs, adrv_slacko_7.0.0.sfs, ydrv_slacko_7.0.0.sfs
 
-...those last two names are intended to be unique for that build of Puppy,
-so they can be found at bootup.
+...those last two names are intended to be unique for that build of Puppy, so they can be found at bootup.
 
 ## DISTRO_SPECS file
 
@@ -170,49 +135,27 @@ For example:
 
 So, any script that wants to know what the names are can read these variables.
 
-Woof 3builddistro also copies DISTRO_SPECS into the initrd.gz,
-so that the 'init' script can see what files to search for.
+Woof 3builddistro also copies DISTRO_SPECS into the initrd.gz, so that the `init` script can see what files to search for.
 
-However, in a running Puppy, you can find out the filenames in the way
-that scripts have done before, by reading 'PUPSFS' and 'ZDRV' variables
-in /etc/rc.d/PUPSTATE.
+However, in a running Puppy, you can find out the filenames in the way that scripts have done before, by reading `PUPSFS` and `ZDRV` variables in /etc/rc.d/PUPSTATE.
 
 In fact, to clarify the difference between these two sets of variables,
 I have put this comment into /etc/DISTRO_SPECS:
 
-Note, the .sfs files below are what the 'init' script in initrd.gz searches for,
-for the partition, path and actual files loaded, see PUPSFS and ZDRV in /etc/rc.d/PUPSTATE
+    #Note, the .sfs files below are what the `init` script in initrd.gz searches for,
+    #for the partition, path and actual files loaded, see `PUPSFS` and `ZDRV` in /etc/rc.d/PUPSTATE
 
 # by 01micko
 
-Woof-CE, a fork of woof2 can build the same as woof2 however a new feature
-has been added as of today. It now has the ability to build a distro with out
-modules in the initrd.gz, a feature which had been pioneered by Fatdog 
-developers kirk and jamesbond. This has a number of advantages over the 
-legacy kernel builds.
-1. No messy copying kernel modules from the initial ram disk to the root
-system.
+Woof-CE, a fork of woof2 can build the same as woof2 however a new feature has been added as of today. It now has the ability to build a distro with out modules in the initrd.gz, a feature which had been pioneered by Fatdog  developers kirk and jamesbond. This has a number of advantages over the  legacy kernel builds.
+1. No messy copying kernel modules from the initial ram disk to the root system.
 2. Ease of changing kernels.
 
-I have named this the 'huge' type kernel, for want of a better term. The
-rationale for this is that Slackware developers name their default kernel
-"huge-$some_suffix". The reason is that the vmlinuz kernel image contains
-all the necessary filesystem and hardware drivers to get the system to boot
-and hand over to the real running system. Once that occurs, kernel modules
-are loaded to bring up the rest of the hardware and extra filesystems if
-necessary.
+I have named this the 'huge' type kernel, for want of a better term. The rationale for this is that Slackware developers name their default kernel `huge-$some_suffix`. The reason is that the vmlinuz kernel image contains all the necessary filesystem and hardware drivers to get the system to boot and hand over to the real running system. Once that occurs, kernel modules are loaded to bring up the rest of the hardware and extra filesystems if necessary.
 
-"kernel-kit", part of woof-CE, has the ability
-to produce one of these 'huge' style kernel packages. Please read the relevant 
-README and the comments in "build.conf" inside the kernel-kit directory.
+"kernel-kit", part of woof-CE, has the ability to produce one of these 'huge' style kernel packages. Please read the relevant  README and the comments in "build.conf" inside the kernel-kit directory.
 
-If you have built a "huge" style kernel with kernel-kit then place the package
-in the "huge_kernel" directory at the root of your woof installation. If not, 
-one will be downloaded for you after you invoke 3builddistro from the 
-woof-gui or CLI. You do get a choice of which version you want. Be sure you 
-choose the correct architecure. All 32 bit builds are suffixed with either 
-i486, i686 or x86. All 64 bit builds are suffixed x86_64. At the end you will 
-end up with an iso image, devx and checksums as usual.
+If you have built a "huge" style kernel with kernel-kit then place the package in the "huge_kernel" directory at the root of your woof installation. If not, one will be downloaded for you after you invoke 3builddistro from the CLI. You do get a choice of which version you want. Be sure you choose the correct architecure. All 32 bit builds are suffixed with either  i486, i686 or x86. All 64 bit builds are suffixed x86_64. At the end you will end up with an ISO image, devx and checksums as usual.
 
 Regards,
 Barry Kauler
