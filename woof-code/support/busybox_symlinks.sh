@@ -58,7 +58,7 @@ do
 		# klibc-utils
 
 		# Editors
-		vi|ed)    continue ;;
+		ed)       continue ;;
 		patch)    continue ;; # too primitive
 
 		# Finding Utilities
@@ -100,7 +100,7 @@ do
 	esac
 	#-
 
-	if [ -f bin/$N -o -f sbin/$N -o -f usr/bin/$N -o -f usr/sbin/$N ] ;then
+	if [ -e bin/$N -o -e sbin/$N -o -e usr/bin/$N -o -e usr/sbin/$N ] ;then
 		continue
 	fi
 
