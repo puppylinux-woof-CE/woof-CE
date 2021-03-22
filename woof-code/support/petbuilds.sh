@@ -274,6 +274,26 @@ MAINPKGS=
 for NAME in $PKGS; do
     mkdir -p ../packages-${DISTRO_FILE_PREFIX}/${NAME}
     cp -a ../petbuild-output/${NAME}-latest/* ../packages-${DISTRO_FILE_PREFIX}/${NAME}/
+
+    if [ -d ../../packages-${DISTRO_FILE_PREFIX}/${NAME}/usr/share/locale ]; then
+        mkdir -p ../packages-${DISTRO_FILE_PREFIX}/${NAME}_NLS/usr/share
+        mv ../../packages-${DISTRO_FILE_PREFIX}/${NAME}/usr/share/locale ../packages-${DISTRO_FILE_PREFIX}/${NAME}_NLS/usr/share/
+    fi
+
+    for DOCDIR in doc man info; do
+        [ ! -d ../../packages-${DISTRO_FILE_PREFIX}/${NAME}/usr/share/${DOCDIR} ] && continue
+        mkdir -p ../packages-${DISTRO_FILE_PREFIX}/${NAME}_DOC/usr/share
+        mv ../../packages-${DISTRO_FILE_PREFIX}/${NAME}/usr/share/${DOCDIR} ../packages-${DISTRO_FILE_PREFIX}/${NAME}_DOC/usr/share/
+    done
+
+    for SUFFIX in _DOC _NLS; do
+        [ ! -d ../packages-${DISTRO_FILE_PREFIX}/${NAME}${SUFFIX} ] && continue
+        sed -e "s/^${NAME}/${NAME}${SUFFIX}/" -e "s/|${NAME}/|${NAME}${SUFFIX}/g" ../packages-${DISTRO_FILE_PREFIX}/${NAME}/pet.specs > ../packages-${DISTRO_FILE_PREFIX}/${NAME}${SUFFIX}/pet.specs
+    done
+
+    rmdir ../../packages-${DISTRO_FILE_PREFIX}/${NAME}/usr/share 2>/dev/null
+    ../../packages-${DISTRO_FILE_PREFIX}/${NAME}/usr 2>/dev/null
+
     (echo ":${NAME}:|pet|"; cat ../rootfs-petbuilds/${NAME}/pet.specs) >> ../status/findpkgs_FINAL_PKGS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}
 
     # redirect packages with menu entries to adrv; ROX-Filer is a 'core' package like JWM
