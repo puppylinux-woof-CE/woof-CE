@@ -14,9 +14,10 @@ TAR_BASE=${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}.tar
 
 echo "console=tty1 root=PARTUUID=%U/PARTNROFF=1 init=/init rootfstype=ext4 rootwait rw" > cmdline
 vmlinuz=build/vmlinuz
-case $WOOF_TARGETARCH in
-arm) # TODO: this specific to RK3288-based models
-	cat << EOF > kernel.its
+if [ "$WOOF_TARGETARCH" = "arm" ]; then
+    case "$BOOT_BOARD" in
+    c201)
+        cat << EOF > kernel.its
 /dts-v1/;
 
 / {
@@ -56,11 +57,15 @@ arm) # TODO: this specific to RK3288-based models
 	};
 };
 EOF
-	mkimage -D "-I dts -O dtb -p 2048" -f kernel.its vmlinux.uimg
-	vmlinuz=vmlinux.uimg
-	;;
-# TODO: aarch64 support
-esac
+        mkimage -D "-I dts -O dtb -p 2048" -f kernel.its vmlinux.uimg
+        vmlinuz=vmlinux.uimg
+        ;;
+    *)
+        echo "Unknown board!"
+        exit 1
+        ;;
+    esac
+fi
 
 dd if=/dev/zero of=bootloader.bin bs=512 count=1
 vbutil_kernel --pack build/vmlinux.kpart \
