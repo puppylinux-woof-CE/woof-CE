@@ -210,7 +210,11 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
         rm -f ../petbuild-output/${NAME}-${HASH}/usr/share/icons/hicolor/icon-theme.cache
         rm -rf ../petbuild-output/${NAME}-${HASH}/lib/pkgconfig
         rm -rf ../petbuild-output/${NAME}-${HASH}/usr/lib/pkgconfig
+        rm -rf ../petbuild-output/${NAME}-${HASH}/usr/lib/girrepository-1.0
         rm -rf ../petbuild-output/${NAME}-${HASH}/usr/share/pkgconfig
+        rm -rf ../petbuild-output/${NAME}-${HASH}/usr/share/gc
+        rm -rf ../petbuild-output/${NAME}-${HASH}/usr/share/gir-1.0
+        rm -rf ../petbuild-output/${NAME}-${HASH}/usr/man
         rm -rf ../petbuild-output/${NAME}-${HASH}/usr/include
 
         find ../petbuild-output/${NAME}-${HASH} -name '.wh*' -delete
@@ -275,15 +279,21 @@ for NAME in $PKGS; do
     mkdir -p ../packages-${DISTRO_FILE_PREFIX}/${NAME}
     cp -a ../petbuild-output/${NAME}-latest/* ../packages-${DISTRO_FILE_PREFIX}/${NAME}/
 
-    if [ -d ../packages-${DISTRO_FILE_PREFIX}/${NAME}/usr/share/locale ]; then
-        mkdir -p ../packages-${DISTRO_FILE_PREFIX}/${NAME}_NLS/usr/share
-        mv ../packages-${DISTRO_FILE_PREFIX}/${NAME}/usr/share/locale ../packages-${DISTRO_FILE_PREFIX}/${NAME}_NLS/usr/share/
-    fi
-
-    for DOCDIR in doc man info; do
-        [ ! -d ../packages-${DISTRO_FILE_PREFIX}/${NAME}/usr/share/${DOCDIR} ] && continue
-        mkdir -p ../packages-${DISTRO_FILE_PREFIX}/${NAME}_DOC/usr/share
-        mv ../packages-${DISTRO_FILE_PREFIX}/${NAME}/usr/share/${DOCDIR} ../packages-${DISTRO_FILE_PREFIX}/${NAME}_DOC/usr/share/
+    for usrfld in usr/share usr/local/share; do
+    
+     if [ -d ../packages-${DISTRO_FILE_PREFIX}/${NAME}/${usrfld}/locale ]; then
+        mkdir -p ../packages-${DISTRO_FILE_PREFIX}/${NAME}_NLS/${usrfld}
+        mv ../packages-${DISTRO_FILE_PREFIX}/${NAME}/${usrfld}/locale ../packages-${DISTRO_FILE_PREFIX}/${NAME}_NLS/${usrfld}/
+     fi
+    
+     for DOCDIR in doc man info gtk-doc help gnome/help; do
+        if [ "${NAME}" != "cups" ]; then
+         [ ! -d ../packages-${DISTRO_FILE_PREFIX}/${NAME}/${usrfld}/${DOCDIR} ] && continue
+         mkdir -p ../packages-${DISTRO_FILE_PREFIX}/${NAME}_DOC/${usrfld}
+         mv ../packages-${DISTRO_FILE_PREFIX}/${NAME}/${usrfld}/${DOCDIR} ../packages-${DISTRO_FILE_PREFIX}/${NAME}_DOC/${usrfld}/
+        fi
+     done
+    
     done
 
     for SUFFIX in _DOC _NLS; do
