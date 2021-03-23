@@ -210,7 +210,7 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
         rm -f ../petbuild-output/${NAME}-${HASH}/usr/share/icons/hicolor/icon-theme.cache
         rm -rf ../petbuild-output/${NAME}-${HASH}/lib/pkgconfig
         rm -rf ../petbuild-output/${NAME}-${HASH}/usr/lib/pkgconfig
-        rm -rf ../petbuild-output/${NAME}-${HASH}/usr/lib/girrepository-1.0
+        rm -rf ../petbuild-output/${NAME}-${HASH}/usr/lib/girepository-1.0
         rm -rf ../petbuild-output/${NAME}-${HASH}/usr/share/pkgconfig
         rm -rf ../petbuild-output/${NAME}-${HASH}/usr/share/gc
         rm -rf ../petbuild-output/${NAME}-${HASH}/usr/share/gir-1.0
