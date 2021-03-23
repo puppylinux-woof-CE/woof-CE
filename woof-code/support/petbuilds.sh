@@ -251,6 +251,7 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
             
         done
         
+        rm -f ../petbuild-output/${NAME}-${HASH}/etc/ld.so.cache 2>/dev/null
         rm -f ../petbuild-output/${NAME}-${HASH}/etc/dconf/db/local 2>/dev/null
         rm -f ../petbuild-output/${NAME}-${HASH}/etc/udev/hwdb.bin 2>/dev/null
         rm -rf ../petbuild-output/${NAME}-${HASH}/var/cache/fontconfig/*
