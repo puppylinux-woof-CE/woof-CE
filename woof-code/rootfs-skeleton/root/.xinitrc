@@ -66,14 +66,14 @@ fi
 
 #0.9.8 sync selection-buffer and clipboard. only useful for older apps
 #such as rxvt that use the selection-buffer...
-[ "$(which autocutsel)" != "" ] && autocutsel &
+[ "$(command -v autocutsel)" != "" ] && autocutsel &
 #...disadvantage of this is it creates a little square bottom-right of screen.
 
 if [ -e /tmp/videomode ];then #xvesa only: testing a video mode
  video-wizard &
 fi
 
-[ "$(which agenda_chk)" != "" ] && agenda_chk &
+[ "$(command -v agenda_chk)" != "" ] && agenda_chk &
 
 
 
@@ -118,7 +118,7 @@ if [ -f /root/.fonts/fonts.dir ];then
  xset fp+ /root/.fonts/
 fi
 
-[ "$(which xsetroot)" != "" ] && xsetroot -cursor_name top_left_arrow
+[ "$(command -v xsetroot)" != "" ] && xsetroot -cursor_name top_left_arrow
 
 #relocates right-side icons to actual right-side of screen...
 fixPuppyPin /root/Choices/ROX-Filer/PuppyPin #v1.0.7
@@ -159,19 +159,19 @@ if [ "$CURRENTWM" = "xfwm4" ];then
 fi
 
 #v3.91 volume tray applet, thanks to hairywill...
-[ "$(which absvolume)" != "" ] && absvolume &
+[ "$(command -v absvolume)" != "" ] && absvolume &
 
 #v3.95 support fbpanel tray/taskbar...
 #only launch tray for w.m. without inbuilt tray...
 if [ "$CURRENTWM" != "jwm" -a "$CURRENTWM" != "icewm" ];then
- if [ "$(which fbpanel)" != "" ];then
+ if [ "$(command -v fbpanel)" != "" ];then
   #a bit of a hack: when 3builddistro runs fixmenus, which calls variconlinks,
   #which populates /var/local/icons with symlinks, /usr/local/lib/X11/pixmaps
   #is not yet populated (happens at first boot, from default icon theme)...
   [ ! -e /var/local/icons/home48.png ] && ln -fs /usr/local/lib/X11/pixmaps/* /var/local/icons/
   fbpanel &
  fi
- [ "$desktop" = "rox" ] && [ "$(which lxpanel)" != "" ] && lxpanel &
+ [ "$desktop" = "rox" ] && [ "$(command -v lxpanel)" != "" ] && lxpanel &
 fi
 
 which $CURRENTWM && exec $CURRENTWM
