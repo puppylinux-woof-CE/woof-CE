@@ -424,6 +424,9 @@ done
 rm -rf $DIRECTSAVEPATH/install
 rm -rf $DIRECTSAVEPATH/DEBIAN
 
+[ -e $DIRECTSAVEPATH/.MTREE ] && rm -f $DIRECTSAVEPATH/.MTREE
+[ -e $DIRECTSAVEPATH/.BUILDINFO ] && rm -f $DIRECTSAVEPATH/.BUILDINFO
+
 #130314 run arch linux pkg post-install script...
 if [ -f $DIRECTSAVEPATH/.INSTALL ];then #arch post-install script.
  if [ -f /usr/local/petget/ArchRunDotInstalls ];then #precaution. see 3builddistro, script created by noryb009.
