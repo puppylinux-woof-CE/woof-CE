@@ -200,29 +200,82 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
         fi
 
         rm -rf ../petbuild-output/${NAME}-${HASH}/root/.ccache
+        rm -rf ../petbuild-output/${NAME}-${HASH}/root/.cache/*
+        rm -rf ../petbuild-output/${NAME}-${HASH}/root/.dbus/*
+        rm -rf ../petbuild-output/${NAME}-${HASH}/root/.thumbnails/*
+        
         rm -rf ../petbuild-output/${NAME}-${HASH}/tmp
         rm -rf ../petbuild-output/${NAME}-${HASH}/etc/ssl
         rm -f ../petbuild-output/${NAME}-${HASH}/etc/resolv.conf
         rm -f ../petbuild-output/${NAME}-${HASH}/root/.wget-hsts
 
-        rm -rf ../petbuild-output/${NAME}-${HASH}/usr/share/man
-        rm -rf ../petbuild-output/${NAME}-${HASH}/usr/share/info
-        rm -f ../petbuild-output/${NAME}-${HASH}/usr/share/icons/hicolor/icon-theme.cache
         rm -rf ../petbuild-output/${NAME}-${HASH}/lib/pkgconfig
-        rm -rf ../petbuild-output/${NAME}-${HASH}/usr/lib/pkgconfig
-        rm -rf ../petbuild-output/${NAME}-${HASH}/usr/lib/girepository-1.0
-        rm -rf ../petbuild-output/${NAME}-${HASH}/usr/share/pkgconfig
-        rm -rf ../petbuild-output/${NAME}-${HASH}/usr/share/gc
-        rm -rf ../petbuild-output/${NAME}-${HASH}/usr/share/gir-1.0
-        rm -rf ../petbuild-output/${NAME}-${HASH}/usr/man
-        rm -rf ../petbuild-output/${NAME}-${HASH}/usr/include
+        
+        for usrfld2 in usr usr/local
+        do
+        
+            rm -rf ../petbuild-output/${NAME}-${HASH}/${usrfld2}/lib/pkgconfig 2>/dev/null
+            rm -rf ../petbuild-output/${NAME}-${HASH}/${usrfld2}/lib/girepository-1.0 2>/dev/null
 
+            rm -rf ../petbuild-output/${NAME}-${HASH}/${usrfld2}/man 2>/dev/null
+            rm -rf ../petbuild-output/${NAME}-${HASH}/${usrfld2}/include 2>/dev/null
+
+            rm -rf ../petbuild-output/${NAME}-${HASH}/${usrfld2}/share/man 2>/dev/null
+            rm -rf ../petbuild-output/${NAME}-${HASH}/${usrfld2}/share/info 2>/dev/null
+
+            rm -rf ../petbuild-output/${NAME}-${HASH}/${usrfld2}/share/pkgconfig 2>/dev/null
+            rm -rf ../petbuild-output/${NAME}-${HASH}/${usrfld2}/share/gc 2>/dev/null
+            rm -rf ../petbuild-output/${NAME}-${HASH}/${usrfld2}/share/gir-1.0 2>/dev/null
+            rm -rf ../petbuild-output/${NAME}-${HASH}/${usrfld2}/share/mime/application 2>/dev/null
+            rm -rf ../petbuild-output/${NAME}-${HASH}/${usrfld2}/share/mime/audio 2>/dev/null
+            rm -rf ../petbuild-output/${NAME}-${HASH}/${usrfld2}/share/mime/image 2>/dev/null
+            rm -rf ../petbuild-output/${NAME}-${HASH}/${usrfld2}/share/mime/inode 2>/dev/null
+            rm -rf ../petbuild-output/${NAME}-${HASH}/${usrfld2}/share/mime/message 2>/dev/null
+            rm -rf ../petbuild-output/${NAME}-${HASH}/${usrfld2}/share/mime/model 2>/dev/null
+            rm -rf ../petbuild-output/${NAME}-${HASH}/${usrfld2}/share/mime/multipart 2>/dev/null
+            rm -rf ../petbuild-output/${NAME}-${HASH}/${usrfld2}/share/mime/text 2>/dev/null
+            rm -rf ../petbuild-output/${NAME}-${HASH}/${usrfld2}/share/mime/video 2>/dev/null
+            rm -rf ../petbuild-output/${NAME}-${HASH}/${usrfld2}/share/mime/x-content 2>/dev/null
+            rm -rf ../petbuild-output/${NAME}-${HASH}/${usrfld2}/share/mime/x-epoc 2>/dev/null
+
+            rm -f ../petbuild-output/${NAME}-${HASH}/${usrfld2}/share/mime/aliases 2>/dev/null
+            rm -f ../petbuild-output/${NAME}-${HASH}/${usrfld2}/share/mime/generic-icons 2>/dev/null
+            rm -f ../petbuild-output/${NAME}-${HASH}/${usrfld2}/share/mime/globs* 2>/dev/null
+            rm -f ../petbuild-output/${NAME}-${HASH}/${usrfld2}/share/mime/icons 2>/dev/null
+            rm -f ../petbuild-output/${NAME}-${HASH}/${usrfld2}/share/mime/magic 2>/dev/null
+            rm -f ../petbuild-output/${NAME}-${HASH}/${usrfld2}/share/mime/mime.cache 2>/dev/null
+            rm -f ../petbuild-output/${NAME}-${HASH}/${usrfld2}/share/mime/subclasses 2>/dev/null
+            rm -f ../petbuild-output/${NAME}-${HASH}/${usrfld2}/share/mime/treemagic 2>/dev/null
+            rm -f ../petbuild-output/${NAME}-${HASH}/${usrfld2}/share/mime/types 2>/dev/null
+            rm -f ../petbuild-output/${NAME}-${HASH}/${usrfld2}/share/mime/XMLnamespaces 2>/dev/null
+            
+        done
+        
+        rm -f ../petbuild-output/${NAME}-${HASH}/etc/dconf/db/local 2>/dev/null
+        rm -f ../petbuild-output/${NAME}-${HASH}/etc/udev/hwdb.bin 2>/dev/null
+        rm -rf ../petbuild-output/${NAME}-${HASH}/var/cache/fontconfig/*
+        rm -rf ../petbuild-output/${NAME}-${HASH}/var/tmp
+        rm -rf ../petbuild-output/${NAME}-${HASH}/var/lock
+        
+        find ../petbuild-output/${NAME}-${HASH}/var/log/ -type f -name '*' -delete
+        find ../petbuild-output/${NAME}-${HASH}/var/run/ -type f -name '*' -delete
+        find ../petbuild-output/${NAME}-${HASH}/run/ -type f -name '*' -delete
+        
         find ../petbuild-output/${NAME}-${HASH} -name '.wh*' -delete
         find ../petbuild-output/${NAME}-${HASH} -name '.git*' -delete
         find ../petbuild-output/${NAME}-${HASH} -name '*.a' -delete
         find ../petbuild-output/${NAME}-${HASH} -name '*.la' -delete
-
-        LIBDIRS="lib usr/lib"
+        find ../petbuild-output/${NAME}-${HASH} -name 'modules.cache' -delete
+        find ../petbuild-output/${NAME}-${HASH} -name 'immodules.cache' -delete
+        find ../petbuild-output/${NAME}-${HASH} -name 'loaders.cache' -delete
+        find ../petbuild-output/${NAME}-${HASH} -name 'gconv-modules.cache' -delete
+        find ../petbuild-output/${NAME}-${HASH} -name 'giomodule.cache' -delete
+        find ../petbuild-output/${NAME}-${HASH} -name 'gschemas.compiled' -delete
+        find ../petbuild-output/${NAME}-${HASH} -name 'icon-theme.cache' -delete
+        find ../petbuild-output/${NAME}-${HASH} -name 'mimeinfo.cache' -delete
+        
+        
+        LIBDIRS="lib usr/lib usr/local/lib"
         case $DISTRO_BINARY_COMPAT in
         slackware64) # in slacko64, we move all shared libraries to lib64
             for LIBDIR in $LIBDIRS; do
