@@ -340,11 +340,9 @@ for NAME in $PKGS; do
      fi
     
      for DOCDIR in doc man info gtk-doc help gnome/help; do
-        if [ "${NAME}" != "cups" ]; then
          [ ! -d ../packages-${DISTRO_FILE_PREFIX}/${NAME}/${usrfld}/${DOCDIR} ] && continue
          mkdir -p ../packages-${DISTRO_FILE_PREFIX}/${NAME}_DOC/${usrfld}
          mv ../packages-${DISTRO_FILE_PREFIX}/${NAME}/${usrfld}/${DOCDIR} ../packages-${DISTRO_FILE_PREFIX}/${NAME}_DOC/${usrfld}/
-        fi
      done
     
     done
