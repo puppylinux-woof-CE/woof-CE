@@ -12,7 +12,7 @@
 
 #v4.01 BK daemon to handle kernel uevents...
 echo '' > /var/local/pup_event_icon_change_flag
-/sbin/clean_desk_icons #v4.02 tidy up drive icons first.
+clean_desk_icons #v4.02 tidy up drive icons first.
 #/sbin/pup_event_frontend_d &
 #130525 ...start this further down.
 
@@ -41,14 +41,20 @@ fi
 
 xhost +local: 2>/dev/null
 
+if [ "$GTK_MODULES" != "" ] && [ "$(echo "$GTK_MODULES" | grep "canberra\-gtk\-module")" == "" ];then 
+ export GTK_MODULES="$GTK_MODULES:canberra-gtk-module"
+elif [ "$GTK_MODULES" == "" ]; then
+ export GTK_MODULES="canberra-gtk-module"
+fi
+
 CURRENTWM="`cat /etc/windowmanager`"
 if [ "$CURRENTWM" = "startkde" ];then
- /sbin/pup_event_frontend_d & #130525
+ pup_event_frontend_d & #130525
  exec startkde
 fi
 CURRENTWM="`cat /etc/windowmanager`"
 if [ "$CURRENTWM" = "startxfce4" ];then
- /sbin/pup_event_frontend_d & #130525
+ pup_event_frontend_d & #130525
  exec startxfce4
 rox --pinboard= 
 fi
@@ -60,14 +66,14 @@ fi
 
 #0.9.8 sync selection-buffer and clipboard. only useful for older apps
 #such as rxvt that use the selection-buffer...
-[ -f /usr/bin/autocutsel ] && /usr/bin/autocutsel &
+[ "$(which autocutsel)" != "" ] && autocutsel &
 #...disadvantage of this is it creates a little square bottom-right of screen.
 
 if [ -e /tmp/videomode ];then #xvesa only: testing a video mode
  video-wizard &
 fi
 
-[ -f /usr/local/bin/agenda_chk ] && agenda_chk &
+[ "$(which agenda_chk)" != "" ] && agenda_chk &
 
 
 
@@ -112,10 +118,10 @@ if [ -f /root/.fonts/fonts.dir ];then
  xset fp+ /root/.fonts/
 fi
 
-[ -f /usr/bin/xsetroot ] && xsetroot -cursor_name top_left_arrow
+[ "$(which xsetroot)" != "" ] && xsetroot -cursor_name top_left_arrow
 
 #relocates right-side icons to actual right-side of screen...
-/usr/sbin/fixPuppyPin /root/Choices/ROX-Filer/PuppyPin #v1.0.7
+fixPuppyPin /root/Choices/ROX-Filer/PuppyPin #v1.0.7
 
 sleep 1 # let the dust settle
 
@@ -130,10 +136,10 @@ case $desktop in
 	;;
 esac
 
-/sbin/pup_event_frontend_d & #130525 moved down.
+pup_event_frontend_d & #130525 moved down.
 
 #v2.0.0
-/usr/sbin/delayedrun &
+delayedrun &
 
 #v2.01 hide cursor when not moving... (setup in /usr/sbin/input-wizard)
 if [ -f /etc/mousehide ];then
@@ -153,19 +159,19 @@ if [ "$CURRENTWM" = "xfwm4" ];then
 fi
 
 #v3.91 volume tray applet, thanks to hairywill...
-[ -f /usr/bin/absvolume ] && absvolume &
+[ "$(which absvolume)" != "" ] && absvolume &
 
 #v3.95 support fbpanel tray/taskbar...
 #only launch tray for w.m. without inbuilt tray...
 if [ "$CURRENTWM" != "jwm" -a "$CURRENTWM" != "icewm" ];then
- if [ -f /usr/bin/fbpanel ];then
+ if [ "$(which fbpanel)" != "" ];then
   #a bit of a hack: when 3builddistro runs fixmenus, which calls variconlinks,
   #which populates /var/local/icons with symlinks, /usr/local/lib/X11/pixmaps
   #is not yet populated (happens at first boot, from default icon theme)...
   [ ! -e /var/local/icons/home48.png ] && ln -fs /usr/local/lib/X11/pixmaps/* /var/local/icons/
   fbpanel &
  fi
- [ "$desktop" = "rox" ] && [ -f /usr/bin/lxpanel ] && lxpanel &
+ [ "$desktop" = "rox" ] && [ "$(which lxpanel)" != "" ] && lxpanel &
 fi
 
 which $CURRENTWM && exec $CURRENTWM
