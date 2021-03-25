@@ -108,6 +108,7 @@ for SFS in build/*.sfs; do
 	BASE=${SFS##*/}
 	ln -s ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}/${BASE} /mnt/ssdimagep2/${BASE}
 done
+[ -n "$DISTRO_EXTRAVERSION" ] && ln -s ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION} /mnt/ssdimagep2/${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${DISTRO_EXTRAVERSION}
 mkdir -p ../../local-repositories/frugalify
 case $WOOF_TARGETARCH in
 x86*) FRUGALIFY=frugalify-overlayfs-i386 ;;
@@ -116,6 +117,7 @@ esac
 [ ! -f ../../local-repositories/frugalify/${FRUGALIFY} ] && wget --tries=1 --timeout=10 -O ../../local-repositories/frugalify/${FRUGALIFY} https://github.com/dimkr/frugalify/releases/latest/download/${FRUGALIFY}
 install -m 755 ../../local-repositories/frugalify/${FRUGALIFY} /mnt/ssdimagep2/init
 cp -a /mnt/ssdimagep2/${DISTRO_FILE_PREFIX}-${DISTRO_VERSION} /mnt/ssdimagep2/*.sfs /mnt/ssdimagep2/init /mnt/sdimagep2/
+[ -n "$DISTRO_EXTRAVERSION" ] && ln -s ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION} /mnt/sdimagep2/${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${DISTRO_EXTRAVERSION}
 
 case $WOOF_TARGETARCH in
 x86*)
@@ -142,6 +144,7 @@ EOF
 
 	cp -a /mnt/ssdimagep2/${DISTRO_FILE_PREFIX}-${DISTRO_VERSION} /mnt/ssdimagep2/*.sfs /mnt/ssdimagep2/init /mnt/legacyimagep1/
 	cp -f build/vmlinuz /mnt/legacyimagep1/${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}/
+	[ -n "$DISTRO_EXTRAVERSION" ] && ln -s ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION} /mnt/legacyimagep1/${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${DISTRO_EXTRAVERSION}
 	ln -s ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}/vmlinuz /mnt/legacyimagep1/
 	busybox umount /mnt/legacyimagep1 2>/dev/null
 	mv -f ${LEGACY_IMG_BASE} ../${WOOF_OUTPUT}/
