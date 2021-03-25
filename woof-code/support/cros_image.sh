@@ -102,11 +102,17 @@ dd if=build/vmlinux.kpart of=${SD_IMG_BASE} conv=notrunc seek=${P1BYTES}
 mount-FULL -o loop,noatime,offset=${P2STARTBYTES} ${SSD_IMG_BASE} /mnt/ssdimagep2
 mount-FULL -o loop,noatime,offset=${P2STARTBYTES} ${SD_IMG_BASE} /mnt/sdimagep2
 
-mkdir -p /mnt/ssdimagep2/${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${DISTRO_EXTRAVERSION}
+if [ -n "$BOOT_BOARD" ]; then
+	VERSIONDIR=${DISTRO_FILE_PREFIX}-${DISTRO_TARGETARCH}-${BOOT_BOARD}-${DISTRO_VERSION}${DISTRO_EXTRAVERSION}
+else
+	VERSIONDIR=${DISTRO_FILE_PREFIX}-${DISTRO_TARGETARCH}-${DISTRO_VERSION}${DISTRO_EXTRAVERSION}
+fi
+
+mkdir -p /mnt/ssdimagep2/${VERSIONDIR}
 for SFS in build/*.sfs; do
-	cp -f ${SFS} /mnt/ssdimagep2/${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${DISTRO_EXTRAVERSION}/
+	cp -f ${SFS} /mnt/ssdimagep2/${VERSIONDIR}/
 	BASE=${SFS##*/}
-	ln -s ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${DISTRO_EXTRAVERSION}/${BASE} /mnt/ssdimagep2/${BASE}
+	ln -s ${VERSIONDIR}/${BASE} /mnt/ssdimagep2/${BASE}
 done
 mkdir -p ../../local-repositories/frugalify
 case $WOOF_TARGETARCH in
@@ -115,7 +121,7 @@ arm|aarch64) FRUGALIFY=frugalify-overlayfs-arm ;;
 esac
 [ ! -f ../../local-repositories/frugalify/${FRUGALIFY} ] && wget --tries=1 --timeout=10 -O ../../local-repositories/frugalify/${FRUGALIFY} https://github.com/dimkr/frugalify/releases/latest/download/${FRUGALIFY}
 install -m 755 ../../local-repositories/frugalify/${FRUGALIFY} /mnt/ssdimagep2/init
-cp -a /mnt/ssdimagep2/${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${DISTRO_EXTRAVERSION} /mnt/ssdimagep2/*.sfs /mnt/ssdimagep2/init /mnt/sdimagep2/
+cp -a /mnt/ssdimagep2/${VERSIONDIR} /mnt/ssdimagep2/*.sfs /mnt/ssdimagep2/init /mnt/sdimagep2/
 
 case $WOOF_TARGETARCH in
 x86*)
@@ -140,23 +146,23 @@ LABEL puppy
 	APPEND root=PARTUUID=$PARTUUID init=/init rootfstype=ext4 rootwait rw
 EOF
 
-	cp -a /mnt/ssdimagep2/${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${DISTRO_EXTRAVERSION} /mnt/ssdimagep2/*.sfs /mnt/ssdimagep2/init /mnt/legacyimagep1/
-	cp -f build/vmlinuz /mnt/legacyimagep1/${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${DISTRO_EXTRAVERSION}/
-	ln -s ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${DISTRO_EXTRAVERSION}/vmlinuz /mnt/legacyimagep1/
+	cp -a /mnt/ssdimagep2/${VERSIONDIR} /mnt/ssdimagep2/*.sfs /mnt/ssdimagep2/init /mnt/legacyimagep1/
+	cp -f build/vmlinuz /mnt/legacyimagep1/${VERSIONDIR}/
+	ln -s ${VERSIONDIR}/vmlinuz /mnt/legacyimagep1/
 	busybox umount /mnt/legacyimagep1 2>/dev/null
 	mv -f ${LEGACY_IMG_BASE} ../${WOOF_OUTPUT}/
 	;;
 esac
 
 # create an archive
-cp -a /mnt/ssdimagep2/${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${DISTRO_EXTRAVERSION} .
-cp -a build/vmlinux.kpart /mnt/ssdimagep2/init ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${DISTRO_EXTRAVERSION}/
+cp -a /mnt/ssdimagep2/${VERSIONDIR} .
+cp -a build/vmlinux.kpart /mnt/ssdimagep2/init ${VERSIONDIR}/
 case $WOOF_TARGETARCH in
 x86*)
-	cp -f build/vmlinuz ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${DISTRO_EXTRAVERSION}/
+	cp -f build/vmlinuz ${VERSIONDIR}/
 	;;
 esac
-cd ${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${DISTRO_EXTRAVERSION}
+cd $VERSIONDIR
 tar -c * > ../../${WOOF_OUTPUT}/${TAR_BASE}
 cd ..
 
