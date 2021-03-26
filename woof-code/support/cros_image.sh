@@ -109,7 +109,7 @@ else
 fi
 
 mkdir -p /mnt/ssdimagep2/${VERSIONDIR}
-for SFS in build/*.sfs; do
+for SFS in build/*.sfs ../${WOOF_OUTPUT}/*.sfs; do
 	cp -f ${SFS} /mnt/ssdimagep2/${VERSIONDIR}/
 	BASE=${SFS##*/}
 	ln -s ${VERSIONDIR}/${BASE} /mnt/ssdimagep2/${BASE}
