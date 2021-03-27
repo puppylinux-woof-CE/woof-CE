@@ -119,8 +119,8 @@ case $WOOF_TARGETARCH in
 x86*) FRUGALIFY=frugalify-overlayfs-i386 ;;
 arm|aarch64) FRUGALIFY=frugalify-overlayfs-arm ;;
 esac
-[ ! -f ../../local-repositories/frugalify/${FRUGALIFY} ] && wget --tries=1 --timeout=10 -O ../../local-repositories/frugalify/${FRUGALIFY} https://github.com/dimkr/frugalify/releases/latest/download/${FRUGALIFY}
-install -m 755 ../../local-repositories/frugalify/${FRUGALIFY} /mnt/ssdimagep2/init
+wget --tries=1 --timeout=10 -O /mnt/ssdimagep2/init https://github.com/dimkr/frugalify/releases/latest/download/${FRUGALIFY}
+chmod 755 /mnt/ssdimagep2/init
 cp -a /mnt/ssdimagep2/${VERSIONDIR} /mnt/ssdimagep2/*.sfs /mnt/ssdimagep2/init /mnt/sdimagep2/
 
 case $WOOF_TARGETARCH in
