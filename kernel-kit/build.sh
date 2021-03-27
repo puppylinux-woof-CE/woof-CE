@@ -607,6 +607,7 @@ cp Makefile Makefile-orig
 if [ "$remove_sublevel" = "yes" ] ; then
 	log_msg "Resetting the minor version number" #!
 	sed -i "s/^SUBLEVEL =.*/#&\nSUBLEVEL = 0/" Makefile
+	export KBUILD_BUILD_USER="$kernel_version"
 fi
 ## custom suffix
 if [ -n "${custom_suffix}" ] ; then
