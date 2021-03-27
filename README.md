@@ -22,6 +22,18 @@ Puppy can be built directly on GitHub, saving the hassle of preparing a suitable
 
 5. Test your Puppy and open a pull request to woof-CE, if you want your changes to be officially incorporated into woof-CE.
 
+# Contributing to woof-CE: using Gitpod
+
+To modify woof-CE and push the changes to GitHub without having to set up a local development environment: [![Gitpod ready-to-code](https://img.shields.io/badge/Gitpod-ready--to--code-blue?logo=gitpod)](https://gitpod.io/#https://github.com/puppylinux-woof-CE/woof-CE)
+
+Not all of woof-CE can run [without root access](https://github.com/gitpod-io/gitpod/issues/39), but most of woof-CE works on Gitpod and it's possible to [boot Puppy inside QEMU and control it over VNC](https://www.gitpod.io/blog/native-ui-with-vnc/), all through the browser.
+
+To work on woof-CE in a fork, through Gitpod:
+
+1. Fork woof-CE.
+
+2. Browse to `https://gitpod.io/#https://github.com/your-github-username/woof-CE`.
+
 # Directory Structure
 
 Woof-CE has five directories:
