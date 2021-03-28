@@ -4,7 +4,7 @@ Currently supported:
 
 - Slackware [![slacko64](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/slacko64.yml/badge.svg)](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/slacko64.yml) [![slacko-7](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/slacko-7.yml/badge.svg)](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/slacko-7.yml) [![slacko64-7](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/slacko64-7.yml/badge.svg)](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/slacko64-7.yml)
 - Ubuntu [![fossa64](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/fossa64.yml/badge.svg)](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/fossa64.yml)
-- Debian [![bullseye64](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/bullseye64.yml/badge.svg)](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/bullseye64.yml)
+- Debian [![bullseye64](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/bullseye64.yml/badge.svg)](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/bullseye64.yml) [![bullseye](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/bullseye.yml/badge.svg)](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/bullseye.yml)
 
 # Building a Puppy: using GitHub Actions
 
