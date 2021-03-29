@@ -1,0 +1,112 @@
+#!/bin/ash
+# called by /etc/rc.d/rc.shudown
+#   - $RC_SHUTDOWN = save session at shutdown, PUPMODE = 66, PART_FS='vfat'
+#
+
+get_part_fs() {
+	# "$1" - partition - ex: sda3
+	get_part_fs_RET=''
+	[ "$1" ] || return 1
+	local FS="$(busybox blkid /dev/$1 | grep -o ' TYPE=.*' | cut -f2 -d'"')"
+	[ "$FS" ] && get_part_fs_RET="$FS"
+}
+
+get_part_mp() {
+	# $1 - partition name - e.g. sdb2
+	get_part_mp_RET=''
+	[ "$1" ] || return 1
+	local MP
+	MP="$(grep -m1 "^/dev/$1" /proc/mounts)"
+	if [ "$MP" ]; then
+		MP="${MP#* }"; MP="${MP%% *}"
+		get_part_mp_RET="$MP"
+	fi
+}
+
+ensure_mounted() {
+	# "$1" - partition - ex: sda3
+	ensure_mounted_MP=''; ensure_mounted_DID=''
+	[ "$1" ] || return 1
+	get_part_mp "$1"
+	if [ "$get_part_mp_RET" ]; then
+		ensure_mounted_MP="$get_part_mp_RET"
+	else
+		local FS MP
+		get_part_fs "$1"
+		[ "$get_part_fs_RET" ] || return 1
+		[ "$get_part_fs_RET" = "swap" ] && return 1
+		MP="/mnt/$1"
+		[ -d "$MP" ] || mkdir -p "$MP"
+		if [ "$get_part_fs_RET" = "vfat" ]; then
+			VFAT_OUT_PARAM='shortname=mixed,quiet,utf8'
+			mount -t vfat -o noatime,${VFAT_OUT_PARAM} "/dev/$1" "$MP"
+			STATUS=$?
+		elif [ "$get_part_fs_RET" = "ntfs" ]; then
+			ntfs-3g -o noatime "/dev/$1" "$MP"
+			STATUS=$?
+		else
+			mount -t "$get_part_fs_RET" -o noatime "/dev/$1" "$MP"
+			STATUS=$?
+		fi
+		if [ $STATUS -eq 0 ]; then
+			ensure_mounted_DID='yes'
+			ensure_mounted_MP="$MP"
+		else
+			return 1
+		fi
+	fi
+	return 0
+}
+
+#set -x
+
+#for usb sticks with single vfat partition
+#always write to install location, i.e. $PUPSFS
+. /etc/rc.d/PUPSTATE
+SAVEPART="${PUPSFS%%,*}"
+SAVEDIR="${PUPSFS#*,*,}"; SAVEDIR="${SAVEDIR%/*}"
+
+. /etc/DISTRO_SPECS
+SAVEFILE="$SAVEDIR/${DISTRO_FILE_PREFIX}save66.tar.gz"
+
+echo "$(printf "$(gettext 'Saving session to %s (%s)...')" "${SAVEFILE}" "${SAVEPART}")" >/dev/console
+
+#ensure that save partition is mounted
+ensure_mounted "$SAVEPART"
+PART_MP="$ensure_mounted_MP"; PART_MOUNT="$ensure_mounted_DID"
+
+if [ "$PART_MP" ]; then
+	#write archive of /initrd/pup_rw
+	SP_IFN="$(readlink -f /initrd/pup_rw)"
+	[ -d "${PART_MP}${SAVEDIR}" ] || mkdir -p "${PART_MP}${SAVEDIR}"
+	SP_OFN="${PART_MP}${SAVEFILE}"
+	[ -f "$SP_OFN" ] && rm "$SP_OFN"
+	EX_FN='/root/.config/save-exclude.lst'
+	if [ -s "$EX_FN" ];then
+		tar czf "$SP_OFN" -X "$EX_FN" -C "$SP_IFN" . 2>/dev/null
+	else
+		tar czf "$SP_OFN" -C "$SP_IFN" . 2>/dev/null
+	fi
+	sync
+
+	#copy initmodules.txt
+	if [ -e "/tmp/${DISTRO_FILE_PREFIX}initmodules.txt" ]; then
+		cp -af "/tmp/${DISTRO_FILE_PREFIX}initmodules.txt" "${PART_MP}${SAVEDIR}/${DISTRO_FILE_PREFIX}initmodules.txt"
+		sync
+	fi
+
+	#umount partition if we mounted it
+	if [ "$PART_MOUNT" ]; then
+		COUNT=0
+		while [ $COUNT -lt 6 ]; do
+			umount "$PART_MP"
+			[ $? -eq 0 ] && break
+			COUNT=$(($COUNT + 1))
+			echo "$COUNT" > /dev/console
+			sync
+			sleep 1
+		done
+	fi
+fi
+
+exit
