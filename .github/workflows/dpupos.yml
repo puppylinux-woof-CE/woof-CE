@@ -359,3 +359,160 @@ jobs:
       run: |
         sudo mv ../woof-out_x86_64_arm_debian_dpupos-c201/petbuild-{sources,cache,output} .
         sudo mv ../woof-out_x86_64_arm_debian_dpupos-c201/kernel-kit/output kernel-kit-output
+  x86:
+    runs-on: ubuntu-20.04
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+    - name: Update package lists
+      run: sudo apt-get update -qq
+    - name: Create cache directories
+      run: |
+        mkdir -p local-repositories petbuild-sources petbuild-cache petbuild-output kernel-kit-output
+        ln -s `pwd`/local-repositories ../local-repositories
+    - name: Get cached local-repositories
+      uses: actions/cache@v2
+      with:
+        path: local-repositories
+        key: ${{ github.workflow }}-${{ github.job }}-local-repositories-${{ github.sha }}
+        restore-keys: |
+          ${{ github.workflow }}-${{ github.job }}-local-repositories-
+    - name: Prepare build environment
+      run: |
+        [ -f local-repositories/vercmp ] || (curl https://raw.githubusercontent.com/puppylinux-woof-CE/initrd_progs/master/pkg/w_apps_static/w_apps/vercmp.c | gcc -x c -o ../local-repositories/vercmp -)
+        sudo install -m 755 local-repositories/vercmp /usr/local/bin/vercmp
+        sudo install -D -m 644 woof-code/rootfs-skeleton/usr/local/petget/categories.dat /usr/local/petget/categories.dat
+        echo "dash dash/sh boolean false" | sudo debconf-set-selections
+        sudo DEBIAN_FRONTEND=noninteractive dpkg-reconfigure dash
+    - name: Fix cache ownership
+      run: sudo chown -R root:root local-repositories
+    - name: merge2out
+      run: |
+        (echo 2; echo 1; echo 3; echo) | sudo -E linux32 ./merge2out
+    - name: Set version
+      if: github.event_name == 'workflow_dispatch'
+      run: sudo sed -i s/^DISTRO_VERSION=.*/DISTRO_VERSION=${{ github.event.inputs.version }}/ ../woof-out_x86_x86_debian_dpupos/DISTRO_SPECS
+    - name: Set compression algorithm
+      if: github.event_name != 'workflow_dispatch'
+      run: |
+        echo | sudo tee -a ../woof-out_x86_x86_debian_dpupos/_00build.conf
+        echo 'SFSCOMP="-comp lzo -Xalgorithm lzo1x_1"' | sudo tee -a ../woof-out_x86_x86_debian_dpupos/_00build.conf
+    - name: 0setup
+      run: |
+        cd ../woof-out_x86_x86_debian_dpupos
+        sudo -E linux32 ./0setup
+    - name: 1download
+      run: |
+        cd ../woof-out_x86_x86_debian_dpupos
+        sudo -E linux32 ./1download
+    - name: Get cached kernel-kit output
+      if: github.event_name != 'workflow_dispatch'
+      id: get_kernel_kit_output_cache
+      uses: actions/cache@v2
+      with:
+        path: kernel-kit-output
+        key: ${{ github.workflow }}-${{ github.job }}-kernel-kit-output-${{ hashFiles('kernel-kit/**') }}
+    - name: Move cached kernel-kit output
+      run: sudo mv kernel-kit-output ../woof-out_x86_x86_debian_dpupos/kernel-kit/output
+    - name: Install kernel-kit dependencies
+      if: steps.get_kernel_kit_output_cache.outputs.cache-hit != 'true'
+      run: |
+        sudo apt-get install -y --no-install-recommends ccache libelf-dev libssl-dev
+        ccache --set-config=hash_dir=false --set-config=max_size=2.0G
+    - name: Get cached ~/.ccache
+      if: github.event_name != 'workflow_dispatch' && steps.get_kernel_kit_output_cache.outputs.cache-hit != 'true'
+      uses: actions/cache@v2
+      with:
+        path: ~/.ccache
+        key: ${{ github.workflow }}-${{ github.job }}-ccache-${{ hashFiles('kernel-kit/**') }}
+    - name: kernel-kit
+      if: steps.get_kernel_kit_output_cache.outputs.cache-hit != 'true'
+      run: |
+        cd ../woof-out_x86_x86_debian_dpupos/kernel-kit
+        sudo cp -f dpupos-build-x86.conf build.conf
+        sudo -E ./build.sh
+    - name: 2createpackages
+      run: |
+        cd ../woof-out_x86_x86_debian_dpupos
+        echo | sudo -E linux32 ./2createpackages
+    - name: Get cached petbuild-sources
+      uses: actions/cache@v2
+      with:
+        path: petbuild-sources
+        key: ${{ github.workflow }}-petbuild-sources-${{ github.sha }}
+        restore-keys: |
+          ${{ github.workflow }}-petbuild-sources-
+    - name: Get cached petbuild-cache
+      if: github.event_name != 'workflow_dispatch'
+      uses: actions/cache@v2
+      with:
+        path: petbuild-cache
+        key: ${{ github.workflow }}-${{ github.job }}-petbuild-cache-${{ github.sha }}
+        restore-keys: |
+          ${{ github.workflow }}-${{ github.job }}-petbuild-cache-
+    - name: Get cached petbuild-output
+      if: github.event_name != 'workflow_dispatch'
+      uses: actions/cache@v2
+      with:
+        path: petbuild-output
+        key: ${{ github.workflow }}-${{ github.job }}-petbuild-output-${{ github.sha }}
+        restore-keys: |
+          ${{ github.workflow }}-${{ github.job }}-petbuild-output-
+    - name: Install 3builddistro dependencies
+      run: |
+        sudo apt-get install -y --no-install-recommends vboot-kernel-utils cgpt extlinux
+        sudo ln -s /usr/bin/mount /usr/local/bin/mount-FULL
+    - name: 3builddistro
+      run: |
+        sudo chown -R root:root petbuild-output
+        sudo mv petbuild-{sources,cache,output} ../woof-out_x86_x86_debian_dpupos/
+        cd ../woof-out_x86_x86_debian_dpupos
+        sudo -E HOME=/root DISTRO_EXTRAVERSION=${{ github.event.inputs.suffix }} linux32 ./3builddistro release
+    - name: Create release
+      if: github.event_name == 'workflow_dispatch'
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: dpupos-${{ github.job }}-${{ github.event.inputs.version }}${{ github.event.inputs.suffix }}
+        release_name: dpupos-${{ github.job }}-${{ github.event.inputs.version }}${{ github.event.inputs.suffix }}
+        draft: false
+        prerelease: true
+    - name: Upload tarball
+      if: github.event_name == 'workflow_dispatch'
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ../woof-out_x86_x86_debian_dpupos/woof-output-dpupos-${{ github.event.inputs.version }}/dpupos-${{ github.event.inputs.version }}.tar
+        asset_name: dpupos-${{ github.event.inputs.version }}.tar
+        asset_content_type: application/octet-stream
+    - name: Compress legacy image
+      if: github.event_name == 'workflow_dispatch'
+      run: sudo gzip -1 ../woof-out_x86_x86_debian_dpupos/woof-output-dpupos-${{ github.event.inputs.version }}/dpupos-${{ github.event.inputs.version }}-ext4-2gb-legacy.img
+    - name: Upload legacy image
+      if: github.event_name == 'workflow_dispatch'
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ../woof-out_x86_x86_debian_dpupos/woof-output-dpupos-${{ github.event.inputs.version }}/dpupos-${{ github.event.inputs.version }}-ext4-2gb-legacy.img.gz
+        asset_name: dpupos-${{ github.event.inputs.version }}-ext4-2gb-legacy.img.gz
+        asset_content_type: application/octet-stream
+    - name: Upload kernel sources
+      if: github.event_name == 'workflow_dispatch'
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ../woof-out_x86_x86_debian_dpupos/kernel-kit/output/kernel_sources-4.19-dpupos.sfs
+        asset_name: kernel_sources-4.19-dpupos.sfs
+        asset_content_type: application/octet-stream
+    - name: Move cached directories
+      run: |
+        sudo mv ../woof-out_x86_x86_debian_dpupos/petbuild-{sources,cache,output} .
+        sudo mv ../woof-out_x86_x86_debian_dpupos/kernel-kit/output kernel-kit-output
