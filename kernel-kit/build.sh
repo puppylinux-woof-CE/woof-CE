@@ -993,6 +993,7 @@ git)
 	else
 		log_msg "WARNING: Extracting firmware from the kernel.org git repo has failed."
 		log_msg "While your kernel is built, your firmware is incomplete."
+		exit 1
 	fi
 ;;
 esac
