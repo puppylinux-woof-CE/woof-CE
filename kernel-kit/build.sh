@@ -607,7 +607,7 @@ cp Makefile Makefile-orig
 if [ "$remove_sublevel" = "yes" ] ; then
 	log_msg "Resetting the minor version number" #!
 	sed -i "s/^SUBLEVEL =.*/#&\nSUBLEVEL = 0/" Makefile
-	export KBUILD_BUILD_USER="$kernel_version"
+	export KBUILD_BUILD_USER="${kernel_version}-${package_name_suffix}"
 fi
 ## custom suffix
 if [ -n "${custom_suffix}" ] ; then
@@ -698,11 +698,6 @@ function do_kernel_config() {
 		exit 1
 	fi
 }
-
-# in CI, we want to speed up kernel building using ccache
-if [ -n "$GITHUB_ACTIONS" ] ; then
-	sed s~'$(CROSS_COMPILE)gcc'~'ccache &'~ -i Makefile
-fi
 
 if [ "$AUTO" = "yes" ] ; then
 	log_msg "$MAKE olddefconfig"

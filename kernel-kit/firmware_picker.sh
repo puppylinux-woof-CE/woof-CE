@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 # GPL-V2 or later at your discretion
 # (c) Mick Amadio, 2020 01micko@gmail.com, Gold Coast QLD, Australia
