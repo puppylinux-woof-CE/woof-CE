@@ -22,6 +22,7 @@ L_DUMPING_KERNEL_LOG="Dumping last lines of kernel log..."
 L_ERROR_IS_TOO_CRITICAL="Error is too critical, dropping out to console..."
 L_PAUSING_60_SECONDS="Pausing for 60 seconds..."
 L_LOADING_FILE="Loading the '%s' %s file..." #printf
+L_LOADING_SAVE_ARCHIVE='Loading save-archive %s [%s]...' #printf
 L_LOADING_PUPSAVE='Loading savefolder %s [%s]...' #printf
 L_LOADING_PUPSAVE_FILE='Loading savefile %s [%s] (%s)...' #printf
 L_UPGRADE_NO="Backing off, not using personal storage, booting in RAM only, PUPMODE=5..."
@@ -1048,6 +1049,14 @@ PUPSAVE=""
 if [ "${SAVE_MP}" != "" -a "$PRAMONLY" != "yes" ];then #have mounted save? partition
  #check if save partition is linux
  set_fs_linux "$SAVE_FS"
+ #check for pupmode=66
+ if [ "$SAVE_FS" = "vfat" ];then
+  FN_66=${PSUBDIR}/${DISTRO_FILE_PREFIX}save66.tar.gz
+  if [ -e "${SAVE_MP}${FN_66}" ];then
+    PUPMODE=66
+    PUPSAVE="${SAVEPART},${SAVE_FS},${FN_66}"
+  fi
+ fi
  #check for cd multisession
  if [ "$SAVE_FS" = "iso9660" ];then #booting on optical, is it multisession?...
   BKFOLDERS="$(find $SAVE_MP -maxdepth 1 -xdev -type d -name '20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]-[0-9][0-9]-[0-9][0-9]' | sed -e s%^${SAVE_MP}/%% | sort -r)"
@@ -1185,6 +1194,32 @@ case $PUPMODE in
     else
       printf "${L_ADDING_SAVE_LAYER_FAILED}\n" "$SAVE_LAYER"
     fi
+  fi
+ ;;
+ 66) #extract to stack at new tmpfs
+  ARCHIVE_FN="${SAVE_MP}${PUPSAVE#*,*,}"
+  if [ -s "$ARCHIVE_FN" ];then
+    echo -n "$(printf "${L_LOADING_SAVE_ARCHIVE}" "${PUPSAVE#*,*,}" "$SAVEPART")" > /dev/console
+    echo "--SAVEARCHIVE-- $ARCHIVE_FN" #debug
+    PM66_DIR='/pup_rw'
+    rm -r -f "$PM66_DIR"
+    [ -d "$PM66_DIR" ] || mkdir $PM66_DIR
+    mount -t tmpfs tmpfs $PM66_DIR
+    tar xf "$ARCHIVE_FN" -m -C $PM66_DIR 2>/dev/null
+    STATUS=$?
+    if [ $STATUS -eq 0 ];then
+      #replace rw branch with new populated tmpfs
+      echo "mount -o remount,prepend:${PM66_DIR}=rw,mod:/mnt/tmpfs/pup_rw=ro,del:/mnt/tmpfs/pup_rw /pup_new" #debug
+      mount -o remount,prepend:${PM66_DIR}=rw,mod:/mnt/tmpfs/pup_rw=ro,del:/mnt/tmpfs/pup_rw /pup_new
+      STATUS=$?
+    fi
+    if [ $STATUS -eq 0 ];then
+      SAVE_MP=''
+      rm -rf /mnt/tmpfs/pup_rw
+    else
+      printf "${L_ADDING_SAVE_LAYER_FAILED}\n" "$PM66_DIR"
+    fi
+    check_status $STATUS
   fi
  ;;
  5)
