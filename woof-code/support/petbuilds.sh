@@ -292,7 +292,7 @@ for NAME in $PKGS; do
     done
 
     rmdir ../packages-${DISTRO_FILE_PREFIX}/${NAME}/usr/share 2>/dev/null
-    ../packages-${DISTRO_FILE_PREFIX}/${NAME}/usr 2>/dev/null
+    rmdir ../packages-${DISTRO_FILE_PREFIX}/${NAME}/usr 2>/dev/null
 
     (echo ":${NAME}:|pet|"; cat ../rootfs-petbuilds/${NAME}/pet.specs) >> ../status/findpkgs_FINAL_PKGS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}
 
