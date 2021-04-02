@@ -152,16 +152,16 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
 
         echo "Downloading ${NAME}"
 
-        if [ -d ../petbuild-sources/${NAME} ]; then
-            rm -rf ../petbuild-sources/${NAME}/* 2>/dev/null
-        else
-            mkdir -p ../petbuild-sources/${NAME}
-        fi
+        mkdir -p ../petbuild-sources/${NAME}
         cd ../petbuild-sources/${NAME}
         . ${HERE}/../rootfs-petbuilds/${NAME}/petbuild
         download
         if [ -f ${HERE}/../rootfs-petbuilds/${NAME}/sha256.sum ]; then
-            sha256sum -c ${HERE}/../rootfs-petbuilds/${NAME}/sha256.sum || exit 1
+            sha256sum -c ${HERE}/../rootfs-petbuilds/${NAME}/sha256.sum
+            if [ $? -ne 0 ]; then
+                rm -f ../petbuild-sources/${NAME}/* 2>/dev/null
+                exit 1
+            fi
         fi
 
         echo "Building ${NAME}"
