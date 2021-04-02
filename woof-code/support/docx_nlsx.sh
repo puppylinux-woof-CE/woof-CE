@@ -38,7 +38,7 @@ fi
 if [ "$BUILD_NLSX" = "yes" ] ; then
 	echo
 	rm -rf nlsx ${NLSXSFS}
-	mkdir -p docx
+	mkdir -p nlsx
 	echo "Building nlsx..."
 	for i in $INSTALLED_PKGS
 	do
