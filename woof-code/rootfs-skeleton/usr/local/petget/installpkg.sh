@@ -709,6 +709,8 @@ if [ "$DESKTOPFILE" != "" ];then
  fi
 fi
 
+PKGUPDOWN=""
+
 #If there is an already installed package, just update the package files list and its database entry
 xpkgname="$(echo "$DB_ENTRY" | cut -f 2 -d '|')"
 installed_pkg="$(cat /root/.packages/user-installed-packages | grep "|$xpkgname|")"
@@ -750,6 +752,8 @@ if [ "$xpkgname" != "" ] && [ "$installed_pkg" != "" ]; then
 	cp -f /root/.packages/user-installed-packages.tmp /root/.packages/user-installed-packages
 	rm -f  /root/.packages/user-installed-packages.tmp
 	
+	PKGUPDOWN="y"
+	
     else
      echo "$DB_ENTRY" >> /root/.packages/user-installed-packages
     fi
@@ -759,6 +763,33 @@ if [ "$xpkgname" != "" ] && [ "$installed_pkg" != "" ]; then
 else
  echo "$DB_ENTRY" >> /root/.packages/user-installed-packages
 fi
+
+if [ $PUPMODE -eq 2 ]; then
+	if [ "$xpkgname" != "" ] && [ "$installed_pkg" == "" ]; then
+	  if [ "$PKGUPDOWN" == "" ]; then
+	    #Check if the old builtin file list exists
+	    if [ -e /root/.packages/builtin_files/${xpkgname} ]; then
+		while IFS= read -r xline
+		do
+		
+		 #Check if the file was a part of the newly installed package
+		 if [ "$(cat /root/.packages/${DLPKG_NAME}.files | grep "$xline")" == "" ]; then
+		  #Not a part of newly installed package. Do action
+
+		   #Delete the file which is not a part of upgrade
+		   if [ -e "$xline" ] || [ -L "$xline" ]; then
+		    [ -e "$xline" ] && rm -f "$xline"
+		    [ -L "$xline" ] && rm -f "$xline"
+		   fi
+		   
+		 fi
+		done < /root/.packages/builtin_files/${xpkgname}
+	    fi
+	  fi
+	fi
+fi
+
+
 
 #120907 post-install hacks...
 /usr/local/petget/hacks-postinstall.sh $DLPKG_MAIN
