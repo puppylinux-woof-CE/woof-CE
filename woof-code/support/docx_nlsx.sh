@@ -26,9 +26,11 @@ if [ "$BUILD_DOCX" = "yes" ] ; then
 	for i in $INSTALLED_PKGS
 	do
 		if [ -d ../packages-${DISTRO_FILE_PREFIX}/${i}_DOC ] ; then
+			echo -n " ${i}"
 			cp -a --remove-destination ../packages-${DISTRO_FILE_PREFIX}/${i}_DOC/* docx/
 		fi
 	done
+	echo
 	sync
 	rm -f docx/pet.specs
 	echo "Creating $DOCXSFS..."
@@ -38,14 +40,16 @@ fi
 if [ "$BUILD_NLSX" = "yes" ] ; then
 	echo
 	rm -rf nlsx ${NLSXSFS}
-	mkdir -p docx
+	mkdir -p nlsx
 	echo "Building nlsx..."
 	for i in $INSTALLED_PKGS
 	do
 		if [ -d ../packages-${DISTRO_FILE_PREFIX}/${i}_NLS ] ; then
+			echo -n " ${i}"
 			cp -a --remove-destination ../packages-${DISTRO_FILE_PREFIX}/${i}_NLS/* nlsx/
 		fi
 	done
+	echo
 	sync
 	rm -f nlsx/pet.specs
 	echo "Creating $NLSXSFS..."
