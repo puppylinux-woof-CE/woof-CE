@@ -48,7 +48,6 @@ unsigned int interval = 15000; /*update interval in milliseconds*/
 int batpercent = 100;
 int batpercentprev = 0;
 int charged;
-int pmtype = 0;
 FILE *fp;
 FILE *fx;
 int charging;
@@ -109,53 +108,42 @@ gboolean Update(gpointer ptr) {
     charging=1; //charging.
     charged=0; //not full charged.
            
-    if (pmtype == 1) { //apm
-        if((fp = fopen("/proc/apm","r")) == NULL) return TRUE;
-        fscanf(fp,"%*s %*s %*s %*s %*s %*s %7s %d %7s",strpercent,&num,time);
-        num = num/(strcmp(time,"sec") == 0?60:1);
-        sprintf(time,"%d:%02d",(num/60)%100,num%60);
-        fclose(fp);
-        batpercent=atoi(strpercent);
-        if (batpercent < 0) // APM emulation says charge is -1%
-            pmtype = 3;
-    }
-    if (pmtype == 3) { // /sys/class/power_supply
-        glob_t g = {0};
-        if ((glob("/sys/class/power_supply/*/charge_full", 0, NULL, &g) == 0) && (g.gl_pathc > 0)) {
-            for (size_t i = 0; i < g.gl_pathc; ++i) {
-                if (chdir(dirname(g.gl_pathv[i])) < 0)
-                    continue;
+    glob_t g = {0};
+    if ((glob("/sys/class/power_supply/*/charge_full", 0, NULL, &g) == 0) && (g.gl_pathc > 0)) {
+        for (size_t i = 0; i < g.gl_pathc; ++i) {
+            if (chdir(dirname(g.gl_pathv[i])) < 0)
+                continue;
 
-                int full;
-                if((fp = fopen("charge_full","r")) == NULL) continue;
-                fscanf(fp,"%d",&full);
+            int full;
+            if((fp = fopen("charge_full","r")) == NULL) continue;
+            fscanf(fp,"%d",&full);
+            fclose(fp);
+
+            char status[sizeof("Discharging\n")];
+            status[0] = '\0';
+            if((fp = fopen("status","r")) == NULL) continue;
+            fscanf(fp,"%12s",status);
+            fclose(fp);
+            if (strcmp(status, "Full") == 0) {
+                 batpercent = 100;
+                 charging = 1;
+                 charged = charging;
+            } else {
+                charging = (strcmp(status, "Charging") == 0);
+
+                int now;
+                if((fp = fopen("charge_now","r")) == NULL) continue;
+                fscanf(fp,"%d",&now);
                 fclose(fp);
 
-                char status[sizeof("Discharging\n")];
-                status[0] = '\0';
-                if((fp = fopen("status","r")) == NULL) continue;
-                fscanf(fp,"%12s",status);
-                fclose(fp);
-                if (strcmp(status, "Full") == 0) {
-                    batpercent = 100;
-                    charging = 0;
-                } else {
-                    charging = (strcmp(status, "Charging") == 0);
-
-                    int now;
-                    if((fp = fopen("charge_now","r")) == NULL) continue;
-                    fscanf(fp,"%d",&now);
-                    fclose(fp);
-
-                    batpercent=(now*100)/full;
-                }
-
-                break;
+                batpercent=(now*100)/full;
             }
+
+            break;
         }
-        globfree(&g);
     }
-    
+    globfree(&g);
+
     //check for mad result...
     if (batpercent < 0) return FALSE;
     if (batpercent > 100) return FALSE;
@@ -164,16 +152,24 @@ gboolean Update(gpointer ptr) {
     batpercentprev=batpercent;
     
     //update icon...
-	int icon_success = paint_icon(charging, batpercent);
-	if ( icon_success != 0 ) {
-		printf("Error: couldn't build icon.\n");
-		exit(1);
-	}
-	
+    int icon_success = paint_icon(charging, batpercent);
+    if ( icon_success != 0 ) {
+        printf("Error: couldn't build icon.\n");
+        exit(1);
+    }
+
     //update tooltip...
     memdisplaylong[0]=0;
-    if (charging==0) strcat(memdisplaylong,_("Battery discharging, capacity "));
-    else strcat(memdisplaylong,_("Battery charging, capacity "));
+    if (charging==0) {
+        strcat(memdisplaylong,_("Battery discharging, capacity "));
+    }
+    else if (charging == 1) {
+        if (charged == 1) {
+            strcat(memdisplaylong,_("Battery charged, capacity "));
+        } else {
+            strcat(memdisplaylong,_("Battery charging, capacity "));
+        }
+    }
     sprintf(strpercent,"%d",batpercent);
     strcat(memdisplaylong,strpercent);
     strcat(memdisplaylong,"%");
@@ -184,13 +180,10 @@ gboolean Update(gpointer ptr) {
 }
 
 
-void tray_icon_on_click(GtkStatusIcon *status_icon, gpointer user_data)
-{
-   if (pmtype == 3) {
-	    int success = 0;
-	    success=system(("cd /sys/class/power_supply/BAT0 ; gxmessage -center -fn \"mono 12\" -title \"Battery Info\" -borderless -buttons OK:0 -bg thistle \"$(for i in * ; do [ \"$i\" = 'uevent' ] && continue; [ -d \"$i\" ] && continue; echo -n \"${i}: \" && cat $i ; done)\" & "));
-		if (success != 0) {printf("system gxmessage call failed with %d\n", success);}
-	}
+void tray_icon_on_click(GtkStatusIcon *status_icon, gpointer user_data) {
+    int success = 0;
+    success=system(("cd /sys/class/power_supply/BAT0 ; gxmessage -center -fn \"mono 12\" -title \"Battery Info\" -borderless -buttons OK:0 -bg thistle \"$(for i in * ; do [ \"$i\" = 'uevent' ] && continue; [ -d \"$i\" ] && continue; echo -n \"${i}: \" && cat $i ; done)\" & "));
+    if (success != 0) {printf("system gxmessage call failed with %d\n", success);}
 }
 
 static GtkStatusIcon *create_tray_icon() {
@@ -211,19 +204,13 @@ static GtkStatusIcon *create_tray_icon() {
 }
 
 int main(int argc, char **argv) {
-  DIR *dp;
-  struct dirent *ep;
-  int cntbats;
-  
-  setlocale( LC_ALL, "" );
-  bindtextdomain( "powerapplet_tray", "/usr/share/locale" );
-  textdomain( "powerapplet_tray" );
-	//apm or acpi?... or linux 5.9+
-    if((fp = fopen("/proc/apm","r")) != NULL) { 
-		pmtype=1; fclose(fp); 
-	} else if((fp = fopen("/sys/class/power_supply/BAT0/charge_full","r")) != NULL) {
-		pmtype=3; fclose(fp);
-	}
+    DIR *dp;
+    struct dirent *ep;
+    int cntbats;
+
+    setlocale( LC_ALL, "" );
+    bindtextdomain( "powerapplet_tray", "/usr/share/locale" );
+    textdomain( "powerapplet_tray" );
 
 	paint_icon(0,0); //needed to kick it off
     gtk_init(&argc, &argv);
