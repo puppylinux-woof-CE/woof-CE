@@ -8,7 +8,7 @@
 echo "Configuring Puppy skeleton..."
 echo "Configuring Puppy Help page..."
 
-cutDISTRONAME="`echo -n "$DISTRO_NAME" | cut -f 1 -d ' '`"
+cutDISTRONAME=${DISTRO_NAME% *}
 cPATTERN="s/cutDISTRONAME/${cutDISTRONAME}/g"
 PUPPYDATE="`date | tr -s " " | cut -f 2,6 -d " "`"
 RELEASE_DATE="`date "+%B, %Y"`"
@@ -24,7 +24,7 @@ sed -i -e "$PATTERN2" -e "$nPATTERN" -e "$dPATTERN" usr/share/doc/index.html.bot
 	cat usr/share/doc/index.html.bottom
 ) > usr/share/doc/index.html
 
-sed -i -e "$nPATTERN" usr/share/doc/home.htm
+sed -i -e "$nPATTERN" -e "$cPATTERN" -e "$PATTERN2" usr/share/doc/home.htm
 
 if [ -f usr/share/doc/release-skeleton.top.htm ] ; then
 	(

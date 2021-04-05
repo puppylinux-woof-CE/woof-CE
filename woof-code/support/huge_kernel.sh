@@ -175,35 +175,32 @@ choose_kernel() {
 	rm $TMP
 }
 #==========
-
-if [ "$IS_KERNEL" = 0 ] ; then
-	#no kernel, get 1
-	if [ "$KERNEL_TARBALL_URL" != "" ] ; then
-		download_kernel ${KERNEL_TARBALL_URL} #build.conf
-	else
+if [ "$KERNEL_TARBALL_URL" != "" ] ; then # if specified get it
+	download_kernel ${KERNEL_TARBALL_URL} #build.conf
+	KERNEL_VERSION=${KERNEL_TARBALL_URL##*/}
+	KERNEL_VERSION=`echo ${KERNEL_VERSION#*\-}|sed 's/\.tar.*$//'`
+else
+	if [ "$IS_KERNEL" = 0 ] ; then
+		#no kernel, get 1
 		choose_kernel_to_download
 	fi
-fi
-
-IS_KERNEL2=`ls ${HUGE_KERNEL_DIR}/*.tar.* 2>/dev/null | wc -l`
-
-if [ "$IS_KERNEL2" -gt 1 ] ; then
-	#too many, choose 1
-	choose_kernel
-elif [ "$IS_KERNEL2" == 1 ] ; then
-	# 1 kernel
-	# check if it was a failed/incomplete download
-	# as it keeps hitting the same error everytime you
-	# run 3builddistro
-	if [ "$IS_KERNEL" == 1 ] ; then
-		if [ "$KERNEL_TARBALL_URL" != "" ] ; then
-			download_kernel ${KERNEL_TARBALL_URL} #build.conf
-		else
+	
+	IS_KERNEL2=`ls ${HUGE_KERNEL_DIR}/*.tar.* 2>/dev/null | wc -l`
+	
+	if [ "$IS_KERNEL2" -gt 1 ] ; then
+		#too many, choose 1
+		choose_kernel
+	elif [ "$IS_KERNEL2" == 1 ] ; then
+		# 1 kernel
+		# check if it was a failed/incomplete download
+		# as it keeps hitting the same error everytime you
+		# run 3builddistro
+		if [ "$IS_KERNEL" == 1 ] ; then
 			KERNEL_VERSION=`ls ${HUGE_KERNEL_DIR}/*.tar.* 2>/dev/null | grep -v 'md5'|cut -d '-' -f2-|rev|cut -d '.' -f3-|rev`
 			download_kernel "$KERNEL_REPO_URL/$(basename ${HUGE_KERNEL_DIR}/huge-${KERNEL_VERSION}.tar.*)"
 		fi
+		KERNEL_VERSION=`ls ${HUGE_KERNEL_DIR}/*.tar.* 2>/dev/null | grep -v 'md5'|cut -d '-' -f2-|rev|cut -d '.' -f3-|rev`
 	fi
-	KERNEL_VERSION=`ls ${HUGE_KERNEL_DIR}/*.tar.* 2>/dev/null | grep -v 'md5'|cut -d '-' -f2-|rev|cut -d '.' -f3-|rev`
 fi
 
 echo "Kernel is $KERNEL_VERSION version"

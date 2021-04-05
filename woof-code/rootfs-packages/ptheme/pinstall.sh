@@ -74,11 +74,10 @@ for icon in $Dir/*; do
     ifile=$(basename $icon)
     ext=${ifile##*.}
     newicon=`echo $ifile|sed "s%${ext}$%png%"`
-    #JWM does a crappy svg convert, so we help out if rsvg-convert is installed
     if [ "`which rsvg-convert`" ]; then
         rsvg-convert -w 48 -h 48 -o root/.jwm/window_buttons/${newicon} ${icon}
     else
-        ln -sf ${icon} root/.jwm/window_buttons/${newicon}
+        chroot . rsvg-convert -w 48 -h 48 -o root/.jwm/window_buttons/${newicon} /${icon}
     fi
 done
 echo "jwm buttons: ${PTHEME_JWM_BUTTONS}"
@@ -99,6 +98,14 @@ include "/root/.gtkrc-2.0.mine"
 # -- THEME AUTO-WRITTEN BY gtk-theme-switch2 DO NOT EDIT
 gtk-theme-name = "${PTHEME_GTK}"
 _EOF
+if [ -d usr/share/themes/${PTHEME_GTK}/gtk-3.0 ]; then
+	mkdir -p root/.config/gtk-3.0
+	cat > root/.config/gtk-3.0/settings.ini << _EOF
+[Settings]
+gtk-theme-name = ${PTHEME_GTK}
+_EOF
+fi
+
 echo "gtk: ${PTHEME_GTK}"
 
 # icon theme
@@ -113,11 +120,22 @@ fi
 if [ -d "usr/share/icons/$USE_ICON_THEME" ];then
 	# first global
 	echo -e "gtk-icon-theme-name = \"$USE_ICON_THEME\"" >> root/.gtkrc-2.0
+	if [ -f root/.config/gtk-3.0/settings.ini ]; then
+		echo -e "gtk-icon-theme-name = $USE_ICON_THEME" >> root/.config/gtk-3.0/settings.ini
+		# fix for menuitem and button icons
+		cat >> root/.config/gtk-3.0/settings.ini <<EOF
+gtk-menu-images = 1
+gtk-button-images = 1				
+EOF
+	fi
 	# then ROX
 	ROX_THEME_FILE="root/.config/rox.sourceforge.net/ROX-Filer/Options" # this could change in future
 	sed -i "s%<Option name=\"icon_theme\">.*%<Option name=\"icon_theme\">$USE_ICON_THEME</Option>%" $ROX_THEME_FILE
 	echo "icon theme: $USE_ICON_THEME"
 fi
+
+install -D -m 644 root/.gtkrc-2.0 etc/gtk-2.0/gtkrc
+[ -f root/.config/gtk-3.0/settings.ini ] && install -D -m 644 root/.config/gtk-3.0/settings.ini etc/gtk-3.0/settings.ini
 
 ##### WALLPAPER #copy it as mv messes the themes
 ext="${PTHEME_WALL##*.}"

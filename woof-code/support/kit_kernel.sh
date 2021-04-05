@@ -30,7 +30,7 @@ download_kernel() {
 	local URL="$1"
 	../support/download_file.sh "$URL" "../../local-repositories/${DISTRO_TARGETARCH}/kernels"
 	if [ $? -ne 0 ] ; then
-		../support/download_file.sh "URL" "../../local-repositories/${DISTRO_TARGETARCH}/kernels"
+		../support/download_file.sh "$URL" "../../local-repositories/${DISTRO_TARGETARCH}/kernels"
 		[ $? -ne 0 ] && exit 1
 	fi
 }
@@ -233,13 +233,8 @@ if [ -d '../kernel-kit/output' ];then
 	for ONE_KERNEL in $KIT_KERNELS
 	do
 		ONE_KERNEL_NAME=${ONE_KERNEL##*/}
-		if [ ! -e "../../local-repositories/${DISTRO_TARGETARCH}/kernels/${ONE_KERNEL_NAME}" ]; then
-			cp ${ONE_KERNEL} ../../local-repositories/${DISTRO_TARGETARCH}/kernels/
-		fi
-		if [ ! -e "../../local-repositories/${DISTRO_TARGETARCH}/kernels/${ONE_KERNEL_NAME}.sha256.txt" ]; then
-			cp ${ONE_KERNEL}.sha256.txt ../../local-repositories/${DISTRO_TARGETARCH}/kernels/
-		fi
-
+		cp ${ONE_KERNEL} ../../local-repositories/${DISTRO_TARGETARCH}/kernels/
+		cp ${ONE_KERNEL}.sha256.txt ../../local-repositories/${DISTRO_TARGETARCH}/kernels/
 	done
 fi
 

@@ -5,7 +5,7 @@
 
 PKGFILES=${1}
 
-GTKVERLIST="2.0 3.0 4.0"
+GTKVERLIST="2.0 3.0 4.0 5.0 6.0"
 
 
 for usrfld in /usr /usr/local
@@ -41,10 +41,14 @@ do
   fi
 
   if grep -q -m 1 "$usrfld/share/icons/" $PKGFILES ; then
-	if [ -e /usr/bin/gtk-update-icon-cache ] ; then
+      for gtkcmd in gtk gtk4
+      do
+	if [ -e /usr/bin/${gtkcmd}-update-icon-cache ] ; then
 	  find "$usrfld/share/icons/" -name "icon-theme.cache" -type f -exec rm -f '{}' \;
-	  find "$usrfld/share/icons" -maxdepth 1 -name "*" -exec gtk-update-icon-cache -f -i '{}' \; 2>/dev/null
+	  find "$usrfld/share/icons" -maxdepth 1 -name "*" -exec ${gtkcmd}-update-icon-cache -f -i '{}' \; 2>/dev/null
+	  break
 	fi
+      done
   fi
 
 done
@@ -73,6 +77,10 @@ if [ "$(grep -q -m 1 '/usr/share/fonts/' $PKGFILES)" != "" ] || [ "$(grep -q -m 
   fc-cache -f
 fi
 
+if [ "$(grep -q -m 1 '/etc/ld.so.conf.d/' $PKGFILES)" != "" ]; then
+  ldconfig
+fi
+
 if [ "$(grep -q -m 1 '/udev/hwdb.d/' $PKGFILES)" != "" ]; then
   [ "$(udevadm --help 2>&1 | grep hwdb)" != "" ] && udevadm hwdb --update
 fi
@@ -91,3 +99,7 @@ do
 	fi
   fi
 done
+
+if grep -q -m 1 "/etc/dconf/db/local.d/" $PKGFILES ; then
+  dconf update
+fi

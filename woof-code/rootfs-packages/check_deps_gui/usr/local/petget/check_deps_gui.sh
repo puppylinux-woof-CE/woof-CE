@@ -185,10 +185,10 @@ else
   <vbox>
    <text><label>$(gettext 'Please choose what package you would like to check the dependencies of:')</label></text>
    <frame $(gettext 'User-installed packages')>
-    <list selection-mode=\"2\">
+    <tree selection-mode=\"2\">
      <variable>LIST</variable>
      ${RADBUTTONS}
-    </list>
+    </tree>
    </frame>
    <hbox>
     ${ACTIONBUTTON}

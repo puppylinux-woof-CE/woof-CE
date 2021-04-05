@@ -1,10 +1,44 @@
-#!/bin/sh
-# Add a null file for each module being loaded, for rc.network to await.
-# Invoked by udev rules file 51-simple_network_setup.rules
+#!/bin/bash
+# Add a file to directory udevmodulelist for each module being loaded.
+# The file contains the name of the module expected to be loaded, for rc.network to await.
+# The name may be different from the file name if a networking device is aliased to multiple driver modules or if a driver is blacklisted. 
+# Invoked by udev rule file 51-simple_network_setup.rules
+#201017 v2.4: Rewritten to save module names expected to be loaded, accessed by connection driver name (from /sys/class/net/*/device/driver link). 
 
-MODULE="$(/sbin/modprobe -i --use-blacklist --show-depends $MODALIAS 2>/dev/null \
-  | tail -n 1 | rev | cut -f 1 -d '/' | rev | cut -f 1 -d '.')"
-[ "$MODULE" = "" ] && exit
-[ ! -d /tmp/simple_network_setup/udevmodulelist ] \
-  && mkdir -p /tmp/simple_network_setup/udevmodulelist
-touch /tmp/simple_network_setup/udevmodulelist/${MODULE//-/_/}
+[ -z "$MODALIAS" ] && exit
+usleep 1000 #precaution for multiple cores
+MODULES="$(/sbin/modprobe -i --config /dev/null \
+  --show-depends $MODALIAS 2>/dev/null | \
+  grep -E '/kernel/drivers/net/|/kernel/drivers/staging/' | \
+  grep -o '[^/]*\.ko' | cut -f 1 -d '.')"
+if [ -n "$MODULES" ]; then
+    MODULE="$(/sbin/modprobe -i --show-depends $MODALIAS 2>/dev/null | \
+      grep -E '/kernel/drivers/net/|/kernel/drivers/staging/' | \
+      grep -o '[^/]*\.ko' | cut -f 1 -d '.' | tail -n 1)"
+    if [ -f /etc/rc.d/MODULESCONFIG-backend_modprobe ]; then
+        . /etc/rc.d/MODULESCONFIG-backend_modprobe #get PREFLIST
+    elif [ -f /etc/rc.d/MODULESCONFIG ]; then
+        . /etc/rc.d/MODULESCONFIG #get PREFLIST
+    else
+        PREFLIST=''
+    fi
+    if [ -n "$PREFLIST" ]; then
+        PREFHIT="$(echo -n "$PREFLIST" | tr ' ' '\n' | grep "^${MODULE}:" | head -n 1)"
+        if [ -n "$PREFHIT" ];then
+            grep -hso '^blacklist  *[^ ]*' /etc/modprobe.d/* | tr -s ' ' > /tmp/sns_blacklist.conf
+            PREFMODS="$(echo -n "$PREFHIT" | cut -f 2-9 -d ':' | tr ':' ' ')"
+            for PREFMOD in $PREFMODS; do #format can have multiple ':', ex: 8139cp:8139too:8139xx (last is most preferred).
+                echo "blacklist $MODULE" >> /tmp/sns_blacklist.conf
+                xMODULE="$(/sbin/modprobe -i --config /tmp/sns_blacklist.conf \
+                  --show-depends $MODALIAS 2>/dev/null | \
+                  tail -n 1 | grep -o '[^/]*\.ko' | cut -f 1 -d '.')"
+                [ "$xMODULE" = "$PREFMOD" ] && MODULE="$xMODULE"
+            done
+            rm -f /tmp/sns_blacklist.conf
+        fi
+    fi
+    mkdir -p /tmp/simple_network_setup/udevmodulelist
+    for ONEMODULE in $MODULES; do
+        echo "$MODULE" > /tmp/simple_network_setup/udevmodulelist/${ONEMODULE//-/_}
+    done
+fi

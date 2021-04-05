@@ -27,9 +27,11 @@
 export TEXTDOMAIN=petget___removepreview.sh
 export OUTPUT_CHARSET=UTF-8
 [ "$(locale | grep '^LANG=' | cut -d '=' -f 2)" ] && ORIGLANG="$(locale | grep '^LANG=' | cut -d '=' -f 2)"
-. /etc/rc.d/PUPSTATE  #111228 this has PUPMODE and SAVE_LAYER.
+[ -e /etc/rc.d/PUPSTATE ] && . /etc/rc.d/PUPSTATE  #111228 this has PUPMODE and SAVE_LAYER.
 . /etc/DISTRO_SPECS #has DISTRO_BINARY_COMPAT, DISTRO_COMPAT_VERSION
 . /root/.packages/DISTRO_PKGS_SPECS
+
+[ "$PUPMODE" == "" ] && PUPMODE=2
 
 #Check if the / is layered fs
 ISLAYEREDFS="$(mount | grep "on / type" | grep "unionfs")"
@@ -87,13 +89,13 @@ if [ -f /root/.packages/${DB_pkgname}.files ];then
         #Check if is layered fs.
         if [ "$ISLAYEREDFS" != "" ];then
          
-         #In case the PUPMODE was 13
-         if [ -d /initrd/pup_rw ] && [ ! -L /initrd/pup_rw ]; then
-          [ -e "/initrd/pup_rw${ONESPEC}" ] && rm -f "/initrd/pup_rw${ONESPEC}"
-         fi
-    
+	 #Delete at pup_rw layer
+         [ -e "/initrd/pup_rw${ONESPEC}" ] && rm -f "/initrd/pup_rw${ONESPEC}"
+  	 [ -L "/initrd/pup_rw${ONESPEC}" ] && rm -f "/initrd/pup_rw${ONESPEC}"
+  
          #Delete file at save layer 
          [ -e "/initrd${SAVE_LAYER}${ONESPEC}" ] && rm -f "/initrd${SAVE_LAYER}${ONESPEC}" #normally /pup_ro1
+         [ -L "/initrd${SAVE_LAYER}${ONESPEC}" ] && rm -f "/initrd${SAVE_LAYER}${ONESPEC}" #normally /pup_ro1
          
          BN="`basename "$ONESPEC"`"
          DN="`dirname "$ONESPEC"`"
@@ -109,27 +111,47 @@ if [ -f /root/.packages/${DB_pkgname}.files ];then
         fi
       fi
   done
-
+ 
  #do it again, looking for empty directories...
- cat /root/.packages/${DB_pkgname}.files | sort -r |
- while read ONESPEC
- do
-  if [ "$ONESPEC" != "" ] && [ "$ONESPEC" != "/" ] && [ -d "$ONESPEC" ];then
-   [ "`ls -1 "$ONESPEC"`" = "" ] && rmdir "$ONESPEC" 2>/dev/null #120107
-  fi
- done
  
  if [ -f /tmp/ppm-dirlists.txt ]; then
   cat /tmp/ppm-dirlists.txt | sort -r |
   while read ONESPEC
   do
-   if [ "$ONESPEC" != "" ] && [ "$ONESPEC" != "/" ] && [ -d "$ONESPEC" ]; then
-    [ "`ls -1 "$ONESPEC"`" = "" ] && rmdir "$ONESPEC" 2>/dev/null #120107
+   if [ "$ONESPEC" != "" ] && [ "$ONESPEC" != "/" ]; then
+    if [ -d "$ONESPEC" ]; then
+     if [ "$ISLAYEREDFS" != "" ]; then
+      #Delete folder if it was not builtin
+      if [ ! -d "/initrd${PUP_LAYER}${ONESPEC}" ]; then
+       [ "`ls -1 "$ONESPEC"`" == "" ] && rmdir "$ONESPEC" 2>/dev/null #120107
+      fi
+     else
+      [ "`ls -1 "$ONESPEC"`" == "" ] && rmdir "$ONESPEC" 2>/dev/null #120107
+     fi
+    fi
    fi
   done
   rm -f /tmp/ppm-dirlists.txt
- fi
- 
+ fi 
+
+
+ cat /root/.packages/${DB_pkgname}.files | sort -r |
+ while read ONESPEC
+ do
+   if [ "$ONESPEC" != "" ] && [ "$ONESPEC" != "/" ]; then
+    if [ -d "$ONESPEC" ]; then
+     if [ "$ISLAYEREDFS" != "" ]; then
+      #Delete folder if it was not builtin
+      if [ ! -d "/initrd${PUP_LAYER}${ONESPEC}" ]; then
+       [ "`ls -1 "$ONESPEC"`" == "" ] && rmdir "$ONESPEC" 2>/dev/null #120107
+      fi
+     else
+      [ "`ls -1 "$ONESPEC"`" == "" ] && rmdir "$ONESPEC" 2>/dev/null #120107
+     fi
+    fi
+   fi
+ done
+  
  ###+++2011-12-27 KRG
 else
  firstchar=`echo ${DB_pkgname} | cut -c 1`
