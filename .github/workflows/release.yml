@@ -1,0 +1,176 @@
+name: release
+
+on:
+  workflow_dispatch:
+    branches:
+      - testing
+    inputs:
+      version:
+        description: 'Version number'
+        required: true
+        default: '8.0'
+      suffix:
+        description: 'Release name suffix, with leading -'
+        required: false
+        default: '-prepreprealpha1'
+      arch:
+        description: 'Architecture'
+        required: false
+        default: 'x86_64'
+      compat_distro:
+        description: 'Compatible distro'
+        required: false
+        default: 'slackware64'
+      compat_version:
+        description: 'Compatible distro version'
+        required: false
+        default: '15.0'
+      kernel:
+        description: 'Kernel version, without .x at the end'
+        required: false
+        default: '5.10'
+      prefix:
+        description: 'File name prefix'
+        required: false
+        default: 'slacko64'
+
+jobs:
+  build:
+    runs-on: ubuntu-20.04
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+    - name: Create cache directories
+      run: |
+        mkdir -p local-repositories petbuild-sources
+        ln -s `pwd`/local-repositories ../local-repositories
+    - name: Get cached local-repositories
+      uses: actions/cache@v2
+      with:
+        path: local-repositories
+        key: ${{ github.workflow }}-local-repositories-${{ github.sha }}
+        restore-keys: |
+          ${{ github.workflow }}-local-repositories-
+    - name: Prepare build environment
+      run: |
+        [ -f local-repositories/vercmp ] || (curl https://raw.githubusercontent.com/puppylinux-woof-CE/initrd_progs/master/pkg/w_apps_static/w_apps/vercmp.c | gcc -x c -o ../local-repositories/vercmp -)
+        sudo install -m 755 local-repositories/vercmp /usr/local/bin/vercmp
+        sudo install -D -m 644 woof-code/rootfs-skeleton/usr/local/petget/categories.dat /usr/local/petget/categories.dat
+        echo "dash dash/sh boolean false" | sudo debconf-set-selections
+        sudo DEBIAN_FRONTEND=noninteractive dpkg-reconfigure dash
+        sudo ln -s bash /bin/ash
+        [ "${{ github.event.inputs.arch }}" = "x86" ] && echo -e '#!/bin/sh\nexec linux32 "$@"' | sudo tee /usr/local/bin/linuxn || echo -e '#!/bin/sh\nexec "$@"' | sudo tee /usr/local/bin/linuxn
+        sudo chmod 755 /usr/local/bin/linuxn
+    - name: merge2out
+      run: yes "" | sudo -E linuxn ./merge2out woof-distro/${{ github.event.inputs.arch }}/${{ github.event.inputs.compat_distro }}/${{ github.event.inputs.compat_version }}
+    - name: Set version
+      run: sudo sed -i s/^DISTRO_VERSION=.*/DISTRO_VERSION=${{ github.event.inputs.version }}/ ../woof-out_*/DISTRO_SPECS
+    - name: Set file name prefix
+      run: sudo sed -i s/^DISTRO_FILE_PREFIX=.*/DISTRO_FILE_PREFIX=${{ github.event.inputs.prefix }}/ ../woof-out_*/DISTRO_SPECS
+    - name: 0setup
+      run: |
+        cd ../woof-out_*
+        sudo -E linuxn ./0setup
+    - name: 1download
+      run: |
+        cd ../woof-out_*
+        sudo -E linuxn ./1download
+    - name: 2createpackages
+      run: |
+        cd ../woof-out_*
+        echo | sudo -E linuxn ./2createpackages
+    - name: Get cached kernel-kit output
+      uses: dawidd6/action-download-artifact@v2
+      with:
+        repo: puppylinux-woof-CE/woof-CE
+        branch: testing
+        workflow: kernel-kit.yml
+        workflow_conclusion: success
+        name: kernel-kit-output-${{ github.event.inputs.kernel }}.x-${{ github.event.inputs.arch }}
+        path: output
+    - name: Move cached kernel-kit output
+      run: sudo mv output ../woof-out_*/kernel-kit/
+    - name: Get cached petbuild-sources
+      uses: actions/cache@v2
+      with:
+        path: petbuild-sources
+        key: ${{ github.workflow }}-petbuild-sources-${{ github.sha }}
+        restore-keys: |
+          ${{ github.workflow }}-petbuild-sources-
+    - name: Install 3builddistro dependencies
+      if: github.event.inputs.arch == 'x86'
+      run: |
+        sudo dpkg --add-architecture i386
+        sudo apt-get update -qq
+        sudo apt-get install -y --no-install-recommends libuuid1:i386
+    - name: Install cdrtools
+      run: |
+        [ -f local-repositories/mkisofs ] || (curl -L https://sourceforge.net/projects/cdrtools/files/alpha/cdrtools-3.02a09.tar.bz2/download | tar -xjf- && cd cdrtools-3.02 && make -j`nproc` && mv mkisofs/OBJ/x86_64-linux-cc/mkisofs ../local-repositories/mkisofs)
+        sudo install -m 755 local-repositories/mkisofs /usr/local/bin/mkisofs
+    - name: 3builddistro
+      run: |
+        sudo mv petbuild-sources ../woof-out_*/
+        cd ../woof-out_*
+        sudo -E HOME=/root linuxn ./3builddistro release
+        sudo mv -f woof-output-${{ github.event.inputs.prefix }}-${{ github.event.inputs.version }}/${{ github.event.inputs.prefix }}-${{ github.event.inputs.version }}.iso $GITHUB_WORKSPACE/
+        sudo mv -f woof-output-${{ github.event.inputs.prefix }}-${{ github.event.inputs.version }}/devx_${{ github.event.inputs.prefix }}_${{ github.event.inputs.version }}.sfs $GITHUB_WORKSPACE/
+        sudo mv -f woof-output-${{ github.event.inputs.prefix }}-${{ github.event.inputs.version }}/docx_${{ github.event.inputs.prefix }}_${{ github.event.inputs.version }}.sfs $GITHUB_WORKSPACE/
+        sudo mv -f woof-output-${{ github.event.inputs.prefix }}-${{ github.event.inputs.version }}/nlsx_${{ github.event.inputs.prefix }}_${{ github.event.inputs.version }}.sfs $GITHUB_WORKSPACE/
+        sudo mv -f kernel-kit/output/kernel_sources-${{ github.event.inputs.kernel }}-kernel-kit.sfs $GITHUB_WORKSPACE/
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.event.inputs.prefix }}-${{ github.event.inputs.version }}${{ github.event.inputs.suffix }}
+        release_name: ${{ github.event.inputs.prefix }}-${{ github.event.inputs.version }}${{ github.event.inputs.suffix }}
+        draft: true
+        prerelease: false
+    - name: Upload ISO
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ${{ github.event.inputs.prefix }}-${{ github.event.inputs.version }}.iso
+        asset_name: ${{ github.event.inputs.prefix }}-${{ github.event.inputs.version }}.iso
+        asset_content_type: application/octet-stream
+    - name: Upload devx
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: devx_${{ github.event.inputs.prefix }}_${{ github.event.inputs.version }}.sfs
+        asset_name: devx_${{ github.event.inputs.prefix }}_${{ github.event.inputs.version }}.sfs
+        asset_content_type: application/octet-stream
+    - name: Upload docx
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: docx_${{ github.event.inputs.prefix }}_${{ github.event.inputs.version }}.sfs
+        asset_name: docx_${{ github.event.inputs.prefix }}_${{ github.event.inputs.version }}.sfs
+        asset_content_type: application/octet-stream
+    - name: Upload nlsx
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: nlsx_${{ github.event.inputs.prefix }}_${{ github.event.inputs.version }}.sfs
+        asset_name: nlsx_${{ github.event.inputs.prefix }}_${{ github.event.inputs.version }}.sfs
+        asset_content_type: application/octet-stream
+    - name: Upload kernel sources
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: kernel_sources-${{ github.event.inputs.kernel }}-kernel-kit.sfs
+        asset_name: kernel_sources-${{ github.event.inputs.kernel }}-kernel-kit.sfs
+        asset_content_type: application/octet-stream
+    - name: Move cached directories
+      run: sudo mv ../woof-out_*/petbuild-sources .
