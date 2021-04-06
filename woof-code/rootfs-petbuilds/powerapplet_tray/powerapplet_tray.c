@@ -21,7 +21,6 @@
 #include <gdk/gdkkeysyms.h>
 #include <glib/gstdio.h>
 #include <sys/types.h>
-#include <dirent.h>
 #include <glob.h>
 #include <libgen.h>
 
@@ -141,7 +140,10 @@ gboolean Update(gpointer ptr) {
 
             break;
         }
-    }
+    } else {
+		fprintf(stderr,"No battery present\n");
+		exit (1);
+	}
     globfree(&g);
 
     //check for mad result...
@@ -182,7 +184,7 @@ gboolean Update(gpointer ptr) {
 
 void tray_icon_on_click(GtkStatusIcon *status_icon, gpointer user_data) {
     int success = 0;
-    success=system(("cd /sys/class/power_supply/BAT0 ; gxmessage -center -fn \"mono 12\" -title \"Battery Info\" -borderless -buttons OK:0 -bg thistle \"$(for i in * ; do [ \"$i\" = 'uevent' ] && continue; [ -d \"$i\" ] && continue; echo -n \"${i}: \" && cat $i ; done)\" & "));
+    success = system(("cd /sys/class/power_supply/BAT0 ; gxmessage -center -fn \"mono 12\" -title \"Battery Info\" -borderless -buttons OK:0 -bg thistle \"$(for i in * ; do [ \"$i\" = 'uevent' ] && continue; [ -d \"$i\" ] && continue; echo -n \"${i}: \" && cat $i ; done)\" & "));
     if (success != 0) {printf("system gxmessage call failed with %d\n", success);}
 }
 
@@ -204,10 +206,6 @@ static GtkStatusIcon *create_tray_icon() {
 }
 
 int main(int argc, char **argv) {
-    DIR *dp;
-    struct dirent *ep;
-    int cntbats;
-
     setlocale( LC_ALL, "" );
     bindtextdomain( "powerapplet_tray", "/usr/share/locale" );
     textdomain( "powerapplet_tray" );
