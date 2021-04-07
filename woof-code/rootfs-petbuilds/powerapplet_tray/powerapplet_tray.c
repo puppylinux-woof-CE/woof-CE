@@ -45,11 +45,12 @@ GdkPixbuf *bat_pixbuf;
 GtkStatusIcon *tray_icon;
 unsigned int interval = 15000; /*update interval in milliseconds*/
 int batpercent = 100;
-int batpercentprev = 0;
-int charged;
+int batpercentprev = -1;
+int chargingprev = -1;
+int charged = -1;
 FILE *fp;
 FILE *fx;
-int charging;
+int charging = -1;
 char memdisplaylong[64];
 char batname[16]="";
 
@@ -104,9 +105,6 @@ gboolean Update(gpointer ptr) {
     char time[8];
     int num;
 
-    charging=1; //charging.
-    charged=0; //not full charged.
-           
     glob_t g = {0};
     if ((glob("/sys/class/power_supply/*/charge_full", 0, NULL, &g) == 0) && (g.gl_pathc > 0)) {
         for (size_t i = 0; i < g.gl_pathc; ++i) {
@@ -125,10 +123,11 @@ gboolean Update(gpointer ptr) {
             fclose(fp);
             if (strcmp(status, "Full") == 0) {
                  batpercent = 100;
-                 charging = 1;
-                 charged = charging;
+                 charging = 0;
+                 charged = 1;
             } else {
                 charging = (strcmp(status, "Charging") == 0);
+                charged = 0;
 
                 int now;
                 if((fp = fopen("charge_now","r")) == NULL) continue;
@@ -150,8 +149,9 @@ gboolean Update(gpointer ptr) {
     if (batpercent < 0) return FALSE;
     if (batpercent > 100) return FALSE;
     
-    if (batpercent==batpercentprev) return TRUE; //unchanged.
+    if ((batpercent==batpercentprev) && (charging==chargingprev)) return TRUE; //unchanged.
     batpercentprev=batpercent;
+    chargingprev=charging;
     
     //update icon...
     int icon_success = paint_icon(charging, batpercent);
@@ -184,7 +184,7 @@ gboolean Update(gpointer ptr) {
 
 void tray_icon_on_click(GtkStatusIcon *status_icon, gpointer user_data) {
     int success = 0;
-    success = system(("cd /sys/class/power_supply/BAT0 ; gxmessage -center -fn \"mono 12\" -title \"Battery Info\" -borderless -buttons OK:0 -bg thistle \"$(for i in * ; do [ \"$i\" = 'uevent' ] && continue; [ -d \"$i\" ] && continue; echo -n \"${i}: \" && cat $i ; done)\" & "));
+    success = system(("for i in /sys/class/power_supply/*; do cd $i; [ -e charge_now ] && break; done; gxmessage -center -fn \"mono 12\" -title \"Battery Info\" -borderless -buttons OK:0 -bg thistle \"$(for i in * ; do [ \"$i\" = 'uevent' ] && continue; [ -d \"$i\" ] && continue; echo -n \"${i}: \" && cat $i ; done)\" & "));
     if (success != 0) {printf("system gxmessage call failed with %d\n", success);}
 }
 
