@@ -187,6 +187,9 @@ echo "icons: ${PTHEME_ICONS}"
 if [ -d root/.icons/ ];then
 	if [ ! "`grep 'ORIGINAL THEME' <<< "$PTHEME_MOUSE"`" ] ; then
 		ln -snf $PTHEME_MOUSE root/.icons/default
+		mkdir -p home/spot/.icons
+		ln -s ../../../root/.icons/default home/spot/.icons/
+		chroot . chown -R spot:spot /home/spot/.icons
 	fi
 	echo "cursor: ${PTHEME_MOUSE}"
 fi
