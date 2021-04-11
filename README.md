@@ -126,11 +126,11 @@ The single-digit `-2-`, `-3-`, `-4-`, `-5-` files reside on ibiblio.org also. Th
 
 The main Puppy files are:
 
-    vmlinuz, initrd.gz, puppy.sfs, zdrv.sfs, fdrv.sfs, adrv.sfs, ydrv.sfs
+    vmlinuz, initrd.gz, puppy.sfs, zdrv.sfs, fdrv.sfs, adrv.sfs, ndrv.sfs, ydrv.sfs
 
 Versioning is put into the last two, for example:
 
-    vmlinuz, initrd.gz, puppy_slacko_7.0.0, zdrv_slacko_7.0.0.sfs fdrv_slacko_7.0.0.sfs, adrv_slacko_7.0.0.sfs, ydrv_slacko_7.0.0.sfs
+    vmlinuz, initrd.gz, puppy_slacko_7.0.0, zdrv_slacko_7.0.0.sfs fdrv_slacko_7.0.0.sfs, adrv_slacko_7.0.0.sfs, ndrv_slacko_7.0.0.sfs, ydrv_slacko_7.0.0.sfs
 
 ...those last two names are intended to be unique for that build of Puppy, so they can be found at bootup.
 
@@ -143,6 +143,7 @@ For example:
     DISTRO_ZDRVSFS='zdrv_slacko_7.0.0.sfs'
     DISTRO_FDRVSFS='fdrv_slacko_7.0.0.sfs'
     DISTRO_ADRVSFS='adrv_slacko_7.0.0.sfs'
+    DISTRO_NDRVSFS='ndrv_slacko_7.0.0.sfs'
     DISTRO_YDRVSFS='ydrv_slacko_7.0.0.sfs'
 
 So, any script that wants to know what the names are can read these variables.

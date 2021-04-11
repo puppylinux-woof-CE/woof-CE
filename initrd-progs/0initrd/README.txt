@@ -19,7 +19,7 @@ initrd.gz:
    This contains the Puppy files that form the RAM based filesystem that is in place when init runs.
    The init script is one of these files.
 
-The puppy sfs files, puppy...sfs, zdrv...sfs, fdrv...sfs, ydrv...sfs, adrv...sfs:
+The puppy sfs files, puppy...sfs, zdrv...sfs, fdrv...sfs, ndrv...sfs, ydrv...sfs, adrv...sfs:
 (Where ... is a particular puppy name and version, e.g. zdrv_slacko64_6.9.5.sfs)
 
 puppy...sfs:
@@ -32,6 +32,10 @@ zdrv...sfs:
 
 fdrv...sfs:
    This contains firmware files. It can be used to override the contents of zdrv...sfs.
+   This file is present in only some Puppies.
+
+ndrv...sfs:
+   This contains internationalization files.
    This file is present in only some Puppies.
 
 ydrv...sfs:
