@@ -20,33 +20,37 @@ jobs:
           - arch: x86
             compat-distro: slackware
             compat-distro-version: 14.2
-            kernel: 4.19
+            kernel: 4.19.x-x86
           - arch: x86
             compat-distro: debian
             compat-distro-version: bullseye
-            kernel: 4.19
+            kernel: 4.19.x-x86
           - arch: x86_64
             compat-distro: slackware64
             compat-distro-version: 14.2
-            kernel: 4.19
+            kernel: 4.19.x-x86_64
           - arch: x86_64
             compat-distro: debian
             compat-distro-version: bullseye64
-            kernel: 5.4
+            kernel: 5.4.x-x86_64
           - arch: x86_64
             compat-distro: ubuntu
             compat-distro-version: focal64
-            kernel: 5.4
+            kernel: 5.4.x-x86_64
           - arch: x86_64
             compat-distro: slackware64
             compat-distro-version: "15.0"
-            kernel: "5.10"
+            kernel: 5.10.x-x86_64
+          - arch: arm
+            compat-distro: debian
+            compat-distro-version: bullseye-veyron-speedy
+            kernel: 5.4.x-veyron-speedy
     steps:
     - name: Checkout code
       uses: actions/checkout@v2
     - name: Create cache directories
       run: |
-        mkdir -p local-repositories petbuild-sources petbuild-output
+        mkdir -p local-repositories petbuild-sources petbuild-cache petbuild-output
         ln -s `pwd`/local-repositories ../local-repositories
     - name: Get cached local-repositories
       uses: actions/cache@v2
@@ -95,7 +99,7 @@ jobs:
         branch: testing
         workflow: kernel-kit.yml
         workflow_conclusion: success
-        name: kernel-kit-output-${{ matrix.kernel }}.x-${{ matrix.arch }}
+        name: kernel-kit-output-${{ matrix.kernel }}
         path: output
     - name: Move cached kernel-kit output
       run: sudo mv output ../woof-out_*/kernel-kit/
@@ -106,6 +110,14 @@ jobs:
         key: ${{ github.workflow }}-${{ matrix.arch }}-${{ matrix.compat-distro }}-${{ matrix.compat-distro-version }}-petbuild-sources-${{ github.sha }}
         restore-keys: |
           ${{ github.workflow }}-${{ matrix.arch }}-${{ matrix.compat-distro }}-${{ matrix.compat-distro-version }}-petbuild-sources-
+    - name: Get cached petbuild-cache
+      if: matrix.arch == 'arm' && github.event_name != 'workflow_dispatch'
+      uses: actions/cache@v2
+      with:
+        path: petbuild-cache
+        key: ${{ github.workflow }}-${{ matrix.arch }}-${{ matrix.compat-distro }}-${{ matrix.compat-distro-version }}-petbuild-cache-${{ github.sha }}
+        restore-keys: |
+          ${{ github.workflow }}-${{ matrix.arch }}-${{ matrix.compat-distro }}-${{ matrix.compat-distro-version }}-petbuild-cache-
     - name: Get cached petbuild-output
       if: github.event_name != 'workflow_dispatch'
       uses: actions/cache@v2
@@ -114,25 +126,39 @@ jobs:
         key: ${{ github.workflow }}-${{ matrix.arch }}-${{ matrix.compat-distro }}-${{ matrix.compat-distro-version }}-petbuild-output-${{ github.sha }}
         restore-keys: |
           ${{ github.workflow }}-${{ matrix.arch }}-${{ matrix.compat-distro }}-${{ matrix.compat-distro-version }}-petbuild-output-
-    - name: Install 3builddistro dependencies
+    - name: Install x86 3builddistro dependencies
       if: matrix.arch == 'x86'
       run: |
         sudo dpkg --add-architecture i386
         sudo apt-get update -qq
         sudo apt-get install -y --no-install-recommends libuuid1:i386
+    - name: Install ARM 3builddistro dependencies
+      if: matrix.arch == 'arm'
+      run: |
+        sudo apt-get update -qq
+        sudo apt-get install -y --no-install-recommends vboot-kernel-utils u-boot-tools device-tree-compiler cgpt qemu-user-static binfmt-support
+        sudo ln -s /usr/bin/mount /usr/local/bin/mount-FULL
     - name: Install cdrtools
+      if: matrix.arch != 'arm'
       run: |
         [ -f local-repositories/mkisofs ] || (curl -L https://sourceforge.net/projects/cdrtools/files/alpha/cdrtools-3.02a09.tar.bz2/download | tar -xjf- && cd cdrtools-3.02 && make -j`nproc` && mv mkisofs/OBJ/x86_64-linux-cc/mkisofs ../local-repositories/mkisofs)
         sudo install -m 755 local-repositories/mkisofs /usr/local/bin/mkisofs
     - name: 3builddistro
-      timeout-minutes: 30
+      timeout-minutes: 120
       run: |
         sudo chown -R root:root petbuild-output
-        sudo mv petbuild-{sources,output} ../woof-out_*/
+        sudo mv petbuild-{sources,cache,output} ../woof-out_*/
         cd ../woof-out_*
         sudo -E HOME=/root linuxn ./3builddistro
-        sudo mv petbuild-{sources,output} $GITHUB_WORKSPACE/
-        sudo mv -f woof-output-*/*.{sfs,iso} $GITHUB_WORKSPACE/
+        sudo mv petbuild-{sources,cache,output} $GITHUB_WORKSPACE/
+    - name: Move x86 build output
+      if: matrix.arch != 'arm'
+      run: sudo mv -f ../woof-out_*/woof-output-*/*.{sfs,iso} .
+    - name: Move ARM build output
+      if: matrix.arch == 'arm'
+      run: |
+        sudo gzip -1 ../woof-out_*/woof-output-*/*-2gb.img
+        sudo mv -f ../woof-out_*/woof-output-*/*-2gb.img.img.gz .
     - name: Upload build artifacts
       uses: actions/upload-artifact@v2
       with:
@@ -140,4 +166,5 @@ jobs:
         path: |
           *.iso
           *.sfs
+          *.img.gz
         retention-days: 3
