@@ -103,8 +103,8 @@ chmod 755 /mnt/ssdimagep2/init
 mount-FULL -o loop,noatime,offset=${P2STARTBYTES} ${SD_IMG_BASE} /mnt/sdimagep2
 
 cp -a rootfs-complete/* /mnt/ssdimagep2/
-echo -e '#!/bin/sh\nexec /sbin/init initrd_full_install' > /mnt/sdimagep2/init
-chmod 755 /mnt/sdimagep2/init
+echo -e '#!/bin/sh\nexec /sbin/init initrd_full_install' > /mnt/ssdimagep2/init
+chmod 755 /mnt/ssdimagep2/init
 cp -a /mnt/ssdimagep2/* /mnt/sdimagep2/
 
 case $WOOF_TARGETARCH in
