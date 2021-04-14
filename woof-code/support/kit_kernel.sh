@@ -346,6 +346,11 @@ fi
 
 cd ..
 
+for SFS in build/fdrv-*.sfs build/kernel-modules-*.sfs; do
+	echo "Extracting $SFS to rootfs-complete"
+	unsquashfs -f -d rootfs-complete $SFS || exit 1
+done
+
 exit 0
 
 ### END ###
