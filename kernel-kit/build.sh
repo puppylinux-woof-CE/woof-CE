@@ -1009,6 +1009,12 @@ if [ "$STRIP_KMODULES" = "yes" ] ; then
 	done
  fi
 fi
+# copy in build.conf
+if [ "$kit_kernel" = "yes" ]; then
+	cp build.conf output/${linux_kernel_dir}/etc/modules/build.conf-${kernel_version}${custom_suffix}-${today}
+else
+	cp build.conf output/${linux_kernel_dir}/etc/modules/build.conf-${kernel_version}-${today}
+fi
 
 mksquashfs output/${linux_kernel_dir} output/${KERNEL_MODULES_SFS_NAME} $COMP
 [ $? = 0 ] || exit 1
