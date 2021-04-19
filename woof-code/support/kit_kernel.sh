@@ -229,7 +229,7 @@ mkdir -p build
 
 if [ -d '../kernel-kit/output' ];then
 	# only look for kernels that match DISTRO_FILE_PREFIX
-	KIT_KERNELS=`find ../kernel-kit/output -maxdepth 1 -type f -name "kit-kernel*${DISTRO_FILE_PREFIX}.tar*" |grep -v 'txt$'`
+	KIT_KERNELS=`find ../kernel-kit/output -maxdepth 1 -type f -name "kit-kernel*.tar*" |grep -v 'txt$'`
 	for ONE_KERNEL in $KIT_KERNELS
 	do
 		ONE_KERNEL_NAME=${ONE_KERNEL##*/}
@@ -345,6 +345,11 @@ if [ "${DISTRO_TARGETARCH}" = "arm" -a "$CHOSEN_KERNEL7L" != "" ]; then
 fi
 
 cd ..
+
+for SFS in build/fdrv-*.sfs build/kernel-modules-*.sfs; do
+	echo "Extracting $SFS to rootfs-complete"
+	unsquashfs -f -d rootfs-complete $SFS || exit 1
+done
 
 exit 0
 

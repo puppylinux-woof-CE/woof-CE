@@ -49,6 +49,8 @@ export NLSXSFS="nlsx_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION}.sfs"
 
 if [ "$BUILD_ZIP" = "yes" ]; then
 	SDFLAG="zip"
+elif [ "$BUILD_CROS_IMAGE" = "yes" ]; then
+	CROSFLAG=1
 elif [ "$DISTRO_TARGETARCH" = "arm" ]; then
 	SDFLAG=1
 fi
@@ -528,8 +530,6 @@ fi
 [ -f ${rootfs}/boot/System.map ] && cp ${rootfs}/boot/System.map ./
 sync
 
-#build the initrd-tree...
-echo -e "\nNow building initial ramdisk..."
 cp ../DISTRO_SPECS rootfs-complete/etc/DISTRO_SPECS
 
 if [ "$DISTRO_KERNEL_PET" = 'Kit_Kernel' ];then
@@ -549,19 +549,24 @@ DISTRO_PUPPYDATE="`date | tr -s " " | cut -f 2,6 -d " "`"
 echo "DISTRO_PUPPYDATE='${DISTRO_PUPPYDATE}'" >> rootfs-complete/etc/DISTRO_SPECS
 [ "${ARCHDIR}" ] && echo "DISTRO_ARCHDIR='${ARCHDIR}'" >> rootfs-complete/etc/DISTRO_SPECS
 
-#### initrd-progs #### build/initrd.gz...
-cp rootfs-complete/etc/DISTRO_SPECS ../initrd-progs/DISTRO_SPECS
+#build the initrd-tree...
+if [ ! "$CROSFLAG" ]; then
+	echo -e "\nNow building initial ramdisk..."
 
-rm -f build/initrd.[gx]z ../initrd-progs/initrd.[gx]z
-(
-	cd ../initrd-progs/
-	./build.sh -prebuilt -auto -arch ${WOOF_TARGETARCH:-default} ${INITRD_LANG} ${INITRD_KM}
-)
-mv -fv ../initrd-progs/initrd.[gx]z build/ || exit 1
+	#### initrd-progs #### build/initrd.gz...
+	cp rootfs-complete/etc/DISTRO_SPECS ../initrd-progs/DISTRO_SPECS
 
-case $WOOF_TARGETARCH in x86*)
-	cp -fv ../initrd-progs/0initrd/README.txt build/ ;;
-esac
+	rm -f build/initrd.[gx]z ../initrd-progs/initrd.[gx]z
+	(
+		cd ../initrd-progs/
+		./build.sh -prebuilt -auto -arch ${WOOF_TARGETARCH:-default} ${INITRD_LANG} ${INITRD_KM}
+	)
+	mv -fv ../initrd-progs/initrd.[gx]z build/ || exit 1
+
+	case $WOOF_TARGETARCH in x86*)
+		cp -fv ../initrd-progs/0initrd/README.txt build/ ;;
+	esac
+fi
 
 if [ "$SDFLAG" ] ; then
 	cp -fv ../initrd-progs/ZZ_initrd-expanded/bin/busybox rootfs-complete/bin/busybox_static
@@ -633,14 +638,14 @@ touch ../devx-only-installed-packages
 cp ../devx-only-installed-packages rootfs-complete${PACKAGES_DIR}/
 
 # certain utilities are not appropriate when booting on an arm board...
-if [ "$SDFLAG" ];then
+if [ "$SDFLAG" -o "$CROSFLAG" ]; then
 	for i in usr/sbin/grubconfig usr/sbin/remasterpup2 \
 		usr/share/applications/Grub-bootloader-config.desktop \
 		usr/share/applications/BootFlash-usb-installer.desktop \
 		usr/share/applications/Puppy-universal-installer.desktop \
 		usr/share/applications/Remaster-Puppy-live-CD.desktop
 	do rm -f rootfs-complete/${i} ; done
-	if [ "$SDFLAG" != "zip" ]; then
+	if [ "$SDFLAG" != "zip" -o "$CROSFLAG" ]; then
 		rm -f rootfs-complete/usr/sbin/resizepfile.sh \
 		      rootfs-complete/usr/share/applications/Resize-personal-storage-file.desktop \
 		      rootfs-skeleton/usr/sbin/pupsave-backup \
@@ -803,9 +808,12 @@ fi
 if [ "$SDFLAG" != "" ];then
 	#this also reduces writes to flash card... um, relatime seems to be the default anyway... 120707 change to noatime...
 	echo "BOOT_ATIME='noatime'" >> rootfs-complete/etc/rc.d/BOOTCONSTRAINED #rc.sysinit will remount / with 'relatime' (constrains updating access time). 120707 change to noatime.
-	echo "BOOT_DIRTYWRITE='1500'" >> rootfs-complete/etc/rc.d/BOOTCONSTRAINED #defer writing to disk. refer: http://www.lesswatts.org/tips/disks.php
 	echo "BOOT_SCHEDULER='deadline'" >> rootfs-complete/etc/rc.d/BOOTCONSTRAINED #my kernel defaults to 'cfq', change to 'deadline'. refer: http://tombuntu.com/index.php/2008/09/04/four-tweaks-for-using-linux-with-solid-state-drives/
 	echo "BOOT_UDEVDCHILDREN='1'" >> rootfs-complete/etc/rc.d/BOOTCONSTRAINED #120709 is this a good idea? append --children-max=1 to udevd in rc.sysinit.
+fi
+
+if [ "$SDFLAG" != "" -o "$CROSFLAG" != "" ];then
+	echo "BOOT_DIRTYWRITE='1500'" >> rootfs-complete/etc/rc.d/BOOTCONSTRAINED #defer writing to disk. refer: http://www.lesswatts.org/tips/disks.php
 	echo "BOOT_BOARD='${BOOT_BOARD}'" >> rootfs-complete/etc/rc.d/BOOTCONSTRAINED #120714 read by quicksetup.
 fi
 
@@ -856,6 +864,8 @@ echo
 [ -n "$QEMU" ] && rm -f rootfs-complete/${QEMU}
 
 if [ "$SDFLAG" != "" -a "$SDFLAG" != "zip" ]; then
+	BUILD_SFS='no'
+elif [ "$CROSFLAG" != "" ]; then
 	BUILD_SFS='no'
 else
 	BUILD_SFS='yes'
@@ -1033,7 +1043,7 @@ fi
 #==================================================================================
 # ISO file
 
-if [ "$SDFLAG" = "" ] ; then #120506
+if [ "$SDFLAG" = "" -a "$CROSFLAG" = "" ] ; then #120506
 	if [ "$BUILD_DEVX" = "yes" -a -f ${DEVXSFS} ] ; then
 		if [ "$DEVX_IN_ISO" = "yes" ] ; then #_00build.conf
 			XTRA_FLG="${XTRA_FLG}-devx"
@@ -1115,6 +1125,12 @@ if [ "$SDFLAG" = "zip" ];then
 		fi
 	fi
 	rm -rf tmp/ # we're still in sandbox3
+
+elif [ "$CROSFLAG" ]; then # Chrome OS image
+
+	WOOF_OUTPUT="woof-output-${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}"
+	mkdir -p ../$WOOF_OUTPUT
+	. ../support/cros_image.sh
 
 elif [ "$SDFLAG" ]; then #120506 sd image
 
