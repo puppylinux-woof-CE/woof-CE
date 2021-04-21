@@ -4,7 +4,7 @@
 #  previewed prior to installation. ex: abiword-1.2.3
 #/tmp/petget_proc/petget/current-repo-triad has the repository that installing from (written in pkgchooser.sh).
 #  ex: slackware-12.2-slacky
-#  ...full package database file is /var/packages/repos/Packages-slackware-12.2-slacky
+#  ...full package database file is /var/packages/Packages-slackware-12.2-slacky
 #/tmp/petget_proc/petget_missingpkgs_patterns (written in findmissingpkgs.sh) has a list of missing dependencies, format ex:
 #  |kdebase|
 #  |kdelibs|
