@@ -77,6 +77,7 @@
 #190217 v2.1: shorten wait after link timeout; remember choice of interface for boot-up; stop interfaces other than that selected, before starting selected interface; separate 'running' test and 'current exec' logic, so exec change avoided if main window aborted (X); refine 'already running' dialog & add to locale files.
 #190223 v2.1.1: Avoid exec change on exiting if no interface buttons used.
 #200412 v2.1.2: Increase wait for ethtool link detected, to 15 secs.
+#210415 v2.2: Correct pcmcia check; set 'selected device' softlink when saving configuration; simplify link detection; set IS_WIRELESS; remove v411 BK hack to remove old network wizard configs (*[0-9]mode).
 
 # $1: interface
 interface_is_wireless() {
@@ -114,7 +115,7 @@ if [ -f "/usr/share/locale/${LANG%.*}/LC_MESSAGES/$mo" ];then
 elif [ -f "/usr/share/locale/${LANG%_*}/LC_MESSAGES/$mo" ];then
   . "/usr/share/locale/${LANG%_*}/LC_MESSAGES/$mo"
 fi
-
+#set -x; exec >&2 #DEBUG
 # Check if output should go to the console
 if [ "${1}" = "-d" ] ; then
 	DEBUG_OUTPUT=/dev/stderr
@@ -209,8 +210,6 @@ showMainWindow()
 			19) break ;;
 			13) which connectwizard_exec >/dev/null 2>&1 \
 				  && connectwizard_exec net-setup.sh #190217
-				local HWADDRESS=$(ifconfig "$INTERFACE" | grep "^$INTERFACE" | tr -s ' ' | cut -d' ' -f5) #190217
-				ln -snf $HWADDRESS.conf ${NETWORK_INTERFACES_DIR}/selected_conf #190217
 				showConfigureInterfaceWindow "$INTERFACE" ;;
 			66) AutoloadUSBmodules ;;
 			#21) showHelp  ;;
@@ -1042,6 +1041,7 @@ findLoadedModules ()
 testInterface()
 {
   INTERFACE="$1"
+  TIMEOUT=15 #210415
   
   (
 	ifconfig "$INTERFACE" | grep ' UP ' >> $DEBUG_OUTPUT 2>&1
@@ -1058,23 +1058,18 @@ $ERROR
 	fi
 
 	echo "X"
-	LINK_DETECTED=no
-	TIMEOUT=15 #200412
-	while [ $TIMEOUT -ge 0 ]; do #200412
-		if ethtool "$INTERFACE" | grep -Fq 'Link detected: yes' ; then
-			LINK_DETECTED="yes"
+	UNPLUGGED='false' #210415...
+	until ethtool "$INTERFACE" | grep -Fq 'Link detected: yes' ; do
+		if [ $((--TIMEOUT)) -le 0 ] ; then
+			UNPLUGGED='true'
 			break
+		else
+			sleep 1
+			echo "X"
 		fi
-		[ $((--TIMEOUT)) -ge 0 ] && sleep 1 || sleep 0.5 #190217 200412
-		echo "X"
 	done
-	if [ "$LINK_DETECTED" = "no" ] ; then
-		echo -n true > /tmp/net-setup_UNPLUGGED.txt
-	else
-		echo -n false > /tmp/net-setup_UNPLUGGED.txt
-	fi
-  ) | Xdialog --title "$L_TITLE_Network_Wizard" --progress "$L_PROGRESS_Testing_Interface ${INTERFACE}" 0 0 5
-
+	echo -n "${UNPLUGGED}" > /tmp/net-setup_UNPLUGGED.txt
+  ) | Xdialog --title "$L_TITLE_Network_Wizard" --progress "$L_PROGRESS_Testing_Interface ${INTERFACE}" 0 0 "$TIMEOUT" #210415 end
   UNPLUGGED=$(cat /tmp/net-setup_UNPLUGGED.txt)
 
   if [ "$UNPLUGGED" != "false" ];then #BK1.0.7
@@ -1291,6 +1286,7 @@ checkIfIsWireless ()
   INTMODULE=${INTMODULE##*/}
 
   if interface_is_wireless ${INTERFACE} ; then
+    IS_WIRELESS="yes" #210415
     return 0
   else
     return 1
@@ -1635,39 +1631,15 @@ findInterfaceInfo()
   INFO=""
     
   FINDTYPE="`readlink /sys/class/net/$INT/device/driver`"
-  local DEVICE=${FINDTYPE##*/}
-  
-  FI_DRIVER=${DEVICE}
-  IF_BUS=
-  IF_INFO=
-  while read F1 F2plus ; do
-	case $F1 in
-		"description:") IF_INFO="$F2plus" ;; #description: Support for Atheros 802.11n wireless LAN cards.
-		"alias:") IF_BUS="${F2plus%%:*}" ;;  #alias: pci:v0000168Cd00000027sv*sd*bc*sc*i*
-	esac
-  done <<< "$(modinfo $FI_DRIVER 2>/dev/null)"
-  if [ ! "$IF_BUS" ] && [ "$FINDTYPE" ];then
-	case $FINDTYPE in
-		*/bus/usb*) IF_BUS="usb" ;;
-		*/bus/pci*) IF_BUS="pci" ;;
-		*/bus/ieee1394*) TYPE="firewire" ;;
-	esac
-  fi
-  TYPE=${IF_BUS}
-  INFO=${IF_INFO}  
+  FI_DRIVER=${FINDTYPE##*/}
+  IF_BUS="$(grep -o '/bus/[^/]*' <<< "$FINDTYPE" | cut -f 3 -d /)" #210415
+  TYPE=${IF_BUS/ieee1394/firewire} #210415
 
-  case "$FI_DRIVER" in
-   */bus/usb*) TYPE="usb" ;;
-   */bus/ieee1394*) TYPE="firewire" ;;
-   *) # pcmcia and pci apparently both appear as pci...
-      if grep "^${FI_DRIVER##*/} " $TMPDIR/networkmodules |grep -q 'pcmcia:' ; then
-        TYPE="pcmcia"
-      else
-        TYPE="pci"
-      fi
-      ;;
-  esac
-  FI_DRIVER=${FI_DRIVER##*/}
+  # pcmcia and pci apparently both appear as pci... #210415...
+  if [ "$TYPE" = 'pci' ] ; then
+    grep "^$FI_DRIVER " $TMPDIR/networkmodules |grep -q 'pcmcia:' \
+     && TYPE="pcmcia"
+  fi
 
   if interface_is_wireless ${INTERFACE} ; then
     INTTYPE="$L_INTTYPE_Wireless"
@@ -1708,6 +1680,9 @@ findInterfaceInfo()
      FI_DRIVER="eth1394"
      INFO="$L_INFO_Eth_Firewire"
      ;;
+   *) #210415...
+     INFO=$(modinfo $FI_DRIVER |grep -m1 '^description' |tr -s ' ' |cut -d' ' -f2-)
+     ;;
   esac
   #111015 strip out chars that might upset gtkdialog...
   [ "$MANU" ] && MANU="`echo -n "$MANU" | sed -e 's%[^a-zA-Z0-9 .]%%g'`"
@@ -1743,6 +1718,7 @@ saveInterfaceSetup()
     # Dougal: maybe append? in case used both for dhcp and static.
     echo -e "${MODECOMMANDS}\nIS_WIRELESS=''" > ${NETWORK_INTERFACES_DIR}/$HWADDRESS.conf
   fi
+  ln -snf $HWADDRESS.conf ${NETWORK_INTERFACES_DIR}/selected_conf #210415
 } # end saveInterfaceSetup
 
 #=============================================================================
@@ -1786,9 +1762,6 @@ showMainWindow
 
 # Dougal: clean up /tmp
 cleanUpTmp
-
-#v411 BK hack to remove old network wizard configs so rc.sysinit won't use them if old wizard installed...
-[ "`ls -1 /etc/network-wizard/network/interfaces 2>/dev/null`" != "" ] && rm -f /etc/*[0-9]mode
 
 #=============================================================================
 #================ END OF SCRIPT BODY =====================
