@@ -419,27 +419,12 @@ RESTARTMSG="$(gettext 'Please wait, updating help page and menu...')"
  fi
 fi
 
-#w091019 update image cache...
-iUPDATE='no'
-for iONE in `cat /tmp/petget_proc/petget_missing_dbentries-* | cut -f 1 -d '|' | tr '\n' ' '`
-do
- if [ -f /root/.packages/${iONE}.files ]; then
-  [ "`grep 'usr/share/icons/hicolor' /root/.packages/${iONE}.files`" != "" ] \
-   && echo yes >> /tmp/petget_proc/iUPDATE
- fi
-done
-if [ "$UPDATE_MENUS" = "yes" ]; then
- if [ "$(grep yes /tmp/petget_proc/iUPDATE)" != "" ]; then \
-  gtk-update-icon-cache -f /usr/share/icons/hicolor/
-  rm -f /tmp/petget_proc/iUPDATE
- fi
-fi
-
 #Reconstruct configuration files for JWM, Fvwm95, IceWM...
 if [ "$UPDATE_MENUS" = "yes" -a "$INSTALLEDCAT" != "none" ];then
  nohup /usr/sbin/fixmenus
  [ "`pidof jwm`" != "" ] && { jwm -reload || jwm -restart ; }
 fi
+
 [ ! -f /tmp/petget_proc/install_quietly ] && kill $X3PID || echo
 
 #120905 restore...
