@@ -4,7 +4,7 @@
 #  previewed prior to installation. ex: abiword-1.2.3
 #/tmp/petget_proc/petget/current-repo-triad has the repository that installing from (written in pkgchooser.sh).
 #  ex: slackware-12.2-slacky
-#  ...full package database file is /root/.packages/Packages-slackware-12.2-slacky
+#  ...full package database file is /var/packages/Packages-slackware-12.2-slacky
 #/tmp/petget_proc/petget_missingpkgs_patterns (written in findmissingpkgs.sh) has a list of missing dependencies, format ex:
 #  |kdebase|
 #  |kdelibs|
@@ -39,10 +39,11 @@
 export TEXTDOMAIN=petget___dependencies.sh
 export OUTPUT_CHARSET=UTF-8
 
-. /root/.packages/PKGS_MANAGEMENT #has PKG_ALIASES_INSTALLED
-. /root/.packages/DISTRO_PET_REPOS
+. /var/packages/PKGS_MANAGEMENT #has PKG_ALIASES_INSTALLED
+. /var/packages/DISTRO_PET_REPOS
 . /etc/DISTRO_SPECS
-PREPATH='/root/.packages/'
+
+PREPATH='/var/packages/'
 
 #a problem is that the dependencies may have their own dependencies. Some pkg
 #databases have all dependencies up-front, whereas some only list the higher-level
@@ -58,13 +59,16 @@ TREE1="`cat /tmp/petget_proc/petget_installpreview_pkgname`"
 
 #this is the db of the main pkg...
 DB_MAIN="${PREPATH}Packages-`cat /tmp/petget_proc/petget/current-repo-triad`" #ex: Packages-slackware-12.2-official 110723
+
 #...should have first preference when looking for dependencies...
 DB_OTHERS="`ls -1 ${PREPATH}Packages-* | grep -v "$DB_MAIN"`"
+
 #120903 improve pkg db selection...
 case $DB_MAIN in
   *"-puppy-2-"*|*"-puppy-3-"*|*"-puppy-4-"*|*"-puppy-5-"*) DB_OTHERS="" ;;
   *) DB_OTHERS="`echo "$DB_OTHERS" | grep -v '\\-puppy\\-[2345]\\-'`" ;; #do not look in puppy-2, puppy-3, puppy-4 or puppy-5.
 esac
+
 case $DB_MAIN in
   *-puppy-*) true ;;
   *)
@@ -75,6 +79,7 @@ case $DB_MAIN in
 $PUPDB"
   ;;
 esac
+
 DB_OTHERS="`echo "$DB_OTHERS" | tr '\n' ' '`"
 
 #the question is, how deep to search for deps? i'll go down 2 levels... make it 3...
@@ -86,6 +91,7 @@ echo -n "" > /tmp/petget_proc/petget_missingpkgs_patterns_acc0 #120903
 cp -f /tmp/petget_proc/petget_missingpkgs_patterns /tmp/petget_proc/petget_missingpkgs_patternsx
 echo "$(gettext 'HIERARCHY OF MISSING DEPENDENCIES OF PACKAGE') $TREE1" > /tmp/petget_proc/petget_deps_visualtreelog #w017
 echo "$(gettext "Format of each line: 'a-missing-dependent-pkg: missing dependencies of a-missing-dependent-pkg'")" >> /tmp/petget_proc/petget_deps_visualtreelog #w017
+
 for ONELEVEL in 1 2 3 4 5 6 7 8 9 10 11 12 13
 do
  if [ ! -f /tmp/petget_proc/install_quietly ]; then
@@ -97,13 +103,28 @@ do
  echo -n "" > /tmp/petget_proc/petget_missingpkgs_patterns2
  for depPATTERN in `cat /tmp/petget_proc/petget_missingpkgs_patternsx`
  do
+ 
   ONEDEP="`echo -n "$depPATTERN" | sed -e 's%|%%g'`" #convert to exact name, ex: abiword
+  
+  if [ "$(cat /var/packages/package-deps-ignore.list | grep "$ONEDEP")" == "" ]; then
+  
   depPATTERN="`echo -n "$depPATTERN" | sed -e 's%\\-%\\\\-%g'`" #backslash '-'
   #find database entry for this package...
   for ONEDB in $DB_MAIN $DB_OTHERS
   do
    DB_dependencies="`cat $ONEDB | cut -f 1,2,9 -d '|' | grep "$depPATTERN" | cut -f 3 -d '|' | head -n 1 | sed -e 's%,$%%'`"
+   
+   if [ -e /var/packages/package-deps-ignore.list ];then
+   
+    while read line
+    do
+     xline=$(echo "$line" | sed -e 's#\\-#\\\-#g')
+     DB_dependencies=$(echo "$DB_dependencies" | sed -e "s#$xline##g")
+    done < /var/packages/package-deps-ignore.list  
+   fi
+   
    xDB_dependencies="" #120903
+   
    if [ "$DB_dependencies" != "" ];then
     xDB_dependencies="`echo -n "$DB_dependencies" | tr ',' '\n' | cut -f 1 -d '&' | tr '\n' ','`" #120903 chop off any versioning info.
     ALLDEPS_PATTERNS="`echo -n "$xDB_dependencies" | tr ',' '\n' | grep '^+' | sed -e 's%^+%%' -e 's%$%|%' -e 's%^%|%'`" #put '|' on each end.
@@ -113,7 +134,7 @@ do
     MISSINGDEPS_PATTERNS="`grep --file=/tmp/petget_proc/petget_installed_patterns_allxx -v /tmp/petget_proc/petget_subpkg_deps_patterns`"
     echo "$MISSINGDEPS_PATTERNS" >> /tmp/petget_proc/petget_missingpkgs_patterns2
     #w017 log a visual tree...
-    MISSDEPSLIST="`echo "$MISSINGDEPS_PATTERNS" | sed -e 's%|%%g' | tr '\n' ' '`"
+    MISSDEPSLIST="`echo "$MISSINGDEPS_PATTERNS" | sed -e 's%|%%g' | tr '\n' ' ' | xargs`"
     case $ONELEVEL in
      1)  echo "$ONEDEP: $MISSDEPSLIST" >> /tmp/petget_proc/petget_deps_visualtreelog ;;
      2)  echo "    $ONEDEP: $MISSDEPSLIST" >> /tmp/petget_proc/petget_deps_visualtreelog ;;
@@ -132,7 +153,11 @@ do
     break
    fi
   done
+  
+  fi
+ 
  done
+ 
  cp -f /tmp/petget_proc/petget_missingpkgs_patterns_acc /tmp/petget_proc/petget_missingpkgs_patterns_acc-prev #120907
  sort -u /tmp/petget_proc/petget_missingpkgs_patterns2 > /tmp/petget_proc/petget_missingpkgs_patternsx0
  grep -v '^$' /tmp/petget_proc/petget_missingpkgs_patternsx0 > /tmp/petget_proc/petget_missingpkgs_patternsx
@@ -143,6 +168,7 @@ do
  SIZE2=$(cat /tmp/petget_proc/petget_missingpkgs_patterns_acc | wc -l)
  [ $SIZE1 -eq $SIZE2 ] && break
 done
+
 [ ! -f /tmp/petget_proc/install_quietly ] && pupkill $XXPID
 
 #120903 bring back the versioning info from level1 (/tmp/petget_proc/petget_missingpkgs_patterns_with_versioning is created in findmissingpkgs.sh)...
@@ -157,6 +183,7 @@ mv -f /tmp/petget_proc/petget_missingpkgs_patternsx /tmp/petget_proc/petget_miss
 
 #now find the entries in the databases...
 rm -f /tmp/petget_proc/petget_missing_dbentries* 2>/dev/null
+
 #111107 01micko: fix for '||' messing things up...
 for depPATTERN in `grep '[a-zA-Z]' /tmp/petget_proc/petget_missingpkgs_patterns_and_versioning_level1` #ex depPATTERN=|kdelibs| ex2: |kdelibs&gt2.3.6|. 120221 jemimah. 120903 versioning.
 do
@@ -164,10 +191,12 @@ do
  #110722 separate out any versioning... (see also findmissingpkgs.sh)
  xdepPATTERN="`echo -n "$depPATTERN" | sed -e 's%&.*%|%'`" #ex: changes |kdelibs&gt2.3.6| to |kdelibs|
  depVERSIONING="`echo -n "$depPATTERN" | grep -o '&.*' | tr -d '|'`" #ex: &gt2.3.6
+ 
  if [ "$depVERSIONING" ];then
   #110822 similar code in support/findpkgs in woof...
   DEPCONDS="`echo -n "$depVERSIONING" | cut -f 2-9 -d '&' | tr '&' ' '`" #can have chained operators, ex: ge2.6.32 lt2.6.33
  fi
+ 
  depPATTERN="`echo -n "$xdepPATTERN" | sed -e 's%\\-%\\\\-%g'`" #backslash '-'. 120903 fix.
  
  for ONEREPODB in $DB_MAIN $DB_OTHERS
@@ -180,30 +209,37 @@ do
    while read DB_ENTRY
    do
     DB_version="`echo -n "$DB_ENTRY" | cut -f 3 -d '|'`"
-    if [ "$depVERSIONING" ];then #110722
-     #110822 support chained operators...
-     condFLG='good'
-     for ACOND in $DEPCONDS #ex: gt5.6.7 lt6.7.8
-     do
-      DEPOP=${ACOND:0:2} # cut -c 1,2 
-      DEPVER=${ACOND:2}  # cut -c 3-99
-           
-      if ! vercmp ${DB_version} ${DEPOP} ${DEPVER};then
-       condFLG='bad'
-      fi
-     done
-     if [ "$condFLG" = "good" ];then
-      echo "$DB_ENTRY" >> /tmp/petget_proc/petget_missing_dbentries-${DBFILE}-2
-      break 2
-     fi
-    else
-     echo "$DB_ENTRY" >> /tmp/petget_proc/petget_missing_dbentries-${DBFILE}-2
-     break 2
+    DB_nameonly="`echo -n "$DB_ENTRY" | cut -f 2 -d '|'`"
+    
+    if [ "$(cat /var/packages/package-deps-ignore.list 2>/dev/null | grep "$DB_nameonly")" == "" ]; then
+    
+		if [ "$depVERSIONING" ];then #110722
+		 #110822 support chained operators...
+		 condFLG='good'
+		 for ACOND in $DEPCONDS #ex: gt5.6.7 lt6.7.8
+		 do
+		  DEPOP=${ACOND:0:2} # cut -c 1,2 
+		  DEPVER=${ACOND:2}  # cut -c 3-99
+			   
+		  if ! vercmp ${DB_version} ${DEPOP} ${DEPVER};then
+		   condFLG='bad'
+		  fi
+		 done
+		 if [ "$condFLG" = "good" ];then
+		  [ "$(cat /tmp/petget_proc/petget_missing_dbentries-*-2 | grep "|$DB_nameonly|")" == "" ] && echo "$DB_ENTRY" >> /tmp/petget_proc/petget_missing_dbentries-${DBFILE}-2
+		  break 2
+		 fi
+		else
+		  [ "$(cat /tmp/petget_proc/petget_missing_dbentries-*-2 | grep "|$DB_nameonly|")" == "" ] && echo "$DB_ENTRY" >> /tmp/petget_proc/petget_missing_dbentries-${DBFILE}-2
+		 break 2
+		fi
+   
     fi
    done
   fi
  done
 done
+
 #clean them up...
 for ONEREPODB in $DB_MAIN $DB_OTHERS
 do
@@ -216,21 +252,41 @@ done
 
 #--- slacko
 case "$DISTRO_BINARY_COMPAT" in slackware*)
+
+ CURRENT=/tmp/petget_proc/petget_missing_dbentries-Packages-*lackware*-current
+ PATCHES=/tmp/petget_proc/petget_missing_dbentries-Packages-*lackware*-patches
  OFFICIAL=/tmp/petget_proc/petget_missing_dbentries-Packages-*lackware*-official
  SALIX=/tmp/petget_proc/petget_missing_dbentries-Packages-*lackware*-salix
  SLACKY=/tmp/petget_proc/petget_missing_dbentries-Packages-*lackware*-slacky
- case "$DB_MAIN" in *"official"*) # Give priority to Slackware official
-   cat ${OFFICIAL} | while IFS="|" read FIRST COMMON THIRD
+
+ case "$DB_MAIN" in *"current"*) # Give priority to Slackware current
+   cat ${CURRENT} | while IFS="|" read FIRST COMMON THIRD
    do
-     sed -i "/|$COMMON|/d" ${SALIX} ${SLACKY} 2>/dev/null
+     sed -i "/|$COMMON|/d" ${PATCHES} ${OFFICIAL} ${SALIX} ${SLACKY} 2>/dev/null
    done
  esac
+ 
+ case "$DB_MAIN" in *"patches"*)
+   cat ${CURRENT} | while IFS="|" read FIRST COMMON THIRD
+   do
+     sed -i "/|$COMMON|/d" ${CURRENT} ${OFFICIAL} ${SALIX} ${SLACKY} 2>/dev/null
+   done
+ esac
+ 
+ case "$DB_MAIN" in *"official"*)
+   cat ${OFFICIAL} | while IFS="|" read FIRST COMMON THIRD
+   do
+     sed -i "/|$COMMON|/d" ${CURRENT} ${PATCHES} ${SALIX} ${SLACKY} 2>/dev/null
+   done
+ esac
+ 
  case "$DB_MAIN" in *"salix"*) # Get Salix deps preferencially
    cat ${SALIX} | while IFS="|" read FIRST COMMON THIRD
    do
-     sed -i "/|$COMMON|/d" ${OFFICIAL} ${SLACKY} 2>/dev/null
+     sed -i "/|$COMMON|/d" ${CURRENT} ${PATCHES} ${OFFICIAL} ${SLACKY} 2>/dev/null
    done
  esac
+ 
  ;;
 esac
 
