@@ -109,6 +109,7 @@
 #170509 rerwin: replace gtkdialog3 with gtkdialog.
 #170622 display networks in order of signal quality (except prism2); remove cell number from display.
 #190217 v2.1: avoid logging progress updates when X not running; correct use of argument in kill functions.
+#210415 v2.2: Set 'selected device' softlink when "Use This Profile" button selected & remove it if target profile deleted; correct iwconfig check to test for associated AP address; prevent multiple psk= lines in wpa profile; correct PID test; add interface name to dhcpcd progress dialog; for wpa_supplicant progress, delay start of first input to avoid piping errors & pause between initial updates.
 
 #
 # Paul Siu
@@ -218,7 +219,7 @@ setupDHCP()
   <text><label>\"$(eval echo $L_TEXT_Dhcpcd_Progress)\"</label></text>
   <frame $L_FRAME_Progress>
       <progressbar>
-      <label>Connecting</label>
+      <label>Connecting ${INTERFACE}</label>
       <input>while read bla ; do case \$bla in [0-9]*) ;; *) echo \"\$bla\" >>$DEBUG_OUTPUT ;; esac ; case \$bla in Debug*) continue ;; esac ; echo \"\$bla\" ; done</input>
       <action type=\"exit\">Ready</action>
     </progressbar>
@@ -252,7 +253,7 @@ setupDHCP()
 				sleep 1
 				# see if user aborted 
 				if [ "$HAVEX" = "yes" ]; then
-					pidof gtkdialog 2>&1 |grep -q "$1" || return
+					pidof gtkdialog 2>&1 |grep -qw "$1" || return #210415
 					# exit the function
 				else
 					if [ -f "$TmpMarker" ] ; then
@@ -1081,6 +1082,10 @@ deleteProfile(){
 	# skip the templates...
 	case $PROFILE_TITLE in autoconnect|template) return ;; esac 
 	if [ -s "${PROFILES_DIR}/${PROFILE_AP_MAC}.${PROFILE_ENCRYPTION}.conf" ] ; then
+		if [ "$(readlink "${PROFILES_DIR}/selected_conf")" = \
+		"${PROFILES_DIR}/${PROFILE_AP_MAC}.${PROFILE_ENCRYPTION}.conf" ] ; then #210415...
+			rm "${PROFILES_DIR}/selected_conf"
+		fi
 		rm "${PROFILES_DIR}/${PROFILE_AP_MAC}.${PROFILE_ENCRYPTION}.conf"
 	fi
 } # end deleteProfile
@@ -1121,7 +1126,7 @@ saveWpaProfile(){
 	# need to change ap_scan, ssid and psk
 	sed -i "s/ap_scan=.*/ap_scan=$PROFILE_WPA_AP_SCAN/" "$WPA_CONF"
 	sed -i "s/\Wssid=.*/	ssid=\"$PROFILE_ESSID\"/" "$WPA_CONF"
-	sed -i "s/\Wpsk=.*/	#psk=\"$ESCAPED_PHRASE\"\n	psk=$PSK/" "$WPA_CONF"
+	sed -i -e '/#psk=/d' -e "s/\Wpsk=.*/	#psk=\"$ESCAPED_PHRASE\"\n	psk=$PSK/" "$WPA_CONF" #210415
 	#sed -i "s/	psk=.*/	psk=\"$PSK\"/" "$WPA_CONF"
 	return 0
 }
@@ -1223,6 +1228,10 @@ useProfile ()
 			fi
 			;;		
 	esac
+	local HWADDRESS=$(ifconfig "$INTERFACE" | grep "^$INTERFACE" | tr -s ' ' | cut -d' ' -f5) #210415...
+	if [ -f "$HWADDRESS.conf" ] ; then
+		ln -snf $HWADDRESS.conf ${NETWORK_INTERFACES_DIR}/selected_conf
+	fi
 } # end useProfile
 
 #=============================================================================
@@ -1341,8 +1350,7 @@ useIwconfig ()
 
 	if [ "$PROFILE_ESSID" ] ; then
 	   sleep $WAIT
-	   IWCONFIG=$(iwconfig "$INTERFACE")
-	   echo $IWCONFIG | grep -q "ESSID:.$PROFILE_ESSID.[ ]"  || STATUS=1
+	   iwconfig "$INTERFACE" | grep -cE "ESSID:.$PROFILE_ESSID.[ ]|Access Point: ..:" | grep -qw '2'  || STATUS=1 #210415
 	fi
 	[ $STATUS -eq 0 ] && break
 	WAIT=$(expr $WAIT + $WAIT)
@@ -1529,26 +1537,32 @@ $L_MESSAGE_No_Wpaconfig_p2"
 	#+ freeze the progress bar when it ends)
 	####################################################################
 	(
+		sleep 0.5 # Wait for progress dialog to initialize. #210415
 		echo "$L_ECHO_Starting"
 		# Dougal: add increasing of rate for ath5k
 		case $INTMODULE in ath5k*) iwconfig "$INTERFACE" rate 11M >> $DEBUG_OUTPUT 2>&1;; esac 	
+		sleep 0.5 #210415
 		echo "$L_ECHO_Initializing_Wpa"
 		wpa_supplicant -i "$INTERFACE" -D "$PROFILE_WPA_DRV" -c "$WPA_CONF" -B >> $DEBUG_OUTPUT 2>&1
 
 		echo "Waiting for connection... " >> $DEBUG_OUTPUT 2>&1
 
+		sleep 0.5 #210415
 		echo "trying to connect"
 		# Dougal: use function based on wicd code
 		# (note that it echoes the X's for the progress dialog)
 		# have different return values:
 		validateWpaAuthentication "$INTERFACE" "$XPID"
+		sleep 0.5 #210415
 		case $? in
 		 0) # success  
 		   #WPA_STATUS="COMPLETED"
 		   echo "COMPLETED" >/tmp/wpa_status.txt
 		   echo "completed" >> $DEBUG_OUTPUT
+		   sleep 1 #210415
 		   # end the progress bar
 		   echo end
+		   sleep 1 #210415
 		   ;;
 		 1) # timeout
 		   echo "timeout" >> $DEBUG_OUTPUT
@@ -1570,7 +1584,7 @@ $L_MESSAGE_No_Wpaconfig_p2"
 		echo  >> $DEBUG_OUTPUT 2>&1
 		#echo -n "$WPA_STATUS" > /tmp/wpa_status.txt
 		#echo "---" >> ${TMPLOG} 2>&1
-	) >>$PROGRESS_OUTPUT
+	) >> $PROGRESS_OUTPUT
 	####################################################################
   #| Xdialog --title "Puppy Ethernet Wizard" --progress "Acquiring WPA connection\n\nThere may be a delay up to 60 seconds." 0 0 20
 	if [ "$XPID" ] ;then
