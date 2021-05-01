@@ -688,7 +688,7 @@ class "GtkText*" style "specialmono"' > /tmp/petget_proc/petget/gtkrc_ppm
 export GTK2_RC_FILES=/root/.gtkrc-2.0:/tmp/petget_proc/petget/gtkrc_ppm
 . /usr/lib/gtkdialog/xml_info gtk #build bg_pixmap for gtk-theme
 
-gtkdialog -p PPM_GUI
+gtkdialog -p PPM_GUI --styles=/tmp/gtkrc_xml_info.css
 
 #and clean up
 clean_flags
