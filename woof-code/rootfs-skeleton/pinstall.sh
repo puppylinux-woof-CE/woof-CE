@@ -76,4 +76,9 @@ exec '${DEFBROWSER}' "$@"
 	fi
 fi
 
+# zstd fix - unzstd
+( cd etc/xdg/rox.sourceforge.net/MIME-types/
+ln -sfv application_gzip application-x-zstd
+)
+
 ### END ###
