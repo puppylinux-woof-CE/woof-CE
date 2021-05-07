@@ -123,7 +123,7 @@ gboolean Update(gpointer ptr) {
             fclose(fp);
             if (strcmp(status, "Full") == 0) {
                  batpercent = 100;
-                 charging = 0;
+                 charging = 1;
                  charged = 1;
             } else {
                 charging = (strcmp(status, "Charging") == 0);
