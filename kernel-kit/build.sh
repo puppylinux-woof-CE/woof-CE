@@ -879,7 +879,11 @@ fi
 
 log_msg "Creating the kernel package"
 $MAKE INSTALL_MOD_PATH=${linux_kernel_dir} modules_install >> ${BUILD_LOG} 2>&1
-rm -f ${linux_kernel_dir}/lib/modules/${kernel_version}${custom_suffix}/{build,source}
+if [ "$remove_sublevel" = "yes" ]; then
+	rm -f ${linux_kernel_dir}/lib/modules/${kernel_major_version}.0/{build,source}
+else
+	rm -f ${linux_kernel_dir}/lib/modules/${kernel_version}${custom_suffix}/{build,source}
+fi
 mkdir -p ${linux_kernel_dir}/boot
 mkdir -p ${linux_kernel_dir}/etc/modules
 ## /boot/config-$(uname -m)     ## http://www.h-online.com/open/features/Good-and-quick-kernel-configuration-creation-1403046.html
@@ -955,13 +959,18 @@ if [ "$CREATE_SOURCES_SFS" != "no" ]; then
 	log_msg "Creating a kernel sources SFS"
 	mkdir -p ${KERNEL_SOURCES_DIR}/usr/src
 	mv linux-${kernel_version} ${KERNEL_SOURCES_DIR}/usr/src/linux
-	mkdir -p ${KERNEL_SOURCES_DIR}/lib/modules/${kernel_version}${custom_suffix}
-	ln -s /usr/src/linux ${KERNEL_SOURCES_DIR}/lib/modules/${kernel_version}${custom_suffix}/build
+	if [ "$remove_sublevel" = "yes" ]; then
+		KERNEL_MODULES_DIR=${KERNEL_SOURCES_DIR}/lib/modules/${kernel_major_version}.0
+	else
+		KERNEL_MODULES_DIR=${KERNEL_SOURCES_DIR}/lib/modules/${kernel_version}${custom_suffix}
+	fi
+	mkdir -p ${KERNEL_MODULES_DIR}
+	ln -s ../../../usr/src/linux ${KERNEL_MODULES_DIR}/build
+	ln -s ../../../usr/src/linux ${KERNEL_MODULES_DIR}/source
 	if [ ! -f ${KERNEL_SOURCES_DIR}/usr/src/linux/include/linux/version.h ] ; then
 		ln -s /usr/src/linux/include/generated/uapi/linux/version.h \
 			${KERNEL_SOURCES_DIR}/usr/src/linux/include/linux/version.h
 	fi
-	ln -s /usr/src/linux ${KERNEL_SOURCES_DIR}/lib/modules/${kernel_version}${custom_suffix}/source
 	rm -rf ${KERNEL_SOURCES_DIR}/usr/src/linux/.git* # don't need git history
 	mksquashfs ${KERNEL_SOURCES_DIR} output/${KERNEL_SOURCES_DIR}.sfs $COMP
 	md5sum output/${KERNEL_SOURCES_DIR}.sfs > output/${KERNEL_SOURCES_DIR}.sfs.md5.txt
