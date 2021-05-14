@@ -11,6 +11,19 @@ mkdir -p /tmp/services
 	echo "PATH='${PATH}'"
 ) > /tmp/services/user_info
 
+if which startxwayland >/dev/null 2>&1 ; then
+	#want to go straight into X on bootup only...
+	if [ ! -f /tmp/bootcnt.txt ] ; then
+		touch /tmp/bootcnt.txt
+		dmesg > /tmp/bootkernel.log
+		startxwayland
+	else
+		/usr/sbin/pm13 cli
+	fi
+
+	exit 0
+fi
+
 if which Xorg >/dev/null 2>&1 ; then
 	#want to go straight into X on bootup only...
 	if [ ! -f /tmp/bootcnt.txt ] ; then
