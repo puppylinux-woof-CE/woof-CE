@@ -17,11 +17,13 @@
  [ -f /tmp/petget_proc/install_quietly ] && set -x
  #; mkdir -p /tmp/petget_proc/PPM_LOGs ; NAME=$(basename "$0"); exec 1>> /tmp/petget_proc/PPM_LOGs/"$NAME".log 2>&1
 
+PPM_PACKAGE_DIR=/var/packages
+
 export TEXTDOMAIN=petget___check_deps.sh
 export OUTPUT_CHARSET=UTF-8
 
 . /etc/DISTRO_SPECS #has DISTRO_BINARY_COMPAT, DISTRO_COMPAT_VERSION
-. /root/.packages/DISTRO_PKGS_SPECS
+. $PPM_PACKAGE_DIR/DISTRO_PKGS_SPECS
 
 echo -n "" > /tmp/petget_proc/missinglibs.txt
 echo -n "" > /tmp/petget_proc/missinglibs_details.txt
@@ -30,26 +32,26 @@ echo -n "" > /tmp/petget_proc/missinglibs_cut.txt #100830
 echo -n "" > /tmp/petget_proc/missinglibs_hidden.txt #100830
 
 ###130511 also this copied from pkg_chooser.sh...
-if [ ! -f /root/.packages/layers-installed-packages ];then
+if [ ! -f $PPM_PACKAGE_DIR/layers-installed-packages ];then
  #need to include devx-only-installed-packages, if loaded...
  if which gcc;then
-  cp -f /root/.packages/woof-installed-packages /tmp/petget_proc/ppm-layers-installed-packages
-  cat /root/.packages/devx-only-installed-packages >> /tmp/petget_proc/ppm-layers-installed-packages
-  sort -u /tmp/petget_proc/ppm-layers-installed-packages > /root/.packages/layers-installed-packages
+  cp -f $PPM_PACKAGE_DIR/woof-installed-packages /tmp/petget_proc/ppm-layers-installed-packages
+  cat $PPM_PACKAGE_DIR/devx-only-installed-packages >> /tmp/petget_proc/ppm-layers-installed-packages
+  sort -u /tmp/petget_proc/ppm-layers-installed-packages > $PPM_PACKAGE_DIR/layers-installed-packages
  else
-  cp -f /root/.packages/woof-installed-packages /root/.packages/layers-installed-packages
+  cp -f $PPM_PACKAGE_DIR/woof-installed-packages $PPM_PACKAGE_DIR/layers-installed-packages
  fi
 fi
 
 #######100718 code block copied from /usr/local/petget/pkg_chooser.sh#######
-. /root/.packages/PKGS_MANAGEMENT #has PKG_REPOS_ENABLED, PKG_NAME_ALIASES
+. $PPM_PACKAGE_DIR/PKGS_MANAGEMENT #has PKG_REPOS_ENABLED, PKG_NAME_ALIASES
 
 #finds all user-installed pkgs and formats ready for display...
 /usr/local/petget/finduserinstalledpkgs.sh #writes to /tmp/petget_proc/installedpkgs.results
 
 #100711 moved from findmissingpkgs.sh...
 if [ ! -f /tmp/petget_proc/petget_installed_patterns_system ];then
- INSTALLED_PATTERNS_SYS="`cat /root/.packages/layers-installed-packages | cut -f 2 -d '|' | sed -e 's%^%|%' -e 's%$%|%' -e 's%\\-%\\\\-%g'`"
+ INSTALLED_PATTERNS_SYS="`cat $PPM_PACKAGE_DIR/layers-installed-packages | cut -f 2 -d '|' | sed -e 's%^%|%' -e 's%$%|%' -e 's%\\-%\\\\-%g'`"
  echo "$INSTALLED_PATTERNS_SYS" > /tmp/petget_proc/petget_installed_patterns_system
  #PKGS_SPECS_TABLE also has system-installed names, some of them are generic combinations of pkgs...
  INSTALLED_PATTERNS_GEN="`echo "$PKGS_SPECS_TABLE" | grep '^yes' | cut -f 2 -d '|' |  sed -e 's%^%|%' -e 's%$%|%' -e 's%\\-%\\\\-%g'`"
@@ -59,7 +61,7 @@ if [ ! -f /tmp/petget_proc/petget_installed_patterns_system ];then
 fi
 #100711 this code repeated in findmissingpkgs.sh...
 cp -f /tmp/petget_proc/petget_installed_patterns_system /tmp/petget_proc/petget_installed_patterns_all
-INSTALLED_PATTERNS_USER="`cat /root/.packages/user-installed-packages | cut -f 2 -d '|' | sed -e 's%^%|%' -e 's%$%|%' -e 's%\\-%\\\\-%g'`"
+INSTALLED_PATTERNS_USER="`cat $PPM_PACKAGE_DIR/user-installed-packages | cut -f 2 -d '|' | sed -e 's%^%|%' -e 's%$%|%' -e 's%\\-%\\\\-%g'`"
 echo "$INSTALLED_PATTERNS_USER" >> /tmp/petget_proc/petget_installed_patterns_all
 
 #process name aliases into patterns (used in filterpkgs.sh, findmissingpkgs.sh) ... 100126...
@@ -101,7 +103,7 @@ dependcheckfunc() {
  fi
  
 if [ "$RETPARAMS" -o "$(cat /var/local/petget/sd_category 2>/dev/null)" != "true" ]; then
- FNDFILES="`cat /root/.packages/$APKGNAME.files`"
+ FNDFILES="`cat $PPM_PACKAGE_DIR/$APKGNAME.files`"
  oldIFS=$IFS
  IFS='
 '
@@ -147,7 +149,7 @@ missingpkgsfunc() {
   /usr/lib/gtkdialog/box_splash -close never -text "$(gettext 'Checking all user-installed packages for any missing dependencies...')" &
   X2PID=$!
  fi
-  USER_DB_dependencies="`cat /root/.packages/user-installed-packages | cut -f 9 -d '|' | tr ',' '\n' | sort -u | tr '\n' ','`"
+  USER_DB_dependencies="`cat $PPM_PACKAGE_DIR/user-installed-packages | cut -f 9 -d '|' | tr ',' '\n' | sort -u | tr '\n' ','`"
   /usr/local/petget/findmissingpkgs.sh "$USER_DB_dependencies"
   #...returns /tmp/petget_proc/petget_installed_patterns_all, /tmp/petget_proc/petget_pkg_deps_patterns, /tmp/petget_proc/petget_missingpkgs_patterns
   MISSINGDEPS_PATTERNS="`cat /tmp/petget_proc/petget_missingpkgs_patterns`" #v431
@@ -157,7 +159,7 @@ missingpkgsfunc() {
 if [ $1 ];then
  for APKGNAME in `echo -n $1 | tr '|' ' '`
  do
-  [ -f /root/.packages/${APKGNAME}.files ] && dependcheckfunc
+  [ -f $PPM_PACKAGE_DIR/${APKGNAME}.files ] && dependcheckfunc
  done
 else
  exit 1 
