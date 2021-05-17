@@ -116,7 +116,7 @@ EOF
    </hbox>
  </vbox>
  </window>'
- RETPARAMS="`gtkdialog --center -p REPORT_DIALOG`"
+ RETPARAMS="`gtkdialog --center -p REPORT_DIALOG --styles=/tmp/gtkrc_xml_info.css`"
 
  rm -f /tmp/petget_proc/pgks_really_removed
  rm -f /tmp/petget_proc/pgks_failed_to_remove
