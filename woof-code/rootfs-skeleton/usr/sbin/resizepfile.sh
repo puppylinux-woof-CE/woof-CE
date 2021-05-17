@@ -100,7 +100,7 @@ x='
 </window>'
 export resize="$x"
 . /usr/lib/gtkdialog/xml_info gtk > /dev/null #build bg_pixmap for gtk-theme
-eval $(gtkdialog -p resize)
+eval $(gtkdialog -p resize --styles=/tmp/gtkrc_xml_info.css)
 case ${EXIT} in save)
 	KILOBIG=$(($KILOBIG * 1024))
 	echo "KILOBIG=$KILOBIG" > /initrd${PUP_HOME}/pupsaveresizenew.txt
