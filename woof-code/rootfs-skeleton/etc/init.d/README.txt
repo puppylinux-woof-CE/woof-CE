@@ -79,7 +79,7 @@ Note, the scripts in /etc/init.d can have any name, but must have their executab
 
 Event Management, which is mostly concerned with hardware-related detection and configuration while X is running, is described in more detail on this web page:
 
-http://puppylinux.com/technical/event-management.htm
+https://puppylinux.com/technical/event-management.htm
 
 Regards,
 Barry Kauler
