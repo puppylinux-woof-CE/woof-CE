@@ -130,6 +130,11 @@ case $desktop in
 	;;
 esac
 
+# hack for Xwayland: for some reason, Xft.dpi is empty if .Xresources is loaded earlier
+if [ -n "$WAYLAND_DISPLAY" -a -f $userresources ]; then
+    xrdb -merge -nocpp $userresources
+fi
+
 /sbin/pup_event_frontend_d & #130525 moved down.
 
 #v2.0.0
