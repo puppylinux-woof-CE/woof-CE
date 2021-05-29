@@ -5,11 +5,11 @@
 INSTALLED_PKGS=
 NEW_PKGS_SPECS_TABLE=
 
-while read LINE; do
-    case "$LINE" in
-    yes*|auto*)
-        IFS="|" read -r F1 F2 F3 F4 <<< "$LINE"
-        for PKG in ${F3//,/ }; do
+while read ONEPKGSPEC; do
+    case "$ONEPKGSPEC" in
+    yes*)
+        IFS="|" read -r YESNO GENERICNAME BINARYPARTNAMES FOUR PKGLOCFLD ETC <<< "$ONEPKGSPEC"
+        for PKG in ${BINARYPARTNAMES//,/ }; do
             INSTALLED_PKGS="$INSTALLED_PKGS $PKG"
         done
         ;;
@@ -18,22 +18,31 @@ done <<< "$PKGS_SPECS_TABLE"
 
 AUTOCNT=0
 
-while read LINE; do
-    case "$LINE" in
-    auto\|*) ;;
-    yes\|*)
-        NEW_PKGS_SPECS_TABLE="${NEW_PKGS_SPECS_TABLE}
-${LINE}"
-        continue
-        ;;
+while read ONEPKGSPEC; do
+    case "$ONEPKGSPEC" in
+    yes\|*) ;;
     *) continue ;;
     esac
 
-    IFS="|" read -r F1 F2 F3 F4 <<< "$LINE"
+    IFS="|" read -r YESNO GENERICNAME BINARYPARTNAMES FOUR PKGLOCFLD ETC <<< "$ONEPKGSPEC"
+
+    WITHDEPS=0
+    for OPTION in ${ETC//,/ }; do
+        [ "$OPTION" != "deps:yes" ] && continue
+        WITHDEPS=1
+        break
+    done
+
+    if [ $WITHDEPS -eq 0 ]; then
+        NEW_PKGS_SPECS_TABLE="${NEW_PKGS_SPECS_TABLE}
+${ONEPKGSPEC}"
+        continue
+    fi
+
     MISSING=
     DEPTH=0
 
-    DEPS="${F3//,/ }"
+    DEPS="${BINARYPARTNAMES//,/ }"
     while [ -n "$DEPS" ]; do
         NEXTDEPS=
 
@@ -41,12 +50,12 @@ ${LINE}"
             if [ $DEPTH -ne 0 ]; then
                 FOUND=0
                 for PKG in $INSTALLED_PKGS $MISSING; do
-                    [ "$PKG"  != "$DEP" ] && continue
+                    [ "$PKG" != "$DEP" ] && continue
                     FOUND=1
                     break
                 done
                 [ $FOUND -eq 1 ] && continue
-                echo "adding missing dependency ${DEP} to ${F2}"
+                echo "adding missing dependency ${DEP} to ${GENERICNAME}"
             fi
 
             if [ -n "$MISSING" ]; then
@@ -71,7 +80,7 @@ ${LINE}"
     done
 
     NEW_PKGS_SPECS_TABLE="${NEW_PKGS_SPECS_TABLE}
-yes|${F2}|${MISSING// /,}|${F4}"
+yes|${GENERICNAME}|${MISSING// /,}|${FOUR}|${PKGLOCFLD}|${ETC}"
     AUTOCNT=$(($AUTOCNT + 1))
 
     INSTALLED_PKGS="$INSTALLED_PKGS $MISSING"
