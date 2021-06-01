@@ -126,6 +126,7 @@ if [ -d "usr/share/icons/$USE_ICON_THEME" ];then
 		cat >> root/.config/gtk-3.0/settings.ini <<EOF
 gtk-menu-images = 1
 gtk-button-images = 1				
+gtk-enable-animations = 0
 EOF
 	fi
 	# then ROX
