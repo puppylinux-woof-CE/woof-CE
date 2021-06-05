@@ -71,8 +71,8 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
         continue
     fi
 
-    if [ "$NAME" = "cage" ] && [ -n "`grep '^yes|xserver_xorg|' ../DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}`" ]; then
-        echo "Skipping cage, using Xorg"
+    if [ "$NAME" = "cage" ] && [ "$XWAYLAND" != "yes" ]; then
+        echo "Skipping cage, XWAYLAND=$XWAYLAND"
         continue
     fi
 
