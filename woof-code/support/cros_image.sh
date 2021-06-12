@@ -161,6 +161,7 @@ EOF
 	install -D -m 644 arch/x86/boot/bzImage /mnt/uefiimagep1/EFI/BOOT/BOOTX64.EFI
 	busybox umount /mnt/uefiimagep1 2>/dev/null
 	cd ../../../..
+	[ -n "$GITHUB_ACTIONS" ] && rm -rf kernel_sources
 
 	mount-FULL -o noatime ${LOOP}p2 /mnt/uefiimagep2
 	cp -a /mnt/ssdimagep2/* /mnt/uefiimagep2/
