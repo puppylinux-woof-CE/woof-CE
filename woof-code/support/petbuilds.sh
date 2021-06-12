@@ -115,7 +115,6 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
                 ln -s bash petbuild-rootfs-complete/bin/sh
 
                 if [ ! -f ../petbuild-cache/busybox ]; then
-                    mkdir -p ../petbuild-cache/busybox
                     wget -t 1 -T 15 https://busybox.net/downloads/busybox-1.33.1.tar.bz2
                     tar -xjf busybox-1.33.1.tar.bz2
                     cp -f ../rootfs-petbuilds/busybox/DOTconfig busybox-1.33.1/.config
