@@ -1,3 +1,0 @@
-- Run loginmanager
-  - Set finn as the default login account
-    - Reboot
