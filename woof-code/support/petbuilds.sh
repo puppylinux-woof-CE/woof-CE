@@ -170,8 +170,8 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
 
         cd $HERE
 
-        mkdir -p ../petbuild-output/${NAME}-${HASH} petbuild-rootfs-complete-${NAME}
-        mount -t aufs -o br=../petbuild-output/${NAME}-${HASH}:devx:petbuild-rootfs-complete petbuild petbuild-rootfs-complete-${NAME}
+        mkdir -p ../petbuild-output/${NAME}-${HASH} petbuild-rootfs-complete-${NAME} petbuild-work-${NAME}
+        mount -t overlay -o upperdir=../petbuild-output/${NAME}-${HASH},workdir=petbuild-work-${NAME},lowerdir=devx:petbuild-rootfs-complete petbuild petbuild-rootfs-complete-${NAME}
 
         mkdir -p petbuild-rootfs-complete-${NAME}/proc petbuild-rootfs-complete-${NAME}/sys petbuild-rootfs-complete-${NAME}/dev petbuild-rootfs-complete-${NAME}/tmp
         mkdir -p petbuild-rootfs-complete-${NAME}/root/.ccache
@@ -192,7 +192,7 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
         umount -l petbuild-rootfs-complete-${NAME}/sys
         umount -l petbuild-rootfs-complete-${NAME}/proc
         umount -l petbuild-rootfs-complete-${NAME}
-        rmdir petbuild-rootfs-complete-${NAME}
+        rm -rf petbuild-rootfs-complete-${NAME} petbuild-work-${NAME}
 
         if [ $ret -ne 0 ]; then
             echo "ERROR: failed to build ${NAME}"
@@ -215,7 +215,6 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
         rm -rf ../petbuild-output/${NAME}-${HASH}/usr/share/pkgconfig
         rm -rf ../petbuild-output/${NAME}-${HASH}/usr/include
 
-        find ../petbuild-output/${NAME}-${HASH} -name '.wh*' -delete
         find ../petbuild-output/${NAME}-${HASH} -name '.git*' -delete
         find ../petbuild-output/${NAME}-${HASH} -name '*.a' -delete
         find ../petbuild-output/${NAME}-${HASH} -name '*.la' -delete
