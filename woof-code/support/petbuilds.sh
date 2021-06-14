@@ -19,6 +19,7 @@ MAKEFLAGS=-j`nproc`
 
 HAVE_ROOTFS=0
 HAVE_BUSYBOX=0
+GTK3_PETBUILDS=0
 HERE=`pwd`
 PKGS=
 
@@ -52,11 +53,9 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
         continue
     fi
 
-    if [ "$NAME" = "l3fpad" -a "$DISTRO_BINARY_COMPAT" = "slackware" -a "$DISTRO_COMPAT_VERSION" = "14.2" ]; then
-        echo "Skipping l3fpad, using leafpad"
-    elif [ "$NAME" = "l3fpad" -a "$DISTRO_BINARY_COMPAT" = "slackware64" -a "$DISTRO_COMPAT_VERSION" = "14.2" ]; then
-        echo "Skipping l3fpad, using leafpad"
-    elif [ "$NAME" = "leafpad" ]; then
+    if [ "$NAME" = "l3afpad" -a $GTK3_PETBUILDS -eq 0 ]; then
+        echo "Skipping l3afpad, using leafpad"
+    elif [ "$NAME" = "leafpad" -a $GTK3_PETBUILDS -eq 1 ]; then
         echo "Skipping leafpad, using l3fpad"
         continue
     fi
@@ -134,6 +133,15 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
             # the shared-mime-info PET used by fossa64 doesn't put its pkg-config file in /usr/lib/x86_64-linux-gnu/pkgconfig
             PKG_CONFIG_PATH=`dirname $(find petbuild-rootfs-complete devx -name '*.pc') | sed -e s/^petbuild-rootfs-complete//g -e s/^devx//g | sort | uniq | tr '\n' :`
 
+            if [ "$DISTRO_TARGETARCH" = "x86" ]; then
+                echo "Using GTK+ 2 for x86 petbuilds"
+            elif PKG_CONFIG_PATH="$PKG_CONFIG_PATH" chroot petbuild-rootfs-complete pkg-config --atleast-version=3.24.18 gtk+-3.0; then
+                echo "Using GTK+ 3 for petbuilds"
+                GTK3_PETBUILDS=1
+            else
+                echo "Using GTK+ 2 for petbuilds"
+            fi
+
             HAVE_ROOTFS=1
         fi
 
@@ -184,7 +192,7 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
 
         cp -a ../petbuild-sources/${NAME}/* petbuild-rootfs-complete-${NAME}/tmp/
         cp -a ../rootfs-petbuilds/${NAME}/* petbuild-rootfs-complete-${NAME}/tmp/
-        CC="$WOOF_CC" CXX="$WOOF_CXX" CFLAGS="$WOOF_CFLAGS" CXXFLAGS="$WOOF_CXXFLAGS" LDFLAGS="$WOOF_LDFLAGS" MAKEFLAGS="$MAKEFLAGS" CCACHE_DIR=/root/.ccache CCACHE_NOHASHDIR=1 PKG_CONFIG_PATH="$PKG_CONFIG_PATH" PYTHONDONTWRITEBYTECODE=1 chroot petbuild-rootfs-complete-${NAME} sh -ec "cd /tmp && . ./petbuild && build"
+        CC="$WOOF_CC" CXX="$WOOF_CXX" CFLAGS="$WOOF_CFLAGS" CXXFLAGS="$WOOF_CXXFLAGS" LDFLAGS="$WOOF_LDFLAGS" MAKEFLAGS="$MAKEFLAGS" CCACHE_DIR=/root/.ccache CCACHE_NOHASHDIR=1 PKG_CONFIG_PATH="$PKG_CONFIG_PATH" PYTHONDONTWRITEBYTECODE=1 GTK3_PETBUILDS=$GTK3_PETBUILDS chroot petbuild-rootfs-complete-${NAME} sh -ec "cd /tmp && . ./petbuild && build"
         ret=$?
         umount -l petbuild-rootfs-complete-${NAME}/root/.ccache
         umount -l petbuild-rootfs-complete-${NAME}/tmp
