@@ -37,9 +37,9 @@ download_func() {
 	[ ! -e "${TEMP}/${PKG}" ] && cp -af ${REPO}/${PKG} ${TEMP} || return 1
 }
 
-B43_URL='http://www.lwfinger.com/b43-firmware/broadcom-wl-6.30.163.46.tar.bz2'
-B43_LEG_URL='http://downloads.openwrt.org/sources/wl_apsta-3.130.20.0.o'
-FW_CUT_URL='http://bues.ch/b43/fwcutter/b43-fwcutter-018.tar.bz2'
+B43_URL='https://www.lwfinger.com/b43-firmware/broadcom-wl-6.30.163.46.tar.bz2'
+B43_LEG_URL='https://downloads.openwrt.org/sources/wl_apsta-3.130.20.0.o'
+FW_CUT_URL='https://bues.ch/b43/fwcutter/b43-fwcutter-018.tar.bz2'
 IPW2100_URL='https://src.fedoraproject.org/repo/pkgs/ipw2100-firmware/ipw2100-fw-1.3.tgz/46aa75bcda1a00efa841f9707bbbd113/ipw2100-fw-1.3.tgz'
 IPW2200_URL='https://src.fedoraproject.org/repo/pkgs/ipw2200-firmware/ipw2200-fw-3.1.tgz/eaba788643c7cc7483dd67ace70f6e99/ipw2200-fw-3.1.tgz'
 

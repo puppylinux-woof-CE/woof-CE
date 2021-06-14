@@ -100,7 +100,7 @@ do
 					''|*[!0-9]*)continue ;; # skip as version is not an integer
 					*)
 					c=$fw_ver
-					limit=$(($c - 12))
+					limit=$(($c - 4))
 					# look for an older verion
 					while [ $c -ge $limit ] ; do
 						if [ -e "$SRC_FW_DIR/${fw%\-*}-${c}.${fw#*\.}" ];then
