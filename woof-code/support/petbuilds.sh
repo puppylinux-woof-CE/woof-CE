@@ -19,7 +19,12 @@ MAKEFLAGS=-j`nproc`
 
 HAVE_ROOTFS=0
 HAVE_BUSYBOX=0
-GTK3_PETBUILDS=0
+if [ "$DISTRO_TARGETARCH" = "x86" ]; then
+    echo "Using GTK+ 2 for x86 petbuilds"
+    GTK3_PETBUILDS=0
+else
+    GTK3_PETBUILDS=
+fi
 HERE=`pwd`
 PKGS=
 
@@ -133,15 +138,6 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
             # the shared-mime-info PET used by fossa64 doesn't put its pkg-config file in /usr/lib/x86_64-linux-gnu/pkgconfig
             PKG_CONFIG_PATH=`dirname $(find petbuild-rootfs-complete devx -name '*.pc') | sed -e s/^petbuild-rootfs-complete//g -e s/^devx//g | sort | uniq | tr '\n' :`
 
-            if [ "$DISTRO_TARGETARCH" = "x86" ]; then
-                echo "Using GTK+ 2 for x86 petbuilds"
-            elif PKG_CONFIG_PATH="$PKG_CONFIG_PATH" chroot petbuild-rootfs-complete pkg-config --atleast-version=3.24.18 gtk+-3.0; then
-                echo "Using GTK+ 3 for petbuilds"
-                GTK3_PETBUILDS=1
-            else
-                echo "Using GTK+ 2 for petbuilds"
-            fi
-
             HAVE_ROOTFS=1
         fi
 
@@ -189,6 +185,16 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
         mount -t tmpfs -o size=1G petbuild-tmp-${NAME} petbuild-rootfs-complete-${NAME}/tmp
         mkdir -p ../petbuild-cache/.ccache
         mount --bind ../petbuild-cache/.ccache petbuild-rootfs-complete-${NAME}/root/.ccache
+
+        if [ -z "$GTK3_PETBUILDS" ]; then
+            if PKG_CONFIG_PATH="$PKG_CONFIG_PATH" chroot petbuild-rootfs-complete-${NAME} pkg-config --atleast-version=3.24.18 gtk+-3.0; then
+                echo "Using GTK+ 3 for petbuilds"
+                GTK3_PETBUILDS=1
+            else
+                echo "Using GTK+ 2 for petbuilds"
+                GTK3_PETBUILDS=0
+            fi
+        fi
 
         cp -a ../petbuild-sources/${NAME}/* petbuild-rootfs-complete-${NAME}/tmp/
         cp -a ../rootfs-petbuilds/${NAME}/* petbuild-rootfs-complete-${NAME}/tmp/
