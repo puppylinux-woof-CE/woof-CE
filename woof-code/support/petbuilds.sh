@@ -60,6 +60,7 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
 
     if [ "$NAME" = "l3afpad" -a $PETBUILD_GTK -eq 2 ]; then
         echo "Skipping l3afpad, using leafpad"
+        continue
     elif [ "$NAME" = "leafpad" -a $PETBUILD_GTK -eq 3 ]; then
         echo "Skipping leafpad, using l3afpad"
         continue
