@@ -79,6 +79,9 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
     if [ "$NAME" = "cage" ] && [ "$XWAYLAND" != "yes" ]; then
         echo "Skipping cage, XWAYLAND=$XWAYLAND"
         continue
+    elif [ "$NAME" = "cage" ] && [ -z "$XWAYLAND" ] && [ "$DISTRO_TARGETARCH" = "x86" ]; then
+        echo "Skipping cage on x86"
+        continue
     fi
 
     HASH=`cat ../DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} ../DISTRO_COMPAT_REPOS ../DISTRO_COMPAT_REPOS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} ../DISTRO_PET_REPOS $i/petbuild 2>/dev/null | md5sum | awk '{print $1}'`
