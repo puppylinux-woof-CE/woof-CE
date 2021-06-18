@@ -1761,11 +1761,12 @@ if [ "$PUPSAVE" != "" ]; then
 	DESTPART=$SAVEPART
 	#v2.0.8: save-to-directory (gyro)
 	case $PUPMODE in
-		12|13) SAVEFILE=$(echo $PUPSAVE| cut -sd',' -f3);;
+		12|13|66) SAVEFILE=$(echo $PUPSAVE| cut -sd',' -f3);;
 		*) SAVEFILE="";;
 	esac
 	[ "$PUP_HOME" != "" ] && PUPHOME=$INITRDHOME #20151004
 	[ "$PUPHOME" = "$INITRDHOME" ] && PUPHOME=$MNTHOME && DESTDIR=$PUPHOME
+	[ "$PUPMODE" = "66" ] && PUPHOME="/mnt/${PUPSAVE%%,*}"
 else
 	# PUPMODE=2 or 5
 	if [ "$PUPMODE" = "2" ]; then
@@ -1799,7 +1800,7 @@ case "$PUPMODE" in
 		else SFSMODE="tmp"
 		fi
 		;;
-	12|13) SFSMODE="y";;
+	12|13|66) SFSMODE="y";;
 	77) SFSMODE="cd";;
 	*) SFSMODE="";;
 esac
@@ -1871,21 +1872,29 @@ if [ "$STARTSCRIPT" ]; then
 			fi
 			# copy to ram?
 			#2.0: see if the main sfs in RAM?
-			[ "$PUPMODE" = "5" ] && ! df /initrd/mnt/dev_ro2 | grep -q  '^/dev/' && SFSINRAM="y" || SFSINRAM=""
-			if [ "$SFSINRAM" != "" -o "$FILISAT" = "cd" ] ; then
+			if [ "$PUPMODE" = "5" -o "$PUPMODE" = "66" -o "$FILISAT" = "cd" ]; then
+				PUP_FN="$(losetup -a | grep 'puppy_' | cut -d ' ' -f 3)"
+				if [ "$(stat -fc %T "$PUP_FN")"  = "tmpfs" ]; then
+					SFSINRAM="y"
+					DESTDIR="${PUP_FN%/*}"
+				else
+					SFSINRAM=""
+				fi
+			fi
+			if [ "$SFSINRAM" != "" ] ; then
 				FILESIZE=$(du -k -L "$EXTRASFS"| cut -f1)
-				# need another tmpfs
-				DESTDIR="/mnt/tmp"
 				ERRMSG=""
-				ram_free
-				REST=$(($RFREE - $FILESIZE))
-				[ $REST -gt $RESERVRAM ] && another_tmpfs #|| continue
 				DESTISAT="tmp"
 				dest_free
 				if [ $DFREE -gt $FILESIZE ] && cp "$EXTRASFS" "$DESTDIR"; then
 					info "$EXTRASFS is copied to $DESTDIR."
 					EXTRASFS="$DESTDIR/"$(basename "$EXTRASFS")
 					COPIED="yes"
+				elif [ "$PUPMODE" = "66" ]; then
+					log "'$F' not loaded - RAM full."
+					remove_item EXTRASFSLIST "$F"
+					save_bootconfig
+					continue
 				fi
 			fi
 			log "Loading '$EXTRASFS'..."
@@ -2186,6 +2195,11 @@ if [ "$SFSMODE" = "tmp" -a "$FILEISAT" != "home" -a  "$FILEISAT" != "ata" ]; the
 elif [ "$QUIET" = "" ]; then
 	confirm "$MSG\n$WARNSHORT" || finish
 fi
+if [ "$PUPMODE" = "66" ]; then
+	DESTDIR='/initrd/mnt/tmpfs'
+	DESTISAT='tmp'
+	FILEISAT='usb'
+fi
 [ "$(readlink $MNTHOME)" = "$DESTDIR" ] && DESTDIR=$MNTHOME #20151004
 
 # free space in the destination
@@ -2248,10 +2262,10 @@ if [ "$SFSMODE" != "" ]; then
 		REST=$(($DFREE - $FILESIZE))
 		[ $REST -gt $RESERVHDD ] && SPACEOK="y" || SPACEOK=""
 		if [ -z "$SPACEOK" ]; then	# not enough space
-			[ "$NEEDTOMOVE" ] && fatal "$(printf "$(gettext "Could not copy or move. Maybe there is not enough space at '%s'.")" "$DESTDIR")\n$(gettext "Source"): $(kbyte2 $FILESIZE) --> $(gettext "Availble"): $(kbyte2 $DFREE)"
+			[ "$NEEDTOMOVE" -o "$PUPMODE" = "66" ] && fatal "$(printf "$(gettext "Could not copy or move. Maybe there is not enough space at '%s'.")" "$DESTDIR")\n$(gettext "Source"): $(kbyte2 $FILESIZE) --> $(gettext "Availble"): $(kbyte2 $DFREE)"
 			break
 		fi
-		if [ "$NEEDTOMOVE" ]; then
+		if [ "$NEEDTOMOVE" -o "$PUPMODE" = "66" ]; then
 			cp "$EXTRASFS" "$DESTDIR" || fatal $(eval_gettext "Failed to copy '\$EXTRASFS' to '\$DESTDIR'.")
 			COPIED="y"
 			MOVEDLOG=$(eval_gettext "'\$EXTRASFS' is copied to '\$DESTDIR'.")
