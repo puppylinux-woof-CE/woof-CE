@@ -19,6 +19,12 @@ MAKEFLAGS=-j`nproc`
 
 HAVE_ROOTFS=0
 HAVE_BUSYBOX=0
+if [ "$DISTRO_TARGETARCH" = "x86" ]; then
+    echo "Using GTK+ 2 for x86 petbuilds"
+    PETBUILD_GTK=2
+else
+    PETBUILD_GTK=
+fi
 HERE=`pwd`
 PKGS=
 
@@ -52,12 +58,11 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
         continue
     fi
 
-    if [ "$NAME" = "l3fpad" -a "$DISTRO_BINARY_COMPAT" = "slackware" -a "$DISTRO_COMPAT_VERSION" = "14.2" ]; then
-        echo "Skipping l3fpad, using leafpad"
-    elif [ "$NAME" = "l3fpad" -a "$DISTRO_BINARY_COMPAT" = "slackware64" -a "$DISTRO_COMPAT_VERSION" = "14.2" ]; then
-        echo "Skipping l3fpad, using leafpad"
-    elif [ "$NAME" = "leafpad" ]; then
-        echo "Skipping leafpad, using l3fpad"
+    if [ "$NAME" = "l3afpad" -a $PETBUILD_GTK -eq 2 ]; then
+        echo "Skipping l3afpad, using leafpad"
+        continue
+    elif [ "$NAME" = "leafpad" -a $PETBUILD_GTK -eq 3 ]; then
+        echo "Skipping leafpad, using l3afpad"
         continue
     fi
 
@@ -73,6 +78,9 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
 
     if [ "$NAME" = "cage" ] && [ "$XWAYLAND" != "yes" ]; then
         echo "Skipping cage, XWAYLAND=$XWAYLAND"
+        continue
+    elif [ "$NAME" = "cage" ] && [ -z "$XWAYLAND" ] && [ "$DISTRO_TARGETARCH" = "x86" ]; then
+        echo "Skipping cage on x86"
         continue
     fi
 
@@ -182,9 +190,19 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
         mkdir -p ../petbuild-cache/.ccache
         mount --bind ../petbuild-cache/.ccache petbuild-rootfs-complete-${NAME}/root/.ccache
 
+        if [ -z "$PETBUILD_GTK" ]; then
+            if PKG_CONFIG_PATH="$PKG_CONFIG_PATH" chroot petbuild-rootfs-complete-${NAME} pkg-config --atleast-version=3.24.18 gtk+-3.0; then
+                echo "Using GTK+ 3 for petbuilds"
+                PETBUILD_GTK=3
+            else
+                echo "Using GTK+ 2 for petbuilds, GTK+ 3 is missing or too old"
+                PETBUILD_GTK=2
+            fi
+        fi
+
         cp -a ../petbuild-sources/${NAME}/* petbuild-rootfs-complete-${NAME}/tmp/
         cp -a ../rootfs-petbuilds/${NAME}/* petbuild-rootfs-complete-${NAME}/tmp/
-        CC="$WOOF_CC" CXX="$WOOF_CXX" CFLAGS="$WOOF_CFLAGS" CXXFLAGS="$WOOF_CXXFLAGS" LDFLAGS="$WOOF_LDFLAGS" MAKEFLAGS="$MAKEFLAGS" CCACHE_DIR=/root/.ccache CCACHE_NOHASHDIR=1 PKG_CONFIG_PATH="$PKG_CONFIG_PATH" PYTHONDONTWRITEBYTECODE=1 chroot petbuild-rootfs-complete-${NAME} sh -ec "cd /tmp && . ./petbuild && build"
+        CC="$WOOF_CC" CXX="$WOOF_CXX" CFLAGS="$WOOF_CFLAGS" CXXFLAGS="$WOOF_CXXFLAGS" LDFLAGS="$WOOF_LDFLAGS" MAKEFLAGS="$MAKEFLAGS" CCACHE_DIR=/root/.ccache CCACHE_NOHASHDIR=1 PKG_CONFIG_PATH="$PKG_CONFIG_PATH" PYTHONDONTWRITEBYTECODE=1 PETBUILD_GTK=$PETBUILD_GTK chroot petbuild-rootfs-complete-${NAME} sh -ec "cd /tmp && . ./petbuild && build"
         ret=$?
         umount -l petbuild-rootfs-complete-${NAME}/root/.ccache
         umount -l petbuild-rootfs-complete-${NAME}/tmp
