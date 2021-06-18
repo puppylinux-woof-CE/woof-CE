@@ -42,6 +42,7 @@ B43_LEG_URL='https://downloads.openwrt.org/sources/wl_apsta-3.130.20.0.o'
 FW_CUT_URL='https://bues.ch/b43/fwcutter/b43-fwcutter-018.tar.bz2'
 IPW2100_URL='https://src.fedoraproject.org/repo/pkgs/ipw2100-firmware/ipw2100-fw-1.3.tgz/46aa75bcda1a00efa841f9707bbbd113/ipw2100-fw-1.3.tgz'
 IPW2200_URL='https://src.fedoraproject.org/repo/pkgs/ipw2200-firmware/ipw2200-fw-3.1.tgz/eaba788643c7cc7483dd67ace70f6e99/ipw2200-fw-3.1.tgz'
+LIC_URL="https://raw.githubusercontent.com/Algernon-01/rpi-patches/master/usr/share/doc/raspi3-firmware/copyright"
 
 build_cutter() {
 	download_func "$FW_CUT_URL" b43-fwcutter-018.tar.bz2
@@ -61,6 +62,8 @@ extract_b43() {
 	download_func "$B43_URL" broadcom-wl-6.30.163.46.tar.bz2
 	tar xf ${TEMP}/broadcom-wl-6.30.163.46.tar.bz2 -C ${TEMP} || return 1
 	b43-fwcutter -w "$FIRMWARE_INSTALL_DIR_XTRA" ${TEMP}/broadcom-wl-6.30.163.46.wl_apsta.o
+	curl $LIC_URL | sed -e '1,40d' -e '/debian/,$d' > $FIRMWARE_INSTALL_DIR_XTRA/LICENCE.broadcom-b43x
+	echo "Broadcom licence is now in $FIRMWARE_INSTALL_DIR_XTRA/LICENCE.broadcom-b43x"
 }
 
 extract_legacy() {
@@ -135,6 +138,6 @@ do
 	done
 done
 mkdir -p $FIRMWARE_RESULT_DIR/licences
-cp -f $SRC_FW_DIR/LICENSE* $FIRMWARE_RESULT_DIR/licences
+cp -f $SRC_FW_DIR/LICEN?E* $FIRMWARE_RESULT_DIR/licences
 
 clear_tmp
