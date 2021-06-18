@@ -15,7 +15,7 @@ CWD=`pwd`
 BUILD_LOG=${CWD}/build.log
 SRC_FW_DIR='../linux-firmware'
 FIRMWARE_SFS="output/${FDRV}"
-FIRMWARE_RESULT_DIR='zfirmware_workdir/lib/firmware'
+export FIRMWARE_RESULT_DIR='zfirmware_workdir/lib/firmware'
 
 ## functions
 log_msg()    { echo -e "$@" ; echo -e "$@" >> ${BUILD_LOG} ; }
@@ -73,41 +73,75 @@ cd ${CWD}
 
 [ -f "${FIRMWARE_SFS}" ] && rm -f ${FIRMWARE_SFS}
 
-module_dir=output/${linux_kernel_dir}/lib/modules
+export module_dir=output/${linux_kernel_dir}/lib/modules
 mkdir -p $FIRMWARE_RESULT_DIR
 firmware_list_dir=output/${linux_kernel_dir}/etc/modules/
 mkdir -p $firmware_list_dir
 fw_list=${firmware_list_dir}/firmware.lst.${kernel_version}
 fw_tmp_list=/tmp/firmware.lst.${kernel_version}
-echo "### If 'non-free' is after a firmware entry it is non-free and will need to be found elsewhere" > $fw_list
+echo "### If 'missing' is after a firmware entry it is missing or non-free and will need to be found elsewhere" > $fw_list
 
 # find the modules and see what firmware they need
 # NOTE 0: modinfo to the actual full path to the .ko module file works
 # NOTE 1: some firmware files won't exist because they are proprietary
 # broadcom wireless is an example, and some dvb tuners and some bluetooth
+
 for m in `find "$module_dir" -type f -name "*.ko"`
 do
 	modinfo "$m" -F firmware | while read fw
 	do 
 		fw_dir=${fw%\/*} # dirname
 		if [ "$fw" = "$fw_dir" ];then # not in subdir
-			if [ -e "$SRC_FW_DIR/$fw" ];then
-				cp -L -n $SRC_FW_DIR/$fw $FIRMWARE_RESULT_DIR
-				fw_msg $fw $fw_tmp_list # log to zdrv
-			else
-				fw_msg "${fw} non-free" $fw_tmp_list # log to zdrv
-			fi
+			case $fw in
+				iwlwifi*) # some iwlwifi versions differ from modinfo
+				fw_ver=${fw%\.*}
+				fw_ver=${fw_ver##*\-}
+				case $fw_ver in
+					''|*[!0-9]*)continue ;; # skip as version is not an integer
+					*)
+					c=$fw_ver
+					limit=$(($c - 4))
+					# look for an older verion
+					while [ $c -ge $limit ] ; do
+						if [ -e "$SRC_FW_DIR/${fw%\-*}-${c}.${fw#*\.}" ];then
+							cp -L -n $SRC_FW_DIR/${fw%\-*}-${c}.${fw#*\.} $FIRMWARE_RESULT_DIR
+							fw_msg ${fw%\-*}-${c}.${fw#*\.} $fw_tmp_list # log to zdrv
+							break
+						else
+							fw_msg "${fw} missing" $fw_tmp_list # log to zdrv
+							c=$(($c - 1))
+						fi
+					done
+					;;
+				esac
+				;;
+				*) # others
+				if [ -e "$SRC_FW_DIR/$fw" ];then
+					cp -L -n $SRC_FW_DIR/$fw $FIRMWARE_RESULT_DIR
+					fw_msg $fw $fw_tmp_list # log to zdrv
+				else
+					fw_msg "${fw} missing" $fw_tmp_list # log to zdrv
+				fi
+				;;
+			esac
 		else
 			if [ -e "$SRC_FW_DIR/$fw" ];then
 				mkdir -p $FIRMWARE_RESULT_DIR/$fw_dir
 				cp -L -n $SRC_FW_DIR/$fw $FIRMWARE_RESULT_DIR/$fw_dir
 				fw_msg $fw $fw_tmp_list # log to zdrv
 			else
-				fw_msg "${fw} non-free" $fw_tmp_list # log to zdrv
+				fw_msg "${fw} missing" $fw_tmp_list # log to zdrv
 			fi
 		fi		
 	done
 done
+# extra firmware from other sources
+if [ "$EXTRA_FW" = 'yes' ];then
+	./firmware_extra.sh
+	sed -i -e '/^b43/d' -e '/^ipw/d' $fw_tmp_list
+	cat /tmp/firmware_extra.lst >> $fw_tmp_list
+	rm -f /tmp/firmware_extra.lst
+fi
 sort -u < $fw_tmp_list >> $fw_list
 rm $fw_tmp_list
 
