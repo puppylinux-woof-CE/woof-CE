@@ -39,7 +39,10 @@ sync
 rmmod ehci_hcd
 
 #suspend
-echo -n mem > /sys/power/state
+case "$DISABLE_LOCK" in
+y*|Y*|true|True|TRUE|1) echo -n mem > /sys/power/state ;;
+*) xlock -startCmd "echo mem > /sys/power/state" ;;
+esac
 
 # process at recovery from suspend
 #restartwm
