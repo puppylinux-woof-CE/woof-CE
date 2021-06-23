@@ -41,6 +41,9 @@ fi
 
 xhost +local: 2>/dev/null
 
+# start a D-Bus user session, for applications that don't work without it
+eval `dbus-launch --exit-with-x11`
+
 CURRENTWM="`cat /etc/windowmanager`"
 if [ "$CURRENTWM" = "startkde" ];then
  /sbin/pup_event_frontend_d & #130525
