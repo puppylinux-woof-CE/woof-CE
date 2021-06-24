@@ -41,8 +41,17 @@ fi
 
 xhost +local: 2>/dev/null
 
-# start a D-Bus user session, for applications that don't work without it
-eval `dbus-launch --exit-with-x11`
+# start a D-Bus session bus, for applications that don't work without it
+eval `run-as-spot dbus-launch --exit-with-x11`
+export DBUS_SESSION_BUS_ADDRESS
+export DBUS_SESSION_BUS_PID
+
+# start PulseAudio over the session bus, and use it for both root and spot
+if [ -e /usr/bin/pulseaudio ]; then
+    run-as-spot pulseaudio --start
+    export PULSE_SERVER=unix:/tmp/runtime-spot/pulse/native
+    export PULSE_COOKIE=/home/spot/.config/pulse/cookie
+fi
 
 CURRENTWM="`cat /etc/windowmanager`"
 if [ "$CURRENTWM" = "startkde" ];then
