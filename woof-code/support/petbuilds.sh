@@ -23,7 +23,7 @@ if [ "$DISTRO_TARGETARCH" = "x86" ]; then
     echo "Using GTK+ 2 for x86 petbuilds"
     PETBUILD_GTK=2
 else
-    PETBUILD_GTK=
+    PETBUILD_GTK=-1
 fi
 HERE=`pwd`
 PKGS=
@@ -190,7 +190,7 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
         mkdir -p ../petbuild-cache/.ccache
         mount --bind ../petbuild-cache/.ccache petbuild-rootfs-complete-${NAME}/root/.ccache
 
-        if [ -z "$PETBUILD_GTK" ]; then
+        if [ $PETBUILD_GTK -lt 2 ]; then
             if PKG_CONFIG_PATH="$PKG_CONFIG_PATH" chroot petbuild-rootfs-complete-${NAME} pkg-config --atleast-version=3.24.18 gtk+-3.0; then
                 echo "Using GTK+ 3 for petbuilds"
                 PETBUILD_GTK=3
