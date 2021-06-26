@@ -317,7 +317,7 @@ for NAME in $PKGS; do
     (echo ":${NAME}:|pet|"; cat ../rootfs-petbuilds/${NAME}/pet.specs) >> ../status/findpkgs_FINAL_PKGS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}
 
     # redirect packages with menu entries to adrv, with exceptions
-    if [ -n "$ADRV_INC" ] && [ "$NAME" != "rox-filer" ] && [ "$NAME" != "lxterminal" ] && [ "$NAME" != "leafpad" ] && [ "$NAME" != "l3afpad" ] && [ -n "`ls ../packages-${DISTRO_FILE_PREFIX}/${NAME}/usr/share/applications/*.desktop 2>/dev/null`" ]; then
+    if [ -n "$ADRV_INC" ] && [ "$NAME" != "rox-filer" ] && [ "$NAME" != "lxterminal" ] && [ "$NAME" != "leafpad" ] && [ "$NAME" != "l3afpad" ] && [ "$NAME" != "gexec" ] && [ -n "`ls ../packages-${DISTRO_FILE_PREFIX}/${NAME}/usr/share/applications/*.desktop 2>/dev/null`" ]; then
         ADRV_INC="$ADRV_INC $NAME"
     elif [ -n "$MAINPKGS" ]; then
         MAINPKGS="$MAINPKGS $NAME"
