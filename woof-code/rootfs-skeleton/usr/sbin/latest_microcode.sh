@@ -16,7 +16,7 @@ case $(uname -m) in
 esac
 
 [ -e /etc/rc.d/PUPSTATE ] && . /etc/rc.d/PUPSTATE
-rm -rf 
+
 ver=0.1
 PROG="${0##*\/}"
 
