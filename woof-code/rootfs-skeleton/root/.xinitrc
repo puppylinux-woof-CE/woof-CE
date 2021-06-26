@@ -48,7 +48,7 @@ export DBUS_SESSION_BUS_PID
 
 # start PulseAudio over the session bus and use it for both root and spot, so they see the same output devices
 if [ -e /usr/bin/pulseaudio ]; then
-    run-as-spot pulseaudio --start
+    run-as-spot sh -c "pidof -s pulseaudio > /dev/null || pulseaudio --start --log-target=syslog"
     export PULSE_SERVER=unix:/tmp/runtime-spot/pulse/native
     export PULSE_COOKIE=/home/spot/.config/pulse/cookie
 fi
