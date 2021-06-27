@@ -53,7 +53,7 @@ build_cutter() {
 	mkdir -p $CWD/$TOOLREPO/cutter
 	install -m 0755 b43-fwcutter $CWD/$TOOLREPO/cutter || return 1
 	)
-	echo "b43-fwcutter is now installed to your system."
+	echo "b43-fwcutter is now installed in $TOOLREPO."
 	sleep 1
 }
 
@@ -61,14 +61,14 @@ build_cutter() {
 extract_b43() {
 	download_func "$B43_URL" broadcom-wl-6.30.163.46.tar.bz2
 	tar xf ${TEMP}/broadcom-wl-6.30.163.46.tar.bz2 -C ${TEMP} || return 1
-	b43-fwcutter -w "$FIRMWARE_INSTALL_DIR_XTRA" ${TEMP}/broadcom-wl-6.30.163.46.wl_apsta.o
+	$CWD/$TOOLREPO/cutter/b43-fwcutter -w "$FIRMWARE_INSTALL_DIR_XTRA" ${TEMP}/broadcom-wl-6.30.163.46.wl_apsta.o
 	curl $LIC_URL | sed -e '1,40d' -e '/debian/,$d' > $FIRMWARE_INSTALL_DIR_XTRA/LICENCE.broadcom-b43x
 	echo "Broadcom licence is now in $FIRMWARE_INSTALL_DIR_XTRA/LICENCE.broadcom-b43x"
 }
 
 extract_legacy() {
 	download_func "$B43_LEG_URL" wl_apsta-3.130.20.0.o
-	b43-fwcutter -w "$FIRMWARE_INSTALL_DIR_XTRA" ${TEMP}/wl_apsta-3.130.20.0.o
+	$CWD/$TOOLREPO/cutter/b43-fwcutter -w "$FIRMWARE_INSTALL_DIR_XTRA" ${TEMP}/wl_apsta-3.130.20.0.o
 }
 
 b43_func() {
