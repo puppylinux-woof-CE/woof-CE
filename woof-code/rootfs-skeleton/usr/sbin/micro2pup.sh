@@ -23,7 +23,8 @@ MSG2=$(gettext 'Unsupported CPU Architecture.')
 MSG3=$(gettext 'This program does not support a Virtual Machine.')
 MSG4=$(gettext 'The puppy home drive is read only, however if saving session late loading is supported.')
 MSG5=$(gettext 'Your CPU vendor is unsupported.')
-INITRD_DIR=/mnt/home${PSUBDIR}
+PUPDIR=/initrd${PUP_HOME}${PUPSFS##*,}
+INITRD_DIR=${PUPDIR%/*}
 
 if [ "$PMEDIA" = 'cd' -o $PUPMODE -eq 77 ];then 
 	EARLY=1
@@ -54,6 +55,59 @@ elif grep -qm1 'GenuineIntel' /proc/cpuinfo ; then
 else
 	exit_error "$MSG5"
 fi
+
+/usr/lib/gtkdialog/box_splash -close box -icon gtk-execute -bg '#FFCC38' -text "$(gettext 'Please wait a moment ..')" &
+spid=$!
+
+# get local and remote microcode versions
+LOCAL_VER=$(latest_microcode.sh ucode-r)
+LOCALVER=${LOCAL_VER% *}
+LOCALTYPE=${LOCAL_VER#* }
+if [ $LOCALVER -eq 0 ];then
+	DISPVER=''
+	LOCALTYPE=$(gettext 'Please Update.')
+	LBLURB0=$(gettext 'Download Microcode')
+	LBLURB1=$(gettext 'No microcode exists.')
+	RECO=$(gettext '<b>We recommend you choose Yes</b>.')
+else
+	DISPVER=$LOCALVER
+	LBLURB0=$(gettext 'No need to Update')
+	LBLURB1=$(gettext 'Local Microcode version: ')
+	RECO=$(gettext 'Choose <b>Yes</b> if you are unsure.')
+fi
+latest_microcode.sh remote-r > /tmp/micro-versions.txt
+REMOTEVERAMD="$(grep "^AMD" /tmp/micro-versions.txt)"
+REMOTEVERAMD=${REMOTEVERAMD##* }
+REMOTEVERINT="$(grep "^INT" /tmp/micro-versions.txt)"
+REMOTEVERINT=${REMOTEVERINT##* }
+kill -9 $spid
+if [ $REMOTEVERINT -gt $REMOTEVERAMD ];then
+	REMOTVER=$REMOTEVERINT
+else
+	REMOTVER=$REMOTEVEAMD # unlikey until 2021/11
+fi
+if [ $REMOTVER -gt $LOCALVER ] || [ $LOCALVER -eq 0 ];then
+	echo  $LOCALVER
+	LBLURB0=$(gettext 'Recommended Update')
+	RECO=$(gettext '<b>We recommend you choose Yes</b>.')
+else
+	echo $REMOTVER
+	echo  $LOCALVER
+	LBLURB0=$(gettext 'No need to Update')
+	RECO=$(gettext 'We recommend you choose <b>No</b>, but there is no harm in updating.')
+fi
+EXTRABLURB0="$(gettext 'Remote AMD Microcode Version: ') $REMOTEVERAMD"
+EXTRABLURB1="$(gettext 'Remote Intel Microcode Version: ') $REMOTEVERINT"
+
+# ask to continue
+ASK=$(gettext 'Do you want to continue?')
+/usr/lib/gtkdialog/box_yesno --yes-label "$(gettext 'Yes')" --no-label "$(gettext 'No')" "$LBLURB0" "$LBLURB1 $DISPVER $LOCALTYPE" "$EXTRABLURB0" "$EXTRABLURB1" "$RECO" "$ASK"
+
+case $? in
+	0);;
+	*)exit 0 ;;
+esac 
+
 PROCESSOR1=$(gettext 'Your system has an ')
 PROCESSOR2=$(gettext ' processor.')
 EL=$(gettext "Early Loading")
@@ -79,6 +133,15 @@ if dmesg | grep -qm1 'microcode updated early' ;then
 fi
 export GUI='<window title="'$TITLE'" icon-name="gtk-execute" resizable="false">
 	<vbox width-request="500">
+		<hbox space-expand="true" space-fill="true">
+			<text use-markup="true"><label>"Local Microcode version: <b>'$LOCALVER' '$LOCALTYPE'</b>"</label></text>
+		</hbox>
+		<hbox space-expand="true" space-fill="true">
+			<text use-markup="true"><label>"'$EXTRABLURB0'"</label></text>
+		</hbox>
+		<hbox space-expand="true" space-fill="true">
+			<text use-markup="true"><label>"'$EXTRABLURB1'"</label></text>
+		</hbox>
 	<frame '$EL'>
 	'"$(/usr/lib/gtkdialog/xml_info fixed /usr/share/pixmaps/$CICON 60 "$PROCESSOR1 <b>$CVENDOR</b> $PROCESSOR2 $EARLY_BLURB <b>$N_VEND</b>. $EARLY_BLURB2")"' 
 		<hbox>
@@ -131,7 +194,7 @@ export GUI='<window title="'$TITLE'" icon-name="gtk-execute" resizable="false">
 eval $(gtkdialog -p GUI --styles=/tmp/gtkrc_xml_info.css)
 
 case $cb0 in
-	true) param='';;
+	true) param=b;;
 	false)param=$CVENDOR;;
 esac
 
@@ -139,9 +202,18 @@ case $EXIT in
 	dld_e)
 	/usr/lib/gtkdialog/box_splash -close box -icon gtk-execute -bg '#FFCC38' -text "$(gettext 'Please wait a moment ..')" &
 	bpid=$!
-	if latest_microcode.sh $param ; then
+	if latest_microcode.sh $param; then
+		[ "$param" = 'b' ] && param=Combined
 		kill -9 $bpid
-		/usr/lib/gtkdialog/box_splash -close box -timeout 4 -icon gtk-execute -bg '#38FF44' -text "$param $(gettext 'microcode ucode.cpio is generated and installed')"
+		[ -e /tmp/ucode.cpio ] &&\
+		/usr/lib/gtkdialog/box_yesno --yes-label "$(gettext 'Yes')" --no-label "$(gettext 'No')" "$(gettext 'Install ucode.cpio')" "$param $(gettext 'microcode ucode.cpio is generated in /tmp. Do you wish to install it?')" \
+			"$(gettext 'If your Puppy files reside on an NTFS partition make sure it is not hibernated. If unsure please back up <b>/tmp/ucode.cpio</b> and press <b>No</b>')" \
+			"$(gettext 'Press <b>Yes</b> if you wish to install. If you press <b>No</b> ucode.cpio will be stored in /tmp until you power off your computer. Please back it up for later use.')"
+			case $? in
+			0)cp -af /tmp/ucode.cpio $INITRD_DIR && /usr/lib/gtkdialog/box_splash -close box -timeout 4 -icon gtk-execute -bg '#38FF44' -text "$(gettext 'ucode.cpio is installed')" ||\
+				/usr/lib/gtkdialog/box_splash -close box -timeout 4 -icon gtk-execute -bg '#FF3898' -text "$param $(gettext 'ucode.cpio failed to install')" ;;
+			*)/usr/lib/gtkdialog/box_splash -close box -icon gtk-execute -bg '#FFCC38' -text "$(gettext 'ucode.cpio is NOT installed')"
+			esac
 		exit 0
 	else
 		kill -9 $bpid
