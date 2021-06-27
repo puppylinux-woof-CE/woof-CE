@@ -133,6 +133,7 @@ EOF
 	cp -a /mnt/ssdimagep2/* /mnt/legacyimagep1/
 	cp -f build/vmlinuz /mnt/legacyimagep1/
 	busybox umount /mnt/legacyimagep1 2>/dev/null
+	losetup -d ${LOOP}
 	mv -f ${LEGACY_IMG_BASE} ../${WOOF_OUTPUT}/
 	;;
 esac
@@ -166,6 +167,7 @@ EOF
 	mount-FULL -o noatime ${LOOP}p2 /mnt/uefiimagep2
 	cp -a /mnt/ssdimagep2/* /mnt/uefiimagep2/
 	busybox umount /mnt/uefiimagep2 2>/dev/null
+	losetup -d ${LOOP}
 
 	mv -f ${UEFI_IMG_BASE} ../${WOOF_OUTPUT}/
 fi

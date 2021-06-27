@@ -23,7 +23,7 @@ if [ "$DISTRO_TARGETARCH" = "x86" ]; then
     echo "Using GTK+ 2 for x86 petbuilds"
     PETBUILD_GTK=2
 else
-    PETBUILD_GTK=
+    PETBUILD_GTK=-1
 fi
 HERE=`pwd`
 PKGS=
@@ -190,7 +190,7 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
         mkdir -p ../petbuild-cache/.ccache
         mount --bind ../petbuild-cache/.ccache petbuild-rootfs-complete-${NAME}/root/.ccache
 
-        if [ -z "$PETBUILD_GTK" ]; then
+        if [ $PETBUILD_GTK -lt 2 ]; then
             if PKG_CONFIG_PATH="$PKG_CONFIG_PATH" chroot petbuild-rootfs-complete-${NAME} pkg-config --atleast-version=3.24.18 gtk+-3.0; then
                 echo "Using GTK+ 3 for petbuilds"
                 PETBUILD_GTK=3
@@ -317,7 +317,7 @@ for NAME in $PKGS; do
     (echo ":${NAME}:|pet|"; cat ../rootfs-petbuilds/${NAME}/pet.specs) >> ../status/findpkgs_FINAL_PKGS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}
 
     # redirect packages with menu entries to adrv, with exceptions
-    if [ -n "$ADRV_INC" ] && [ "$NAME" != "rox-filer" ] && [ "$NAME" != "lxterminal" ] && [ "$NAME" != "leafpad" ] && [ "$NAME" != "l3afpad" ] && [ -n "`ls ../packages-${DISTRO_FILE_PREFIX}/${NAME}/usr/share/applications/*.desktop 2>/dev/null`" ]; then
+    if [ -n "$ADRV_INC" ] && [ "$NAME" != "rox-filer" ] && [ "$NAME" != "lxterminal" ] && [ "$NAME" != "leafpad" ] && [ "$NAME" != "l3afpad" ] && [ "$NAME" != "gexec" ] && [ -n "`ls ../packages-${DISTRO_FILE_PREFIX}/${NAME}/usr/share/applications/*.desktop 2>/dev/null`" ]; then
         ADRV_INC="$ADRV_INC $NAME"
     elif [ -n "$MAINPKGS" ]; then
         MAINPKGS="$MAINPKGS $NAME"
