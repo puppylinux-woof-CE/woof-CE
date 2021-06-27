@@ -54,7 +54,7 @@ func_git() {
 licence_func () {
 	log_msg "Extracting licences"
 	mkdir -p ${FIRMWARE_RESULT_DIR}/licences
-	find ${SRC_FW_DIR} -type f -iname 'licen?e*' -exec cp '{}' ${FIRMWARE_RESULT_DIR}/licences \;
+	cp -f $SRC_FW_DIR/LICEN?E* $FIRMWARE_RESULT_DIR/licences
 }
 ##
 
