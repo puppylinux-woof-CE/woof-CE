@@ -122,7 +122,7 @@ add_repo() {
 		if ! [ -e $REPO_DIR/$localdb ] && echo Downloading database for "$p $1" ...; then
 			if ! case "$1" in
 				file://*) cp "${pkgdb_url#file://}" $REPO_DIR/$localdb ;;
-				*) wget -q --no-check-certificate -c -O "$REPO_DIR/$localdb" "$pkgdb_url" ;;
+				*) wget -q -c -O "$REPO_DIR/$localdb" "$pkgdb_url" ;;
 			esac; then
 				echo Bad database download for "$p $1", skipping ... 
 				rm -f $REPO_DIR/$localdb # bad download, don't proceed
@@ -214,7 +214,7 @@ download_pkg() {
 	if ! [ -e "$REPO_DIR/$PKGFILE" ] && echo Downloading "$PKGFILE" ...; then
 		case "$PKGPATH" in
 			file://*) cp "${PKGPATH#file://}" $REPO_DIR/$PKGFILE ;;
-			*) wget -q --no-check-certificate -O $REPO_DIR/$PKGFILE "$PKGPATH" ;;
+			*) wget -q -O $REPO_DIR/$PKGFILE "$PKGPATH" ;;
 		esac
 	fi
 	
@@ -235,7 +235,7 @@ download_pet_pkg() {
 	[ "$2" ] && echo "Bad md5sum $PKGFILE, attempting to re-download ..."
 	if ! [ -e "$REPO_DIR/$PKGFILE" ] ; then
 		echo Downloading "$PKGFILE" ...
-		wget -q --no-check-certificate -O $REPO_DIR/$PKGFILE "$PKGPATH"
+		wget -q -O $REPO_DIR/$PKGFILE "$PKGPATH"
 		if [ $? -eq 0 ] ; then
 			( cd $REPO_DIR ; md5sum $PKGFILE > ${PKGFILE}.md5 )
 		fi

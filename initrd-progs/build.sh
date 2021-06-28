@@ -44,7 +44,7 @@ use_prebuilt_binaries() {
 	fi
 	if [ ! -f "$zfile" ] ; then
 		mkdir -p 0sources
-		wget -P 0sources --no-check-certificate "$PREBUILT_BINARIES"
+		wget -P 0sources "$PREBUILT_BINARIES"
 		if [ $? -ne 0 ] ; then
 			rm -f "$zfile"
 			exit_error "ERROR downloading $zfile"

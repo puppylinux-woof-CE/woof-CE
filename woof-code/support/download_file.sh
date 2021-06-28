@@ -22,7 +22,7 @@ if [ ! -f ${DOWNLOAD_DIR}"${FILE}" ] ; then
 	if [ -f "$URL" ] ; then # full path
 		cp -a "$URL" "${FILE}"
 	else
-		wget -P ${DOWNLOAD_DIR} --no-check-certificate "${URL}"
+		wget -P ${DOWNLOAD_DIR} "${URL}"
 		if [ $? -ne 0 ] ; then
 			rm -fv ${DOWNLOAD_DIR}"${FILE}"
 			exit 1
@@ -35,13 +35,13 @@ if [ ! -f ${DOWNLOAD_DIR}"${FILE}" ] ; then
 fi
 
 if [ ! -f ${DOWNLOAD_DIR}"${FILE}".sha256.txt ] ; then
-	wget -P ${DOWNLOAD_DIR} --no-check-certificate "${URL}".sha256.txt 2>/dev/null
+	wget -P ${DOWNLOAD_DIR} "${URL}".sha256.txt 2>/dev/null
 	[ $? -ne 0 ] && rm -f ${DOWNLOAD_DIR}"${FILE}".sha256.txt
 fi
 
 if [ ! -f ${DOWNLOAD_DIR}"${FILE}".sha256.txt ] ; then
 	if [ ! -f ${DOWNLOAD_DIR}"${FILE}".md5.txt ] ; then
-		wget -P ${DOWNLOAD_DIR} --no-check-certificate "${URL}".md5.txt 2>/dev/null
+		wget -P ${DOWNLOAD_DIR} "${URL}".md5.txt 2>/dev/null
 		[ $? -ne 0 ] && rm -f ${DOWNLOAD_DIR}"${FILE}".md5.txt
 	fi
 fi
