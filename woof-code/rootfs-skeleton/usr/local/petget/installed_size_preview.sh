@@ -60,7 +60,6 @@ if [ "$MISSINGDEPS_PATTERNS" = "" -a "$(do_grep $DB_ENTRY /tmp/petget_proc/overa
   *) SIZEVAL=$(($SIZEVAL / 1024 )) ;;
  esac
  echo $SIZEVAL >> /tmp/petget_proc/overall_pkg_size
- sync
  /usr/local/petget/installmodes.sh check_total_size &
  exit 0
 fi
@@ -131,5 +130,4 @@ cat /tmp/petget_proc/petget_missing_dbentries-* | cut -f1 -d '|' >> /tmp/petget_
 cat /tmp/petget_proc/dependecies_list | sort | uniq  >> /tmp/petget_proc/overall_dependencies
 rm -f /tmp/petget_proc/dependecies_list
 
-sync
 /usr/local/petget/installmodes.sh check_total_size &
