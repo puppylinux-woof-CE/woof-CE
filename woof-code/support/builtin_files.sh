@@ -27,7 +27,6 @@ do
 			find -H ../packages-${DISTRO_FILE_PREFIX}/$i -type f -o -type l | \
 				sed -e "s%^\\.\\./packages-${DISTRO_FILE_PREFIX}/${i}/%/%" | \
 				sort > /tmp/0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}/${i}.files
-			sync
 			(
 			while read ONELINE ; do
 				[ -e "rootfs-complete${ONELINE}" ] && echo "${ONELINE}" #only files that are in rootfs-complete
@@ -46,7 +45,6 @@ if [ -f /tmp/rootfs-packages.specs ];then
 		find -H ../rootfs-packages/$PKGL -type f -o -type l | \
 			sed -e "s%^\\.\\./rootfs-packages/${PKGL}/%/%" | \
 			sort > /tmp/0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}/${PKGL}.files
-		sync
 		while read ONELINE ; do
 			if [ -e "rootfs-complete${ONELINE}" ];then
 				echo "${ONELINE}" >> 0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${PACKAGES_DIR}/builtin_files/${PKGL}

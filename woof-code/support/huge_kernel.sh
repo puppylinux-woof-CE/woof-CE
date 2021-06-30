@@ -63,7 +63,6 @@ if [ -d '../kernel-kit/output' ];then
 			mkdir -p fdrv #we're in sandbox3
 			echo "copying files..."
 			cp -a -u --remove-destination /mnt/fdrv/* fdrv/
-			sync
 			umount /mnt/fdrv
 			rm -rf /mnt/fdrv
 			losetup -a | grep -o -q "${FREEDEV##*/}" && losetup -d $FREEDEV

@@ -147,9 +147,7 @@ sed -i -e "s% /splash.png% /boot/splash.png%" ${GRUB_CFG} ${BUILD}/boot/grub/men
 #======================================================
 
 # build the iso
-sync
 mk_iso $BUILD $OUT
-sync
 
 (
 	cd $WOOF_OUTPUT
