@@ -277,7 +277,6 @@ do
    fi
    unset DL_F_CALLED_FROM
   fi
-  sync
   DLPKG="`basename $ONEFILE`"
   if [ -f "${DL_PATH}"/$DLPKG -a "$DLPKG" != "" ];then
    if [ "$PASSEDPARAM" = "DOWNLOADONLY" ];then

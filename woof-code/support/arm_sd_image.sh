@@ -34,8 +34,6 @@ if [ "$CREATE" ] ; then
 	fi
 	LOOPDEV=$(losetup -f)
 	losetup ${LOOPDEV} ${OUT_IMG}
-	sync
-	sleep 1
 
 	parted --script -- \
 		${LOOPDEV} \
@@ -44,8 +42,6 @@ if [ "$CREATE" ] ; then
 		mkpart primary ext2 100MiB 100% \
 		set 1 boot on
 
-	sync
-	sleep 1
 	losetup -d ${LOOPDEV}
 fi
 
@@ -87,18 +83,14 @@ if [ "$CREATE" ] ; then
 	LOOPDEV=$(losetup -f)
 	if losetup -o ${P1STARTBYTES} ${LOOPDEV} ${OUT_IMG} ; then
 		mkdosfs -v -I -F 32 ${LOOPDEV}
-		sync ; sleep 1
 		losetup -d ${LOOPDEV}
 	fi
 
 	LOOPDEV=$(losetup -f)
 	if losetup -o ${P2STARTBYTES} ${LOOPDEV} ${OUT_IMG} ; then
 		mkfs.ext4 -F ${LOOPDEV}
-		sync ; sleep 1
 		tune2fs -O ^has_journal ${LOOPDEV}
-		sync
 		e2fsck -y ${LOOPDEV}
-		sync ; sleep 1
 		losetup -d ${LOOPDEV}
 	fi
 fi
@@ -131,7 +123,6 @@ case $REALKERNAME in
 esac
 
 echo -n "$REALKERNAME" > /mnt/sdimagep1/REALKERNAME #just in case need to know, in a running puppy.
-sync
 busybox umount /mnt/sdimagep1 2>/dev/null
 echo "...done"
  
@@ -143,13 +134,11 @@ if [ $? -ne 0 ];then
 	exit 1
 fi
 cp -a rootfs-complete/* /mnt/sdimagep2/
-sync
 
 # add to /etc/fstab...
 #not sure if the root partition is referred to as /dev/root or /dev/mmcblk0p2 on the raspi
 echo "/dev/mmcblk0p2     /       ${SDFS2}     defaults,noatime      0 1" >> /mnt/sdimagep2/etc/fstab
 echo "/dev/mmcblk0p1     /boot   vfat     defaults,noatime      0 2" >> /mnt/sdimagep2/etc/fstab
-sync
 echo "...done"
 busybox umount /mnt/sdimagep2 2>/dev/null
  
@@ -170,7 +159,6 @@ case "$SD_IMG_OUTPUT_COMP" in xz|gz) #build.conf
 	elif [ "$COMP" = 'gz' ]; then
 		gzip --stdout ${OUT_IMG} > ${OUT_IMG}.gz
 	fi
-	sync
 	echo " ${OUT_IMG}.${COMP} created."
 	COMPRIMGBYTES=`stat -c %s ${OUT_IMG}.${COMP}`
 	echo

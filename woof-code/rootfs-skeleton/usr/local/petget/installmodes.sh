@@ -444,7 +444,6 @@ install_package () {
    /usr/local/petget/finduserinstalledpkgs.sh
    sed -i "/$TREE1/d" /tmp/petget_proc/pkgs_left_to_install
  done < /tmp/petget_proc/pkgs_to_install
- sync
  report_results
  clean_up
 }
