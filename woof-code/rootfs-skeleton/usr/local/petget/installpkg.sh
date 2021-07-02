@@ -400,8 +400,6 @@ else #-- anything other than PUPMODE 2 (full install) --
 	 #now re-evaluate all the layers...
 	 busybox mount -t aufs -o remount,udba=reval unionfs / #remount with faster evaluation mode.
 	 [ $? -ne 0 ] && logger -s -t "installpkg.sh" "Failed to remount aufs / with udba=reval"
-
-	 sync
 	fi
 
 fi
@@ -418,7 +416,6 @@ do
 	[ ! -e "$DIRECTSAVEPATH/$i" ] && continue
 	cd $DIRECTSAVEPATH/
 	LANG=$LANG_USER sh ${i}
-	sync
 	rm -f ${i}
 done
 rm -rf $DIRECTSAVEPATH/install

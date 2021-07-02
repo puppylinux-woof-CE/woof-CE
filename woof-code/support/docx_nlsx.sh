@@ -31,7 +31,6 @@ if [ "$BUILD_DOCX" = "yes" ] ; then
 		fi
 	done
 	echo
-	sync
 	rm -f docx/pet.specs
 	echo "Creating $DOCXSFS..."
 	mksquashfs docx ${DOCXSFS} ${SFSCOMP}
@@ -50,7 +49,6 @@ if [ "$BUILD_NLSX" = "yes" ] ; then
 		fi
 	done
 	echo
-	sync
 	rm -f nlsx/pet.specs
 	echo "Creating $NLSXSFS..."
 	mksquashfs nlsx ${NLSXSFS} ${SFSCOMP}
