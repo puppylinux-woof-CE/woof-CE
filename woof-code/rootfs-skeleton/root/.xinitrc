@@ -42,9 +42,7 @@ fi
 xhost +local: 2>/dev/null
 
 # start a D-Bus session bus for both root and spot, for PulseAudio and applications that don't work without it
-eval `run-as-spot dbus-launch --exit-with-x11`
-export DBUS_SESSION_BUS_ADDRESS
-export DBUS_SESSION_BUS_PID
+run-as-spot dbus-launch --exit-with-x11 > /tmp/.spot-session-bus
 
 # start PulseAudio over the session bus and use it for both root and spot, so they see the same output devices
 if [ -e /usr/bin/pulseaudio ]; then
