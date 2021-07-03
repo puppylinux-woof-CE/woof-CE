@@ -1,4 +1,4 @@
-Initial support for slackware64-15.0 2021-02-20
+Initial support for slackware-15.0 2021-07-02
 
 Slackware 15 is not yet released but is likely to at some point within
 the next few months so this support is to be considered _entirely
