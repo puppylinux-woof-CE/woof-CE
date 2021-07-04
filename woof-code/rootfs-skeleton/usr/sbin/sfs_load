@@ -66,7 +66,7 @@ done
 
 MYPATH=$0
 MYNAME=$(basename "$0")
-VERSION=3.1w
+VERSION=3.1wGd
 ORGOPT="$@"
 #some options the puplet builder can choose
 WIPEWHITEONINIT="true"	# true/false
@@ -643,8 +643,10 @@ add_new_sfs_list() {
 	local F=$(basename "$1")
 	local Q=$2
 	[ "$Q" ] && Q="@($QUEUED)"
+	[ "$(echo "$F" | grep "$DISTRO_DRVS")" != "" ] && return 1
+	[ "$(grep "$F" "$tmpPupDrvList")" ] && return 1
 	case "$F" in
-		$SFSBASE|$ZDRBASE|$ADRBASE|$YDRBASE|$FDRBASE) return 1 ;;
+		$DISTRO_PUPPYSFS|$SFSBASE) return 1 ;;
 		*.sfs|*.sb|*.lzm|*.xzm|*.squashfs|*.filesystem) ok=1 ;;
 		*) return 1 ;; #only allow sfs files
 	esac
@@ -726,17 +728,10 @@ $ALLSFSLIST"
 	for ONESFS in $ALLSFSLIST
 	do
 		BASEONESFS="`basename $ONESFS`" #100711
-		[ "`echo "$BASEONESFS" | grep -E '^adrv_|^fdrv_|^ydrv_|^zdrv_|^pup_'`" != "" ] && continue
+		[ "`echo "$BASEONESFS" | grep "$DISTRO_DRVS"`" != ""  ] && continue
+		[ "`grep "$BASEONESFS" "$tmpPupDrvList"`" ] && continue
 		[ "`echo "$BASEONESFS" | grep "^${DISTRO_PUPPYSFS}"`" != "" ] && continue #100913
-		[ "${DISTRO_ZDRVSFS}" ] && [ "`echo "$BASEONESFS" | grep "^${DISTRO_ZDRVSFS}"`" != "" ] && continue #100913
-		[ "${DISTRO_ADRVSFS}" ] && [ "`echo "$BASEONESFS" | grep "^${DISTRO_ADRVSFS}"`" != "" ] && continue #v1.9.2: saluki
-		[ "${DISTRO_YDRVSFS}" ] && [ "`echo "$BASEONESFS" | grep "^${DISTRO_YDRVSFS}"`" != "" ] && continue #v2.0.11
-		[ "${DISTRO_FDRVSFS}" ] && [ "`echo "$BASEONESFS" | grep "^${DISTRO_FDRVSFS}"`" != "" ] && continue #v1.9.2: saluki
 		[ "`echo "$BASEONESFS" | grep "^${SFSBASE}"`" != "" ] && continue #100913
-		[ "${ZDRBASE}" ] && [ "`echo "$BASEONESFS" | grep "^${ZDRBASE}"`" != "" ] && continue #100913
-		[ "${ADRBASE}" ] && [ "`echo "$BASEONESFS" | grep "^${ADRBASE}"`" != "" ] && continue #v1.9.2: saluki
-		[ "${YDRBASE}" ] && [ "`echo "$BASEONESFS" | grep "^${YDRBASE}"`" != "" ] && continue #v2.0.11
-		[ "${FDRBASE}" ] && [ "`echo "$BASEONESFS" | grep "^${FDRBASE}"`" != "" ] && continue #v1.9.2: saluki
 		BASEFIXEDSFSLIST="$BASEFIXEDSFSLIST
 $BASEONESFS"
 	done
@@ -1326,11 +1321,14 @@ append_sfs() {
 	# add to BOOTCONFIG
 	#v1.9.1, #v2.0: do not register zdrv #v2.0.11: ditto adrv and ydrv
 	#v2.1.8: avoid dup. in EXTRASFSLIST
-	case "$FILENAME" in
-		$DISTRO_PUPPYSFS|$DISTRO_ZDRVSFS|$DISTRO_ADRVSFS|$DISTRO_YDRVSFS|$DISTRO_FDRVSFS) :;;
-		$SFSBASE|$ZDRBASE|$ADRBASE|$YDRBASE|$FDRBASE) :;;
-		*) echo $EXTRASFSLIST | grep -qw "$FILENAME" || EXTRASFSLIST="$EXTRASFSLIST $FILENAME";;
-	esac
+	if [ "$(echo "$F" | grep "$DISTRO_DRVS")" = "" ]; then # not named as system drv sfs
+		if [ "$(grep "$FILENAME" "$tmpPupDrvList")" = "" ]; then # not loaded as system drv sfs
+			case "$FILENAME" in
+				$DISTRO_PUPPYSFS|$SFSBASE) :;;
+				*) echo $EXTRASFSLIST | grep -qw "$FILENAME" || EXTRASFSLIST="$EXTRASFSLIST $FILENAME";;
+			esac
+		fi
+	fi
 	save_bootconfig
 }
 
@@ -1717,6 +1715,17 @@ for F in $PUPSTATE $BOOTCONFIG $DISTRO_SPECS; do
 	[ -s $F ] && source $F
 done
 
+tmpPupDrvList='/tmp/sfs_load_pup_drvs.txt'
+[ -e "$tmpPupDrvList" ] && rm "$tmpPupDrvList"
+touch "$tmpPupDrvList"
+grep 'DRV=' "$PUPSTATE" | cut -d',' -f3 |
+while read oneDrv; do
+	oneBaseFN="${oneDrv##*/}"
+	oneBaseFN="${oneBaseFN%\'}"
+	echo "$oneBaseFN" >> "$tmpPupDrvList"
+done
+DISTRO_DRVS="drv_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION}.sfs"
+
 DISTRO_VERSION=$(echo $DISTRO_VERSION | tr -dc '0-9')
 [ "$DISTRO_VERSION" ] || DISTRO_VERSION=0
 
@@ -1744,6 +1753,8 @@ ZDRBASE=${ZDRV##*/}
 ADRBASE=${ADRV##*/}
 YDRBASE=${YDRV##*/}
 FDRBASE=${FDRV##*/}
+
+[ "$DISTRO_PUPPYSFS" = "" ] && DISTRO_PUPPYSFS=$SFSBASE
 
 KERNVER="`uname -r | cut -f 1 -d \-`" #20151004
 
@@ -2017,9 +2028,17 @@ ALINE=$(echo $LASTUNIONRECORD | grep -o -w "$PATTERN")
 
 if [ "$ALINE" ]; then
 	#v2.0: fix zdrv, adrv #2.0.8 ydrv
-	case "$FILENAME" in
-		$SFSBASE|$ZDRBASE|$ADRBASE|$YDRBASE|$FDRBASE) fatal $(printf "$(gettext "'%s' is the system file and cannot be removed.")" "$FILENAME");;
-	esac
+	IS_SYSTEM_SFS=''
+	if [ "$(echo "$FILENAME" | grep "$DISTRO_DRVS")" != "" ]; then
+		IS_SYSTEM_SFS='yes'
+	elif [ "$(grep "$FILENAME" "$tmpPupDrvList")" != "" ]; then
+		IS_SYSTEM_SFS='yes'
+	else 
+		case "$FILENAME" in
+			$DISTRO_PUPPYSFS|$SFSBASE) IS_SYSTEM_SFS='yes' ;;
+		esac
+	fi
+	[ "$IS_SYSTEM_SFS" != "" ] && fatal $(printf "$(gettext "'%s' is the system file and cannot be removed.")" "$FILENAME")
 	FILENAME=$(keyword $ALINE)
 	EXTRASFS="$DIRNAME/$FILENAME"
 	if [ "$SFSMODE" != "" ]; then
