@@ -222,6 +222,7 @@ case $EXIT in
 	fi
 	;;
 	dld_l)
+	echo 'LATELOADING=true' > $HOME/.ucode.rc
 	/usr/lib/gtkdialog/box_splash -close box -icon gtk-execute -bg '#FFCC38' -text "$(gettext 'Please wait a moment ..')" &
 	cpid=$!
 	if [ "$cb1" = 'true' ];then
