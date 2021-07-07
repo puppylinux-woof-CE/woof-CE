@@ -2,6 +2,8 @@
 # see also /sbin scripts: usablefs, set_plang, switch
 #
 # _FN = _FILENAME
+# _REL_FN = _RELATIVE_FILENAME (to root of partition)
+# _DIR = _DIRECTORY
 # _MP = _MOUNTPOINT
 #
 
@@ -271,13 +273,13 @@ interpret_spec() {
   # $2 = drvId e.g. 'a','f'
   # uses $ONE_DEF_FN
   # on exit:
-  # $ONE_PART contains the partition name
-  # $ONE_MP contains it's mount-point
-  # $ONE_FS contains it's filesystem
-  # $ONE_REL_FN contains the relative-filename
-  # so file is "${ONE_MP}${ONE_REL_FN}"
+  # $SPEC_PART contains the partition name
+  # $SPEC_MP contains it's mount-point
+  # $SPEC_FS contains it's filesystem
+  # $SPEC_REL_FN contains the relative-filename
+  # so file is "${SPEC_MP}${SPEC_REL_FN}"
   echo "interpret_specIN 1=$1 2=$2"
-  ONE_PART=''; ONE_REL_FN=''; ONE_MP=''; ONE_FS=''
+  SPEC_PART=''; SPEC_REL_FN=''; SPEC_MP=''; SPEC_FS=''
   [ "$1" ] || return 1
   [ "$2" ] || return 1
   local PART REL
@@ -287,8 +289,8 @@ interpret_spec() {
   esac
   [ "$REL" ] || REL="$ONE_DEF_FN"
   if [ "$PART" = 'rootfs' ]; then
-    ONE_PART="$PART"
-    ONE_REL_FN="${REL}"
+    SPEC_PART="$PART"
+    SPEC_REL_FN="$REL"
     return
   fi
   if [ "$PART" ]; then
@@ -306,60 +308,53 @@ interpret_spec() {
     if [ "$PART" ]; then
       ensure_mounted "$PART" "/mnt/${2}drv" #sets ONE_MP an ONE_FS
       if [ "$ONE_MP" ]; then
-        ONE_PART="$PART"
-        ONE_REL_FN="$REL"
-        echo "interpret_specOUT ONE_PART=$ONE_PART ONE_MP=$ONE_MP ONE_FS=$ONE_FS ONE_REL_FN=$ONE_REL_FN"
+        SPEC_MP="$ONE_MP"
+        SPEC_FS="$ONE_FS"
+        SPEC_PART="$PART"
+        SPEC_REL_FN="$REL"
+        echo "interpret_specOUT SPEC_PART=$SPEC_PART SPEC_MP=$SPEC_MP SPEC_FS=$SPEC_FS SPEC_REL_FN=$SPEC_REL_FN"
       fi
     fi
   fi
 }
 
 find_drv_file() {
-# "$1" - relative filename - ex: /pup/mydrv-1.2.3.sfs
+# "$1" - mount point - ex:  /mnt/pdrv
+# "$2" - relative filename - ex: /pup/mydrv-1.2.3.sfs
   ONE_FN=""
   [ "${1}" ] || return 3
-  ONE_TRY_FN="$1"
-  ONE_SFS="${ONE_MP}${ONE_TRY_FN}"
-  [ -e "$ONE_SFS" ] || return 3
-  if [ -L "$ONE_SFS" ];then
-    local LNK_SFS="$(realpath "$ONE_SFS")"
-    local C_MP="$(realpath "$ONE_MP")"
-    ONE_TRY_FN="${LNK_SFS#${C_MP}}"
+  [ "${2}" ] || return 3
+  local SFS_FFN="${1}${2}"
+  [ -e "${SFS_FFN}" ] || return 3
+  local TRY_FN="$2"
+  if [ -L "$SFS_FFN" ];then
+    local LNK_SFS="$(realpath "$SFS_FFN")"
+    local C_MP="$(realpath "$1")"
+    TRY_FN="${LNK_SFS#${C_MP}}"
     # if it's on a different partition, it should fail the '-f' test below
     # which is the way it's supposed to work
   fi
-  if [ -f "${ONE_MP}${ONE_TRY_FN}" ];then
-    ONE_FN="$ONE_TRY_FN"
-    [ "$LNK_SFS" ] && echo "${1} -> ${ONE_FN}"
+  if [ -f "${1}${TRY_FN}" ];then
+    ONE_FN="$TRY_FN"
+    [ "$LNK_SFS" ] && echo "${2} -> ${ONE_FN}"
   else
     return 3
   fi
 }
 
 setup_onepupdrv() {
-# "$1" - sfs spec - ex: sdb2,ext4,/pup/mydrv-1.2.3.sfs
-# "$2" - suffix for "pup_" branch directory - ex: a
-# "$3" - prepend after rw layer indicator - ex: p
+# "$1" - suffix for "pup_" branch directory - ex: a
+# "$2" - prepend after rw layer indicator - ex: p  
+#  use $SPEC_PART $SPEC_MP $SPEC_REL_FN
  ONE_LAYER=""
- ONE_PART="$(echo "${1}" | cut -f 1 -d ',')"
- [ "$ONE_PART" ] || return 1
- ONE_REL_FN="$(echo "${1}" | cut -f 3 -d ',')"
- [ "$ONE_REL_FN" ] || return 1
- ONE_SFX="${2}"
- ONE_PREP="${3}"
- if [ "$ONE_PART" = "rootfs" ];then #humongous initrd.
-  ONE_MP="" #actually it's '/'.
+ [ "$SPEC_MP" ] || return 2
+ ONE_SFX="${1}"
+ ONE_PREP="${2}"
+ if [ "$SPEC_PART" = "rootfs" ];then #humongous initrd.
   COPY2RAM='yes' #actually it is already in ram, but load_sfs_file code puts it in a tmpfs.
- else
-  if [ "$ONE_PART" = "$P_PART" ];then
-   ONE_MP="$P_MP"
-  else
-   ONE_MP="$(mount | grep -m1 "/dev/$ONE_PART " | cut -f 3 -d ' ')"
-   [ "$ONE_MP" ] || return 2
-  fi
  fi
- ONE_FN="${ONE_MP}${ONE_REL_FN}"
- ONE_BASENAME="$(basename $ONE_REL_FN)"
+ ONE_FN="${SPEC_MP}${SPEC_REL_FN}"
+ ONE_BASENAME="$(basename $SPEC_REL_FN)"
  if ! [ -s "$ONE_FN" ] ; then
    return 3 #sfs not Ok - empty file
  fi
@@ -388,7 +383,7 @@ setup_onepupdrv() {
   SIZEZK=$(du -k $ONE_FN | cut -f 1)
   TFREEK=$(df | grep -m1 ' /mnt/tmpfs' | tr -s ' ' | cut -f 4 -d ' ')
   if [ $TFREEK -gt $SIZEZK ];then
-   if [ "$ONE_MP" = "" ];then #101101 humongous initrd.
+   if [ "$SPEC_MP" = "" ];then #101101 humongous initrd.
     mv -f $ONE_FN /mnt/tmpfs/
    else
     echo -en " \\033[1;35m${L_COPY_MESSAGE}\\033[0;39m" > /dev/console #purple.
@@ -399,11 +394,11 @@ setup_onepupdrv() {
    losetup -r $ONE_LOOP /mnt/tmpfs/$ONE_BASENAME
   else
    losetup -r $ONE_LOOP $ONE_FN
-   [ "$ONE_PART" != "rootfs" ] && KEEPMOUNTED="${KEEPMOUNTED}${ONE_PART} "
+   [ "$SPEC_PART" != "rootfs" ] && KEEPMOUNTED="${KEEPMOUNTED}${SPEC_PART} "
   fi
  else
   losetup -r $ONE_LOOP $ONE_FN
-  [ "$ONE_PART" != "rootfs" ] && KEEPMOUNTED="${KEEPMOUNTED}${ONE_PART} "
+  [ "$SPEC_PART" != "rootfs" ] && KEEPMOUNTED="${KEEPMOUNTED}${SPEC_PART} "
  fi
  SFS_MP="/pup_${ONE_SFX}"
  [ "$ONE_SFX" = "p" ] && SFS_MP="/pup_ro2"
@@ -432,9 +427,10 @@ process_one_sfs() {
   # $1 = drvId  e.g. 'a' or 'f'
   # $2 = disposition 'a' or 'p' for 'append|prepend'
   # for current "setup_onepupdrv" $2 is '' or 'p'
+  # sets $SPEC_REL_FN if the original was a symbolic link
   echo "process_one_sfsIN 1=$1 2=$2"
   [ "$1" ] || return 1
-  ONE_SFS_SPEC=''
+  local ONE_SFS_SPEC=''
   if [ "$1" = 'p' ]; then
     ONE_DEF_FN="puppy_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION}.sfs"
     ONE_SFS_SPEC="$PDRV"
@@ -451,19 +447,19 @@ process_one_sfs() {
   fi
   if [ "$ONE_SFS_SPEC" ]; then
     interpret_spec "$ONE_SFS_SPEC" "$1"
-    find_drv_file "${ONE_REL_FN}"
+    find_drv_file "$SPEC_MP" "${SPEC_REL_FN}"
     [ "$ONE_FN" ] || return 3
-    ONE_REL_FN="$ONE_FN"
-    setup_onepupdrv "${ONE_PART},${ONE_FS},${ONE_REL_FN}" "${1}" "${2}"
+    SPEC_REL_FN="$ONE_FN"
+    setup_onepupdrv "${1}" "${2}"
     STATUS=$?
     [ $STATUS -eq 0 ] || return $STATUS
-    local LINE="$(echo -n "$1" | tr '[:lower:]' '[:upper:]')DRV='${ONE_PART},${ONE_FS},${ONE_REL_FN}'"
+    local PLACE="${SPEC_PART},${SPEC_FS},${SPEC_REL_FN}"
     if [ "$1" = 'p' ]; then
-      eval $LINE
+      PUPSFS="$PLACE"
     else
-      echo $LINE >> "$DRVS_TMP_FN"
+      echo "$(echo -n "$1" | tr '[:lower:]' '[:upper:]')DRV='$PLACE'" >> "$DRVS_TMP_FN"
     fi
-    echo "process_one_sfsOUT $LINE disp=$2"
+    echo "process_one_sfsOUT ${1}drv $PLACE disp=$2"
     return 0
   fi
   return 9
@@ -695,10 +691,13 @@ $TRY_PARTS_LAST"
     fi
    fi
    if [ "$LOOK_PUP" ];then
-    find_drv_file "$P_BP_FN" "$P_DEF_FN"
+    find_drv_file "$ONE_MP" "${PSUBDIR}/$ONE_DEF_FN"
     if [ "$ONE_FN" ];then
-     PDRV="$ONE_PART,$ONE_FS,$ONE_FN"
-     P_MP="$ONE_MP"
+     SPEC_PART="$ONE_PART"
+     SPEC_MP="$ONE_MP"
+     SPEC_REL_FN="$ONE_FN"
+     SPEC_FS="$ONE_FS"
+     PUPSFS="${SPEC_PART},${SPEC_FS},${SPEC_REL_FN}"
      P_PART="$ONE_PART"
      [ "$PDEBUG" ] && echo "5: ONE_PART=$ONE_PART PSUBDIR=$PSUBDIR P_BP_FN=$P_BP_FN P_DEF_FN=$P_DEF_FN"
      break;
@@ -897,7 +896,6 @@ LOADMSG="${L_LOAD_MESSAGE}"
 process_one_sfs 'p'
 STATUS=$?
 if [ $STATUS -eq 9 ]; then
-  P_BP_FN="$ONE_REL_FN"
   LOOK_PUP='yes'
   wait_for_dev
   USBDRVS="$(find /sys/block -maxdepth 1 -name 'sd*' -o -name 'sr*' | xargs -n 1 readlink 2>/dev/null | grep '/usb[0-9]' | rev | cut -f 1 -d '/' | rev | tr '\n' '|')"
@@ -907,22 +905,22 @@ if [ $STATUS -eq 9 ]; then
   else
     search_func 'ext|f2fs'
   fi
-  setup_onepupdrv "$PDRV" 'p'
+  setup_onepupdrv 'p'
   STATUS=$?
 fi
 if [ $STATUS -gt 0 ];then
  P_PRE_MSG="${L_PRE_MESSAGE}"
  case $STATUS in
-  1) fatal_error "$(printf "${L_ERR_PDRV_INCOMPLETE}" "$PDRV")" "$P_PRE_MSG" ;;
-  2) fatal_error "$(printf "${L_ERR_ONEPART_NOT_MOUNTED}" "$ONE_PART")" "$P_PRE_MSG" ;;
-  3) fatal_error "$(printf "${L_ERR_ONEPART_NOT_OK}" "$ONE_PART" "$ONE_REL_FN")" "$P_PRE_MSG" ;;
-  4) fatal_error "$(printf "${L_ERR_ONEPART_MOUNT_SFS_FAILED}" "$ONE_PART" "$ONE_REL_FN")" "$P_PRE_MSG" ;;
+  1) fatal_error "$(printf "${L_ERR_PDRV_INCOMPLETE}" "$PUPSFS")" "$P_PRE_MSG" ;;
+  2) fatal_error "$(printf "${L_ERR_ONEPART_NOT_MOUNTED}" "$SPEC_PART")" "$P_PRE_MSG" ;;
+  3) fatal_error "$(printf "${L_ERR_ONEPART_NOT_OK}" "$SPEC_PART" "$SPEC_REL_FN")" "$P_PRE_MSG" ;;
+  4) fatal_error "$(printf "${L_ERR_ONEPART_MOUNT_SFS_FAILED}" "$SPEC_PART" "$SPEC_REL_FN")" "$P_PRE_MSG" ;;
   5) fatal_error "$(printf "${L_ERR_AUFS_SFS_FAILED}" "$ONE_LAYER")" "$P_PRE_MSG" ;;
  esac
 fi
 PUP_LAYER="$SFS_MP"
-P_PART="$ONE_PART"
-P_MP="$ONE_MP"
+P_PART="$SPEC_PART"
+P_MP="$SPEC_MP"
 
 if [ "$PRAMONLY" != "yes" ]; then
   # process BOOT_SPECS in install directory, if present
@@ -1229,7 +1227,7 @@ umount_unneeded
 
 echo -n $(($TOTAL_SIZEK_SFS_RAM - 5)) > /tmp/sfs_ram_sizek
 
-[ "$DEV1FS" ] || DEV1FS="$(echo "$PDRV" | cut -f 2 -d ',')"
+[ "$DEV1FS" ] || DEV1FS="$(echo "$PUPSFS" | cut -f 2 -d ',')"
 [ "$ATADRIVES" ] || ATADRIVES="$(cat /tmp/ATADRIVES0 | tr '\n' ' ')"
 
 mkdir -p /pup_new/etc/rc.d
@@ -1237,7 +1235,7 @@ mkdir -p /pup_new/etc/rc.d
 echo "PUPMODE=$PUPMODE"
 echo "PDEV1='$P_PART'"
 echo "DEV1FS='$DEV1FS'"
-echo "PUPSFS='$PDRV'"
+echo "PUPSFS='$PUPSFS'"
 echo "PUPSAVE='$PUPSAVE'"
 echo "PMEDIA='$PMEDIA'"
 echo '#ATADRIVES is all internal ide/pata/sata drives, excluding optical, excluding usb...'
