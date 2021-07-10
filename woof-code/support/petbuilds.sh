@@ -292,7 +292,9 @@ echo "Copying petbuilds to rootfs-complete"
 MAINPKGS=
 
 for NAME in $PKGS; do
-    mkdir -p ../packages-${DISTRO_FILE_PREFIX}/${NAME}
+    rm -rf ../packages-${DISTRO_FILE_PREFIX}/${NAME} ../packages-${DISTRO_FILE_PREFIX}/${NAME}_NLS ../packages-${DISTRO_FILE_PREFIX}/${NAME}_DOC
+
+    mkdir ../packages-${DISTRO_FILE_PREFIX}/${NAME}
     cp -a ../petbuild-output/${NAME}-latest/* ../packages-${DISTRO_FILE_PREFIX}/${NAME}/
 
     if [ -d ../packages-${DISTRO_FILE_PREFIX}/${NAME}/usr/share/locale ]; then
