@@ -1,6 +1,8 @@
 #!/bin/bash
 
+PKGS_SPECS_TABLE_RESOLVED=0
 . $1
+[ $PKGS_SPECS_TABLE_RESOLVED -eq 1 ] && exit 0
 
 INSTALLED_PKGS=
 NEW_PKGS_SPECS_TABLE=
@@ -93,6 +95,8 @@ if [ $AUTOCNT -gt 0 ]; then
 PKGS_SPECS_TABLE='
 $NEW_PKGS_SPECS_TABLE
 '
+
+PKGS_SPECS_TABLE_RESOLVED=1
 EOF
 else
     echo "Skipped dependency resolution"
