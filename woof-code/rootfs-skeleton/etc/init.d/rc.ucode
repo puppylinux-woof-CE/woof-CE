@@ -1,0 +1,98 @@
+#!/bin/sh
+
+# service script to identify if ucode is present and load it if so
+# if not download it and load it if possible
+# GPLv2
+
+[ -e /etc/ucode.rc ] && . /etc/ucode.rc # written by micro2pup.sh
+[ "$LATELOADING" = 'true' ] || exit
+
+# check we have default in 'route'
+check_route() {
+	t=0
+	s=1
+	while [ $t -le 30 ] # may need time
+	do
+		busybox route | while read result
+		do
+			if [ "${result:0:7}" = 'default' ] ;then
+				echo success
+				echo 0 > /tmp/s
+				break
+			fi
+		done
+		[ -e /tmp/s ] && s=$(</tmp/s) && retval=0 && rm -f /tmp/s
+		[ $s -eq 0 ] && break
+		sleep 1
+		t=$(($t + 1))
+	done
+	[ $t -ge 30 ] && echo 'no connection' && retval=1
+	return $retval
+}
+
+# architecture
+check_arch() {
+	case $(uname -m) in
+		x86_64|i?86);;
+		*)echo "$(uname -m) unsupported"; exit;;
+	esac
+}
+# vm?
+check_vm() {
+	grep -qim1 'hypervisor' /proc/cpuinfo && echo "vm unsupported" && \
+	exit 
+}
+# kernel late loading support
+late_support() { # by mistfire
+	if [ ! -e /sys/devices/system/cpu/microcode/reload ]; then
+		echo "Microcode late loading not supported."
+		exit  
+	fi
+}
+# bail on early loading
+check_loaded_early() {
+	dmesg | grep -qm1 'microcode updated early' && echo "microcode loaded early, exiting" && exit
+}
+# check if fw exists
+download=1
+check_exists() {
+	CPUVENDOR=$(grep -m1 '^vendor_id' /proc/cpuinfo)
+	CPUVENDOR=${CPUVENDOR#* }
+	case $CPUVENDOR in
+		AuthenticAMD)UCODE_EXISTS=$(ls -A /lib/firmware/amd-ucode 2>/dev/null);;
+		GenuineIntel)UCODE_EXISTS=$(ls -A /lib/firmware/intel-ucode 2>/dev/null);;
+	esac
+	if [ -z "$UCODE_EXISTS" ] ;then
+		echo "need to download ucode"
+		download=0
+	else
+		echo "microcode exists"
+		download=1
+	fi
+}
+# load the ucode
+load_ucode() {
+	echo "loading microcode"
+	[ -e /sys/devices/system/cpu/microcode/reload ] && \
+	echo 1 > /sys/devices/system/cpu/microcode/reload
+}
+# run as a service
+case $1 in
+	start)
+		check_arch
+		check_vm
+		late_support
+		check_loaded_early # exits
+		check_exists
+		if [ $download -eq 0 ];then
+			check_route || exit # exit if net not up in 30 seconds
+			type get_ucode.sh >/dev/null 2>&1 && get_ucode.sh || exit
+			load_ucode
+		else
+			load_ucode
+		fi
+		;;
+	*)	;; # do nothing
+esac
+# end
+

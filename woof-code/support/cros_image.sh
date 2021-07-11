@@ -103,6 +103,7 @@ mount-FULL -o loop,noatime,offset=${P2STARTBYTES} ${SSD_IMG_BASE} /mnt/ssdimagep
 mount-FULL -o loop,noatime,offset=${P2STARTBYTES} ${SD_IMG_BASE} /mnt/sdimagep2
 
 cp -a rootfs-complete/* /mnt/ssdimagep2/
+[ ! -e build/ucode.cpio ] || install -m 644 build/ucode.cpio /mnt/ssdimagep2/ucode.cpio
 echo -e '#!/bin/sh\nexec /sbin/init initrd_full_install' > /mnt/ssdimagep2/init
 chmod 755 /mnt/ssdimagep2/init
 cp -a /mnt/ssdimagep2/* /mnt/sdimagep2/
@@ -122,14 +123,24 @@ x86*)
 
 	extlinux -i /mnt/legacyimagep1
 	dd if=/usr/lib/EXTLINUX/mbr.bin of=${LOOP}
-	cat << EOF > /mnt/legacyimagep1/extlinux.conf
+	if [ -e /mnt/ssdimagep2/ucode.cpio ]; then
+		cat << EOF > /mnt/legacyimagep1/extlinux.conf
+DEFAULT puppy
+
+LABEL puppy
+	LINUX vmlinuz
+	INITRD ucode.cpio
+	APPEND root=PARTUUID=$PARTUUID init=/init rootfstype=ext4 rootwait rw
+EOF
+	else
+		cat << EOF > /mnt/legacyimagep1/extlinux.conf
 DEFAULT puppy
 
 LABEL puppy
 	LINUX vmlinuz
 	APPEND root=PARTUUID=$PARTUUID init=/init rootfstype=ext4 rootwait rw
 EOF
-
+	fi
 	cp -a /mnt/ssdimagep2/* /mnt/legacyimagep1/
 	cp -f build/vmlinuz /mnt/legacyimagep1/
 	busybox umount /mnt/legacyimagep1 2>/dev/null
