@@ -446,6 +446,22 @@ if [ -f $DIRECTSAVEPATH/puninstall.sh ];then
  mv -f $DIRECTSAVEPATH/puninstall.sh /root/.packages/${DLPKG_NAME}.remove
 fi
 
+#Non-puppy packages stores daemon scripts to /etc/rc.d, however it was reserved for puppy core scripts. Just relocate the scripts to /etc/init.d
+if [ "$EXT" != ".pet" ]; then
+
+ cat /var/packages/${DLPKG_NAME}.files | grep "^\/etc\/rc\.d\/|^\/etc\/rc\.d\/init\.d\/" > /tmp/pkg-rcd-files
+
+ while IFS= read -r line
+ do
+  rcbname="$(basename $line)"
+  [ -f $line ] && mv -f "$line" /etc/init.d/$rcbname
+  [ -L $line ] && mv -f "$line" /etc/init.d/$rcbname
+ done < /tmp/pkg-rcd-files
+
+ sed -i -e 's#^\/etc\/rc\.d\/init\.d\/#\/etc\/init\.d\/#g' -e 's#^\/etc\/rc\.d\/#\/etc\/init\.d\/#g' /var/packages/${DLPKG_NAME}.files
+
+fi
+
 
 #Look for symbolic links created by post-scripts and update package file list
 #remove temp list first
