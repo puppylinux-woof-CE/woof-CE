@@ -12,7 +12,7 @@ WOOF_CC="/ccache gcc"
 WOOF_CXX="/ccache g++"
 
 WOOF_CFLAGS="$WOOF_CFLAGS -Os -fomit-frame-pointer -ffunction-sections -fdata-sections -fmerge-all-constants"
-WOOF_CXXCFLAGS="$WOOF_CXXCFLAGS -Os -fomit-frame-pointer -ffunction-sections -fdata-sections -fmerge-all-constants"
+WOOF_CXXFLAGS="$WOOF_CXXFLAGS -Os -fomit-frame-pointer -ffunction-sections -fdata-sections -fmerge-all-constants"
 WOOF_LDFLAGS="$WOOF_LDFLAGS -Wl,--gc-sections -Wl,--sort-common -Wl,-s"
 
 MAKEFLAGS=-j`nproc`
