@@ -479,7 +479,7 @@ if [ "$EXT" != ".pet" ]; then
       #Generate init.d script
       srvname="$(basename $line .service)"
       
-      if [ ! -e /etc/init.d/$srvname ]; then
+      if [ -f "$line" ] && [ ! -e /etc/init.d/$srvname ]; then
        service2initd $line > /etc/init.d/$srvname
        #Add to package files list
        echo "/etc/init.d/$srvname" >> /var/packages/${DLPKG_NAME}.files
