@@ -449,6 +449,7 @@ fi
 #Non-puppy packages stores start/stop daemon scripts to /etc/rc.d, however it was reserved for puppy core scripts. Just relocate the scripts to /etc/init.d
 
 rm -f /tmp/pkg-rcd-files 2>/dev/null
+rm -f /tmp/pkg-srv-files 2>/dev/null
 
 if [ "$EXT" != ".pet" ]; then
 
@@ -464,7 +465,25 @@ if [ "$EXT" != ".pet" ]; then
  done < /tmp/pkg-rcd-files
 
  #Update the package files list
- sed -i -e 's#^\/etc\/rc\.d\/init\.d\/#\/etc\/init\.d\/#g' -e 's#^\/etc\/rc\.d\/#\/etc\/init\.d\/#g' /var/packages/${DLPKG_NAME}.files
+ sed -i -e 's#^\/etc\/rc\.d\/init\.d#\/etc\/init\.d#g' -e 's#^\/etc\/rc\.d#\/etc\/init\.d#g' /var/packages/${DLPKG_NAME}.files
+ 
+ #Check if init.d scripts were not found but systemd service files exists.
+ if [ "$(cat /var/packages/${DLPKG_NAME}.files | grep -E '\/lib/systemd\/system\/|^\/etc/systemd\/system\/' | grep ".service")" != "" ]; then
+   if [ "$(cat /var/packages/${DLPKG_NAME}.files | grep "/etc/init.d")" == "" ] && [ "$(which service2initd)" != "" ]; then
+     
+    cat /var/packages/${DLPKG_NAME}.files | grep -E '\/lib/systemd\/system\/|^\/etc/systemd\/system\/' | grep ".service" | grep -v "systemd/system/systemd\-" > /tmp/pkg-srv-files
+
+     while IFS= read -r line
+     do
+      #Generate init.d script
+      srvname="$(basename $line .service)"
+      service2initd $line > /etc/init.d/$srvname
+      #Add to package files list
+      echo "/etc/init.d/$srvname" >> /var/packages/${DLPKG_NAME}.files
+     done < /tmp/pkg-srv-files 
+ 
+   fi
+ fi 
 
 fi
 
