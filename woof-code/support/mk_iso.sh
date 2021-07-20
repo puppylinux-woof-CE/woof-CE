@@ -441,6 +441,10 @@ cp -a $ISOLINUX $BUILD
 cp -a $ISOLINUX $BUILD/boot/isolinux
 cp -a $CHAIN32 $BUILD/boot/isolinux
 cp -a $GRLDR $BUILD/boot/grub
+if [ "$LICK_IN_ISO" = 'yes' ] ; then
+	[ -d "${PX}/usr/share/boot-dialog/Windows_Installer" ] && \
+	cp -arf ${PX}/usr/share/boot-dialog/Windows_Installer $BUILD
+fi
 pic='puppy.png'
 case ${DISTRO_FILE_PREFIX} in
 	[Tt]ahr*)   pic='tahr.png'   ;;
