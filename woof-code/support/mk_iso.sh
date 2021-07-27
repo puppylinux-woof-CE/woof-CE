@@ -366,7 +366,7 @@ OUT=${WOOF_OUTPUT}/${ISO_BASENAME}.iso
 
 # RESOURCES
 ISOLINUX=`find $PX/usr -maxdepth 3 -type f -name 'isolinux.bin'`
-CHAIN32=`find $PX/usr -maxdepth 3 -type f -name 'chain.c32'`
+CHAIN32=`find $PX/usr -maxdepth 5 -type f -name 'chain.c32' | grep bios/chain.c32`
 #FIXUSB=`find $PX/usr -maxdepth 2 -type f -name 'fix-usb.sh'`
 if [ -e "${PX}/usr/local/frugalpup" ] ; then
 	UEFI_ISO=yes
