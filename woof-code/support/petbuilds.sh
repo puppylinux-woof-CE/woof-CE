@@ -19,11 +19,23 @@ MAKEFLAGS=-j`nproc`
 
 HAVE_ROOTFS=0
 HAVE_BUSYBOX=0
+PETBUILD_GTK=2
 if [ "$DISTRO_TARGETARCH" = "x86" ]; then
     echo "Using GTK+ 2 for x86 petbuilds"
-    PETBUILD_GTK=2
 else
-    PETBUILD_GTK=-1
+    GTK3_PC=`find ../packages-${DISTRO_FILE_PREFIX} -name gtk+-3.0.pc | head -n 1`
+    if [ -n "$GTK3_PC" ]; then
+        GTK3_VER=`awk '/Version:/{print $2}' "${GTK3_PC}"`
+        vercmp "$GTK3_VER" ge 3.24.18
+        if [ $? -eq 0 ]; then
+            echo "Using GTK+ 3 for petbuilds"
+            PETBUILD_GTK=3
+        else
+            echo "Using GTK+ 2 for petbuilds, GTK+ 3 is too old"
+        fi
+    else
+        echo "Using GTK+ 2 for petbuilds, GTK+ 3 is missing"
+    fi
 fi
 HERE=`pwd`
 PKGS=
@@ -189,16 +201,6 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
         mount -t tmpfs -o size=1G petbuild-tmp-${NAME} petbuild-rootfs-complete-${NAME}/tmp
         mkdir -p ../petbuild-cache/.ccache
         mount --bind ../petbuild-cache/.ccache petbuild-rootfs-complete-${NAME}/root/.ccache
-
-        if [ $PETBUILD_GTK -lt 2 ]; then
-            if PKG_CONFIG_PATH="$PKG_CONFIG_PATH" chroot petbuild-rootfs-complete-${NAME} pkg-config --atleast-version=3.24.18 gtk+-3.0; then
-                echo "Using GTK+ 3 for petbuilds"
-                PETBUILD_GTK=3
-            else
-                echo "Using GTK+ 2 for petbuilds, GTK+ 3 is missing or too old"
-                PETBUILD_GTK=2
-            fi
-        fi
 
         cp -a ../petbuild-sources/${NAME}/* petbuild-rootfs-complete-${NAME}/tmp/
         cp -a ../rootfs-petbuilds/${NAME}/* petbuild-rootfs-complete-${NAME}/tmp/
