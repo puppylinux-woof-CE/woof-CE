@@ -366,7 +366,7 @@ OUT=${WOOF_OUTPUT}/${ISO_BASENAME}.iso
 
 # RESOURCES
 ISOLINUX=`find $PX/usr -maxdepth 3 -type f -name 'isolinux.bin'`
-CHAIN32=`find $PX/usr -maxdepth 3 -type f -name 'chain.c32'`
+CHAIN32=`find $PX/usr -maxdepth 5 -type f -name 'chain.c32' | grep -v efi`
 #FIXUSB=`find $PX/usr -maxdepth 2 -type f -name 'fix-usb.sh'`
 if [ -e "${PX}/usr/local/frugalpup" ] ; then
 	UEFI_ISO=yes
@@ -440,6 +440,10 @@ fi
 cp -a $ISOLINUX $BUILD
 cp -a $ISOLINUX $BUILD/boot/isolinux
 cp -a $CHAIN32 $BUILD/boot/isolinux
+MODDIR=`dirname $CHAIN32`
+for MOD in ldlinux.c32 libutil.c32 libcom32.c32; do
+	[ -f $MODDIR/$MOD ] && cp -a $MODDIR/$MOD $BUILD/boot/isolinux/
+done
 cp -a $GRLDR $BUILD/boot/grub
 if [ "$LICK_IN_ISO" = 'yes' ] ; then
 	[ -d "${PX}/usr/share/boot-dialog/Windows_Installer" ] && \
