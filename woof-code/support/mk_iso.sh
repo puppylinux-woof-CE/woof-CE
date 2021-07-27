@@ -442,7 +442,7 @@ cp -a $ISOLINUX $BUILD/boot/isolinux
 cp -a $CHAIN32 $BUILD/boot/isolinux
 MODDIR=`dirname $CHAIN32`
 for MOD in ldlinux.c32 libutil.c32 libcom32.c32; do
-	cp -a $MODDIR/$MOD $BUILD/boot/isolinux/
+	[ -f $MODDIR/$MOD ] && cp -a $MODDIR/$MOD $BUILD/boot/isolinux/
 done
 cp -a $GRLDR $BUILD/boot/grub
 if [ "$LICK_IN_ISO" = 'yes' ] ; then
