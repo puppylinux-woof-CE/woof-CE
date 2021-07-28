@@ -104,16 +104,22 @@ gboolean Update(gpointer ptr) {
     char strpercent[8];
     char time[8];
     int num;
+    int energy = 0;
 
     glob_t g = {0};
-    if ((glob("/sys/class/power_supply/*/charge_full", 0, NULL, &g) == 0) && (g.gl_pathc > 0)) {
+    if ((glob("/sys/class/power_supply/*/*_full", 0, NULL, &g) == 0) && (g.gl_pathc > 0)) {
         for (size_t i = 0; i < g.gl_pathc; ++i) {
             if (chdir(dirname(g.gl_pathv[i])) < 0)
                 continue;
 
-            int full;
-            if((fp = fopen("charge_full","r")) == NULL) continue;
-            fscanf(fp,"%d",&full);
+            long full;
+            fp = fopen("charge_full","r");
+            if (!fp) {
+                fp = fopen("energy_full","r");
+                energy = 1;
+            }
+            if (!fp) continue;
+            fscanf(fp,"%ld",&full);
             fclose(fp);
 
             char status[sizeof("Discharging\n")];
@@ -129,12 +135,17 @@ gboolean Update(gpointer ptr) {
                 charging = (strcmp(status, "Charging") == 0);
                 charged = 0;
 
-                int now;
-                if((fp = fopen("charge_now","r")) == NULL) continue;
-                fscanf(fp,"%d",&now);
+                long now;
+                if (energy) {
+                    fp = fopen("energy_now","r");
+                } else {
+                    fp = fopen("charge_now","r");
+                }
+                if (!fp) continue;
+                fscanf(fp,"%ld",&now);
                 fclose(fp);
 
-                batpercent=(now*100)/full;
+                batpercent=(int)((now*100)/full);
             }
 
             break;
