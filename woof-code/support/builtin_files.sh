@@ -36,23 +36,30 @@ do
 	done
 done
 
-# do the same for rootfs-packages
-if [ -f /tmp/rootfs-packages.specs ];then
-	while read line
-	do
-		PKGL=`echo $line | cut -d '|'  -f 2`
-		echo -n "${PKGL} "
-		find -H ../rootfs-packages/$PKGL -type f -o -type l | \
-			sed -e "s%^\\.\\./rootfs-packages/${PKGL}/%/%" | \
-			sort > /tmp/0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}/${PKGL}.files
-		while read ONELINE ; do
-			if [ -e "rootfs-complete${ONELINE}" ];then
-				echo "${ONELINE}" >> 0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${PACKAGES_DIR}/builtin_files/${PKGL}
-			fi
-		done < /tmp/0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}/${PKGL}.files
-	done < /tmp/rootfs-packages.specs
-	rm -f /tmp/rootfs-packages.specs
-fi
+# do the same for rootfs-packages, petbuilds
+process_extras() {
+	if [ -f "/tmp/${1}.specs" ];then
+		SUF='' # suffix
+		[ "$1" = 'petbuild-output' ] && SUF='-latest'
+		while read line
+		do
+			PKGL=`echo $line | cut -d '|'  -f 2`
+			PKGR="${PKGL}${SUF}"
+			echo -n "${PKGL} "
+			find -H ../${1}/$PKGR -type f -o -type l | \
+				sed -e "s%^\\.\\./${1}/${PKGR}/%/%" | \
+				sort > /tmp/0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}/${PKGL}.files
+			while read ONELINE ; do
+				if [ -e "rootfs-complete${ONELINE}" ];then
+					echo "${ONELINE}" >> 0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${PACKAGES_DIR}/builtin_files/${PKGL}
+				fi
+			done < /tmp/0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}/${PKGL}.files
+		done < /tmp/${1}.specs
+		rm -f /tmp/${1}.specs
+	fi
+}
+process_extras rootfs-packages
+process_extras petbuild-output
 
 echo
 rm -f 0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}.tar.gz
