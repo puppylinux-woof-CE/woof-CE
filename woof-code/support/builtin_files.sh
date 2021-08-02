@@ -38,24 +38,24 @@ done
 
 # do the same for rootfs-packages, petbuilds
 process_extras() {
-	if [ -f /tmp/${1}.specs ];then
+	if [ -f "/tmp/${1}.specs" ];then
 		SUF='' # suffix
 		[ "$1" = 'petbuild-output' ] && SUF='-latest'
 		while read line
 		do
 			PKGL=`echo $line | cut -d '|'  -f 2`
-			PKGL="${PKGL}${SUF}"
+			PKGR="${PKGL}${SUF}"
 			echo -n "${PKGL} "
-			find -H ../${1}/$PKGL -type f -o -type l | \
-				sed -e "s%^\\.\\./${1}/${PKGL}/%/%" | \
+			find -H ../${1}/$PKGR -type f -o -type l | \
+				sed -e "s%^\\.\\./${1}/${PKGR}/%/%" | \
 				sort > /tmp/0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}/${PKGL}.files
 			while read ONELINE ; do
-				if [ -e "${1}${ONELINE}" ];then
+				if [ -e "rootfs-complete${ONELINE}" ];then
 					echo "${ONELINE}" >> 0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}${PACKAGES_DIR}/builtin_files/${PKGL}
 				fi
 			done < /tmp/0builtin_files_${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}/${PKGL}.files
 		done < /tmp/${1}.specs
-		#rm -f /tmp/${1}.specs
+		rm -f /tmp/${1}.specs
 	fi
 }
 process_extras rootfs-packages
