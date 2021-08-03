@@ -41,62 +41,8 @@ HERE=`pwd`
 PKGS=
 
 # busybox must be first, so other petbuilds can use coreutils commands
-for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
-    NAME=${i#../rootfs-petbuilds/}
-
-    if grep -iq "^yes|${NAME}|" ../DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}; then
-        echo "Skipping ${NAME}, using a package"
-        continue
-    fi
-
-    ALTNAME=`echo ${NAME} | tr - _`
-    if grep -iq "^yes|${ALTNAME}|" ../DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}; then
-        echo "Skipping ${NAME}, using alternate package ${ALTNAME}"
-        continue
-    fi
-
-    if [ "$NAME" = "pa-applet" ] && [ -z "`grep '^yes|pulseaudio|' ../DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}`" ]; then
-        echo "Skipping pa-applet, pulseaudio is not installed"
-        continue
-    fi
-
-    if [ "$NAME" = "pa-applet" ] && [ -n "`grep '^yes|apulse|' ../DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}`" ]; then
-        echo "Skipping pa-applet, apulse is installed"
-        continue
-    fi
-
-    if [ "$NAME" = "xarchiver" ] && [ -n "`grep '^yes|xarchive|' ../DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}`" ]; then
-        echo "Skipping xarchiver, using xarchive"
-        continue
-    fi
-
-    if [ "$NAME" = "l3afpad" -a $PETBUILD_GTK -eq 2 ]; then
-        echo "Skipping l3afpad, using leafpad"
-        continue
-    elif [ "$NAME" = "leafpad" -a $PETBUILD_GTK -eq 3 ]; then
-        echo "Skipping leafpad, using l3afpad"
-        continue
-    fi
-
-    if [ "$NAME" = "sylpheed" ] && [ -n "`grep '^yes|claws-mail|' ../DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}`" ]; then
-        echo "Skipping sylpheed, using claws-mail"
-        continue
-    fi
-
-    if [ "$NAME" = "gpicview" ] && [ -n "`grep '^yes|viewnior|' ../DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}`" ]; then
-        echo "Skipping gpicview, using viewnior"
-        continue
-    fi
-
-    if [ "$NAME" = "cage" ] && [ "$XWAYLAND" != "yes" ]; then
-        echo "Skipping cage, XWAYLAND=$XWAYLAND"
-        continue
-    elif [ "$NAME" = "cage" ] && [ -z "$XWAYLAND" ] && [ "$DISTRO_TARGETARCH" = "x86" ]; then
-        echo "Skipping cage on x86"
-        continue
-    fi
-
-    HASH=`cat ../DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} ../DISTRO_COMPAT_REPOS ../DISTRO_COMPAT_REPOS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} ../DISTRO_PET_REPOS $i/petbuild 2>/dev/null | md5sum | awk '{print $1}'`
+for NAME in $PETBUILDS; do
+    HASH=`cat ../DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} ../DISTRO_COMPAT_REPOS ../DISTRO_COMPAT_REPOS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} ../DISTRO_PET_REPOS ../rootfs-petbuilds/${NAME}/petbuild 2>/dev/null | md5sum | awk '{print $1}'`
     if [ ! -d "../petbuild-output/${NAME}-${HASH}" ]; then
         if [ $HAVE_ROOTFS -eq 0 ]; then
             echo "Preparing build environment"
@@ -204,7 +150,7 @@ for i in ../rootfs-petbuilds/busybox ../rootfs-petbuilds/*; do
 
         cp -a ../petbuild-sources/${NAME}/* petbuild-rootfs-complete-${NAME}/tmp/
         cp -a ../rootfs-petbuilds/${NAME}/* petbuild-rootfs-complete-${NAME}/tmp/
-        CC="$WOOF_CC" CXX="$WOOF_CXX" CFLAGS="$WOOF_CFLAGS" CXXFLAGS="$WOOF_CXXFLAGS" LDFLAGS="$WOOF_LDFLAGS" MAKEFLAGS="$MAKEFLAGS" CCACHE_DIR=/root/.ccache CCACHE_NOHASHDIR=1 PKG_CONFIG_PATH="$PKG_CONFIG_PATH" PYTHONDONTWRITEBYTECODE=1 PETBUILD_GTK=$PETBUILD_GTK chroot petbuild-rootfs-complete-${NAME} sh -ec "cd /tmp && . ./petbuild && build"
+        CC="$WOOF_CC" CXX="$WOOF_CXX" CFLAGS="$WOOF_CFLAGS" CXXFLAGS="$WOOF_CXXFLAGS" LDFLAGS="$WOOF_LDFLAGS" MAKEFLAGS="$MAKEFLAGS" CCACHE_DIR=/root/.ccache CCACHE_NOHASHDIR=1 PKG_CONFIG_PATH="$PKG_CONFIG_PATH" PYTHONDONTWRITEBYTECODE=1 PETBUILD_GTK=$PETBUILD_GTK chroot petbuild-rootfs-complete-${NAME} bash -ec "cd /tmp && . ./petbuild && build"
         ret=$?
         umount -l petbuild-rootfs-complete-${NAME}/root/.ccache
         umount -l petbuild-rootfs-complete-${NAME}/tmp
