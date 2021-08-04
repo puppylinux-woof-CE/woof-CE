@@ -8,8 +8,8 @@ fi
 
 [ -z "$WOOF_CXXFLAGS"] && WOOF_CXXFLAGS="$WOOF_CFLAGS"
 
-WOOF_CC="/ccache gcc"
-WOOF_CXX="/ccache g++"
+WOOF_CC="/usr/bin/ccache gcc"
+WOOF_CXX="/usr/bin/ccache g++"
 
 WOOF_CFLAGS="$WOOF_CFLAGS -Os -fomit-frame-pointer -ffunction-sections -fdata-sections -fmerge-all-constants"
 WOOF_CXXFLAGS="$WOOF_CXXFLAGS -Os -fomit-frame-pointer -ffunction-sections -fdata-sections -fmerge-all-constants"
@@ -61,16 +61,18 @@ for NAME in $PETBUILDS; do
             ln -s bash petbuild-rootfs-complete/bin/sh
 
             # to speed up compilation, we build a static, native ccache executable
-            if [ ! -f ../petbuild-cache/ccache ]; then
-                wget -t 1 -T 15 https://github.com/ccache/ccache/releases/download/v3.7.12/ccache-3.7.12.tar.xz
-                tar -xJf ccache-3.7.12.tar.xz
-                cd ccache-3.7.12
-                CFLAGS=-O3 LDFLAGS="-static -Wl,-s" ./configure
-                MAKEFLAGS="$MAKEFLAGS" make
-                install -D -m 755 ccache ../../petbuild-cache/ccache
-                cd ..
+            if [ $CROSSBUILD -eq 1 -o ! -e devx/usr/bin/ccache ]; then
+                if [ ! -f ../petbuild-cache/ccache ]; then
+                    wget -t 1 -T 15 https://github.com/ccache/ccache/releases/download/v3.7.12/ccache-3.7.12.tar.xz
+                    tar -xJf ccache-3.7.12.tar.xz
+                    cd ccache-3.7.12
+                    CFLAGS=-O3 LDFLAGS="-static -Wl,-s" ./configure
+                    MAKEFLAGS="$MAKEFLAGS" make
+                    install -D -m 755 ccache ../../petbuild-cache/ccache
+                    cd ..
+                fi
+                install -m 755 ../petbuild-cache/ccache petbuild-rootfs-complete/usr/bin/ccache
             fi
-            install -m 755 ../petbuild-cache/ccache petbuild-rootfs-complete/ccache
 
             # speed up configure scripts by using a native shell executable and a native busybox
             if [ $CROSSBUILD -eq 1 ]; then
