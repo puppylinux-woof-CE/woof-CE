@@ -19,6 +19,13 @@ MAKEFLAGS=-j`nproc`
 
 HAVE_ROOTFS=0
 HAVE_BUSYBOX=0
+
+CHROOT_PFIX=
+if [ "$WOOF_HOSTARCH" = "x86_64" -a "$WOOF_TARGETARCH" = "x86" ]; then
+    echo "Simulating a 32-bit kernel"
+    CHROOT_PFIX=linux32
+fi
+
 PETBUILD_GTK=2
 if [ "$DISTRO_TARGETARCH" = "x86" ]; then
     echo "Using GTK+ 2 for x86 petbuilds"
@@ -37,6 +44,7 @@ else
         echo "Using GTK+ 2 for petbuilds, GTK+ 3 is missing"
     fi
 fi
+
 HERE=`pwd`
 PKGS=
 
@@ -150,7 +158,7 @@ for NAME in $PETBUILDS; do
 
         cp -a ../petbuild-sources/${NAME}/* petbuild-rootfs-complete-${NAME}/tmp/
         cp -a ../rootfs-petbuilds/${NAME}/* petbuild-rootfs-complete-${NAME}/tmp/
-        CC="$WOOF_CC" CXX="$WOOF_CXX" CFLAGS="$WOOF_CFLAGS" CXXFLAGS="$WOOF_CXXFLAGS" LDFLAGS="$WOOF_LDFLAGS" MAKEFLAGS="$MAKEFLAGS" CCACHE_DIR=/root/.ccache CCACHE_NOHASHDIR=1 PKG_CONFIG_PATH="$PKG_CONFIG_PATH" PYTHONDONTWRITEBYTECODE=1 PETBUILD_GTK=$PETBUILD_GTK chroot petbuild-rootfs-complete-${NAME} bash -ec "cd /tmp && . ./petbuild && build"
+        CC="$WOOF_CC" CXX="$WOOF_CXX" CFLAGS="$WOOF_CFLAGS" CXXFLAGS="$WOOF_CXXFLAGS" LDFLAGS="$WOOF_LDFLAGS" MAKEFLAGS="$MAKEFLAGS" CCACHE_DIR=/root/.ccache CCACHE_NOHASHDIR=1 PKG_CONFIG_PATH="$PKG_CONFIG_PATH" PYTHONDONTWRITEBYTECODE=1 PETBUILD_GTK=$PETBUILD_GTK $CHROOT_PFIX chroot petbuild-rootfs-complete-${NAME} bash -ec "cd /tmp && . ./petbuild && build"
         ret=$?
         umount -l petbuild-rootfs-complete-${NAME}/root/.ccache
         umount -l petbuild-rootfs-complete-${NAME}/tmp
