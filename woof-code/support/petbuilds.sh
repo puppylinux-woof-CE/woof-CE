@@ -72,8 +72,8 @@ for NAME in $PETBUILDS; do
             fi
             install -m 755 ../petbuild-cache/ccache petbuild-rootfs-complete/ccache
 
-            # speed configure scripts by using a native shell executable and a native busybox
-            if [ "$WOOF_HOSTARCH" != "$WOOF_TARGETARCH" ]; then
+            # speed up configure scripts by using a native shell executable and a native busybox
+            if [ $CROSSBUILD -eq 1 ]; then
                 if [ ! -f ../petbuild-cache/bash ]; then
                     wget -t 1 -T 15 https://ftp.gnu.org/gnu/bash/bash-5.1.tar.gz
                     tar -xzf bash-5.1.tar.gz
