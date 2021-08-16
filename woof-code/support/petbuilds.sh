@@ -210,7 +210,7 @@ for NAME in $PETBUILDS; do
 
         raspbian|debian|devuan|ubuntu|trisquel) # in debian, we move all shared libraries to ARCHDIR, e.g. lib/arm-linux-gnueabihf
             for PFIX in "" /usr; do
-                for LIBDIR in lib lib64; do
+                for LIBDIR in lib64 lib; do
                     [ ! -d ../petbuild-output/${NAME}-${HASH}${PFIX}/${LIBDIR} ] && continue
                     mkdir -p ../petbuild-output/${NAME}-${HASH}${PFIX}/lib/${ARCHDIR}
                     for SO in `ls ../petbuild-output/${NAME}-${HASH}${PFIX}/${LIBDIR}/*.so* 2>/dev/null`; do
