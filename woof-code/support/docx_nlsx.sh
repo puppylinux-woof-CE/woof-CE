@@ -32,7 +32,7 @@ if [ "$BUILD_DOCX" = "yes" ] ; then
 	done
 	echo
 	rm -f docx/pet.specs
-	[ $USRMERGE -eq 1 ] && usrmerge docx 0
+	[ "$USR_SYMLINKS" = "yes" ] && usrmerge docx 0
 	echo "Creating $DOCXSFS..."
 	mksquashfs docx ${DOCXSFS} ${SFSCOMP}
 fi
@@ -51,7 +51,7 @@ if [ "$BUILD_NLSX" = "yes" ] ; then
 	done
 	echo
 	rm -f nlsx/pet.specs
-	[ $USRMERGE -eq 1 ] && usrmerge nlsx 0
+	[ "$USR_SYMLINKS" = "yes" ] && usrmerge nlsx 0
 	echo "Creating $NLSXSFS..."
 	mksquashfs nlsx ${NLSXSFS} ${SFSCOMP}
 fi
