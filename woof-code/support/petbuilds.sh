@@ -200,19 +200,24 @@ for NAME in $PETBUILDS; do
         case $DISTRO_BINARY_COMPAT in
         slackware64) # in slacko64, we move all shared libraries to lib64
             for LIBDIR in $LIBDIRS; do
+                [ ! -d ../petbuild-output/${NAME}-${HASH}/${LIBDIR} ] && continue
                 mkdir -p ../petbuild-output/${NAME}-${HASH}/${LIBDIR}64
                 for SO in `ls ../petbuild-output/${NAME}-${HASH}/${LIBDIR}/*.so* 2>/dev/null`; do
                     mv -f $SO ../petbuild-output/${NAME}-${HASH}/${LIBDIR}64/
                 done
+                rmdir ../petbuild-output/${NAME}-${HASH}/${LIBDIR} 2>/dev/null
             done
             ;;
 
         raspbian|debian|devuan|ubuntu|trisquel) # in debian, we move all shared libraries to ARCHDIR, e.g. lib/arm-linux-gnueabihf
-            for LIBDIR in $LIBDIRS; do
+            for LIBDIR in $LIBDIRS lib64 usr/lib64; do
+                [ ! -d ../petbuild-output/${NAME}-${HASH}/${LIBDIR} ] && continue
                 mkdir -p ../petbuild-output/${NAME}-${HASH}/${LIBDIR}/${ARCHDIR}
                 for SO in `ls ../petbuild-output/${NAME}-${HASH}/${LIBDIR}/*.so* 2>/dev/null`; do
                     mv -f $SO ../petbuild-output/${NAME}-${HASH}/${LIBDIR}/${ARCHDIR}/
                 done
+                rmdir ../petbuild-output/${NAME}-${HASH}/${LIBDIR}/${ARCHDIR} 2>/dev/null
+                rmdir ../petbuild-output/${NAME}-${HASH}/${LIBDIR} 2>/dev/null
             done
             ;;
         esac
