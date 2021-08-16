@@ -196,22 +196,28 @@ for NAME in $PETBUILDS; do
         find ../petbuild-output/${NAME}-${HASH} -name '*.a' -delete
         find ../petbuild-output/${NAME}-${HASH} -name '*.la' -delete
 
-        LIBDIRS="lib usr/lib"
         case $DISTRO_BINARY_COMPAT in
         slackware64) # in slacko64, we move all shared libraries to lib64
-            for LIBDIR in $LIBDIRS; do
+            for LIBDIR in lib usr/lib; do
+                [ ! -d ../petbuild-output/${NAME}-${HASH}/${LIBDIR} ] && continue
                 mkdir -p ../petbuild-output/${NAME}-${HASH}/${LIBDIR}64
                 for SO in `ls ../petbuild-output/${NAME}-${HASH}/${LIBDIR}/*.so* 2>/dev/null`; do
                     mv -f $SO ../petbuild-output/${NAME}-${HASH}/${LIBDIR}64/
                 done
+                rmdir ../petbuild-output/${NAME}-${HASH}/${LIBDIR} 2>/dev/null
             done
             ;;
 
         raspbian|debian|devuan|ubuntu|trisquel) # in debian, we move all shared libraries to ARCHDIR, e.g. lib/arm-linux-gnueabihf
-            for LIBDIR in $LIBDIRS; do
-                mkdir -p ../petbuild-output/${NAME}-${HASH}/${LIBDIR}/${ARCHDIR}
-                for SO in `ls ../petbuild-output/${NAME}-${HASH}/${LIBDIR}/*.so* 2>/dev/null`; do
-                    mv -f $SO ../petbuild-output/${NAME}-${HASH}/${LIBDIR}/${ARCHDIR}/
+            for PFIX in "" /usr; do
+                for LIBDIR in lib64 lib; do
+                    [ ! -d ../petbuild-output/${NAME}-${HASH}${PFIX}/${LIBDIR} ] && continue
+                    mkdir -p ../petbuild-output/${NAME}-${HASH}${PFIX}/lib/${ARCHDIR}
+                    for SO in `ls ../petbuild-output/${NAME}-${HASH}${PFIX}/${LIBDIR}/*.so* 2>/dev/null`; do
+                        mv -f $SO ../petbuild-output/${NAME}-${HASH}${PFIX}/lib/${ARCHDIR}/
+                    done
+                    rmdir ../petbuild-output/${NAME}-${HASH}${PFIX}/${LIBDIR}/${ARCHDIR} 2>/dev/null
+                    rmdir ../petbuild-output/${NAME}-${HASH}${PFIX}/${LIBDIR} 2>/dev/null
                 done
             done
             ;;
