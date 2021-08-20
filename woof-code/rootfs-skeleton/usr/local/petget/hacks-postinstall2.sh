@@ -25,3 +25,13 @@ echo "#!/bin/sh
   chmod +x $pmhib
  done
 fi
+
+#glibc hacks to prevent accidental deletion of essential runtime file
+if [ "$(echo "$PKGFILES" | grep "glibc")" != "" ]; then
+	if [ "$(cat "$PKGFILES" | grep "/libc.so." | grep -E "/lib")" != "" ]; then
+  cat "$PKGFILES" | grep "/lib" | grep -E "\.so*" > /var/packages/builtin_files/glibc-so-libs
+ fi
+fi
+
+
+
