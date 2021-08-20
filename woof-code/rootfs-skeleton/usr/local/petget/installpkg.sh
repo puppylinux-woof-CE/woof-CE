@@ -814,10 +814,13 @@ if [ "$xpkgname" != "" ] && [ "$installed_pkg" != "" ]; then
    #Check if the old package file list exists
     if [ -e /root/.packages/${installed_files}.files ]; then
     
+       rm -f /tmp/pkg-files.list 2>/dev/null
+       ls /root/.packages/ | grep ".files" | grep -v "${installed_files}.files" | grep -v "${DLPKG_NAME}.files" | xargs -i cat '/root/.packages/{}' > /tmp/pkg-files.list
+
 	while IFS= read -r xline
 	do
 	 #Check if the file was a part of the newly installed package
-  	 if [ "$(cat /root/.packages/${DLPKG_NAME}.files | grep "$xline")" == "" ]; then
+  	 if [ "$(cat /root/.packages/${DLPKG_NAME}.files | grep "$xline")" == "" ] && [ "$(cat /tmp/pkg-files.list 2>/dev/null | grep "$xline")" == "" ]; then
 	  #Not a part of newly installed package. Do action
 
 	   #Delete the file which is not a part of upgrade
@@ -856,29 +859,35 @@ else
  echo "$DB_ENTRY" >> /root/.packages/user-installed-packages
 fi
 
-if [ $PUPMODE -eq 2 ]; then
-	if [ "$xpkgname" != "" ] && [ "$installed_pkg" == "" ]; then
-	  if [ "$PKGUPDOWN" == "" ]; then
-	    #Check if the old builtin file list exists
-	    if [ -e /root/.packages/builtin_files/${xpkgname} ]; then
-		while IFS= read -r xline
-		do
-		
-		 #Check if the file was a part of the newly installed package
-		 if [ "$(cat /root/.packages/${DLPKG_NAME}.files | grep "$xline")" == "" ]; then
-		  #Not a part of newly installed package. Do action
 
-		   #Delete the file which is not a part of upgrade
-		   if [ -e "$xline" ] || [ -L "$xline" ]; then
-		    [ -e "$xline" ] && rm -f "$xline"
-		    [ -L "$xline" ] && rm -f "$xline"
-		   fi
-		   
-		 fi
-		done < /root/.packages/builtin_files/${xpkgname}
-	    fi
-	  fi
-	fi
+if [ "$xpkgname" != "" ] && [ "$installed_pkg" == "" ]; then
+  if [ "$PKGUPDOWN" == "" ]; then
+    #Check if the old builtin file list exists
+    if [ -e /root/.packages/builtin_files/${xpkgname} ]; then
+	
+	rm -f /tmp/pkg-files.list 2>/dev/null	
+   	rm -f /tmp/pkg-files2.list 2>/dev/null	
+	
+	ls /root/.packages/builtin_files/ | grep -vE '^'$xpkgname'$' | xargs -i cat '/root/.packages/builtin_files/{}' > /tmp/pkg-files.list
+   	ls /root/.packages/ | grep ".files" | grep -v "${DLPKG_NAME}.files" | xargs -i cat '/root/.packages/{}' > /tmp/pkg-files2.list
+
+	while IFS= read -r xline
+	do
+
+	 #Check if the file was a part of the newly installed package
+	 if [ "$(cat /root/.packages/${DLPKG_NAME}.files | grep "$xline")" == "" ] && [ "$(cat /tmp/pkg-files.list 2>/dev/null | grep "$xline")" == "" ] && [ "$(cat /tmp/pkg-files2.list 2>/dev/null | grep "$xline")" == "" ]; then
+	  #Not a part of newly installed package. Do action
+
+	   #Delete the file which is not a part of upgrade
+	   if [ -e "$xline" ] || [ -L "$xline" ]; then
+	    [ -e "$xline" ] && rm -f "$xline"
+	    [ -L "$xline" ] && rm -f "$xline"
+	   fi
+
+	 fi
+	done < /root/.packages/builtin_files/${xpkgname}
+    fi
+  fi
 fi
 
 
