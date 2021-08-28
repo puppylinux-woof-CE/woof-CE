@@ -796,7 +796,7 @@ if [ "$AUFS" != "no" ] ; then
 	else
 		export MAKE="$ORIG_MAKE BuildFHSM=no"
 	fi
-	grep -q 'CONFIG_X86_32=y' .config && export CFLAGS=-m32
+	grep -q 'CONFIG_X86_32=y' .config && export CFLAGS=-m32 LDFLAGS=-m32
 	LinuxSrc=${CWD}/output/${kheaders_dir} #needs absolute path
 	#---
 	cd ../aufs-util
