@@ -428,7 +428,7 @@ if [ "$AUFS" != "no" ] ; then
 	fi
 
 	## download aufs-utils -- for after compiling the kernel (*)
-	if [ ! -f /tmp/aufs-util_done -o ! -d sources/aufs-util_git/.git ] ; then
+	if [ "$AUFS_UTIL" != "no" -a ! -f /tmp/aufs-util_done -o ! -d sources/aufs-util_git/.git ] ; then
 		cd sources
 		if [ ! -d aufs-util_git/.git ] ; then
 			log_msg "Downloading aufs-utils for userspace"
@@ -513,7 +513,7 @@ fi
 #                    compile the kernel
 #==============================================================
 
-if [ "$AUFS" != "no" ] ; then
+if [ "$AUFS" != "no" -a "$AUFS_UTIL" != "no" ] ; then
 	log_msg "Extracting the Aufs-util sources"
 	rm -rf aufs-util
 	cp -a sources/aufs-util_git aufs-util
@@ -787,7 +787,7 @@ mv ${kheaders_dir} ../output
 #---------------------------------------------------------------------
 #  build aufs-utils userspace modules (**) - requires kernel headers 
 #---------------------------------------------------------------------
-if [ "$AUFS" != "no" ] ; then
+if [ "$AUFS" != "no" -a "$AUFS_UTIL" != "no" ] ; then
 	log_msg "Building aufs-utils - userspace modules"
 	## see if fhsm is enabled in kernel config
 	ORIG_MAKE="$MAKE"
@@ -946,7 +946,7 @@ $MAKE prepare >> ${BUILD_LOG} 2>&1
 cd ..
 #----
 
-if [ "$AUFS" != "no" ] ; then
+if [ "$AUFS" != "no" -a "$AUFS_UTIL" != "no" ] ; then
 	log_msg "Installing aufs-utils into kernel package"
 	cp -a --remove-destination output/${AUFS_UTIL_DIR}/* \
 			output/${linux_kernel_dir}
