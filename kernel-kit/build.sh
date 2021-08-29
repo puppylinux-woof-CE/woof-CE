@@ -428,24 +428,26 @@ if [ "$AUFS" != "no" ] ; then
 	fi
 
 	## download aufs-utils -- for after compiling the kernel (*)
-	if [ "$AUFS_UTIL" != "no" -a ! -f /tmp/aufs-util_done -o ! -d sources/aufs-util_git/.git ] ; then
-		cd sources
-		if [ ! -d aufs-util_git/.git ] ; then
-			log_msg "Downloading aufs-utils for userspace"
-			git clone git://git.code.sf.net/p/aufs/aufs-util.git aufs-util_git || \
-			git clone git://github.com/puppylinux-woof-CE/aufs-util.git aufs-util_git
-			[ $? -ne 0 ] && exit_error "Error: failed to download the Aufs utils..."
-			touch /tmp/aufs-util_done
-		else
-			cd aufs-util_git
-			git pull --all
-			if [ $? -ne 0 ] ; then
-				log_msg "WARNING: 'git pull --all' command failed" && sleep 5
-			else
+	if [ "$AUFS_UTIL" != "no" ] ; then
+		if [ ! -f /tmp/aufs-util_done -o ! -d sources/aufs-util_git/.git ] ; then
+			cd sources
+			if [ ! -d aufs-util_git/.git ] ; then
+				log_msg "Downloading aufs-utils for userspace"
+				git clone git://git.code.sf.net/p/aufs/aufs-util.git aufs-util_git || \
+				git clone git://github.com/puppylinux-woof-CE/aufs-util.git aufs-util_git
+				[ $? -ne 0 ] && exit_error "Error: failed to download the Aufs utils..."
 				touch /tmp/aufs-util_done
+			else
+				cd aufs-util_git
+				git pull --all
+				if [ $? -ne 0 ] ; then
+					log_msg "WARNING: 'git pull --all' command failed" && sleep 5
+				else
+					touch /tmp/aufs-util_done
+				fi
 			fi
+			cd $MWD
 		fi
-		cd $MWD
 	fi
 fi
 
