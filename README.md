@@ -16,7 +16,7 @@ Puppy can be built directly on GitHub, saving the hassle of preparing a suitable
 
 2. Modify woof-CE, commit your changes and push them.
 
-3. [Trigger a woof-CE run on GitHub Actions](https://github.com/puppylinux-woof-CE/woof-CE/wiki/Building-a-Puppy-on-GitHub).
+3. [Trigger a woof-CE run](https://github.com/puppylinux-woof-CE/woof-CE/wiki/Building-a-Puppy-on-GitHub) on [your GitHub Actions](https:actions/).
 
 4. Download your Puppy from the newly published release.
 
