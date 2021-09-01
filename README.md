@@ -11,10 +11,11 @@ Currently supported: [![Build status](https://github.com/puppylinux-woof-CE/woof
 Puppy can be built directly on GitHub, saving the hassle of preparing a suitable build environment on a fast machine with adequate storage.
 
 0. Fork woof-CE.
-0.1  If you want something that can cleanly make a pull request, create a branch.
-0.2  If your changes include automation (.yml, .yaml) files, set the default branch to this new branch.  (NB: this will confuse repositories that fork you.)
+  1.  If you want something that can cleanly make a pull request, create a branch.
+  1.  If your changes include automation (.yml, .yaml) files, set the default branch to this new branch.  (NB: this will confuse repositories that fork you.)
 
 1. Clone your fork.
+  1. Confirm that you are on your branch.
 
 2. Modify woof-CE, commit your changes and push them.
 
