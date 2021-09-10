@@ -16,6 +16,8 @@ dPATTERN="s/PUPPYDATE/${PUPPYDATE}/g"
 rPATTERN="s/RELEASE_DATE/${RELEASE_DATE}/g"
 PATTERN2="s/DISTRO_VERSION/${DISTRO_VERSION}/g"
 nPATTERN="s/DISTRO_NAME/${DISTRO_NAME}/g"
+WOOF_COMMIT="`echo "$BUILD_FROM_WOOF" | cut -f 2 -d \;`"
+wPATTERN="s/WOOF_COMMIT/$WOOF_COMMIT/g"
 sed -i -e "$PATTERN2" -e "$nPATTERN" -e "$dPATTERN" -e "$cPATTERN" usr/share/doc/index.html.top
 sed -i -e "$PATTERN2" -e "$nPATTERN" -e "$dPATTERN" usr/share/doc/index.html.bottom
 
@@ -28,7 +30,7 @@ sed -i -e "$nPATTERN" -e "$cPATTERN" -e "$PATTERN2" usr/share/doc/home.htm
 
 if [ -f usr/share/doc/release-skeleton.top.htm ] ; then
 	(
-		sed -e "$PATTERN2" -e "$nPATTERN" -e "$rPATTERN" usr/share/doc/release-skeleton.top.htm
+		sed -e "$PATTERN2" -e "$nPATTERN" -e "$rPATTERN" -e "$wPATTERN" usr/share/doc/release-skeleton.top.htm
 		if [ -f ../../support/release_extras/"${DISTRO_FILE_PREFIX}.htm" ];then
 			sed -e "s/DISTRO_VERSION/$DISTRO_VERSION/g" -e "$rPATTERN" \
 				../../support/release_extras/"${DISTRO_FILE_PREFIX}.htm"
