@@ -146,6 +146,7 @@ for NAME in $PETBUILDS; do
 
         cd $HERE
 
+        rm -rf ../petbuild-output/${NAME}-* # remove older petbuilds of $NAME
         mkdir -p ../petbuild-output/${NAME}-${HASH} petbuild-rootfs-complete-${NAME}
         mount -t aufs -o br=../petbuild-output/${NAME}-${HASH}:devx:petbuild-rootfs-complete petbuild petbuild-rootfs-complete-${NAME}
 
