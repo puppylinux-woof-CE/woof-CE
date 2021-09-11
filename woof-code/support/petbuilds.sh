@@ -146,6 +146,7 @@ for NAME in $PETBUILDS; do
 
         cd $HERE
 
+        rm -rf ../petbuild-output/${NAME}-* # remove older petbuilds of $NAME
         mkdir -p ../petbuild-output/${NAME}-${HASH} petbuild-rootfs-complete-${NAME}
         mount -t aufs -o br=../petbuild-output/${NAME}-${HASH}:devx:petbuild-rootfs-complete petbuild petbuild-rootfs-complete-${NAME}
 
@@ -283,11 +284,16 @@ for NAME in $PKGS; do
     cat ../packages-${DISTRO_FILE_PREFIX}/${NAME}/pet.specs >> /tmp/petbuild-output.specs
 
     # redirect packages with menu entries to adrv, with exceptions
-    if [ -n "$ADRV_INC" ] && [ "$NAME" != "rox-filer" ] && [ "$NAME" != "lxterminal" ] && [ "$NAME" != "leafpad" ] && [ "$NAME" != "l3afpad" ] && [ "$NAME" != "gexec" ] && [ -n "`ls ../packages-${DISTRO_FILE_PREFIX}/${NAME}/usr/share/applications/*.desktop 2>/dev/null`" ]; then
-        ADRV_INC="$ADRV_INC $NAME"
-    elif [ -n "$MAINPKGS" ]; then
+    COPY=1
+    for DRVPKG in $ADRV_INC $YDRV_INC $FDRV_INC; do
+        [ "$DRVPKG" != "$NAME" ] && continue
+        COPY=0
+        break
+    done
+
+    if [ $COPY -eq 1 -a -n "$MAINPKGS" ]; then
         MAINPKGS="$MAINPKGS $NAME"
-    else
+    elif [ $COPY -eq 1 ]; then
         MAINPKGS="$NAME"
     fi
 done
