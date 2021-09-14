@@ -23,6 +23,7 @@
 #include <sys/types.h>
 #include <glob.h>
 #include <libgen.h>
+#include <math.h>
 
 #define _(STRING)    gettext(STRING)
 #define SVGHEAD		"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<svg xmlns=\"http://www.w3.org/2000/svg\" version=\"1.1\" viewBox=\"0 0 128 128\">\n\t<defs>\n\t\t<linearGradient id=\"grad2\" x1=\"0%\" y1=\"0%\" x2=\"0%\" y2=\"100%\">\n\t\t<stop offset=\""
@@ -145,7 +146,12 @@ gboolean Update(gpointer ptr) {
                 fscanf(fp,"%ld",&now);
                 fclose(fp);
 
-                batpercent=(int)((now*100)/full);
+                float batpercentf = (((float)now*100)/full);
+                if (batpercentf <= 20) {
+                    batpercent=(int)floorf(batpercentf);
+                } else {
+                    batpercent=(int)roundf(batpercentf);
+                }
             }
 
             break;
