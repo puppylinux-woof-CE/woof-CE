@@ -22,11 +22,20 @@ if [ ! -f ${DOWNLOAD_DIR}"${FILE}" ] ; then
 	if [ -f "$URL" ] ; then # full path
 		cp -a "$URL" "${FILE}"
 	else
-		wget -P ${DOWNLOAD_DIR} --no-check-certificate "${URL}"
-		if [ $? -ne 0 ] ; then
-			rm -fv ${DOWNLOAD_DIR}"${FILE}"
-			exit 1
-		fi
+		case "$URL" in
+		file://*)
+			FPATH="${URL#file://}"
+			cp -f "${FPATH}" ${DOWNLOAD_DIR}/ || exit 1
+			;;
+
+		*)
+			wget -P ${DOWNLOAD_DIR} --no-check-certificate "${URL}"
+			if [ $? -ne 0 ] ; then
+				rm -fv ${DOWNLOAD_DIR}"${FILE}"
+				exit 1
+			fi
+			;;
+		esac
 	fi
 fi
 
