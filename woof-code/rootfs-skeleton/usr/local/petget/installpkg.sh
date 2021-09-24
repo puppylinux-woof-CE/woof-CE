@@ -819,8 +819,12 @@ if [ "$xpkgname" != "" ] && [ "$installed_pkg" != "" ]; then
 
 	while IFS= read -r xline
 	do
+	 
+	 #Sanitize line for grepping
+	 xlineptn="$(echo $xline | sed -e 's#\+#\\\+#g' -e 's#\/#\\\/#g' -e 's#\-#\\\-#g' -e 's#\.#\\\.#g')"
+	 
 	 #Check if the file was a part of the newly installed package
-  	 if [ "$(cat /root/.packages/${DLPKG_NAME}.files | grep "$xline")" == "" ] && [ "$(cat /tmp/pkg-files.list 2>/dev/null | grep "$xline")" == "" ]; then
+  	 if [ "$(cat /root/.packages/${DLPKG_NAME}.files | grep "$xlineptn")" == "" ] && [ "$(cat /tmp/pkg-files.list 2>/dev/null | grep "$xlineptn")" == "" ]; then
 	  #Not a part of newly installed package. Do action
 
 	   #Delete the file which is not a part of upgrade
@@ -874,8 +878,11 @@ if [ "$xpkgname" != "" ] && [ "$installed_pkg" == "" ]; then
 	while IFS= read -r xline
 	do
 
+         #Sanitize line for grepping
+	 xlineptn="$(echo $xline | sed -e 's#\+#\\\+#g' -e 's#\/#\\\/#g' -e 's#\-#\\\-#g' -e 's#\.#\\\.#g')"
+
 	 #Check if the file was a part of the newly installed package
-	 if [ "$(cat /root/.packages/${DLPKG_NAME}.files | grep "$xline")" == "" ] && [ "$(cat /tmp/pkg-files.list 2>/dev/null | grep "$xline")" == "" ] && [ "$(cat /tmp/pkg-files2.list 2>/dev/null | grep "$xline")" == "" ]; then
+	 if [ "$(cat /root/.packages/${DLPKG_NAME}.files | grep "$xlineptn")" == "" ] && [ "$(cat /tmp/pkg-files.list 2>/dev/null | grep "$xlineptn")" == "" ] && [ "$(cat /tmp/pkg-files2.list 2>/dev/null | grep "$xlineptn")" == "" ]; then
 	  #Not a part of newly installed package. Do action
 
 	   #Delete the file which is not a part of upgrade
