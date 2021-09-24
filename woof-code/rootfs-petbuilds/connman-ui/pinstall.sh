@@ -1,4 +1,3 @@
-cat << EOF > pinstall.sh
 echo -e '#!/bin/sh\nexec connman-ui-gtk' > usr/local/bin/defaultconnect
 chmod 755 usr/local/bin/defaultconnect
 
@@ -7,20 +6,3 @@ echo "CURRENT_EXEC=connman-ui-gtk" > root/.connectwizardrc
 [ -f root/.spot-status ] && mv -f root/.spot-status root/.spot-status.orig
 chroot . /usr/sbin/setup-spot connman-ui-gtk=true
 [ -f root/.spot-status.orig ] && mv -f root/.spot-status.orig root/.spot-status || rm -f root/.spot-status
-EOF
-
-mkdir -p etc/xdg/autostart
-cat << EOF > etc/xdg/autostart/connman-ui-gtk.desktop
-[Desktop Entry]
-Version=1.0
-Name=connman-ui-gtk
-Comment=A full-featured GTK based trayicon UI for ConnMan
-Exec=connman-ui-gtk
-Terminal=false
-Type=Application
-EOF
-
-cd usr/share/connman_ui_gtk/icons
-for ICON in *.png; do
-    [ -f ${ICON%.png}.svg ] && rm -f ${ICON}
-done
