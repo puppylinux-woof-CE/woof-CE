@@ -158,7 +158,7 @@ void tray_icon_on_menu(GtkStatusIcon *status_icon,
 	}
     
 	gtk_widget_show_all(menu);
-	gtk_menu_popup(GTK_MENU(menu), NULL, NULL, NULL, NULL, button, gdk_event_get_time(NULL));
+	gtk_menu_popup(GTK_MENU(menu), NULL, NULL, NULL, NULL, button, gtk_get_current_event_time());
 }
 
 /* -create icon and 'click' properties */

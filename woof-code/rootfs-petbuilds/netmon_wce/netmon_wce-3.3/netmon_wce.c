@@ -510,7 +510,7 @@ void tray_icon_on_menu(GtkStatusIcon *status_icon, guint button, guint activate_
 		gtk_menu_shell_append(GTK_MENU_SHELL(menu), menuitem);
 	}
 	gtk_widget_show_all(menu);
-	gtk_menu_popup(GTK_MENU(menu), NULL, NULL, NULL, NULL, button, gdk_event_get_time(NULL));
+	gtk_menu_popup(GTK_MENU(menu), NULL, NULL, NULL, NULL, button, gtk_get_current_event_time());
 }
 
 //left click callback
