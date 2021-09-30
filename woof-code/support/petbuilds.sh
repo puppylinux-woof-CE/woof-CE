@@ -28,6 +28,7 @@ fi
 
 if [ -z "$PETBUILD_GTK" ]; then
     echo "WARNING: PETBUILD_GTK is empty, this may be a hard error in the future"
+    [ -n "$GITHUB_ACTIONS" ] && exit 1
 
     PETBUILD_GTK=2
     if [ "$DISTRO_TARGETARCH" = "x86" ]; then
