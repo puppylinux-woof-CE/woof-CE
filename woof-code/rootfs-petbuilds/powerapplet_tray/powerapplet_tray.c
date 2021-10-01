@@ -32,8 +32,7 @@
 #define SVGDEF3		";stop-opacity:1\" />\n\t\t</linearGradient>\n\t</defs>\n\t"
 #define SVGPATH1	"<path style=\"fill:#232323;stroke:none\" d=\"m 50 14 a 6 6 0 0 0 6 -6 l 16 0 a 6 6 0 0 0 6 6 z\"/>\n\t<path style=\"fill:url(#grad2);stroke:#232323;stroke-width:2\" d=\"m 42 14 44 0 a 10 10 0 0 1 10 10 l 0 80 a 10 10 0 0 1 -10 10 l -44 0  a 10 10 0 0 1 -10 -10 l 0 -80  a 10 10 0 0 1 10 -10 z\"/>\n\t"
 #define SVGFOOT		"\n</svg>"
-#define TEMP		"/tmp/powerapplet"
-#define ICON 		"/tmp/powerapplet/bat.svg"
+#define ICON 		"bat.svg"
 #define CHHIGH		"rgb(80,110,255)" 		// high charging blue
 #define DISHIGH		"rgb(255,160,125)"		// high discharging orange
 #define CHLOW		"rgb(204,80,255)"		// low charging purple
@@ -44,6 +43,7 @@
 GdkPixbuf *bat_pixbuf;
 
 GtkStatusIcon *tray_icon;
+gchar *icon_path;
 unsigned int interval = 15000; /*update interval in milliseconds*/
 int batpercent = 100;
 int batpercentprev = -1;
@@ -81,16 +81,9 @@ int paint_icon(int state, int showpercent) {
 	if ( gradpc1 <= 0 )
 		gradpc1 = 0;
 		
-	int access_ok = access(TEMP, W_OK);
-	if (access_ok != 0) {
-		if (mkdir(TEMP, 01777) != 0 ) {
-			fprintf(stderr, "Couldn't create %s for writing\n", TEMP);
-			exit(1);
-		}
-	}
-	fx = fopen(ICON, "w");
+	fx = fopen(icon_path, "w");
 	if (!fx) {
-		fprintf(stderr, "Couldn't open %s for writing\n", ICON);
+		fprintf(stderr, "Couldn't open %s for writing\n", icon_path);
 		exit(1); 
 	}
 	
@@ -193,7 +186,7 @@ gboolean Update(gpointer ptr) {
     strcat(memdisplaylong,strpercent);
     strcat(memdisplaylong,"%");
     gtk_status_icon_set_tooltip_text(tray_icon, memdisplaylong);
-    bat_pixbuf = gdk_pixbuf_new_from_file(ICON,&gerror);
+    bat_pixbuf = gdk_pixbuf_new_from_file(icon_path,&gerror);
 	gtk_status_icon_set_from_pixbuf(tray_icon,bat_pixbuf);
     return TRUE;
 }
@@ -211,7 +204,7 @@ static GtkStatusIcon *create_tray_icon() {
     g_signal_connect(G_OBJECT(tray_icon), "activate", G_CALLBACK(tray_icon_on_click), NULL);
 
     
-    bat_pixbuf=gdk_pixbuf_new_from_file(ICON,&gerror);
+    bat_pixbuf=gdk_pixbuf_new_from_file(icon_path,&gerror);
 
     gtk_status_icon_set_from_pixbuf(tray_icon,bat_pixbuf);
     
@@ -226,6 +219,8 @@ int main(int argc, char **argv) {
     setlocale( LC_ALL, "" );
     bindtextdomain( "powerapplet_tray", "/usr/share/locale" );
     textdomain( "powerapplet_tray" );
+
+    icon_path = g_build_filename(g_get_user_runtime_dir(), ICON, NULL);
 
 	paint_icon(0,0); //needed to kick it off
     gtk_init(&argc, &argv);
