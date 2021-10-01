@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/ash
 #(c) Copyright Barry Kauler LGPL v2 2006,2007 www.puppylinux.com
 # - shutdownconfig creates the pupsave (savefile, savefolder)
 # - for a full hd install, PUPMODE=2 (no /initrd)
@@ -37,13 +37,19 @@ PSUBDIR="`dirname "$PUPSFSFILE"`"
 [ $PUPMODE -eq 5 ] && [ "$DEV1FS" = "udf" ] && PSUBDIR=""     #ditto, for udf f.s.
 [ "$DEV1FS" = "msdos" ] && DEV1FS="vfat" #110919
 
-killzombies() { #zombie process prevents partition unmount.
- #karl godt: see http://www.murga-linux.com/puppy/viewtopic.php?t=73122
- ZOMBIES="`ps -H -A | grep '<defunct>' | sed 's/^[[:blank:]]*//g' | cut -f 1 -d ' ' | sort -gr | tr '\n' ' '`"
- for ONEZOMBIE in $ZOMBIES ; do
-   echo "Killing parentless zombie process $ONEZOMBIE"
-   ps --no-header -p $ONEZOMBIE && kill $ONEZOMBIE
- done
+killzombies() {
+	# the zombie is already dead so can't be killed
+	# kill the parent process (PPID)
+	# however, if PPID is pid 1 (init) we can't
+	ps -Ae -f -H | grep '<defunct>' | grep -v 'grep' | while read -r line
+	do
+		ppid=$(echo $line | awk '{print $3}')
+		if [ $ppid -eq 1 ];then
+			continue 
+		else
+			kill -9 $ppid
+		fi
+	done
 }
 
 echo "${DISTRO_NAME} ${DISTRO_VERSION} $(gettext 'is now shutting down...')" > /dev/console
@@ -88,28 +94,31 @@ done
 rm -f /tmp/snd-kmod.lst 2>/dev/null
 
 ### cleanly unmount cifs shares from /usr/share/Shares
-# must be done here otherwise hang later at mount -a -r at rc.cleanup
 # samba rox app
-find /usr/share/Shares/ -maxdepth 2 -name mnt-point | while read p; do
-	case $p in
-		"") break ;;
-		*)  if grep -q $p /proc/mounts; then
-		                sync
-				fuser -mk $p 
-				${p%/*}/AppRun unmount
-			fi ;;
-	esac
-done
+if [ -d /usr/share/Shares/ ];then
+	find /usr/share/Shares/ -maxdepth 2 -name mnt-point | while read p; do
+		case $p in
+			"") break ;;
+			*)  if grep -q $p /proc/mounts; then
+			                sync
+					fuser -mk $p 
+					${p%/*}/AppRun unmount
+				fi ;;
+		esac
+	done
+fi
 # yassm
-for p in $(awk '$2 ~ "YASSM" {print $2}' /proc/mounts); do
-        sync
-	fuser -mk $p 
-	umount $p
-done
-#01micko: umount is not a reliable script, so have to use umount-FULL
+if grep -q 'YASSM' /proc/mounts;then
+	for p in $(awk '$2 ~ "YASSM" {print $2}' /proc/mounts); do
+	        sync
+		fuser -mk $p 
+		umount $p
+	done
+fi
+#01micko: umount is not a reliable script, so have to use umount-FULL, busybox umount supports -t now
 #also see shinobar's msg in http://murga-linux.com/puppy/viewtopic.php?p=605451#605451
 sync
-umount-FULL -a -t cifs,smbfs,nfs,sshfs
+busybox umount -a -t cifs,smbfs,nfs,sshfs
 ###
 
 #100902 rerwin: log the cumulative bytes transmitted on dialup...
@@ -130,10 +139,31 @@ for i in /sys/class/net/* ; do
 	fi
 done
 
-#terminate dbus daemon
-killall dbus-daemon 2>/dev/null
+#=======================================================================
 
-killall udevd > /dev/null 2>&1
+# terminate stuff
+# dbus daemon
+if [ -d /var/run/dbus/ ]; then
+	for p in  /var/run/dbus/*pid 
+	do
+		DPID=$(cat $p)
+		echo killing $DPID
+		kill $DPID >/dev/null 2>&1
+		rm -f $p
+	done
+fi
+killall dbus-daemon >/dev/null 2>&1
+killall dbus-launch >/dev/null 2>&1
+# udev
+udevadm control --exit
+killall udevd >/dev/null 2>&1
+# pulse
+killall pulseaudio >/dev/null 2>&1
+# dhcpcd
+pidof dhcpcd >/dev/null 2>&1 && dhcpcd -k
+# wait
+sleep 2 # needed to clean up
+#=======================================================================
 
 #first time booted puppy, there may not have been any persistent storage...
 if [ $PUPMODE -eq 5 ];then
@@ -347,6 +377,7 @@ SHID="`echo "$BPS" | grep ' -sh$' | head -n 1 | sed -e 's%^ %%g' | cut -f 1 -d '
 MYPID=$$
 PARENT=$PPID # id of parent process. variable provided by system.
 [ ! "$PUP_HOME" ] && PUP_HOME="/mnt/dev_save"
+[ -z "$ABSPUPHOME" ] && ABSPUPHOME="/initrd${PUP_HOME}"
 if [ "`busybox mount | grep "/initrd${PUP_HOME}"`" != "" ];then
 	BADPIDS="`busybox fuser -m $ABSPUPHOME 2>/dev/null | tr -d 'm'`"
 	for ONEBAD in $BADPIDS ; do
@@ -359,8 +390,6 @@ if [ "`busybox mount | grep "/initrd${PUP_HOME}"`" != "" ];then
 	killzombies
 fi
 
-#=======================================================
-
 # remount PUNIONFS read-only
 if [ "$SAVE_LAYER" ];then
 	SAVEDEV=`grep "/initrd${SAVE_LAYER}" /proc/mounts | cut -f 1 -d ' '`
@@ -368,7 +397,7 @@ if [ "$SAVE_LAYER" ];then
 	#Patriot suggested this code to enable save-layer to remount ro...
 	uniFS=$(awk '/unionfs/ {print $3}' /proc/mounts) #gets fstype, ex: aufs
 	if [ "$uniFS" = "aufs" -a "$SAVE_LAYER" = "/pup_rw" ]; then
-	        sync
+		sync
 		busybox mount -o remount,noxino,noplink,ro -t $uniFS / / >/dev/null 2>&1
 		sync
 	fi
@@ -393,13 +422,13 @@ if [ "$SAVE_LAYER" ];then
 	else
 	   
 	   #Unload save folder gracefully
-	
+	   
 	   if [ -L /initrd${SAVE_LAYER} ]; then
    
-	    rm /initrd${SAVE_LAYER}
+	    # rm /initrd${SAVE_LAYER} can't do this if FS is ro
 
 	    SPDRV="$(echo "$PUPSAVE" | cut -f 1 -d ',')"
-	    SPFS="$(echo "$PUPSAVE" | cut -f 2 -d ',')"  
+	    SPFS="$(echo "$PUPSAVE" | cut -f 2 -d ',')"
 	    PFOLDER="$(echo "$PUPSAVE" | cut -f 3 -d ',')"
 	    PDRVPATH="/initrd${PUP_HOME}/$PFOLDER"
 
