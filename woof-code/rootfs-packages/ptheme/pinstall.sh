@@ -97,12 +97,16 @@ include "/root/.gtkrc-2.0.mine"
 
 # -- THEME AUTO-WRITTEN BY gtk-theme-switch2 DO NOT EDIT
 gtk-theme-name = "${PTHEME_GTK}"
+gtk-toolbar-style = GTK_TOOLBAR_BOTH
+gtk-toolbar-icon-size = GTK_ICON_SIZE_LARGE_TOOLBAR
 _EOF
 if [ -d usr/share/themes/${PTHEME_GTK}/gtk-3.0 ]; then
 	mkdir -p root/.config/gtk-3.0
 	cat > root/.config/gtk-3.0/settings.ini << _EOF
 [Settings]
 gtk-theme-name = ${PTHEME_GTK}
+gtk-toolbar-style = GTK_TOOLBAR_BOTH
+gtk-toolbar-icon-size = GTK_ICON_SIZE_LARGE_TOOLBAR
 _EOF
 fi
 
