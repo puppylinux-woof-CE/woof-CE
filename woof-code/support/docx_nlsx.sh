@@ -14,8 +14,8 @@ if [ ! "$BUILDSYS" ] ; then
 fi
 
 if [ "$BUILD_DOCX" = "yes" -o "$BUILD_NLSX" = "yes" ] ; then
-	INSTALLED_PKGS=$(cat ../status/findpkgs_FINAL_PKGS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} | \
-cut -f 1 -d '|' | tr ':' '\n' | sed '/^$/d' | sort -u)
+	INSTALLED_PKGS=$((echo "$PETBUILDS" | tr ' ' '\n'; cat ../status/findpkgs_FINAL_PKGS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} | \
+cut -f 1 -d '|' | tr ':' '\n' | sed '/^$/d') | sort -u)
 fi
 
 if [ "$BUILD_DOCX" = "yes" ] ; then
