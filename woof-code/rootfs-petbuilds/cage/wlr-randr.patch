@@ -1,0 +1,192 @@
+diff -rupN --exclude .git cage-orig/cage.c cage/cage.c
+--- cage-orig/cage.c	2021-10-02 13:29:29.892024999 +0300
++++ cage/cage.c	2021-10-02 13:31:45.980028234 +0300
+@@ -35,6 +35,7 @@
+ #include <wlr/types/wlr_xdg_decoration_v1.h>
+ #include <wlr/types/wlr_xdg_output_v1.h>
+ #include <wlr/types/wlr_xdg_shell.h>
++#include <wlr/types/wlr_output_management_v1.h>
+ #include <wlr/util/log.h>
+ #if CAGE_HAS_XWAYLAND
+ #include <wlr/xwayland.h>
+@@ -422,6 +423,12 @@ main(int argc, char *argv[])
+ 		goto end;
+ 	}
+ 
++	server.output_manager_v1 = wlr_output_manager_v1_create(server.wl_display);
++	server.output_manager_apply.notify = handle_output_manager_apply;
++	wl_signal_add(&server.output_manager_v1->events.apply, &server.output_manager_apply);
++	server.output_manager_test.notify = handle_output_manager_test;
++	wl_signal_add(&server.output_manager_v1->events.test, &server.output_manager_test);
++
+ 	gamma_control_manager = wlr_gamma_control_manager_v1_create(server.wl_display);
+ 	if (!gamma_control_manager) {
+ 		wlr_log(WLR_ERROR, "Unable to create the gamma control manager");
+diff -rupN --exclude .git cage-orig/output.c cage/output.c
+--- cage-orig/output.c	2021-10-02 13:29:29.892024999 +0300
++++ cage/output.c	2021-10-02 13:31:45.980028234 +0300
+@@ -28,6 +28,7 @@
+ #include <wlr/types/wlr_output_layout.h>
+ #include <wlr/types/wlr_surface.h>
+ #include <wlr/types/wlr_xdg_shell.h>
++#include <wlr/types/wlr_output_management_v1.h>
+ #include <wlr/util/log.h>
+ #include <wlr/util/region.h>
+ 
+@@ -236,6 +237,22 @@ scan_out_primary_view(struct cg_output *
+ 	return wlr_output_commit(wlr_output);
+ }
+ 
++static void update_output_manager_config(struct cg_server *server) {
++	struct wlr_output_configuration_v1 *config = wlr_output_configuration_v1_create();
++
++	struct cg_output *output;
++	wl_list_for_each (output, &server->outputs, link) {
++		struct wlr_output_configuration_head_v1 *config_head = wlr_output_configuration_head_v1_create(config, output->wlr_output);
++		struct wlr_box *box = wlr_output_layout_get_box(server->output_layout, output->wlr_output);
++		if (box) {
++			config_head->state.x = box->x;
++			config_head->state.y = box->y;
++		}
++	}
++
++	wlr_output_manager_v1_set_configuration(server->output_manager_v1, config);
++}
++
+ static void
+ output_enable(struct cg_output *output)
+ {
+@@ -249,6 +266,8 @@ output_enable(struct cg_output *output)
+ 	wlr_output_layout_add_auto(output->server->output_layout, wlr_output);
+ 	wlr_output_enable(wlr_output, true);
+ 	wlr_output_commit(wlr_output);
++
++	update_output_manager_config(output->server);
+ }
+ 
+ static void
+@@ -265,6 +284,36 @@ output_disable(struct cg_output *output)
+ 	wlr_output_enable(wlr_output, false);
+ 	wlr_output_layout_remove(output->server->output_layout, wlr_output);
+ 	wlr_output_commit(wlr_output);
++
++	update_output_manager_config(output->server);
++}
++
++static void
++output_apply_config(struct cg_output *output, struct wlr_output_configuration_head_v1 *head)
++{
++	struct wlr_output *wlr_output = output->wlr_output;
++
++	wlr_log(WLR_DEBUG, "Applying configuration for output %s", wlr_output->name);
++
++	if (!head->state.enabled) {
++		output_disable(output);
++		return;
++	}
++
++	if (head->state.mode) {
++		wlr_output_set_mode(wlr_output, head->state.mode);
++	} else {
++		wlr_output_set_custom_mode(wlr_output, head->state.custom_mode.width, head->state.custom_mode.height, head->state.custom_mode.refresh);
++	}
++
++	wlr_output_layout_add(output->server->output_layout, head->state.output, head->state.x, head->state.y);
++	wlr_output_set_scale(wlr_output, head->state.scale);
++	wlr_output_set_transform(wlr_output, head->state.transform);
++
++	wlr_output_enable(wlr_output, true);
++	wlr_output_commit(wlr_output);
++
++	update_output_manager_config(output->server);
+ }
+ 
+ static void
+@@ -508,3 +557,63 @@ output_set_window_title(struct cg_output
+ #endif
+ 	}
+ }
++
++static bool
++output_config_test(struct cg_server *server, struct wlr_output_configuration_v1 *config)
++{
++	/* TODO */
++	return true;
++}
++
++static bool
++output_config_apply(struct cg_server *server, struct wlr_output_configuration_v1 *config)
++{
++	if (!output_config_test(server, config)) {
++		return false;
++	}
++
++	struct wlr_output_configuration_head_v1 *head;
++	wl_list_for_each(head, &config->heads, link) {
++		wlr_log(WLR_INFO, "Applying configuration for output %s", head->state.output->name);
++
++		struct cg_output *output;
++		wl_list_for_each (output, &server->outputs, link) {
++			if (strcmp(head->state.output->name, output->wlr_output->name) == 0) {
++				output_apply_config(output, head);
++				break;
++			}
++		}
++	}
++
++	return true;
++}
++
++void
++handle_output_manager_apply(struct wl_listener *listener, void *data)
++{
++        struct cg_server *server = wl_container_of(listener, server, output_manager_apply);
++        struct wlr_output_configuration_v1 *config = data;
++
++        if (output_config_apply(server, config)) {
++		wlr_output_configuration_v1_send_succeeded(config);
++	} else {
++		wlr_output_configuration_v1_send_failed(config);
++	}
++
++	wlr_output_configuration_v1_destroy(config);
++}
++
++void
++handle_output_manager_test(struct wl_listener *listener, void *data)
++{
++	struct cg_server *server = wl_container_of(listener, server, output_manager_test);
++	struct wlr_output_configuration_v1 *config = data;
++
++	if (output_config_test(server, config)) {
++		wlr_output_configuration_v1_send_succeeded(config);
++	} else {
++		wlr_output_configuration_v1_send_failed(config);
++	}
++
++	wlr_output_configuration_v1_destroy(config);
++}
+diff -rupN --exclude .git cage-orig/output.h cage/output.h
+--- cage-orig/output.h	2021-10-02 10:46:26.211969172 +0300
++++ cage/output.h	2021-10-02 13:31:45.980028234 +0300
+@@ -34,5 +34,7 @@ void output_drag_icons_for_each_surface(
+ 					cg_surface_iterator_func_t iterator, void *user_data);
+ void output_damage_surface(struct cg_output *output, struct wlr_surface *surface, double lx, double ly, bool whole);
+ void output_set_window_title(struct cg_output *output, const char *title);
++void handle_output_manager_apply(struct wl_listener *listener, void *data);
++void handle_output_manager_test(struct wl_listener *listener, void *data);
+ 
+ #endif
+diff -rupN --exclude .git cage-orig/server.h cage/server.h
+--- cage-orig/server.h	2021-10-02 13:29:29.892024999 +0300
++++ cage/server.h	2021-10-02 13:31:45.980028234 +0300
+@@ -44,6 +44,9 @@ struct cg_server {
+ #if CAGE_HAS_XWAYLAND
+ 	struct wl_listener new_xwayland_surface;
+ #endif
++	struct wlr_output_manager_v1 *output_manager_v1;
++	struct wl_listener output_manager_apply;
++	struct wl_listener output_manager_test;
+ 
+ 	bool xdg_decoration;
+ 	bool allow_vt_switch;
