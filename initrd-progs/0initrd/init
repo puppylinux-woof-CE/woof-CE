@@ -1070,13 +1070,16 @@ PUPSAVE=""
 if [ "${SAVE_MP}" != "" -a "$PRAMONLY" != "yes" ];then #have mounted save? partition
  #check if save partition is linux
  set_fs_linux "$SAVE_FS"
- #check for pupmode=66
- if [ "$SAVE_FS" = "vfat" ];then
-  FN_66=${PSUBDIR}/${DISTRO_FILE_PREFIX}save66.tar.gz
-  if [ -e "${SAVE_MP}${FN_66}" ];then
-    PUPMODE=66
-    PUPSAVE="${SAVEPART},${SAVE_FS},${FN_66}"
-  fi
+ #check for pupmode=66|67
+ if [ -e "${SAVE_MP}${SAVE_DIR}${DISTRO_FILE_PREFIX}PM667save.tar.gz" ];then
+   if [ "$SAVE_FS" = "vfat" ];then
+     PUPMODE=66
+   elif [ "$ONE_FS_IS_LINUX" = "yes" ];then
+     ROS_DIR="${SAVE_DIR}${DISTRO_FILE_PREFIX}PM67save"
+     if [ -d "${SAVE_MP}${ROS_DIR}" ];then
+       PUPMODE=67
+     fi
+   fi
  fi
  #check for cd multisession
  if [ "$SAVE_FS" = "iso9660" ];then #booting on optical, is it multisession?...
@@ -1217,28 +1220,88 @@ case $PUPMODE in
     fi
   fi
  ;;
- 66) #extract to stack at new tmpfs
-  ARCHIVE_FN="${SAVE_MP}${PUPSAVE#*,*,}"
+ 66|67) #extract archive to new tmpfs as RW layer
+  FN_667="${SAVE_DIR}${DISTRO_FILE_PREFIX}PM667save.tar.gz"
+  ARCHIVE_FN="${SAVE_MP}${FN_667}"
   if [ -s "$ARCHIVE_FN" ];then
-    echo -n "$(printf "${L_LOADING_SAVE_ARCHIVE}" "${PUPSAVE#*,*,}" "$SAVEPART")" > /dev/console
+    echo -n "$(printf "${L_LOADING_SAVE_ARCHIVE}" "$FN_667" "$SAVEPART")" > /dev/console
     echo "--SAVEARCHIVE-- $ARCHIVE_FN" #debug
-    PM66_DIR='/pup_rw'
-    rm -r -f "$PM66_DIR"
-    [ -d "$PM66_DIR" ] || mkdir $PM66_DIR
-    mount -t tmpfs tmpfs $PM66_DIR
-    tar xf "$ARCHIVE_FN" -m -C $PM66_DIR 2>/dev/null
+    PM667_DIR='/pup_rw'
+    rm -r -f "$PM667_DIR"
+    [ -d "$PM667_DIR" ] || mkdir $PM667_DIR
+    mount -t tmpfs tmpfs $PM667_DIR
+    tar xf "$ARCHIVE_FN" -m -C $PM667_DIR 2>/dev/null
     STATUS=$?
+    #is safe to manipulate directories before they are mounted into the stack 
+    if [ $PUPMODE -eq 67 ];then
+      echo "" > /dev/console
+      echo -n "$(printf "${L_LOADING_PUPSAVE}" "$ROS_DIR" "$SAVEPART")" > /dev/console
+      SAVE_FN="${SAVE_MP}${ROS_DIR}"
+      SAVE_LAYER='/pup_ros'
+      echo "--RO-SAVEFOLDER-- $SAVE_FN" #debug
+      if [ -e "$PM667_DIR/var/local/pm667new_save_flag" ];then
+        rm "$PM667_DIR/var/local/pm667new_save_flag"
+        find "$PM667_DIR" -type f > /tmp/rw-files.txt
+        if [ -s /tmp/rw-files.txt ];then
+          IFSBAK=$IFS; IFS='
+'
+          while read ONE_RW_FILE;do
+            ONE_RW_SUB="${ONE_RW_FILE%/*}"; ONE_RW_SUB="${ONE_RW_SUB#${PM667_DIR}}"
+            ONE_RW_BFN="${ONE_RW_FILE##*/}"
+            if [ "${ONE_RW_BFN:0:4}" = ".wh." ];then
+              #cleanup whiteout files in $PM667_DIR
+              ONE_RW_WFN="${ONE_RW_BFN:4}"
+              [ "${ONE_RW_WFN:0:4}" = ".wh." ] && continue
+              [ -L "/pup_new${ONE_RW_SUB}/${ONE_RW_WFN}" ] && continue
+              [ -e "/pup_new${ONE_RW_SUB}/${ONE_RW_WFN}" ] && continue
+              #real file is only in "ros", or doesn't exist 
+              #remove the realfile and the whiteout file
+              if [ -e "${SAVE_FN}${ONE_RW_SUB}/${ONE_RW_WFN}" ];then
+                echo "Removing ${ONE_RW_SUB}/${ONE_RW_WFN} and whiteout $ONE_RW_FILE"
+                rm "${SAVE_FN}${ONE_RW_SUB}/${ONE_RW_WFN}"
+              else #is an orphan whiteout file, will be removed
+                echo "Removing whiteout $ONE_RW_FILE"
+              fi
+              rm "$ONE_RW_FILE"
+            else
+              #move ordinary file to "ros"
+              [ -d "${SAVE_FN}${ONE_RW_SUB}" ] || mkdir -p "${SAVE_FN}${ONE_RW_SUB}"
+              mv -f "$ONE_RW_FILE" "${SAVE_FN}${ONE_RW_SUB}/"
+            fi
+          done < /tmp/rw-files.txt
+          IFS=$IFSBAK
+          #$PM667_DIR is a lot smaller without ordinary files that have been moved to "ros"
+          echo "tar czf $ARCHIVE_FN -C $PM667_DIR . 2>/dev/null"
+          [ -e "${ARCHIVE_FN}.new" ] && rm "${ARCHIVE_FN}.new"
+          tar czf "${ARCHIVE_FN}.new" -C "$PM667_DIR" . 2>/dev/null
+          if [ $? -eq 0 ];then
+            mv -f "${ARCHIVE_FN}.new" "${ARCHIVE_FN}"
+          else
+            [ -e "${ARCHIVE_FN}.new" ] && rm "${ARCHIVE_FN}.new"
+          fi
+        fi
+      fi
+      ln -svf "${SAVE_FN}" "$SAVE_LAYER"
+      #adjust stack
+      echo "mount -o remount,add:1:${SAVE_LAYER}=rr /pup_new" #debug
+      mount -o remount,add:1:${SAVE_LAYER}=rr /pup_new
+      STATUS=$?
+      [ $STATUS -eq 0 ] && KEEPMOUNTED="${KEEPMOUNTED}${SAVEPART} "
+      PUPSAVE="${SAVEPART},${SAVE_FS},${ROS_DIR}"
+    else
+      PUPSAVE="${SAVEPART},${SAVE_FS},${FN_667}"
+    fi
     if [ $STATUS -eq 0 ];then
       #replace rw branch with new populated tmpfs
-      echo "mount -o remount,prepend:${PM66_DIR}=rw,mod:/mnt/tmpfs/pup_rw=ro,del:/mnt/tmpfs/pup_rw /pup_new" #debug
-      mount -o remount,prepend:${PM66_DIR}=rw,mod:/mnt/tmpfs/pup_rw=ro,del:/mnt/tmpfs/pup_rw /pup_new
+      echo "mount -o remount,prepend:${PM667_DIR}=rw,mod:/mnt/tmpfs/pup_rw=ro,del:/mnt/tmpfs/pup_rw /pup_new" #debug
+      mount -o remount,prepend:${PM667_DIR}=rw,mod:/mnt/tmpfs/pup_rw=ro,del:/mnt/tmpfs/pup_rw /pup_new
       STATUS=$?
     fi
     if [ $STATUS -eq 0 ];then
-      SAVE_MP=''
+      [ "$SAVE_LAYER" ] || SAVE_MP=''
       rm -rf /mnt/tmpfs/pup_rw
     else
-      printf "${L_ADDING_SAVE_LAYER_FAILED}\n" "$PM66_DIR"
+      printf "${L_ADDING_SAVE_LAYER_FAILED}\n" "$PM667_DIR"
     fi
     check_status $STATUS
   fi
