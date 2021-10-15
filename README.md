@@ -1,5 +1,9 @@
 # woof - the Puppy builder
 
+**This is the stable branch**, branched from *testing* on October 15th, 2021.
+
+Its main purpose is to protect automated weekly builds of [Vanilla Dpup](https://github.com/vanilla-dpup/releases) from regressions and issues introduced in *testing*. Ideally, the only commits to this branch should be critical fixes cherry-picked from *testing*.
+
 Currently supported: [![Build status](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/build.yml/badge.svg)](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/build.yml)
 
 - Slackware
