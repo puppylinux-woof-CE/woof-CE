@@ -466,30 +466,7 @@ if [ "$EXT" != ".pet" ]; then
 
  #Update the package files list
  sed -i -e 's#^\/etc\/rc\.d\/init\.d#\/etc\/init\.d#g' -e 's#^\/etc\/rc\.d#\/etc\/init\.d#g' /var/packages/${DLPKG_NAME}.files
- 
- #Check if init.d scripts were not found but systemd service files exists.
- if [ "$(cat /var/packages/${DLPKG_NAME}.files | grep -E '\/lib/systemd\/system\/|^\/etc/systemd\/system\/' | grep ".service")" != "" ]; then
-   if [ "$(cat /var/packages/${DLPKG_NAME}.files | grep "/etc/init.d")" == "" ] && [ "$(which service2initd)" != "" ]; then
-     
-    cat /var/packages/${DLPKG_NAME}.files | grep -E '\/lib/systemd\/system\/|^\/etc/systemd\/system\/' | grep ".service" | grep -v "systemd/system/systemd\-" > /tmp/pkg-srv-files
-
-     while IFS= read -r line
-     do
-      
-      #Generate init.d script
-      srvname="$(basename $line .service)"
-      
-      if [ -f "$line" ] && [ ! -e /etc/init.d/$srvname ]; then
-       service2initd $line > /etc/init.d/$srvname
-       #Add to package files list
-       echo "/etc/init.d/$srvname" >> /var/packages/${DLPKG_NAME}.files
-      fi
-     
-     done < /tmp/pkg-srv-files 
- 
-   fi
- fi 
-
+  
 fi
 
 
