@@ -1,0 +1,267 @@
+diff -rupN --exclude .git cage-orig/cage.c cage/cage.c
+--- cage-orig/cage.c	2021-10-20 09:10:46.187999809 +0300
++++ cage/cage.c	2021-10-20 18:54:45.016199317 +0300
+@@ -32,6 +32,8 @@
+ #if CAGE_HAS_XWAYLAND
+ #include <wlr/types/wlr_xcursor_manager.h>
+ #endif
++#include <wlr/types/wlr_relative_pointer_v1.h>
++#include <wlr/types/wlr_pointer_constraints_v1.h>
+ #include <wlr/types/wlr_xdg_decoration_v1.h>
+ #include <wlr/types/wlr_xdg_output_v1.h>
+ #include <wlr/types/wlr_xdg_shell.h>
+@@ -429,6 +431,12 @@ main(int argc, char *argv[])
+ 		goto end;
+ 	}
+ 
++	server.relative_pointer_manager = wlr_relative_pointer_manager_v1_create(server.wl_display);
++	server.constraints = wlr_pointer_constraints_v1_create(server.wl_display);
++
++	server.new_constraint.notify = create_constraint;
++	wl_signal_add(&server.constraints->events.new_constraint, &server.new_constraint);
++
+ #if CAGE_HAS_XWAYLAND
+ 	xwayland = wlr_xwayland_create(server.wl_display, compositor, true);
+ 	if (!xwayland) {
+diff -rupN --exclude .git cage-orig/meson.build cage/meson.build
+--- cage-orig/meson.build	2021-10-20 09:10:46.187999809 +0300
++++ cage/meson.build	2021-10-20 09:28:45.343994566 +0300
+@@ -51,6 +51,7 @@ wayland_scanner_server = generator(
+ 
+ server_protocols = [
+   [wl_protocol_dir, 'stable/xdg-shell/xdg-shell.xml'],
++  [wl_protocol_dir, 'unstable/pointer-constraints/pointer-constraints-unstable-v1.xml'],
+ ]
+ 
+ server_protos_headers = []
+diff -rupN --exclude .git cage-orig/seat.c cage/seat.c
+--- cage-orig/seat.c	2021-10-20 09:10:46.187999809 +0300
++++ cage/seat.c	2021-10-20 19:05:55.208196061 +0300
+@@ -22,6 +22,7 @@
+ #include <wlr/types/wlr_surface.h>
+ #include <wlr/types/wlr_touch.h>
+ #include <wlr/types/wlr_xcursor_manager.h>
++#include <wlr/types/wlr_pointer_constraints_v1.h>
+ #include <wlr/util/log.h>
+ #if CAGE_HAS_XWAYLAND
+ #include <wlr/xwayland.h>
+@@ -261,7 +262,7 @@ handle_key_event(struct wlr_input_device
+ 
+ 	bool handled = false;
+ 	uint32_t modifiers = wlr_keyboard_get_modifiers(device->keyboard);
+-	if ((modifiers & WLR_MODIFIER_ALT) && event->state == WL_KEYBOARD_KEY_STATE_PRESSED) {
++	if ((modifiers & WLR_MODIFIER_ALT) && event->state == WL_KEYBOARD_KEY_STATE_PRESSED && !seat->current_constraint) {
+ 		/* If Alt is held down and this button was pressed, we
+ 		 * attempt to process it as a compositor
+ 		 * keybinding. */
+@@ -580,7 +581,21 @@ handle_cursor_motion_absolute(struct wl_
+ 	struct cg_seat *seat = wl_container_of(listener, seat, cursor_motion_absolute);
+ 	struct wlr_event_pointer_motion_absolute *event = data;
+ 
+-	wlr_cursor_warp_absolute(seat->cursor, event->device, event->x, event->y);
++	double lx, ly;
++	wlr_cursor_absolute_to_layout_coords(seat->cursor, event->device,
++			event->x, event->y, &lx, &ly);
++
++	double dx = lx - seat->cursor->x;
++	double dy = ly - seat->cursor->y;
++
++	wlr_relative_pointer_manager_v1_send_relative_motion(
++		seat->server->relative_pointer_manager,
++		seat->seat, (uint64_t)event->time_msec * 1000,
++		dx, dy, dx, dy);
++
++	if (!seat->current_constraint) {
++		wlr_cursor_move(seat->cursor, event->device, dx, dy);
++	}
+ 	process_cursor_motion(seat, event->time_msec);
+ 	wlr_idle_notify_activity(seat->server->idle, seat->seat);
+ }
+@@ -589,9 +604,17 @@ static void
+ handle_cursor_motion(struct wl_listener *listener, void *data)
+ {
+ 	struct cg_seat *seat = wl_container_of(listener, seat, cursor_motion);
++	struct cg_server *server = seat->server;
+ 	struct wlr_event_pointer_motion *event = data;
+ 
+-	wlr_cursor_move(seat->cursor, event->device, event->delta_x, event->delta_y);
++	wlr_relative_pointer_manager_v1_send_relative_motion(
++		server->relative_pointer_manager,
++		seat->seat, (uint64_t)event->time_msec * 1000,
++		event->delta_x, event->delta_y, event->unaccel_dx,
++		event->unaccel_dy);
++	if (!seat->current_constraint) {
++		wlr_cursor_move(seat->cursor, event->device, event->delta_x, event->delta_y);
++	}
+ 	process_cursor_motion(seat, event->time_msec);
+ 	wlr_idle_notify_activity(seat->server->idle, seat->seat);
+ }
+@@ -801,6 +824,8 @@ seat_create(struct cg_server *server, st
+ 	wl_list_init(&seat->pointers);
+ 	wl_list_init(&seat->touch);
+ 
++	wl_list_init(&seat->constraint_commit.link);
++
+ 	seat->new_input.notify = handle_new_input;
+ 	wl_signal_add(&backend->events.new_input, &seat->new_input);
+ 
+@@ -882,5 +907,100 @@ seat_set_focus(struct cg_seat *seat, str
+ 		wlr_seat_keyboard_notify_enter(wlr_seat, view->wlr_surface, NULL, 0, NULL);
+ 	}
+ 
++	struct wlr_pointer_constraint_v1 *constraint = wlr_pointer_constraints_v1_constraint_for_surface(server->constraints, view->wlr_surface, wlr_seat);
++	constrain_cursor(server, constraint);
++
+ 	process_cursor_motion(seat, -1);
+ }
++
++void
++handle_constraint_commit(struct wl_listener *listener, void *data)
++{
++	struct cg_seat *seat = wl_container_of(listener, seat, constraint_commit);
++	struct wlr_pointer_constraint_v1 *constraint = seat->current_constraint;
++}
++
++void
++destroy_constraint(struct wl_listener *listener, void *data)
++{
++	struct cg_constraint *constraint = wl_container_of(listener, constraint,
++		destroy);
++	struct wlr_pointer_constraint_v1 *wlr_constraint = data;
++	struct cg_seat *seat = constraint->seat;
++
++	wl_list_remove(&constraint->destroy.link);
++	if (seat->current_constraint == wlr_constraint) {
++		if (seat->constraint_commit.link.next != NULL) {
++			wl_list_remove(&seat->constraint_commit.link);
++		}
++		wl_list_init(&seat->constraint_commit.link);
++		seat->current_constraint = NULL;
++	}
++
++	free(constraint);
++}
++
++static struct cg_view *
++desktop_focused_view(struct cg_server *server)
++{
++	struct cg_seat *seat = server->seat;
++	struct wlr_surface *focused_surface;
++	focused_surface = seat->seat->keyboard_state.focused_surface;
++	if (!focused_surface) {
++		return NULL;
++	}
++	struct cg_view *view;
++	wl_list_for_each (view, &server->views, link) {
++		if (view->wlr_surface == focused_surface) {
++			return view;
++		}
++	}
++
++	return NULL;
++}
++
++void
++create_constraint(struct wl_listener *listener, void *data)
++{
++	struct wlr_pointer_constraint_v1 *wlr_constraint = data;
++	struct cg_server *server = wl_container_of(listener, server,
++		new_constraint);
++	struct cg_view *view;
++	struct cg_constraint *constraint = calloc(1, sizeof(struct cg_constraint));
++
++	constraint->constraint = wlr_constraint;
++	constraint->seat = server->seat;
++	constraint->destroy.notify = destroy_constraint;
++	wl_signal_add(&wlr_constraint->events.destroy, &constraint->destroy);
++
++	view = desktop_focused_view(server);
++	if (view->wlr_surface == wlr_constraint->surface) {
++		constrain_cursor(server, wlr_constraint);
++	}
++}
++
++void
++constrain_cursor(struct cg_server *server, struct wlr_pointer_constraint_v1 *constraint)
++{
++	struct cg_seat *seat = server->seat;
++	if (seat->current_constraint == constraint) {
++		return;
++	}
++	wl_list_remove(&seat->constraint_commit.link);
++	if (seat->current_constraint) {
++		wlr_pointer_constraint_v1_send_deactivated(
++			seat->current_constraint);
++	}
++
++	seat->current_constraint = constraint;
++
++	if (constraint == NULL) {
++		wl_list_init(&seat->constraint_commit.link);
++		return;
++	}
++
++	wlr_pointer_constraint_v1_send_activated(constraint);
++	seat->constraint_commit.notify = handle_constraint_commit;
++	wl_signal_add(&constraint->surface->events.commit,
++		&seat->constraint_commit);
++}
+diff -rupN --exclude .git cage-orig/seat.h cage/seat.h
+--- cage-orig/seat.h	2021-10-20 09:10:46.187999809 +0300
++++ cage/seat.h	2021-10-20 18:50:01.596200694 +0300
+@@ -27,11 +27,13 @@ struct cg_seat {
+ 
+ 	struct wlr_cursor *cursor;
+ 	struct wlr_xcursor_manager *xcursor_manager;
++	struct wlr_pointer_constraint_v1 *current_constraint;
+ 	struct wl_listener cursor_motion;
+ 	struct wl_listener cursor_motion_absolute;
+ 	struct wl_listener cursor_button;
+ 	struct wl_listener cursor_axis;
+ 	struct wl_listener cursor_frame;
++	struct wl_listener constraint_commit;
+ 
+ 	int32_t touch_id;
+ 	double touch_lx;
+@@ -84,9 +86,18 @@ struct cg_drag_icon {
+ 	struct wl_listener destroy;
+ };
+ 
++struct cg_constraint {
++	struct cg_seat *seat;
++	struct wlr_pointer_constraint_v1 *constraint;
++	struct wl_listener destroy;
++};
++
+ struct cg_seat *seat_create(struct cg_server *server, struct wlr_backend *backend);
+ void seat_destroy(struct cg_seat *seat);
+ struct cg_view *seat_get_focus(struct cg_seat *seat);
+ void seat_set_focus(struct cg_seat *seat, struct cg_view *view);
+ 
++void create_constraint(struct wl_listener *listener, void *data);
++void constrain_cursor(struct cg_server *server, struct wlr_pointer_constraint_v1 *constraint);
++
+ #endif
+diff -rupN --exclude .git cage-orig/server.h cage/server.h
+--- cage-orig/server.h	2021-10-20 09:10:46.187999809 +0300
++++ cage/server.h	2021-10-20 18:54:24.528199416 +0300
+@@ -8,6 +8,8 @@
+ #include <wlr/types/wlr_idle_inhibit_v1.h>
+ #include <wlr/types/wlr_output_layout.h>
+ #include <wlr/types/wlr_xdg_decoration_v1.h>
++#include <wlr/types/wlr_relative_pointer_v1.h>
++#include <wlr/types/wlr_pointer_constraints_v1.h>
+ #if CAGE_HAS_XWAYLAND
+ #include <wlr/xwayland.h>
+ #endif
+@@ -38,6 +40,10 @@ struct cg_server {
+ 	 * some outputs may be disabled. */
+ 	struct wl_list outputs; // cg_output::link
+ 	struct wl_listener new_output;
++	
++	struct wlr_relative_pointer_manager_v1 *relative_pointer_manager;
++	struct wlr_pointer_constraints_v1 *constraints;
++	struct wl_listener new_constraint;
+ 
+ 	struct wl_listener xdg_toplevel_decoration;
+ 	struct wl_listener new_xdg_shell_surface;
