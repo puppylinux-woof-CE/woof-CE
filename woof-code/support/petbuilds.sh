@@ -153,7 +153,12 @@ for NAME in $PETBUILDS; do
 
         rm -rf ../petbuild-output/${NAME}-* # remove older petbuilds of $NAME
         mkdir -p ../petbuild-output/${NAME}-${HASH} petbuild-rootfs-complete-${NAME}
-        mount -t aufs -o br=../petbuild-output/${NAME}-${HASH}:devx:petbuild-rootfs-complete petbuild petbuild-rootfs-complete-${NAME}
+        if [ "$LAYER_TYPE" = 'overlay' ]; then
+             mkdir petbuild-workdir
+             mount -t overlay -o upperdir=../petbuild-output/${NAME}-${HASH},lowerdir=devx:petbuild-rootfs-complete,workdir=petbuild-workdir petbuild petbuild-rootfs-complete-${NAME}
+        else
+             mount -t aufs -o br=../petbuild-output/${NAME}-${HASH}:devx:petbuild-rootfs-complete petbuild petbuild-rootfs-complete-${NAME}
+        fi
 
         mkdir -p petbuild-rootfs-complete-${NAME}/proc petbuild-rootfs-complete-${NAME}/sys petbuild-rootfs-complete-${NAME}/dev petbuild-rootfs-complete-${NAME}/tmp
         mkdir -p petbuild-rootfs-complete-${NAME}/root/.ccache
@@ -175,6 +180,9 @@ for NAME in $PETBUILDS; do
         umount -l petbuild-rootfs-complete-${NAME}/proc
         umount -l petbuild-rootfs-complete-${NAME}
         rmdir petbuild-rootfs-complete-${NAME}
+
+        clean_out_whiteouts ../petbuild-output/${NAME}-${HASH}
+        rm -rf petbuild-workdir
 
         if [ $ret -ne 0 ]; then
             echo "ERROR: failed to build ${NAME}"
