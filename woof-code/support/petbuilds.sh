@@ -65,6 +65,11 @@ for NAME in $PETBUILDS; do
             rm -f sh petbuild-rootfs-complete/bin/sh
             ln -s bash petbuild-rootfs-complete/bin/sh
 
+            cp -f /etc/resolv.conf petbuild-rootfs-complete/etc/
+            cp -f ../packages-templates/ca-certificates/pinstall.sh petbuild-rootfs-complete/
+            chroot petbuild-rootfs-complete sh /pinstall.sh
+            rm -f petbuild-rootfs-complete/pinstall.sh
+
             # to speed up compilation, we build a static, native ccache executable
             if [ $CROSSBUILD -eq 1 -o ! -e devx/usr/bin/ccache ]; then
                 if [ ! -f ../petbuild-cache/ccache ]; then
@@ -161,17 +166,19 @@ for NAME in $PETBUILDS; do
         fi
 
         mkdir -p petbuild-rootfs-complete-${NAME}/proc petbuild-rootfs-complete-${NAME}/sys petbuild-rootfs-complete-${NAME}/dev petbuild-rootfs-complete-${NAME}/tmp
-        mkdir -p petbuild-rootfs-complete-${NAME}/root/.ccache
+        mkdir -p petbuild-rootfs-complete-${NAME}/root/.ccache petbuild-rootfs-complete-${NAME}/root/.cache
         mount --bind /proc petbuild-rootfs-complete-${NAME}/proc
         mount --bind /sys petbuild-rootfs-complete-${NAME}/sys
         mount --bind /dev petbuild-rootfs-complete-${NAME}/dev
         mount -t tmpfs -o size=1G petbuild-tmp-${NAME} petbuild-rootfs-complete-${NAME}/tmp
         mkdir -p ../petbuild-cache/.ccache
         mount --bind ../petbuild-cache/.ccache petbuild-rootfs-complete-${NAME}/root/.ccache
+        mkdir -p ../petbuild-cache/.cache
+        mount --bind ../petbuild-cache/.cache petbuild-rootfs-complete-${NAME}/root/.cache
 
         cp -a ../petbuild-sources/${NAME}/* petbuild-rootfs-complete-${NAME}/tmp/
         cp -a ../rootfs-petbuilds/${NAME}/* petbuild-rootfs-complete-${NAME}/tmp/
-        CC="$WOOF_CC" CXX="$WOOF_CXX" CFLAGS="$WOOF_CFLAGS" CXXFLAGS="$WOOF_CXXFLAGS" LDFLAGS="$WOOF_LDFLAGS" MAKEFLAGS="$MAKEFLAGS" CCACHE_DIR=/root/.ccache CCACHE_NOHASHDIR=1 PKG_CONFIG_PATH="$PKG_CONFIG_PATH" PYTHONDONTWRITEBYTECODE=1 PETBUILD_GTK=$PETBUILD_GTK $CHROOT_PFIX chroot petbuild-rootfs-complete-${NAME} bash -ec "cd /tmp && . ./petbuild && build"
+        CC="$WOOF_CC" CXX="$WOOF_CXX" CFLAGS="$WOOF_CFLAGS" CXXFLAGS="$WOOF_CXXFLAGS" LDFLAGS="$WOOF_LDFLAGS" MAKEFLAGS="$MAKEFLAGS" CCACHE_DIR=/root/.ccache CCACHE_NOHASHDIR=1 PKG_CONFIG_PATH="$PKG_CONFIG_PATH" PYTHONDONTWRITEBYTECODE=1 PYTHONPYCACHEPREFIX=/root/.cache/__pycache__ PETBUILD_GTK=$PETBUILD_GTK $CHROOT_PFIX chroot petbuild-rootfs-complete-${NAME} bash -ec "cd /tmp && . ./petbuild && build"
         ret=$?
         umount -l petbuild-rootfs-complete-${NAME}/root/.ccache
         umount -l petbuild-rootfs-complete-${NAME}/tmp
@@ -200,6 +207,7 @@ for NAME in $PETBUILDS; do
         rm -rf ../petbuild-output/${NAME}-${HASH}/usr/share/man
         rm -rf ../petbuild-output/${NAME}-${HASH}/usr/share/info
         rm -f ../petbuild-output/${NAME}-${HASH}/usr/share/icons/hicolor/icon-theme.cache
+        rm -rf ../petbuild-output/${NAME}-${HASH}/usr/lib/python*
         rm -rf ../petbuild-output/${NAME}-${HASH}/lib/pkgconfig
         rm -rf ../petbuild-output/${NAME}-${HASH}/usr/lib/pkgconfig
         rm -rf ../petbuild-output/${NAME}-${HASH}/usr/share/pkgconfig
