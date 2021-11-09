@@ -101,10 +101,10 @@ for NAME in $PETBUILDS; do
                 ln -s bash petbuild-rootfs-complete/bin/sh
 
                 if [ ! -f ../petbuild-cache/busybox ]; then
-                    wget -t 1 -T 15 https://busybox.net/downloads/busybox-1.33.1.tar.bz2
-                    tar -xjf busybox-1.33.1.tar.bz2
-                    cp -f ../rootfs-petbuilds/busybox/DOTconfig busybox-1.33.1/.config
-                    cd busybox-1.33.1
+                    wget -t 1 -T 15 https://busybox.net/downloads/busybox-1.34.1.tar.bz2
+                    tar -xjf busybox-1.34.1.tar.bz2
+                    cp -f ../rootfs-petbuilds/busybox/DOTconfig busybox-1.34.1/.config
+                    cd busybox-1.34.1
                     make CONFIG_STATIC=y
                     install -D -m 755 busybox ../../petbuild-cache/busybox || exit 1
                     cd ..
