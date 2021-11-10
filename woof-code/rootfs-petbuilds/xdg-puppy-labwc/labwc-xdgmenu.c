@@ -90,14 +90,28 @@ void show_help()
  */
 void process_directory(GMenuTreeDirectory *directory)
 {
+    GSList *entryList = gmenu_tree_directory_get_contents (directory);
+    GSList *l;
+
+    for (l = entryList; l; l = l->next)
+    {
+        GMenuTreeItem *item = l->data;
+
+        if (gmenu_tree_item_get_type (GMENU_TREE_ITEM(item)) == GMENU_TREE_ITEM_ENTRY)
+        {
+            goto start;
+        }
+    }
+
+    return;
+
+start:
    g_printf(
 		  "<menu id=\"xdg-menu-%s\" label=\"%s\">\n",
 		  gmenu_tree_directory_get_name(directory),
 		  gmenu_tree_directory_get_name(directory));
 
     GMenuTreeItemType entryType;
-    GSList *entryList = gmenu_tree_directory_get_contents (directory);
-    GSList *l;
 
      for (l = entryList; l; l = l->next)
     {
