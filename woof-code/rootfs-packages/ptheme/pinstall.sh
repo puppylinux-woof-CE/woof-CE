@@ -51,6 +51,18 @@ for I in 1 2 3 4; do
 		grep -vF '_hybrid</Include>' root/.jwm/jwmrc-tray$I | sed -e 's%autohide="\(top\|bottom\|left\|right\)" %autohide="off"%' -e "s%layer=\"above\"%layer=\"below\"%" > root/.jwm/jwmrc-tray${I}_hybrid
 	fi
 done
+
+cat << EOF > root/.jwm/jwmrc-wallpaper
+<?xml version="1.0"?>
+
+<JWM>
+
+<Desktops>
+	<Background type="image">/usr/share/backgrounds/${PTHEME_WALL}</Background>
+</Desktops>
+</JWM>
+EOF
+
 #---
 echo "$PTHEME_JWM_TRAY" > root/.jwm/tray_active_preset
 echo "jwm tray: ${PTHEME_JWM_TRAY}"
