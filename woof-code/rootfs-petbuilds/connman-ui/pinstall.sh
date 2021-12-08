@@ -2,6 +2,7 @@ echo -e '#!/bin/sh\nexec connman-ui-gtk' > usr/local/bin/defaultconnect
 chmod 755 usr/local/bin/defaultconnect
 
 echo "CURRENT_EXEC=connman-ui-gtk" > root/.connectwizardrc
+rm -f usr/share/applications/Internet-Connection-Wizard.desktop
 
 [ -f root/.spot-status ] && mv -f root/.spot-status root/.spot-status.orig
 chroot . /usr/sbin/setup-spot connman-ui-gtk=true
