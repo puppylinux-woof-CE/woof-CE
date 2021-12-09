@@ -101,7 +101,6 @@ mount-FULL -o loop,noatime,offset=${P2STARTBYTES} ${SSD_IMG_BASE} /mnt/ssdimagep
 mount-FULL -o loop,noatime,offset=${P2STARTBYTES} ${SD_IMG_BASE} /mnt/sdimagep2
 
 cp -a rootfs-complete/* /mnt/ssdimagep2/
-[ ! -e build/ucode.cpio ] || install -m 644 build/ucode.cpio /mnt/ssdimagep2/ucode.cpio
 echo -e '#!/bin/sh\nexec /sbin/init initrd_full_install' > /mnt/ssdimagep2/init
 chmod 755 /mnt/ssdimagep2/init
 cp -a /mnt/ssdimagep2/* /mnt/sdimagep2/
