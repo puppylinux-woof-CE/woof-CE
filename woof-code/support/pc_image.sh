@@ -1,5 +1,6 @@
 BIOS_IMG_BASE=${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}-ext4-2gb-bios.img
 UEFI_IMG_BASE=${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}-ext4-2gb-uefi.img
+TAR_BASE=${DISTRO_FILE_PREFIX}-${DISTRO_VERSION}.tar
 
 set -e
 
@@ -76,5 +77,12 @@ if [ "$WOOF_TARGETARCH" = "x86_64" ]; then
 
 	mv -f ${UEFI_IMG_BASE} ../${WOOF_OUTPUT}/
 fi
+
+echo "Building ${TAR_BASE}"
+[ "$WOOF_TARGETARCH" != "x86_64" ] || cp -f ../../local-repositories/efilinux.efi build/
+cd build
+sha256sum * > sha256.sum
+tar -c * > ../../${WOOF_OUTPUT}/${TAR_BASE}
+cd ..
 
 set +e
