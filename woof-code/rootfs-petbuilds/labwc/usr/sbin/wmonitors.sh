@@ -3,6 +3,10 @@
 # Wmonitors, GPLv2 (/usr/share/doc/legal/)
 # requires bash, wlr-randr, grim, gtkdialog, cut, sed, 
 
+
+# various wl functions
+. /etc/rc.d/wl_func
+
 TEMPDIR=/tmp/wmon$$
 mkdir -p $TEMPDIR
 CWD=`pwd`
@@ -12,22 +16,6 @@ BACKTITLE="$(gettext '<b>Wmonitors</b>. These settings are for monitor resolutio
 ICON="graphics"
 
 MONITORS=
-exit_error() {
-	echo "$1" && exit 1
-}
-
-# get outputs
-mons() {
-	MONITORS="$(while read -r MON REST
-	do
-		case "${MON:0:3}" in
-			[0-9]*|Phy|Ena|Mod|Pos|Tra|Sca)continue;;
-		esac
-		echo -n "$MON "
-	done <$TEMPDIR/wrandr)"
-	
-	[ -n "$MONITORS" ] || return 1
-}
 
 # construct comboboxentry <items>
 rnr_gui() { # $1 next iter, $2 is the monitor gui, $3 is the next delim until EOF
@@ -183,9 +171,9 @@ _trap_exit() {
 }
 trap _trap_exit EXIT
 
-wlr-randr > $TEMPDIR/wrandr
+#wlr-randr > $TEMPDIR/wrandr
 
-mons || exit_error "error"
+mons $TEMPDIR/wrandr  || exit_error "error"
 i=0
 read a b c d e f <<<$MONITORS
 while [ 1 ]; do
