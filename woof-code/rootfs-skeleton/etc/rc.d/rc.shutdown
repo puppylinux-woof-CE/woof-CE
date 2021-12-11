@@ -252,18 +252,39 @@ case $PUPMODE in
   FILEFS="ext3"
   echo -n "$SAVEFILE" | grep -q "2fs" && FILEFS="ext2"
   echo -n "$SAVEFILE" | grep -q "4fs" && FILEFS="ext4" # 01micko
+  
+  DRVMNT=""
+  CRYPTERR=""
+  PSAVEMISSING=""
+  
   if [ -d $SMNTPT$SAVEFILE ]; then
    rm -r -f  /tmp/save1stpup
    ln -s $SMNTPT$SAVEFILE /tmp/save1stpup
-  elif [ "$CRYPTO" = "" ];then
-   mount -t $FILEFS -o noatime,rw,loop $SMNTPT$SAVEFILE /tmp/save1stpup
+   DRVMNT="y"
+  elif [ -f $SMNTPT$SAVEFILE ]; then
+	if [ "$CRYPTO" = "" ]; then
+	   mount -t $FILEFS -o noatime,rw,loop $SMNTPT$SAVEFILE /tmp/save1stpup
+	   [ "$(mount | grep "/tmp/save1stpup")" != "" ] && DRVMNT="y"
+	else
+	   DEVLOOP="`losetup -f`"
+	   losetup $DEVLOOP ${SMNTPT}$SAVEFILE
+	   echo -n "$MYPASSWORD" | cryptsetup luksOpen $DEVLOOP savefile
+	   
+	   if [ $? -eq 0 ]; then
+	     mount -t $FILEFS -o noatime,rw /dev/mapper/savefile /tmp/save1stpup
+	     [ "$(mount | grep "/tmp/save1stpup")" != "" ] && DRVMNT="y"
+	   else
+	     CRYPTERR="y"
+	   fi
+	  
+	fi
   else
-   DEVLOOP="`losetup -f`"
-   losetup $DEVLOOP ${SMNTPT}$SAVEFILE
-   echo -n "$MYPASSWORD" | cryptsetup luksOpen $DEVLOOP savefile -
-   [ ! $? -eq 0 ] && exit 1
-   mount -t $FILEFS -o noatime,rw /dev/mapper/savefile /tmp/save1stpup
+   PSAVEMISSING="y"
   fi
+  
+  
+  if [ "$DRVMNT" != "" ]; then
+  
   #120522 testing precise puppy with aufs, have two dirs here .wh..wh.orph, .wh..wh.plnk, filter out...
   RDIRS="`find /initrd/pup_rw/ -mindepth 1 -maxdepth 1 -mount -type d | grep -v '/\.wh\.' | grep -v -E '/$|/mnt|/media|/tmp|/proc|/sys|/dev|/lost' | tr '\n' ' '`"
   for ONEDIR in $RDIRS
@@ -282,16 +303,32 @@ case $PUPMODE in
    fi
    cp -a $ONEDIR/ /tmp/save1stpup/
   done
+  
   #copy initmodules config file from /tmp if it exists
   [ -f /tmp/${DISTRO_FILE_PREFIX}initmodules.txt ] && cp -f /tmp/${DISTRO_FILE_PREFIX}initmodules.txt ${SMNTPT}${SAVEPATH}/${DISTRO_FILE_PREFIX}initmodules.txt
   sync
+  
   if [ ! -L /tmp/save1stpup ] ; then
     sync
     umount /tmp/save1stpup
     [ "$CRYPTO" = "luks" ] && cryptsetup luksClose savefile
   fi
+  
   sync
   umount $SMNTPT 2> /dev/null
+  
+  else
+  
+   if [ "$CRYPTERR" != "" ]; then
+    echo "$(gettext "Unable to decrypt the save file. Session not saved")" >/dev/console
+   elif [ "$PSAVEMISSING" != "" ]; then
+    echo "$(gettext "Save file/folder was missing. Session not saved")" >/dev/console
+   else
+    echo "$(gettext "Unable to save session due to error. Session not saved")" >/dev/console
+   fi
+  
+  fi
+  
  ;;
 
  77) /usr/sbin/savesession-dvd ;; #requires /tmp/rc.shutdown_config - save to folder on multisession CD/DVD (including 1st shutdown)
