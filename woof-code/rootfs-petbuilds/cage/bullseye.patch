@@ -1,7 +1,82 @@
-diff -rup wlroots-0.14.0-orig/backend/session/session.c wlroots-0.14.0/backend/session/session.c
---- wlroots-0.14.0-orig/backend/session/session.c	2021-06-24 18:53:30.967633166 +0300
-+++ wlroots-0.14.0/backend/session/session.c	2021-06-24 18:53:51.618348831 +0300
-@@ -337,6 +337,17 @@ bool wlr_session_change_vt(struct wlr_se
+diff -rupN wlroots-0.15.0-orig/backend/drm/drm.c wlroots-0.15.0/backend/drm/drm.c
+--- wlroots-0.15.0-orig/backend/drm/drm.c	2021-12-18 14:57:19.903971830 +0200
++++ wlroots-0.15.0/backend/drm/drm.c	2021-12-18 14:57:23.655971709 +0200
+@@ -142,9 +142,17 @@ static bool add_plane(struct wlr_drm_bac
+ 			goto error;
+ 		}
+ 
+-		drmModeFormatModifierIterator iter = {0};
+-		while (drmModeFormatModifierBlobIterNext(blob, &iter)) {
+-			wlr_drm_format_set_add(&p->formats, iter.fmt, iter.mod);
++		struct drm_format_modifier_blob *data = blob->data;
++		uint32_t *fmts = (uint32_t *)((char *)data + data->formats_offset);
++		struct drm_format_modifier *mods = (struct drm_format_modifier *)
++			((char *)data + data->modifiers_offset);
++		for (uint32_t i = 0; i < data->count_modifiers; ++i) {
++			for (int j = 0; j < 64; ++j) {
++				if (mods[i].formats & ((uint64_t)1 << j)) {
++					wlr_drm_format_set_add(&p->formats,
++						fmts[j + mods[i].offset], mods[i].modifier);
++				}
++			}
+ 		}
+ 
+ 		drmModeFreePropertyBlob(blob);
+diff -rupN wlroots-0.15.0-orig/backend/drm/legacy.c wlroots-0.15.0/backend/drm/legacy.c
+--- wlroots-0.15.0-orig/backend/drm/legacy.c	2021-12-18 14:57:19.903971830 +0200
++++ wlroots-0.15.0/backend/drm/legacy.c	2021-12-18 14:57:23.655971709 +0200
+@@ -151,13 +151,9 @@ static bool legacy_crtc_commit(struct wl
+ 
+ 		int ret = drmModeSetCursor(drm->fd, crtc->id, cursor_handle,
+ 			cursor_width, cursor_height);
+-		int set_cursor_errno = errno;
+-		if (drmCloseBufferHandle(drm->fd, cursor_handle) != 0) {
+-			wlr_log_errno(WLR_ERROR, "drmCloseBufferHandle failed");
+-		}
++		close_bo_handle(drm->fd, cursor_handle);
+ 		if (ret != 0) {
+-			wlr_drm_conn_log(conn, WLR_DEBUG, "drmModeSetCursor failed: %s",
+-				strerror(set_cursor_errno));
++			wlr_drm_conn_log_errno(conn, WLR_DEBUG, "drmModeSetCursor failed");
+ 			return false;
+ 		}
+ 
+diff -rupN wlroots-0.15.0-orig/backend/drm/renderer.c wlroots-0.15.0/backend/drm/renderer.c
+--- wlroots-0.15.0-orig/backend/drm/renderer.c	2021-12-18 14:57:19.903971830 +0200
++++ wlroots-0.15.0/backend/drm/renderer.c	2021-12-18 14:57:23.655971709 +0200
+@@ -271,9 +271,7 @@ static void close_all_bo_handles(struct
+ 			continue;
+ 		}
+ 
+-		if (drmCloseBufferHandle(drm->fd, handles[i]) != 0) {
+-			wlr_log_errno(WLR_ERROR, "drmCloseBufferHandle failed");
+-		}
++		close_bo_handle(drm->fd, handles[i]);
+ 	}
+ }
+ 
+diff -rupN wlroots-0.15.0-orig/backend/drm/util.c wlroots-0.15.0/backend/drm/util.c
+--- wlroots-0.15.0-orig/backend/drm/util.c	2021-12-18 14:57:19.903971830 +0200
++++ wlroots-0.15.0/backend/drm/util.c	2021-12-18 14:57:23.655971709 +0200
+@@ -320,3 +320,14 @@ size_t match_obj(size_t num_objs, const
+ 	match_obj_(&st, 0, 0, 0, 0);
+ 	return st.score;
+ }
++
++void close_bo_handle(int drm_fd, uint32_t handle) {
++	if (handle == 0) {
++		return;
++	}
++
++	struct drm_gem_close args = { .handle = handle };
++	if (drmIoctl(drm_fd, DRM_IOCTL_GEM_CLOSE, &args) != 0) {
++		wlr_log_errno(WLR_ERROR, "drmIoctl(GEM_CLOSE) failed");
++	}
++}
+diff -rupN wlroots-0.15.0-orig/backend/session/session.c wlroots-0.15.0/backend/session/session.c
+--- wlroots-0.15.0-orig/backend/session/session.c	2021-12-18 14:57:19.907971830 +0200
++++ wlroots-0.15.0/backend/session/session.c	2021-12-18 14:57:23.655971709 +0200
+@@ -368,6 +368,17 @@ bool wlr_session_change_vt(struct wlr_se
  	return libseat_switch_session(session->seat_handle, vt) == 0;
  }
  
@@ -18,8 +93,8 @@ diff -rup wlroots-0.14.0-orig/backend/session/session.c wlroots-0.14.0/backend/s
 +
  /* Tests if 'path' is KMS compatible by trying to open it. Returns the opened
   * device on success. */
- static struct wlr_device *open_if_kms(struct wlr_session *restrict session,
-@@ -350,7 +361,7 @@ static struct wlr_device *open_if_kms(st
+ struct wlr_device *session_open_if_kms(struct wlr_session *restrict session,
+@@ -381,7 +392,7 @@ struct wlr_device *session_open_if_kms(s
  		return NULL;
  	}
  
@@ -28,76 +103,49 @@ diff -rup wlroots-0.14.0-orig/backend/session/session.c wlroots-0.14.0/backend/s
  		wlr_log(WLR_DEBUG, "Ignoring '%s': not a KMS device", path);
  		wlr_session_close_file(session, dev);
  		return NULL;
-diff -rup wlroots-0.14.0-orig/meson.build wlroots-0.14.0/meson.build
---- wlroots-0.14.0-orig/meson.build	2021-06-24 18:53:30.963633118 +0300
-+++ wlroots-0.14.0/meson.build	2021-06-24 18:53:34.967680855 +0300
-@@ -94,9 +94,9 @@ internal_features = {
- 	'xcb-errors': false,
+diff -rupN wlroots-0.15.0-orig/backend/wayland/backend.c wlroots-0.15.0/backend/wayland/backend.c
+--- wlroots-0.15.0-orig/backend/wayland/backend.c	2021-12-18 14:57:19.907971830 +0200
++++ wlroots-0.15.0/backend/wayland/backend.c	2021-12-18 14:57:23.655971709 +0200
+@@ -157,6 +157,7 @@ static void linux_dmabuf_feedback_v1_han
+ 
+ 	feedback_data->main_device_id = dev_id;
+ 
++#if 0
+ 	drmDevice *device = NULL;
+ 	if (drmGetDeviceFromDevId(dev_id, 0, &device) != 0) {
+ 		wlr_log_errno(WLR_ERROR, "drmGetDeviceFromDevId failed");
+@@ -178,6 +179,7 @@ static void linux_dmabuf_feedback_v1_han
+ 	feedback_data->backend->drm_render_name = strdup(name);
+ 
+ 	drmFreeDevice(&device);
++#endif
  }
  
--wayland_server = dependency('wayland-server', version: '>=1.19')
-+wayland_server = dependency('wayland-server', version: '>=1.18')
- wayland_client = dependency('wayland-client')
--drm = dependency('libdrm', version: '>=2.4.105')
-+drm = dependency('libdrm', version: '>=2.4.104')
- gbm = dependency('gbm', version: '>=17.1.0')
- libinput = dependency('libinput', version: '>=1.14.0')
- xkbcommon = dependency('xkbcommon')
-diff -rup wlroots-0.14.0-orig/protocol/meson.build wlroots-0.14.0/protocol/meson.build
---- wlroots-0.14.0-orig/protocol/meson.build	2021-06-24 18:53:30.975633261 +0300
-+++ wlroots-0.14.0/protocol/meson.build	2021-06-24 18:53:34.967680855 +0300
-@@ -1,4 +1,4 @@
--wayland_protos = dependency('wayland-protocols', version: '>=1.21')
-+wayland_protos = dependency('wayland-protocols', version: '>=1.20')
- wl_protocol_dir = wayland_protos.get_variable(pkgconfig: 'pkgdatadir')
+ static void linux_dmabuf_feedback_v1_handle_tranche_done(void *data,
+diff -rupN wlroots-0.15.0-orig/include/backend/drm/util.h wlroots-0.15.0/include/backend/drm/util.h
+--- wlroots-0.15.0-orig/include/backend/drm/util.h	2021-12-18 14:57:19.915971830 +0200
++++ wlroots-0.15.0/include/backend/drm/util.h	2021-12-18 14:57:23.655971709 +0200
+@@ -36,4 +36,11 @@ size_t match_obj(size_t num_objs, const
+ 		size_t num_res, const uint32_t res[static restrict num_res],
+ 		uint32_t out[static restrict num_res]);
  
- wayland_scanner_dep = dependency('wayland-scanner', native: true)
-@@ -23,7 +23,6 @@ protocols = {
- 	'relative-pointer-unstable-v1': wl_protocol_dir / 'unstable/relative-pointer/relative-pointer-unstable-v1.xml',
- 	'tablet-unstable-v2': wl_protocol_dir / 'unstable/tablet/tablet-unstable-v2.xml',
- 	'text-input-unstable-v3': wl_protocol_dir / 'unstable/text-input/text-input-unstable-v3.xml',
--	'xdg-activation-v1': wl_protocol_dir / 'staging/xdg-activation/xdg-activation-v1.xml',
- 	'xdg-decoration-unstable-v1': wl_protocol_dir / 'unstable/xdg-decoration/xdg-decoration-unstable-v1.xml',
- 	'xdg-foreign-unstable-v1': wl_protocol_dir / 'unstable/xdg-foreign/xdg-foreign-unstable-v1.xml',
- 	'xdg-foreign-unstable-v2': wl_protocol_dir / 'unstable/xdg-foreign/xdg-foreign-unstable-v2.xml',
-diff -rup wlroots-0.14.0-orig/types/meson.build wlroots-0.14.0/types/meson.build
---- wlroots-0.14.0-orig/types/meson.build	2021-06-24 18:53:30.975633261 +0300
-+++ wlroots-0.14.0/types/meson.build	2021-06-24 18:53:34.967680855 +0300
-@@ -62,7 +62,6 @@ wlr_files += files(
- 	'wlr_virtual_keyboard_v1.c',
- 	'wlr_virtual_pointer_v1.c',
- 	'wlr_xcursor_manager.c',
--	'wlr_xdg_activation_v1.c',
- 	'wlr_xdg_decoration_v1.c',
- 	'wlr_xdg_foreign_v1.c',
- 	'wlr_xdg_foreign_v2.c',
-diff -rup wlroots-0.14.0-orig/types/seat/wlr_seat.c wlroots-0.14.0/types/seat/wlr_seat.c
---- wlroots-0.14.0-orig/types/seat/wlr_seat.c	2021-06-24 18:53:30.979633309 +0300
-+++ wlroots-0.14.0/types/seat/wlr_seat.c	2021-06-24 18:53:34.967680855 +0300
-@@ -20,7 +20,7 @@ static void seat_handle_get_pointer(stru
- 	struct wlr_seat_client *seat_client =
- 		wlr_seat_client_from_resource(seat_resource);
- 	if (!(seat_client->seat->accumulated_capabilities & WL_SEAT_CAPABILITY_POINTER)) {
--		wl_resource_post_error(seat_resource, WL_SEAT_ERROR_MISSING_CAPABILITY,
-+		wl_resource_post_error(seat_resource, 0,
- 				"wl_seat.get_pointer called when no pointer capability has existed");
- 		return;
- 	}
-@@ -34,7 +34,7 @@ static void seat_handle_get_keyboard(str
- 	struct wlr_seat_client *seat_client =
- 		wlr_seat_client_from_resource(seat_resource);
- 	if (!(seat_client->seat->accumulated_capabilities & WL_SEAT_CAPABILITY_KEYBOARD)) {
--		wl_resource_post_error(seat_resource, WL_SEAT_ERROR_MISSING_CAPABILITY,
-+		wl_resource_post_error(seat_resource, 0,
- 				"wl_seat.get_keyboard called when no keyboard capability has existed");
- 		return;
- 	}
-@@ -48,7 +48,7 @@ static void seat_handle_get_touch(struct
- 	struct wlr_seat_client *seat_client =
- 		wlr_seat_client_from_resource(seat_resource);
- 	if (!(seat_client->seat->accumulated_capabilities & WL_SEAT_CAPABILITY_TOUCH)) {
--		wl_resource_post_error(seat_resource, WL_SEAT_ERROR_MISSING_CAPABILITY,
-+		wl_resource_post_error(seat_resource, 0,
- 				"wl_seat.get_touch called when no touch capability has existed");
- 		return;
- 	}
++/**
++ * Close a GEM buffer handle.
++ *
++ * TODO: replace with drmCloseBufferHandle.
++ */
++void close_bo_handle(int drm_fd, uint32_t handle);
++
+ #endif
+diff -rupN wlroots-0.15.0-orig/meson.build wlroots-0.15.0/meson.build
+--- wlroots-0.15.0-orig/meson.build	2021-12-18 14:57:19.911971830 +0200
++++ wlroots-0.15.0/meson.build	2021-12-18 14:57:23.655971709 +0200
+@@ -105,7 +105,7 @@ wayland_server = dependency('wayland-ser
+ )
+ 
+ drm = dependency('libdrm',
+-	version: '>=2.4.109',
++	version: '>=2.4.104',
+ 	fallback: ['libdrm', 'ext_libdrm'],
+ 	default_options: [
+ 		'libkms=false',
