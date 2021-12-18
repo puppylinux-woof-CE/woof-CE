@@ -1,0 +1,232 @@
+diff -rupN cage-d1367b1c461de95e3698a8f994b9b89bf2505d40-orig/cage.c cage-d1367b1c461de95e3698a8f994b9b89bf2505d40/cage.c
+--- cage-d1367b1c461de95e3698a8f994b9b89bf2505d40-orig/cage.c	2021-12-18 13:49:23.049093509 +0200
++++ cage-d1367b1c461de95e3698a8f994b9b89bf2505d40/cage.c	2021-12-18 14:49:44.839986516 +0200
+@@ -20,6 +20,7 @@
+ #include <wayland-server-core.h>
+ #include <wlr/backend.h>
+ #include <wlr/render/wlr_renderer.h>
++#include <wlr/render/allocator.h>
+ #include <wlr/types/wlr_compositor.h>
+ #include <wlr/types/wlr_data_device.h>
+ #include <wlr/types/wlr_export_dmabuf_v1.h>
+@@ -261,7 +262,6 @@ main(int argc, char *argv[])
+ 	struct wl_event_source *sigint_source = NULL;
+ 	struct wl_event_source *sigterm_source = NULL;
+ 	struct wl_event_source *sigchld_source = NULL;
+-	struct wlr_renderer *renderer = NULL;
+ 	struct wlr_compositor *compositor = NULL;
+ 	struct wlr_data_device_manager *data_device_manager = NULL;
+ 	struct wlr_server_decoration_manager *server_decoration_manager = NULL;
+@@ -316,8 +316,20 @@ main(int argc, char *argv[])
+ 		goto end;
+ 	}
+ 
+-	renderer = wlr_backend_get_renderer(server.backend);
+-	wlr_renderer_init_wl_display(renderer, server.wl_display);
++	server.renderer = wlr_renderer_autocreate(server.backend);
++	if (!server.renderer) {
++		wlr_log(WLR_ERROR, "Unable to create the wlroots renderer");
++		ret = 1;
++		goto end;
++	}
++	wlr_renderer_init_wl_display(server.renderer, server.wl_display);
++
++	server.allocator = wlr_allocator_autocreate(server.backend, server.renderer);
++	if (!server.allocator) {
++		wlr_log(WLR_ERROR, "Unable to create the wlroots allocator");
++		ret = 1;
++		goto end;
++	}
+ 
+ 	wl_list_init(&server.views);
+ 	wl_list_init(&server.outputs);
+@@ -329,7 +341,7 @@ main(int argc, char *argv[])
+ 		goto end;
+ 	}
+ 
+-	compositor = wlr_compositor_create(server.wl_display, renderer);
++	compositor = wlr_compositor_create(server.wl_display, server.renderer);
+ 	if (!compositor) {
+ 		wlr_log(WLR_ERROR, "Unable to create the wlroots compositor");
+ 		ret = 1;
+diff -rupN cage-d1367b1c461de95e3698a8f994b9b89bf2505d40-orig/output.c cage-d1367b1c461de95e3698a8f994b9b89bf2505d40/output.c
+--- cage-d1367b1c461de95e3698a8f994b9b89bf2505d40-orig/output.c	2021-12-18 13:49:23.049093509 +0200
++++ cage-d1367b1c461de95e3698a8f994b9b89bf2505d40/output.c	2021-12-18 14:36:14.099999163 +0200
+@@ -464,6 +464,8 @@ handle_new_output(struct wl_listener *li
+ 	output->damage_destroy.notify = handle_output_damage_destroy;
+ 	wl_signal_add(&output->damage->events.destroy, &output->damage_destroy);
+ 
++	wlr_output_init_render(wlr_output, server->allocator, server->renderer);
++
+ 	struct wlr_output_mode *preferred_mode = wlr_output_preferred_mode(wlr_output);
+ 	if (preferred_mode) {
+ 		wlr_output_set_mode(wlr_output, preferred_mode);
+diff -rupN cage-d1367b1c461de95e3698a8f994b9b89bf2505d40-orig/render.c cage-d1367b1c461de95e3698a8f994b9b89bf2505d40/render.c
+--- cage-d1367b1c461de95e3698a8f994b9b89bf2505d40-orig/render.c	2021-12-18 13:49:23.049093509 +0200
++++ cage-d1367b1c461de95e3698a8f994b9b89bf2505d40/render.c	2021-12-18 14:50:51.407984367 +0200
+@@ -10,7 +10,6 @@
+ #include <wayland-server-core.h>
+ #include <wlr/backend.h>
+ #include <wlr/render/wlr_renderer.h>
+-#include <wlr/types/wlr_box.h>
+ #include <wlr/types/wlr_matrix.h>
+ #include <wlr/types/wlr_output.h>
+ #include <wlr/types/wlr_output_layout.h>
+@@ -25,10 +24,8 @@
+ #include "view.h"
+ 
+ static void
+-scissor_output(struct wlr_output *output, pixman_box32_t *rect)
++scissor_output(struct wlr_output *output, pixman_box32_t *rect, struct wlr_renderer *renderer)
+ {
+-	struct wlr_renderer *renderer = wlr_backend_get_renderer(output->backend);
+-
+ 	struct wlr_box box = {
+ 		.x = rect->x1,
+ 		.y = rect->y1,
+@@ -50,10 +47,8 @@ struct render_data {
+ 
+ static void
+ render_texture(struct wlr_output *wlr_output, pixman_region32_t *output_damage, struct wlr_texture *texture,
+-	       const struct wlr_box *box, const float matrix[static 9])
++	       const struct wlr_box *box, const float matrix[static 9], struct wlr_renderer *renderer)
+ {
+-	struct wlr_renderer *renderer = wlr_backend_get_renderer(wlr_output->backend);
+-
+ 	pixman_region32_t damage;
+ 	pixman_region32_init(&damage);
+ 	pixman_region32_union_rect(&damage, &damage, box->x, box->y, box->width, box->height);
+@@ -65,7 +60,7 @@ render_texture(struct wlr_output *wlr_ou
+ 	int nrects;
+ 	pixman_box32_t *rects = pixman_region32_rectangles(&damage, &nrects);
+ 	for (int i = 0; i < nrects; i++) {
+-		scissor_output(wlr_output, &rects[i]);
++		scissor_output(wlr_output, &rects[i], renderer);
+ 		wlr_render_texture_with_matrix(renderer, texture, matrix, 1.0f);
+ 	}
+ 
+@@ -92,7 +87,7 @@ render_surface_iterator(struct cg_output
+ 	enum wl_output_transform transform = wlr_output_transform_invert(surface->current.transform);
+ 	wlr_matrix_project_box(matrix, box, transform, 0.0f, wlr_output->transform_matrix);
+ 
+-	render_texture(wlr_output, output_damage, texture, box, matrix);
++	render_texture(wlr_output, output_damage, texture, box, matrix, output->server->renderer);
+ }
+ 
+ static void
+@@ -133,12 +128,7 @@ output_render(struct cg_output *output,
+ {
+ 	struct cg_server *server = output->server;
+ 	struct wlr_output *wlr_output = output->wlr_output;
+-
+-	struct wlr_renderer *renderer = wlr_backend_get_renderer(wlr_output->backend);
+-	if (!renderer) {
+-		wlr_log(WLR_DEBUG, "Expected the output backend to have a renderer");
+-		return;
+-	}
++	struct wlr_renderer *renderer = server->renderer;
+ 
+ 	wlr_renderer_begin(renderer, wlr_output->width, wlr_output->height);
+ 
+@@ -157,7 +147,7 @@ output_render(struct cg_output *output,
+ 	int nrects;
+ 	pixman_box32_t *rects = pixman_region32_rectangles(damage, &nrects);
+ 	for (int i = 0; i < nrects; i++) {
+-		scissor_output(wlr_output, &rects[i]);
++		scissor_output(wlr_output, &rects[i], server->renderer);
+ 		wlr_renderer_clear(renderer, color);
+ 	}
+ 
+diff -rupN cage-d1367b1c461de95e3698a8f994b9b89bf2505d40-orig/server.h cage-d1367b1c461de95e3698a8f994b9b89bf2505d40/server.h
+--- cage-d1367b1c461de95e3698a8f994b9b89bf2505d40-orig/server.h	2021-12-18 13:49:23.049093509 +0200
++++ cage-d1367b1c461de95e3698a8f994b9b89bf2505d40/server.h	2021-12-18 14:16:35.511989947 +0200
+@@ -25,6 +25,8 @@ struct cg_server {
+ 	struct wl_display *wl_display;
+ 	struct wl_list views;
+ 	struct wlr_backend *backend;
++	struct wlr_renderer *renderer;
++	struct wlr_allocator *allocator;
+ 
+ 	struct cg_seat *seat;
+ 	struct wlr_idle *idle;
+diff -rupN cage-d1367b1c461de95e3698a8f994b9b89bf2505d40-orig/util.c cage-d1367b1c461de95e3698a8f994b9b89bf2505d40/util.c
+--- cage-d1367b1c461de95e3698a8f994b9b89bf2505d40-orig/util.c	2021-12-18 13:49:23.049093509 +0200
++++ cage-d1367b1c461de95e3698a8f994b9b89bf2505d40/util.c	2021-12-18 13:49:27.133093308 +0200
+@@ -6,8 +6,6 @@
+  * See the LICENSE file accompanying this file.
+  */
+ 
+-#include <wlr/types/wlr_box.h>
+-
+ #include "util.h"
+ 
+ int
+diff -rupN cage-d1367b1c461de95e3698a8f994b9b89bf2505d40-orig/util.h cage-d1367b1c461de95e3698a8f994b9b89bf2505d40/util.h
+--- cage-d1367b1c461de95e3698a8f994b9b89bf2505d40-orig/util.h	2021-12-18 13:49:23.049093509 +0200
++++ cage-d1367b1c461de95e3698a8f994b9b89bf2505d40/util.h	2021-12-18 14:27:59.571967872 +0200
+@@ -1,7 +1,7 @@
+ #ifndef CG_UTIL_H
+ #define CG_UTIL_H
+ 
+-#include <wlr/types/wlr_box.h>
++#include <wlr/util/box.h>
+ 
+ /** Apply scale to a width or height. */
+ int scale_length(int length, int offset, float scale);
+diff -rupN cage-d1367b1c461de95e3698a8f994b9b89bf2505d40-orig/view.c cage-d1367b1c461de95e3698a8f994b9b89bf2505d40/view.c
+--- cage-d1367b1c461de95e3698a8f994b9b89bf2505d40-orig/view.c	2021-12-18 13:49:23.049093509 +0200
++++ cage-d1367b1c461de95e3698a8f994b9b89bf2505d40/view.c	2021-12-18 13:49:27.133093308 +0200
+@@ -12,7 +12,6 @@
+ #include <stdlib.h>
+ #include <string.h>
+ #include <wayland-server-core.h>
+-#include <wlr/types/wlr_box.h>
+ #include <wlr/types/wlr_output.h>
+ #include <wlr/types/wlr_surface.h>
+ 
+@@ -235,10 +234,10 @@ view_map(struct cg_view *view, struct wl
+ 	view->wlr_surface = surface;
+ 
+ 	struct wlr_subsurface *subsurface;
+-	wl_list_for_each (subsurface, &view->wlr_surface->subsurfaces_below, parent_link) {
++	wl_list_for_each (subsurface, &view->wlr_surface->current.subsurfaces_below, current.link) {
+ 		subsurface_create(view, subsurface);
+ 	}
+-	wl_list_for_each (subsurface, &view->wlr_surface->subsurfaces_above, parent_link) {
++	wl_list_for_each (subsurface, &view->wlr_surface->current.subsurfaces_above, current.link) {
+ 		subsurface_create(view, subsurface);
+ 	}
+ 
+diff -rupN cage-d1367b1c461de95e3698a8f994b9b89bf2505d40-orig/view.h cage-d1367b1c461de95e3698a8f994b9b89bf2505d40/view.h
+--- cage-d1367b1c461de95e3698a8f994b9b89bf2505d40-orig/view.h	2021-12-18 13:49:23.049093509 +0200
++++ cage-d1367b1c461de95e3698a8f994b9b89bf2505d40/view.h	2021-12-18 13:49:27.137093308 +0200
+@@ -5,7 +5,6 @@
+ 
+ #include <stdbool.h>
+ #include <wayland-server-core.h>
+-#include <wlr/types/wlr_box.h>
+ #include <wlr/types/wlr_surface.h>
+ #include <wlr/types/wlr_xdg_shell.h>
+ #if CAGE_HAS_XWAYLAND
+diff -rupN cage-d1367b1c461de95e3698a8f994b9b89bf2505d40-orig/xdg_shell.c cage-d1367b1c461de95e3698a8f994b9b89bf2505d40/xdg_shell.c
+--- cage-d1367b1c461de95e3698a8f994b9b89bf2505d40-orig/xdg_shell.c	2021-12-18 13:49:23.049093509 +0200
++++ cage-d1367b1c461de95e3698a8f994b9b89bf2505d40/xdg_shell.c	2021-12-18 13:49:27.137093308 +0200
+@@ -9,7 +9,6 @@
+ #include <stdbool.h>
+ #include <stdlib.h>
+ #include <wayland-server-core.h>
+-#include <wlr/types/wlr_box.h>
+ #include <wlr/types/wlr_xdg_shell.h>
+ #include <wlr/util/log.h>
+ 
+diff -rupN cage-d1367b1c461de95e3698a8f994b9b89bf2505d40-orig/xwayland.c cage-d1367b1c461de95e3698a8f994b9b89bf2505d40/xwayland.c
+--- cage-d1367b1c461de95e3698a8f994b9b89bf2505d40-orig/xwayland.c	2021-12-18 13:49:23.049093509 +0200
++++ cage-d1367b1c461de95e3698a8f994b9b89bf2505d40/xwayland.c	2021-12-18 13:49:27.137093308 +0200
+@@ -9,7 +9,6 @@
+ #include <stdbool.h>
+ #include <stdlib.h>
+ #include <wayland-server-core.h>
+-#include <wlr/types/wlr_box.h>
+ #include <wlr/util/log.h>
+ #include <wlr/xwayland.h>
+ 
