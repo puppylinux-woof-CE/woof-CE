@@ -5,6 +5,8 @@
 
 . etc/DISTRO_SPECS
 
+sed -i "s/Puppy Linux/${DISTRO_NAME}/g" usr/share/backgrounds/*.svg
+
 echo "Configuring Puppy skeleton..."
 echo "Configuring Puppy Help page..."
 
