@@ -201,6 +201,7 @@ for NAME in $PETBUILDS; do
 
         rm -rf ../petbuild-output/${NAME}-${HASH}/root/.cache
         rm -rf ../petbuild-output/${NAME}-${HASH}/root/.ccache
+        rm -rf ../petbuild-output/${NAME}-${HASH}/var/cache
         rm -rf ../petbuild-output/${NAME}-${HASH}/tmp
         rm -rf ../petbuild-output/${NAME}-${HASH}/etc/ssl
         rm -f ../petbuild-output/${NAME}-${HASH}/etc/resolv.conf
