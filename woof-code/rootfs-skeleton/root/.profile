@@ -14,7 +14,7 @@ mkdir -p /tmp/services
 if command -v labwc >/dev/null 2>&1 ; then
 	if [ ! -f /tmp/bootcnt.txt ] ; then
 		touch /tmp/bootcnt.txt
-		dbus-launch labwc
+		WLR_RENDERER_ALLOW_SOFTWARE=1 dbus-launch labwc
 	else
 		/usr/sbin/pm13 cli
 	fi
