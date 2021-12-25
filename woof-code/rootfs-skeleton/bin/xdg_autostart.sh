@@ -26,6 +26,17 @@ verify_not_running() {
 	return 0
 }
 
+run_desktop() {
+	while read j
+	do
+		case $j in "Exec="*)
+			sh -c "${j#Exec=}" &
+			break
+			;;
+		esac
+	done < "$1"
+}
+
 #=================================================
 
 for i in /etc/xdg/autostart/*.desktop
@@ -36,7 +47,7 @@ do
 	if ! verify_not_running $i ; then
 		continue
 	fi
-	xdg-open $i
+	run_desktop $i
 done
 
 #=================================================
@@ -52,7 +63,7 @@ do
 	if ! verify_not_running $i ; then
 		continue
 	fi
-	xdg-open $i
+	run_desktop $i
 done
 
 ### END ###
