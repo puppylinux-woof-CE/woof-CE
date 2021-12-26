@@ -11,10 +11,10 @@ mkdir -p /tmp/services
 	echo "PATH='${PATH}'"
 ) > /tmp/services/user_info
 
-if command -v labwc >/dev/null 2>&1 ; then
+if command -v startlabwc >/dev/null 2>&1 ; then
 	if [ ! -f /tmp/bootcnt.txt ] ; then
 		touch /tmp/bootcnt.txt
-		WLR_RENDERER_ALLOW_SOFTWARE=1 dbus-launch labwc
+		startlabwc
 	else
 		/usr/sbin/pm13 cli
 	fi
