@@ -42,7 +42,10 @@ rmmod ehci_hcd
 case "$DISABLE_LOCK" in
 y*|Y*|true|True|TRUE|1) echo -n mem > /sys/power/state ;;
 *)
-  if [ -n "$DISPLAY" ]; then
+  if [ -n "$WAYLAND_DISPLAY" -a -n "`pidof labwc`" ]; then
+    wlock
+    echo mem > /sys/power/state
+  elif [ -n "$DISPLAY" ]; then
     xlock -startCmd "echo mem > /sys/power/state"
   else
     echo -n mem > /sys/power/state
