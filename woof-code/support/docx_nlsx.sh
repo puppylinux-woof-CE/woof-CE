@@ -50,6 +50,8 @@ if [ "$BUILD_NLSX" = "yes" ] ; then
 	done
 	echo
 	rm -f nlsx/pet.specs
+	mkdir -p nlsx/var/local
+	touch nlsx/var/local/nlsx_loaded
 	echo "Creating $NLSXSFS..."
 	mksquashfs nlsx ${NLSXSFS} ${SFSCOMP}
 fi
