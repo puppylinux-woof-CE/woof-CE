@@ -181,9 +181,6 @@ do
   if [ ! -f /tmp/petget_proc/install_quietly ]; then
    URL_BASIC="`echo "$RETPARAMS" | grep 'RADIO_URL_' | grep '"true"' | cut -f 1 -d '=' | cut -f 3 -d '_'`"
    DOWNLOADFROM="`cat /tmp/petget_proc/petget_repos | grep "$URL_BASIC" | head -n 1 | cut -f 2 -d '|'`"
-  else
-   DOWNLOADFROM="`awk '{ if (NR==1) print $0 }' /tmp/petget_proc/petget_repos | cut -f 2 -d '|'`"
-   DOWNLOADFROM_ALT="`awk '{ if (NR==2) print $0 }' /tmp/petget_proc/petget_repos | cut -f 2 -d '|'`"
   fi
  fi
  
@@ -226,16 +223,17 @@ do
      DL_BAD_LIST="${DL_BAD_LIST} ${ONEPKGNAME}"
     fi
    else
-    LANG=C wget -4 -t 2 -T 20 --waitretry=20 --spider -S "${DOWNLOADFROM}/${ONEFILE}" > /tmp/petget_proc/download_file_spider.log0 2>&1 #
-    if [ $? -eq 0 ];then
-     echo "${DOWNLOADFROM}/${ONEFILE}" >> /tmp/petget_proc/download_urls
-    else
-     LANG=C wget -4 -t 2 -T 20 --waitretry=20 --spider -S "${DOWNLOADFROM_ALT}/${ONEFILE}" > /tmp/petget_proc/download_file_spider.log0 2>&1
+    FOUND=0
+    while IFS="|" read ONEURLENTRY_1 ONEURLENTRY_2 LISTNAME; do
+     LANG=C wget -4 -t 2 -T 20 --waitretry=20 --spider -S "${ONEURLENTRY_2}/${ONEFILE}" > /tmp/petget_proc/download_file_spider.log0 2>&1 #
      if [ $? -eq 0 ];then
-      echo "${DOWNLOADFROM_ALT}/${ONEFILE}" >> /tmp/petget_proc/download_urls
-     else
-      DL_BAD_LIST="${DL_BAD_LIST} ${ONEPKGNAME}"
+      echo "${ONEURLENTRY_2}/${ONEFILE}" >> /tmp/petget_proc/download_urls
+      FOUND=1
+      break
      fi
+    done < /tmp/petget_proc/petget_repos
+    if [ $FOUND -eq 0 ]; then
+     DL_BAD_LIST="${DL_BAD_LIST} ${ONEPKGNAME}"
     fi
    fi
   fi 
