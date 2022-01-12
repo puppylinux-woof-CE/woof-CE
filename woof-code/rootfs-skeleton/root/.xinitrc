@@ -5,6 +5,8 @@
 #130212 removed glipper code, see latest glipper pet.
 #130525 old pc celeron 2ghz cpu, 256mb ram, CPUSPEED=1999, 1st bootup rox failed to start. try experiment.
 
+export XDG_SESSION_TYPE=x11
+
 [ -f /etc/desktop_app ] && read -r desktop < /etc/desktop_app
 [ "$desktop" = "" ] && desktop=rox
 
