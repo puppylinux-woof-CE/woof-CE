@@ -218,7 +218,6 @@ for NAME in $PETBUILDS; do
         rm -rf ../petbuild-output/${NAME}-${HASH}/usr/include
 
         find ../petbuild-output/${NAME}-${HASH} -name '.wh*' -delete
-        find ../petbuild-output/${NAME}-${HASH} -name '.git*' -delete
         find ../petbuild-output/${NAME}-${HASH} -name '*.a' -delete
         find ../petbuild-output/${NAME}-${HASH} -name '*.la' -delete
 
@@ -267,6 +266,8 @@ for NAME in $PETBUILDS; do
             *) cp -a $EXTRAFILE ../petbuild-output/${NAME}-${HASH}/
             esac
         done
+
+        find ../petbuild-output/${NAME}-${HASH} -name '.git*' -delete
     fi
 
     rm -f ../petbuild-output/${NAME}-latest
