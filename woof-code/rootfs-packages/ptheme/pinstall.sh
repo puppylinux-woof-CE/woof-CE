@@ -152,7 +152,10 @@ EOF
 fi
 
 install -D -m 644 root/.gtkrc-2.0 etc/gtk-2.0/gtkrc
-[ -f root/.config/gtk-3.0/settings.ini ] && install -D -m 644 root/.config/gtk-3.0/settings.ini etc/gtk-3.0/settings.ini
+if [ -f root/.config/gtk-3.0/settings.ini ]; then
+	install -D -m 644 root/.config/gtk-3.0/settings.ini etc/gtk-3.0/settings.ini
+	install -D -m 644 -o spot -g spot root/.config/gtk-3.0/settings.ini home/spot/.config/gtk-3.0/settings.ini
+fi
 
 ##### WALLPAPER #copy it as mv messes the themes
 ext="${PTHEME_WALL##*.}"
