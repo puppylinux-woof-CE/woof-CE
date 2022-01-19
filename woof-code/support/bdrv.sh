@@ -1,5 +1,12 @@
 #!/bin/sh -e
 
+debootstrap=`command -v debootstrap || :`
+if [ -z "$debootstrap" ]; then
+	echo "WARNING: debootstrap is missing"
+	[ -z "$GITHUB_ACTIONS" ] || exit 1
+	exit 0
+fi
+
 . ../DISTRO_SPECS
 
 case "$DISTRO_TARGETARCH" in
@@ -13,7 +20,7 @@ export LD_LIBRARY_PATH=
 export DEBIAN_FRONTEND=noninteractive
 
 # create a tiny Debian installation
-debootstrap --no-merged-usr --variant=minbase ${DISTRO_COMPAT_VERSION} bdrv http://deb.debian.org/debian
+$debootstrap --no-merged-usr --variant=minbase ${DISTRO_COMPAT_VERSION} bdrv http://deb.debian.org/debian
 
 # make sure UIDs and GIDs are consistent with Puppy
 cat rootfs-complete/etc/group > bdrv/etc/group
