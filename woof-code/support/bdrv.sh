@@ -20,7 +20,11 @@ export LD_LIBRARY_PATH=
 export DEBIAN_FRONTEND=noninteractive
 
 # create a tiny Debian installation
-$debootstrap --no-merged-usr --variant=minbase ${DISTRO_COMPAT_VERSION} bdrv http://deb.debian.org/debian
+if [ "$USR_SYMLINKS" = "yes" ]; then
+	$debootstrap --variant=minbase ${DISTRO_COMPAT_VERSION} bdrv http://deb.debian.org/debian
+else
+	$debootstrap --no-merged-usr --variant=minbase ${DISTRO_COMPAT_VERSION} bdrv http://deb.debian.org/debian
+fi
 
 # make sure UIDs and GIDs are consistent with Puppy
 cat rootfs-complete/etc/group > bdrv/etc/group
