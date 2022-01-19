@@ -8,6 +8,8 @@ if [ -z "$debootstrap" ]; then
 fi
 
 . ../DISTRO_SPECS
+. ../_00build.conf
+[ ! -e ../_00build_2.conf ] || . ../_00build_2.conf
 
 case "$DISTRO_TARGETARCH" in
 x86_64) ARCH=amd64 ;;
