@@ -72,8 +72,12 @@ chroot bdrv apt-mark hold `chroot bdrv dpkg-query -f '${binary:Package}\n' -W | 
 # remove unneeded files
 chroot bdrv apt-get clean
 rm -f bdrv/var/lib/apt/lists/* 2>/dev/null || :
-rm -rf bdrv/home bdrv/root bdrv/dev bdrv/run bdrv/var/log bdrv/var/cache/man bdrv/var/cache/fontconfig bdrv/var/cache/ldconfig bdrv/etc/ssl bdrv/lib/udev bdrv/lib/modprobe.d bdrv/lib/firmware bdrv/usr/share/icons bdrv/usr/share/mime bdrv/etc/ld.so.cache
+rm -rf bdrv/home bdrv/root bdrv/dev bdrv/run bdrv/var/log bdrv/var/cache/man bdrv/var/cache/fontconfig bdrv/var/cache/ldconfig bdrv/etc/ssl bdrv/lib/udev bdrv/lib/modprobe.d bdrv/lib/firmware bdrv/usr/share/mime bdrv/etc/ld.so.cache
 rm -rf `find bdrv -name __pycache__`
+for ICONDIR in bdrv/usr/share/icons/*; do
+	[ "$ICONDIR" != "bdrv/usr/share/icons/hicolor" ] || continue
+	rm -rf "$ICONDIR"
+done
 
 # delete files and directories present in the main SFS
 cat ../status/findpkgs_FINAL_PKGS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} | cut -f 5 -d \| | while read NAME; do
