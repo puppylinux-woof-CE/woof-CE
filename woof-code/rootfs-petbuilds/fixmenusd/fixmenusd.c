@@ -109,7 +109,8 @@ main(int argc, char* argv[])
 	       ((sig == SIGRTMIN) &&
 	        (handle_events(fd) == 0)) ||
 	       ((sig == SIGALRM) &&
-	        (sh(argv[1], &oset) == 0)));
+	        (sh(argv[1], &oset) == 0)) ||
+	       (sig == SIGCHLD));
 
 	inotify_rm_watch(fd, wd);
 	close(fd);
