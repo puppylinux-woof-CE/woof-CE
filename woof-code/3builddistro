@@ -38,6 +38,7 @@ PKGLISTS_COMPAT="`echo "$PKG_DOCS_DISTRO_COMPAT" | tr ' ' '\n' | cut -f 3 -d '|'
 PKGS_SPECS_TABLE="`echo "$PKGS_SPECS_TABLE" | grep -v '^#'`" # remove comments
 
 export DISTRO_NAME DISTRO_VERSION DISTRO_COMPAT_VERSION
+export BDRVSFS="bdrv_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION}.sfs"
 export PUPPYSFS="puppy_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION}.sfs"
 export ZDRVSFS="zdrv_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION}.sfs"
 export FDRVSFS="fdrv_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION}.sfs"
@@ -66,13 +67,49 @@ rm -rf sandbox3/rootfs-complete
 rm -rf sandbox3/devx
 rm -rf sandbox3/docx ${DOCXSFS}
 rm -rf sandbox3/nlsx ${NLSXSFS}
-rm -rf sandbox3/adrv sandbox3/ydrv sandbox3/fdrv
+rm -rf sandbox3/bdrv sandbox3/adrv sandbox3/ydrv sandbox3/fdrv
 mkdir -p sandbox3/rootfs-complete/etc
 mkdir -p sandbox3/devx
 cp DISTRO_SPECS sandbox3/rootfs-complete/etc/
 
 #copy the skeleton...
 cp -a rootfs-skeleton/* sandbox3/rootfs-complete/
+
+mergedir() {
+	if [ ! -e ${2} ]; then
+		mkdir -vp `dirname ${2}`
+		mv -v ${1} ${2} || exit 1
+		return
+	fi
+
+	echo "Merging ${1} with ${2}"
+
+	for NAME in `ls ${1} 2>/dev/null`; do
+		if [ -d ${1}/${NAME} ]; then
+			mergedir ${1}/${NAME} ${2}/${NAME}
+		else
+			rm -f ${2}/${NAME}
+			mv -vf ${1}/${NAME} ${2}/ || exit 1
+		fi
+	done
+
+	rmdir -v ${1} || exit 1
+}
+
+usrmerge() {
+	USRDIRS="bin sbin lib"
+	[ "$DISTRO_TARGETARCH" = "x86_64" ] && USRDIRS="$USRDIRS lib64 lib32 libx32"
+
+	for USRDIR in $USRDIRS; do
+		[ -d ${1}/${USRDIR} ] && mergedir ${1}/${USRDIR} ${1}/usr/${USRDIR}
+
+		if [ $2 -eq 1 ]; then
+			[ ! -e ${1}/usr/${USRDIR} ] && mkdir -v ${1}/usr/${USRDIR}
+			ln -vs usr/${USRDIR} ${1}/${USRDIR} || exit 1
+		fi
+	done
+}
+
 if [ "$XAUTOCONF" = 'yes' ];then
 	echo 'enabling xorg-autoconf'; sleep 1
 	chmod 755 sandbox3/rootfs-complete/usr/sbin/xorg-autoconf
@@ -151,7 +188,7 @@ and edit it to include your customised package list.
 			;;
 		change_kernels)
 			state=false
-			[ "$DISTRO_KERNEL_PET" = 'Huge_Kernel' -a "$ISOFLAG" ] && state=true
+			[ "$DISTRO_KERNEL_PET" = 'Huge_Kernel' -a "$ISOFLAG" -a "$USR_SYMLINKS" != "yes" ] && state=true
 			;;
 		simple_installer)
 			state=false
@@ -299,6 +336,7 @@ if [ "$BUILD_DEVX" = "yes" -o -n "$PETBUILDS" ] ; then
 		fi
 	done
 	rm -f /tmp/ALLGENNAMESD
+	[ "$USR_SYMLINKS" = "yes" ] && usrmerge sandbox3/devx 0
 	echo
 fi
 
@@ -351,12 +389,14 @@ if [ -n "$ADRV_INCLUDE" -o -n "$FDRV_INCLUDE" -o -n "$YDRV_INCLUDE" ];then
 			echo '#!/bin/sh' > sandbox3/apinstall.sh
 			mkdir -p sandbox3/adrv/usr/local/bin
 			copy_pkgs_to_build "${ADRV_INC}" adrv
+			[ "$USR_SYMLINKS" = "yes" ] && usrmerge sandbox3/adrv 0
 			chmod 755 sandbox3/apinstall.sh
 			echo;;
 		fdrv)
 			echo '#!/bin/sh' > sandbox3/fpinstall.sh
 			mkdir -p sandbox3/fdrv/
 			copy_pkgs_to_build "${FDRV_INC}" fdrv
+			[ "$USR_SYMLINKS" = "yes" ] && usrmerge sandbox3/fdrv 0
 			chmod 755 sandbox3/fpinstall.sh
 			echo
 			CONF_DIR=no;;
@@ -364,6 +404,7 @@ if [ -n "$ADRV_INCLUDE" -o -n "$FDRV_INCLUDE" -o -n "$YDRV_INCLUDE" ];then
 			echo '#!/bin/sh' > sandbox3/ypinstall.sh
 			mkdir -p sandbox3/ydrv/usr/local/bin
 			copy_pkgs_to_build "${YDRV_INC}" ydrv
+			[ "$USR_SYMLINKS" = "yes" ] && usrmerge sandbox3/ydrv 0
 			chmod 755 sandbox3/ypinstall.sh
 			echo;;
 		esac
@@ -580,6 +621,7 @@ else
 	NEWVARIABLES="#Puppy default filenames...
 #Note, the 'SFS' files below are what the 'init' script in initrd.gz searches for,
 #for the partition, path and actual files loaded, see PUPSFS and ZDRV in /etc/rc.d/PUPSTATE
+DISTRO_BDRVSFS='${BDRVSFS}'
 DISTRO_PUPPYSFS='${PUPPYSFS}'
 DISTRO_ZDRVSFS='${ZDRVSFS}'
 DISTRO_FDRVSFS='${FDRVSFS}'
@@ -756,19 +798,23 @@ fi
 
 #shared library loading...
 mkdir -p rootfs-complete/etc/ld.so.conf.d/ # may not be there
-( # > rootfs-complete/etc/ld.so.conf
-	echo 'include /etc/ld.so.conf.d/*.conf'
-	echo "/lib${lsuffix}"
-	echo "/usr/lib${lsuffix}"
-	if [ "$ARCHDIR" = "x86_64-linux-gnu" ] ; then #WOOF_TARGETARCH='x86_64'
-		echo "/lib64"
-		echo "/usr/lib64"
-		echo -e "/lib64\n/usr/lib64" > rootfs-complete/etc/ld.so.conf.d/lib64.conf
-	fi
-	[ -d rootfs-complete/usr/local/lib${lsuffix} ] && echo "/usr/local/lib${lsuffix}"
-	[ -d rootfs-complete/opt/qt4/lib${lsuffix} ] && echo "/opt/qt4/lib${lsuffix}"
-	echo "/root/my-applications/lib"
-) > rootfs-complete/etc/ld.so.conf
+if [ "$USR_SYMLINKS" = "yes" ];then
+	echo "/root/my-applications/lib" > rootfs-complete/etc/ld.so.conf.d/my-applications.conf
+else
+	( # > rootfs-complete/etc/ld.so.conf
+		echo 'include /etc/ld.so.conf.d/*.conf'
+		echo "/lib${lsuffix}"
+		echo "/usr/lib${lsuffix}"
+		if [ "$ARCHDIR" = "x86_64-linux-gnu" ] ; then #WOOF_TARGETARCH='x86_64'
+			echo "/lib64"
+			echo "/usr/lib64"
+			echo -e "/lib64\n/usr/lib64" > rootfs-complete/etc/ld.so.conf.d/lib64.conf
+		fi
+		[ -d rootfs-complete/usr/local/lib${lsuffix} ] && echo "/usr/local/lib${lsuffix}"
+		[ -d rootfs-complete/opt/qt4/lib${lsuffix} ] && echo "/opt/qt4/lib${lsuffix}"
+		echo "/root/my-applications/lib"
+	) > rootfs-complete/etc/ld.so.conf
+fi
 
 echo "Updating system config.."
 mkdir -p rootfs-complete/var/cache/fontconfig
@@ -962,17 +1008,63 @@ fi
 
 if [ "$BUILD_SFS" = 'yes' ]; then
 	sh $MWD/support/files2delete.sh rootfs-complete
+	[ "$USR_SYMLINKS" = "yes" ] && usrmerge rootfs-complete 1
+
+	if [ "${DISTRO_BINARY_COMPAT}" = 'debian' -a "$BUILD_BDRV" = 'yes' ]; then
+		if [ "$ISOFLAG" -o "$FRUGALIFY" ]; then
+			echo "Now building sandbox3/bdrv"
+			$MWD/support/bdrv.sh || exit 1
+		fi
+	fi
+
 	#build the rootfs-complete sfs...
 	echo -e "\nNow building the main f.s., ${PUPPYSFS}..."
 	rm -f build/${PUPPYSFS} 2>/dev/null
 	mksquashfs rootfs-complete build/${PUPPYSFS} ${SFSCOMP} #100911 110713
 	###########
-	if [ -d adrv -o -d fdrv -o -d ydrv ];then
+	if [ "$USR_SYMLINKS" = "yes" ]; then
+		KSFSCOMP="$SFSCOMP"
+
+		if [ -f build/${ZDRVSFS} ]; then
+			echo -e "\nNow building the zdrv f.s., $ZDRVSFS ..."
+			rm -rf zdrv
+			unsquashfs -d zdrv build/${ZDRVSFS}
+			rm -f build/${ZDRVSFS}
+
+			# use the same mksquashfs options used by kernel-kit
+			KSFSCOMP=`sh -c '. $(ls zdrv/etc/modules/build.conf-* 2>/dev/null) 2>/dev/null && echo "$COMP"'`
+			[ -z "$KSFSCOMP" ] && KSFSCOMP="$SFSCOMP"
+
+			usrmerge zdrv 0
+
+			if [ "$ARCHDIR" = "x86_64-linux-gnu" -a -d zdrv/usr/lib64 -a ! -e zdrv/usr/lib/${ARCHDIR} ]; then
+				mkdir -vp zdrv/usr/lib
+				mv -v zdrv/usr/lib64 zdrv/usr/lib/${ARCHDIR}
+			fi
+
+			mksquashfs zdrv build/${ZDRVSFS} ${KSFSCOMP}
+			[ -n "$GITHUB_ACTIONS" ] && rm -rf zdrv
+		fi
+
+		if [ -f build/${FDRVSFS} ]; then
+			echo -e "\nNow building the fdrv f.s., $FDRVSFS ..."
+			rm -rf fdrv
+			unsquashfs -d fdrv build/${FDRVSFS}
+			rm -f build/${FDRVSFS}
+
+			usrmerge fdrv 0
+			mksquashfs fdrv build/${FDRVSFS} ${KSFSCOMP}
+			[ -n "$GITHUB_ACTIONS" ] && rm -rf fdrv
+		fi
+	fi
+	###########
+	if [ -d bdrv -o -d adrv -o -d fdrv -o -d ydrv ];then
 		#build the {a,f,y}drive sfs...
-		for SYS_SFS in adrv fdrv ydrv
+		for SYS_SFS in bdrv adrv fdrv ydrv
 		do
 			[ ! -d "$SYS_SFS" ] && echo "no $SYS_SFS" && continue
 			case $SYS_SFS in
+				bdrv) TYPE_SYS_SFS="${BDRVSFS}";;
 				adrv) TYPE_SYS_SFS="${ADRVSFS}";;
 				fdrv) TYPE_SYS_SFS="${FDRVSFS}";;
 				ydrv) TYPE_SYS_SFS="${YDRVSFS}";;
@@ -1099,6 +1191,10 @@ if [ "$SDFLAG" = "" -a "$CROSFLAG" = "" ] ; then #120506
 		if [ -f ${NLSXSFS} ] ; then
 			mv -f ${NLSXSFS} ../${WOOF_OUTPUT}/
 			( cd ../${WOOF_OUTPUT} ; md5sum ${NLSXSFS} > ${NLSXSFS}.md5.txt )
+		fi
+		if [ -f build/${BDRVSFS} ] ; then
+			mv -f build/${BDRVSFS} ../${WOOF_OUTPUT}/
+			( cd ../${WOOF_OUTPUT} ; md5sum ${BDRVSFS} > ${BDRVSFS}.md5.txt )
 		fi
 
 		echo "Running ../support/mk_iso.sh"

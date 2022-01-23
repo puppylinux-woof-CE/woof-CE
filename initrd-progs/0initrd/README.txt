@@ -34,6 +34,11 @@ fdrv...sfs:
    This contains firmware files. It can be used to override the contents of zdrv...sfs.
    This file is present in only some Puppies.
 
+bdrv...sfs:
+   This contains a basic installation or skeleton of the compatible distro.
+   With this file, more binary packages from the compatible distro repos are likely to work.
+   It is usually not present.
+
 ydrv...sfs:
    Notionally a patch file. It can be used to override the contents of puppy...sfs.
    It is usually not present.
