@@ -3,20 +3,19 @@
 #2009 Lesser GPL licence v2 (/usr/share/doc/legal/lgpl-2.1.txt).
 #The Puppy Package Manager main GUI window.
 
-VERSION=2
+. /etc/rc.d/functions_x
 
-#wait for indexgen.sh to finish
-while [ "$(busybox ps | grep indexgen | grep -v grep)" != "" ];do sleep 0.5;done
+VERSION="2.5"
 
 export TEXTDOMAIN=petget___pkg_chooser.sh
 export OUTPUT_CHARSET=UTF-8
 
 # Do not allow another instance
 wait
-PCN=$(pidof pkg_chooser.sh | wc -w)
-PPN=$(pidof ppm | wc -w)
-[ "$(( $PCN + $PPN ))" -gt 2 ] && /usr/lib/gtkdialog/box_splash -timeout 3 -bg \
-	red -text "$(gettext 'PPM is already running. Exiting.')" && exit 0
+if ps --no-headers -C pkg_chooser.sh,ppm | grep -qwv "^ *$$"; then #v2.1.2...
+ /usr/lib/gtkdialog/box_splash -timeout 3 -bg red -text "$(gettext 'PPM is already running. Exiting.')"
+ exit 0
+fi
 
 LANG1="${LANG%_*}" #ex: de
 HELPFILE="/usr/local/petget/help.htm"
@@ -26,7 +25,7 @@ HELPFILE="/usr/local/petget/help.htm"
 
 # Set the skip-space flag
 if [ "$(cat /var/local/petget/sc_category 2>/dev/null)" = "true" ] && \
-	[ "$(cat /tmp/pup_event_sizefreem | head -n 1 )" -gt 4000 ]; then
+	[ "$(fx_personal_storage_free_mb)" -gt 4000 ]; then
 	touch /root/.packages/skip_space_check
 else
 	rm -f /root/.packages/skip_space_check
@@ -75,35 +74,34 @@ SPID=$!
 
 # Remove in case we crashed
 clean_flags () {
-	rm -f /tmp/{remove,install}{,_pets}_quietly 2>/dev/null
-	rm -f /tmp/install_classic 2>/dev/null
-	rm -f /tmp/download{_only,}_pet{,s}_quietly 2>/dev/null
-	rm -f /tmp/overall_* 2>/dev/null
-	rm -f /tmp/ppm_reporting 2>/dev/null
-	rm -f /tmp/force{,d}_install 2>/dev/null
-	rm -f /tmp/pkgs_to_install* 2>/dev/null
-	rm -f /tmp/pkgs_DL_BAD_LIST 2>/dev/null
+	rm -f /tmp/petget_proc/{remove,install}{,_pets}_quietly 2>/dev/null
+	rm -f /tmp/petget_proc/install_classic 2>/dev/null
+	rm -f /tmp/petget_proc/download{_only,}_pet{,s}_quietly 2>/dev/null
+	rm -f /tmp/petget_proc/overall_* 2>/dev/null
+	rm -f /tmp/petget_proc/ppm_reporting 2>/dev/null
+	rm -f /tmp/petget_proc/force{,d}_install 2>/dev/null
+	rm -f /tmp/petget_proc/pkgs_to_install* 2>/dev/null
+	rm -f /tmp/petget_proc/pkgs_DL_BAD_LIST 2>/dev/null
+	rm -f /tmp/petget_proc/petget/pgk_info 2>/dev/null
 	unset SETUPCALLEDFROM
 }
 export -f clean_flags
 
 clean_flags
 
-/usr/local/petget/service_pack.sh & #121125 offer download Service Pack.
-
-mkdir -p /tmp/petget #120504
+mkdir -p /tmp/petget_proc/petget #120504
 mkdir -p /var/local/petget
-echo -n > /tmp/pkgs_to_install
-echo 0 > /tmp/petget/install_status_percent
-echo "" > /tmp/petget/install_status
-touch /tmp/install_pets_quietly
+echo -n > /tmp/petget_proc/pkgs_to_install
+echo -n > /tmp/petget_proc/petget/pgk_info
+echo 0 > /tmp/petget_proc/petget/install_status_percent
+echo "" > /tmp/petget_proc/petget/install_status
+touch /tmp/petget_proc/install_pets_quietly
 
 . /etc/DISTRO_SPECS #has DISTRO_BINARY_COMPAT, DISTRO_COMPAT_VERSION
 . /root/.packages/DISTRO_PKGS_SPECS
 . /root/.packages/PKGS_MANAGEMENT #has PKG_REPOS_ENABLED, PKG_NAME_ALIASES
 
-
-
+RXVT="rxvt -bg yellow -title \"$(gettext 'Databases Update')\"  -e "
 
                ##################################################
                ##                                              ##
@@ -111,115 +109,119 @@ touch /tmp/install_pets_quietly
                ##                                              ##
                ##################################################
 
+restart_ppm() {
 
-add_item (){
+for I in `grep -E "PPM_GUI|pkg_chooser|/usr/local/bin/ppm" <<< "$(ps -eo pid,command)" | awk '{print $1}' `; do kill -9 $I; done
+sleep 0.5
+/usr/local/petget/pkg_chooser.sh &
+	
+}
+
+pkg_info() {
 	# Exit if called spuriously
 	[ "$TREE1" = "" ] && exit 0
-	# Make sure that we have atleast one mode flag
-	[ ! -f /tmp/install_pets_quietly -a ! -f  /tmp/download_only_pet_quietly \
-	 -a ! -f /tmp/download_pets_quietly -a ! -f /tmp/install_classic ] \
-	 && touch /tmp/install_pets_quietly
-	if [ "$(grep $TREE1 /root/.packages/user-installed-packages)" != "" -a \
-	 -f /tmp/install_pets_quietly ]; then
+	NEWPACKAGE="$(grep ^$TREE1 /tmp/petget_proc/petget/filterpkgs.results.post)"
+	IFS="|" read PKG_NAME PKG_CAT PKG_DESC PKG_REPO <<< "$NEWPACKAGE"
+	(
+		echo "Name    : $PKG_NAME"
+		echo "Category: $PKG_CAT"
+		echo "Desc    : $PKG_DESC"
+		echo "Repo    : $PKG_REPO"
+	) > /tmp/petget_proc/petget/pgk_info
+	echo "$NEWPACKAGE" > /tmp/petget_proc/pkgs_to_install
+}
+
+do_install() {
+	# Exit if called spuriously
+	[ "$TREE1" = "" ] && exit 0
+	pkg_info
+	#-- Make sure that we have atleast one mode flag
+	if [ ! -f /tmp/petget_proc/install_pets_quietly \
+	  -a ! -f /tmp/petget_proc/download_only_pet_quietly \
+	  -a ! -f /tmp/petget_proc/download_pets_quietly \
+	  -a ! -f /tmp/petget_proc/install_classic ] ; then
+		touch /tmp/petget_proc/install_pets_quietly
+	fi
+	if [ "$(grep $TREE1 /root/.packages/user-installed-packages)" != "" ] ; then
 		. /usr/lib/gtkdialog/box_yesno "$(gettext 'Package is already installed')" "$(gettext 'This package is already installed! ')" "$(gettext 'If you want to re-install it, first remove it and then install it again. To download only or use the step-by-step classic mode, select No and then change the Auto Install to another option.')" "$(gettext 'To Abort the process now select Yes.')"
 		if [ "$EXIT" = "yes" ]; then
 			exit 0
 		else
-			echo $TREE1 >> /tmp/forced_install
+			echo $TREE1 > /tmp/petget_proc/forced_install
 		fi
 	fi
-	if [ "$TREE1" ] && [ ! "$(grep -F $TREE1 /tmp/pkgs_to_install)" ]; then
-		if [ ! -f /root/.packages/skip_space_check ]; then
-			echo 0 > /tmp/petget/install_status_percent
-			echo "$(gettext "Calculating...")" > /tmp/petget/install_status
-		fi
-		NEWPACKAGE="$(grep ^$TREE1 /tmp/petget/filterpkgs.results.post)"
-		echo "$NEWPACKAGE" >> /tmp/pkgs_to_install
-		add_item2 &
+	#--
+	if [ "$(cat /tmp/petget_proc/forced_install 2>/dev/null)" != "" ]; then
+		touch /tmp/petget_proc/force_install
+	else
+		rm -f /tmp/petget_proc/force_install
 	fi
-}
-
-add_item2(){
-	while true; do
-		sleep 0.3
-		[ ! "$(grep installed_size_preview <<< "$(ps -eo pid,command)")" ] && break
-	done
-	touch /tmp/install_quietly
-	/usr/local/petget/installed_size_preview.sh "$NEWPACKAGE" ADD
-}
-
-remove_item (){
-	if [ "$TREE_INSTALL" ]; then
-		if [ ! -f /root/.packages/skip_space_check ]; then
-			echo 0 > /tmp/petget/install_status_percent
-			echo "$(gettext "Calculating...")" > /tmp/petget/install_status
-		fi
-		REMVPACKAGE="$(grep "$TREE_INSTALL" /tmp/pkgs_to_install)"
-		grep -v "$TREE_INSTALL" /tmp/pkgs_to_install > /tmp/pkgs_to_install2
-		mv -f /tmp/pkgs_to_install2 /tmp/pkgs_to_install
-		PKGNAME=$(echo $TREE_INSTALL | cut -f 1 -d '|')
-		sed -i "/$PKGNAME/d" /tmp/forced_install
-		if [ "$(cat /tmp/pkgs_to_install)" = "" ]; then
-			rm -f /tmp/overall_*
-			echo "" > /tmp/petget/install_status
-		else
-			remove_item2 &
-		fi
+	cut -d"|" -f1,4 /tmp/petget_proc/pkgs_to_install > /tmp/petget_proc/pkgs_to_install_tmp
+	mv -f /tmp/petget_proc/pkgs_to_install_tmp /tmp/petget_proc/pkgs_to_install
+	if ! [ -f /tmp/petget_proc/force_install -a -f /tmp/petget_proc/install_pets_quietly ]; then
+		#/usr/local/petget/installed_size_preview.sh "$NEWPACKAGE" ADD
+		/usr/local/petget/installmodes.sh "$INSTALL_MODE"
 	fi
-}
-
-remove_item2 (){
-	while true; do
-		sleep 0.3
-		[ ! "$(grep installed_size_preview <<< "$(ps -eo pid,command)")" ] && break
-	done
-	touch /tmp/install_quietly #avoid splashes
-	/usr/local/petget/installed_size_preview.sh "$REMVPACKAGE" RMV
 }
 
 change_mode () {
-	PREVPKG=$(cat /tmp/pkgs_to_install 2>/dev/null)
+	PREVPKG=$(cat /tmp/petget_proc/pkgs_to_install 2>/dev/null)
 	case $INSTALL_MODE in
-		"$(gettext 'Auto install')")
-			if [ -f /tmp/install_pets_quietly ]; then echo ok
-			elif [ "$PREVPKG" != "" ]; then echo changed >> /tmp/mode_changed ;fi
-			rm -f /tmp/*_pet{,s}_quietly
-			rm -f /tmp/install_classic
-			touch /tmp/install_pets_quietly
+		'Auto install')
+			if [ -f /tmp/petget_proc/install_pets_quietly ]; then echo ok
+			elif [ "$PREVPKG" != "" ]; then echo changed >> /tmp/petget_proc/mode_changed ;fi
+			rm -f /tmp/petget_proc/*_pet{,s}_quietly
+			rm -f /tmp/petget_proc/install_classic
+			touch /tmp/petget_proc/install_pets_quietly
+			echo 'auto' > /var/local/petget/ppm_mode
 		;;
-		"$(gettext 'Download packages (no install)')")
-			if [ -f /tmp/download_only_pet_quietly ]; then echo ok
-			elif [ "$PREVPKG" != "" ]; then echo changed >> /tmp/mode_changed ;fi
-			rm -f /tmp/*_pet{,s}_quietly
-			rm -f /tmp/install_classic
-			echo "" > /tmp/forced_install
-			touch /tmp/download_only_pet_quietly
+		'Download packages (no install)')
+			if [ -f /tmp/petget_proc/download_only_pet_quietly ]; then echo ok
+			elif [ "$PREVPKG" != "" ]; then echo changed >> /tmp/petget_proc/mode_changed ;fi
+			rm -f /tmp/petget_proc/*_pet{,s}_quietly
+			rm -f /tmp/petget_proc/install_classic
+			echo "" > /tmp/petget_proc/forced_install
+			touch /tmp/petget_proc/download_only_pet_quietly
+			touch /tmp/petget_proc/download_pets_quietly
+			echo 'download' > /var/local/petget/ppm_mode
 		;;
-		"$(gettext 'Download all (packages and dependencies)')")
-			if [ -f /tmp/download_pets_quietly ]; then echo ok
-			elif [ "$PREVPKG" != "" ]; then echo changed >> /tmp/mode_changed ;fi
-			rm -f /tmp/*_pet{,s}_quietly
-			rm -f /tmp/install_classic
-			echo "" > /tmp/forced_install
-			touch /tmp/download_pets_quietly
-		;;
-		"$(gettext 'Step by step installation (classic mode)')")
-			if [ ! -f /tmp/install_pets_quietly -a ! -f /tmp/download_only_pet_quietly] \
-			 -a ! -f /tmp/download_pets_quietly ]; then echo ok
-			elif [ "$PREVPKG" != "" ]; then echo changed >> /tmp/mode_changed ;fi
-			rm -f /tmp/*_pet{,s}_quietly
-			echo "" > /tmp/forced_install
-			touch /tmp/install_classic
+		'Step by step installation (classic mode)')
+			if [ ! -f /tmp/petget_proc/install_pets_quietly -a ! -f /tmp/petget_proc/download_only_pet_quietly \
+				-a ! -f /tmp/petget_proc/download_pets_quietly ]; then
+				echo ok
+			elif [ "$PREVPKG" != "" ]; then
+				echo changed >> /tmp/petget_proc/mode_changed
+			fi
+			rm -f /tmp/petget_proc/*_pet{,s}_quietly
+			echo "" > /tmp/petget_proc/forced_install
+			touch /tmp/petget_proc/install_classic
+			echo 'wizard' > /var/local/petget/ppm_mode
 		;;
 	esac
 }
 
-installed_warning () {
-	FORCEDPKGS=$(cat /tmp/forced_install 2>/dev/null)
-	. /usr/lib/gtkdialog/box_splash -timeout 10 -bg orange -fontsize large -text "$FORCEDPKGS $(gettext ' packages are already installed! Should be remove from the list. If you want to re-install, uninstall first and then install.')"
-}
-export -f add_item add_item2 remove_item remove_item2 change_mode installed_warning
+if [ -f /var/local/petget/ppm_mode ] ; then
+	read ppm_mode < /var/local/petget/ppm_mode
+fi
+case $ppm_mode in
+	wizard)
+		PPM_MODES='<item>Step by step installation (classic mode)</item>
+<item>Auto install</item>
+<item>Download packages (no install)</item>'
+		;;
+	download)
+		PPM_MODES='<item>Download packages (no install)</item>
+<item>Auto install</item>
+<item>Step by step installation (classic mode)</item>'
+		;;
+	*)
+		PPM_MODES='<item>Auto install</item>
+<item>Step by step installation (classic mode)</item>
+<item>Download packages (no install)</item>'
+		;;
+esac
 
+export -f pkg_info do_install change_mode restart_ppm
 
 
 
@@ -236,30 +238,30 @@ DEF_CHK_EXE='true'
 DEF_CHK_DEV='false'
 DEF_CHK_DOC='false'
 DEF_CHK_NLS='false'
-[ -e /var/local/petget/postfilter_EXE ] && DEF_CHK_EXE="`cat /var/local/petget/postfilter_EXE`"
-[ -e /var/local/petget/postfilter_DEV ] && DEF_CHK_DEV="`cat /var/local/petget/postfilter_DEV`"
-[ -e /var/local/petget/postfilter_DOC ] && DEF_CHK_DOC="`cat /var/local/petget/postfilter_DOC`"
-[ -e /var/local/petget/postfilter_NLS ] && DEF_CHK_NLS="`cat /var/local/petget/postfilter_NLS`"
-#120515 the script /usr/local/petget/postfilterpkgs.sh handles checkbox actions, is called from ui_Ziggy and ui_Classic.
+[ -e /var/local/petget/postfilter_EXE ] && read DEF_CHK_EXE < /var/local/petget/postfilter_EXE
+[ -e /var/local/petget/postfilter_DEV ] && read DEF_CHK_DEV < /var/local/petget/postfilter_DEV
+[ -e /var/local/petget/postfilter_DOC ] && read DEF_CHK_DOC < /var/local/petget/postfilter_DOC
+[ -e /var/local/petget/postfilter_NLS ] && read DEF_CHK_NLS < /var/local/petget/postfilter_NLS
+#120515 the script /usr/local/petget/postfilterpkgs.sh handles checkbox actions, is called from GUI
 
 #finds all user-installed pkgs and formats ready for display...
-/usr/local/petget/finduserinstalledpkgs.sh #writes to /tmp/installedpkgs.results
+/usr/local/petget/finduserinstalledpkgs.sh #writes to /tmp/petget_proc/installedpkgs.results
 
 #130511 need to include devx-only-installed-packages, if loaded...
 #note, this code block also in check_deps.sh.
 if which gcc;then
- cp -f /root/.packages/woof-installed-packages /tmp/ppm-layers-installed-packages
- cat /root/.packages/devx-only-installed-packages >> /tmp/ppm-layers-installed-packages
- sort -u /tmp/ppm-layers-installed-packages > /root/.packages/layers-installed-packages
+ cp -f /root/.packages/woof-installed-packages /tmp/petget_proc/ppm-layers-installed-packages
+ cat /root/.packages/devx-only-installed-packages >> /tmp/petget_proc/ppm-layers-installed-packages
+ sort -u /tmp/petget_proc/ppm-layers-installed-packages > /root/.packages/layers-installed-packages
 else
  cp -f /root/.packages/woof-installed-packages /root/.packages/layers-installed-packages
 fi
 #120224 handle translated help.htm
 
 #100711 moved from findmissingpkgs.sh... 130511 rename woof-installed-packages to layers-installed-packages...
-if [ ! -f /tmp/petget_installed_patterns_system ];then
+if [ ! -f /tmp/petget_proc/petget_installed_patterns_system ];then
  INSTALLED_PATTERNS_SYS="`cat /root/.packages/layers-installed-packages | cut -f 2 -d '|' | sed -e 's%^%|%' -e 's%$%|%' -e 's%\\-%\\\\-%g'`"
- echo "$INSTALLED_PATTERNS_SYS" > /tmp/petget_installed_patterns_system
+ echo "$INSTALLED_PATTERNS_SYS" > /tmp/petget_proc/petget_installed_patterns_system
  #PKGS_SPECS_TABLE also has system-installed names, some of them are generic combinations of pkgs...
  . /etc/rc.d/BOOTCONFIG
  if [ "$(echo $EXTRASFSLIST | grep devx_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION} )" = "" -a \
@@ -268,7 +270,7 @@ if [ ! -f /tmp/petget_installed_patterns_system ];then
  else
   INSTALLED_PATTERNS_GEN="`echo "$PKGS_SPECS_TABLE" | grep '^yes' | cut -f 2 -d '|' |  sed -e 's%^%|%' -e 's%$%|%' -e 's%\\-%\\\\-%g'`"
  fi
- echo "$INSTALLED_PATTERNS_GEN" >> /tmp/petget_installed_patterns_system
+ echo "$INSTALLED_PATTERNS_GEN" >> /tmp/petget_proc/petget_installed_patterns_system
  
  #120822 in precise puppy have a pet 'cups' instead of the ubuntu debs. the latter are various pkgs, including 'libcups2'.
  #we don't want libcups2 showing up as a missing dependency, so have to screen these alternative names out...
@@ -277,45 +279,46 @@ if [ ! -f /tmp/petget_installed_patterns_system ];then
    #for 'cups' pet, we want to create a pattern '/cups|' so can locate all debs with that DB_path entry '.../cups'
     INSTALLED_PTNS_PET="$(grep '\.pet|' /root/.packages/layers-installed-packages | cut -f 2 -d '|' | sed -e 's%^%/%' -e 's%$%|%' -e 's%\-%\\-%g')"
    if [ "$INSTALLED_PTNS_PET" != "/|" ];then
-    echo "$INSTALLED_PTNS_PET" > /tmp/petget/installed_ptns_pet
-    INSTALLED_ALT_NAMES="$(grep --no-filename -f /tmp/petget/installed_ptns_pet /root/.packages/Packages-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}-* | cut -f 2 -d '|')"
+    echo "$INSTALLED_PTNS_PET" > /tmp/petget_proc/petget/installed_ptns_pet
+    INSTALLED_ALT_NAMES="$(grep --no-filename -f /tmp/petget_proc/petget/installed_ptns_pet /root/.packages/Packages-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}-* | cut -f 2 -d '|')"
     if [ "$INSTALLED_ALT_NAMES" ];then
      INSTALLED_ALT_PTNS="$(echo "$INSTALLED_ALT_NAMES" | sed -e 's%^%|%' -e 's%$%|%' -e 's%\-%\\-%g')"
-     echo "$INSTALLED_ALT_PTNS" >> /tmp/petget_installed_patterns_system
+     echo "$INSTALLED_ALT_PTNS" >> /tmp/petget_proc/petget_installed_patterns_system
     fi
    fi
   ;;
  esac
- sort -u /tmp/petget_installed_patterns_system > /tmp/petget_installed_patterns_systemx
- mv -f /tmp/petget_installed_patterns_systemx /tmp/petget_installed_patterns_system
+ sort -u /tmp/petget_proc/petget_installed_patterns_system > /tmp/petget_proc/petget_installed_patterns_systemx
+ mv -f /tmp/petget_proc/petget_installed_patterns_systemx /tmp/petget_proc/petget_installed_patterns_system
 fi
+
 #100711 this code repeated in findmissingpkgs.sh...
-cp -f /tmp/petget_installed_patterns_system /tmp/petget_installed_patterns_all
+cp -f /tmp/petget_proc/petget_installed_patterns_system /tmp/petget_proc/petget_installed_patterns_all
 if [ -s /root/.packages/user-installed-packages ];then
  INSTALLED_PATTERNS_USER="`cat /root/.packages/user-installed-packages | cut -f 2 -d '|' | sed -e 's%^%|%' -e 's%$%|%' -e 's%\\-%\\\\-%g'`"
- echo "$INSTALLED_PATTERNS_USER" >> /tmp/petget_installed_patterns_all
+ echo "$INSTALLED_PATTERNS_USER" >> /tmp/petget_proc/petget_installed_patterns_all
  #120822 find alt names in compat-distro pkgs, for user-installed pets...
  case $DISTRO_BINARY_COMPAT in
   ubuntu|debian|devuan|raspbian)
    #120904 bugfix, was very slow...
-   MODIF1=`stat --format=%Y /root/.packages/user-installed-packages` #seconds since epoch.
+   MODIF1=`stat -c %Y /root/.packages/user-installed-packages` #seconds since epoch.
    MODIF2=0
-   [ -f /var/local/petget/installed_alt_ptns_pet_user ] && MODIF2=`stat --format=%Y /var/local/petget/installed_alt_ptns_pet_user`
+   [ -f /var/local/petget/installed_alt_ptns_pet_user ] && MODIF2=`stat -c %Y /var/local/petget/installed_alt_ptns_pet_user`
    if [ $MODIF1 -gt $MODIF2 ];then
     INSTALLED_PTNS_PET="$(grep '\.pet|' /root/.packages/user-installed-packages | cut -f 2 -d '|')"
     if [ "$INSTALLED_PTNS_PET" != "" ];then
      xINSTALLED_PTNS_PET="$(echo "$INSTALLED_PTNS_PET" | sed -e 's%^%/%' -e 's%$%|%' -e 's%\-%\\-%g')"
-     echo "$xINSTALLED_PTNS_PET" > /tmp/petget/fmp_xipp1
-     INSTALLED_ALT_NAMES="$(grep --no-filename -f /tmp/petget/fmp_xipp1 /root/.packages/Packages-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}-* | cut -f 2 -d '|')"
+     echo "$xINSTALLED_PTNS_PET" > /tmp/petget_proc/petget/fmp_xipp1
+     INSTALLED_ALT_NAMES="$(grep --no-filename -f /tmp/petget_proc/petget/fmp_xipp1 /root/.packages/Packages-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}-* | cut -f 2 -d '|')"
      if [ "$INSTALLED_ALT_NAMES" ];then
       INSTALLED_ALT_PTNS="$(echo "$INSTALLED_ALT_NAMES" | sed -e 's%^%|%' -e 's%$%|%' -e 's%\-%\\-%g')"
       echo "$INSTALLED_ALT_PTNS" > /var/local/petget/installed_alt_ptns_pet_user
-      echo "$INSTALLED_ALT_PTNS" >> /tmp/petget_installed_patterns_all
+      echo "$INSTALLED_ALT_PTNS" >> /tmp/petget_proc/petget_installed_patterns_all
      fi
     fi
     touch /var/local/petget/installed_alt_ptns_pet_user
    else
-    cat /var/local/petget/installed_alt_ptns_pet_user >> /tmp/petget_installed_patterns_all
+    cat /var/local/petget/installed_alt_ptns_pet_user >> /tmp/petget_proc/petget_installed_patterns_all
    fi
   ;;
  esac
@@ -323,35 +326,35 @@ fi
 
 #process name aliases into patterns (used in filterpkgs.sh, findmissingpkgs.sh) ... 100126...
 xPKG_NAME_ALIASES="`echo "$PKG_NAME_ALIASES" | tr ' ' '\n' | grep -v '^$' | sed -e 's%^%|%' -e 's%$%|%' -e 's%,%|,|%g' -e 's%\\*%.*%g'`"
-echo "$xPKG_NAME_ALIASES" > /tmp/petget_pkg_name_aliases_patterns_raw #110706
-cp -f /tmp/petget_pkg_name_aliases_patterns_raw /tmp/petget_pkg_name_aliases_patterns #110706 _raw see findmissingpkgs.sh.
+echo "$xPKG_NAME_ALIASES" > /tmp/petget_proc/petget_pkg_name_aliases_patterns_raw #110706
+cp -f /tmp/petget_proc/petget_pkg_name_aliases_patterns_raw /tmp/petget_proc/petget_pkg_name_aliases_patterns #110706 _raw see findmissingpkgs.sh.
 
 #100711 above has a problem as it has wildcards. need to expand...
 #ex: PKG_NAME_ALIASES has an entry 'cxxlibs,glibc*,libc-*', the above creates '|cxxlibs|,|glibc.*|,|libc\-.*|',
 #    after expansion: '|cxxlibs|,|glibc|,|libc-|,|glibc|,|glibc_dev|,|glibc_locales|,|glibc-solibs|,|glibc-zoneinfo|'
-echo -n "" > /tmp/petget_pkg_name_aliases_patterns_expanded
-for ONEALIASLINE in `cat /tmp/petget_pkg_name_aliases_patterns | tr '\n' ' '` #ex: |cxxlibs|,|glibc.*|,|libc\-.*|
+echo -n "" > /tmp/petget_proc/petget_pkg_name_aliases_patterns_expanded
+for ONEALIASLINE in `cat /tmp/petget_proc/petget_pkg_name_aliases_patterns | tr '\n' ' '` #ex: |cxxlibs|,|glibc.*|,|libc\-.*|
 do
- echo -n "" > /tmp/petget_temp1
+ echo -n "" > /tmp/petget_proc/petget_temp1
  for PARTONELINE in `echo -n "$ONEALIASLINE" | tr ',' ' '`
  do
-  grep "$PARTONELINE" /tmp/petget_installed_patterns_all >> /tmp/petget_temp1
+  grep "$PARTONELINE" /tmp/petget_proc/petget_installed_patterns_all >> /tmp/petget_proc/petget_temp1
  done
  ZZZ="`echo "$ONEALIASLINE" | sed -e 's%\.\*%%g' | tr -d '\\'`"
- [ -s /tmp/petget_temp1 ] && ZZZ="${ZZZ},`cat /tmp/petget_temp1 | tr '\n' ',' | tr -s ',' | tr -d '\\'`"
+ [ -s /tmp/petget_proc/petget_temp1 ] && ZZZ="${ZZZ},`cat /tmp/petget_proc/petget_temp1 | tr '\n' ',' | tr -s ',' | tr -d '\\'`"
  ZZZ="`echo -n "$ZZZ" | sed -e 's%,$%%'`"
- echo "$ZZZ" >> /tmp/petget_pkg_name_aliases_patterns_expanded
+ echo "$ZZZ" >> /tmp/petget_proc/petget_pkg_name_aliases_patterns_expanded
 done
-cp -f /tmp/petget_pkg_name_aliases_patterns_expanded /tmp/petget_pkg_name_aliases_patterns
+cp -f /tmp/petget_proc/petget_pkg_name_aliases_patterns_expanded /tmp/petget_proc/petget_pkg_name_aliases_patterns
 
 #w480 PKG_NAME_IGNORE is definedin PKGS_MANAGEMENT file... 100126...
 xPKG_NAME_IGNORE="`echo "$PKG_NAME_IGNORE" | tr ' ' '\n' | grep -v '^$' | sed -e 's%^%|%' -e 's%$%|%' -e 's%,%|,|%g' -e 's%\\*%.*%g' -e 's%\-%\\-%g'`"
-echo "$xPKG_NAME_IGNORE" > /tmp/petget_pkg_name_ignore_patterns
+echo "$xPKG_NAME_IGNORE" > /tmp/petget_proc/petget_pkg_name_ignore_patterns
 
 repocnt=0
 COMPAT_REPO=""
 COMPAT_DBS=""
-echo -n "" > /tmp/petget_active_repo_list
+echo -n "" > /tmp/petget_proc/petget_active_repo_list
 
 #120831 simplify...
 REPOS_RADIO=""
@@ -362,103 +365,38 @@ bPRE="`echo -n "$PKG_REPOS_ENABLED" | tr ' ' '\n' | grep '\-puppy\-' | tr -s '\n
 for ONEREPO in $aPRE $bPRE #ex: ' Packages-puppy-precise-official Packages-puppy-noarch-official Packages-ubuntu-precise-main Packages-ubuntu-precise-multiverse '
 do
  [ ! -f /root/.packages/$ONEREPO ] && continue
- REPOCUT="`echo -n "$ONEREPO" | cut -f 2-4 -d '-'`"
+ REPOCUT="`echo -n "$ONEREPO" | cut -f 2- -d '-'`"
  [ "$REPOS_RADIO" = "" ] && FIRST_DB="$REPOCUT"
  xREPOCUT="$(echo -n "$REPOCUT" | sed -e 's%\-official$%%')" #120905 window too wide.
- REPOS_RADIO="${REPOS_RADIO}<radiobutton space-expand=\"false\" space-fill=\"false\"><label>${xREPOCUT}</label><action>/tmp/filterversion.sh ${REPOCUT}</action><action>/usr/local/petget/filterpkgs.sh</action><action>refresh:TREE1</action></radiobutton>"
- echo "$REPOCUT" >> /tmp/petget_active_repo_list #120903 needed in findnames.sh
- repocnt=`expr $repocnt + 1`
+ REPOS_RADIO="${REPOS_RADIO}<radiobutton space-expand=\"false\" space-fill=\"false\"><label>${xREPOCUT}</label><action>/tmp/petget_proc/filterversion.sh ${REPOCUT}</action><action>/usr/local/petget/filterpkgs.sh"' $CATEGORY'"</action><action>refresh:TREE1</action></radiobutton>"
+ echo "$REPOCUT" >> /tmp/petget_proc/petget_active_repo_list #120903 needed in findnames.sh
+ repocnt=$(( $repocnt + 1 ))
  #[ $repocnt -ge 5 ] && break	# SFR: no limit
 done
 
 FILTER_CATEG="Desktop"
 #note, cannot initialise radio buttons in gtkdialog...
-echo "Desktop" > /tmp/petget_filtercategory #must start with Desktop.
-echo "$FIRST_DB" > /tmp/petget/current-repo-triad #ex: slackware-12.2-official
+echo "Desktop" > /tmp/petget_proc/petget_filtercategory #must start with Desktop.
+echo "$FIRST_DB" > /tmp/petget_proc/petget/current-repo-triad #ex: slackware-12.2-official
 
-#130330 GUI filtering. see also ui_Classic, ui_Ziggy, filterpkgs.sh ...
+#130330 GUI filtering. see also filterpkgs.sh ...
 GUIONLYSTR="$(gettext 'GUI apps only')"
 ANYTYPESTR="$(gettext 'Any type')"
-GUIEXCSTR="$(gettext 'GUI, not')" #130331 (look in ui_Classic, ui_Ziggy to see context)
+GUIEXCSTR="$(gettext 'GUI, not')" #130331 (look in ui_Ziggy to see context)
 NONGUISTR="$(gettext 'Any non-GUI type')" #130331
-export GUIONLYSTR ANYTYPESTR GUIEXCSTR NONGUISTR #used in ui_classic and ui_ziggy
+export GUIONLYSTR ANYTYPESTR GUIEXCSTR NONGUISTR
 [ ! -f /var/local/petget/gui_filter ] && echo -n "$ANYTYPESTR" > /var/local/petget/gui_filter	# SFR: any type by default
 
 #finds pkgs in repository based on filter category and version and formats ready for display...
-/usr/local/petget/filterpkgs.sh $FILTER_CATEG #writes to /tmp/petget/filterpkgs.results
+/usr/local/petget/filterpkgs.sh $FILTER_CATEG #writes to /tmp/petget_proc/petget/filterpkgs.results
 
 echo '#!/bin/sh
-echo $1 > /tmp/petget/current-repo-triad
-' > /tmp/filterversion.sh
-chmod 777 /tmp/filterversion.sh
+echo $1 > /tmp/petget_proc/petget/current-repo-triad
+' > /tmp/petget_proc/filterversion.sh
+chmod 777 /tmp/petget_proc/filterversion.sh
 
-#run the traditional ui if set in config
-if [ "$(cat /var/local/petget/ui_choice 2>/dev/null)" = "Classic" ]; then
-	. /usr/local/petget/ui_Classic
-	exit 0
-fi
-
-progressbar_info () {
-	if [ "$(cat /tmp/overall_dependencies | wc -l)" -ge 1 ];then
-		NEEDED_PGKS="$(</tmp/overall_dependencies)"
-		# Info window/dialogue (display and option to save "missing" info)
-		export NEEDED_DIALOG='
-		<window title="'$(gettext 'Puppy Package Manager')'" icon-name="gtk-about" default_height="350">
-		<vbox space-expand="true" space-fill="true">
-		  '"`/usr/lib/gtkdialog/xml_info fixed package_add.svg 60 " " "$(gettext "Dependencies needed")"`"'
-		  <hbox space-expand="true" space-fill="true">
-		    <hbox scrollable="true" hscrollbar-policy="2" vscrollbar-policy="2" space-expand="true" space-fill="true">
-		      <hbox space-expand="false" space-fill="false">
-		        <eventbox name="bg_report" space-expand="true" space-fill="true">
-		          <vbox margin="5" hscrollbar-policy="2" vscrollbar-policy="2" space-expand="true" space-fill="true">
-		            '"`/usr/lib/gtkdialog/xml_pixmap dialog-info.svg 32`"'
-		            <text angle="90" wrap="false" yalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"<big><b><span color='"'#15BC15'"'>'$(gettext 'Needed')'</span></b></big> "</label></text>
-		          </vbox>
-		        </eventbox>
-		      </hbox>
-		      <vbox scrollable="true" shadow-type="0" hscrollbar-policy="2" vscrollbar-policy="1" space-expand="true" space-fill="true">
-		        <text ypad="5" xpad="5" yalign="0" xalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"<i><b>'${NEEDED_PGKS}' </b></i>"</label></text>
-		      </vbox>
-		    </hbox>
-		  </hbox>
-
-		  <hbox space-expand="false" space-fill="false">
-		    <button>
-		      <label>'$(gettext 'View details')'</label>
-		      '"`/usr/lib/gtkdialog/xml_button-icon document_viewer`"'
-		      <action>defaulttextviewer /tmp/overall_dependencies &</action>
-		    </button>
-		    <button ok></button>
-		    '"`/usr/lib/gtkdialog/xml_scalegrip`"'
-		  </hbox>
-		</vbox>
-		</window>'
-	RETPARAMS="`gtkdialog --center -p NEEDED_DIALOG`"
-	fi
-}
-export -f progressbar_info
-
-#tall or wide orientation in the Ziggy UI
-UI_ORIENT="$(cat /var/local/petget/uo_choice 2>/dev/null)"
-[ "$UI_ORIENT" != "" ] && UI_ORIENT="$UI_ORIENT" || UI_ORIENT="wide"
-if [ "$UI_ORIENT" = "tall" ]; then
-	UO_1="800"
-	UO_2="650"
-	UO_3="210"
-	UO_4="210"
-	UO_5="<vbox space-expand=\"true\" space-fill=\"true\">
-          <hbox space-expand=\"true\" space-fill=\"true\" height-request=\"250\">"
-	UO_6="</vbox>"
-else
-	UO_1="950"
-	UO_2="1000"
-	UO_3="300"
-	UO_4="100"
-	UO_5="<hbox space-expand=\"true\" space-fill=\"true\">"
-	UO_6=''
-fi
 # icon switching
-ICONDIR="/tmp/petget/icons"
+ICONDIR="/tmp/petget_proc/petget/icons"
 rm -rf "$ICONDIR"
 mkdir -p "$ICONDIR"
 cp  /usr/share/pixmaps/puppy/package_remove.svg "$ICONDIR"/false.svg
@@ -466,10 +404,28 @@ cp  /usr/share/pixmaps/puppy/close.svg "$ICONDIR"/true.svg
 ln -sf "$ICONDIR"/true.svg "$ICONDIR"/tgb0.svg
 
 # check screen size
-SCREEN_WIDTH=$(xwininfo -root | grep -m 1 '\geometry'  | cut -f1 -d 'x' |rev |cut -f1 -d ' ' |rev)
-[ "$SCREEN_WIDTH" -le 1000 ] && WIDTH="$SCREEN_WIDTH" || WIDTH="$UO_1"
+while read a b c ; do
+	case $a in -geometry)
+		SCRNXY=${b%%+*} #1366x768
+		read SCRN_X SCRN_Y <<< "${SCRNXY//x/ }"
+		break
+	esac
+done <<< "$(LANG=C xwininfo -root)"
 
-S='<window title="'$(gettext 'Puppy Package Manager v')''${VERSION}'" width-request="'${WIDTH}'" icon-name="gtk-about" default_height="440">
+UO_1="1000"
+UO_2="650"
+UO_3="210"
+UO_4="210"
+UO_5="<vbox space-expand=\"true\" space-fill=\"true\">
+          <hbox space-expand=\"true\" space-fill=\"true\" height-request=\"300\">"
+UO_6="</vbox>"
+
+WIDTH="$UO_1"
+[ "$SCRN_X" -le 1000 ] && WIDTH="$((SCRN_X-5))"
+
+[ -z "$PPM_CATEGORIES" ] && PPM_CATEGORIES="ALL Desktop System Setup Utility Filesystem Graphic Document Business Personal Network Internet Multimedia Fun"
+PPM_CATEGORIES_PRINT="$(echo "$PPM_CATEGORIES" | tr "[:space:]" "\n" |  sed -n -E '/^[[:space:]]*$/! {s%(.*)%<item>\1</item>%;p}')"
+S='<window title="'$(gettext 'Package Manager v')''${VERSION}'" width-request="'${WIDTH}'" icon-name="gtk-about" default_height="440">
 <vbox space-expand="true" space-fill="true">
   <vbox space-expand="true" space-fill="true">
     <vbox space-expand="false" space-fill="false">
@@ -482,6 +438,13 @@ S='<window title="'$(gettext 'Puppy Package Manager v')''${VERSION}'" width-requ
           '"`/usr/lib/gtkdialog/xml_button-icon help`"'
           <action>defaulthtmlviewer file://'${HELPFILE}' & </action>
         </button>
+	
+	<button tooltip-text="'$(gettext 'Update package database')'" space-expand="false" space-fill="false">
+          '"`/usr/lib/gtkdialog/xml_button-icon refresh`"'
+          <action>'${RXVT}' /usr/local/petget/0setup</action>
+          <action>restart_ppm</action>
+        </button>
+	
         <button tooltip-text="'$(gettext 'Configure package manager')'" space-expand="false" space-fill="false">
           '"`/usr/lib/gtkdialog/xml_button-icon preferences`"'
           <action>/usr/local/petget/configure.sh</action>
@@ -503,9 +466,11 @@ S='<window title="'$(gettext 'Puppy Package Manager v')''${VERSION}'" width-requ
           <action>if false hide:VBOX_REMOVE</action>
         </togglebutton>
       
-        <text space-expand="true" space-fill="true"><label>""</label></text>
-
-        <entry width-request="80" activates-default="true" is-focus="true" primary-icon-stock="gtk-clear" secondary-icon-stock="gtk-find">
+	<hbox>
+        
+        <text space-expand="false" space-fill="false"><label>"'$(gettext 'Search Package:')'"</label></text>
+      
+        <entry width-request="250" activates-default="true" is-focus="true" primary-icon-stock="gtk-clear" secondary-icon-stock="gtk-find">
           <variable>ENTRY1</variable>
           <action signal="activate">/usr/local/petget/findnames.sh all</action>
           <action signal="activate">refresh:TREE1</action>
@@ -515,31 +480,27 @@ S='<window title="'$(gettext 'Puppy Package Manager v')''${VERSION}'" width-requ
           <action signal="secondary-icon-release">/usr/local/petget/show_installed_version_diffs.sh & </action>
           <action signal="primary-icon-release">clear:ENTRY1</action>
         </entry>
-      
-        <text space-expand="true" space-fill="true"><label>""</label></text>
 
         <comboboxtext width-request="150" space-expand="false" space-fill="false">
           <variable>INSTALL_MODE</variable>
-          <item>'$(gettext 'Auto install')'</item>
-          <item>'$(gettext 'Step by step installation (classic mode)')'</item>
-          <item>'$(gettext 'Download packages (no install)')'</item>
-          <item>'$(gettext 'Download all (packages and dependencies)')'</item>
+          '$PPM_MODES'
           <action>change_mode</action>
         </comboboxtext>
+        
         <button space-expand="false" space-fill="false">
           <variable>BUTTON_INSTALL</variable>
           '"`/usr/lib/gtkdialog/xml_button-icon package_add`"'
           <label>" '$(gettext 'Do it!')' "</label>
           <sensitive>false</sensitive>
-          <action condition="command_is_true(if [ \"$(cat /tmp/pkgs_to_install)\" != \"\" ];then echo true;fi)">disable:VBOX_MAIN</action>
-          <action condition="command_is_true(if [ \"$(cat /tmp/pkgs_to_install)\" != \"\" ];then echo true;fi)">disable:DEP_INFO</action>
-          <action>if [ "$(cat /tmp/forced_install 2>/dev/null)" != "" ]; then touch /tmp/force_install; else rm -f /tmp/force_install; fi </action>
-          <action>cut -d"|" -f1,4 /tmp/pkgs_to_install > /tmp/pkgs_to_install_tmp; mv -f /tmp/pkgs_to_install_tmp /tmp/pkgs_to_install</action>
-          <action condition="command_is_true(if [ -f /tmp/force_install -a -f /tmp/install_pets_quietly ]; then echo false; else echo true; fi )">/usr/local/petget/installmodes.sh "$INSTALL_MODE" &</action>
-          <action condition="command_is_false(if [ -f /tmp/force_install -a -f /tmp/install_pets_quietly ]; then echo false; else echo true; fi )">installed_warning &</action>
-          <action condition="command_is_false(if [ -f /tmp/force_install -a -f /tmp/install_pets_quietly ]; then echo false; else echo true; fi )">enable:VBOX_MAIN</action>
-          <action condition="command_is_false(if [ -f /tmp/force_install -a -f /tmp/install_pets_quietly ]; then echo false; else echo true; fi )">enable:DEP_INFO</action>
+          <action>disable:VBOX_MAIN</action>
+          <action>disable:DEP_INFO</action>
+          <action>do_install</action>
+          <action>enable:VBOX_MAIN</action>
+          <action>enable:DEP_INFO</action>
         </button>
+        
+        </hbox>
+
       </hbox>
     </vbox>
 
@@ -555,7 +516,7 @@ S='<window title="'$(gettext 'Puppy Package Manager v')''${VERSION}'" width-requ
                       <label>'$(gettext 'Installed Package')'|'$(gettext 'Description')'</label>
                       <variable>TREE2</variable>
                       <width>'${UO_2}'</width><height>100</height>
-                      <input file icon-column="1">/tmp/petget/installedpkgs.results.post</input>
+                      <input file icon-column="1">/tmp/petget_proc/petget/installedpkgs.results.post</input>
                       <action signal="button-release-event" condition="command_is_true([[ `echo $TREE2` ]] && echo true)">enable:BUTTON_UNINSTALL</action>
                     </tree>
                     <comboboxtext space-expand="false" space-fill="false">
@@ -568,8 +529,9 @@ S='<window title="'$(gettext 'Puppy Package Manager v')''${VERSION}'" width-requ
                       '"`/usr/lib/gtkdialog/xml_button-icon package_remove`"'
                       <label>" '$(gettext 'Remove package')' "</label>
                       <sensitive>false</sensitive>
-                      <action condition="command_is_true([[ \"$TREE2\" != \"\" ]] && echo true)">disable:VBOX_MAIN</action>
-                      <action>echo "$TREE2" > /tmp/pkgs_to_remove; /usr/local/petget/removemodes.sh "$REMOVE_MODE" &</action>
+                      <action>disable:VBOX_MAIN</action>
+                      <action>echo "$TREE2" > /tmp/petget_proc/pkgs_to_remove; /usr/local/petget/removemodes.sh "$REMOVE_MODE"</action>
+                      <action>enable:VBOX_MAIN</action>
                     </button>
                   </vbox>
                 </notebook>
@@ -582,6 +544,18 @@ S='<window title="'$(gettext 'Puppy Package Manager v')''${VERSION}'" width-requ
 
       <hbox space-expand="false" space-fill="false">
         <vbox space-expand="true" space-fill="true">
+          <vbox space-expand="false" space-fill="false">
+          <frame '$(gettext 'Category')'>
+           <comboboxtext width-request="150" space-expand="false" space-fill="false">
+            <variable>CATEGORY</variable>
+             '$(echo "${PPM_CATEGORIES_PRINT}")'
+             <action>/usr/local/petget/filterpkgs.sh $CATEGORY</action>
+             <action>refresh:TREE1</action>
+           </comboboxtext>
+          </frame>
+          </vbox>
+          
+          <vbox space-expand="true" space-fill="true">
           <frame '$(gettext 'Repositories')'>
             <vbox scrollable="true" shadow-type="0" hscrollbar-policy="2" space-expand="true" space-fill="true">
               '${REPOS_RADIO}'
@@ -590,8 +564,10 @@ S='<window title="'$(gettext 'Puppy Package Manager v')''${VERSION}'" width-requ
               <width>50</width>
             </vbox>
           </frame>
+          </vbox>
+     
           <vbox space-expand="false" space-fill="false">
-            <frame '$(gettext 'package types')'>
+            <frame '$(gettext 'Package types')'>
               <hbox>
                 <vbox>
                   <checkbox>
@@ -647,54 +623,31 @@ S='<window title="'$(gettext 'Puppy Package Manager v')''${VERSION}'" width-requ
             </frame>
           </vbox>
         </vbox>
+        
       </hbox>
 
       <vbox space-expand="true" space-fill="true">
         <hbox spacing="1" space-expand="true" space-fill="true">
-          <hbox space-expand="false" space-fill="false">
-            <tree name="category" selected-row="0" exported_column="1" column-visible="true|false" space-expand="false" space-fill="false">
-              <label>'$(gettext 'Category')'|command</label>
-              <variable>CATEGORY</variable>
-              <item stock="gtk-Desktop">'$(gettext 'Desktop')'|Desktop</item>
-              <item stock="gtk-System">'$(gettext 'System')'|System</item>
-              <item stock="gtk-Setup">'$(gettext 'Setup')'|Setup</item>
-              <item stock="gtk-Utility">'$(gettext 'Utility')'|Utility</item>
-              <item stock="gtk-Filesystem">'$(gettext 'Filesystem')'|Filesystem</item>
-              <item stock="gtk-Graphic">'$(gettext 'Graphic')'|Graphic</item>
-              <item stock="gtk-Document">'$(gettext 'Document')'|Document</item>
-              <item stock="gtk-Business">'$(gettext 'Business')'|Business</item>
-              <item stock="gtk-Personal">'$(gettext 'Personal')'|Personal</item>
-              <item stock="gtk-Network">'$(gettext 'Network')'|Network</item>
-              <item stock="gtk-Internet">'$(gettext 'Internet')'|Internet</item>
-              <item stock="gtk-Multimedia">'$(gettext 'Multimedia')'|Multimedia</item>
-              <item stock="gtk-Fun">'$(gettext 'Fun')'|Fun</item>'
-              [ "$(cat /var/local/petget/bb_category 2>/dev/null)" = "true" ] && S=$S'<item stock="gtk-BB">'$(gettext 'BuildingBlock')'|BuildingBlock</item>'
-              S=$S'<width>140</width><height>112</height>
-              <action signal="changed">/usr/local/petget/filterpkgs.sh $CATEGORY</action>
-              <action signal="changed">refresh:TREE1</action>
-            </tree>
-          </hbox>
          '${UO_5}'
-            <tree hover-selection="true" selection-mode="1" column-resizeable="true|false" space-expand="true" space-fill="true">
+            <tree column-resizeable="true|false" space-expand="true" space-fill="true">
               <label>'$(gettext 'Package')'|'$(gettext 'Description')'</label>
               <variable>TREE1</variable>
               <width>'${UO_3}'</width>
-              <input file icon-column="1">/tmp/petget/filterpkgs.results.post</input>
-              <action signal="button-release-event">add_item</action>
+              <input file icon-column="1">/tmp/petget_proc/petget/filterpkgs.results.post</input>
+              <action signal="button-release-event">pkg_info</action>
               <action signal="button-release-event">refresh:TREE_INSTALL</action>
               <action signal="button-release-event">enable:BUTTON_INSTALL</action>
+              <action signal="key-release-event">pkg_info</action>
+              <action signal="key-release-event">refresh:TREE_INSTALL</action>
+              <action signal="key-release-event">enable:BUTTON_INSTALL</action>
             </tree>
           </hbox>
           <hbox space-expand="true" space-fill="true">
-            <tree hover-selection="true" selection-mode="1" file-monitor="true" auto-refresh="true" hscrollbar-policy="1" column-visible="true|false|true" tooltip-text="'$(gettext 'Remove item from list by click on it')'" space-expand="false" space-fill="false">
-              <label>'$(gettext 'Packages to install')'|'$(gettext 'Description')'|'$(gettext 'Repository')'</label>
+            <edit name="mono" editable="false">
               <variable>TREE_INSTALL</variable>
-              <input file icon-column="1">/tmp/pkgs_to_install</input>
               <width>'${UO_4}'</width>
-              <action signal="button-release-event">remove_item</action>
-              <action signal="button-release-event">refresh:TREE_INSTALL</action>
-              <action signal="button-release-event" condition="command_is_true([[ ! `cat /tmp/pkgs_to_install` ]] && echo true)">disable:BUTTON_INSTALL</action>
-            </tree>
+              <input file>/tmp/petget_proc/petget/pgk_info</input>
+            </edit>
           </hbox>
           '${UO_6}'
         </hbox>
@@ -702,43 +655,17 @@ S='<window title="'$(gettext 'Puppy Package Manager v')''${VERSION}'" width-requ
     </hbox>
     <variable>VBOX_MAIN</variable>
   </vbox>
-  <hbox space-expand="false" space-fill="false">
-   <eventbox name="dependency_info" space-expand="true" space-fill="true" tooltip-text="'$(gettext 'Click to get a list of the needed dependencies')'">
-    <progressbar height-request="25" space-expand="true" space-fill="true">
-      <input>while [ -s /tmp/petget/install_status -a "$(ps aux|grep PPM_GUI|grep gtkdialog|wc -l)" -gt 2 ]; do cat /tmp/petget/install_status_percent; cat /tmp/petget/install_status; sleep 0.5; done</input>
-      <action>enable:VBOX_MAIN</action>
-      <action>enable:DEP_INFO</action>
-      <action>disable:BUTTON_INSTALL</action>
-      <action>rm /tmp/pkgs_to_install</action>
-      <action>refresh:TREE_INSTALL</action>
-      <action>/usr/local/petget/filterpkgs.sh</action>
-      <action>refresh:TREE1</action>
-      <action>/usr/local/petget/finduserinstalledpkgs.sh</action>
-      <action>refresh:TREE2</action>
-      <action>echo 0 > /tmp/petget/install_status_percent</action>
-      <action>echo "" > /tmp/petget/install_status</action>
-    </progressbar>
-    '"`/usr/lib/gtkdialog/xml_scalegrip`"'
-    <action signal="button-release-event">progressbar_info</action>
-   </eventbox>
-   '"`/usr/lib/gtkdialog/xml_scalegrip`"'
-   <variable>DEP_INFO</variable>
-  </hbox>
 </vbox>
 <action signal="show">kill -9 '$SPID'</action>
-<action signal="delete-event">rm /tmp/pkgs_to_install</action>
-<action signal="delete-event">rm /tmp/petget/install_status</action>
+<action signal="delete-event">echo -n > /tmp/petget_proc/pkgs_to_install</action>
+<action signal="delete-event">rm /tmp/petget_proc/petget/install_status</action>
 </window>'
+
+echo "$S" > /tmp/petget_proc/ppmgui
 export PPM_GUI="$S"
 
-mkdir -p /tmp/puppy_package_manager
-ln -s /usr/local/lib/X11/pixmaps/*48.png /tmp/puppy_package_manager 2>/dev/null
-echo '
-style "category" {
-	font_name="bold" }
-widget "*category" style "category"
-
-style "bg_report" {
+mkdir -p /tmp/petget_proc/petget
+echo 'style "bg_report" {
 	bg[NORMAL]="#222" }
 widget "*bg_report" style "bg_report"
 
@@ -748,30 +675,20 @@ widget "*frame_remove" style "frame_remove"
 
 style "icon-style" {
 	GtkStatusbar::shadow_type = GTK_SHADOW_NONE
+}
+class "GtkWidget" style "icon-style"
 
-	stock["gtk-Desktop"]  = {{ "x48.png", *, *, *}}
-	stock["gtk-System"]	  = {{ "pc48.png", *, *, *}}
-	stock["gtk-Setup"]    = {{ "configuration48.png", *, *, *}}
-	stock["gtk-Utility"]  = {{ "utility48.png", *, *, *}}
-	stock["gtk-Filesystem"] = {{ "folder48.png", *, *, *}}
-	stock["gtk-Graphic"]  = {{ "paint48.png", *, *, *}}
-	stock["gtk-Document"] = {{ "word48.png", *, *, *}}
-	stock["gtk-Business"] = {{ "spread48.png", *, *, *}}
-	stock["gtk-Personal"] = {{ "date48.png", *, *, *}}
-	stock["gtk-Network"]  = {{ "connect48.png", *, *, *}}
-	stock["gtk-Internet"] = {{ "www48.png", *, *, *}}
-	stock["gtk-Multimedia"] = {{ "multimedia48.png", *, *, *}}
-	stock["gtk-Fun"]      = {{ "games48.png", *, *, *}}
-	stock["gtk-BB"]       = {{ "pet48.png", *, *, *}}
-	}
-class "GtkWidget" style "icon-style"' > /tmp/puppy_package_manager/gtkrc_ppm
+style "specialmono"
+{
+  font_name="Mono '"$PKV_FONTSIZE"'"
+}
+widget "*mono" style "specialmono"
+class "GtkText*" style "specialmono"' > /tmp/petget_proc/petget/gtkrc_ppm
 
-export GTK2_RC_FILES=/root/.gtkrc-2.0:/tmp/puppy_package_manager/gtkrc_ppm
+export GTK2_RC_FILES=/root/.gtkrc-2.0:/tmp/petget_proc/petget/gtkrc_ppm
 . /usr/lib/gtkdialog/xml_info gtk #build bg_pixmap for gtk-theme
 
-gtkdialog -p PPM_GUI
+gtkdialog -p PPM_GUI --styles=/tmp/gtkrc_xml_info.css
 
-# Run indexgen after we exit the GUI
-/usr/sbin/indexgen.sh
 #and clean up
 clean_flags

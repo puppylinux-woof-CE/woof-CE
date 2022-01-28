@@ -3,7 +3,7 @@
 #This script is called by /etc/rc.d/rc.sysinit. the purpose is to perform
 #any required updates to files when a new version of Puppy is booted.
 
-[ -z "$PATH" ] && PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin
+[ -z "$PATH" ] && export PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin
 
 status_func() {
 	if [ $1 -eq 0 ];then
@@ -13,7 +13,41 @@ status_func() {
 	fi
 }
 
-if [ ! -f /usr/share/mime/mime.cache ] ; then
+#=============================================================
+# automatically update some stuff
+
+#set -x
+
+. /etc/DISTRO_SPECS
+if [ "$DISTRO_ARCHDIR" ] ; then
+	ARCHDIR="/$DISTRO_ARCHDIR"
+fi
+
+if [ ! -f /etc/ld.so.cache ] ; then
+	ldconfig 2>/dev/null
+fi
+
+if [ ! -f /usr/lib${ARCHDIR}/gconv/gconv-modules.cache ] ; then
+	iconvconfig 2>/dev/null # creates /usr/lib/gconv/gconv-modules.cache
+fi
+
+if [ -e /etc/dconf/db/local.d/ ] && [ "$(ls -1 /etc/dconf/db/local.d/)" != "" ]; then
+	dconf update 2>/dev/null 
+fi
+
+if [ -e /usr/bin/update-pango-querymodules ] ; then
+	update-pango-querymodules
+elif [ -e /usr/bin/pango-querymodules ] ; then
+	pango-querymodules --update-cache
+fi
+
+if [ -e /usr/bin/update-gdk-pixbuf-loaders ] ; then
+	update-gdk-pixbuf-loaders
+elif [ -e /usr/bin/gdk-pixbuf-query-loaders ] ; then
+	gdk-pixbuf-query-loaders --update-cache
+fi
+
+if [ ! -f /usr/share/mime/mime.cache ] && [ -e /usr/bin/update-mime-database -a -d /usr/share/mime ] ; then
 	echo -n "Executing update-mime-database /usr/share/mime..." >/dev/console
 	update-mime-database -V /usr/share/mime/
 	status_func $?
@@ -21,6 +55,7 @@ if [ ! -f /usr/share/mime/mime.cache ] ; then
 fi
 
 #=============================================================
+# main
 
 PUPMODE="$1"
 
@@ -36,47 +71,84 @@ depmod_func() { #then run depmod to overwrite any depmod files on OLD layer...
 }
 
 basic_update() {
-  echo -n " network-drivers-list" >/dev/console
-  /usr/sbin/updatenetmoduleslist.sh #creates /etc/networkmodules...
-  #just in case something missing (like svg loader)...
-  echo -n " pixbuf-loaders" >/dev/console
-  gdk-pixbuf-query-loaders --update-cache
-  #update icon cache (supposed to speed things up)...
-  echo -n " gtk-icon-cache" >/dev/console
-  #note, can use  --ignore-theme-index if want to...
-  #'find' routine allows for space in dir name; ie "Puppy Standard". Note: bashism 
-  find /usr/share/icons/* -maxdepth 0 -print0 | while read -d $'\0' contents
-  do 
-    if [ -d "$contents" ]; then
-	  dir="$contents"
-	  [ -h "$dir" ] && continue
-	  [ -d "$dir"/cursors ] && continue # in case 3rd party cursors installed
-	  [ -f "$dir"/index.theme ] &&  gtk-update-icon-cache -f "$dir"
-    fi
-  done
+       
+       for gtkcmd in gtk gtk4
+       do
+	if [ -e /usr/bin/${gtkcmd}-update-icon-cache ] ; then
+		#gtk-update-icon-cache /usr/share/icons/hicolor
+		#gtk-update-icon-cache /usr/local/share/icons/hicolor 2>/dev/null
+		echo -n " gtk-icon-cache" >/dev/console
+		find /usr/share/icons -maxdepth 1 -mindepth 1 -type d | \
+		while read dir ; do
+			[ -h "$dir" ] && continue
+			[ -d "$dir"/cursors ] && continue # in case 3rd party cursors installed
+			[ -f "$dir"/index.theme ] &&  ${gtkcmd}-update-icon-cache -f -i "$dir" #note, can use  --ignore-theme-index if want to...
+		done
+	  break
+	 fi
+       done
+	
+	if [ -e /usr/sbin/fixmenus ] && [ -e /usr/bin/jwm-xdgmenu -o -e /usr/bin/icewm-xdgmenu -o -e /usr/bin/labwc-xdgmenu ] ; then
+		LANG=C fixmenus #Reconstruct configuration files for JWM, IceWM...
+	fi
+	if [ -e /usr/bin/update-desktop-database -a -e /usr/bin/update-mime-database ] ; then
+		rm -f /usr/share/applications/mimeinfo.cache 2>/dev/null
+		update-desktop-database /usr/share/applications
+		rm -f /usr/local/share/applications/mimeinfo.cache 2>/dev/null
+		[ -d /usr/local/share/applications ] && update-desktop-database /usr/local/share/applications
+	fi
 }
 
 extended_update() {
-  #these are normally done in 3builddistro.
-  ldconfig                #ldconfig put in by 3builddistro. rebuild /etc/ld.so.cache
-  /usr/sbin/indexgen.sh   #create master help index.
-  /usr/sbin/fixmenus      #Reconstruct configuration files for JWM,  IceWM. note: fixmenus corrects $LANG.
-  /usr/bin/fc-cache -s -v #fontconfig cache
-  /usr/sbin/iconvconfig   #creates /usr/lib/gconv/gconv-modules.cache
-  /usr/bin/which pango-querymodules && pango-querymodules > /etc/pango/pango.modules # recent slacko doesn't have
-  if [ "$UPDATE_MIME_DATABASE_DONE" != "1" ] ; then
-    update-mime-database /usr/share/mime
-  fi
-  #ubuntu precise puppy must have the schemas compiled (otherwise seamonkey crashed)...
-  [ -d /usr/share/glib-2.0/schemas ] && [ -e /usr/bin/glib-compile-schemas ] && /usr/bin/glib-compile-schemas /usr/share/glib-2.0/schemas
-  # precise puppy, may also need to run gio-querymodules. (refer also installpkg.sh, 3builddistro)
-  [ -d /usr/lib/gio/modules ] && [ -e /usr/bin/gio-querymodules ] && /usr/bin/gio-querymodules /usr/lib/gio/modules
-  [ -d /usr/lib64/gio/modules ] && [ -e /usr/bin/gio-querymodules ] && /usr/bin/gio-querymodules /usr/lib64/gio/modules
-  #120605 note, /usr/lib/gtk-2.0/2.10.0/gtk.immodules is a symlink to this...
-  gtk-query-immodules-2.0 > /etc/gtk-2.0/gtk.immodules #120605 shinobar.
+	#these are normally done in 3builddistro.
+	ldconfig 2>/dev/null
+	iconvconfig 2>/dev/null # creates /usr/lib/gconv/gconv-modules.cache
+
+	if [ -e /usr/bin/fc-cache ] ; then
+		fc-cache -f 2>/dev/null # some sfs files may have fonts
+	fi
+
+	if [ -e /usr/bin/update-mime-database -a "$UPDATE_MIME_DATABASE_DONE" != "1" ] ; then
+		[ -d /usr/share/mime ] && update-mime-database /usr/share/mime
+		[ -d /usr/local/share/mime ] && update-mime-database /usr/local/share/mime
+	fi
+
+	if [ -e /usr/bin/glib-compile-schemas ] ; then
+		[ -d /usr/share/glib-2.0/schemas ] && glib-compile-schemas /usr/share/glib-2.0/schemas 2>/dev/null
+		[ -d /usr/local/share/glib-2.0/schemas ] && glib-compile-schemas /usr/local/share/glib-2.0/schemas 2>/dev/null
+	fi
+
+	if [ -e /usr/bin/gio-querymodules ] ; then
+		[ -d /usr/lib/gio/modules ] && gio-querymodules /usr/lib/gio/modules
+		[ -d /usr/lib64/gio/modules ] && gio-querymodules /usr/lib64/gio/modules
+	fi
+
+	for gtkver in 2.0 3.0 4.0
+        do
+	  if [ -e /usr/bin/update-gtk-immodules-${gtkver} ] ; then
+	     update-gtk-immodules-${gtkver}
+	  elif [ -e /usr/bin/gtk-query-immodules-${gtkver} ] ; then
+	     gtk-query-immodules-${gtkver} --update-cache
+	  fi
+	done
+
+}
+
+update_cache_files() {
+	basic_update
+	extended_update
+	depmod_func -a 2>/dev/null # some sfs may have kernel modules
+	
+	# some sfs may have udev hardware database
+	[ "$(udevadm --help 2>&1 | grep hwdb)" != "" ] && udevadm hwdb --update  
 }
 
 #===========================================================================
+
+if [ "$PUPMODE" = "w" ] ; then #chroot from woof
+	update_cache_files
+	exit
+fi
 
 # /initrd/tmp/rc_update_force_pm5 is created by the initrd init script
 #   empty pupsaves cause problems
@@ -87,16 +159,6 @@ if [ -f /initrd/tmp/rc_update_force_pm5 ] ; then
 fi
 
 case $PUPMODE in
- "7") #tmpfs (pup_rw), hd for persistent storage (pup_ro1), ${DISTRO_PUPPYSFS} (pup_ro2).
-  NEWFILESMNTPT="/initrd/pup_ro2"
-  OLDFILESMNTPT="/initrd/pup_ro1"
- ;;
- "6") #no tmpfs, PDEV1 (pup_rw), ${DISTRO_PUPPYSFS} (pup_ro2) 
-  #have booted from PDEV1 partition, which has initrd.gz & ${DISTRO_PUPPYSFS} files on it, and
-  #session has been saved direct to the partition. (very similar to mode 12)
-  NEWFILESMNTPT="/initrd/pup_ro2"
-  OLDFILESMNTPT="/initrd/pup_rw"
- ;;
  "12") #no tmpfs, ${DISTRO_FILE_PREFIX}save.3fs (pup_rw), nothing (pup_ro1), ${DISTRO_PUPPYSFS} (pup_ro2)
   #example: boot from live-cd, ${DISTRO_FILE_PREFIX}save.3fs on a fast h.d. partition.
   NEWFILESMNTPT="/initrd/pup_ro2"
@@ -112,19 +174,26 @@ case $PUPMODE in
   NEWFILESMNTPT="/initrd/pup_ro2"
   OLDFILESMNTPT="/initrd/pup_ro1"
  ;;
+ "66") #archive - tar- tmpfs (pup_rw)
+  NEWFILESMNTPT="/initrd/pup_ro2"
+  OLDFILESMNTPT="/initrd/pup_rw"
+ ;;
  5)
   #PUPMODE=5 is first boot, ignore.
+  /usr/sbin/savesession-dvd 5 # creates /archive if booting from cd..
   basic_update
   if [ -f /etc/rc.d/WOOFMERGEVARS ];then # inserted by 3builddistro.
    . /etc/rc.d/WOOFMERGEVARS
-   if [ "$WOOF_HOSTARCH" != "$WOOF_TARGETARCH" ];then #woof did a cross-build
-    echo -n " cross-build-fix" >/dev/console
-    extended_update
+   if [ "$WOOF_HOSTARCH" != "$WOOF_TARGETARCH" -a -z "$WOOF_QEMU" ];then #woof did a cross-build
+    if [ "$WOOF_HOSTARCH" != "x86_64" -o "$WOOF_TARGETARCH" != "x86" ]; then
+     echo -n " cross-build-fix" >/dev/console
+     extended_update
+    fi
    fi
   fi
   exit ###EXIT###
  ;;
- *) #PUPMODE=2 (full hd install) then just exit.
+ *) #PUPMODE=2/6 (full hd install) then just exit.
   # need to consider situation of a full-hd install that is not pre-setup, as would normally be done by 3builddistro in Woof and the Universal Installer.
   if [ -f /var/local/full_install_update_flag ] ; then
    find -L / \( -mount -path '*/lib/*' -type l -name *.so -o -path '*/lib/*' -type l -name *.so.* \) -delete
@@ -133,17 +202,21 @@ case $PUPMODE in
    rm -f /var/local/full_install_update_flag
    exit ###EXIT###
   fi
-  [ -f /etc/networkmodules ] && exit ###EXIT###
+  if [ -f /var/local/full_install_1st_boot ] ; then
+   exit ###EXIT###
+  fi
   basic_update
-  # one exception is a cross-build in Woof. in such a situation /etc/networkmodules would not exist...
   #code as per PUPMODE==5 above...
   if [ -f /etc/rc.d/WOOFMERGEVARS ];then # inserted by 3builddistro.
    . /etc/rc.d/WOOFMERGEVARS
-   if [ "$WOOF_HOSTARCH" != "$WOOF_TARGETARCH" ];then #woof did a cross-build
-    echo -n " cross-build-fix" >/dev/console
-    extended_update
+   if [ "$WOOF_HOSTARCH" != "$WOOF_TARGETARCH" -a -z "$WOOF_QEMU" ];then #woof did a cross-build
+    if [ "$WOOF_HOSTARCH" != "x86_64" -o "$WOOF_TARGETARCH" != "x86" ]; then
+     echo -n " cross-build-fix" >/dev/console
+     extended_update
+    fi
    fi
   fi
+  touch /var/local/full_install_1st_boot
   exit ###EXIT###
  ;;
 esac
@@ -184,27 +257,21 @@ if [ -f /initrd/tmp/version_update_flag ]; then
  echo "PKG_REPOS_ENABLED='${PKG_REPOS_ENABLED}'" >> /root/.packages/PKGS_MANAGEMENT
 
  cp -af ${NEWFILESMNTPT}/etc/DISTRO_SPECS /etc/
- cp -af /root/.fvwm95rc /root/DOTfvwm95rc.bak 2>/dev/null
  cp -af /root/.jwmrc /root/DOTjwmrc.bak 2>/dev/null
  # Update if needed 
- if [ -f $OLDFILESMNTPT/etc/xdg/templates/_root_.jwmrc -a \
- "`grep JWMRC_VERSION_002 $OLDFILESMNTPT/etc/xdg/templates/_root_.jwmrc`" = "" ]; then
+ if [ -f $OLDFILESMNTPT/etc/xdg/templates/_root_.jwmrc ] ; then
   cp -af ${NEWFILESMNTPT}/etc/xdg/templates/_root_.jwmrc /etc/xdg/templates/
   [ -f /usr/sbin/upgrade_ptheme_fix ] && upgrade_ptheme_fix
  fi
  cp -af /root/.icewm/menu /root/DOTicewmmenu.bak 2>/dev/null #v1.0.5
- cp -af ${NEWFILESMNTPT}/root/.fvwm95rc /root/ 2>/dev/null
  cp -af ${NEWFILESMNTPT}/root/.jwmrc /root/ 2>/dev/null 
  cp -af ${NEWFILESMNTPT}/root/.icewm/menu /root/.icewm/ 2>/dev/null #v1.0.5
  #also update every boot and shutdown script...
- echo "Updating boot and shutdown system scripts..."
- [ -f ${OLDFILESMNTPT}/etc/rc.d/rc.country ] && cp -af ${NEWFILESMNTPT}/etc/rc.d/rc.country /etc/rc.d/ 
- [ -f ${OLDFILESMNTPT}/etc/rc.d/rc.network ] && cp -af ${NEWFILESMNTPT}/etc/rc.d/rc.network /etc/rc.d/ 
- [ -f ${OLDFILESMNTPT}/etc/rc.d/rc.shutdown ] && cp -af ${NEWFILESMNTPT}/etc/rc.d/rc.shutdown /etc/rc.d/ 
- [ -f ${OLDFILESMNTPT}/etc/rc.d/rc.sysinit ] && cp -af ${NEWFILESMNTPT}/etc/rc.d/rc.sysinit /etc/rc.d/ 
- [ -f ${OLDFILESMNTPT}/etc/rc.d/rc.update ] && cp -af ${NEWFILESMNTPT}/etc/rc.d/rc.update /etc/rc.d/ 
- [ -f ${OLDFILESMNTPT}/etc/rc.d/rc.services ] && cp -af ${NEWFILESMNTPT}/etc/rc.d/rc.services /etc/rc.d/ 
- [ -f ${OLDFILESMNTPT}/etc/rc.d/functions4puppy ] && cp -af ${NEWFILESMNTPT}/etc/rc.d/functions4puppy /etc/rc.d/ 
+ for i in rc.country rc.network rc.shutdown rc.sysinit rc.services
+ do
+    [ -f ${OLDFILESMNTPT}/etc/rc.d/${i} ] && cp -af ${NEWFILESMNTPT}/etc/rc.d/${i} /etc/rc.d/
+ done
+
  SKIPLIST="`grep '^SKIPLIST' /etc/rc.d/MODULESCONFIG | cut -f 2 -d '"'`" #geany'
  ADDLIST="`grep '^ADDLIST' /etc/rc.d/MODULESCONFIG | cut -f 2 -d "'"`" #geany'
  REGEX1="s%^SKIPLIST.*%SKIPLIST=\"${SKIPLIST}\"%"
@@ -225,24 +292,18 @@ if [ -f /initrd/tmp/version_update_flag ]; then
  for ONESCRIPT in df initrd_layer_test mount ps pupkill umount
  do [ -f ${OLDFILESMNTPT}/bin/$ONESCRIPT ] && cp -a -f --remove-destination ${NEWFILESMNTPT}/bin/$ONESCRIPT /bin/
  done
- for ONESCRIPT in clean_desk_icons dir2sfs dir2tgz initNEW poweroff probedisk probepart pup_event_backend_firmware pup_event_backend_modprobe pup_event_backend_modprobe_protect pup_event_frontend_d reboot runlevel
+ for ONESCRIPT in clean_desk_icons dir2sfs dir2tgz initNEW poweroff probedisk probepart pup_event_backend_firmware pup_event_backend_modprobe pup_event_frontend_d reboot runlevel
  do [ -f ${OLDFILESMNTPT}/bin/$ONESCRIPT ] && cp -a -f --remove-destination ${NEWFILESMNTPT}/sbin/$ONESCRIPT /sbin/ 2>/dev/null
  done
  for ONESCRIPT in dir2pet dirs2pets evince gtkdialog-splash lprshell man new2dir pet2tgz petspec pman pupdialog restartwm startx tgz2pet wmexit wmpoweroff wmreboot wvdialshell xterm xwin yaf-splash
  do [ -f ${OLDFILESMNTPT}/bin/$ONESCRIPT ] && cp -a -f --remove-destination ${NEWFILESMNTPT}/usr/bin/$ONESCRIPT /usr/bin/ 2>/dev/null
  done
- for ONESCRIPT in alsawizard askpass background_reshape bcrypt_gui bootflash bootmanager burniso2cd calcfreespace.sh cdburner-wizard chooselocale connectwizard connectwizard_2nd countrywizard cups_shell dotpup delayedrun deskshortcut.sh download_file eventmanager exploderpm filemnt fitimage2root fixdesk fixmenus fixPuppyPin floppy-format.sh freememappletshell gen_modem_init_string get_bluetooth_connection get_modem_alternate_device grubconfig grubconfigREADME.txt icon_switcher icon_switcher_cli indexgen.sh input-wizard ipinfo loginmanager modemdisconnect modemprobe modemprobe_erase modemprobe_help modemtest networkdisconnect partview pcur pdict Pdisk petget pgprs-shell pmodemdiag pmonitork.sh pmonitorx.sh pmount pmovie pngoverlay pngoverlay.bac pngoverlay.sh pppconnect pppdisconnect pppsetup Pudd pup-advert-blocker pupautodetect pupcamera pupdial pupdial_init_hotpluggable pupdial_wizard_helper puppyhelp puppyinstaller puppypdf pupscan remasterpup2 remove_builtin report-video resizepfile.sh root2user save2flash savesession-dvd scannerwizard.sh securetelnetshell set_bg set_hwclock_type set-time-for-puppy set-xftdpi sfsget shutdownconfig snapmergepuppy sns spacereplace timezone-set updatenetmoduleslist.sh usb_modem_special_status usb_modeswitch_status video_upgrade_wizard video-wizard welcome1stboot welcome1stboot.bac wizardwizard xdelta_gui xgamma-gui xinitrc_test xorgwizard xorgwizard-automatic xrandrshell xserverwizard
+ for ONESCRIPT in alsawizard askpass background_reshape bcrypt_gui bootflash bootmanager burniso2cd calcfreespace.sh cdburner-wizard chooselocale connectwizard connectwizard_2nd countrywizard cups_shell dotpup delayedrun deskshortcut.sh download_file eventmanager exploderpm filemnt fitimage2root fixdesk fixmenus fixPuppyPin floppy-format.sh freememappletshell gen_modem_init_string get_bluetooth_connection get_modem_alternate_device grubconfig grubconfigREADME.txt icon_switcher icon_switcher_cli input-wizard ipinfo loginmanager modemdisconnect modemprobe modemprobe_erase modemprobe_help modemtest networkdisconnect partview pcur pdict Pdisk petget pgprs-shell pmodemdiag pmonitork.sh pmonitorx.sh pmount pmovie pngoverlay pngoverlay.bac pngoverlay.sh pppconnect pppdisconnect pppsetup Pudd pup-advert-blocker pupautodetect pupcamera pupdial pupdial_init_hotpluggable pupdial_wizard_helper puppyhelp puppyinstaller puppypdf pupscan remasterpup2 remove_builtin report-video resizepfile.sh root2user save2flash savesession-dvd scannerwizard.sh securetelnetshell set_bg set_hwclock_type set-time-for-puppy set-xftdpi sfsget shutdownconfig snapmergepuppy sns spacereplace timezone-set updatenetmoduleslist.sh usb_modem_special_status usb_modeswitch_status video_upgrade_wizard video-wizard welcome1stboot welcome1stboot.bac wizardwizard xdelta_gui xgamma-gui xinitrc_test xorgwizard xorgwizard-automatic xrandrshell xserverwizard
  do [ -f ${OLDFILESMNTPT}/bin/$ONESCRIPT ] && cp -a -f --remove-destination ${NEWFILESMNTPT}/usr/sbin/$ONESCRIPT /usr/sbin/ 2>/dev/null
  done
  [ -f ${OLDFILESMNTPT}usr/local/petget ] && cp -a -f --remove-destination ${NEWFILESMNTPT}/usr/local/petget /usr/local/ 
  [ -f ${OLDFILESMNTPT}/usr/local/simple_network_setup ] && cp -a -f --remove-destination ${NEWFILESMNTPT}/usr/local/simple_network_setup /usr/local/ 
  [ -f ${OLDFILESMNTPT}/usr/local/video_upgrade ] && cp -a -f --remove-destination ${NEWFILESMNTPT}/usr/local/video_upgrade /usr/local/ 
-
- #Remove old kernels if present
- for i in $(ls -d /lib/modules/[0-9]*) ; do
-  OLDKERN=$(echo $i | cut -f 4 -d '/')
-  [ "$KERNVER" != "$OLDKERN" ] && rm -rf $i
- done
 
  depmod_func #run depmod
   
@@ -250,30 +311,9 @@ if [ -f /initrd/tmp/version_update_flag ]; then
  find -L / \( -mount -path '*/lib/*' -type l -name *.so -o -path '*/lib/*' -type l -name *.so.* \) -delete
 
  basic_update
-
- #*** sometimes these go back to 755... 01micko reports this problem with full install
+ #*** sometimes these go back to 755...
  chmod 1777 /tmp
  chmod 777 /var
-
- #master help index has to be updated...
- /usr/sbin/indexgen.sh
- #120209 i think these also need to run, in case a target file has changed and needs to be re-translated...
- #but, i think the english target files will have to be copied to top first...
- SSSDESK="`grep '^\[' ${NEWFILESMNTPT}/usr/share/sss/desk_strings/desk_strings | tr -d '[' | tr -d ']' | tr '\n' ' '`"
- for ASECTIONID in ${SSSDESK} #ex: general _woof_.jwmrc
- do
-  #allow any character to be the 'marker' for / in the section-id...
-  MARKERCHAR="`echo -n "$ASECTIONID" | cut -c 1`"
-  TARGETFILE="`echo -n "$ASECTIONID" | tr "${MARKERCHAR}" '/'`" #ex: /root/Choices/ROX-Filer/PuppyPin
-  if [ -f ${NEWFILESMNTPT}${TARGETFILE} ];then #precaution.
-   TARGETPATH="`dirname $TARGETFILE`"
-   cp -a -f ${NEWFILESMNTPT}${TARGETFILE} ${TARGETPATH}/
-  fi
-  [ -f /var/local/sss${TARGETFILE} ] && rm -f /var/local/sss${TARGETFILE} #remove previous en backup (see fixdesk)
- done
- LANG=$xLANG /usr/sbin/fixdesk
- LANG=$xLANG /usr/sbin/fixmenus #Reconstruct configuration files for JWM, IceWM...
-
 fi
 xLANG="`grep '^LANG=' /etc/profile | cut -f 2 -d '=' | cut -f 1 -d ' '`"
 
@@ -285,34 +325,18 @@ xLANG="`grep '^LANG=' /etc/profile | cut -f 2 -d '=' | cut -f 1 -d ' '`"
 cp -af ${NEWFILESMNTPT}/etc/DISTRO_SPECS /etc/
 touch /etc/DISTRO_SPECS #important, as snapmergepuppy uses '-u' cp option. ...huh, why?
 
-#v2.16 if aufs layers have changed, may need to fix menu (etc)...
-#note, BootManager may be popped-up, see /usr/sbin/delayedrun.
-if [ -d /initrd ];then #test it isn't full hd installation.
- . /etc/rc.d/BOOTCONFIG
- 
- #v2.16.1 bug with multisession-cd, different folder at each startup, so screen out...
- xLASTUNIONRECORD="`echo -n "$LASTUNIONRECORD" | sed -e 's/^20[0-9][0-9][-0123456789]* //'`"
- xPREVUNIONRECORD="`echo -n "$PREVUNIONRECORD" | sed -e 's/^20[0-9][0-9][-0123456789]* //'`"
-
- if [ "$xLASTUNIONRECORD" != "$xPREVUNIONRECORD" ];then
-  echo -en " layered-filesystem \\033[1;35mnext boot will be faster!\\033[0;39m" > /dev/console
-  echo "Aufs layers have changed since previous boot, fixing menu..."
-  #master help index has to be updated...
-  /usr/sbin/indexgen.sh
-  LANG=$xLANG /usr/sbin/fixmenus #Reconstruct configuration files for JWM, IceWM...
-  fc-cache -f #120323 shinobar: some sfs files may have fonts
-  which gtk-query-immodules-2.0 &>/dev/null && gtk-query-immodules-2.0 > /etc/gtk-2.0/gtk.immodules #120323 shinobar: refresh gtk.immodules
-  depmod_func #120323 shinobar: and some sfs may have kernel modules
-  # has a 'zdrv' layer been added or removed?...
-  EXMOD_CNT=0
-  EXMOD_SFS1="`echo "$xLASTUNIONRECORD" | tr ' ' '\n' | grep "zdrv"`"
-  EXMOD_SFS2="`echo "$xPREVUNIONRECORD" | tr ' ' '\n' | grep "zdrv"`"
-  [ "$EXMOD_SFS1" != "" ] && EXMOD_CNT=1
-  [ "$EXMOD_SFS2" != "" ] && EXMOD_CNT=`expr $EXMOD_CNT + 1`
-  [ $EXMOD_CNT -eq 2 -a "$EXMOD_SFS1" != "$EXMOD_SFS2" ] && EXMOD_CNT=1 #may have changed to a different zdrv sfs.
-  [ $EXMOD_CNT -eq 1 ] && /usr/sbin/updatenetmoduleslist.sh
- fi
- 
+# if aufs layers have changed, may need to fix menu (etc)...
+if [ "$PUNIONFS" = "aufs" ];then
+	. /etc/rc.d/BOOTCONFIG
+	# multisession-cd, different folder at each startup, so screen out...
+	xLASTUNIONRECORD="`echo -n "$LASTUNIONRECORD" | sed -e 's/^20[0-9][0-9][-0123456789]* //'`"
+	xPREVUNIONRECORD="`echo -n "$PREVUNIONRECORD" | sed -e 's/^20[0-9][0-9][-0123456789]* //'`"
+	#-
+	if [ "$xLASTUNIONRECORD" != "$xPREVUNIONRECORD" ];then
+		echo -en " layered-filesystem \\033[1;35mnext boot will be faster!\\033[0;39m" > /dev/console
+		echo "Aufs layers have changed since previous boot, updating menus..."
+		update_cache_files
+	fi
 fi
 
 ### END ###

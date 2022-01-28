@@ -16,6 +16,8 @@ export TEXTDOMAIN=petget___configure.sh
 export OUTPUT_CHARSET=UTF-8
 . gettext.sh
 
+. /etc/rc.d/functions_x
+
 #export LANG=C
 . /etc/DISTRO_SPECS #has DISTRO_BINARY_COMPAT, DISTRO_COMPAT_VERSION
 . /etc/rc.d/PUPSTATE
@@ -49,7 +51,7 @@ do
  CHECKBOXES_REPOS="${CHECKBOXES_REPOS}<checkbox><default>${DEFAULT}</default><label>${DBNAME}</label><variable>CHECK_${DBNAME}</variable></checkbox>"
 done
 
-if [ "$(cat /tmp/pup_event_sizefreem | head -n 1 )" -gt 4000 ]; then
+if [ "$(fx_personal_storage_free_mb)" -gt 4000 ]; then
     [ -f /var/local/petget/sc_category ] && \
      CATEGORY_SC=$(cat /var/local/petget/sc_category) || CATEGORY_SC="false"
 	SIZEBOX="<checkbox>
@@ -61,7 +63,7 @@ else
 	SIZEBOX=''
 fi
 
-if [ $PUPMODE -eq 3 -o $PUPMODE -eq 7 -o $PUPMODE -eq 13 ]; then
+if [ $PUPMODE -eq 13 ]; then
 	[ -f /var/local/petget/sc_category ] && \
      CATEGORY_IM=$(cat /var/local/petget/install_mode) || CATEGORY_IM="false"
 	IMODE="<checkbox>
@@ -87,24 +89,21 @@ else
  DL_PATH=/root
 fi
 
-DBmethod="$(cat /var/local/petget/db_verbose)"
-if [ "$DBmethod" = "" ]; then
- echo true > /var/local/petget/db_verbose
- DBmethod=true
-fi
-if [ "$DBmethod" = "false" ]; then
- RXVT="rxvt -title \"$(gettext 'Updating Databases')\" -geometry 110x12+0+200 -bg gray -e "
-else
- RXVT="rxvt -bg yellow -title \"$(gettext 'Databases Update')\"  -e "
-fi
+RXVT="rxvt -bg yellow -title \"$(gettext 'Databases Update')\"  -e "
+
+update_db_more_info() {
+	/usr/lib/gtkdialog/box_ok "$(gettext 'Package Manager')" info \
+	"$(gettext "* Some repositories are 'fixed' and do not need to be updated. An example of this is the Slackware official. An example that does change is the Slackware 'slacky' repo which has extra packages for Slackware. Anyway, to be on the safe side, clicking the Update button will update all database files.")" \
+	"$(gettext '* <b>Technical note:</b> if you would like to see the package databases, they are at')' /root/.packages/Packages-*. '$(gettext 'These are in a standardised format, regardless of which distribution they were obtained from. This format is considerably smaller than that of the original distro.')"
+}
+export -f update_db_more_info
 
 export SETUPCALLEDFROM='ppm'
 
-S='<window title="'$(gettext 'Puppy Package Manager - Configure')'" icon-name="gtk-about">
+S='<window title="'$(gettext 'Package Manager - Configure')'" icon-name="gtk-about" default-height="330">
 <vbox space-expand="true" space-fill="true">
 <notebook tab-pos="2" labels="'$(gettext 'Choose repositories')'|'$(gettext 'Update database')'|'$(gettext 'Options')'" space-expand="true" space-fill="true">
-  <vbox space-expand="true" space-fill="true">
-    <frame '$(gettext 'Choose repositories')'>
+  <vbox space-expand="true" space-fill="true" margin="8">
       <vbox space-expand="false" space-fill="false">
         <hbox space-expand="true" space-fill="true">
           <text xalign="0" space-expand="true" space-fill="true"><label>"'$(gettext "Choose what repositories you would like to have appear in the main GUI window.")'"</label></text>
@@ -121,13 +120,11 @@ S='<window title="'$(gettext 'Puppy Package Manager - Configure')'" icon-name="g
           '${CHECKBOX_MAIN_REPO}'
         </vbox>
       </vbox>
-    </frame>
   </vbox>
 
-  <vbox space-expand="true" space-fill="true">
-    <frame '$(gettext 'Update database')'>
-  <vbox space-expand="false" space-fill="false">
-      
+  <vbox space-expand="true" space-fill="true" margin="8">
+     <vbox space-expand="false" space-fill="false">
+
       <hbox space-expand="true" space-fill="true">
         <text xalign="0" space-expand="true" space-fill="true"><label>'$(gettext 'Puppy has a database file for each package repository. This downloads the latest information on what packages are in the repository')'</label></text>
         <button image-position="2" space-expand="false" space-fill="false">
@@ -140,63 +137,22 @@ S='<window title="'$(gettext 'Puppy Package Manager - Configure')'" icon-name="g
       </hbox>
       <text space-expand="true" space-fill="true"><label>""</label></text>
       <hbox space-expand="true" space-fill="true">
-        <hbox space-expand="false" space-fill="false">
-          <vbox space-expand="true" space-fill="true">
-            '"`/usr/lib/gtkdialog/xml_pixmap nb.svg`"'
-          </vbox>
-        </hbox>
-        <text xalign="0" yalign="0" space-expand="true" space-fill="true"><label>'$(gettext "Warning: The database information for some repositories is quite large, about 1.5MB for 'slacky' and several MB for Ubuntu/Debian. If you are on dialup, be prepared for this.")'</label></text>
+        <text xalign="0" yalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"'$(gettext '<b>Warning:</b> The database information for some repositories is quite large, several MB for Ubuntu/Debian. If you are on dialup, be prepared for this.')'"</label></text>
+        <button image-position="2" space-expand="false" space-fill="false">
+          '"`/usr/lib/gtkdialog/xml_button-icon help`"'
+          <label>'$(gettext 'More info')'</label>
+          <action>update_db_more_info</action>
+        </button>
       </hbox>
-      </vbox>
-      <expander>
-        <vbox space-expand="true" space-fill="true">
-          <hbox space-expand="true" space-fill="true">
-            <hbox space-expand="false" space-fill="false">
-              <vbox space-expand="true" space-fill="true">
-                '"`/usr/lib/gtkdialog/xml_pixmap info.svg`"'
-              </vbox>
-            </hbox>
-            <text xalign="0" space-expand="true" space-fill="true"><label>'$(gettext "Some repositories are 'fixed' and do not need to be updated. An example of this is the Slackware official version 12.2 repo. An example that does change is the Slackware 'slacky' 12.2 repo which has extra packages for Slackware 12.2. Anyway, to be on the safe side, clicking the above button will update all database files.")'</label></text>
-          </hbox>
-          <hbox space-expand="true" space-fill="true">
-            <hbox space-expand="false" space-fill="false">
-              <vbox space-expand="true" space-fill="true">
-                '"`/usr/lib/gtkdialog/xml_pixmap info.svg`"'
-              </vbox>
-            </hbox>
-            <text xalign="0" space-expand="true" space-fill="true"><label>'$(gettext 'Technical note: if you would like to see the package databases, they are at')' /root/.packages/Packages-*. '$(gettext 'These are in a standardised format, regardless of which distribution they were obtained from. This format is considerably smaller than that of the original distro.')'</label></text>
-          </hbox>
-        </vbox>
-        <label>'$(gettext 'More info')'</label>
-      </expander>
-      <text space-expand="true" space-fill="true"><label>""</label></text>
-    </frame>
+     </vbox>
   </vbox>
 
-  <vbox space-expand="true" space-fill="true">
-    <frame '$(gettext 'Options')'>
+  <vbox space-expand="true" space-fill="true" margin="8">
       <checkbox>
         <label>'$(gettext "Show info with configuration changes as startup")'</label>
         <variable>CATEGORY_SI</variable>'
         [ "$(</var/local/petget/si_category)" = "true" ] && S=$S'<default>true</default>'
       S=$S'</checkbox>
-      <checkbox>
-        <label>'$(gettext "Enable BuildingBlock category (for advanced users only!)")'</label>
-        <variable>CATEGORY_BB</variable>'
-        [ "$(</var/local/petget/bb_category)" = "true" ] && S=$S'<default>true</default>'
-      S=$S'</checkbox>
-      <checkbox>
-        <label>'$(gettext "Use traditional, non-auto, user interface")'</label>'
-        [ "$(</var/local/petget/ui_choice)" = "Classic" ] && S=$S'<default>true</default>'
-        S=$S'<action>if true echo Classic > /var/local/petget/ui_choice</action>
-        <action>if false echo Ziggy > /var/local/petget/ui_choice</action>
-      </checkbox>
-      <checkbox>
-        <label>'$(gettext "Use the tall version of the new UI (better for small screens)")'</label>'
-        [ "$(</var/local/petget/uo_choice)" = "tall" ] && S=$S'<default>true</default>'
-        S=$S'<action>if true echo tall > /var/local/petget/uo_choice</action>
-        <action>if false echo wide > /var/local/petget/uo_choice</action>
-      </checkbox>
       '${SIZEBOX}'
       <checkbox>
         <label>'$(gettext "Do not show the terminal with PPM actions")'</label>
@@ -219,16 +175,6 @@ S='<window title="'$(gettext 'Puppy Package Manager - Configure')'" icon-name="g
         <variable>CATEGORY_SD</variable>'
         [ "$(</var/local/petget/sd_category)" = "true" ] && S=$S'<default>true</default>'
       S=$S'</checkbox>
-      <checkbox tooltip-text="'$(gettext "Verbose method = the user indicates the package databases to update.
-+Silent method = all package databases are automatically updated.")'">
-        <label>'$(gettext "Use verbose method during update of the package databases")'</label>
-        <default>'$DBmethod'</default>
-		<variable>DBmethod</variable>
-		<action>if true echo true > /var/local/petget/db_verbose</action>
-        <action>if false echo false > /var/local/petget/db_verbose</action>
-		<action>/usr/local/petget/configure.sh &</action>
-		<action>exit:QUIT</action>
-      </checkbox>
       <hbox>
         <text width-request="100"><label>'$(gettext "Save PKGs in:")'</label></text>
         <entry accept="folder" width-request="200" tooltip-text="'$(gettext "To change, type a path to a folder or use the button to select a folder. Delete the present path to default back to /root")'"><default>'${DL_PATH}'</default><variable>SAVEPATH</variable></entry>
@@ -237,7 +183,6 @@ S='<window title="'$(gettext 'Puppy Package Manager - Configure')'" icon-name="g
          <action type="fileselect">SAVEPATH</action>
         </button>
 	  </hbox>
-     </frame>
   </vbox>
 </notebook>
 
@@ -277,7 +222,6 @@ RETPARAMS="`gtkdialog -p PPM_CONFIG`"
 #  EXIT="OK"
 
 [ "`echo -n "$RETPARAMS" | grep 'EXIT' | grep 'OK'`" = "" ] && exit
-echo -n "$RETPARAMS" | grep 'CATEGORY_BB' | cut -d= -f2 | tr -d '"' > /var/local/petget/bb_category
 echo -n "$RETPARAMS" | grep 'CATEGORY_SC' | cut -d= -f2 | tr -d '"' > /var/local/petget/sc_category
 echo -n "$RETPARAMS" | grep 'CATEGORY_NT' | cut -d= -f2 | tr -d '"' > /var/local/petget/nt_category
 echo -n "$RETPARAMS" | grep 'CATEGORY_RD' | cut -d= -f2 | tr -d '"' > /var/local/petget/rd_category
@@ -286,7 +230,7 @@ echo -n "$RETPARAMS" | grep 'CATEGORY_SD' | cut -d= -f2 | tr -d '"' > /var/local
 echo -n "$RETPARAMS" | grep 'CATEGORY_SI' | cut -d= -f2 | tr -d '"' > /var/local/petget/si_category
 
 # handle install mode
-if [ $PUPMODE -eq 3 -o $PUPMODE -eq 7 -o $PUPMODE -eq 13 ]; then
+if [ $PUPMODE -eq 13 ]; then
   echo -n "$RETPARAMS" | grep 'CATEGORY_IM' | cut -d= -f2 | tr -d '"' > /var/local/petget/install_mode
 fi
 
@@ -314,12 +258,10 @@ do
  repoPATTERN="`echo -n "$REPOBASE" | sed -e 's%Packages\\-%%' | sed -e 's%\\-%\\\\-%g'`"
  if [ "`echo "$RETPARAMS" | grep "$repoPATTERN" | grep 'false'`" = "" ];then
   enabledrepos="${enabledrepos}${REPOBASE} "
-#  repocnt=`expr $repocnt + 1`
-#  [ $repocnt -gt 5 ] && break #only allow 5 active repos in PPM.
  fi
 done
-grep -v '^PKG_REPOS_ENABLED' /root/.packages/PKGS_MANAGEMENT > /tmp/pkgs_management_tmp2
-mv -f /tmp/pkgs_management_tmp2 /root/.packages/PKGS_MANAGEMENT
+grep -v '^PKG_REPOS_ENABLED' /root/.packages/PKGS_MANAGEMENT > /tmp/petget_proc/pkgs_management_tmp2
+mv -f /tmp/petget_proc/pkgs_management_tmp2 /root/.packages/PKGS_MANAGEMENT
 echo "PKG_REPOS_ENABLED='${enabledrepos}'" >> /root/.packages/PKGS_MANAGEMENT
 
 for I in `grep -E "PPM_GUI|pkg_chooser|/usr/local/bin/ppm" <<< "$(ps -eo pid,command)" | awk '{print $1}' `; do kill -9 $I; done

@@ -1,0 +1,98 @@
+#!/bin/dash
+# A simple Debian repo creator
+# Create a minimalist repository structure
+#
+# Copyright (C) James Budiono, 2015
+# License: GNU GPL Version 3 or later.
+#
+# $1 - repodir-name-section (e.g. /repo/path+fatdog+main)
+# $2, $3 ... files to add to the repo
+
+### helpers
+
+sanity_check() {
+	! type ar > /dev/null && echo "You need 'ar' command, perhaps from devx?" && exit 1
+	! type tar > /dev/null && echo "You need 'tar' command." && exit 1
+	! type stat >/dev/null && echo "stat is missing" && exit 1
+	! type md5sum >/dev/null && echo "md5sum is missing" && exit 1
+	! type sha1sum >/dev/null && echo "sha1sum is missing" && exit 1
+	! type sha256sum >/dev/null && echo "sha256sum is missing" && exit 1
+}
+
+usage() {
+	echo "Usage: ${0##*/} repodir+name+section files..." && exit 1
+}
+
+# $1-repo param
+process_repo_params() {
+	OIFS="$IFS"; IFS="+"; set -- $1; IFS="$OIFS"
+	[ $# -lt 3 ] && usage
+
+	REPODIR="$1"
+	REPONAME="$2"	
+	REPOSECTION="$3"
+	
+	DIST=dists/"$REPONAME"/"$REPOSECTION"
+	POOL=pool/"$REPONAME"/"$REPOSECTION"
+}
+
+# $@ - files to copy, remember the arches to process
+# output $ARCHES to update
+copy_files() {
+	local p
+	mkdir -p "$REPODIR/$POOL"
+	
+	# copy the files into the right arch, and remember that arch
+	for p in "$@"; do
+		arch=${p##*/}; arch=${arch%.deb}; arch=${arch##*_}
+		#echo $arch
+		mkdir -p "$REPODIR"/"$POOL"/$arch
+		cp "$p" "$REPODIR"/"$POOL"/$arch
+		ARCHES="$ARCHES $arch"
+	done
+	ARCHES=$(echo $ARCHES | awk '{for (i=1; i<=NF; i++) {arch[$i]=1} } END { for (i in arch) print i }')
+}
+
+# $1-arch
+update_pkglist() {
+	local p pp
+	local dist="$DIST"/binary-$1
+	local pool="$POOL"/$1
+	mkdir -p "$REPODIR"/"$dist"
+	# unpack package database
+	if [ -e "$REPODIR"/"$dist"/Packages.gz ]; then
+		(cd "$REPODIR"/"$dist"; gunzip Packages.gz)
+	else
+		(cd "$REPODIR"/"$dist"; touch Packages)
+	fi
+	
+	# add packages not already in package database
+	for p in "$REPODIR"/"$pool"/*; do
+		pp=${p##*/}
+		if ! grep -q $pool/$pp "$REPODIR"/"$dist"/Packages; then
+			ar p "$p" control.tar.gz | tar -O -xz "./control" >> "$REPODIR"/"$dist"/Packages
+			cat >> "$REPODIR"/"$dist"/Packages << EOF
+Filename: $pool/$pp
+Size: $(stat -c %s "$p")
+MD5sum: $(md5sum "$p" | awk '{print $1}')
+SHA1: $(sha1sum "$p" | awk '{print $1}')
+SHA256: $(sha256sum "$p" | awk '{print $1}')
+
+EOF
+		fi
+	done
+	
+	# pack it again
+	(cd "$REPODIR"/"$dist"; gzip -9 Packages)
+}
+
+
+### main
+[ $# -lt 2 ] && usage
+sanity_check
+process_repo_params "$1"
+shift
+copy_files "$@"
+for p in $ARCHES; do
+	update_pkglist $p
+done

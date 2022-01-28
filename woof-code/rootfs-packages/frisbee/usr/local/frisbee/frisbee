@@ -1,0 +1,155 @@
+#!/bin/bash
+# shellcheck disable=SC1091 # Skip sourced checks.
+# frisbee - [--setup], --deactivate, --connect, --disconnect, --test_active, --help
+# Exit state is false if (1) not in frisbee mode or (2) no wireless interface
+#160201 New common frisbee interface -- old script renamed to frisbee-main, moved to frisbee directory.
+#170412 1.4.3 Stop network connections other than by this script; add mode-disable logic unrelated to frisbee.
+#200829 2.0 Upgrade frisbee-gprs-connect;  remove lock usage for conflict detection; use ps-FULL; move etc gprs.conf; connect/disconnect gprs if wifi/ethernet i/f unavailable; resolve shellcheck warnings; add --activate option.
+
+export VERSION='2.0'  #UPDATE this with each release!
+
+export TEXTDOMAIN=frisbee
+export OUTPUT_CHARSET=UTF-8
+. gettext.sh
+
+if [ -d /usr/lib/frisbee ];then
+	export FRISBEEFUNCDIR="/usr/lib/frisbee"
+else
+	export FRISBEEFUNCDIR="/usr/local/frisbee" #accomodate debian dogs
+fi
+
+[ -f /root/.config/gprs.conf ] \
+  || echo -e "GPRSDEV=\nGPRSAPN=\nGPRSNBR=\nGPRSPIN=\nGPRSUSER=\nGPRSPAPONLY=" > /root/.config/gprs.conf
+. /root/.config/gprs.conf
+export ICONLIB=/usr/local/lib/X11/pixmaps
+
+fix_config_file() {
+	grep -q '^pppoe_' /etc/frisbee/frisbee.conf \
+	  || echo -e "pppoe_select=0\npppoe_paponly=0" >> /etc/frisbee/frisbee.conf
+	grep -q '^terminal' /etc/frisbee/frisbee.conf \
+	  || echo -e "terminal=rxvt" >> /etc/frisbee/frisbee.conf #140607
+	grep -q '^editor' /etc/frisbee/frisbee.conf \
+	  || echo -e "editor=defaulttexteditor" >> /etc/frisbee/frisbee.conf #140607
+}
+
+function interface_is_available { #200829...
+	local IF
+	IF="$(cat /etc/frisbee/interface 2>/dev/null)"
+	if [ -n "$IF" ] \
+	  && ip link show "$IF" >/dev/null 2>&1 \
+	  && ! grep '^denyinterfaces' /etc/frisbee/dhcpcd.conf | grep -qw "$IF"; then
+	    if iw dev 2>&1 | grep -o 'Interface [^ ]*' | cut -f 2 -d ' ' | grep -qw "$IF"; then
+	        grep -q '^wireless_enabled=1' /etc/frisbee/frisbee.conf && return 0
+	    else
+	        return 0
+	    fi
+	fi
+	return 1
+}
+
+# Determine option, Interpreting legacy interface calls via links.
+case $(basename "$0") in
+	frisbee) OPTION="$1"; OPTION="${OPTION:=--setup}" ;;
+	connect) OPTION="--connect" ;;
+	disconnect) OPTION="--disconnect" ;;
+	frisbee_mode_disable) OPTION="--deactivate" ;;
+esac
+
+while [ "$OPTION" ]; do
+	OPT=$OPTION; OPTION=''
+	case $OPT in
+	  --setup)
+	    if pgrep -x frisbee | grep -qwv "$$"; then #200829
+	        if ps -C frisbee-main >/dev/null 2>&1; then #200829
+	            Xdialog --center --wmclass frisbee --title "$(gettext 'Frisbee')" --icon $ICONLIB/error.xpm --msgbox "\n$(gettext 'Frisbee cannot start now because it is already active.')\n$(gettext 'Please use the active Frisbee session.')\n" 0 70
+	        elif ps -C frisbee-gprs-connect >/dev/null; then
+	            Xdialog --center --wmclass frisbee --title "$(gettext 'Frisbee')" --icon $ICONLIB/error.xpm --msgbox "\n$(gettext 'Frisbee cannot start now because its connection window is active.')\n$(gettext 'Please use the active Frisbee connection window.')\n" 0 70
+	        fi
+	    else
+	        [ -x /usr/sbin/connectwizard_exec ] \
+	          && connectwizard_exec frisbee #170412
+	        [ "$(wc -l </etc/frisbee/frisbee.conf)" -lt 10 ] && fix_config_file
+	        /usr/local/frisbee/frisbee-main
+	    fi
+	    ;;
+	  --activate) #200829...
+	    /usr/local/frisbee/frisbee-mode-enable
+	    ;;
+	  --deactivate)
+	    /usr/local/frisbee/frisbee-mode-disable
+	    if grep -q '^dhcpcd_state_notify=1' /etc/frisbee/frisbee.conf; then #170412...
+	        [ -f /etc/dhcpcd_state_notify ] || touch /etc/dhcpcd_state_notify
+	    else
+	        rm -f /etc/dhcpcd_state_notify
+	    fi
+	    if [ -d /tmp/.network_tray ];then
+	        rm -f /tmp/.network_tray/use_wireless_control_menu_labels
+	    else
+	        rm -f /tmp/.network_tray-use_wireless_control_menu_labels #140209
+	    fi #170412 end
+	    ;;
+	  --connect)
+	    if grep -qs '^frisbee_mode=1' /etc/frisbee/frisbee.conf; then #200829...
+	        if interface_is_available; then 
+	            /usr/local/frisbee/frisbee-wifi-connect
+	        else
+	            echo -n "$GPRSDEV" | grep  -qv '^--' && OPTION="--connect-gprs"
+	        fi
+	    fi
+	    ;;
+	  --disconnect)
+	    if grep -qs '^frisbee_mode=1' /etc/frisbee/frisbee.conf;then #170412
+	        if interface_is_available; then #200829...
+	            /usr/local/frisbee/frisbee-wifi-disconnect
+	        else
+	            echo -n "$GPRSDEV" | grep  -qv '^--' && OPTION="--disconnect-gprs"
+	        fi
+	    fi #170412
+	    ;;
+	  --connect-gprs)
+	    if [ "${GPRSDEV:0:4}" != "/dev" ];then
+	        Xdialog --center --wmclass frisbee --title "$(gettext 'Frisbee GPRS Connect')" --icon $ICONLIB/error.xpm --msgbox "$(gettext 'Cannot connect - No modem interface (/dev/...) specified.')" 0 0
+	    elif [ -z "$GPRSAPN" ];then
+	        Xdialog --center --wmclass frisbee --title "$(gettext 'Frisbee GPRS Connect')" --icon $ICONLIB/error.xpm --msgbox "$(gettext 'Cannot connect - No Access Point Name (APN) specified.')" 0 0
+	    elif [ -z "$GPRSNBR" ];then
+	        Xdialog --center --wmclass frisbee --title "$(gettext 'Frisbee GPRS Connect')" --icon $ICONLIB/error.xpm --msgbox "$(gettext 'Cannot connect - No Access Number specified.')" 0 0
+	    elif ps -C frisbee-gprs-connect >/dev/null; then #200829
+	        Xdialog --center --wmclass frisbee --title "$(gettext 'Frisbee GPRS Connect')" --icon $ICONLIB/info.xpm --msgbox "\n$(eval_gettext "Modem device '\$GPRSDEV' connection window is active.")\n\n$(gettext 'Please go to the active GPRS Connection Log window.')\n" 0 70
+	    else
+	        /usr/local/frisbee/frisbee-gprs-connect
+	    fi
+	    ;;
+	  --disconnect-gprs)
+	    if [ -s /var/run/ppp-gprs.pid ];then
+	        /usr/local/frisbee/frisbee-gprs-disconnect
+	    else
+	        Xdialog --center --wmclass frisbee --title "$(gettext 'Frisbee GPRS')"  --msgbox "GPRS connection inactive." 0 0
+	    fi
+	    ;;
+	  --test_active) # Return current state of frisbee mode (=true).
+	    grep -qs '^frisbee_mode=1' /etc/frisbee/frisbee.conf
+	    exit #exit status = result of grep
+	    ;;
+	  --version)
+	    echo "$VERSION"
+	    ;;
+	  *)
+	    echo "$(gettext 'Usage: frisbee [option]')
+
+$(gettext 'Manage ethernet and wireless (wifi, GPRS/3G) network connections')
+
+$(gettext 'Options'):
+ --setup           $(gettext 'Show control panel (default)')
+ --deactivate      $(gettext 'Indicate active network manager is not frisbee')
+ --connect         $(gettext 'Connect to wifi')
+ --disconnect      $(gettext 'Disconnect from wifi')
+ --connect-gprs    $(gettext 'Connect to mobile wireless')
+ --disconnect-gprs $(gettext 'Disconnect from mobile wireless')
+ --test_active     $(gettext 'True if frisbee is last-used network manager')
+ --version         $(gettext 'Display frisbee version')
+ --help            $(gettext 'Display this text')
+ "
+	    ;;
+	esac
+done
+exit 0

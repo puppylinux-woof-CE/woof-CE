@@ -7,10 +7,73 @@ export TEXTDOMAIN=filemnt
 export OUTPUT_CHARSET=UTF-8
 . gettext.sh
 
+#===================================================================
+
+if [ "$1" = "-m" -o "$1" = "-manager" ] ; then #pupimgfile-manager written by mistfire
+	. /etc/rc.d/PUPSTATE
+	ALLPS="`ps`"
+	OLDPIDS="`echo "$ALLPS" | grep 'gtkdialog' | grep 'PIMGGUI' | tr -s ' ' | sed -e 's%^ %%' | cut -f 1 -d ' ' | tr '\n' ' '`"
+	kill $OLDPIDS 2>/dev/null
+
+	df | grep ' /mnt/' | grep '/loop' | tr -s ' ' | cut -f 6 -d ' ' > /tmp/mounted-images
+	df | grep ' /media/' | grep '/loop' | tr -s ' ' | cut -f 6 -d ' ' >> /tmp/mounted-images
+
+	content=`cat /tmp/mounted-images`
+	IMGCNT=1
+
+	for d1 in `cat /tmp/mounted-images | sort`;
+	do
+		ONEMNTPT="$d1"
+		LOOP1=`df | grep "$ONEMNTPT" | tr -s ' ' | cut -f 1 -d ' '`
+		FILENAME=`basename $(losetup -a | grep "$LOOP1" | cut -f 3 -d ' ')`
+		if [ "$ONEMNTPT" != "" ];then #not mounted.
+			PARTSGUI="${PARTSGUI}<hbox><text><label>$FILENAME</label></text><button><label>UNMNT</label><action>umount $ONEMNTPT</action><action>rmdir $ONEMNTPT</action><action>EXIT:refresh</action></button><button><input file stock=\"gtk-open\"></input><label>OPEN</label><action>rox -d $ONEMNTPT&</action><sensitive>true</sensitive></button></hbox>"
+		fi
+		IMGCNT=`echo $(expr $IMGCNT + 1)`
+	done
+
+	[ "$PARTSGUI" ] || PARTSGUI="<text><label>NO MOUNTED IMAGES</label></text>"
+	#-
+	WIDTH=600
+	SRCNXY=$(LANG=C xwininfo -root | grep -o '\-geometry .*' | sed 's/+.*// ;  s/-geometry //')
+	SCRN_X=`echo "$SRCNXY" | cut -f 1 -d 'x'`
+	[ "$SCRN_X" -a $SCRN_X -le 640 ] && WIDTH=500
+	[ "$SCRN_X" -a $SCRN_X -le 500 ] && WIDTH=400
+	#-
+	export PIMGGUI="
+	<window title=\"$(gettext 'Mounted Image Manager')\" icon-name=\"gtk-execute\" resizable=\"false\">
+	 <vbox height-request=\"300\" width-request=\"${WIDTH}\">
+	  <vbox>
+	  `/usr/lib/gtkdialog/xml_info fixed copy_cd.svg 40 \"<b>Mounted image files</b>\" \"$(gettext 'You can unmount them here')\"`
+	  </vbox>
+	  <frame To UNMNT mounted images must not be in use>
+	  <vbox scrollable=\"true\" space-expand=\"true\">
+	  ${PARTSGUI}
+	  </vbox>
+	  </frame>
+	  <hbox>
+	   <button><input file stock=\"gtk-refresh\"></input><label>REFRESH</label>
+		<action type=\"exit\">refresh</action>
+	   </button>
+	   <button><input file stock=\"gtk-quit\"></input><label>QUIT</label></button>
+	  </hbox>
+	 </vbox>
+	</window>"
+	RETPARAMS="`gtkdialog --program=PIMGGUI --center --styles=/tmp/gtkrc_xml_info.css`"
+	rm -f /tmp/mounted-images
+	#echo "$RETPARAMS"
+	echo "$RETPARAMS" | grep -q "refresh" && exec sh $0 -m
+	exit
+fi
+
+#===================================================================
+
 imgFile="$1"
 [ ! -f "$imgFile" ] && echo "No regular file: $imgFile" && exit 1
 imgFileBASE=${imgFile##*/} ## imgFileBASE="`basename "$imgFile"`" #BK
 [ "$(dirname "$imgFile")" = "." ] && imgFile=$(pwd)/${imgFileBASE}
+
+[ ! -e /media ] && mkdir /media
 
 # may need to replace with /mnt/home...
 HOMELINK="`readlink /mnt/home`"
@@ -19,8 +82,8 @@ case $HOMELINK in *initrd*)
   #ex: /initrd/mnt/dev_save/kernel_src-3.0.7-patched.sfs becomes /mnt/home/kernel_src-3.0.7-patched.sfs
 esac
 
-#ex: /mnt/home/kernel_src-3.0.7-patched.sfs becomes /mnt/+mnt+home+kernel_src-3.0.7-patched.sfs
-MOUNTPOINT='/mnt/'"`echo "$imgFile" |sed "s#^\.##g" |sed "s#/#+#g" | tr ' ' '_'`" # SFR, added 'tr'
+#ex: /mnt/home/kernel_src-3.0.7-patched.sfs becomes /media/+mnt+home+kernel_src-3.0.7-patched.sfs
+MOUNTPOINT='/media/'"`echo "$imgFile" |sed "s#^\.##g" |sed "s#/#+#g" | tr ' ' '_'`" # SFR, added 'tr'
 # BK is it already mounted?
 MNTEDLOOP="$(cat /proc/mounts | grep -F " $MOUNTPOINT " | cut -f 1 -d ' ')"
 [ ! -z $MNTEDLOOP ] && MNTEDLOOP=$(echo "$MNTEDLOOP" | sed 's|/dev/loop/|/dev/loop|') 
@@ -29,15 +92,17 @@ if [ "$MNTEDLOOP" = "" ];then #not mounted on $MOUNTPOINT
 
   Ext=${imgFile##*.} #get file extension   ## Ext=`echo "$imgFile" |sed 's/^.*\.//'`
   Ext=${Ext,,}       #convert to lowercase ## Ext=`echo $Ext | tr [:upper:] [:lower:]`
-  case ${Ext} in
-    2fs) Type='ext2'     ; check_luks=yes ;;
-    3fs) Type='ext3'     ; check_luks=yes ;;
-    4fs) Type='ext4'     ; check_luks=yes ;;
-    sfs) Type='squashfs' ;;
-    iso) Type='iso'      ;;
-    wim) Type='wim'      ;;
-    *) Type=$(blkid "$imgFile" | grep -o ' TYPE=.*' | cut -f 2 -d '"') ;;
-  esac
+  Type=$(blkid "$imgFile" | grep -o ' TYPE=.*' | cut -f 2 -d '"')
+  if [ "$Type" = "" ] ; then
+    case ${Ext} in
+      2fs) Type='ext2' ;;
+      3fs) Type='ext3' ;;
+      4fs) Type='ext4' ;;
+      sfs|lzm|xzm|sb|squashfs) Type='squashfs' ;;
+      iso) Type='iso'  ;;
+      wim) Type='wim'  ;;
+    esac
+  fi
   if [ "$Type" = "" ] ; then
     echo "Unrecognized format"
     exit 1
@@ -50,11 +115,6 @@ if [ "$MNTEDLOOP" = "" ];then #not mounted on $MOUNTPOINT
   fi
   echo -e "\nType=${Type}\n"
 
-  if [ "$check_luks" = "yes" ] ; then
-    Type2=$(blkid "$imgFile" | grep -o ' TYPE=.*' | cut -f 2 -d '"')
-    [ "$Type2" = "crypto_LUKS" ] && Type="$Type2"
-  fi
-
   if [ "$Type" = "squashfs" ];then
       . /etc/rc.d/BOOTCONFIG # 140609 add contextual Install/Uninstall button
       echo $EXTRASFSLIST > /tmp/sfsloaded
@@ -65,12 +125,19 @@ if [ "$MNTEDLOOP" = "" ];then #not mounted on $MOUNTPOINT
         LABELINSTALL="$(gettext 'Install SFS')"
         TEXTINSTALL="$(gettext 'install it')"
       fi
-      SFSMSG1a="$(eval_gettext "You can choose to mount the \${imgFileBASE} file to view it's contents (read-only), or you can \${TEXTINSTALL}.")" #'geany
-      SFSMSG1b="${SFSMSG1a}\n\n$(gettext 'Regarding the latter, traditionally SFS files are selected by the \ZbBootManager\ZB for loading at bootup (see System menu), which you can do, or you can choose to install (load) it now (which will not require a reboot).\n\nNote1: If you want to edit the contents of an SFS file, you have to use the commandline utilities \Zbunsquashfs\ZB and \Zbmksquashfs\ZB.\nNote2: In the case of a full HD installation, without a layered filesystem, installation is irreversible. For all other installation modes, the BootManager can be used to unload an installed (loaded) SFS file.')"
-      pupdialog --colors --background '#FFFF80' --backtitle "${imgFileBASE}" --extra-button --yes-label "$(gettext 'View contents')" --no-label "$LABELINSTALL" --extra-label "$(gettext 'Cancel')"  --yesno "${SFSMSG1b}" 0 0
+      SFSMSG1a="$(eval_gettext "You can choose to mount the ${imgFileBASE} file to view it's contents (read-only), or you can ${TEXTINSTALL}.")" #'geany
+      SFSMSG1b="$(gettext 'Regarding the latter, traditionally SFS files are selected by the <b>BootManager</b> for loading at bootup (see System menu), which you can do, or you can choose to install (load) it now (which will not require a reboot).')"
+      SFSMSG1c="$(gettext 'Note1: If you want to edit the contents of an SFS file, you have to use the commandline utilities <b>unsquashfs</b> and <b>mksquashfs</b>.')"
+      SFSMSG1d="$(gettext 'Note2: In the case of a full HD installation, without a layered filesystem, installation is irreversible. For all other installation modes, the BootManager can be used to unload an installed (loaded) SFS file.')"
+      /usr/lib/gtkdialog/box_yesno --yes-first --yes-label "$(gettext 'View contents')" --no-label "$LABELINSTALL"  --extra-button "$(gettext 'Cancel')" --no-icon package_sfs.svg --extra-icon close.svg "${imgFileBASE}" "${SFSMSG1a}" "${SFSMSG1b}" "${SFSMSG1c}" "${SFSMSG1d}"
       RETVAL=$?
       [ $RETVAL -eq 1 ] && exec sfs_load "$1"
       [ $RETVAL -ne 0 ] && exit #120527
+  else
+     /usr/lib/gtkdialog/box_yesno --yes-first "Filemnt: Mount Image" "Do you want to mount this image?" "$imgFileBASE"
+     if [ $? -ne 0 ]; then
+       exit 0
+     fi
   fi
 
   echo -e "\n ### Mount: $imgFile\n"
@@ -120,7 +187,8 @@ if [ "$MNTEDLOOP" = "" ];then #not mounted on $MOUNTPOINT
             mount.exfat-fuse $DEVLOOP "$MOUNTPOINT"
          }
          ;;
-      crypto_LUKS) mount.crypto_LUKS file "$imgFile" "$MOUNTPOINT" ;; # /sbin/mount.crypto_LUKS
+      crypto_LUKS) # /sbin/mount.crypto_LUKS
+         mount.crypto_LUKS file "$imgFile" "$MOUNTPOINT" ;;
       ntfs)
          losetup $DEVLOOP "$imgFile"
          mount -t ntfs $DEVLOOP "$MOUNTPOINT"
@@ -130,28 +198,36 @@ if [ "$MNTEDLOOP" = "" ];then #not mounted on $MOUNTPOINT
            wimmount "$imgFile" "$MOUNTPOINT"
          ;;
       *) 
-         mount -t $Type -o loop,rw "$imgFile" "$MOUNTPOINT"
+         mount -t ${Type} -o loop,rw "$imgFile" "$MOUNTPOINT"
          ;;
     esac
     Err=$?
   fi
 
   if [ $Err -eq 0 ] ;then
-    /usr/lib/gtkdialog/box_splash -timeout 6 -bg green -text "`eval_gettext \"Click \\\$imgFileBASE icon again to unmount it\"`" &
-    grep -q -m1 -i 'rox' /usr/local/bin/defaultfilemanager || NEWWINDOW=-n
-    defaultfilemanager $NEWWINDOW "$MOUNTPOINT" &
+
+   if grep -q -m1 -i 'pcmanfm' /usr/local/bin/defaultfilemanager ; then
+      defaultfilemanager -n "$MOUNTPOINT" &
+   else
+      defaultfilemanager_x $NEWWINDOW "$MOUNTPOINT" &
+   fi
+
   else
     [ "$CRYPTO" ] && losetup-222 -d $DEVLOOP
-    rm -rf "$MOUNTPOINT" #121203
+    rmdir "$MOUNTPOINT" #121203
   fi
 
 
 #### mounted ####
 else
 
+  /usr/lib/gtkdialog/box_yesno --yes-first "Filemnt: Unmount image file" "NOTICE: $imgFileBASE is mounted" "" "" "Do you want to unmount this image file?"
+  if [ $? -ne 0 ]; then
+    exit
+  fi
+
   mntinfo=$(mount | grep " $MOUNTPOINT ")
   ## file's mounted, unmount it
-  defaultfilemanager -D "$MOUNTPOINT" # -D = rox ...
   echo -e "\n ### UnMount: $imgFile\n"
 
   case "$mntinfo" in "/dev/mapper/luksfile"*)
@@ -172,8 +248,9 @@ else
   sync
   sleep 1
   if [ $Err -eq 0 ] ; then
-    rm -rf "$MOUNTPOINT"
-    /usr/lib/gtkdialog/box_splash -timeout 3 -bg green -text "$(gettext 'Unmounted') $imgFileBASE" #BK
+    rmdir "$MOUNTPOINT"
+    /usr/lib/gtkdialog/box_ok "Filemnt" info "$imgFileBASE is unmounted" &
+    XPID=$!; sleep 3; pkill -P $XPID 2>/dev/null
   fi
 fi
 

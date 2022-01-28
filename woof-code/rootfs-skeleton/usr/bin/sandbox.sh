@@ -107,17 +107,21 @@ items=$(
 		}
 		# for (m in mountdev) print m " on " mountdev[m] " type " mounttypes[m]
 		mode=4
-	} else if (mode=4) {
+	} else if (mode==4) {
 		# print the branches and its mappings
-		print $0, mounttypes[$0], "on"
+		if ($0 in mounttypes){
+		  print $0, mounttypes[$0], "on"
+		}
+		else {
+			MNT_PATH=$0
+			sub(/^.*[\/]/,"")
+			print MNT_PATH, $0, "on"
+		}
 	}
   }  
 '
 )
 # '
-
-# got a savedir.. breaks the dialog.. that should not happen
-items="$(echo "$items" | grep squashfs)" #only need SFS's
 
 # 3. Ask user to choose the SFS
 dialog --separate-output --backtitle "tmpfs sandbox" --title "sandbox config" \

@@ -1,0 +1,111 @@
+#!/bin/sh
+# see also /sbin scripts: usablefs, switch
+# this performs a fs check & changes /dev/root to /dev/realdev
+# pfix=nox,xorgwizard etc is processed in rc.sysinit
+
+if ! mount >/dev/null 2>&1 ; then
+	/sbin/usablefs # mount: /proc /sys /dev / (proc sysfs devtmpfs rootfs)
+fi
+
+export TERMINFO="/etc/terminfo"
+export LANG=C
+PATH="/bin:/sbin"
+export INIT_SCRIPT=1
+
+for i in $(cat /proc/cmdline) ; do
+	case $i in
+		root=*) ROOT=${i#root=} ;;
+		loglevel=*) LOGLEVEL=${i##*=}  ;;
+	esac
+done
+
+if [ ! "$LOGLEVEL" ] ; then
+  echo '3' > /proc/sys/kernel/printk # '3' is the standard loglevel.
+fi
+clear #clear the screen.
+
+fatal_error() { # "$1" - message - ex: "Something failed"
+	echo -en "\\033[1;35m" >/dev/console #35=purple
+	echo "*** $1"
+	echo "*** $1" >/dev/console
+	echo "*** Error is too critical, dropping out to console..." >/dev/console
+	echo -en "\\033[0;39m" >/dev/console
+	echo -e "\\033[1;32m*** To save debug info to a partition, type 'debugsave'\\033[0;39m" >/dev/console #added
+	exec /bin/sh >/dev/console 2>&1
+}
+
+[ ! "$LOGLEVEL" ] && exec 1>/tmp/bootinit.log 2>&1 #remove o/p from console. v2.22 loglevel added.
+
+# boot params
+[ $pdrv ] && PDRV=$pdrv
+[ $pdev1 ] && PDRV=$pdev1
+[ $root ] && PDRV=$root
+[ $rootdev ] && PDRV=$rootdev
+[ $pmedia ] && PMEDIA=$pmedia
+
+case $(uname -m) in
+  arm*|aarch*) echo -n ;;
+  *) [ "$TZ" ] && export TZ ; hwclock -l -s ;;
+esac
+
+# process PDRV
+if [ ! "$PDRV" ] && [ "$ROOT" ] ; then
+	PDRV=${ROOT}
+fi
+case $PDRV in
+	UUID=*) PDRV=${PDRV#UUID=} ;; #remove leading UUID=
+	*/*) PDRV=${PDRV##*/} ;; #$(basename $PDRV) 
+esac
+#${PDRV}=$(decode_id $PDRV) #decode UUID, LABEL
+if [ "$(echo -n ${PDRV} | grep -E '^[a-z]+[0-9]')" -a "$(grep -m1 " ${PDRV}$" /proc/partitions)" ];then
+	ok=1 #is a real partition
+else
+	PDRV="$(blkid | grep -m1 -E " LABEL=.${PDRV}| UUID=.${PDRV}" | cut -f1 -d: | cut -f3 -d/)" #is LABEL or UUID
+fi
+
+# if trapped in the initrd, you can specify the correct PDRV and reexec /init
+# ex: echo sda3 > /tmp/override_pdrv
+[ -f /tmp/override_pdrv ] && PDRV="$(cat /tmp/override_pdrv)"
+
+DEV1FS="$(blkid /dev/$PDRV | grep -o ' TYPE=.*' | cut -f 2 -d '"')"
+case $DEV1FS in ext*|reiserfs|minix|f2fs) ok=1 ;;
+  *) fatal_error "/dev/${PDRV}: Partition must be ext2/ext3/ext4..." ;;
+esac
+
+# mount PDRV
+MP="$(mount | grep -m1 "/dev/$PDRV " | cut -f 3 -d ' ')"
+if ! [ "$MP" ] ; then
+  case $DEV1FS in ext3|ext4) #should not use ext2
+    e2fsck -y "/dev/$PDRV" > /dev/console 2>&1 ;;
+  esac
+  /sbin/mountpartition /dev/$PDRV /pup_new $DEV1FS || fatal_error "Could not mount $PDRV ..."
+fi
+
+# is it a valid full install?
+if ! grep -q 'PUPMODE=2' /pup_new/etc/rc.d/PUPSTATE ; then
+  fatal_error "The system in ${PDRV} doesn't look like a full-install OS"
+fi
+
+echo -------------------- # debug
+mount
+echo -------------------- # debug
+
+(	echo 'PUPMODE=2'
+	echo "PUP_HOME='/'"
+	echo "PDEV1='$PDRV'"
+	echo "DEV1FS='$DEV1FS'"
+) > /pup_new/etc/rc.d/PUPSTATE
+
+dmesg > /tmp/dmesg.txt
+mkdir -p /pup_new/var/initrd
+cp -af /tmp /init* /sbin/* /pup_new/var/initrd/tmp
+
+sync
+[ -d "/proc/bus/usb" ] && umount /proc/bus/usb
+umount /sys
+umount /dev
+umount /proc
+
+exec switch_root /pup_new /sbin/init initrd_full_install
+
+### END ###

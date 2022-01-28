@@ -10,52 +10,52 @@ if [ -f /root/.packages/download_path ]; then
 fi
 
 clean_up () {
- if [ "$(ls /tmp/*_pet{,s}_quietly /tmp/install_classic 2>/dev/null |wc -l)" -eq 1 ]; then
-  for MODE in $(ls /tmp/*_pet{,s}_quietly /tmp/install_classic)
+ if [ "$(ls /tmp/petget_proc/*_pet{,s}_quietly /tmp/petget_proc/install_classic 2>/dev/null |wc -l)" -eq 1 ]; then
+  for MODE in $(ls /tmp/petget_proc/*_pet{,s}_quietly /tmp/petget_proc/install_classic)
   do
    mv $MODE $MODE.bak
   done
  fi
- mv /tmp/install_quietly /tmp/install_quietly.bak
- echo -n > /tmp/pkgs_to_install
- rm -f /tmp/{install,remove}{,_pets}_quietly 2>/dev/null
- rm -f /tmp/install_classic 2>/dev/null
- rm -f /tmp/download_pets_quietly 2>/dev/null
- rm -f /tmp/download_only_pet_quietly 2>/dev/null
- rm -f /tmp/pkgs_left_to_install 2>/dev/null
- rm -f /tmp/pkgs_to_install_done 2>/dev/null
- rm -f /tmp/overall_pkg_size* 2>/dev/null
- rm -f /tmp/overall_dependencies 2>/dev/null
- rm -f /tmp/mode_changed 2>/dev/null
- rm -f /tmp/force*_install 2>/dev/null
- rm -f /tmp/pkgs_to_install_done 2>/dev/null
- rm -f /tmp/pgks_really_installed 2>/dev/null
- rm -f /tmp/pgks_failed_to_install 2>/dev/null
- rm -f /tmp/overall_petget_missingpkgs_patterns.txt 2>/dev/null
- rm -f /tmp/overall_missing_libs.txt 2>/dev/null
- rm -f /tmp/overall_install_report 2>/dev/null
- rm -f /tmp/pkgs_to_install_bar 2>/dev/null
- rm -f /tmp/manual_pkg_download 2>/dev/null
- rm -f /tmp/ppm_reporting 2>/dev/null
- rm -f /tmp/pkgs_DL_BAD_LIST 2>/dev/null
- rm -rf /tmp/PPM_LOGs/ 2>/dev/null
+ mv /tmp/petget_proc/install_quietly /tmp/petget_proc/install_quietly.bak
+ echo -n > /tmp/petget_proc/pkgs_to_install
+ rm -f /tmp/petget_proc/{install,remove}{,_pets}_quietly 2>/dev/null
+ rm -f /tmp/petget_proc/install_classic 2>/dev/null
+ rm -f /tmp/petget_proc/download_pets_quietly 2>/dev/null
+ rm -f /tmp/petget_proc/download_only_pet_quietly 2>/dev/null
+ rm -f /tmp/petget_proc/pkgs_left_to_install 2>/dev/null
+ rm -f /tmp/petget_proc/pkgs_to_install_done 2>/dev/null
+ rm -f /tmp/petget_proc/overall_pkg_size* 2>/dev/null
+ rm -f /tmp/petget_proc/overall_dependencies 2>/dev/null
+ rm -f /tmp/petget_proc/mode_changed 2>/dev/null
+ rm -f /tmp/petget_proc/force*_install 2>/dev/null
+ rm -f /tmp/petget_proc/pkgs_to_install_done 2>/dev/null
+ rm -f /tmp/petget_proc/pgks_really_installed 2>/dev/null
+ rm -f /tmp/petget_proc/pgks_failed_to_install 2>/dev/null
+ rm -f /tmp/petget_proc/overall_petget_missingpkgs_patterns.txt 2>/dev/null
+ rm -f /tmp/petget_proc/overall_missing_libs.txt 2>/dev/null
+ rm -f /tmp/petget_proc/overall_install_report 2>/dev/null
+ rm -f /tmp/petget_proc/pkgs_to_install_bar 2>/dev/null
+ rm -f /tmp/petget_proc/manual_pkg_download 2>/dev/null
+ rm -f /tmp/petget_proc/ppm_reporting 2>/dev/null
+ rm -f /tmp/petget_proc/pkgs_DL_BAD_LIST 2>/dev/null
+ rm -rf /tmp/petget_proc/PPM_LOGs/ 2>/dev/null
  mv $MODE.bak $MODE
- mv /tmp/install_quietly.bak /tmp/install_quietly
+ mv /tmp/petget_proc/install_quietly.bak /tmp/petget_proc/install_quietly
 }
 export -f clean_up
 
 report_results () {
  # Info source files
- touch /tmp/ppm_reporting # progress bar flag
+ touch /tmp/petget_proc/ppm_reporting # progress bar flag
  /usr/local/petget/finduserinstalledpkgs.sh #make sure...
  sync
- rm -f /tmp/pgks_really_installed 2>/dev/null
- rm -f /tmp/pgks_failed_to_install 2>/dev/null
- for LINE in $(cat /tmp/pkgs_to_install_done  | cut -f 1 -d '|' | sort | uniq)
+ rm -f /tmp/petget_proc/pgks_really_installed 2>/dev/null
+ rm -f /tmp/petget_proc/pgks_failed_to_install 2>/dev/null
+ for LINE in $(cat /tmp/petget_proc/pkgs_to_install_done  | cut -f 1 -d '|' | sort | uniq)
  do
   [ "$(echo $LINE)" = "" ] && continue
-  if [ -f /tmp/download_pets_quietly -o -f /tmp/download_only_pet_quietly \
-   -o -f /tmp/manual_pkg_download ];then
+  if [ -f /tmp/petget_proc/download_pets_quietly -o -f /tmp/petget_proc/download_only_pet_quietly \
+   -o -f /tmp/petget_proc/manual_pkg_download ];then
    if [ -f /root/.packages/download_path ];then
     . /root/.packages/download_path
     DOWN_PATH="$DL_PATH"
@@ -64,31 +64,31 @@ report_results () {
    fi
    PREVINST=''
    REALLY=$(ls "$DOWN_PATH" | grep $LINE)
-   [ "$REALLY" -a "$(grep $LINE /tmp/pkgs_DL_BAD_LIST 2>/dev/null | sort | uniq )" != "" ] && \
+   [ "$REALLY" -a "$(grep $LINE /tmp/petget_proc/pkgs_DL_BAD_LIST 2>/dev/null | sort | uniq )" != "" ] && \
     REALLY='' && PREVINST="$(gettext 'was previously downloaded')"
   else
    PREVINST=''
-   REALLY=$(grep $LINE /tmp/petget/installedpkgs.results)
-   [ "$(grep $LINE /tmp/pgks_failed_to_install_forced 2>/dev/null | sort | uniq )" != "" -o \
-    "$(grep $LINE /tmp/pkgs_DL_BAD_LIST 2>/dev/null | sort | uniq )" != "" ] \
+   REALLY=$(grep $LINE /tmp/petget_proc/petget/installedpkgs.results)
+   [ "$(grep $LINE /tmp/petget_proc/pgks_failed_to_install_forced 2>/dev/null | sort | uniq )" != "" -o \
+    "$(grep $LINE /tmp/petget_proc/pkgs_DL_BAD_LIST 2>/dev/null | sort | uniq )" != "" ] \
     && REALLY='' && PREVINST="$(gettext 'was already installed')"
   fi
   if [ "$REALLY" != "" ]; then
-   echo $LINE >> /tmp/pgks_really_installed
+   echo $LINE >> /tmp/petget_proc/pgks_really_installed
   else
-   echo $LINE $PREVINST >> /tmp/pgks_failed_to_install
+   echo $LINE $PREVINST >> /tmp/petget_proc/pgks_failed_to_install
   fi
  done
- rm -f /tmp/pgks_failed_to_install_forced
+ rm -f /tmp/petget_proc/pgks_failed_to_install_forced
 
- [ -f /tmp/pgks_really_installed ] && INSTALLED_PGKS="$(</tmp/pgks_really_installed)" \
+ [ -f /tmp/petget_proc/pgks_really_installed ] && INSTALLED_PGKS="$(</tmp/petget_proc/pgks_really_installed)" \
   || INSTALLED_PGKS=''
- [ -f /tmp/pgks_failed_to_install ] && FAILED_TO_INSTALL="$(</tmp/pgks_failed_to_install)" \
+ [ -f /tmp/petget_proc/pgks_failed_to_install ] && FAILED_TO_INSTALL="$(</tmp/petget_proc/pgks_failed_to_install)" \
   || FAILED_TO_INSTALL=''
- #MISSING_PKGS=$(cat /tmp/overall_petget_missingpkgs_patterns.txt |sort|uniq )
- MISSING_LIBS=$(cat /tmp/overall_missing_libs.txt 2>/dev/null | tr ' ' '\n' | sort | uniq )
- NOT_IN_PATH_LIBS=$(cat /tmp/overall_missing_libs_hidden.txt 2>/dev/null | tr ' ' '\n' | sort | uniq )
- cat << EOF > /tmp/overall_install_report
+ #MISSING_PKGS=$(cat /tmp/petget_proc/overall_petget_missingpkgs_patterns.txt |sort|uniq )
+ MISSING_LIBS=$(cat /tmp/petget_proc/overall_missing_libs.txt 2>/dev/null | tr ' ' '\n' | sort | uniq )
+ NOT_IN_PATH_LIBS=$(cat /tmp/petget_proc/overall_missing_libs_hidden.txt 2>/dev/null | tr ' ' '\n' | sort | uniq )
+ cat << EOF > /tmp/petget_proc/overall_install_report
 Packages succesfully Installed or Downloaded 
 $INSTALLED_PGKS
 
@@ -103,10 +103,24 @@ $NOT_IN_PATH_LIBS
 EOF
 
  # Info window/dialogue (display and option to save "missing" info)
- MISSINGMSG1="<i><b>$(gettext 'No missing shared libraries')</b></i>"
  if [ "$MISSING_LIBS" ];then
   MISSINGMSG1="<i><b>$(gettext 'These libraries are missing:')
 ${MISSING_LIBS}</b></i>"
+  LM='  <hbox space-expand="true" space-fill="true">
+    <hbox scrollable="true" hscrollbar-policy="2" vscrollbar-policy="2" space-expand="true" space-fill="true">
+      <hbox space-expand="false" space-fill="false">
+        <eventbox name="bg_report" space-expand="true" space-fill="true">
+          <vbox margin="5" hscrollbar-policy="2" vscrollbar-policy="2" space-expand="true" space-fill="true">
+            '"`/usr/lib/gtkdialog/xml_pixmap building_block.svg 32`"'
+            <text angle="90" wrap="false" yalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"<big><b><span color='"'#bbb'"'>'$(gettext 'Libs')'</span></b></big> "</label></text>
+          </vbox>
+        </eventbox>
+      </hbox>
+      <vbox scrollable="true" shadow-type="0" hscrollbar-policy="1" vscrollbar-policy="1" space-expand="true" space-fill="true">
+        <text ypad="5" xpad="5" yalign="0" xalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"'${MISSINGMSG1}'"</label></text>
+      </vbox>
+    </hbox>
+  </hbox>'
  fi
  if [ "$NOT_IN_PATH_LIBS" ];then #100830
   MISSINGMSG1="<i><b>${MISSINGMSG1}</b></i>
@@ -115,8 +129,12 @@ $(gettext 'These needed libraries exist but are not in the library search path (
 <i><b>${NOT_IN_PATH_LIBS}</b></i>"
  fi
 
+ if [ -s /tmp/petget_proc/petget-installed-pkgs-log ];then
+  BUTTON_TRIM="<button><input file stock=\"gtk-execute\"></input><label>$(gettext 'Trim the fat')</label><action type=\"exit\">BUTTON_TRIM_FAT</action></button>"
+ fi
+
  export REPORT_DIALOG='
- <window title="'$(gettext 'Puppy Package Manager')'" icon-name="gtk-about" default_height="550">
+ <window title="'$(gettext 'Package Manager')'" icon-name="gtk-about" default_height="550">
  <vbox>
   '"`/usr/lib/gtkdialog/xml_info fixed package_add.svg 60 " " "$(gettext "Package install/download report")"`"'
   <hbox space-expand="true" space-fill="true">
@@ -151,94 +169,138 @@ $(gettext 'These needed libraries exist but are not in the library search path (
     </hbox>
   </hbox>
 
-  <hbox space-expand="true" space-fill="true">
-    <hbox scrollable="true" hscrollbar-policy="2" vscrollbar-policy="2" space-expand="true" space-fill="true">
-      <hbox space-expand="false" space-fill="false">
-        <eventbox name="bg_report" space-expand="true" space-fill="true">
-          <vbox margin="5" hscrollbar-policy="2" vscrollbar-policy="2" space-expand="true" space-fill="true">
-            '"`/usr/lib/gtkdialog/xml_pixmap building_block.svg 32`"'
-            <text angle="90" wrap="false" yalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"<big><b><span color='"'#bbb'"'>'$(gettext 'Libs')'</span></b></big> "</label></text>
-          </vbox>
-        </eventbox>
-      </hbox>
-      <vbox scrollable="true" shadow-type="0" hscrollbar-policy="1" vscrollbar-policy="1" space-expand="true" space-fill="true">
-        <text ypad="5" xpad="5" yalign="0" xalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"'${MISSINGMSG1}'"</label></text>
-      </vbox>
-    </hbox>
-  </hbox>
+  '${LM}'
 
   <hbox space-expand="false" space-fill="false">
-    <button>
-      <label>'$(gettext 'View details')'</label>
-      '"`/usr/lib/gtkdialog/xml_button-icon document_viewer`"'
-      <action>defaulttextviewer /tmp/overall_install_report &</action>
-     </button>
      <button ok></button>
+     <button>
+      <label>'$(gettext 'View details')'</label>
+      <input file stock="gtk-dialog-info"></input>
+      <action>defaulttextviewer /tmp/petget_proc/overall_install_report &</action>
+     </button>
+     '${BUTTON_TRIM}'
      '"`/usr/lib/gtkdialog/xml_scalegrip`"'
   </hbox>
  </vbox>
  </window>'
  RETPARAMS="`gtkdialog --center -p REPORT_DIALOG`"
- echo 100 > /tmp/petget/install_status_percent
+ eval "$RETPARAMS"
+ echo 100 > /tmp/petget_proc/petget/install_status_percent
+ 
+  #trim the fat...
+ if [ "$EXIT" = "BUTTON_TRIM_FAT" ];then
+  INSTALLEDPKGNAMES="`cat /tmp/petget_proc/petget-installed-pkgs-log | cut -f 2 -d ' ' | tr '\n' ' '`"
+  #101013 improvement suggested by L18L...
+  CURRLOCALES="`locale -a | grep _ | cut -d '_' -f 1`"
+  LISTLOCALES="`echo -e -n "en\n${CURRLOCALES}" | sort -u | tr -s '\n' | tr '\n' ',' | sed -e 's%,$%%'`"
+  export PPM_TRIM_DIALOG="<window title=\"$(gettext 'Puppy Package Manager')\" icon-name=\"gtk-about\" resizable=\"false\">
+  <vbox>
+   <pixmap><input file>/usr/share/pixmaps/puppy/dialog-question.svg</input></pixmap>
+   <text><label>$(gettext "You have chosen to 'trim the fat' of these installed packages:")</label></text>
+   <text use-markup=\"true\"><label>\"<b>${INSTALLEDPKGNAMES}</b>\"</label></text>
+   <frame Locale>
+   <text><label>$(gettext 'Type the 2-letter country designations for the locales that you want to retain, separated by commas. Leave blank to retain all locale files (see /usr/share/locale for examples):')</label></text>
+   <entry><default>${LISTLOCALES}</default><variable>ENTRY_LOCALE</variable></entry>
+   </frame>
+   <frame $(gettext 'Documentation')>
+   <checkbox><default>true</default><label>$(gettext 'Tick this to delete documentation files')</label><variable>CHECK_DOCDEL</variable></checkbox>
+   </frame>
+   <frame $(gettext 'Development')>
+   <checkbox><default>true</default><label>$(gettext 'Tick this to delete development files')</label><variable>CHECK_DEVDEL</variable></checkbox>
+   <text><label>$(gettext '(only needed if these packages are required as dependencies when compiling another package from source code)')</label></text>
+   </frame>
+   <text><label>$(gettext "Click 'OK', or if you decide to chicken-out click 'Cancel':")</label></text>
+   <hbox>
+    <button ok></button>
+    <button cancel></button>
+   </hbox>
+  </vbox>
+  </window>"
+  RETPARAMS="`gtkdialog -p PPM_TRIM_DIALOG`"
+  eval "$RETPARAMS"
+  [ "$EXIT" != "OK" ] && exit $EXITVAL
+  if [ ! -f /tmp/petget_proc/install_quietly ]; then
+   /usr/lib/gtkdialog/box_splash -text "$(gettext 'Please wait, trimming fat from packages...')" &
+   X4PID=$!
+  fi
+  elPATTERN="`echo -n "$ENTRY_LOCALE" | tr ',' '\n' | sed -e 's%^%/%' -e 's%$%/%' | tr '\n' '|'`"
+  for PKGNAME in $INSTALLEDPKGNAMES
+  do
+   (
+   cat /root/.packages/${PKGNAME}.files |
+   while read ONEFILE
+   do
+    [ ! -f "$ONEFILE" ] && echo "$ONEFILE" && continue
+    [ -h "$ONEFILE" ] && echo "$ONEFILE" && continue
+    #find out if this is an international language file...
+    if [ "$ENTRY_LOCALE" != "" ];then
+     if [ "`echo -n "$ONEFILE" | grep --extended-regexp '/locale/|/nls/|/i18n/' | grep -v -E "$elPATTERN"`" != "" ];then
+      rm -f "$ONEFILE"
+      continue
+     fi
+    fi
+    #find out if this is a documentation file...
+    if [ "$CHECK_DOCDEL" = "true" ];then
+     if [ "`echo -n "$ONEFILE" | grep --extended-regexp '/man/|/doc/|/doc-base/|/docs/|/info/|/gtk-doc/|/faq/|/manual/|/examples/|/help/|/htdocs/'`" != "" ];then
+      rm -f "$ONEFILE" 2>/dev/null
+      continue
+     fi
+    fi
+    #find out if this is development file...
+    if [ "$CHECK_DEVDEL" = "true" ];then
+     if [ "`echo -n "$ONEFILE" | grep --extended-regexp '/include/|/pkgconfig/|/aclocal|/cvs/|/svn/'`" != "" ];then
+      rm -f "$ONEFILE" 2>/dev/null
+      continue
+     fi
+     #all .a and .la files... and any stray .m4 files...
+     if [ "`echo -n "$ONEBASE" | grep --extended-regexp '\.a$|\.la$|\.m4$'`" != "" ];then
+      rm -f "$ONEFILE"
+      continue
+     fi
+    fi
+    echo "$ONEFILE"
+   done
+   ) > /tmp/petget_proc/petget_pkgfiles_temp
+   mv -f /tmp/petget_proc/petget_pkgfiles_temp /root/.packages/${PKGNAME}.files
+  done
+  [ "$X4PID" ] && kill $X4PID
+ fi
 }
 export -f report_results
 
 check_total_size () {
- rm -f /tmp/petget_deps_visualtreelog 2>/dev/null
- rm -f /tmp/petget_frame_cnt 2>/dev/null
- rm -f /tmp/petget_missingpkgs_patterns{2,_acc,_acc0,_acc-prev,x0,_and_versioning_level1} 2>/dev/null
- rm -f /tmp/petget_moreframes 2>/dev/null
- rm -f /tmp/petget_tabs 2>/dev/null
- rm -f /tmp/pkgs_to_install_bar 2>/dev/null
+ rm -f /tmp/petget_proc/petget_deps_visualtreelog 2>/dev/null
+ rm -f /tmp/petget_proc/petget_frame_cnt 2>/dev/null
+ rm -f /tmp/petget_proc/petget_missingpkgs_patterns{2,_acc,_acc0,_acc-prev,x0,_and_versioning_level1} 2>/dev/null
+ rm -f /tmp/petget_proc/petget_moreframes 2>/dev/null
+ rm -f /tmp/petget_proc/petget_tabs 2>/dev/null
+ rm -f /tmp/petget_proc/pkgs_to_install_bar 2>/dev/null
  #required size
- NEEDEDK_PLUS=$( expr $(awk '{ sum += $1 } END { print sum }' /tmp/overall_pkg_size)) 
- [ -f /tmp/overall_pkg_size_RMV ] && \
-  NEEDEDK_MINUS=$( expr $(awk '{ sum += $1 } END { print sum }' /tmp/overall_pkg_size_RMV)) \
-  || NEEDEDK_MINUS=0
- [ ! "$NEEDEDK_MINUS" ] && NEEDEDK_MINUS=0
- NEEDEDK=$( expr $( expr $NEEDEDK_PLUS + $NEEDEDK_MINUS ) / 768 ) # 1.5x
+ NEEDEDK_PLUS=$(awk '{ sum += $1 } END { print sum }' /tmp/petget_proc/overall_pkg_size)
+ [ ! "$NEEDEDK_PLUS" ] && NEEDEDK_PLUS=0
+ NEEDEDK=$(( $NEEDEDK_PLUS / 768 )) # 1.5x
  ACTION_MSG=$(gettext 'This is not enough space to download and install the packages (including dependencies) you have selected.')
- if [ -f /tmp/download_pets_quietly -o -f /tmp/download_only_pet_quietly ]; then
-  NEEDEDK=$( expr $NEEDEDK / 3 ) # 0.5x
+ if [ -f /tmp/petget_proc/download_pets_quietly -o -f /tmp/petget_proc/download_only_pet_quietly ]; then
+  NEEDEDK=$(( $NEEDEDK / 3 )) # 0.5x
   [ "$DL_PATH" ] && DOWN_PATH="$DL_PATH" || DOWN_PATH="/root"
   ACTION_MSG="$(gettext 'This is not enough space to download the packages (including dependencies) you have selected in ')${DOWN_PATH}."
  fi
  if [ "$(cat /var/local/petget/nd_category 2>/dev/null)" = "true" ]; then
-  NEEDEDKDOWN=$( expr $NEEDEDK / 3 )
+  NEEDEDKDOWN=$(($NEEDEDK / 3 ))
  else
   NEEDEDKDOWN="$NEEDEDK" # so will not trigger warning
  fi
  #---
- if [ ! -f /tmp/pup_event_sizefreem ]; then
-  /usr/local/pup_event/frontend_timeout &
-  sleep 1
-  if [ ! -f /tmp/pup_event_sizefreem ]; then
-   . /etc/rc.d/PUPSTATE
-   case $PUPMODE in
-	 2) AVAILABLE=$(df -m | grep / | head -n 1 | awk '{print $4}');;
-	 5) AVAILABLE=$(df -m | grep pup_rw | awk '{print $4}')
-	 	[ "$AVAILABLE" = "" ] && AVAILABLE=$(df -m | grep \/tmpfs | awk '{print $4}');;
-	 7|13) AVAILABLE=$(df -m | grep pup_ro1 | awk '{print $4}')
-	 	[ "$AVAILABLE" = "" ] && AVAILABLE=$(df -m | grep \/tmpfs | awk '{print $4}');;
-	 6|12) AVAILABLE=$(df -m | grep pup_rw | awk '{print $4}')
-		[ "$AVAILABLE" = "" ] && AVAILABLE=$(df -m | grep dev_save | awk '{print $4}');;
-   esac
-   if [ ! "$AVAILABLE" ]; then
-    echo "Free space estimation error. Exiting" > /tmp/petget/install_status
+ . /etc/rc.d/functions_x
+ AVAILABLE=$SIZEFREEM
+ if [ ! "$AVAILABLE" ]; then
+	echo "Free space estimation error. Exiting" > /tmp/petget_proc/petget/install_status
 	. /usr/lib/gtkdialog/box_ok "$(gettext 'Free space error')" error "$(gettext 'This is a rare error that fails to report the available free space. It should be OK after a restart')"
 	clean_up
 	exit 1
-   else
-	AVAILABLE="$AVAILABLE"
-   fi
-  else
-   AVAILABLE=$(cat /tmp/pup_event_sizefreem | head -n 1 )
-  fi
- else
-  AVAILABLE=$(cat /tmp/pup_event_sizefreem | head -n 1 )
  fi
  if [ "$DL_PATH" -a ! "$DL_PATH" = "/root" ]; then
-  if [ -f /tmp/download_pets_quietly -o -f /tmp/download_only_pet_quietly \
+  if [ -f /tmp/petget_proc/download_pets_quietly -o -f /tmp/petget_proc/download_only_pet_quietly \
    -o "$(cat /var/local/petget/nd_category 2>/dev/null)" = "true" ]; then
    SAVEAVAILABLE=$(df -m "$DL_PATH"| awk 'END {print $4}')
   else
@@ -247,25 +309,25 @@ check_total_size () {
  else
   SAVEAVAILABLE="$AVAILABLE" # so will not trigger warning
  fi
- if [ -f /tmp/download_pets_quietly -o -f /tmp/download_only_pet_quietly ]; then
+ if [ -f /tmp/petget_proc/download_pets_quietly -o -f /tmp/petget_proc/download_only_pet_quietly ]; then
   [ "$SAVEAVAILABLE" != "$AVAILABLE" ] && AVAILABLE="$SAVEAVAILABLE"
  fi
- PACKAGES=$(cat /tmp/pkgs_to_install | cut -f 1 -d '|')
- DEPENDENCIES=$(cat /tmp/overall_dependencies 2>/dev/null | sort | uniq)
+ PACKAGES=$(cat /tmp/petget_proc/pkgs_to_install | cut -f 1 -d '|')
+ DEPENDENCIES=$(cat /tmp/petget_proc/overall_dependencies 2>/dev/null | sort | uniq)
  [ "$AVAILABLE" = "0" -o  "$AVAILABLE" = "" ] && echo "No space left on device. Exiting" \
-	> /tmp/petget/install_status && clean_up && exit 0
+	> /tmp/petget_proc/petget/install_status && clean_up && exit 0
  #statusbar in main gui
  PERCENT=$((${NEEDEDK}*100/${AVAILABLE}))
  [ $PERCENT -gt 99 ] && PERCENT=99
- if [ -s /tmp/overall_pkg_size ] && [ $PERCENT = 0 ]; then PERCENT=1; fi
- echo "$PERCENT" > /tmp/petget/install_status_percent
- if [ "$(cat /tmp/pkgs_to_install /tmp/overall_dependencies 2>/dev/null)" = "" ]; then
-  echo "" > /tmp/petget/install_status
+ if [ -s /tmp/petget_proc/overall_pkg_size ] && [ $PERCENT = 0 ]; then PERCENT=1; fi
+ echo "$PERCENT" > /tmp/petget_proc/petget/install_status_percent
+ if [ "$(cat /tmp/petget_proc/pkgs_to_install /tmp/petget_proc/overall_dependencies 2>/dev/null)" = "" ]; then
+  echo "" > /tmp/petget_proc/petget/install_status
  else
-  cat /tmp/pkgs_to_install | cut -f1 -d '|' > /tmp/pkgs_to_install_bar
-  if [ -f /tmp/install_pets_quietly -o -f /tmp/install_classic ]; then
+  cat /tmp/petget_proc/pkgs_to_install | cut -f1 -d '|' > /tmp/petget_proc/pkgs_to_install_bar
+  if [ -f /tmp/petget_proc/install_pets_quietly -o -f /tmp/petget_proc/install_classic ]; then
    if [ "$(cat /var/local/petget/nd_category 2>/dev/null)" != "true" ]; then
-    BARNEEDEDK=$( expr 2 \* ${NEEDEDK} \/ 3 )
+    BARNEEDEDK=$(( 2 * ${NEEDEDK} / 3 ))
     BARMSG="$(gettext 'to install')"
    else
     BARNEEDEDK=${NEEDEDK}
@@ -275,7 +337,7 @@ check_total_size () {
    BARNEEDEDK=${NEEDEDK}
    BARMSG="$(gettext 'to download')"
   fi
-  echo "$(gettext 'Packages (with deps)'): $(cat /tmp/pkgs_to_install_bar /tmp/overall_dependencies 2>/dev/null |sort | uniq | wc -l)    -   $(gettext 'Required space') ${BARMSG}: ${BARNEEDEDK}MB   -   $(gettext 'Available'): ${AVAILABLE}MB" > /tmp/petget/install_status
+  echo "$(gettext 'Packages (with deps)'): $(cat /tmp/petget_proc/pkgs_to_install_bar /tmp/petget_proc/overall_dependencies 2>/dev/null |sort | uniq | wc -l)    -   $(gettext 'Required space') ${BARMSG}: ${BARNEEDEDK}MB   -   $(gettext 'Available'): ${AVAILABLE}MB" > /tmp/petget_proc/petget/install_status
  fi
  #Check if enough space on system
  if [ "$NEEDEDKDOWN" -ge "$SAVEAVAILABLE" -a "$AVAILABLE" -ge "$NEEDEDK" ]; then
@@ -284,7 +346,7 @@ check_total_size () {
  fi
  if [ "$NEEDEDK" -ge "$AVAILABLE" -o "$NEEDEDKDOWN" -ge "$SAVEAVAILABLE" ]; then
   export PPM_error='
-  <window title="PPM - '$(gettext 'Space needed')'" icon-name="gtk-no">
+  <window title="PPM - '$(gettext 'Space needed')'" icon-name="gtk-no" resizable="false">
   <vbox space-expand="true" space-fill="true">
     <frame '$(gettext 'Error')'>
       <hbox homogeneous="true">
@@ -310,30 +372,16 @@ check_total_size () {
   </window>'
   gtkdialog --center -p PPM_error
   killall yaf-splash
-  if [ ! -f /tmp/install_classic ]; then
-   echo "" > /tmp/petget/install_status
-   echo 0 > /tmp/petget/install_status_percent
-   if [ "$(ls /tmp/*_pet{,s}_quietly /tmp/install_classic |wc -l)" -eq 1 ]; then
-	for MODE in $(ls /tmp/*_pet{,s}_quietly /tmp/install_classic)
-	do
-	 mv $MODE $MODE.bak
-	done
-   fi
+  if [ ! -f /tmp/petget_proc/install_classic ]; then
+   echo "" > /tmp/petget_proc/petget/install_status
+   echo 0 > /tmp/petget_proc/petget/install_status_percent
    clean_up
-   mv $MODE.bak $MODE
   else
     . /usr/lib/gtkdialog/box_yesno "$(gettext 'Last warning')" "$(eval echo $(gettext '$NEEDEDK of the $AVAILABLE  available MB will be used to install the package\(s\) you selected.'))" "<b>$(gettext 'It is NOT sufficient. Please exit now.')</b>"  "$(gettext 'However, if you are sure about the step-by-step process, take a risk.')" "$(gettext 'Do you want to cancel installation?')"
    if [ "$EXIT" = "yes" ]; then
-    echo 0 > /tmp/petget/install_status_percent
-    echo "" > /tmp/petget/install_status
-    if [ "$(ls /tmp/*_pet{,s}_quietly /tmp/install_classic |wc -l)" -eq 1 ]; then
-	 for MODE in $(ls /tmp/*_pet{,s}_quietly /tmp/install_classic)
-	 do
-	  mv $MODE $MODE.bak
-	 done
-    fi
+    echo 0 > /tmp/petget_proc/petget/install_status_percent
+    echo "" > /tmp/petget_proc/petget/install_status
     clean_up
-    mv $MODE.bak $MODE
    else
     echo "good luck"
    fi
@@ -344,34 +392,35 @@ export -f check_total_size
 
 status_bar_func () {
  while $1 ; do
-  TOTALPKGS=$(cat /tmp/pkgs_to_install_bar /tmp/overall_dependencies 2>/dev/null |sort | uniq | wc -l)
-  DONEPGKS=$(cat /tmp/overall_package_status_log 2>/dev/null | wc -l)
-  PERCENT=$( expr $DONEPGKS \* 100 \/ $TOTALPKGS )
+  TOTALPKGS=$(cat /tmp/petget_proc/pkgs_to_install_bar /tmp/petget_proc/overall_dependencies 2>/dev/null |sort | uniq | wc -l)
+  DONEPGKS=$(cat /tmp/petget_proc/overall_package_status_log 2>/dev/null | wc -l)
+  PERCENT=$(( $DONEPGKS * 100 / $TOTALPKGS ))
   [ $PERCENT = 100 ] && PERCENT=99
-  echo $PERCENT > /tmp/petget/install_status_percent
-  sleep 0.3
-  [ -f /tmp/ppm_reporting ] && break
+  echo $PERCENT > /tmp/petget_proc/petget/install_status_percent
+  sleep 0.7
+  [ -f /tmp/petget_proc/ppm_reporting ] && break
  done
 }
 export -f status_bar_func
  
 install_package () {
- [ "$(cat /tmp/pkgs_to_install)" = "" ] && exit 0
- cat /tmp/pkgs_to_install | tr ' ' '\n' > /tmp/pkgs_left_to_install
- rm -f /tmp/overall_package_status_log
- echo 0 > /tmp/petget/install_status_percent
- echo "$(gettext "Calculating total required space...")" > /tmp/petget/install_status
+ #set -x
+ [ "$(cat /tmp/petget_proc/pkgs_to_install)" = "" ] && exit 0
+ cat /tmp/petget_proc/pkgs_to_install | tr ' ' '\n' > /tmp/petget_proc/pkgs_left_to_install
+ rm -f /tmp/petget_proc/overall_package_status_log
+ echo 0 > /tmp/petget_proc/petget/install_status_percent
+ echo "$(gettext "Calculating total required space...")" > /tmp/petget_proc/petget/install_status
  [ ! -f /root/.packages/skip_space_check ] && check_total_size
- status_bar_func &
- while read LINE; do
-   REPO=$(echo $LINE | cut -f 2 -d '|')
-   echo "$REPO" > /tmp/petget/current-repo-triad
-   TREE1=$(echo $LINE | cut -f 1 -d '|')
-   if [ -f /tmp/install_quietly ];then
+ #status_bar_func & #-----------
+ while IFS="|" read TREE1 REPO zz #TREE1|REPO
+ do
+   [ -z "$TREE1" ] && continue
+   echo "$REPO" > /tmp/petget_proc/petget/current-repo-triad
+   if [ -f /tmp/petget_proc/install_quietly ];then
     if [  "$(grep $TREE1 /root/.packages/user-installed-packages 2>/dev/null)" = "" \
-     -a -f /tmp/install_pets_quietly ]; then
+     -a -f /tmp/petget_proc/install_pets_quietly ]; then
      if [ "$(cat /var/local/petget/nt_category 2>/dev/null)" = "true" ]; then
-     /usr/local/petget/installpreview.sh
+      /usr/local/petget/installpreview.sh
      else
 	  rxvt -title "$VTTITLE... $(gettext 'Do NOT close')" \
 	  -fn -misc-fixed-medium-r-semicondensed--13-120-75-75-c-60-*-* -bg black \
@@ -379,7 +428,7 @@ install_package () {
      fi
     else
      if [ "$(cat /var/local/petget/nt_category 2>/dev/null)" = "true" ]; then
-     /usr/local/petget/installpreview.sh
+      /usr/local/petget/installpreview.sh
      else
 	  rxvt -title "$VTTITLE... $(gettext 'Do NOT close')" \
 	  -fn -misc-fixed-medium-r-semicondensed--13-120-75-75-c-60-*-* -bg black \
@@ -388,27 +437,29 @@ install_package () {
     fi
    else
     /usr/local/petget/installpreview.sh
+    if [ $? -eq 100 ] ; then
+       exit
+    fi
    fi
    /usr/local/petget/finduserinstalledpkgs.sh
-   sed -i "/$TREE1/d" /tmp/pkgs_left_to_install
- done < /tmp/pkgs_to_install
- sync
+   sed -i "/$TREE1/d" /tmp/petget_proc/pkgs_left_to_install
+ done < /tmp/petget_proc/pkgs_to_install
  report_results
  clean_up
 }
 export -f install_package
 
 recalculate_sizes () {
-	if [ "$(grep changed /tmp/mode_changed 2>/dev/null)" != "" ]; then
-		rm -f /tmp/overall_*
-		for LINE in $(cat /tmp/pkgs_to_install)
+	if [ "$(grep changed /tmp/petget_proc/mode_changed 2>/dev/null)" != "" ]; then
+		rm -f /tmp/petget_proc/overall_*
+		while read LINE
 		do
 			/usr/local/petget/installed_size_preview.sh $LINE ADD
-		done
+		done < /tmp/petget_proc/pkgs_to_install
 	else
 		echo "cool!"
 	fi
-	rm -f /tmp/mode_changed
+	rm -f /tmp/petget_proc/mode_changed
 }
 export -f recalculate_sizes
 
@@ -417,67 +468,58 @@ wait_func () {
 	X1PID=$!
 	recalculate_sizes
 	while true ; do
-		sleep 0.2
+		sleep 0.5
 		[ "$(ps -eo pid,command | grep installed_size_preview | grep -v grep)" = "" ] && break
 	done
 	kill -9 $X1PID
 }
 export -f wait_func
 
+. /etc/rc.d/functions_x
+SIZEFREEM=$(fx_personal_storage_free_mb)
+export SIZEFREEM
+
 case "$1" in
 	check_total_size)
-		touch /tmp/install_quietly #avoid splashes
+		touch /tmp/petget_proc/install_quietly #avoid splashes
 		check_total_size
 		;;
-	"$(gettext 'Auto install')")
+	'Auto install')
 		wait_func
-		rm -f /tmp/install_pets_quietly
-		rm -f /tmp/install_classic 2>/dev/null
-		rm -f /tmp/download_pets_quietly 2>/dev/null
-		rm -f /tmp/download_only_pet_quietly 2>/dev/null
-		touch /tmp/install_quietly
-		touch /tmp/install_pets_quietly
-		cp -a /tmp/pkgs_to_install /tmp/pkgs_to_install_done
+		rm -f /tmp/petget_proc/install_pets_quietly
+		rm -f /tmp/petget_proc/install_classic 2>/dev/null
+		rm -f /tmp/petget_proc/download_pets_quietly 2>/dev/null
+		rm -f /tmp/petget_proc/download_only_pet_quietly 2>/dev/null
+		touch /tmp/petget_proc/install_quietly
+		touch /tmp/petget_proc/install_pets_quietly
+		cp -a /tmp/petget_proc/pkgs_to_install /tmp/petget_proc/pkgs_to_install_done
 		VTTITLE=Installing
 		export VTTITLE
 		install_package
 		unset VTTITLE
 		;;
-	"$(gettext 'Download packages (no install)')")
+	'Download packages (no install)')
 		wait_func
-		rm -f /tmp/install_pets_quietly
-		rm -f /tmp/install_classic 2>/dev/null
-		rm -f /tmp/download_pets_quietly 2>/dev/null
-		rm -f /tmp/download_only_pet_quietly 2>/dev/null
-		touch /tmp/install_quietly
-		touch /tmp/download_only_pet_quietly 
-		cp -a /tmp/pkgs_to_install /tmp/pkgs_to_install_done
+		rm -f /tmp/petget_proc/install_pets_quietly
+		rm -f /tmp/petget_proc/install_classic 2>/dev/null
+		rm -f /tmp/petget_proc/download_pets_quietly 2>/dev/null
+		rm -f /tmp/petget_proc/download_only_pet_quietly 2>/dev/null
+		touch /tmp/petget_proc/install_quietly
+		touch /tmp/petget_proc/install_pets_quietly
+		touch /tmp/petget_proc/download_only_pet_quietly 
+		cp -a /tmp/petget_proc/pkgs_to_install /tmp/petget_proc/pkgs_to_install_done
 		VTTITLE=Downloading
 		export VTTITLE
 		install_package
 		unset VTTITLE
 		;;
-	"$(gettext 'Download all (packages and dependencies)')")
+	'Step by step installation (classic mode)')
 		wait_func
-		rm -f /tmp/install_pets_quietly
-		rm -f /tmp/install_classic 2>/dev/null
-		rm -f /tmp/download_pets_quietly 2>/dev/null
-		rm -f /tmp/download_only_pet_quietly 2>/dev/null
-		touch /tmp/install_quietly
-		touch /tmp/download_pets_quietly 
-		cp -a /tmp/pkgs_to_install /tmp/pkgs_to_install_done
-		VTTITLE=Downloading
-		export VTTITLE
-		install_package
-		unset VTTITLE
-		;;
-	"$(gettext 'Step by step installation (classic mode)')")
-		wait_func
-		rm -f /tmp/install{,_pets}_quietly
-		rm -f /tmp/download_pets_quietly 2>/dev/null
-		rm -f /tmp/download_only_pet_quietly 2>/dev/null
-		touch /tmp/install_classic
-		cp -a /tmp/pkgs_to_install /tmp/pkgs_to_install_done
+		rm -f /tmp/petget_proc/install{,_pets}_quietly
+		rm -f /tmp/petget_proc/download_pets_quietly 2>/dev/null
+		rm -f /tmp/petget_proc/download_only_pet_quietly 2>/dev/null
+		touch /tmp/petget_proc/install_classic
+		cp -a /tmp/petget_proc/pkgs_to_install /tmp/petget_proc/pkgs_to_install_done
 		install_package
 		;;
 esac

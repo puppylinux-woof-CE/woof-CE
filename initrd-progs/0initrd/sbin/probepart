@@ -1,1 +1,107 @@
-probepart_init
+#!/bin/ash
+# Optical drvs = problems. Behavior is not consistent after inserting and removing discs
+# k3.2.18+: sr* may appear in /proc/partitions or may not
+#           only checking sr* in /sys/block
+
+if [ -f /etc/rc.d/functions_x ] ; then
+	. /etc/rc.d/functions_x #want fx_drv_* functions
+fi
+
+PROCESS_OPTICAL=yes #default
+
+for i in $@ ; do
+	case $1 in
+		-k|-m) SUNITS="$1" ; shift ;; #allowed params are '-k' or '-m'.
+		-hr|-hr-size) HR_SIZE=yes ; shift ;;
+		-h|-help|--help) usage ;;
+		zz*)  shift ;;
+	esac
+done
+
+#==============================================================
+#                        FUNCTIONS
+#==============================================================
+
+# $1: devname
+# $2: size
+probepart_func() {
+
+	ONEDEV=$1
+	SIZE=$2
+	FSTYPE=""
+	[ -z "$ONEDEV" ] && return
+
+	if [ -z "$SIZE" ] ; then # a drive
+		if [ -e /sys/block/${ONEDEV}/size ] ; then
+			read SIZE < /sys/block/${ONEDEV}/size
+			SIZE=$(($SIZE/2)) # kb = /proc/partitions
+		else
+			return #error
+		fi
+	fi
+
+	blockdev=/dev/${ONEDEV}
+
+	DRV_IS_OPTICAL="no"
+	case $ONEDEV in
+		fd*) continue ;;
+		sr*) [ "$PROCESS_OPTICAL" = "yes" ] && DRV_IS_OPTICAL="yes" ;;
+	esac
+
+	if [ "$FSTYPE" = "" ] ; then
+		BLKDID_OUT="$(busybox blkid ${blockdev} 2>/dev/null)"
+		case $BLKDID_OUT in *' TYPE="'*)
+			FSTYPE="${BLKDID_OUT##* TYPE=\"}"
+			FSTYPE="${FSTYPE%%\"*}" ;;
+		esac
+	fi
+
+	if [ "$FSTYPE" = "" ] ; then
+		if [ $SIZE -le 4 ] ; then
+			return #extended partition (most likely)
+		fi
+		if [ "$ONEDEV_ARG" != "1" -a "$DRV_IS_OPTICAL" != "yes" -a -e /sys/block/${ONEDEV} ] ; then
+			# drive with no f.s.. ignore
+			return
+		fi
+		FSTYPE="none"
+	fi
+
+	SIZE=$(fx_format_bytes $(($SIZE * 1024)) ) #format size in KB
+	echo "${blockdev}|$FSTYPE|$SIZE${EXTRA_STUFF}"
+}
+
+#===========
+
+do_probepart_all() {
+	# devices that have partitions... 
+	while read major minor blocks name  #< /proc/partitions
+	do
+		if ! fx_drv_is_ok $name ; then
+			continue
+		fi
+		case $name in sr*)
+			continue ;;
+		esac
+		echo $name $blocks
+		#-
+	done < /proc/partitions | sort | \
+		while read l ; do
+			probepart_func $l
+		done
+	#== optical
+	if [ "$PROCESS_OPTICAL" = "yes" ] ; then
+		for dev in /sys/block/sr* ; do
+			probepart_func ${dev##*/} #basename
+		done
+	fi
+}
+
+#==============================================================
+#                          MAIN
+#==============================================================
+
+#normal operation
+do_probepart_all
+
+### END ###

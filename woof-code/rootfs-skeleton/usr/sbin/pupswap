@@ -1,16 +1,19 @@
-#!/bin/sh
+#!/bin/ash
 # - this is cli/gui script
 # - run "pupswap" to create a swap file on a given partition
-# - it's called by shutdownconfig on shutdown
-#   if there are no swaps loaded
+# - it's called by shutdownconfig on shutdown if there are no swaps loaded
 # - then rc.sysinit will load the swap file on next boot
 #
 # On boot only swap files properly validated are loaded, see:
-# validate_swapfile()
 # validate_drive() -- add rules there if it's not recognized (run probedisk)
 
 . /etc/rc.d/PUPSTATE #variables
-function create_swapfile() {
+
+#===============================================================
+#                  FUNCTIONS
+#===============================================================
+
+create_swapfile() {
 	local outfile="$1" size=$2 #MB
 	dd if=/dev/zero of=${outfile} bs=1M count=$size
 	if [ $? -eq 0 ];then
@@ -23,9 +26,7 @@ function create_swapfile() {
 	fi
 }
 
-#----------------------------------------
-
-function validate_drive() { #ex: sda
+validate_drive() { #ex: sda
 	[ -b /dev/$1 ] || return 1
 	drive=${1:0:3}
 	D_INFO="$(probedisk $drive)"
@@ -36,86 +37,19 @@ function validate_drive() { #ex: sda
 	return 1
 }
 
-#----------------------------------------
-
-function validate_swapfile() { # $1=path
-	local path=$1
-	[ -f "$path" ] || return 1
-	dir=${path%/*}
-	case $dir in
-		#ex: /initrd/mnt/dev_save/pupswap.swp
-		"/initrd${PUP_HOME}"*|"/mnt/home"*)
-			[ "$PUP_HOME" ] || return 1
-			device=${PUPSAVE%%,*}
-			;;
-		#ex: /mnt/sda1/pupswap.swp
-		/mnt/sd[a-z][0-9]*|/mnt/hd[a-z][0-9]*)
-			device=$(echo "$path" | cut -d '/' -f 3)
-			;;
-		#ex: /pupswap.swp //pupswap.swp
-		""|"/")
-			busybox blkid "$path" | grep -q '"swap"' && return 0 || return 1
-			;;
-		*)
-			return 1
-			;;
-	esac
-	busybox blkid "$path" | grep -q '"swap"' || return 1
-	validate_drive $device
-	return $?
-}
-
-#----------------------------------------
-
-function validate_swap_pdev1() {
-	validate_drive ${PDEV1} || return 1
-	pdev1_mount="$(mount | grep "^/dev/${PDEV1}")"
-	if [ "$pdev1_mount" = "" ] ; then
-		UMOUNT_PDEV1=1
-		PDEV1_MP=/mnt/${PDEV1}
-		mkdir -p ${PDEV1_MP}
-		mount /dev/${PDEV1} ${PDEV1_MP}
-	else
-		PDEV1_MP=$(echo "$pdev1_mount" | awk '{print $3}')
-	fi
-	if [ -f ${PDEV1_MP}/pupswap.swp ] ; then
-		validate_swapfile ${PDEV1_MP}/pupswap.swp
-		if [ $? -eq 0 ] ; then
-			echo "${PDEV1_MP}/pupswap.swp"
-			return 0
-		fi
-	else
-		[ $UMOUNT_PDEV1 ] && umount ${PDEV1_MP}
-	fi
-	return 1
-}
-
-function free_mb() {
+free_mb() {
 	FREEK=$(df | grep "${1}$" | tr -s " " | head -n 1 | cut -f 4 -d " ")
 	FREEM=$(($FREEK / 1024)) #MB
 }
 
 #===============================================================
+#                      MAIN
+#===============================================================
 
 case $1 in
-	validate)
-		shift
-		validate_swapfile "$1"
-		exit $?
-		;;
-	validate_pdev1)
-		shift
-		validate_swap_pdev1
-		exit $?
-		;;
 	validate_drive)
 		shift
 		validate_drive $1
-		exit $?
-		;;
-	create)
-		shift
-		create_swapfile $@
 		exit $?
 		;;
 	set_dir)
@@ -127,6 +61,12 @@ case $1 in
 			shift
 		fi
 		;;
+	guihelp)
+		PUPSWAP_HELP_1="$(gettext "As well as the swap partition, Linux also supports a swap file that you can create, prepare, and mount in a fashion similar to that of a swap partition. The advantage of swap files is that you don't need to find an empty partition or repartition a disk to add additional swap space.")"
+		PUPSWAP_HELP_2="$(gettext "It is possible to run a Linux system without a swap space, and the system will run well if you have a large amount of memory -- but if you run out of physical memory then the system will crash, as it has nothing else it can do, so it is advisable to have a swap space, especially since disk space is relatively cheap")"
+		echo -e "${PUPSWAP_HELP_1}\n\n${PUPSWAP_HELP_2}" > /tmp/box_help
+		/usr/lib/gtkdialog/box_help
+		;;
 esac
 
 #===============================================================
@@ -137,11 +77,8 @@ fi
 
 #===============================================================
 
-if [ $DISPLAY ] ; then
-	GUI=1
-else
-	CLI=1
-fi
+CLI=1
+[ "$DISPLAY" ] && GUI=1
 case $1 in
 	cli) CLI=1 ; GUI= ; shift ;;
 	gui) GUI=1 ; CLI= ; shift ;;
@@ -179,7 +116,7 @@ TOTAL_SWAP_SIZES=$X
 if [ "$MOUNTED_PARTITIONS" = "" ] ; then #MOUNTED_PARTITIONS can be exported
 	MOUNTED_PARTITIONS="`mount | grep -E "/(s|h)d[a-z][0-9]" | awk '{print $3}' | sort -u`"
 fi
-if [ $PUPMODE -eq 2 ] ; then #full install
+if [ $PUPMODE -eq 2 -o $PUPMODE -eq 6 ] ; then #full install
 	MOUNTED_PARTITIONS="/
 $MOUNTED_PARTITIONS"
 fi
@@ -208,16 +145,9 @@ FST_DESC="$(gettext 'This tool allows you to create a swap file.')"
 MAIN_DESC="$FST_DESC $EXT_DESC"
 
 if [ $GUI ] ; then
-	help_box() {
-		PUPSWAP_HELP_1="$(gettext "As well as the swap partition, Linux also supports a swap file that you can create, prepare, and mount in a fashion similar to that of a swap partition. The advantage of swap files is that you don't need to find an empty partition or repartition a disk to add additional swap space.")"
-		PUPSWAP_HELP_2="$(gettext "It is possible to run a Linux system without a swap space, and the system will run well if you have a large amount of memory -- but if you run out of physical memory then the system will crash, as it has nothing else it can do, so it is advisable to have a swap space, especially since disk space is relatively cheap")"
-		echo -e "${PUPSWAP_HELP_1}\n\n${PUPSWAP_HELP_2}" > /tmp/box_help
-		/usr/lib/gtkdialog/box_help
-	}
-	export -f help_box
 	WINDOW_MSG="$(/usr/lib/gtkdialog/xml_info 0 execute_add.svg 32 "$MAIN_DESC")"
 	export SWAPFILE_DIALOG='
-<window title="pupswap" image-name="/usr/share/pixmaps/puppy/preferences.svg">
+<window title="pupswap" image-name="/usr/share/pixmaps/puppy/preferences.svg" resizable="false">
 <vbox>
   '${WINDOW_MSG}'
   <frame '$(gettext 'Select partition and swap size')'>
@@ -227,27 +157,27 @@ if [ $GUI ] ; then
   </hbox>
   <hbox>
     <text><label>'$(gettext 'Destination:')'</label></text>
-    <combobox>
+    <comboboxtext>
       <variable>SWAP_PART</variable>
       '${DISABLE_DRV_COMBO}'
       '${DIR_LIST_GUI}'
-    </combobox>
+    </comboboxtext>
   </hbox>
 
   <hbox>
     <text><label>'$(gettext 'Swap size:')'</label></text>
-    <combobox>
+    <comboboxtext>
       <variable>SWAP_SIZE_MB</variable>
       '${DISABLE_SIZE_COMBO}'
       '${SIZE_LIST_GUI}'
-    </combobox>
+    </comboboxtext>
   </hbox>
   </frame>
   <hbox space-expand="false" space-fill="false">
     <button space-expand="false" space-fill="false">
       '"`/usr/lib/gtkdialog/xml_button-icon help`"'
       <label>"'$(gettext 'Help')'"</label>
-      <action>help_box &</action>
+      <action>'${0}' guihelp &</action>
     </button>
     <text space-expand="true" space-fill="false"><label>" "</label></text>
    <button space-expand="false" space-fill="false">
@@ -265,7 +195,7 @@ if [ $GUI ] ; then
 </window>
 '
 	. /usr/lib/gtkdialog/xml_info gtk #build bg_pixmap for gtk-theme
-	retvals=$(gtkdialog --center --program=SWAPFILE_DIALOG)
+	retvals=$(gtkdialog --center --program=SWAPFILE_DIALOG --styles=/tmp/gtkrc_xml_info.css)
 	eval "$retvals"
 	[ "$EXIT" = "OK" ] || exit
 else

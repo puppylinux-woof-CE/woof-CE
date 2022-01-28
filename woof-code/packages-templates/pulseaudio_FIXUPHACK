@@ -1,0 +1,128 @@
+echo '
+echo "Configuring Pulseaudio"
+rm -f usr/share/applications/defaultaudiomixer.desktop usr/share/applications/ALSA-sound-Wizard.desktop usr/sbin/alsawizard
+chroot . busybox addgroup pulse
+chroot . busybox addgroup pulse-access
+chroot . busybox adduser -D -s /bin/false -g 'PulseAudio' -G audio -h /var/run/pulse pulse 2>/dev/null
+chroot . busybox passwd -d pulse 2>/dev/null' > pinstall.sh
+
+# add a yad volume control notification icon 'ppavol', requires pavucontrol
+mkdir -p usr/local/bin
+cat > usr/local/bin/pavu.sh << EOF
+#!/bin/ash
+# helper script for yad --notification
+# ensure 1 running instance of pavucontrol
+pidof pavucontrol >/dev/null 2>&1 || exec pavucontrol
+EOF
+chmod 755 usr/local/bin/pavu.sh
+
+cat > usr/local/bin/ppavol << EOF
+#!/bin/ash
+type pa-applet >/dev/null 2>&1 && exit
+#todo gettext
+if ! type yad >/dev/null 2>&1 ; then
+	echo "yad must be installed"
+	exit
+fi
+yad --notification \
+	--image="/usr/share/pixmaps/puppy/sound.svg" \
+	--command="pavu.sh" \
+	--text="Press to open Pulse Audio volume control" \
+	--icon-size=22
+EOF
+chmod 755 usr/local/bin/ppavol
+# .desktop starter
+mkdir -p root/.config/autostart
+cat > root/.config/autostart/ppavol.desktop << EOF
+[Desktop Entry]
+Encoding=UTF-8
+Type=Application
+NoDisplay=true
+Name=ppavol
+Exec=ppavol
+EOF
+
+# fixup for slackware
+case $DISTRO_BINARY_COMPAT in
+	slackware*)
+	x=0
+	rm -f /tmp/default.pa 
+	while read LINE; do 
+		if echo $LINE | grep -q 'console\-kit'; then
+			echo '#'$LINE >> /tmp/default.pa # comment out
+			x=$(($x + 1))
+		else
+			[ $x -eq 2 ] && echo $LINE | grep -q 'endif' && \
+				x=$(($x + 1)) && echo '#'$LINE >> /tmp/default.pa && \
+				continue # comment out
+			echo $LINE >> /tmp/default.pa
+		fi
+	done <etc/pulse/default.pa
+	cp -f /tmp/default.pa etc/pulse/default.pa
+	rm -f /tmp/default.pa
+	;;
+esac
+
+# simple gtkdialog volume control for wlroots compositors
+mkdir -p usr/sbin
+cat > usr/sbin/ppavolume << EOF
+#!/bin/bash
+
+# ppavolume
+# requires bash, gtkdialog, pactl, sed, grep etc; GPLv2
+
+#*******************            functions           *******************#
+check_exit() { # kill gui on leave-notify-event
+	sleep 0.5
+	for i in \$(busybox ps | grep -wF HSCALE | grep -o '[1-9][0-9]*'); do 
+		kill -9 \$i >/dev/null 2>&1
+	done
+}
+
+get_vol() { # get volume
+	pactl list sinks |\\
+	grep -o 'Volume.*right'|grep -o '[0-9]*%.*\/'|sed 's/% \///'
+}
+
+set_vol() { # set volume
+	VAL=\$1
+	#echo $VAL
+	pactl -- set-sink-volume 0 \${VAL}%
+}
+
+export -f check_exit get_vol set_vol
+#**********************************************************************#
+# main
+ICN=audio-volume-medium
+CVOL=\$(get_vol)
+CONF="\$XDG_CONFIG_HOME/ppavolumerc"
+[ ! -e "\$CONF" ] && echo 'POSITION=topright' >\$CONF
+# change in \$CONF as necessary
+. \$CONF
+
+export HSCALE='<window edge="'\$POSITION'">
+	<hbox>
+		<pixmap>
+			<height>20</height>
+			<input file icon="'\$ICN'"></input>
+		</pixmap>
+		<hscale width-request="375" height-request="60" \\
+range-min="0" range-max="150" range-step="0.5" value-pos="3" digits="2">
+			<default>'\$CVOL'</default>
+			<variable>VOL</variable>
+			<action>set_vol \${VOL%\.*}</action>
+			<item>"0 |2|0"</item>
+			<item>"50 |2|50"</item>
+			<item>"100|2|100"</item>
+			<item>"150|2|150"</item>
+			<action signal="leave-notify-event">check_exit</action>
+		</hscale>
+	</hbox>
+</window>'
+gtkdialog -p HSCALE >/dev/null 2>&1
+EOF
+chmod 755 usr/sbin/ppavolume
+
+# because pulseaudio is not bus-activated, it must not exit when idle, and we don't need logind integration
+echo "exit-idle-time = -1" >> etc/pulse/daemon.conf
+find usr -name module-systemd-login.so -delete

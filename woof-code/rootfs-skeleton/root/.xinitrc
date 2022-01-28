@@ -5,23 +5,18 @@
 #130212 removed glipper code, see latest glipper pet.
 #130525 old pc celeron 2ghz cpu, 256mb ram, CPUSPEED=1999, 1st bootup rox failed to start. try experiment.
 
+export XDG_SESSION_TYPE=x11
+
 [ -f /etc/desktop_app ] && read -r desktop < /etc/desktop_app
 [ "$desktop" = "" ] && desktop=rox
 
 . /etc/rc.d/PUPSTATE
 
 #v4.01 BK daemon to handle kernel uevents...
+echo '' > /var/local/pup_event_icon_change_flag
 /sbin/clean_desk_icons #v4.02 tidy up drive icons first.
 #/sbin/pup_event_frontend_d &
 #130525 ...start this further down.
-
-#w482 reshape background image if widescreen...
-#120708 need to reshape for PUPMODE=2 also...
-#[ $PUPMODE -eq 5 ] && /usr/sbin/background_reshape
-NEEDRESHAPE='yes'
-[ -f /usr/share/backgrounds_original/ORIGINAL-default.jpg ] && NEEDRESHAPE='no'
-[ -f /usr/share/backgrounds_original/ORIGINAL-default.png ] && NEEDRESHAPE='no'
-[ "$NEEDRESHAPE" = "yes" ] && /usr/sbin/background_reshape
 
 userresources=$HOME/.Xresources
 usermodmap=$HOME/.Xmodmap
@@ -46,10 +41,29 @@ if [ -f $usermodmap ]; then
     xmodmap $usermodmap
 fi
 
+xhost +local: 2>/dev/null
+
+# start a D-Bus session bus for both root and spot, for PulseAudio and applications that don't work without it
+eval `dbus-launch --exit-with-x11 --sh-syntax`
+run-as-spot dbus-launch --exit-with-x11 > /tmp/.spot-session-bus
+
+# start PulseAudio over the session bus and use it for both root and spot, so they see the same output devices
+if [ -e /usr/bin/pulseaudio ]; then
+    run-as-spot sh -c "pulseaudio --kill > /dev/null 2>&1; pulseaudio --start --log-target=syslog"
+    export PULSE_SERVER=unix:/tmp/runtime-spot/pulse/native
+    export PULSE_COOKIE=/home/spot/.config/pulse/cookie
+fi
+
 CURRENTWM="`cat /etc/windowmanager`"
 if [ "$CURRENTWM" = "startkde" ];then
  /sbin/pup_event_frontend_d & #130525
  exec startkde
+fi
+CURRENTWM="`cat /etc/windowmanager`"
+if [ "$CURRENTWM" = "startxfce4" ];then
+ /sbin/pup_event_frontend_d & #130525
+ exec startxfce4
+rox --pinboard= 
 fi
 
 #100501 if full nvidia pkg installed, it has a gui config app...
@@ -67,6 +81,8 @@ if [ -e /tmp/videomode ];then #xvesa only: testing a video mode
 fi
 
 [ -f /usr/local/bin/agenda_chk ] && agenda_chk &
+
+
 
 #v1.0.7 set by xrandrshell, part of xorg wizard... v3.99...
 if [ -f /etc/xrandrindex ];then
@@ -127,6 +143,11 @@ case $desktop in
 	;;
 esac
 
+# hack for Xwayland: for some reason, Xft.dpi is empty if .Xresources is loaded earlier
+if [ -n "$WAYLAND_DISPLAY" -a -f $userresources ]; then
+    xrdb -merge -nocpp $userresources
+fi
+
 /sbin/pup_event_frontend_d & #130525 moved down.
 
 #v2.0.0
@@ -164,11 +185,6 @@ if [ "$CURRENTWM" != "jwm" -a "$CURRENTWM" != "icewm" ];then
  fi
  [ "$desktop" = "rox" ] && [ -f /usr/bin/lxpanel ] && lxpanel &
 fi
-
-# enable xorg mousekeys
-# they should be enabled by default somewhere in /etc/X11/xkb
-# but who knows
-setxkbmap -option keypad:pointerkeys
 
 which $CURRENTWM && exec $CURRENTWM
 [ -x $CURRENTWM ] && exec $CURRENTWM

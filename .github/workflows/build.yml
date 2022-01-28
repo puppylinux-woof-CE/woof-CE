@@ -1,0 +1,174 @@
+name: build
+
+on:
+  schedule:
+    - cron: '0 0 1,15 * *'
+  workflow_dispatch:
+  workflow_run:
+    workflows: [kernel-kit]
+    branches: [testing]
+    types:
+      - completed
+
+jobs:
+  build:
+    if: (github.event_name != 'schedule') || (github.event_name == 'schedule' && github.repository == 'puppylinux-woof-CE/woof-CE' && github.ref == 'refs/heads/testing') || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-20.04
+    strategy:
+      matrix:
+        include:
+          - arch: x86
+            compat-distro: slackware
+            compat-distro-version: 14.2
+            kernel: 4.19.x-x86
+          - arch: x86
+            compat-distro: debian
+            compat-distro-version: bullseye
+            kernel: 5.10.x-x86
+          - arch: x86_64
+            compat-distro: slackware64
+            compat-distro-version: 14.2
+            kernel: 4.19.x-x86_64
+          - arch: x86_64
+            compat-distro: debian
+            compat-distro-version: bullseye64
+            kernel: 5.10.x-x86_64
+          - arch: x86_64
+            compat-distro: ubuntu
+            compat-distro-version: focal64
+            kernel: 5.4.x-x86_64
+          - arch: x86_64
+            compat-distro: slackware64
+            compat-distro-version: "15.0"
+            kernel: 5.15.x-x86_64
+          - arch: x86
+            compat-distro: slackware
+            compat-distro-version: "15.0"
+            kernel: 5.15.x-x86
+          - arch: x86_64
+            compat-distro: ubuntu
+            compat-distro-version: bionic64
+            kernel: 4.19.x-x86_64
+          - arch: x86_64
+            compat-distro: debian
+            compat-distro-version: sid64
+            kernel: 5.15.x-x86_64
+          - arch: arm
+            compat-distro: debian
+            compat-distro-version: bullseye-veyron-speedy
+            kernel: 5.4.x-veyron-speedy
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+    - name: Create cache directories
+      run: |
+        mkdir -p local-repositories petbuild-sources petbuild-cache petbuild-output
+        ln -s `pwd`/local-repositories ../local-repositories
+    - name: Get cached local-repositories
+      uses: actions/cache@v2
+      with:
+        path: local-repositories
+        key: ${{ github.workflow }}-${{ matrix.arch }}-${{ matrix.compat-distro }}-${{ matrix.compat-distro-version }}-local-repositories-${{ github.sha }}
+        restore-keys: |
+          ${{ github.workflow }}-${{ matrix.arch }}-${{ matrix.compat-distro }}-${{ matrix.compat-distro-version }}-local-repositories-
+    - name: Prepare build environment
+      run: |
+        [ -f local-repositories/vercmp ] || (curl https://raw.githubusercontent.com/puppylinux-woof-CE/initrd_progs/master/pkg/w_apps_static/w_apps/vercmp.c | gcc -x c -o ../local-repositories/vercmp -)
+        sudo install -m 755 local-repositories/vercmp /usr/local/bin/vercmp
+        sudo install -D -m 644 woof-code/rootfs-skeleton/usr/local/petget/categories.dat /usr/local/petget/categories.dat
+        echo "dash dash/sh boolean false" | sudo debconf-set-selections
+        sudo DEBIAN_FRONTEND=noninteractive dpkg-reconfigure dash
+        sudo ln -s bash /bin/ash
+    - name: merge2out
+      timeout-minutes: 5
+      run: yes "" | sudo -E ./merge2out woof-distro/${{ matrix.arch }}/${{ matrix.compat-distro }}/${{ matrix.compat-distro-version }}
+    - name: Set distro version
+      run: |
+        . ../woof-out_*/DISTRO_SPECS
+        echo | sudo tee -a ../woof-out_*/DISTRO_SPECS
+        echo "DISTRO_VERSION=$DISTRO_VERSION-${{ github.run_number }}" | sudo tee -a ../woof-out_*/DISTRO_SPECS
+    - name: 0setup
+      timeout-minutes: 10
+      run: |
+        cd ../woof-out_*
+        sudo -E ./0setup
+    - name: 1download
+      timeout-minutes: 120
+      run: |
+        cd ../woof-out_*
+        sudo -E ./1download
+    - name: 2createpackages
+      timeout-minutes: 30
+      run: |
+        cd ../woof-out_*
+        echo | sudo -E ./2createpackages
+    - name: Get cached kernel-kit output
+      uses: dawidd6/action-download-artifact@v2
+      with:
+        repo: puppylinux-woof-CE/woof-CE
+        branch: testing
+        workflow: kernel-kit.yml
+        workflow_conclusion: success
+        name: kernel-kit-output-${{ matrix.kernel }}
+        path: output
+    - name: Move cached kernel-kit output
+      run: sudo mv output ../woof-out_*/kernel-kit/
+    - name: Get cached petbuild-sources
+      uses: actions/cache@v2
+      with:
+        path: petbuild-sources
+        key: ${{ github.workflow }}-${{ matrix.arch }}-${{ matrix.compat-distro }}-${{ matrix.compat-distro-version }}-petbuild-sources-${{ github.sha }}
+        restore-keys: |
+          ${{ github.workflow }}-${{ matrix.arch }}-${{ matrix.compat-distro }}-${{ matrix.compat-distro-version }}-petbuild-sources-
+    - name: Get cached petbuild-cache
+      if: matrix.arch == 'arm' && github.event_name != 'workflow_dispatch'
+      uses: actions/cache@v2
+      with:
+        path: petbuild-cache
+        key: ${{ github.workflow }}-${{ matrix.arch }}-${{ matrix.compat-distro }}-${{ matrix.compat-distro-version }}-petbuild-cache-${{ github.sha }}
+        restore-keys: |
+          ${{ github.workflow }}-${{ matrix.arch }}-${{ matrix.compat-distro }}-${{ matrix.compat-distro-version }}-petbuild-cache-
+    - name: Get cached petbuild-output
+      if: github.event_name != 'workflow_dispatch'
+      uses: actions/cache@v2
+      with:
+        path: petbuild-output
+        key: ${{ github.workflow }}-${{ matrix.arch }}-${{ matrix.compat-distro }}-${{ matrix.compat-distro-version }}-petbuild-output-${{ github.sha }}
+        restore-keys: |
+          ${{ github.workflow }}-${{ matrix.arch }}-${{ matrix.compat-distro }}-${{ matrix.compat-distro-version }}-petbuild-output-
+    - name: Install 3builddistro dependencies
+      run: |
+        sudo apt-get update -qq
+        sudo apt-get install -y --no-install-recommends patchelf
+    - name: Install ARM 3builddistro dependencies
+      if: matrix.arch == 'arm'
+      run: |
+        sudo apt-get update -qq
+        sudo apt-get install -y --no-install-recommends vboot-kernel-utils u-boot-tools device-tree-compiler cgpt qemu-user-static binfmt-support
+        sudo ln -s /usr/bin/mount /usr/local/bin/mount-FULL
+    - name: Install cdrtools
+      if: matrix.arch != 'arm'
+      run: |
+        [ -f local-repositories/mkisofs ] || (curl -L https://sourceforge.net/projects/cdrtools/files/alpha/cdrtools-3.02a09.tar.bz2/download | tar -xjf- && cd cdrtools-3.02 && make -j`nproc` && mv mkisofs/OBJ/x86_64-linux-cc/mkisofs ../local-repositories/mkisofs)
+        sudo install -m 755 local-repositories/mkisofs /usr/local/bin/mkisofs
+    - name: 3builddistro
+      timeout-minutes: 180
+      run: |
+        sudo chown -R root:root petbuild-output
+        sudo mv petbuild-{sources,cache,output} ../woof-out_*/
+        cd ../woof-out_*
+        sudo -E HOME=/root XDG_CONFIG_HOME=/root/.config ./3builddistro
+        sudo mv petbuild-{sources,cache,output} $GITHUB_WORKSPACE/
+    - name: Move build output
+      run: |
+        for i in `ls ../woof-out_*/woof-output-*/*.{sfs,iso} 2>/dev/null`; do sudo mv -f $i .; done
+        for i in `ls ../woof-out_*/woof-output-*/*.img 2>/dev/null`; do sudo gzip -1 $i && sudo mv -f $i.gz .; done
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v2
+      with:
+        name: ${{ github.workflow }}-${{ matrix.arch }}-${{ matrix.compat-distro }}-${{ matrix.compat-distro-version }}-${{ github.run_number }}
+        path: |
+          *.iso
+          *.sfs
+          *.img.gz
+        retention-days: 15

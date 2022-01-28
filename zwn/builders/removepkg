@@ -1,0 +1,462 @@
+#!/bin/sh
+# Slackware remove package script
+#
+# James 2015 - partial ability to deal with quotes (and spaces) in doinst.sh
+# It still has trouble for filenames with trailing spaces, but what the heck
+# March 2015 - Add uninstall script support.
+#
+# Sat Apr 25 21:18:53 UTC 2009 (12.34567890b)
+# Converted to use new pkgbase() function to remove pathname and
+# valid package extensions.
+#
+# Revision 12.34567890 Sun Apr  5 20:59:32 CDT 2009 <volkerdi>
+# - Support packages with the extensions: .tgz, .tbz, .tlz, .txz
+#
+# Revision 1.9 Wed Oct 31 14:04:28 CDT 2007 volkerding
+# - Fix problem removing packages with a large number of fields.
+#   Thanks to Niki Kovacs for noticing this, and to Piter Punk
+#   for the patch.
+# - Use LC_ALL=C locale, which is much faster with "sort".
+#   Thanks to Tsomi.
+# - Don't try to remove any package that starts with '-'.  This
+#   is not a proper package name (usually a typo), and results
+#   in the package database being broken.  Thanks to Jef Oliver.
+# - Patched cat_except() to allow the last Slackware package on
+#   a partition to be removed (using ROOT=, of course)
+#   Thanks to Selkfoster for the patch, and to everyone else who
+#   proposed solutions before.  This issue really wasn't given
+#   the highest priority before, but I figured while I'm in here...
+#
+# Revision 1.8 Thu Nov 22 14:00:13 PST 2001 volkerding Rel $
+# - Move $TMP underneath $ROOT
+# - Understand the idea of a base package name, so that packages
+#   can be removed with any of these notations:
+#   removepkg foo-1.0-i386-1.tgz
+#   removepkg foo-1.0-i386-1
+#   removepkg foo.tgz
+#   removepkg foo
+#
+# Revision 1.7  2001/03/30 12:36:28 volkerding
+# - Strip extra ".tgz" from input names.
+#
+# Revision 1.6  1999/03/25 18:26:41 volkerding
+# - Use external $ROOT variable, like installpkg.
+#
+# Revision 1.5.1  1998/03/18 15:37:28 volkerding
+# - Since removepkg is always run by root, the temp directory has been
+#   moved from /tmp to a private directory to avoid symlink attacks from
+#   malicious users.
+#
+# Revision 1.5  1997/06/26 12:09:53  franke
+# - Fixed old bug in TRIGGER regex setting
+# - -preserve/-copy options now preserve non-unique files
+#   and empty directories also
+#
+# Revision 1.4  1997/06/09 13:21:36  franke
+# - Package file preserve (-preserve, -copy) added.
+# - Don't execute "rm -rf" lines from doinst.sh, removing links explicit.
+# - Warning on no longer existing files added.
+# - Warning on files changed after package installation added.
+# - Intermediate file preserve (-keep) added.
+# - Check for required files/links now done on a combined list.
+# - Write access to /var/log/{packages,scripts} no longer necessary for -warn.
+#
+# Revision 1.3  1997/06/08 13:03:05  franke
+# Merged with revision 1.1.1.1
+#
+# Revision 1.2  1996/06/01 20:04:26  franke
+# Delete empty directories & formated manual pages added
+#
+# Revision 1.1.1.1  1995/12/18 21:20:42  volkerding
+# Original Version from Slackware 3.1
+#
+# Revision 1.1  1995/06/05 22:49:11  volkerding
+# Original Version from Slackware 3.0
+#
+
+# Copyright 1994, 1995, 1998  Patrick Volkerding, Moorhead, Minnesota USA
+# Copyright 2001, Slackware Linux, Inc., Concord, CA USA
+# Copyright 2009  Patrick J. Volkerding, Sebeka, MN, USA
+# All rights reserved.
+#
+# Redistribution and use of this script, with or without modification, is 
+# permitted provided that the following conditions are met:
+#
+# 1. Redistributions of this script must retain the above copyright
+#    notice, this list of conditions and the following disclaimer.
+#
+#  THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR IMPLIED
+#  WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF 
+#  MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO
+#  EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, 
+#  SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+#  PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+#  OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, 
+#  WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR 
+#  OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF 
+#  ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#
+
+# choose the best awk
+type busybox > /dev/null && AWK='busybox awk'
+type awk > /dev/null && AWK=awk
+type gawk > /dev/null && AWK=gawk
+type mawk > /dev/null && AWK=mawk
+
+# Return a package name that has been stripped of the dirname portion
+# and any of the valid extensions (only):
+pkgbase() {
+  PKGEXT=$(echo $1 | rev | cut -f 1 -d . | rev)
+  case $PKGEXT in
+  'tgz' )
+    PKGRETURN=$(basename $1 .tgz)
+    ;;
+  'tbz' )
+    PKGRETURN=$(basename $1 .tbz)
+    ;;
+  'tlz' )
+    PKGRETURN=$(basename $1 .tlz)
+    ;;
+  'txz' )
+    PKGRETURN=$(basename $1 .txz)
+    ;;
+  *)
+    PKGRETURN=$(basename $1)
+    ;;
+  esac
+  echo $PKGRETURN
+}
+
+# This makes "sort" run much faster:
+export LC_ALL=C
+
+# Make sure there's a proper temp directory:
+TMP=$ROOT/var/log/setup/tmp
+# If the $TMP directory doesn't exist, create it:
+if [ ! -d $TMP ]; then
+  rm -rf $TMP # make sure it's not a symlink or something stupid
+  mkdir -p $TMP
+  chmod 700 $TMP # no need to leave it open
+fi
+ADM_DIR=$ROOT/var/log
+PRES_DIR=$TMP/preserved_packages
+
+# This simple cat_except() should be used on the installer,
+# since the busybox "find" can't handle the complex find
+# syntax:
+#cat_except() {
+# ( cd "$1" && cat $(ls * | sed "/^$2\$/d"))
+#}
+
+# This version of cat_except() allows the last package to be
+# removed when ROOT= is used:
+cat_except() {
+  ( cd "$1" && \
+    if [ $(find . -maxdepth 1 -type f ! -name '*.uninstall' | wc -l) -ne 1 ]; then
+      cat $(find . -maxdepth 1 -type f ! -name '*.uninstall' | grep -v "$2")
+    fi
+  )
+}
+
+extract_links() {
+ #sed -n 's,^( *cd \([^ ;][^ ;]*\) *; *rm -rf \([^ )][^ )]*\) *) *$,\1/\2,p'
+ # strip quotes
+ $AWK -F";" '$1~/^\( *cd/ && $2~/rm -rf.*\) *$/ {
+	sub(/^\( *cd */,"",$1); sub(/ *$/,"",$1); 
+	sub(/ *rm -rf */,"",$2); sub(/ *\) *$/,"",$2);
+	sub(/^"/,"",$1); sub(/"$/,"",$1);
+	sub(/^"/,"",$2); sub(/"$/,"",$2);
+	print $1 "/" $2
+}'
+}
+
+preserve_file() {
+ if [ "$PRESERVE" = "true" ]; then
+  F="$(basename "$1")"
+  D="$(dirname "$1")"
+  if [ ! -d "$PRES_DIR/$PKGNAME/$D" ]; then
+    mkdir -p "$PRES_DIR/$PKGNAME/$D" || return 1
+  fi
+  cp -p "$ROOT/$D/$F" "$PRES_DIR/$PKGNAME/$D" || return 1
+ fi
+ return 0
+}
+
+preserve_dir() {
+ if [ "$PRESERVE" = "true" ]; then
+  if [ ! -d "$PRES_DIR/$PKGNAME/$1" ]; then
+    mkdir -p "$PRES_DIR/$PKGNAME/$1" || return 1
+  fi
+ fi
+ return 0
+}
+
+keep_files() {
+ while read FILE ; do
+  if [ ! -d "$ROOT/$FILE" ]; then
+   if [ -r "$ROOT/$FILE" ]; then
+    echo "  --> $ROOT/$FILE was found in another package. Skipping."
+    preserve_file "$FILE"
+   else
+    if [ "$(echo $FILE | cut -b1-8)" != "install/" ]; then
+     echo "WARNING: Nonexistent $ROOT/$FILE was found in another package. Skipping."
+    fi
+   fi
+  else
+   preserve_dir "$FILE"
+  fi
+ done
+}
+
+keep_links() {
+ while read LINK ; do
+  if [ -L "$ROOT/$LINK" ]; then
+   echo "  --> $ROOT/$LINK (symlink) was found in another package. Skipping."
+  else
+   echo "WARNING: Nonexistent $ROOT/$LINK (symlink) was found in another package. Skipping."
+  fi
+ done
+}
+
+delete_files() {
+ while read FILE ; do
+  if [ ! -d "$ROOT/$FILE" ]; then
+   if [ -r "$ROOT/$FILE" ]; then
+    if [ "$ROOT/$FILE" -nt "$ADM_DIR/packages/$PKGNAME" ]; then
+     echo "WARNING: $ROOT/$FILE changed after package installation."
+    fi
+    if [ ! "$WARN" = "true" ]; then
+     echo "  --> Deleting $ROOT/$FILE"
+     preserve_file "$FILE" && rm -f "$ROOT/$FILE"
+    else
+     echo "  --> $ROOT/$FILE would be deleted"
+     preserve_file "$FILE"
+    fi
+   else
+    echo "  --> $ROOT/$FILE no longer exists. Skipping."
+   fi
+  else
+   preserve_dir "$FILE"
+  fi
+ done
+}
+
+delete_links() {
+ while read LINK ; do
+  if [ -L "$ROOT/$LINK" ]; then
+   if [ ! "$WARN" = "true" ]; then
+    echo "  --> Deleting symlink $ROOT/$LINK"
+    rm -f "$ROOT/$LINK"
+   else
+    echo "  --> $ROOT/$LINK (symlink) would be deleted"
+   fi
+  else
+   echo "  --> $ROOT/$LINK (symlink) no longer exists. Skipping."
+  fi
+ done
+}
+
+delete_dirs() {
+ sort -r | \
+ while read DIR ; do
+  if [ -d "$ROOT/$DIR" ]; then
+    if [ ! "$WARN" = "true" ]; then
+      if [ $(ls -a "$ROOT/$DIR" | wc -l) -eq 2 ]; then
+        echo "  --> Deleting empty directory $ROOT/$DIR"
+        rmdir "$ROOT/$DIR"
+      else
+        echo "WARNING: Unique directory $ROOT/$DIR contains new files"
+      fi
+    else
+     echo "  --> $ROOT/$DIR (dir) would be deleted if empty"
+    fi
+  fi
+ done
+}
+
+delete_cats() {
+ sed -n 's,/man\(./[^/]*$\),/cat\1,p'  | \
+ while read FILE ; do
+   if [ -f "$ROOT/$FILE" ]; then
+     if [ ! "$WARN" = "true" ]; then
+       echo "  --> Deleting $ROOT/$FILE (fmt man page)"
+       rm -f "$ROOT/$FILE"
+     else
+       echo "  --> $ROOT/$FILE (fmt man page) would be deleted"
+     fi
+   fi
+ done
+}
+
+package_name() {
+  STRING=$(pkgbase $1)
+  # If we don't do this, commands run later will take the '-' to be an option
+  # and will destroy the package database.  Packages should not contain spaces
+  # in them.  Normally this type of problem results from a command line typo.
+  if [ "$(echo $STRING | cut -b 1)" = "-" ]; then
+    STRING="malformed-package-name-detected"
+  fi
+  # Check for old style package name with one segment:
+  if [ "$(echo $STRING | cut -f 1 -d -)" = "$(echo $STRING | cut -f 2 -d -)" ]; then
+    echo $STRING
+  else # has more than one dash delimited segment
+    # Count number of segments:
+    INDEX=1
+    while [ ! "$(echo $STRING | cut -f $INDEX -d -)" = "" ]; do
+      INDEX=$(expr $INDEX + 1)
+    done
+    INDEX=$(expr $INDEX - 1) # don't include the null value
+    # If we don't have four segments, return the old-style (or out of spec) package name:
+    if [ "$INDEX" = "2" -o "$INDEX" = "3" ]; then
+      echo $STRING
+    else # we have four or more segments, so we'll consider this a new-style name:
+      NAME=$(expr $INDEX - 3)
+      NAME="$(echo $STRING | cut -f 1-$NAME -d -)"
+      echo $NAME
+      # cruft for later ;)
+      #VER=$(expr $INDEX - 2)
+      #VER="$(echo $STRING | cut -f $VER -d -)"
+      #ARCH=$(expr $INDEX - 1)
+      #ARCH="$(echo $STRING | cut -f $ARCH -d -)"
+      #BUILD="$(echo $STRING | cut -f $INDEX -d -)"
+    fi
+  fi
+}
+
+# Conversion to 'comm' utility by Mark Wisdom.
+# is pretty nifty! :^)
+remove_packages() {
+ for PKGLIST in $* 
+ do
+  PKGNAME=$(pkgbase $PKGLIST)
+  echo
+  # If we don't have a package match here, then we will attempt to find
+  # a package using the long name format (name-version-arch-build) for
+  # which the base package name was given.  On a properly-managed machine,
+  # there should only be one package installed with a given basename, but
+  # we don't enforce this policy.  If there's more than one, only one will
+  # be removed.  If you want to remove them all, you'll need to run
+  # removepkg again until it removes all the same-named packages.
+  if [ ! -e $ADM_DIR/packages/$PKGNAME ]; then
+   SHORT="$(package_name $PKGNAME)"
+   for long_package in $ADM_DIR/packages/${PKGNAME}* ; do
+    if [ "$SHORT" = "$(package_name $long_package)" ]; then
+     PKGNAME="$(basename $long_package)"
+    fi
+   done
+  fi
+
+  if [ ! -e $ADM_DIR/packages/$PKGNAME ]; then
+    long_package=$(ls -1 $ADM_DIR/packages/${PKGNAME}* | grep -m 1 "${PKGNAME}-[^-]*-[^-]*-[^-]*$")
+    if [ -e "$long_package" ]; then
+      PKGNAME=$(basename $long_package)
+    fi
+  fi
+
+  if [ -r $ADM_DIR/packages/$PKGNAME ]; then
+   if [ ! "$WARN" = true ]; then
+    echo "Removing package $ADM_DIR/packages/$PKGNAME..."
+   fi
+   if fgrep "./" $ADM_DIR/packages/$PKGNAME 1> /dev/null 2>&1; then
+    TRIGGER="^\.\/"
+   else
+    TRIGGER="FILE LIST:"
+   fi
+   if [ ! "$WARN" = true ]; then
+    echo "Removing files:"
+   fi
+   sed -n "/$TRIGGER/,/^$/p" < $ADM_DIR/packages/$PKGNAME | \
+    fgrep -v "FILE LIST:" | sort -u > $TMP/delete_list$$
+   # Pat's new-new && improved pre-removal routine.
+   cat_except $ADM_DIR/packages $PKGNAME | sort -u > $TMP/required_list$$
+   if [ -r $ADM_DIR/scripts/$PKGNAME ]; then
+    extract_links < $ADM_DIR/scripts/$PKGNAME | sort -u > $TMP/del_link_list$$
+    cat_except $ADM_DIR/scripts $PKGNAME | extract_links | \
+     sort -u > $TMP/required_links$$
+    mv $TMP/required_list$$ $TMP/required_files$$
+    sort -u $TMP/required_links$$ $TMP/required_files$$ > $TMP/required_list$$
+    comm -12 $TMP/del_link_list$$ $TMP/required_list$$ | keep_links
+    comm -23 $TMP/del_link_list$$ $TMP/required_list$$ | delete_links
+   else
+    cat $ADM_DIR/scripts/* | extract_links | \
+     sort -u > $TMP/required_links$$
+    mv $TMP/required_list$$ $TMP/required_files$$
+    sort -u $TMP/required_links$$ $TMP/required_files$$ >$TMP/required_list$$
+   fi
+   comm -12 $TMP/delete_list$$ $TMP/required_list$$ | keep_files
+   comm -23 $TMP/delete_list$$ $TMP/required_list$$ > $TMP/uniq_list$$
+   delete_files < $TMP/uniq_list$$
+   delete_dirs < $TMP/uniq_list$$
+   delete_cats < $TMP/uniq_list$$
+   if [ ! "$KEEP" = "true" ]; then
+    rm -f $TMP/delete_list$$ $TMP/required_files$$ $TMP/uniq_list$$
+    rm -f $TMP/del_link_list$$ $TMP/required_links$$ $TMP/required_list$$
+   fi
+   if [ "$PRESERVE" = "true" ]; then
+    if [ -r $ADM_DIR/scripts/$PKGNAME ]; then
+     if [ ! -d "$PRES_DIR/$PKGNAME/install" ]; then
+      mkdir -p "$PRES_DIR/$PKGNAME/install"
+     fi
+     cp -p $ADM_DIR/scripts/$PKGNAME $PRES_DIR/$PKGNAME/install/doinst.sh
+    fi
+    if [ -r $ADM_DIR/scripts/$PKGNAME.uninstall ]; then
+     if [ ! -d "$PRES_DIR/$PKGNAME/install" ]; then
+      mkdir -p "$PRES_DIR/$PKGNAME/install"
+     fi
+     cp -p $ADM_DIR/scripts/$PKGNAME.uninstall $PRES_DIR/$PKGNAME/install/slack-uninstall.sh
+    fi    
+   fi
+   if [ ! "$WARN" = "true" ]; then
+    # run uninstall script last
+    if [ -r $ADM_DIR/scripts/$PKGNAME.uninstall ]; then
+     echo "Executing uninstall script for $PKGNAME"
+     ( cd $ROOT/; sh ./${ADM_DIR#$ROOT/}/scripts/$PKGNAME.uninstall -uninstall; )
+    fi
+    for DIR in $ADM_DIR/removed_packages $ADM_DIR/removed_scripts ; do
+     if [ ! -d $DIR ] ; then mkdir -p $DIR ; chmod 755 $DIR ; fi
+    done
+    mv $ADM_DIR/packages/$PKGNAME $ADM_DIR/removed_packages
+    if [ -r $ADM_DIR/scripts/$PKGNAME ]; then
+     mv $ADM_DIR/scripts/$PKGNAME $ADM_DIR/removed_scripts
+    fi
+    if [ -r $ADM_DIR/scripts/$PKGNAME.uninstall ]; then
+     mv $ADM_DIR/scripts/$PKGNAME.uninstall $ADM_DIR/removed_scripts
+    fi    
+   fi
+  else
+   echo "No such package: $ADM_DIR/packages/$PKGNAME. Can't remove."
+  fi
+ done
+}
+
+if [ "$#" = "0" ]; then
+  echo "Usage: $(basename $0) [-copy] [-keep] [-preserve] [-warn] packagename ..."; exit 1
+fi
+
+while : ; do
+ case "$1" in
+  -copy | --copy) WARN=true; PRESERVE=true; shift;;
+  -keep | --keep) KEEP=true; shift;;
+  -preserve | --preserve) PRESERVE=true; shift;;
+  -warn | --warn) WARN=true; shift;;
+  -* | --*) echo "Usage: $(basename $0) [-copy] [-keep] [-preserve] [-warn] packagename ..."; exit 1;;
+  *) break
+ esac
+done
+
+if [ "$WARN" = "true" ]; then
+ echo "Only warning... not actually removing any files."
+ if [ "$PRESERVE" = "true" ]; then
+  echo "Package contents is copied to $PRES_DIR."
+ fi
+ echo "Here's what would be removed (and left behind) if you"
+ echo "removed the package(s):"
+ echo
+else
+ if [ "$PRESERVE" = "true" ]; then
+  echo "Package contents is copied to $PRES_DIR."
+ fi
+fi
+
+remove_packages $*
+

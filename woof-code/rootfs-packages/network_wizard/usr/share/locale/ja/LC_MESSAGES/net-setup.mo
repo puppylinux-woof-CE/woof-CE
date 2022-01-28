@@ -329,6 +329,8 @@ L_INTTYPE_Wireless="ワイヤレス"
 L_INTTYPE_Ethernet="イーサネット"
 L_INFO_Eth_Firewire="ファイヤーワイヤー越えイーサネット"
 
+L_MESSAGE_Already_Running="Network Wizard cannot start now because it is already active."
+L_MESSAGE_Use_or_Terminate_Existing="Please use the active Network Wizard session or terminate it and start it again."
 L_TOPMSG_Initial="やぁ,ネットワークの設定は簡単じゃないけど, 頑張っていこう!"
 
 ############### end net-setup.sh ###############

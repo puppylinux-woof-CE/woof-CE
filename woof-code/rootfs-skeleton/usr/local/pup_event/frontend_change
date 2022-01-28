@@ -1,49 +1,81 @@
-#!/bin/sh
+#!/bin/bash
 #(c) Copyright 2013 Barry Kauler, bkhome.org - GPL3 (/usr/share/doc/legal)
 #
 # 50-udev-puppy-basic.rules
 # 
-# env. variables: ACTION=add, DEVNAME=/dev/sda1,
-#                 ID_PART_ENTRY_SIZE=15603712, ID_FS_TYPE=ntfs, ID_FS_LABEL=aaa etc..
+# udev env. variables:
+#    ACTION=add, DEVNAME=/dev/sda1, ID_*
+#    ID_PART_ENTRY_SIZE=15603712, ID_FS_TYPE=ntfs, ID_FS_LABEL=aaa etc..
 #
+# called by udev (started quite early, no X, some env variables are probably missing...)
 
 #FCDEBUG=1
 if [ "$FCDEBUG" = "1" ] ; then
-	exec &>>/tmp/${0##*/}.log ; set -x ; env #debug
+	exec &>>/tmp/${0##*/}.log
+	echo -e "\n================ $(date) ===================\n"
+	echo -e "$0 $@\n"
+	set -x ; env #debug
 fi
 
 ACTION=$1
 DEV_NAME=$2
 DRV_NAME=$2
 
-case $DEV_NAME in
-	sd*|hd*|mmc*|nvme*|sr*) ok=1 ;; #allowed devices
-	*) exit 1 ;;
-esac
+. /etc/rc.d/functions_x #fx_* functions
+
+if ! fx_drv_is_ok $DEV_NAME ; then
+	exit
+fi
 
 . /etc/eventmanager #has RAMSAVEINTERVAL, HOTPLUGNOISY, BACKENDON, POWERTIMEOUT
-if [ "$HOTPLUGON" != "true" -o "$BACKENDON" != "true" ] ; then
-	exit 1
+if [ "$HOTPLUGON" != "true" -o "$BACKENDON" != "true" -o "$ICONDESK" != "true" ] ; then
+	exit
 fi
 
 #==========================================================
 
-if [ -f /tmp/pup_event_frontend_display ] ; then
-	. /tmp/pup_event_frontend_display
+# /root/.profile creates /tmp/services/user_info
+if [ -f /tmp/services/user_info ] ; then
+	. /tmp/services/user_info
 fi
+
+# frontend_startup creates /tmp/services/x_display
+if [ -f /tmp/services/x_display ] ; then
+	. /tmp/services/x_display
+fi
+
 if [ -z "$DISPLAY" -o -z "$PATH" ] ; then
 	echo "${0}: ERROR: empty "'$DISPLAY or $PATH'
-	exit 1
+	exit 3
 fi
-export DISPLAY PATH
 
-. /etc/rc.d/functions_x #fx_functions
+BPS=`busybox ps`
+
+echo "$BPS" | grep -q 'ROX-Filer -p' && {
+	ROX_DESKTOP=yes
+}
+
+[ "$ROX_DESKTOP" == "" ] && exit
+
+
+#---------------------------------
+export DISPLAY PATH HOME LANG USER
+#---------------------------------
+
 if fx_drv_is_optical ${DEV_NAME} ; then
 	FC_OPTICAL_DRV=1
-	[ "$ACTION" = "add" -a ! -e /sys/block/${DEV_NAME} ] && exit 1
+	if [ -f /tmp/frontend_startup_lock ] ; then
+		# frontend_startup is running
+		exit
+	fi
+	if [ "$ACTION" = "add" -a ! -e /sys/block/${DEV_NAME} ] ; then
+		exit
+	fi
 else
 	case $ACTION in add|change)
-		[ ! -e /sys/block/${DEV_NAME} ] && exit 1 ;;
+		if [ ! -e /sys/block/${DEV_NAME} ] ; then
+			exit
+		fi ;;
 	esac
 fi
 
@@ -51,35 +83,53 @@ if [ "$FCDEBUG" != "1" ] ; then
 	# somehow this prevents the script from being in
 	# a "zombie" state while pmount is running
 	# and HOTPLUGNOISY is enabled...
-	exec &>/dev/null
+	exec >/dev/null 2>&1
 fi
 
 #==========================================================
 
-. /usr/local/pup_event/frontend_funcs
+# frontend_rox_funcs = ROX-Filer
+if [ -f /usr/local/pup_event/frontend_rox_funcs ] ; then
+	. /usr/local/pup_event/frontend_rox_funcs 2>/dev/null
+else
+	ICONPARTITIONS='false'
+	rox_remove_pinboard_func() {
+		echo -n ;
+	}
+	create_icon_func() {
+		local dev=$1
+		[ "$DRV_NAME" ] && dev=$DRV_NAME
+		if [ ! -d /tmp/pup_event_frontend/drive_${dev} ] ; then
+			mkdir -p /tmp/pup_event_frontend/drive_${dev}
+		fi
+		cat > /tmp/pup_event_frontend/drive_${dev}/AppRun <<EOF
+#!/bin/sh
+exec /usr/local/pup_event/drive_all $dev
+EOF
+		chmod +x /tmp/pup_event_frontend/drive_${dev}/AppRun
+	}
+fi
+
 export FRONTEND_CHANGE=1
 
 if [ "$ACTION" = "change" ] ; then
 	UEVENT_CHANGE=1
 	if [ "$FC_OPTICAL_DRV" = "1" ] ; then
-		# frontend_timeout handles the situation if udev is misbehaving 
-		# and not properly reporting hotplug events for optical drives
-		if [ "$ID_CDROM_MEDIA_STATE" = "complete" ] ; then
+		# pup_event_frontend_d handles the situation if udev is misbehaving 
+		# and not reporting hotplug events for optical drives
+		if [ "$ID_CDROM_MEDIA_STATE" ] || \
+		   [ "$ID_CDROM_MEDIA_TRACK_COUNT_AUDIO" ] ; then
 			ACTION='add'
-			# testing a bad optical drive there's a timing issue
-			# and a race condition with frontend_timeout
-			PS="`busybox ps`"
-			echo "$PS" | grep "zzFRONTEND_CHANGE ${DRV_NAME}" && exit
-		elif [ "$ID_CDROM_MEDIA" != "1" ] ; then
-			ACTION='remove'
+		elif [ "$ID_CDROM_MEDIA" = "1" ] ; then
+			exit # it's still processing stuff
 		else
-			exit
+			ACTION='remove'
 		fi
 	else
 		case ${DEV_NAME} in sd*|hd*|mmc*|nvme*)
 			#we want to completely refresh the desktop drive icons...
-			remove_pinboard_func #needs DRV_NAME
-			rm -rf /root/.pup_event/drive_${DEV_NAME}* 2>/dev/null
+			rox_remove_pinboard_func ${DRV_NAME}
+			rm -rf /tmp/pup_event_frontend/drive_${DEV_NAME}* 2>/dev/null
 			ACTION='add' ;;
 		esac
 	fi
@@ -91,14 +141,36 @@ fi
 case $ACTION in
 	add)
 
-		[ -e /root/.pup_event/drive_${DEV_NAME} ] && exit #desktop icon (and partitions) already exist.
+		if [ -e /tmp/pup_event_frontend/drive_${DEV_NAME} ] ; then
+			exit #desktop icon (and partitions) already exist.
+		fi
 
-		PROBEPART="`probepart -k -extra-info zzFRONTEND_CHANGE "${DRV_NAME}.*" | grep -E 'audiocd|btrfs|ext2|ext3|ext4|f2fs|hfs|iso9660|jfs|minix|msdos|ntfs|reiser|udf|vfat|exfat|xfs|crypto_LUKS'`" #130610 screen out unwante# cat /sys/block/sda
-		PROBEDISK="$(probedisk $DRV_NAME)"
-		IFS="|" read -r DEV DRV_CATEGORY DRV_DESCRIPTION ZZ <<EOF
-$PROBEDISK
-EOF
-		[ -z "$PROBEPART" ] && exit 1
+		# drive is still being processed, must ignore the current uevent
+		if [ -f /tmp/frontend_change_processing_${DRV_NAME} ] ; then
+			exit
+		fi
+
+		# "lock"
+		touch /tmp/frontend_change_processing_${DRV_NAME}
+
+		PROBEDISK="$(probedisk -plus-size $DRV_NAME)"
+		if [ -z "$PROBEDISK" ] ; then
+			logger -s "PROBEDISK FAILED"
+			rm -f /tmp/frontend_change_processing_${DRV_NAME} # "unlock"
+			exit 1
+		fi
+
+		IFS="|" read -r DEV DRV_CATEGORY DRV_DESCRIPTION DRV_SIZE zz <<< "$PROBEDISK"
+
+		if [ "$ICONPARTITIONS" = "true" ] ; then
+			PROBEPART="`probepart -k -extra-info "${DRV_NAME}*"`"
+			if [ -z "$PROBEPART" ] ; then
+				rm -f /tmp/frontend_change_processing_${DRV_NAME} # "unlock"
+				exit 2
+			fi
+		fi
+
+		rm -f /tmp/frontend_change_processing_${DRV_NAME} # "unlock"
 
 		#'startup' param just prevents func from running 'probepart'...
 		create_icon_func startup #uses DEV_NAME, DRV_CATEGORY, DRV_DESCRIPTION
@@ -112,20 +184,26 @@ EOF
 		fi
 
 		if [ "$HOTPLUGNOISY" = "true" ] ; then
-			/root/.pup_event/drive_${DEV_NAME}/AppRun ${DRV_CATEGORY} & #handler script.
+			/tmp/pup_event_frontend/drive_${DEV_NAME}/AppRun ${DRV_CATEGORY} & #handler script.
 		fi
 		;;
 
 	remove)
-		[ ! -e /root/.pup_event/drive_${DEV_NAME} ] && exit #desktop icon (and partitions) already removed.
+
+		if [ ! -e /tmp/pup_event_frontend/drive_${DEV_NAME} ] ; then
+			exit #desktop icon (and partitions) already removed.
+		fi
+
 		if [ "`pidof gtkdialog_pmount`" != "" ];then #if pmount running, refresh it.
 			killall gtkdialog_pmount 2>/dev/null
 			sleep 0.1
 			pmount & #100613 fix from shinobar.
 		fi
-		remove_pinboard_func #needs DEV_NAME
-		rm -rf /root/.pup_event/drive_${DEV_NAME}* 2>/dev/null
+		rox_remove_pinboard_func ${DEV_NAME}
+		rm -rf /tmp/pup_event_frontend/drive_${DEV_NAME}* 2>/dev/null
 		;;
 esac
+
+exit 0
 
 ### END ###

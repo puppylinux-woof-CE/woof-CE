@@ -29,9 +29,28 @@
 #170309 rerwin: retain choice in case multiple setups tried; disconnect any unchosen network setup.
 #170418 rerwin: leave frisbee state unchanged after choosing new defaultconnect.
 #170510 rerwin: replace 170309 implemention with connectwizard_exec; kill other connectwizard dialogs, to avoid conflict; exit if dialog killed; support optional pupdial.
+#180919 add peasywifi support.
+#200817 remove change current exec to pgprs because pgprs 3.0 does it before a connect.
 
 export TEXTDOMAIN=connectwizard
 export OUTPUT_CHARSET=UTF-8
+
+#v411 commandline param, this section irrelevant...
+DEFAULTCONNECT="`cat /usr/local/bin/defaultconnect | tail -n 1 | tr -s " " | cut -f 2 -d " "`"
+
+case $DEFAULTCONNECT in
+ connman-gtk)  exec connman-gtk   ;;
+ gnome-ppp)    DEFGNOMEPPP="yes"  ;;
+ pupdial)      DEFPUPDIAL="yes"   ;;
+ pppoe_gui)    DEFRPPPPOE="yes"   ;;
+ pppoeconf)    DEFPPPOECONF="yes" ;;
+ frisbee)      DEFFRISBEE="yes"   ;;
+ net-setup.sh) DEFNETWIZARD="yes" ;;
+ sns)          DEFSNS="yes"       ;;
+ pgprs)        DEFMTGPRS="yes"    ;; #170308
+ peasywifi)    DEFPWF="yes" ;; #180919
+ *) DEFICW="yes" ;;
+esac
 
 firewall_func() {
 	which firewall_ng 2>&1 >/dev/null
@@ -44,6 +63,18 @@ firewall_func() {
 }
 export -f firewall_func
 
+#radiobuttons...
+DEFGNOMEPPP="no"
+DEFPUPDIAL="no"
+DEFRPPPPOE="no"
+DEFMTGPRS="no"
+DEFICW="no"
+DEFPPPOECONF="no" #v409
+DEFFRISBEE="no" #120823
+DEFNETWIZARD="no" #100227
+DEFSNS="no" #100310
+DEFPWF="no" #180919
+
 WIZARDPIDS="$(ps --no-headers -fC gtkdialog | grep -E 'Network_Connection_Wizard|InternetConnectionWizard' | tr -s ' ' | cut -f 2 -d ' ' | tr '\n' ' ')" #170510
 [ -n "$WIZARDPIDS" ] && kill $WIZARDPIDS #170510
 
@@ -55,30 +86,6 @@ else
  ONLINE='false'
  FIERWALL_LABEL=$(gettext "Firewall can be setup after connection")
 fi
-
-#v411 commandline param, this section irrelevant...
-DEFAULTCONNECT="`cat /usr/local/bin/defaultconnect | tail -n 1 | tr -s " " | cut -f 2 -d " "`"
-#radiobuttons...
-DEFGNOMEPPP="no"
-DEFPUPDIAL="no"
-DEFRPPPPOE="no"
-DEFMTGPRS="no"
-DEFICW="no"
-DEFPPPOECONF="no" #v409
-DEFFRISBEE="no" #120823
-DEFNETWIZARD="no" #100227
-DEFSNS="no" #100310
-case $DEFAULTCONNECT in
- gnome-ppp)    DEFGNOMEPPP="yes"  ;;
- pupdial)      DEFPUPDIAL="yes"   ;;
- pppoe_gui)    DEFRPPPPOE="yes"   ;;
- pppoeconf)    DEFPPPOECONF="yes" ;;
- frisbee)      DEFFRISBEE="yes"   ;;
- net-setup.sh) DEFNETWIZARD="yes" ;;
- sns)          DEFSNS="yes"       ;;
- pgprs) DEFMTGPRS="yes" ;; #170308
- *) DEFICW="yes" ;;
-esac
 
 #101002 rerwin: Wait for initialization scripts to complete... 101122 breakout.
 BRKCNT=0 ; BRKPID=0
@@ -119,8 +126,21 @@ fi
 
 FLAGPUPDIAL="" #170510...
 CONNECTPUPDIAL=""
-if [ "`which pupdial 2>/dev/null`" != "" ];then
- FLAGPUPDIAL="<radiobutton><label>'$(gettext "PupDial (modem dialup)")'</label><variable>RADIOPUPDIAL</variable><default>'$DEFPUPDIAL'</default></radiobutton>"
+
+if [ "`which gnome-ppp 2>/dev/null`" != "" ];then
+ CONNECTPUPDIAL='
+ <hbox space-expand="true" space-fill="true">
+   <button space-expand="false" space-fill="false">
+     '"`/usr/lib/gtkdialog/xml_button-icon modem.svg big`"'
+     <action>connectwizard_exec gnome-ppp</action>
+     <action>gnome-ppp &</action>
+     <action type="exit">true_exit</action>
+   </button>
+   <text space-expand="false" space-fill="false"><label>'$(gettext "Dialup analog or wireless modem (2g/3g)")'</label></text>
+   <text space-expand="true" space-fill="true"><label>""</label></text>
+ </hbox>'
+elif [ "`which pupdial 2>/dev/null`" != "" ];then
+ FLAGPUPDIAL="<radiobutton><label>$(gettext "PupDial (modem dialup)")</label><variable>RADIOPUPDIAL</variable><default>$DEFPUPDIAL</default></radiobutton>"
  CONNECTPUPDIAL='
  <hbox space-expand="true" space-fill="true">
    <button space-expand="false" space-fill="false">
@@ -169,12 +189,11 @@ if [ "`which pppoeconf 2>/dev/null`" != "" ];then
 fi
 
 FLAGMTGPRS=""
-if [ -x /usr/sbin/pgprs ];then #160120
+if which pgprs >/dev/null 2>&1;then #160120
  CONNECTMTGPRS='
  <hbox space-expand="true" space-fill="true">
    <button space-expand="false" space-fill="false">
      '"`/usr/lib/gtkdialog/xml_button-icon wireless.svg big`"'
-     <action>connectwizard_exec pgprs</action>
      <action>/usr/sbin/pgprs --setup &</action>
      <action type="exit">exit</action>
    </button>
@@ -184,21 +203,55 @@ if [ -x /usr/sbin/pgprs ];then #160120
  FLAGMTGPRS="<radiobutton><label>$(gettext "GPRS Connect")</label><variable>RADIOMTGPRS</variable><default>$DEFMTGPRS</default></radiobutton>"
 fi
 
-if [ -x /usr/local/bin/frisbee ];then #100227 121112 130111 Jemimah's wireless connection gui. 160120
+if which frisbee >/dev/null 2>&1;then #100227 121112 130111 Jemimah's wireless connection gui. 160120
  FLAGFRISBEE="<radiobutton><label>$(gettext "Frisbee (wireless networking)")</label><variable>RADIOFRISBEE</variable><default>$DEFFRISBEE</default></radiobutton>"
 fi
 
-if [ -f /usr/sbin/net-setup.sh ];then #100227 wizard developed by Dougal.
+if which net-setup.sh >/dev/null 2>&1;then #100227 wizard developed by Dougal.
  FLAGNETWIZARD="<radiobutton><label>$(gettext "Dougal's Network Wizard")</label><variable>RADIONETWIZARD</variable><default>$DEFNETWIZARD</default></radiobutton>"
 fi
 
-if [ -d /usr/local/simple_network_setup ];then #100310
+if which sns >/dev/null 2>&1;then #100310
  FLAGSNS="<radiobutton><label>$(gettext "Barry's Simple Network Setup")</label><variable>RADIOSNS</variable><default>$DEFSNS</default></radiobutton>"
 fi
 
+if which peasywifi >/dev/null 2>&1;then #180919
+ FLAGPWF="<radiobutton><label>$(gettext "PeasyWiFi Connection Manager")</label><variable>RADIOPWF</variable><default>$DEFPWF</default></radiobutton>"
+fi
+
+
+if [ "$(pidof NetworkManager)" == "" ]; then
+ PROXYSETUP='<hbox space-expand="true" space-fill="true">
+                <text space-expand="false" space-fill="false"><label>'$(gettext "Setup a proxy server")'</label></text>
+                <button space-expand="false" space-fill="false">
+                  '"`/usr/lib/gtkdialog/xml_button-icon shield_internet.svg big`"'
+                  <action>proxy-setup &</action>
+                  <action type="exit">exit</action>
+                </button>
+              </hbox>'
+	      
+ MAINSETUP='<hbox space-expand="true" space-fill="true">
+                <button space-expand="false" space-fill="false">
+                  '"`/usr/lib/gtkdialog/xml_button-icon network_connect.svg big`"'
+                  <action>/usr/sbin/connectwizard_2nd & </action>
+                  <action type="exit">true_exit</action>
+                </button>
+                <text space-expand="false" space-fill="false"><label>'$(gettext "Wired or wireless LAN")'</label></text>
+                <text space-expand="true" space-fill="true"><label>""</label></text>
+              </hbox>'
+	      
+else
+ CONNECTMTGPRS=""
+ CONNECTPPPOECONF=""
+ CONNECTROARINGPENGUIN=""
+ PROXYSETUP=""
+ MAINSETUP=""
+fi	  
+
+
 #v411...
 CHOOSEDEFAULT='
-<vbox space-expand="true" space-fill="true">
+<vbox space-expand="true" space-fill="true" margin="8">
 '"`/usr/lib/gtkdialog/xml_info fixed internet_connect.svg 60 "$(gettext "What you choose here will start immediately next time you click the 'connect' icon either on the desktop or the tray.")"`"'
       <vbox space-expand="true" space-fill="true">
   <frame '$(gettext "Connect action")'>
@@ -211,6 +264,7 @@ CHOOSEDEFAULT='
         '$FLAGGNOMEPPP'
         '$FLAGPPPOECONF'
         '$FLAGROARINGPENGUIN'
+        '$FLAGPWF'
         <radiobutton><label>'$(gettext "Internet Connection Wizard")'</label><variable>RADIOICW</variable><default>'$DEFICW'</default></radiobutton>
       </vbox>
   </frame>
@@ -221,24 +275,16 @@ CHOOSEDEFAULT='
 HOSTNAME="`cat /etc/hostname`" #111106 do not use $HOSTNAME, as hostname-set may have just been run.
 
 export InternetConnectionWizard='
-<window title="'$(gettext "Internet Connection Wizard")'" icon-name="gtk-connect">
+<window title="'$(gettext "Internet Connection Wizard")'" icon-name="gtk-connect" resizable="false">
 <vbox space-expand="true" space-fill="true">
   <notebook labels="'$(gettext 'Connection')'|'$(gettext 'Desktop / Tray')'">
-    <vbox space-expand="true" space-fill="true">
+    <vbox space-expand="true" space-fill="true" margin="8">
       '"`/usr/lib/gtkdialog/xml_info fixed internet_connect.svg 60 "$MSGNETIFS" "$MSGMODEM" "<b>$(gettext "Help button for more info")</b>"`"'
       <hbox space-expand="true" space-fill="true">
         <vbox space-expand="true" space-fill="true">
           <frame '$(gettext "Connect to Internet by")'>
             <vbox space-expand="false" space-fill="false">
-              <hbox space-expand="true" space-fill="true">
-                <button space-expand="false" space-fill="false">
-                  '"`/usr/lib/gtkdialog/xml_button-icon network_connect.svg big`"'
-                  <action>/usr/sbin/connectwizard_2nd & </action>
-                  <action type="exit">true_exit</action>
-                </button>
-                <text space-expand="false" space-fill="false"><label>'$(gettext "Wired or wireless LAN")'</label></text>
-                <text space-expand="true" space-fill="true"><label>""</label></text>
-              </hbox>
+              '${MAINSETUP}'
               '${CONNECTPUPDIAL}'
               '${CONNECTMTGPRS}'
               '${CONNECTPPPOECONF}'
@@ -246,7 +292,6 @@ export InternetConnectionWizard='
             </vbox>
           </frame>
         </vbox>
-
         <vbox space-expand="true" space-fill="true">
           <frame '$(gettext 'Tools')'>
             <vbox space-expand="false" space-fill="false">
@@ -258,14 +303,7 @@ export InternetConnectionWizard='
                   <action type="exit">exit</action>
                 </button>
               </hbox>
-              <hbox space-expand="true" space-fill="true">
-                <text space-expand="false" space-fill="false"><label>'$(gettext "Setup a proxy server")'</label></text>
-                <button space-expand="false" space-fill="false">
-                  '"`/usr/lib/gtkdialog/xml_button-icon shield_internet.svg big`"'
-                  <action>proxy-setup &</action>
-                  <action type="exit">exit</action>
-                </button>
-              </hbox>
+              '${PROXYSETUP}'
               <hbox space-expand="true" space-fill="true" tooltip-text="'$(gettext 'This gives detailed network interface information')'">
                 <text space-expand="false" space-fill="false"><label>'$(gettext "Network information")'</label></text>
                 <button space-expand="false" space-fill="false">
@@ -292,9 +330,7 @@ export InternetConnectionWizard='
       </vbox>
     </hbox>
   </vbox>
-
   '${CHOOSEDEFAULT}'
-
   </notebook>
   <hbox space-expand="false" space-fill="false">
     <button space-expand="false" space-fill="false">
@@ -313,7 +349,7 @@ export InternetConnectionWizard='
 </window>'
 
 . /usr/lib/gtkdialog/xml_info gtk #build bg_pixmap for gtk-theme
-RETSTR="`gtkdialog -p InternetConnectionWizard`" 
+RETSTR="`gtkdialog -p InternetConnectionWizard --styles=/tmp/gtkrc_xml_info.css`" 
 
 [ $? -gt 2 ] && exit #170510
 [ $1 ] && exit #v411
@@ -329,5 +365,6 @@ RADIOBUT="`echo "$RETSTR" | grep '^RADIO' | grep '"true"' | cut -f 1 -d '='`"
 [ "$RADIOBUT" = "RADIOFRISBEE" ] && echo -e '#!/bin/sh\nexec frisbee' > /usr/local/bin/defaultconnect #120823 130111
 [ "$RADIOBUT" = "RADIONETWIZARD" ] && echo -e '#!/bin/sh\nexec net-setup.sh' > /usr/local/bin/defaultconnect #100227
 [ "$RADIOBUT" = "RADIOSNS" ] && echo -e '#!/bin/sh\nexec sns' > /usr/local/bin/defaultconnect #100227
+[ "$RADIOBUT" = "RADIOPWF" ] && echo -e '#!/bin/sh\nexec peasywifi' > /usr/local/bin/defaultconnect #180919
 
 ###end###

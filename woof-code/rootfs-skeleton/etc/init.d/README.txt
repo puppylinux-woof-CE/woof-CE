@@ -77,10 +77,6 @@ Note that /etc/rc.d/init.d is a symlink to /etc/init.d
 
 Note, the scripts in /etc/init.d can have any name, but must have their executable flag set. Any file that does not have the 'x' flag set will be ignored.
 
-Event Management, which is mostly concerned with hardware-related detection and configuration while X is running, is described in more detail on this web page:
-
-http://puppylinux.com/technical/event-management.htm
-
 Regards,
 Barry Kauler
 Jan. 2010

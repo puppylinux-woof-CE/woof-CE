@@ -9,6 +9,10 @@
 #170724 accommodate absence of a current exec, for default eth0.
 #180104 clear resolv.conf at bootup, to ensure detection of initial change.
 #180112 recode netchoice determination for SNS & netwiz.
+#180919 add peasywifi support.
+#180923 replace specific exec paths with 'which'; move network wizard.
+#181209 add argument, adapt network stats reset moved from rc.sysinit.
+#200817 if no profiles present, ensure connectwizard is 'current'.
 
 #choose default network tool...
 if [ -f /root/.connectwizardrc ];then #170309... #170724...
@@ -17,26 +21,68 @@ else
  CURRENT_EXEC='connectwizard' #for this script only, not saved
 fi #170724 end
 
+case "$CURRENT_EXEC" in
+connman-*)
+ connmanctl enable wifi
+ connmanctl enable ethernet
+ exit
+ ;;
+esac
+
+if [ "$1" = '--sysinit' ]; then #181209...
+ ETHERNETDIR=network_ethernet
+ if [ ! -d /var/local/$ETHERNETDIR ];then
+  mkdir -p /var/local/$ETHERNETDIR
+  [ -d /var/local/sns -a ! -L /var/local/sns ] && rm -fr /var/local/sns
+  ln -snf $ETHERNETDIR /var/local/sns #for network_tray
+ fi
+ #100814 100903 record cumulative tx/rx, see also network_tray and rc.shutdown...
+ UPDATE_MONTH="$(date +%b%Y)"
+ CURRENT_MONTH="$(cat /var/local/$ETHERNETDIR/current_month 2>/dev/null)"
+ if [ "$UPDATE_MONTH" != "$CURRENT_MONTH" ];then
+  echo "$UPDATE_MONTH" > /var/local/$ETHERNETDIR/current_month
+  for ONECOUNT in $ETHERNETDIR pupdial/isp1 pupdial/isp2; do
+   if [ -d /var/local/$ONECOUNT ];then
+    echo -n 0 > /var/local/$ONECOUNT/rx_bytes_month
+    echo -n 0 > /var/local/$ONECOUNT/tx_bytes_month
+   fi
+  done
+ fi
+ unset ETHERNETDIR
+
+ #adjust for possible installation of peasywifi
+ which peasywifi >/dev/null 2>&1 && connectwizard_wrapper peasywifi #180919
+fi
+
 NETCHOICE='connectwizard' #180112
 case "$CURRENT_EXEC" in #170309 end
  sns) #180112...
-  [ -x /usr/sbin/sns ] \
+  which sns >/dev/null 2>&1 \
    && [ -s /etc/simple_network_setup/connections ] \
    && NETCHOICE='sns'
   ;;
+ peasywifi) #180919...
+  which peasywifi >/dev/null 2>&1 \
+   && ( [ "`ls -1 /etc/pwf/wifi 2>/dev/null`" ] \
+    || [ "`ls -1 /etc/pwf/ethernet 2>/dev/null`" ] ) \
+   && NETCHOICE='peasywifi'  ;;
  net-setup.sh)
-  [ -x /usr/sbin/net-setup.sh ] \
+  which net-setup.sh >/dev/null 2>&1 \
    && [ "`ls -1 /etc/network-wizard/network/interfaces 2>/dev/null`" ] \
    && NETCHOICE='net-setup.sh'
   ;; #180112 end
  connectwizard|frisbee) #try determine which tool was used to setup networking... 101007 160609...
-  if [ -x /usr/local/bin/frisbee ] \
-    && frisbee --test_active; then #130104
+  if which frisbee >/dev/null 2>&1 && frisbee --test_active; then #130104
    NETCHOICE='frisbee' #130104
-  elif [ -x /usr/sbin/sns ] \
+  elif which peasywifi >/dev/null 2>&1 \
+    && ( [ "`ls -1 /etc/pwf/wifi 2>/dev/null`" ] \
+     || [ "`ls -1 /etc/pwf/ethernet 2>/dev/null`" ] );then #180919...
+   NETCHOICE='peasywifi'
+   connectwizard_wrapper peasywifi
+  elif which sns >/dev/null 2>&1 \
    && [ -s /etc/simple_network_setup/connections ];then #100306 ...160609 170515
    NETCHOICE='sns'
-  elif [ -x /usr/sbin/net-setup.sh ] \
+  elif which net-setup.sh >/dev/null 2>&1 \
    && [ "`ls -1 /etc/network-wizard/network/interfaces 2>/dev/null`" ];then #170515
    NETCHOICE='net-setup.sh'
   fi
@@ -49,14 +95,18 @@ if [ ! -f /tmp/.initial_resolv.conf_cleared ];then #180104...
 fi
 
 case $NETCHOICE in
+ peasywifi) #180919
+  /usr/local/peasywifi/rc.network & #180919
+ ;;
  net-setup.sh)
-  /etc/rc.d/rc.network &
+  /usr/local/network-wizard/rc.network & #180923
  ;;
  sns) #100306
   /etc/rc.d/rc.network_basic #this only sets up interface 'lo'.
   /usr/local/simple_network_setup/rc.network &
  ;;
  connectwizard) #101007 shinobar
+  connectwizard_exec connectwizard #200817
   #170717 (161215) rewritten...
   /etc/rc.d/rc.network_basic #this only sets up interface 'lo'.
   /etc/rc.d/rc.network_eth &   #test for wired network.

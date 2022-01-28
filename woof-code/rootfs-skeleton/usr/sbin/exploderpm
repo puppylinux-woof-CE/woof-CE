@@ -1,135 +1,16 @@
-#!/bin/sh
-# exploderpm
-# VERSION 0.3
-# Copyright 2009-2013 Gilbert Ashley <amigo@ibiblio.org>
-# The code for explode_rpm was originally written by Jeff Johnson
-# and modified by Lasse Collin <lasse.collin@tukaani.org>
-# Copyright (C) 2005, 2006 Lasse Collin <lasse.collin@tukaani.org>
-#110705 bk: added -i install option for rpm. #131124 adjusted
+#!/bin/ash
+# legacy script - now using busybox 1.30.1+
 
-# code for handling debian archives taken from disrpm
-# released under the Gnu General Public License (GPL)
-# (c) bjdouma@xs4all.nl VER="v1.5, october 2004"
+if [ -z "$1" -o -z "$2" ] ; then
+	echo "syntax: $0 <-i|-l|-x> <file>"
+	exit 1
+fi
 
-# VERSION 0.3 Gilbert Ashley <amigo@ibiblio.org>
-# Added support for newer fedora rpm archives which use 7z instead of xz
-# Thanks to Jakub Szefer for finding and reporting this problem
-
-OPT="$1"
-FILE="$2"
-[[ $OPT = '-lv' ]] && VERBOSE='v' OPT='-l'
-[[ $OPT = '-xv' ]] && VERBOSE='v' OPT='-x'
-
-explode() {
-  case "$1" in
-    *.rpm)  explode_rpm "$FILE" ;;
-    *.deb)  explode_deb "$FILE" ;;
-  esac
-  return $?
-}
-
-
-gzip_sieve()
-{
-	# gzip-magic: 0x1F,0x8B
-	sed -ne '/1[fF]/{;N;/8[bB]$/{;s/1[fF]//g;s/^0*//g;P;};}'
-}
-
-bzip2_sieve()
-{
-	# bzip2-magic: 0x42,0x5A,0x68
-	sed -ne '/42/{;N;/5[aA]$/{;N;/68$/{s/42//g;s/5[aA]//g;s/^0*//g;P;};};}'
-}
-
-probe()
-{
-	dd if=$FILE ibs=$O skip=1 2>/dev/null \
-	| $2 -dc - 2>/dev/null \
-	| cpio "$1" 2>/dev/null
-}
-
-explode_deb() {
-
-PASS1="probe -t$VERBOSE"
-case $OPT in
-	'-l'|'-v') PASS2=":" ;;
-	'-x') PASS2="probe -idm" ;;
+case $1 in
+	'-x') rpm2cpio "$2" | cpio -idmu ;;
+	'-l') rpm -qpl "$2" ;;
+	'-i') rpm -i "$2" ;;
+	*) echo "syntax: $0 <-i|-l|-x> <file>" ; exit 1 ;;
 esac
 
-for AR in gzip bzip2 ; do
-	e=1
-	HEADER_SIZE=256000
-	AR_OFFSETS=$(od -A d -N $HEADER_SIZE -v -t x1 -w1 $FILE | ${AR}_sieve)
-	for O in $AR_OFFSETS ; do
-		$PASS1 $AR 2>/dev/null && $PASS2 $AR && e=0
-	done
-	[ $e -eq 0 ] && return $e
-done
-}
-
-
-explode_rpm() {
-  local pkg o sigsize gz
-  pkg=$1
-  o=104
-  set -- $(od -j $o -N 8 -t u1 -- "$pkg")
-  sigsize=$((8 + 16 *
-      (256 * (256 * (256 * $2 + $3) + $4) + $5) +
-      (256 * (256 * (256 * $6 + $7) + $8) + $9)))
-  o=$((o + sigsize + (8 - (sigsize % 8)) % 8 + 8))
-  set -- $(od -j $o -N 8 -t u1 -- "$pkg")
-  o=$((o + 8 + 16 *
-      (256 * (256 * (256 * $2 + $3) + $4) + $5) +
-      (256 * (256 * (256 * $6 + $7) + $8) + $9)))
-  comp=$(dd if="$pkg" ibs=$o skip=1 count=1 2>/dev/null \
-      | dd bs=3 count=1 2> /dev/null)
-  gz="$(echo -en '\037\0213')"
-  #xz="$(echo -en '\0fd\037\07a\058\05a\000')"
-  case $OPT in
-	'-x')
-		case "$comp" in
-			BZh)      dd if="$pkg" ibs=$o skip=1 2>/dev/null | bunzip2 | cpio --quiet -ivdm ;;
-			"$gz"*)   dd if="$pkg" ibs=$o skip=1 2>/dev/null | gunzip | cpio --quiet -ivdm ;;
-			"]"*|?"7z"*)     dd if="$pkg" ibs=$o skip=1 2>/dev/null | unxz | cpio --quiet -ivdm ;;
-			*)        echo "Unrecognized rpm file: $pkg"; return 1 ;;
-		esac
-	;;
-	'-l')
-		case "$comp" in
-			BZh)      dd if="$pkg" ibs=$o skip=1 2>/dev/null | bunzip2 | cpio --quiet -t$VERBOSE ;;
-			"$gz"*)   dd if="$pkg" ibs=$o skip=1 2>/dev/null | gunzip | cpio --quiet -t$VERBOSE ;;
-			"]"*|?"7z"*)     dd if="$pkg" ibs=$o skip=1 2>/dev/null | unxz | cpio --quiet -t$VERBOSE ;;
-			*)        echo "Unrecognized rpm file: $pkg"; return 1 ;;
-		esac
-	;;
-	'-i') #110705 install
-		CURRDIR="`pwd`"
-		if [ ! -f ${CURRDIR}/${pkg} ];then
-		 echo "Error: ${CURRDIR}/${pkg} does not exist"
-		 return 1
-		fi
-		cd /
-		case "$comp" in
-			BZh)      dd if="${CURRDIR}/$pkg" ibs=$o skip=1 2>/dev/null | bunzip2 | cpio --quiet --unconditional -idm ;;
-			"$gz"*)   dd if="${CURRDIR}/$pkg" ibs=$o skip=1 2>/dev/null | gunzip | cpio --quiet --unconditional -idm ;;
-			"]"*|?"7z"*)     dd if="${CURRDIR}/$pkg" ibs=$o skip=1 2>/dev/null | unxz | cpio --quiet --unconditional -idm ;;
-			*)        echo "Unrecognized rpm file: $pkg"; return 1 ;;
-		esac
-		RETSTAT=$?
-		cd "$CURRDIR"
-		[ $RETSTAT != 0 ] && return 1
-		return 0
-	;;
-  esac
-  [ $? != 0 ] && return 1
-  # The directories that are not listed in the RPM file are always created
-  # "chmod 0700" by cpio. We will reset those directories to "chmod 0755".
-  # Unfortunately we cannot detect without extra help from cpio if the
-  # package had some directories that shouldn't be world readable.
-  find . -type d -perm 700 -exec chmod 755 {} \;
-  return 0
-}
-
-# End of functions.explode.sh
-
-explode "$FILE"
+exit $?

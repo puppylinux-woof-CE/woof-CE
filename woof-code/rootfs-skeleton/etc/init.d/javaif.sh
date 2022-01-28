@@ -1,155 +1,100 @@
-#!/bin/sh
+#!/bin/ash
 # /etc/init.d/javaif.sh
 # Derived from /etc/init.d/java.sfs.sh in java-sfs.sh by Uten
-#set -x #DEBUG
 
 [ "$1" ] || exit
 ARGUMENT="$1"
 
-function update_configuration () {
-    JAVAHOME="$(javaiffind)"
-    local UPDATECONFIG=false
-    if [ "$JAVAHOME" ]; then
-     if [ -d "$JAVAHOME/jre" ]; then #JDK
-      JREHOME="$JAVAHOME/jre"
-     else
-      JREHOME="$JAVAHOME"
-     fi
-     JAVAVERSION="$($JAVAHOME/bin/java -version 2>&1 | grep 'version' | cut -f3 -d ' ' | tr -d '\"')"
-     if [ "$JREHOME $JAVAVERSION" != "$PREVJREHOME $PREVVERSION" ]; then
-      local UPDATECONFIG=true
-     fi
-    else
-     JREHOME=''
-     JAVAVERSION=''
-     if [ "$PREVJAVAHOME" -o "$PREVJREHOME" -o "$PREVVERSION" ]; then
-      local UPDATECONFIG=true
-     fi
-    fi
-    if [ $UPDATECONFIG = true ]; then
-     SEDSCRIPT1="/JAVAHOME=/ s%=.*%=${JAVAHOME}%"
-     SEDSCRIPT2="/JREHOME=/ s%=.*%=${JREHOME}%"
-     SEDSCRIPT3="/JAVAVERSION=/ s%=.*%=${JAVAVERSION}%"
-     sed -i -e "$SEDSCRIPT1" -e "$SEDSCRIPT2" -e "$SEDSCRIPT3" /etc/javaif.conf
+get_nonhomed_icedtea_version () {
+    # Get version when icedtea-netx is not in a home directory.
+    DEFAULTICEDTEAVERSION='1.7.2'
+    ICEDTEAVERSION="$(/usr/share/icedtea-web/bin/javaws.sh --version -headless 2>/dev/null | \
+     grep -m 1 -E '^icedtea-web|^null' | cut -f 2 -d ' ' | sed "s/null/$DEFAULTICEDTEAVERSION/")"
+    if [ -z $ICEDTEAVERSION ] \
+      && [ -f /usr/share/icedtea-web/man/man1/icedtea-web.1.gz ]; then
+     ICEDTEAVERSION="$(gunzip --stdout /usr/share/icedtea-web/man/man1/icedtea-web.1.gz | \
+       grep -osm 1 '"icedtea-web .*"' | \
+       sed -n 's/.*"icedtea-web (*\([0-9.]*\))*.*/\1/p')"
     fi
 }
-
-function add_plugin_links() {
-    for ONEBROWSER in $BROWSERS; do
-     if [ -d /usr/lib/$ONEBROWSER ]; then
-      for ONEPLUGIN in $BROWSERPLUGINS; do
-       mkdir -p /usr/lib/$ONEBROWSER/plugins
-       if [ -f $JREHOME/lib/i386/$ONEPLUGIN ]; then
-        ln -sf $JREHOME/lib/i386/$ONEPLUGIN /usr/lib/$ONEBROWSER/plugins/$(basename $ONEPLUGIN)
-       fi
-      done
+    
+set_up_for_newest_icedtea_version () {
+    if [ -x $ICEDTEAHOME/bin/javaws ]; then
+     ICEDTEAVERSION="$($ICEDTEAHOME/bin/javaws --version -headless 2>/dev/null | \
+      grep -m 1 -E '^openjdk|icedtea-web' | cut -f 2 -d ' ')"
+     if [ -z $ICEDTEAVERSION ]; then
+      ICEDTEAHOMEVERSION="$(grep -osm 1 '"icedtea-web .*"' \
+       $ICEDTEAHOME/man/man1/icedtea-web.1 \
+       $ICEDTEAHOME/share/man/man1/icedtea-web.1 | \
+       sed -n 's/.*"icedtea-web (*\([0-9.]*\).*/\1/p')"
      fi
-    done
-}
-
-function remove_plugin_links() {
-    for ONEBROWSER in $BROWSERS; do
-     if [ -d /usr/lib/$ONEBROWSER ]; then
-      for ONEPLUGIN in $BROWSERPLUGINS; do
-       if [ -d /usr/lib/$ONEBROWSER/plugins ]; then
-        rm -f /usr/lib/$ONEBROWSER/plugins/$(basename $ONEPLUGIN)
-       fi
-      done
+     if [ -z $ICEDTEAVERSION ] || vercmp $ICEDTEAHOMEVERSION gt $ICEDTEAVERSION; then
+      ICEDTEAVERSION=$ICEDTEAHOMEVERSION
      fi
-    done
-}
-
-function add_icon_links() {
-    for ONEIMAGE in $IMAGES; do
-     if [ -f $JREHOME/lib/images/icons/$ONEIMAGE ]; then
-      ln -sf $JREHOME/lib/images/icons/$ONEIMAGE /usr/share/pixmaps/
-     fi
-    done
-    for ONEMAINICON in $MAINICONS; do
-     if [ -f $JREHOME/lib/desktop/icons/hicolor/16x16/apps/$ONEMAINICON ]; then
-      ln -sf $JREHOME/lib/desktop/icons/hicolor/16x16/apps/$ONEMAINICON /usr/local/lib/X11/mini-icons/
-     fi
-    done
-    for ONEMIMEICON in $MIMEICONS; do
-     if [ "$ROXMIMEPATH" -a -f $JREHOME/lib/desktop/icons/hicolor/48x48/mimetypes/gnome-mime-$ONEMIMEICON ]; then
-      ln -sf $JREHOME/lib/desktop/icons/hicolor/48x48/mimetypes/gnome-mime-$ONEMIMEICON $ROXMIMEPATH/$ONEMIMEICON
-     fi
-    done
-    for ONEGROUP in hicolor HighContrast HighContrastInverse LowContrast; do
-     if [ -d $JREHOME/lib/desktop/icons/$ONEGROUP ]; then
-      mkdir -p /usr/share/icons/$ONEGROUP/16x16/apps
-      mkdir -p /usr/share/icons/$ONEGROUP/48x48/apps
-      for ONEMAINICON in $MAINICONS; do
-       if [ -f $JREHOME/lib/desktop/icons/$ONEGROUP/16x16/apps/$ONEMAINICON ]; then
-        ln -sf $JREHOME/lib/desktop/icons/$ONEGROUP/16x16/apps/$ONEMAINICON /usr/share/icons/$ONEGROUP/16x16/apps/
+     for ONEEXEC in itweb-settings javaws policyeditor; do
+      if [ -f /usr/bin/$ONEEXEC ]; then
+       if  [ -x /usr/share/icedtea-web/bin/${ONEEXEC}.sh ];then
+        chmod a-x /usr/bin/$ONEEXEC
+       else
+        rm -f /usr/bin/$ONEEXEC
        fi
-       if [ -f $JREHOME/lib/desktop/icons/$ONEGROUP/48x48/apps/$ONEMAINICON ]; then
-        ln -sf $JREHOME/lib/desktop/icons/$ONEGROUP/48x48/apps/$ONEMAINICON /usr/share/icons/$ONEGROUP/48x48/apps/
-       fi
-      done
-      mkdir -p /usr/share/icons/$ONEGROUP/16x16/mimetypes
-      mkdir -p /usr/share/icons/$ONEGROUP/48x48/mimetypes
-      for ONEMIMEICON in $MIMEICONS; do
-       if [ -f $JREHOME/lib/desktop/icons/$ONEGROUP/16x16/mimetypes/gnome-mime-$ONEMIMEICON ]; then
-        ln -sf $JREHOME/lib/desktop/icons/$ONEGROUP/16x16/mimetypes/gnome-mime-$ONEMIMEICON /usr/share/icons/$ONEGROUP/16x16/mimetypes/
-       fi
-       if [ -f $JREHOME/lib/desktop/icons/$ONEGROUP/48x48/mimetypes/gnome-mime-$ONEMIMEICON ]; then
-        ln -sf $JREHOME/lib/desktop/icons/$ONEGROUP/48x48/mimetypes/gnome-mime-$ONEMIMEICON /usr/share/icons/$ONEGROUP/48x48/mimetypes/
-       fi
-      done
-     fi
-    done
-}
-
-function remove_icon_links() {
-    for ONEIMAGE in $IMAGES; do
-     rm -f /usr/share/pixmaps/$ONEIMAGE
-    done
-    for ONEMAINICON in $MAINICONS; do
-     rm -f /usr/local/lib/X11/mini-icons/$ONEMAINICON
-    done
-    for ONEMIMEICON in $MIMEICONS; do
-     [ "$ROXMIMEPATH" ] && rm -f $ROXMIMEPATH/$ONEMIMEICON
-    done
-    for ONEGROUP in hicolor HighContrast HighContrastInverse LowContrast; do
-     for ONEMAINICON in $MAINICONS; do
-      rm -f /usr/share/icons/$ONEGROUP/16x16/apps/$ONEMAINICON
-      rm -f /usr/share/icons/$ONEGROUP/48x48/apps/$ONEMAINICON
+      fi
      done
-     for ONEMIMEICON in $MIMEICONS; do
-      rm -f /usr/share/icons/$ONEGROUP/16x16/mimetypes/gnome-mime-$ONEMIMEICON
-      rm -f /usr/share/icons/$ONEGROUP/48x48/mimetypes/gnome-mime-$ONEMIMEICON
-     done
+    fi
+}
+     
+set_up_for_nonhomed_icedtea_version () {
+    for ONEEXEC in itweb-settings javaws policyeditor; do
+     if [ -f /usr/bin/$ONEEXEC ]; then
+      if [ -f /usr/share/icedtea-web/bin/${ONEEXEC}.sh ];then
+       chmod a+x /usr/bin/$ONEEXEC
+      else
+       rm -f /usr/bin/$ONEEXEC
+      fi
+     elif [ -f /usr/share/icedtea-web/bin/${ONEEXEC}.sh ]; then
+       ln -snf /usr/share/icedtea-web/bin/${ONEEXEC}.sh /usr/bin/$ONEEXEC
+     fi
     done
 }
 
+#Main:
 case "$ARGUMENT" in
  start|change)
-  BROWSERS=''; BROWSERPLUGINS=''
-  IMAGES=''; MAINICONS=''; MIMEICONS=''
-  . /etc/javaif.conf
-  PREVJAVAHOME="$JAVAHOME"
-  PREVJREHOME="$JREHOME"
-  PREVVERSION="$JAVAVERSION"
-  FORCEEXECPATH=false
-  ROXMIMEPATH=$(find /usr -maxdepth 5 -name "MIME" | grep -m 1 'ROX-Filer')
-  update_configuration
+  [ "$ARGUMENT" = 'start' ] && sleep 1 #Wait for other java service scripts before overriding them, then do change
+  JAVAHOME=''; JAVAVERSION=''; ICEDTEAHOME=''; ICEDTEAVERSION=''
+  if [ -f /root/.javaifrc ]; then
+   . /root/.javaifrc #dynamic info
+  fi
+  PREVJAVAHOME="$JAVAHOME"; PREVVERSION="$JAVAVERSION"
+  PREVICEDTEAHOME="$ICEDTEAHOME"; PREVICEDTEAVERSION="$ICEDTEAVERSION"
+
+  JAVAHOME="$(javaiffind)" #Latest installed java version & icedtea-web
+  ICEDTEAHOME="$(echo -n "$JAVAHOME " | cut -f 2 -d ' ')"
+  JAVAHOME="$(echo -n $JAVAHOME | cut -f 1 -d ' ')"
   if [ "$JAVAHOME" ]; then
-   if [ "$PREVJREHOME" ]; then
-    remove_plugin_links
-    remove_icon_links
+  JAVAVERSION="$($JAVAHOME/bin/java --version 2>/dev/null)" \
+   || JAVAVERSION="$($JAVAHOME/bin/java -version 2>&1)"
+  JAVAVERSION="$(echo $JAVAVERSION | grep -m 1 '^openjdk' | \
+   sed -e 's/ version//' -e 's/"//g' -e 's/ 1\./ /' | cut -f 2 -d ' ')"
+
+   get_nonhomed_icedtea_version # e. g., debian
+   if [ -n "$ICEDTEAHOME" ]; then
+    # Use newest of non-homed and home-directoried implementations.
+    set_up_for_newest_icedtea_version
+   else
+    # Use non-homed implementation if present.
+    set_up_for_nonhomed_icedtea_version
    fi
-   add_plugin_links
-   add_icon_links
-   # Remove possible conflicting override links & script from PET/SFS package
-   for ONEEXEC in java javac javaws jcontrol jjs; do
-    rm -f /usr/bin/$ONEEXEC
-   done
-   rm -f /etc/init.d/java.sfs.sh # possible conflicting init scripts
-   rm -f etc/init.d/java
+
+   JAVAIFRC="JAVAHOME=$JAVAHOME
+JAVAVERSION=$JAVAVERSION
+ICEDTEAHOME=$ICEDTEAHOME
+ICEDTEAVERSION=$ICEDTEAVERSION"
+   if [ ! -f /root/.javaifrc ] || [ "$JAVAIFRC" != "$(cat /root/.javaifrc)" ]; then
+    echo -n "$JAVAIFRC" > /root/.javaifrc
+   fi
   else
-   remove_plugin_links
-   remove_icon_links
+   rm -f /root/.javaifrc
   fi
   ;;
 esac

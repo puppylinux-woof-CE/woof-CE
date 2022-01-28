@@ -4,7 +4,6 @@
 #121128 BK complete rewrite.
 #130127 internationalised.
 #130207 don570: a translation was missing.
-#130214 remove scanpci. add "vga" test.
 #130215 a module may get loaded, then attempted loaded again, then unloaded, 1st load still there.
 
 export TEXTDOMAIN=report-video
@@ -34,20 +33,33 @@ function help() {
 }
 
 function XorgVideoDriver() {
-    LOADED=$(grep 'Loading .*/xorg/modules/drivers/.*_drv.so' /var/log/Xorg.0.log | sed -e 's/.*\///' -e 's/_.*//')
-    for ALOADED in $LOADED
-    do
-      bPTN="LoadModule: \"$ALOADED\""
-      aPTN="UnloadModule: \"$ALOADED\""
-      CNTload=`grep "$bPTN" /var/log/Xorg.0.log | wc -l`
-      CNTunload=`grep "$aPTN" /var/log/Xorg.0.log | wc -l`
-      [ $CNTload -eq 0 ] && continue #not loaded
-      VIDEODRIVER="$ALOADED" #times loaded greater than unloaded
-      break
-    done
-    [ ! "$VIDEODRIVER" ] && exit 1
-    echo -n ${VIDEODRIVER} > /tmp/xorg_video_driver
-    echo ${VIDEODRIVER}
+	drivers=$(grep -o 'Matched .* as autoconfigured driver' /var/log/Xorg.0.log | cut -f 2 -d ' ')
+	for ALOADED in $drivers ; do
+		CNTload=`grep "LoadModule: \"$ALOADED\"" /var/log/Xorg.0.log | wc -l`
+		CNTunload=`grep "UnloadModule: \"$ALOADED\"" /var/log/Xorg.0.log | wc -l`
+		[ $CNTload -eq 0 ] && continue #not loaded
+		if [ $CNTload -gt $CNTunload ] ; then
+			#echo VIDEODRIVER="$ALOADED"
+			VIDEODRIVER="$ALOADED" #times loaded greater than unloaded
+		fi
+	done
+	# nothing found, fallback to older method
+	if [ -z "$VIDEODRIVER" ] ; then
+		LOADED=$(grep 'Loading .*/xorg/modules/drivers/.*_drv.so' /var/log/Xorg.0.log | sed -e 's/.*\///' -e 's/_.*//')
+		for ALOADED in $LOADED
+	    do
+	      bPTN="LoadModule: \"$ALOADED\""
+	      aPTN="UnloadModule: \"$ALOADED\""
+	      CNTload=`grep "$bPTN" /var/log/Xorg.0.log | wc -l`
+	      CNTunload=`grep "$aPTN" /var/log/Xorg.0.log | wc -l`
+	      [ $CNTload -eq 0 ] && continue #not loaded
+	      VIDEODRIVER="$ALOADED" #times loaded greater than unloaded
+	      break
+	    done
+	fi
+	[ ! "$VIDEODRIVER" ] && return 1
+	echo -n ${VIDEODRIVER} > /tmp/xorg_video_driver
+	echo ${VIDEODRIVER}
 }
 
 function XorgLoadedModules() {
@@ -74,9 +86,15 @@ function XorgLoadedModules() {
 
 function VideoChip() {
   local GRAPHICSCHIP
-  GRAPHICSCHIP="`lspci | grep -i -E 'graphic|video|display|vga' | cut -f 2- -d ' '`" #130214
+  CHIPID="`lspci -v | grep -i -E 'graphic|video|display|vga' | cut -f 1 -d ' '`" #130214
+  if [ "$CHIPID" ] ; then
+    for i in `echo $CHIPID`; do
+    GRAPHICSCHIP="$GRAPHICSCHIP 
+$(lspci -nnk -s $i)"
+    done
+  fi
   [ -z "$GRAPHICSCHIP" ] && GRAPHICSCHIP=" unknown"
-  echo $GRAPHICSCHIP
+  echo "$GRAPHICSCHIP"
 }
 
 function XorgConf() {
@@ -104,11 +122,11 @@ function XorgConf() {
 }
 
 function ScreenResolution() {
-  if which xdpyinfo &>/dev/null ; then
+  if which xdpyinfo >/dev/null 2>&1 ; then
     VIDEORES="$(LANG=C xdpyinfo | grep ' dimensions: ')"
     read -r ZZ VIDEORES <<< $VIDEORES
-  elif which xrandr &>/dev/null ; then
-    VIDEORES=$(xrandr 2>/dev/null | grep '\*' | awk '{print $1}')
+  elif which xrandr >/dev/null 2>&1 ; then
+    VIDEORES=$(xrandr 2>/dev/null | grep '\*' | awk '{print $1 $2}' | head -1)
   else
     VIDEORES=$(gettext 'unknown')
   fi
@@ -120,6 +138,16 @@ function ScreenColorDepth() {
   VIDEODEPTH="${VIDEODEPTH##*: }"
   [ "$VIDEODEPTH" = "" ] && VIDEODEPTH=$(gettext 'unknown')
   echo $VIDEODEPTH
+}
+
+function get_glxinfo() {
+	if [ `which glxinfo` ]; then 
+		glxinfo 2>/dev/null | grep -E -A2 "direct rendering|OpenGL vendor" | grep -v '\-\-'
+	elif [ `which fglrxinfo` ]; then #120807 ATI proprietary driver info
+		fglrxinfo
+	elif [ `which nvidia-xconfig` ]; then #120807 NVIDIA proprietary driver info
+		nvidia-xconfig --query-gpu-info
+	fi
 }
 
 case $1 in
@@ -143,6 +171,9 @@ XSERVER="$(readlink /usr/bin/X)"
 
 (
 echo "$(gettext 'VIDEO REPORT:') ${DISTRO_NAME}, $(gettext 'version') ${DISTRO_VERSION}"
+processor=`cat /proc/cpuinfo | grep "model name" | head -1`
+echo "Processor: ${processor##*:}"
+Xorg -version 2>&1 | head -n 3
 echo -e "\n$(gettext 'Chip description:')\n$(VideoChip)"
 
 if [ "$XSERVER" = "Xorg" ];then
@@ -176,6 +207,20 @@ if [ "$XSERVER" = "Xorg" ];then
   actual_depth=$(ScreenColorDepth)
   echo "  $(gettext 'Depth:       ')${actual_depth}"
 fi
+
+echo
+get_glxinfo
+echo
+
+while IFS=":" read MON NAME WH
+do
+	case "$MON" in '#'*|"") continue ;; esac
+	[ -z "$NAME" ] && continue
+	echo
+	echo "Monitor  :" $MON
+	echo "Model    :" $NAME
+	echo "WxH (cm) :" $WH
+done <<< "$(get-monitor-names)"
 
 ) > /tmp/report-video
 

@@ -1,8 +1,8 @@
 #!/bin/bash
-#pMusic - info-grabber using id3 info, ffmpeg output, musicbrainz.org, amazon.com and several lyrics sites
+#pMusic - info-grabber using id3 info, ffmpeg output, musicbrainz.org and several lyrics sites
 #GPL - Copyright Sigmund Berglund
 
-. $CONFIG #needs to update this in case lyrics/albumart settings (in trackinfo) has been changed without restarting pMmusic
+. $CONFIG #needs to update this in case lyrics/albumart settings (in trackinfo) has been changed without restarting pMusic
 export TEXTDOMAIN=pmusic
 export OUTPUT_CHARSET=UTF-8
 
@@ -39,7 +39,7 @@ case $PAR1 in
 	*) #nothing - use playing track/url
 		IFS="|" read C1 C2 C3 SOURCE_FILE C < $WORKDIR/PLAYLIST_ALL #prefer this over nowplaying since that one may contain a playing track outside the playqueue
 		[ ! "SOURCE_FILE" ] && IFS='|' read C1 SOURCE_FILE < $HOME/.pmusic/nowplaying
-		MYPID=''
+#		MYPID=''
 		MYDIR=${WORKDIR}/trackinfo${MYPID}
 		[ ! -s $WORKDIR/xml_pmusic_trackinfo ] && . $APPDIR/gui_trackinfo #load gui
 		WINDOW_HEADING=" - $(gettext 'Now playing')"
@@ -123,35 +123,54 @@ artist(){
 	if [ "$OLD_ARTIST" != "$ARTIST" ]; then
 		#clean up
 		echo -n > ${MYDIR}_urls
-		echo -e "|$(gettext 'Trying to fetch info from internet')\n|$(gettext 'Please wait')..." > ${MYDIR}_discography
+		echo -e "||$(gettext 'Trying to fetch info from internet')..." > ${MYDIR}_urls
+		echo -e "||$(gettext 'Trying to fetch info from internet')..." > ${MYDIR}_discography
 		echo -n > ${MYDIR}_discography1
-		echo -n > ${MYDIR}_discography2
+		echo true > $WORKDIR/UPDATE_TRACKINFO${MYPID} #update gui
+		check_connection artist #check internet connection
+		if [ "$CONNECTION" = "false" ]; then
+			cp -f  /usr/local/pmusic/themes/${THEME}/artist.svg ${WORKDIR}/trackinfo${MYPID}_artist_image.jpg #update gui before this to avoid generic image in just a second...
+			echo true > $WORKDIR/UPDATE_TRACKINFO${MYPID} #update gui
+			exit
+		fi
+
+		#arist image
+		TMP="$(wget -q "https://www.allmusic.com/search/artists/${ARTIST// /+}" -O- |  grep -F '<img' | grep -im1 "$ARTIST" | cut -d'"' -f2)"
+		wget "$TMP" -O ${WORKDIR}/trackinfo${MYPID}_artist_image_tmp.jpg #wget doesn't overwrite
+		mv -f ${WORKDIR}/trackinfo${MYPID}_artist_image_tmp.jpg ${WORKDIR}/trackinfo${MYPID}_artist_image.jpg
+		#in case anything failed - use fallback image
+		[ ! -s ${WORKDIR}/trackinfo${MYPID}_artist_image.jpg ] && cp -f  /usr/local/pmusic/themes/${THEME}/artist.svg ${WORKDIR}/trackinfo${MYPID}_artist_image.jpg
 		echo true > $WORKDIR/UPDATE_TRACKINFO${MYPID} #update gui
 
 		#discography
-		XML="$(wget -q "http://musicbrainz.org/ws/1/artist/$ARTIST_ID?type=xml&inc=sa-Album+release-events" -O-)"
-		XML_CONV="`convertxml "$XML"`"
-		echo "$XML_CONV" | grep -F '<release ' | awk -F'id="' '{print $2}' | cut -d'"' -f1 > ${MYDIR}_discography3 #release id
-		while read I; do
-			#title
-			TMP="`grep -FA3 "$I" <<< "$XML_CONV" | grep -F '</title'`"
-			TMP=${TMP%%<*}
-			[[ "$(<${MYDIR}_discography1)" = *"$TMP"* ]] && continue #could be a second release in another country
-			echo "$TMP" >> ${MYDIR}_discography1
-			#year of release
-			TMP="`grep -FA8 "$I" <<< "$XML_CONV" | grep -Fm1 'date='`"
-			TMP=${TMP#*date=\"}; TMP=${TMP%%\"*}
-			echo $TMP >> ${MYDIR}_discography2
-		done < ${MYDIR}_discography3
-		ALBUMS="`paste -d'|' ${MYDIR}_discography2 ${MYDIR}_discography1 ${MYDIR}_discography3 | sort -rn | grep -vF '||'`"
-		[ ! "$ALBUMS" ] && ALBUMS="|$(gettext 'Nothing found')" #trackinfo_alternatives(){ needs something in the file to start search
-		echo "$ALBUMS" > ${MYDIR}_discography
-		#URLs
-		echo -n > $WORKDIR/tmpurls
-		echo -n > $WORKDIR/tmpurls1
-		XML="$(wget -q "http://musicbrainz.org/ws/1/artist/$ARTIST_ID?type=xml&inc=url-rels" -O-)"
-		convertxml "$XML" | grep -F 'relation target' | awk -F'"' '{print $4 "|" $2}' > ${MYDIR}_urls
+		#musicbrainz allows max 100 items in browse-result. We need to combine several requests if required
+		XML=""; A=false; OFFSET=0; RELEASE_COUNT=0
+		while [ $A != true ] ; do
+			TMP="$(wget -q "https://musicbrainz.org/ws/2/release-group/?artist=$ARTIST_ID&limit=100&&offset=$OFFSET&type=album" -O-)"
+			XML="${XML} `convertxml "$TMP"`"
+			OFFSET=$(($OFFSET+100))
+			[ $RELEASE_COUNT = 0 ] && RELEASE_COUNT="`echo "$XML" | grep -Fm1 'release-list count=' | cut -d'"' -f2`"
+			[[ $OFFSET -gt $RELEASE_COUNT || ! "$RELEASE_COUNT" ]] && A=true
+		done
+		XML_CONV="$XML"
 		#---
+		grep -F '<release-group id' <<< $XML_CONV | awk -F'id="' '{print $2}' | cut -d'"' -f1 | tac > ${MYDIR}_discography_tmp #reverse order to prefer oldest release
+		while read I; do
+			TMP="`grep -FA3 "$I" <<< "$XML_CONV" | grep -F '</title'`" #title
+			TMP1="`grep -FA5 "$I" <<< "$XML_CONV" | grep -Fm1 '</first-release-date'`" #year of release
+			echo 'pmusic_discography_expand:'$I'|'${TMP1%%</first-release-date*}'|'${TMP%%<*}'|'$I'|gtk-audio_playlist' >> ${MYDIR}_discography1
+		done < ${MYDIR}_discography_tmp
+		ALBUMS="`grep -vF '||' ${MYDIR}_discography1 | sort -rn -t'|' -k2,2 `"
+		[ ! "$ALBUMS" ] && ALBUMS="||$(gettext 'Nothing found')" #trackinfo_alternatives(){ needs something in the file to start search
+		echo "$ALBUMS" > ${MYDIR}_discography
+		echo true > $WORKDIR/UPDATE_TRACKINFO${MYPID} #update gui
+
+		#URLs
+		XML="$(wget -q "http://musicbrainz.org/ws/2/url/?query=artist:$ARTIST&limit:100" -O-)"
+		XML_CONV="`convertxml "$XML"`"
+		grep -FB10 "$ARTIST_ID" <<<  "$XML_CONV" | grep -FB4 'relation type=' | grep -F '://' | cut -d'<' -f1 | grep -v '^$' > ${MYDIR}_tmpurls #grab URL
+		grep -FB10 "$ARTIST_ID" <<<  "$XML_CONV" | grep -F 'relation type=' | cut -d'"' -f2 > ${MYDIR}_tmpurls1 #grab URL-name
+		paste -d'|' ${MYDIR}_tmpurls1 ${MYDIR}_tmpurls > ${MYDIR}_urls
 		echo true > $WORKDIR/UPDATE_TRACKINFO${MYPID} #update gui
 	fi
 
@@ -171,7 +190,8 @@ artist(){
 	#---
 	[ $PMU_LOCAL = false ] && exit
 	#Now continue to build pmu-file for album-list depending on the discography here. Musicbrainz could return an 'various-artist' album, so cross-checking with discography should give us only official releases
-	if [ "`grep -F "$DISC_ID" ${MYDIR}_discography3`" ]; then
+#	if [ "`grep -F "$DISC_ID" ${MYDIR}_discography3`" ]; then #DISC_ID = release_id at musicbrainz. Issuses with version 2: steady mismatch when requesting discography. Workaround is to use album name instead
+	if [ "`grep -iF "|${ALBUM}|" ${MYDIR}_discography1`" ]; then
 		A=${ARTIST%% (*}; A=${A%%(*}; A=${A%% feat*}; A=${A%% ft*}; ARTIST=${A%% &*}
 		#load artist tracks from db. sort by rating
 		awk -F'|' '{print $21 "|" $12 "|" $2 "|" $3 "|" $1 }' "$STORAGE_DIR/index_mymusic" | grep -iF "|$ARTIST" | grep -iE "$AUDIO_FORMATS" | sort -n > "$WORKDIR/db_$ARTIST"
@@ -244,7 +264,7 @@ lyrics(){
 for Artist and Title as search-string.
 
 In addition to the local storage (if set), 
-pMusic will search for lyrics in')\nelyrics.net\nlyrics.wikia.com\njamendo.com" > ${MYDIR}_lyrics
+pMusic will search for lyrics in')\nelyrics.net\nlyrics.fandom.com\njamendo.com" > ${MYDIR}_lyrics
 	echo ' ' > ${MYDIR}_lyrics_source
 
 	TXT_NO_LYRICS="$(gettext 'No lyrics found')" #because LC_ALL=C in next line
@@ -295,14 +315,14 @@ pMusic will search for lyrics in')\nelyrics.net\nlyrics.wikia.com\njamendo.com" 
 		fi
 	elif [ ! "$LYRICS" ]; then
 		echo -n > $WORKDIR/tmplyrics
-		#lyrics.wikia.com
+		#lyrics.fandom.com
 		if [ "$SITE" != "elyrics" ]; then
 			TMP_ARTIST=${ARTIST%%(*}; TMP_ARTIST=${TMP_ARTIST// /_}
 			TMP_TITLE=${TITLE%%(*}; TMP_TITLE=${TMP_TITLE// /_}
 			rm $WORKDIR/tmplyrics
-			wget -U "$USERAGENT" -t 3 --connect-timeout=3 -O $WORKDIR/tmplyrics http://lyrics.wikia.com/$TMP_ARTIST:$TMP_TITLE
+			wget -U "$USERAGENT" -t 3 --connect-timeout=3 -O $WORKDIR/tmplyrics https://lyrics.fandom.com/$TMP_ARTIST:$TMP_TITLE
 			LYRICS="`grep -F "class='lyricbox'" $WORKDIR/tmplyrics | tr '>' '\n' | sed -e 's%<br /%%g' -e 's%<!--%%g' | grep -vF '<' | sed -f $APPDIR/sed_html2txt`"
-			[ "$LYRICS" ] && echo "http://lyrics.wikia.com/$TMP_ARTIST:$TMP_TITLE" > ${MYDIR}_lyrics_source
+			[ "$LYRICS" ] && echo "https://lyrics.fandom.com/$TMP_ARTIST:$TMP_TITLE" > ${MYDIR}_lyrics_source
 		fi
 		#elyrics.net
 		if [ ! "$LYRICS" ] && [ "$SITE" != "lyricswiki" ]; then
@@ -379,6 +399,8 @@ stream_info (){
 				TMP="`$APPDIR/func_C -bpm "$SOURCE_FILE"`"
 				[ ! "$TMP" ] && TMP="! $(gettext 'Not able to detect bpm (missing dependency?)')" || TMP="$TMP bpm"
 				echo "$(gettext 'Tempo')|$TMP" >> ${MYDIR}_stream
+				#wave image
+				ffmpeg -i "$SOURCE_FILE" -filter_complex "[0:a]aformat=channel_layouts=mono, compand=gain=0, showwavespic=s=440x100:colors=#93CE49[fg]; color=s=440x100:color=#44582c, drawgrid=width=iw/10:height=ih/5:color=#9cf42f@0.1[bg]; [bg][fg]overlay=format=rgb,drawbox=x=(iw-w)/2:y=(ih-h)/2:w=iw:h=1:color=#9cf42f" -frames:v 1 -y ${MYDIR}_stream_wave.png
 			fi
 			;;
 	esac
@@ -406,8 +428,8 @@ album_art (){
 	echo true > $WORKDIR/UPDATE_TRACKINFO${MYPID} #update gui
 	STRING=${2%% (*}; STRING=${STRING%%(*} #remove parenthesis
 	OUTFILE="$1"
-	SITE="$3" #if user want to check out a specified source (amazon.com/albumart.org - or a local file)
-	ffmpeg -i "$SOURCE_FILE" -y $WORKDIR/albumart_download.jpg
+	SITE="$3" #if user want to check out a specified source (musicbrainz.org - or a local file)
+	ffmpeg -i "$SOURCE_FILE" -y $WORKDIR/albumart_download.jpg #note that this also looks for albumart in URLs
 	ALBUMART_ID="$(gettext 'Embedded in audio file')"
 	if [[ "$SITE" != "embedded" && ! -s $WORKDIR/albumart_download.jpg ]]; then
 		#define search string
@@ -434,29 +456,17 @@ album_art (){
 		#search for artwork locally: 1.) user defined. 2.) in pMusic local storage. -- Local dir and db-link is checked before
 		case $SITE in /*) LOCAL_ARTWORK="$SITE";; esac #user has manually defined a local file in the trackinfo gui
 		[ ! -s "$LOCAL_ARTWORK" ] && ALBUMART_ID="" #defined file has been removed - we must search the web
-		[ ! "$LOCAL_ARTWORK" -a "$SITE" != "amazon" ] && LOCAL_ARTWORK="`find "$STORAGE_DIR/albumart" -iname "${STRING}.*" | head -n1`"
-		if [ -s "$LOCAL_ARTWORK" ] && [ "$SITE" != "amazon" ]; then #use local file
+		[ ! "$LOCAL_ARTWORK" -a "$SITE" != "musicbrainz" ] && LOCAL_ARTWORK="`find "$STORAGE_DIR/albumart" -iname "${STRING}.*" | head -n1`"
+		if [ -s "$LOCAL_ARTWORK" ] && [ "$SITE" != "musicbrainz" ]; then #use local file
 			cp -f "$LOCAL_ARTWORK" $WORKDIR/albumart_download.jpg
 			ALBUMART_ID="$LOCAL_ARTWORK"
 		else #search online
 			if [ ! "$ALBUMART_ID" ]; then #$ALBUMART_ID is stored in db
-				STRING=${STRING// - /+}
-				#albumart.org
+				#musicbrainz.org
 				rm $WORKDIR/tmp_wget
-				LC_ALL=C wget -t 3 -q -O $WORKDIR/tmp_wget "http://www.albumart.org/index.php?searchkk=${STRING// /+}&itempage=1&newsearch=1&searchindex=Music"
-				ALBUMART_ID="`cat $WORKDIR/tmp_wget | tr '>' '\n' | grep -Fim1 'View larger image' | cut -d'"' -f2`"
-				#seekacover.com
-				if [ ! "$ALBUMART_ID" ]; then
-					rm $WORKDIR/tmp_wget
-					LC_ALL=C wget -t 3 -q -O $WORKDIR/tmp_wget "http://www.seekacover.com/cd/${STRING// /+}"
-					ALBUMART_ID="`cat $WORKDIR/tmp_wget | tr '>' '\n' | grep -Fim1 '.jpg"' | cut -d'"' -f2`"
-				fi
-				#slothradio.com
-				if [ ! "$ALBUMART_ID" ]; then
-					rm $WORKDIR/tmp_wget
-					LC_ALL=C wget -t 3 -q -O $WORKDIR/tmp_wget "http://www.slothradio.com/covers/?adv=&artist=${ARTIST// /+}&album=${ALBUM// /+}"
-					ALBUMART_ID="`cat $WORKDIR/tmp_wget | tr '>' '\n' | grep -Fim1 '.jpg"' | cut -d'"' -f2`"
-				fi
+				read DISC_ID < ${MYDIR}_DISC_ID
+				LC_ALL=C wget -t 3 -q -O $WORKDIR/tmp_wget "https://www.musicbrainz.org/release-group/${DISC_ID}"
+				ALBUMART_ID="https:`cat $WORKDIR/tmp_wget | tr '>' '\n' | grep -Fim1 'artwork-image' | cut -d'"' -f4`"
 			fi
 			#download
 			rm "$WORKDIR/albumart_download.jpg"
@@ -505,6 +515,9 @@ album_art (){
 
 
 info_jamendo (){
+	
+	exit
+	
 	#clean up
 	echo -n > ${MYDIR}_urls
 	echo -e "|$(gettext 'Trying to fetch info from internet')\n|$(gettext 'Please wait')..." > ${MYDIR}_discography
@@ -595,62 +608,60 @@ track_info (){
 		TMP_ARTIST=${ARTIST%%(*}; TMP_ARTIST=${TMP_ARTIST// /_} #skip (...)
 		TMP_TITLE=${TITLE%%(*}; TMP_TITLE=${TMP_TITLE// /_}
 		TMP_ALBUM=${ALBUM%%(*}; TMP_ALBUM=${TMP_ALBUM// /_}
-		URL='http://musicbrainz.org/ws/1/track/?type=xml&limit=50'
-		[ "$TMP_TITLE" ] && URL="$URL&title=${TMP_TITLE}"
-		[ "$TMP_ARTIST" ] && URL="$URL&artist=${TMP_ARTIST}"
-		[ "$TMP_ALBUM" ] && URL="$URL&release=${TMP_ALBUM}"
-		URL=${URL// /+}
+		URL="http://musicbrainz.org/ws/2/recording/?limit=100&query="
+		[ "$TMP_TITLE" ] && URL="${URL}###recording:${TMP_TITLE}"
+		[ "$TMP_ARTIST" ] && URL="${URL}###artist:${TMP_ARTIST}"
+		[ "$TMP_ALBUM" ] && URL="${URL}###release:${TMP_ALBUM}"
+		URL=${URL//###/%20AND%20}
+		URL=${URL//query=%20AND%20/query=}
 		#---
 		LC_ALL=C wget -q "$URL" -O- > ${MYDIR}_tmp_trackinfo #if not usinig tmp-file, 'Save tags' wont refresh properly
 		XML="$(<${MYDIR}_tmp_trackinfo)"
 		XML_CONV="`convertxml "$XML"`"
 		#artist
 		if [ ! "$ARTIST" ]; then
-			ARTIST="`echo "$XML_CONV" | grep -F '</name'`"
+			ARTIST="$(grep -Fm1 '</name' <<< "$XML_CONV")"
 			ARTIST=${ARTIST%%<*}
 			echo "$ARTIST" > ${MYDIR}_ARTIST
 		fi
 		#title
 		if [ ! "$TITLE" ]; then
-			TITLE="`echo "$XML_CONV" | grep -F -A3 '<track id=' | grep -F '</title'`"
+			TITLE="$(grep -Fm1 '</title' <<< "$XML_CONV")"
 			TITLE=${TITLE%%<*}
 			echo "$TITLE" > ${MYDIR}_TITLE
 		fi
 		#album
 		if [ ! "$ALBUM" ]; then
-			TMP="$(grep -FA3 '<release' <<< "$XML_CONV")"
-			ALBUM="`grep -FA3 'type="Album"' <<< "$TMP" | grep -Fm1 '</title'`"
-			[ ! "$ALBUM" ] && ALBUM="`grep -FA3 'type="Live"' <<< "$TMP" | grep -Fm1 '</title'`"
-			[ ! "$ALBUM" ] && ALBUM="`grep -FA3 'type="Single"' <<< "$TMP" | grep -Fm1 '</title'`"
-			[ ! "$ALBUM" ] && ALBUM="`echo "$XML_CONV" | grep -FA4 '<release' | grep -Fm1 '</title'`"
+			TMP="$(grep -FA50 '<release id=' <<< "$XML_CONV")"
+			ALBUM="`grep -FB20 'type="Album"' <<< "$TMP" | grep -iB10 "$ARTIST" | grep -FB5 'Official</status' | grep -Fm1 '</title'`"
+			[ ! "$ALBUM" ] && ALBUM="`grep -FB20 'type="Live"' <<< "$TMP" | grep -iB10 "$ARTIST" | grep -FB5 'Official</status' | grep -Fm1 '</title'`"
+			[ ! "$ALBUM" ] && ALBUM="`grep -iB10 "$ARTIST" <<< "$TMP"  | grep -Fm1 '</title'`"
+			[ ! "$ALBUM" ] && ALBUM="`grep -Fm1 '</title' <<< "$TMP" `"
 			ALBUM=${ALBUM%%<*}
 			echo "$ALBUM" > ${MYDIR}_ALBUM
 		fi
 		#nr
 		if [ ! "$NR" ]; then	
-			TMP="`echo "$XML_CONV" | grep -FA5 '<release' | grep -iFA3 "$ALBUM" | grep -Fm1 'offset=' | awk -F 'offset=' '{print $2}' | cut -d'"' -f2`"
-			[ "$TMP" ] && NR=$(($TMP+1)) #Why add 1 - I haven't looked at it???
+			TMP="`grep -iA100 -m1 "${ALBUM}</title" <<<  "$XML_CONV" | grep -Fm1 '</number'`"
+			NR=${TMP%%<*}
 			echo "$NR" > ${MYDIR}_NR
 		fi
+		#year
+		if [ ! "$YEAR" ]; then	
+			TMP="`grep -iA100 -m1 "${ALBUM}</title" <<<  "$XML_CONV" | grep -Fm1 '</date'`"
+			YEAR=${TMP%%<*}; YEAR=${YEAR%%-*}
+			echo "$YEAR" > ${MYDIR}_YEAR
+		fi
 		#---
-		
-		[ ! "$DISC_ID" ] && export DISC_ID="`echo "$XML_CONV" | grep -FA2 '<release ' | grep -im1 -B2 -F "${ALBUM}<" | grep -F 'id=' | awk -F 'id=' '{print $2}' | cut -d'"' -f2`" #note "${ALBUM}<" where < defines the end of album-string
-		[ ! "$DISC_ID" ] && export DISC_ID="`echo "$XML_CONV" | grep -FA2 '<release ' | grep -im1 -B2 -F "${ALBUM}" | grep -F 'id=' | awk -F 'id=' '{print $2}' | cut -d'"' -f2`"
+		[ ! "$DISC_ID" ] && export DISC_ID="`echo "$XML_CONV" | grep -FA2 '<release-group' | grep -im1 -B2 -F "${ALBUM}<" | grep -F 'id=' | awk -F 'id=' '{print $2}' | cut -d'"' -f2`" #note "${ALBUM}<" where < defines the end of album-string
+		[ ! "$DISC_ID" ] && export DISC_ID="`echo "$XML_CONV" | grep -FA2 '<release-group' | grep -im1 -B2 -F "${ALBUM}" | grep -F 'id=' | awk -F 'id=' '{print $2}' | cut -d'"' -f2`"
 		[ ! "$ARTIST_ID" ] && export ARTIST_ID="`echo "$XML_CONV" | grep -Fm1 'artist id=' | awk -F 'artist id=' '{print $2}' | cut -d'"' -f2`"
+		echo "$DISC_ID" > ${MYDIR}_DISC_ID #used by albumart_refresh
 		#save disc_id if we are sure it's the correct album. Do NOT save id3 tags. This must be chosen by user.
 		if [ "$DISC_ID" ] && [ "`echo $ALBUM | tr [a-z] [A-Z]`" = "`echo $ALBUM | tr [a-z] [A-Z]`" ]; then
 			( flock -e 202
 				grep -aF "$SOURCE_FILE" "$STORAGE_DIR/index_mymusic" | awk -F'|' -v VAR1="$DISC_ID" -v VAR2="$ARTIST_ID" '{print $1 "|" $2 "|" $3 "|" $4 "|" $5 "|" $6 "|" $7 "|" $8 "|" $9 "|" $10 "|" $11 "|" $12 "|" $13 "|" $14 "|" $15 "|" VAR1 "|" VAR2 "|" $18 "|" $19 "|" $20 "|" $21}' >> $WORKDIR/mymusic_stack
 			) 202>$WORKDIR/mymusic_stack.lockfile 
-		fi
-	fi
-	#year
-	if [ "$CONNECTION" != "false" ] && [ ! "$YEAR" -a "$DISC_ID" ]; then
-		XML="$(wget -q "http://musicbrainz.org/ws/1/release/$DISC_ID?type=xml&inc=tracks+release-events+url-rels" -O-)"
-		XML_CONV_1="`convertxml "$XML"`" #XML_CONV_1 is used later in this function for albumlist
-		if [ ! "$YEAR" ]; then
-			YEAR="`echo "$XML_CONV_1" | grep -F -A3 '<release-event-list' | grep -Fm1 'date=' | awk -F 'date=' '{print $2}' | cut -d'"' -f2`"
-			echo "$YEAR" | cut -d'-' -f1 > ${MYDIR}_YEAR
 		fi
 	fi
 
@@ -676,13 +687,20 @@ track_info (){
 					cp "$LOCAL_PMU" ${MYDIR}_album
 					echo "$LOCAL_PMU" > ${MYDIR}_album_source #where does the info come from
 				elif [ "$CONNECTION" != "false" ]; then #search musicbrainz.org
-					#wget grabbed the same xml for year-tag, but incase that one already exist, grab it now
-					if [ ! "$XML_CONV_1" ]; then
-						XML="$(wget -q "http://musicbrainz.org/ws/1/release/$DISC_ID?type=xml&inc=tracks+release-events+url-rels" -O-)"
-						XML_CONV_1="`convertxml "$XML"`"
-					fi
-					TRACKS="`echo "$XML_CONV_1" | grep -FA3 '<track id=' | grep -F '</title' | cut -d '<' -f 1 | cat -n | cut -c 5-`"
+					#musicbrainz allows max 100 items in browse-result. We need to combine several requests if required
+					XML=""; A=false; OFFSET=0
+					while [ $A != true ] ; do
+						TMP="$(wget -q "https://musicbrainz.org/ws/2/release/?artist=$ARTIST_ID&limit=50&type=album&status=official&offset=$OFFSET&inc=recordings" -O-)"
+						XML="${XML} `convertxml "$TMP"`"
+						OFFSET=$(($OFFSET+50))
+						TMP="`echo "$XML" | grep -Fm1 'release-list count=' | cut -d'"' -f2`"
+						[[ $OFFSET -gt $TMP || ! "$TMP" ]] && A=true
+					done
+					XML_CONV_1="$XML"
+					#build track-list
+					TRACKS="`echo "$XML_CONV_1" | grep -FA1000 -m1 "$ALBUM"  | grep -FB1000 -m1 '</track-list' | grep -FA3 '<recording id=' | grep -F '</title' | cut -d '<' -f 1 | cat -n | cut -c 5-`"
 					echo "$TRACKS" | sed 's/^/||/g' > ${MYDIR}_album
+					#info in heading
 					if [ "$TRACKS" ]; then
 						echo "http://www.musicbrainz.org : $ALBUM $YEAR" > ${MYDIR}_album_source
 					else
@@ -704,22 +722,33 @@ track_info (){
 
 check_connection (){
 	#check internet connection
-	LC_ALL=C wget --spider --tries 1 -T 3 -F --max-redirect 0 $PING_SERVER 2> $WORKDIR/tmpinfo
-	if [ ! "`LC_ALL=C grep -F connected $WORKDIR/tmpinfo`" ]; then
+	PAR="$*"
+	[[ ! "$PAR" ]] && PAR='tags lyrics album albumart artist'  #reset all modules
+	LC_ALL=C wget --spider --tries 1 -T 3 -F --max-redirect 0 $PING_SERVER 2> $WORKDIR/tmp_ping
+	if [ ! "`LC_ALL=C grep -F connected $WORKDIR/tmp_ping`" ]; then
 		export CONNECTION=false
-		#show icon instead of album art
-		[ ! "$MYPID" ] && cp -f /usr/local/pmusic/themes/${THEME}/album_art.svg $HOME/.pmusic/nowplaying_albumart.jpg 2>> $STDERR 
-		#add message in fields
-		echo "|$TXT_NO_WWW" > ${MYDIR}_urls
-		echo "|$TXT_NO_WWW" > ${MYDIR}_discography
-		echo "||$TXT_NO_WWW" > ${MYDIR}_album
-		echo "" > ${MYDIR}_album_source
-		echo "$TXT_NO_WWW" > ${MYDIR}_lyrics
-		echo "$TXT_NO_WWW" > ${MYDIR}_alterantives
-		for I in ARTIST TITLE ALBUM YEAR NR; do
-			read TMP < ${MYDIR}_${I}
-			[ "$TMP" = "$TXT_SEARCH" ] && echo "$TXT_NO_WWW" > ${MYDIR}_${I}
-		done
+		case "$PAR" in *artist*) 
+			echo "||$TXT_NO_WWW" > ${MYDIR}_urls
+			echo "||$TXT_NO_WWW" > ${MYDIR}_discography
+			;;
+		esac
+		case "$PAR" in *lyrics*) echo "$TXT_NO_WWW" > ${MYDIR}_lyrics;; esac
+		case "$PAR" in *album*) echo "$TXT_NO_WWW" > ${MYDIR}_album; echo "" > ${MYDIR}_album_source;; esac
+		case "$PAR" in *albumart*) 
+			#show icon instead of album art
+			[ ! "$MYPID" ] && cp -f /usr/local/pmusic/themes/${THEME}/album_art.svg $HOME/.pmusic/nowplaying_albumart.jpg 2>> $STDERR 
+			;;
+		esac
+		case "$PAR" in *tags*) 
+			echo "$TXT_NO_WWW" > ${MYDIR}_alternatives
+			for I in ARTIST TITLE ALBUM YEAR NR; do
+				read TMP < ${MYDIR}_${I}
+				[ "$TMP" = "$TXT_SEARCH" ] && echo "$TXT_NO_WWW" > ${MYDIR}_${I}
+			done
+			;;
+		esac
+	else
+		export CONNECTION=true
 	fi
 }
 
@@ -731,7 +760,61 @@ check_connection (){
 ##################################################################################
 
 case "$*" in
-	*-save_albumart)
+		*-discography*)
+			case ${TREE_DISCOGRAPHY} in 
+				*pmusic_discography_expand:*)
+					RGID=${TREE_DISCOGRAPHY##*pmusic_discography_expand:}
+					LC_ALL=C wget -q "https://musicbrainz.org/ws/2/recording/?query=rgid:$RGID&limit=100" -O- > ${MYDIR}_tmp_trackinfo
+					XML="$(<${MYDIR}_tmp_trackinfo)"
+					XML_CONV="`convertxml "$XML"`"
+					TMP="`echo "$XML_CONV" | grep -FA3 '<recording id=' | grep -F '</title' | cut -d '<' -f 1 | cat -n | cut -c 5- | sed -e 's/\t/|/g' -e "s/^/pmusic_discography_add:${ARTIST}|/g" `"
+					TRACKS="$(echo "$TMP" | awk -F '|' '{print $1 " - " $3 "|" $2 "|" $3 "||gtk-audio" }')"
+					DISCOGRAPHY_SELECT="`grep -F "$TREE_DISCOGRAPHY" $WORKDIR/trackinfo${MYPID}_discography | sed 's/pmusic_discography_expand/pmusic_discography_collapse/'`"
+					DISCOGRAPHY_PRE="`grep -B 1000 -F "$TREE_DISCOGRAPHY" $WORKDIR/trackinfo${MYPID}_discography | grep -vF "$TREE_DISCOGRAPHY"`"
+					DISCOGRAPHY_POST="`grep -A 1000 -F "$TREE_DISCOGRAPHY" $WORKDIR/trackinfo${MYPID}_discography | grep -vF "$TREE_DISCOGRAPHY"`"
+					[ "$DISCOGRAPHY_PRE" ] && echo "$DISCOGRAPHY_PRE" > $WORKDIR/trackinfo${MYPID}_discography || echo -n > $WORKDIR/trackinfo${MYPID}_discography
+					echo "$DISCOGRAPHY_SELECT" >> $WORKDIR/trackinfo${MYPID}_discography
+					echo "$TRACKS" | awk '!A[$0]++' >> $WORKDIR/trackinfo${MYPID}_discography
+					echo "||___________________________" >> $WORKDIR/trackinfo${MYPID}_discography
+					echo "$DISCOGRAPHY_POST" >> $WORKDIR/trackinfo${MYPID}_discography
+					echo true > $WORKDIR/UPDATE_TRACKINFO${MYPID} #update gui
+					;;
+				*pmusic_discography_collapse:*)
+					DISCOGRAPHY_SELECT="`grep -F "$TREE_DISCOGRAPHY" $WORKDIR/trackinfo${MYPID}_discography | sed 's/pmusic_discography_collapse/pmusic_discography_expand/'`"
+					DISCOGRAPHY_PRE="`grep -B 1000 -F "$TREE_DISCOGRAPHY" $WORKDIR/trackinfo${MYPID}_discography | grep -vF "$TREE_DISCOGRAPHY"`"
+					DISCOGRAPHY_POST="`grep -A 1000 -F "$TREE_DISCOGRAPHY" $WORKDIR/trackinfo${MYPID}_discography | grep -vF "$TREE_DISCOGRAPHY"`"
+					[ "$DISCOGRAPHY_PRE" ] && echo "$DISCOGRAPHY_PRE" > $WORKDIR/trackinfo${MYPID}_discography || echo -n > $WORKDIR/trackinfo${MYPID}_discography
+					echo "$DISCOGRAPHY_SELECT" >> $WORKDIR/trackinfo${MYPID}_discography
+					#remove track-lines
+					TMP=`grep -m1 -n '___________________________' <<< "$DISCOGRAPHY_POST" | tail -n1`
+					echo "$DISCOGRAPHY_POST" | tac | head -n -${TMP%%:*} | tac >> $WORKDIR/trackinfo${MYPID}_discography
+					echo true > $WORKDIR/UPDATE_TRACKINFO${MYPID} #update gui
+					;;
+				*pmusic_discography_add:*)
+					#first check locally in the db
+					echo -n "cut -f1-3 -d'|' \"$STORAGE_DIR/index_mymusic\" " > $WORKDIR/trackinfo${MYPID}_discography_exec
+					TMP=${TREE_DISCOGRAPHY##*pmusic_discography_add:}
+					for I in ${TMP/ - / }; do echo -n '| grep -iF "'${I//\"/\\\"}'" ' >> $WORKDIR/trackinfo${MYPID}_discography_exec; done
+					echo "| grep -ivE \"\.pmu\||\.m3u\||\.pls\||\.pmd\|\" > $WORKDIR/trackinfo${MYPID}_discography_search" >> $WORKDIR/trackinfo${MYPID}_discography_exec
+					chmod 722 $WORKDIR/trackinfo${MYPID}_discography_exec
+					$WORKDIR/trackinfo${MYPID}_discography_exec
+					#---
+					if [ -s $WORKDIR/trackinfo${MYPID}_discography_search ]; then
+						IFS='|' read SOURCE TMP <<< $(head -n1 $WORKDIR/trackinfo${MYPID}_discography_search)
+						. $APPDIR/func_add -add
+					else #check youtube - no need to check for internet connection. If reched here, user already got connection
+						TMP="$(wget -O - -t 1 -U "$USERAGENT" "http://google.com/search?q=YouTube ${TREE_DISCOGRAPHY##*pmusic_discography_add:} music" | sed -e 's/http:/\nhttp:/g' -e 's/ - <b>YouTube/\n - <b>YouTube/g' -e 's/href/\nhref/g' | grep  -F  'youtube.com/watch'  | grep -Fm1 'class="BNeawe vvjwJb AP7Wnd">')"
+						NAME="$(echo "$TMP" | awk -F '<div class="BNeawe vvjwJb AP7Wnd">' '{print $2}' | awk -F ' - YouTube</div>' '{print $1}')"
+						ADR='https://www.youtube.com/watch?v='$(echo "$TMP" | cut -d'&' -f1 | awk -F '%3Fv%3D' '{print $2}')
+						echo "|00:00|$NAME|$ADR|"$(date +%s%N)" $ADR" >> $WORKDIR/playlist
+					fi
+					echo true | tee $WORKDIR/UPDATE_GUI $WORKDIR/UPDATE_PLAYLIST
+					;;
+			esac
+			exit 0
+		;;
+		
+		*-save_albumart)
 		export pmusic_save_albumart='
 		<window title="pMusic - '$(gettext 'Save albumart')'" icon-name="pmusic">
 		 <vbox>
@@ -824,38 +907,38 @@ case "$*" in
 			  </hbox>
 			 </vbox>
 			</window>' > $WORKDIR/xml_pmusic_trackinfo${MYPID}_alternativ_id3
-			URL="http://musicbrainz.org/ws/1/track/?type=xml&limit=100"
-			[ "$TITLE" ] && URL="$URL&title=${TITLE}"
-			[ "$ARTIST" ] && URL="$URL&artist=${ARTIST}"
-			URL="${URL// /+}"
+			URL="http://musicbrainz.org/ws/2/recording/?query="
+			[ "$TITLE" ] && URL="$URL recording:${TITLE} AND"
+			[ "$ARTIST" ] && URL="$URL artist:${ARTIST}"
 			XML="$(wget -q "$URL" -O-)"
 			XML_CONV="`convertxml "$XML"`"
-			echo "$XML_CONV" | grep -F -A3 '<track id=' | grep -F '</title' | cut -d '<' -f 1 > $WORKDIR/alt_titles${MYPID}
-			echo "$XML_CONV" | grep -F '</name' | cut -d '<' -f1 > $WORKDIR/alt_artists${MYPID}
-			echo "$XML_CONV" | grep -F -A 5 '<release-list' | grep -F '</title' | cut -d '<' -f 1 > $WORKDIR/alt_albums${MYPID}
-			paste -d'|' $WORKDIR/alt_artists${MYPID} $WORKDIR/alt_titles${MYPID} $WORKDIR/alt_albums${MYPID} > ${MYDIR}_alterantives_all
-			#wait for discography is ready
-			for M in 1 2 3 4 5; do
-				[ ! -s ${MYDIR}_discography1 ] && sleep 1
-			done
-			#grab from album-list to show this alternative first in list. this requires that artist is correct
-			echo -n > ${MYDIR}_alterantives_sa
-			IFS=$'\n'
-			while read N; do
-				grep -m1 -i "$N" ${MYDIR}_alterantives_all >> ${MYDIR}_alterantives_sa #single artist
-			done < ${MYDIR}_discography1
-			#build output
-			echo -n > ${MYDIR}_alterantives #required if _sa is empty...
-			[ -s ${MYDIR}_alterantives_sa ] && cat ${MYDIR}_alterantives_sa | sort -u >> ${MYDIR}_alterantives
-			echo '____________________' >> ${MYDIR}_alterantives
-			cat ${MYDIR}_alterantives_all >> ${MYDIR}_alterantives
-			[ ! -s ${MYDIR}_alterantives_sa -a ! -s ${MYDIR}_alterantives_all ] && echo "$(gettext 'Nothing found')" > ${MYDIR}_alterantives
+			echo "$XML_CONV" | grep -FA4 'recording id=' | grep -F '</title' | cut -d '<' -f 1 > $WORKDIR/alt_titles${MYPID}
+			echo "$XML_CONV" | grep -FA15 'release id=' | grep -FA4 'artist id=' | grep -F '</name' | cut -d '<' -f1 > $WORKDIR/alt_artists${MYPID}
+			echo "$XML_CONV" | grep -FA4 'release id=' | grep -F '</title' | cut -d '<' -f 1 > $WORKDIR/alt_albums${MYPID}
+			paste -d'|' $WORKDIR/alt_artists${MYPID} $WORKDIR/alt_titles${MYPID} $WORKDIR/alt_albums${MYPID} | grep -Fv 'Various Artists' | grep -Fv '||' | awk '!a[$0]++' > ${MYDIR}_alterantives
+			
+#			#wait for discography is ready
+#			for M in 1 2 3 4 5; do
+#				[ ! -s ${MYDIR}_discography1 ] && sleep 1
+#			done
+#			#grab from album-list to show this alternative first in list. this requires that artist is correct
+#			echo -n > ${MYDIR}_alterantives_sa
+#			IFS=$'\n'
+#			while read N; do
+#				grep -m1 -i "$N" ${MYDIR}_alterantives_all >> ${MYDIR}_alterantives_sa #single artist
+#			done < ${MYDIR}_discography1
+#			#build output
+#			echo -n > ${MYDIR}_alterantives #required if _sa is empty...
+#			[ -s ${MYDIR}_alterantives_sa ] && cat ${MYDIR}_alterantives_sa | sort -u >> ${MYDIR}_alterantives
+#			echo '____________________' >> ${MYDIR}_alterantives
+#			cat ${MYDIR}_alterantives_all >> ${MYDIR}_alterantives
+#			[ ! -s ${MYDIR}_alterantives_sa -a ! -s ${MYDIR}_alterantives_all ] && echo "$(gettext 'Nothing found')" > ${MYDIR}_alterantives
 			echo 100 > $WORKDIR/splash #reset progress bar
 		fi
 		exit 0
 		;;
 	*-quiet*)
-		case "$*" in *-refresh*) #search amazon for new artwork, ...
+		case "$*" in *-refresh*) #search musicbrainz for new artwork, ...
 			OLD_ARTIST=""
 			OLD_TITLE=""
 			OLD_ALBUM=""
@@ -999,7 +1082,6 @@ case "$*" in
 		exit 0
 		;;
 esac
-
 
 
 ##################################################################################
