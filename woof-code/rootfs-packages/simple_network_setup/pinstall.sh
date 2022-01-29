@@ -13,9 +13,9 @@ if [ "$(pwd)" = '/' ]; then
         fi
     fi
 
+    #v3.3 Remove connections if in old format...
     grep '^..[^:]' etc/simple_network_setup/connections \
-      && [ ! -f etc/simple_network_setup/connections-oldformat ] \
-      && mv etc/simple_network_setup/connections etc/simple_network_setup/connections-oldformat
+      && rm -f etc/simple_network_setup/connections
 
     if ! which iw >/dev/null 2>&1; then
         BACK_TITLE="This version of simple-network-setup cannot manage wireless connections, due to the absence of the 'iw' command in this installation, but can control wired ethernet connections."

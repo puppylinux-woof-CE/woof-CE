@@ -5,18 +5,19 @@
 # Invoked by udev rule file 51-simple_network_setup.rules
 #201017 v2.4: Rewritten to save module names expected to be loaded, accessed by connection driver name (from /sys/class/net/*/device/driver link). 
 #210703 v3.1 Accept modalias as argument, to avoid depending on MODALIAS environment variable.
+#211215 v3.3 Simplify udev rule; revert 210703 because udev-rule %s{modalias} argument unreliable for ssb subsystem; test for connections, etc., because udev-rule test command location inconsistent across kernel versions.
 
-[ -z "$1" ] && exit
-MODALIAS="$1"
+[ -n "$MODALIAS" ] \
+  && [ -s /etc/simple_network_setup/connections ] \
+  && [ -x /sbin/pup_event_backend_modprobe ] \
+  || exit #211215
 usleep 1000 #precaution for multiple cores
-MODULES="$(/sbin/modprobe -i --config /dev/null \
+MODULE="$(/sbin/modprobe -i --config /dev/null \
   --show-depends "$MODALIAS" 2>/dev/null | \
-  grep -E '/kernel/drivers/net/|/kernel/drivers/staging/' | \
-  grep -o '[^/]*\.ko' | cut -f 1 -d '.')"
-if [ -n "$MODULES" ]; then
-    MODULE="$(/sbin/modprobe -i --show-depends "$MODALIAS" 2>/dev/null | \
-      grep -E '/kernel/drivers/net/|/kernel/drivers/staging/' | \
-      grep -o '[^/]*\.ko' | cut -f 1 -d '.' | tail -n 1)"
+  grep -E '/kernel/drivers/(net|staging)' | \
+  grep -o '[^/]*\.ko' | cut -f 1 -d '.' | tail -n 1)"
+if [ -n "$MODULE" ]; then
+    LOAD_MODULE="${MODULE//-/_}"
     PREFLIST=''
     if [ -f /etc/rc.d/MODULESCONFIG-backend_modprobe ]; then
 # shellcheck disable=SC1091
@@ -34,14 +35,14 @@ if [ -n "$MODULES" ]; then
                 echo "blacklist $MODULE" >> /tmp/sns_blacklist.conf
                 xMODULE="$(/sbin/modprobe -i --config /tmp/sns_blacklist.conf \
                   --show-depends "$MODALIAS" 2>/dev/null | \
+                  grep -E '/kernel/drivers/(net|staging)' | \
                   tail -n 1 | grep -o '[^/]*\.ko' | cut -f 1 -d '.')"
-                [ "$xMODULE" = "$PREFMOD" ] && MODULE="$xMODULE"
+                [ "$xMODULE" = "$PREFMOD" ] && LOAD_MODULE="${xMODULE//-/_}"
             done
             rm -f /tmp/sns_blacklist.conf
         fi
     fi
     mkdir -p /tmp/simple_network_setup/udevmodulelist
-    for ONEMODULE in $MODULES; do
-        echo "$MODULE" > /tmp/simple_network_setup/udevmodulelist/"${ONEMODULE//-/_}"
-    done
+    ! grep -qsw "$LOAD_MODULE" /tmp/simple_network_setup/udevmodulelist/"$MODULE" \
+      && echo "$LOAD_MODULE" >> /tmp/simple_network_setup/udevmodulelist/"$MODULE"
 fi
