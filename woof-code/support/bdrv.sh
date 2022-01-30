@@ -23,9 +23,9 @@ export DEBIAN_FRONTEND=noninteractive
 
 # create a tiny Debian installation
 if [ "$USR_SYMLINKS" = "yes" ]; then
-	$debootstrap --variant=minbase ${DISTRO_COMPAT_VERSION} bdrv http://deb.debian.org/debian
+	$debootstrap --arch=$ARCH --variant=minbase ${DISTRO_COMPAT_VERSION} bdrv http://deb.debian.org/debian
 else
-	$debootstrap --no-merged-usr --variant=minbase ${DISTRO_COMPAT_VERSION} bdrv http://deb.debian.org/debian
+	$debootstrap --no-merged-usr --arch=$ARCH --variant=minbase ${DISTRO_COMPAT_VERSION} bdrv http://deb.debian.org/debian
 fi
 
 # make sure UIDs and GIDs are consistent with Puppy
