@@ -7,16 +7,18 @@
 
 sed -i "s/Puppy Linux/${DISTRO_NAME}/g" usr/share/backgrounds/*.svg
 # take some pixels off for better alignment for 431.svg
-if [ -e usr/share/backgrounds/431.svg ];then
-	XVAL=872.666
-	P="Puppy Linux"
-	if [ $((${#DISTRO_NAME} - ${#P})) -gt 0 ];then
-		VAL=$((${#DISTRO_NAME} - ${#P}))
-		VAL=${VAL}0
-		NVAL=`dc -e"$XVAL $VAL - p"` # ex: if VAL=40 NVAL=832.666
-		sed -i "s/$XVAL/$NVAL/" usr/share/backgrounds/431.svg
+for WALL in usr/share/backgrounds/431*svg ; do
+	if [ -e "$WALL" ];then
+		XVAL=872.666
+		P="Puppy Linux"
+		if [ $((${#DISTRO_NAME} - ${#P})) -gt 0 ];then
+			VAL=$((${#DISTRO_NAME} - ${#P}))
+			VAL=${VAL}0
+			NVAL=`dc -e"$XVAL $VAL - p"` # ex: if VAL=40 NVAL=832.666
+			sed -i "s/$XVAL/$NVAL/" "$WALL"
+		fi
 	fi
-fi
+done
 
 echo "Configuring Puppy skeleton..."
 echo "Configuring Puppy Help page..."
