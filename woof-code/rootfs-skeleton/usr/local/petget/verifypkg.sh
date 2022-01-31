@@ -17,6 +17,9 @@ case $DLPKG in
 		tar --force-local -tf "$DLPKG" >/dev/null 2>&1
 		RETVAL=$?
 		;;
+	*.xbps)
+		RETVAL=0
+		;;
 esac
 [ $RETVAL -ne 0 ] && echo "$DLPKG" >> /tmp/petget_proc/pgks_failed_to_install_forced && rm -f $DLPKG
 exit $RETVAL
