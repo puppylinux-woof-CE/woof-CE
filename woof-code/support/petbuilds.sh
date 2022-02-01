@@ -71,17 +71,19 @@ for NAME in $PETBUILDS; do
             rm -f petbuild-rootfs-complete/pinstall.sh
 
             # to speed up compilation, we build a static, native ccache executable
-            if [ $CROSSBUILD -eq 1 -o ! -e devx/usr/bin/ccache ]; then
-                if [ ! -f ../petbuild-cache/ccache ]; then
-                    wget -t 1 -T 15 https://github.com/ccache/ccache/releases/download/v3.7.12/ccache-3.7.12.tar.xz
-                    tar -xJf ccache-3.7.12.tar.xz
-                    cd ccache-3.7.12
-                    CFLAGS=-O3 LDFLAGS="-static -Wl,-s" ./configure
-                    MAKEFLAGS="$MAKEFLAGS" make
-                    install -D -m 755 ccache ../../petbuild-cache/ccache
-                    cd ..
+            if [ "$BUILD_DEVX" = "yes" ]; then
+                if [ $CROSSBUILD -eq 1 -o ! -e devx/usr/bin/ccache ]; then
+                    if [ ! -f ../petbuild-cache/ccache ]; then
+                        wget -t 1 -T 15 https://github.com/ccache/ccache/releases/download/v3.7.12/ccache-3.7.12.tar.xz
+                        tar -xJf ccache-3.7.12.tar.xz
+                        cd ccache-3.7.12
+                        CFLAGS=-O3 LDFLAGS="-static -Wl,-s" ./configure
+                        MAKEFLAGS="$MAKEFLAGS" make
+                        install -D -m 755 ccache ../../petbuild-cache/ccache
+                        cd ..
+                    fi
+                    install -m 755 ../petbuild-cache/ccache petbuild-rootfs-complete/usr/bin/ccache
                 fi
-                install -m 755 ../petbuild-cache/ccache petbuild-rootfs-complete/usr/bin/ccache
             fi
 
             # speed up configure scripts by using a native shell executable and a native busybox
@@ -118,7 +120,7 @@ for NAME in $PETBUILDS; do
             chroot petbuild-rootfs-complete ldconfig
 
             # the shared-mime-info PET used by fossa64 doesn't put its pkg-config file in /usr/lib/x86_64-linux-gnu/pkgconfig
-            PKG_CONFIG_PATH=`dirname $(find petbuild-rootfs-complete devx -name '*.pc') | sed -e s/^petbuild-rootfs-complete//g -e s/^devx//g | sort | uniq | tr '\n' :`
+            PKG_CONFIG_PATH=`dirname $(find petbuild-rootfs-complete devx -name '*.pc' 2>/dev/null) 2>/dev/null | sed -e s/^petbuild-rootfs-complete//g -e s/^devx//g | sort | uniq | tr '\n' :`
 
             HAVE_ROOTFS=1
         fi
@@ -158,11 +160,12 @@ for NAME in $PETBUILDS; do
 
         rm -rf ../petbuild-output/${NAME}-* # remove older petbuilds of $NAME
         mkdir -p ../petbuild-output/${NAME}-${HASH} petbuild-rootfs-complete-${NAME}
+        [ "$BUILD_DEVX" = "yes" ] && LOWERDIR='devx:petbuild-rootfs-complete' || LOWERDIR='petbuild-rootfs-complete'
         if [ "$LAYER_TYPE" = 'overlay' ]; then
              mkdir petbuild-workdir
-             mount -t overlay -o upperdir=../petbuild-output/${NAME}-${HASH},lowerdir=devx:petbuild-rootfs-complete,workdir=petbuild-workdir petbuild petbuild-rootfs-complete-${NAME}
+             mount -t overlay -o upperdir=../petbuild-output/${NAME}-${HASH},lowerdir=${LOWERDIR},workdir=petbuild-workdir petbuild petbuild-rootfs-complete-${NAME}
         else
-             mount -t aufs -o br=../petbuild-output/${NAME}-${HASH}:devx:petbuild-rootfs-complete petbuild petbuild-rootfs-complete-${NAME}
+             mount -t aufs -o br=../petbuild-output/${NAME}-${HASH}:${LOWERDIR} petbuild petbuild-rootfs-complete-${NAME}
         fi
 
         mkdir -p petbuild-rootfs-complete-${NAME}/proc petbuild-rootfs-complete-${NAME}/sys petbuild-rootfs-complete-${NAME}/dev petbuild-rootfs-complete-${NAME}/tmp
