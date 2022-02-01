@@ -34,18 +34,11 @@ if [ -z "$PETBUILD_GTK" ]; then
     if [ "$DISTRO_TARGETARCH" = "x86" ]; then
         echo "Using GTK+ 2 for x86 petbuilds"
     else
-        GTK3_PC=`find ../packages-${DISTRO_FILE_PREFIX} -name gtk+-3.0.pc | head -n 1`
-        if [ -n "$GTK3_PC" ]; then
-            GTK3_VER=`awk '/Version:/{print $2}' "${GTK3_PC}"`
-            vercmp "$GTK3_VER" ge 3.24.18
-            if [ $? -eq 0 ]; then
-                echo "Using GTK+ 3 for petbuilds"
-                PETBUILD_GTK=3
-            else
-                echo "Using GTK+ 2 for petbuilds, GTK+ 3 is too old"
-            fi
+        if [ $HAVE_GTK3 -eq 1 ]; then
+            echo "Using GTK+ 3 for petbuilds"
+            PETBUILD_GTK=3
         else
-            echo "Using GTK+ 2 for petbuilds, GTK+ 3 is missing"
+            echo "Using GTK+ 2 for petbuilds, GTK+ 3 is too old or missing"
         fi
     fi
 fi
