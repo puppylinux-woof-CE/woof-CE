@@ -17,7 +17,7 @@ echo "Building ${BIOS_IMG_BASE}"
 
 dd if=/dev/zero of=${BIOS_IMG_BASE} bs=50M count=40 conv=sparse
 parted --script ${BIOS_IMG_BASE} mklabel msdos
-parted --script ${BIOS_IMG_BASE} mkpart primary "" ext4 2048s 100%
+parted --script ${BIOS_IMG_BASE} mkpart primary ext4 2048s 100%
 parted --script ${BIOS_IMG_BASE} set 1 boot on
 LOOP=`losetup -Pf --show ${BIOS_IMG_BASE}`
 PARTUUID=`blkid -s PARTUUID -o value ${LOOP}p1`
@@ -83,11 +83,12 @@ if [ "$WOOF_TARGETARCH" = "x86_64" ]; then
 
 	dd if=/dev/zero of=${UEFI_IMG_BASE} bs=50M count=40 conv=sparse
 	parted --script ${UEFI_IMG_BASE} mklabel gpt
-	parted --script ${UEFI_IMG_BASE} mkpart "${DISTRO_FILE_PREFIX}_esp" fat32 1MiB 261MiB
+	parted --script ${UEFI_IMG_BASE} mkpart fat32 1MiB 261MiB
 	parted --script ${UEFI_IMG_BASE} set 1 esp on
-	parted --script ${UEFI_IMG_BASE} mkpart "${DISTRO_FILE_PREFIX}_uefi_root" ext4 261MiB 100%
+	parted --script ${UEFI_IMG_BASE} mkpart ext4 261MiB 100%
 	LOOP=`losetup -Pf --show ${UEFI_IMG_BASE}`
 	mkfs.fat -F 32 ${LOOP}p1
+	PARTUUID=`blkid -s PARTUUID -o value ${LOOP}p2`
 	mkfs.ext4 -F -b 4096 -m 0 -O ^has_journal,encrypt ${LOOP}p2
 
 	mkdir -p /mnt/uefiimagep1 /mnt/uefiimagep2
@@ -99,9 +100,9 @@ if [ "$WOOF_TARGETARCH" = "x86_64" ]; then
 	if [ "$FRUGALIFY" = "yes" ]; then
 		if [ -e build/ucode.cpio ]; then
 			install -m 644 build/ucode.cpio /mnt/uefiimagep1/EFI/BOOT/ucode.cpio
-			echo "-f 0:\EFI\BOOT\vmlinuz initrd=0:\EFI\BOOT\ucode.cpio root=PARTLABEL=${DISTRO_FILE_PREFIX}_uefi_root init=/frugalify rootfstype=ext4 rootwait rw" > /mnt/uefiimagep1/EFI/BOOT/efilinux.cfg
+			echo "-f 0:\EFI\BOOT\vmlinuz initrd=0:\EFI\BOOT\ucode.cpio root=PARTUUID=$PARTUUID init=/frugalify rootfstype=ext4 rootwait rw" > /mnt/uefiimagep1/EFI/BOOT/efilinux.cfg
 		else
-			echo "-f 0:\EFI\BOOT\vmlinuz root=PARTLABEL=${DISTRO_FILE_PREFIX}_uefi_root init=/frugalify rootfstype=ext4 rootwait rw" > /mnt/uefiimagep1/EFI/BOOT/efilinux.cfg
+			echo "-f 0:\EFI\BOOT\vmlinuz root=PARTUUID=$PARTUUID init=/frugalify rootfstype=ext4 rootwait rw" > /mnt/uefiimagep1/EFI/BOOT/efilinux.cfg
 		fi
 	else
 		if [ -e build/ucode.cpio ]; then
@@ -126,8 +127,12 @@ if [ "$WOOF_TARGETARCH" = "x86_64" ]; then
 fi
 
 echo "Building ${TAR_BASE}"
+rm -f build/README.txt
 [ "$WOOF_TARGETARCH" != "x86_64" ] || cp -f ../../local-repositories/efilinux.efi build/
-[ "$FRUGALIFY" != "yes" ] || cp -f ../../local-repositories/${FRUGALIFYEXEC} build/frugalify
+if [ "$FRUGALIFY" = "yes" ]; then
+	cp -f ../../local-repositories/${FRUGALIFYEXEC} build/frugalify
+	rm -f build/initrd.gz
+fi
 cd build
 sha256sum * > sha256.sum
 tar -c * > ../../${WOOF_OUTPUT}/${TAR_BASE}

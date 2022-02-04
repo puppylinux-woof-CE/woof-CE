@@ -63,18 +63,20 @@ sd*)
 esac
 TARGET="/dev/${TARGET}"
 
-if [ -L "/dev/disk/by-partlabel/${DISTRO_FILE_PREFIX}_esp" -a -L "/dev/disk/by-partlabel/${DISTRO_FILE_PREFIX}_uefi_root" ]; then
+PARTPFIX="`readlink /mnt/home | sed -E -e 's/[0-9]+$//g' -e 's~^/mnt/~~'`"
+ESP=`probepart | grep -E "^/dev/${PARTPFIX}[0-9]+\|vfat" | head -n 1 | cut -f 1 -d \|`
+
+if [ -n "$ESP" ]; then
 	parted --script ${TARGET} mklabel gpt
 	blockdev --rereadpt ${TARGET}
 	sleep 4
 
-	mkdir -p /mnt/efi /mnt/root
-	mount "/dev/disk/by-partlabel/${DISTRO_FILE_PREFIX}_esp" /mnt/efi
-	mount "/dev/disk/by-partlabel/${DISTRO_FILE_PREFIX}_uefi_root" /mnt/root
+	mkdir -p /mnt/efi
+	mount "$ESP" /mnt/efi
 
-	parted --script ${TARGET} mkpart "${DISTRO_FILE_PREFIX}_esp" fat32 1MiB 261MiB
+	parted --script ${TARGET} mkpart fat32 1MiB 261MiB
 	parted --script ${TARGET} set 1 esp on
-	parted --script ${TARGET} mkpart "${DISTRO_FILE_PREFIX}_uefi_root" ext4 261MiB 100%
+	parted --script ${TARGET} mkpart ext4 261MiB 100%
 	blockdev --rereadpt ${TARGET}
 	sleep 4
 	mkfs.fat -F 32 ${TARGETP1}
@@ -85,30 +87,42 @@ if [ -L "/dev/disk/by-partlabel/${DISTRO_FILE_PREFIX}_esp" -a -L "/dev/disk/by-p
 	install -D -m 644 /mnt/efi/EFI/BOOT/BOOTX64.EFI /mnt/targetp1/EFI/BOOT/BOOTX64.EFI
 	install -m 644 /mnt/efi/EFI/BOOT/efilinux.cfg /mnt/targetp1/EFI/BOOT/efilinux.cfg
 	install -m 644 /mnt/efi/EFI/BOOT/vmlinuz /mnt/targetp1/EFI/BOOT/vmlinuz
-	[ ! -e /mnt/efi/EFI/BOOT/initrd.gz ] || install -m 644 /mnt/efi/EFI/BOOT/initrd.gz /mnt/targetp1/EFI/BOOT/initrd.gz
-	[ ! -e /mnt/efi/EFI/BOOT/ucode.cpio ] || install -m 644 /mnt/efi/EFI/BOOT/ucode.cpio /mnt/targetp1/EFI/BOOT/ucode.cpio
+	PARTUUID=`blkid -s PARTUUID -o value ${TARGETP2}`
+	if [ -e /mnt/efi/EFI/BOOT/initrd.gz ]; then
+		install -m 644 /mnt/efi/EFI/BOOT/initrd.gz /mnt/targetp1/EFI/BOOT/initrd.gz
+
+		if [ -e /mnt/efi/EFI/BOOT/ucode.cpio ]; then
+			install -m 644 /mnt/efi/EFI/BOOT/ucode.cpio /mnt/targetp1/EFI/BOOT/ucode.cpio
+			echo "-f 0:\EFI\BOOT\vmlinuz initrd=0:\EFI\BOOT\ucode.cpio initrd=0:\EFI\BOOT\initrd.gz root=PARTUUID=${PARTUUID} init=/frugalify rootfstype=ext4 rootwait rw" > /mnt/targetp1/EFI/BOOT/efilinux.cfg
+		else
+			echo "-f 0:\EFI\BOOT\vmlinuz initrd=0:\EFI\BOOT\initrd.gz root=PARTUUID=${PARTUUID} init=/frugalify rootfstype=ext4 rootwait rw" > /mnt/targetp1/EFI/BOOT/efilinux.cfg
+		fi
+	else
+		if [ -e /mnt/efi/EFI/BOOT/ucode.cpio ]; then
+			install -m 644 /mnt/efi/EFI/BOOT/ucode.cpio /mnt/targetp1/EFI/BOOT/ucode.cpio
+			echo "-f 0:\EFI\BOOT\vmlinuz initrd=0:\EFI\BOOT\ucode.cpio root=PARTUUID=${PARTUUID} init=/frugalify rootfstype=ext4 rootwait rw" > /mnt/targetp1/EFI/BOOT/efilinux.cfg
+		else
+			echo "-f 0:\EFI\BOOT\vmlinuz root=PARTUUID=${PARTUUID} init=/frugalify rootfstype=ext4 rootwait rw" > /mnt/targetp1/EFI/BOOT/efilinux.cfg
+		fi
+	fi
 	busybox umount /mnt/targetp1 2>/dev/null
 
 	mount-FULL -o noatime ${TARGETP2} /mnt/targetp2
-	[ ! -e /mnt/root/frugalify ] || install -m 755 /mnt/root/frugalify /mnt/targetp2/frugalify
-	cp -a /mnt/root/*.sfs /mnt/targetp2/
+	[ ! -e /mnt/home/frugalify ] || install -m 755 /mnt/home/frugalify /mnt/targetp2/frugalify
+	cp -a /mnt/home/*.sfs /mnt/targetp2/
 	busybox umount /mnt/targetp2 2>/dev/null
 	rmdir /mnt/targetp2
 
 	busybox umount /mnt/efi 2>/dev/null
-	busybox umount /mnt/root 2>/dev/null
-	rmdir /mnt/efi /mnt/root /mnt/targetp1
+	rmdir /mnt/efi /mnt/targetp1
 
 	sync
-elif [ -L "/dev/disk/by-label/${DISTRO_FILE_PREFIX}_bios" ]; then
+else
 	parted --script ${TARGET} mklabel msdos
 	blockdev --rereadpt ${TARGET}
 	sleep 4
 
-	mkdir -p /mnt/root
-	mount "/dev/disk/by-label/${DISTRO_FILE_PREFIX}_bios" /mnt/root
-
-	parted --script ${TARGET} mkpart primary "" ext4 2048s 100%
+	parted --script ${TARGET} mkpart primary ext4 2048s 100%
 	parted --script ${TARGET} set 1 boot on
 	blockdev --rereadpt ${TARGET}
 	sleep 4
@@ -118,20 +132,55 @@ elif [ -L "/dev/disk/by-label/${DISTRO_FILE_PREFIX}_bios" ]; then
 	mount-FULL -o noatime ${TARGETP1} /mnt/targetp1
 	extlinux -i /mnt/targetp1
 	dd if=/usr/lib/EXTLINUX/mbr.bin of=${TARGET}
-	install -m 644 /mnt/root/extlinux.conf /mnt/targetp1/extlinux.conf
-	install -m 644 /mnt/root/vmlinuz /mnt/targetp1/vmlinuz
-	[ ! -e /mnt/root/initrd.gz ] || install -m 644 /mnt/root/initrd.gz /mnt/targetp1/initrd.gz
-	[ ! -e /mnt/root/ucode.cpio ] || cp -f /mnt/root/ucode.cpio /mnt/targetp1/
-	[ ! -e /mnt/root/frugalify ] || install -m 755 /mnt/root/frugalify /mnt/targetp1/frugalify
-	cp -a /mnt/root/*.sfs /mnt/targetp1/
+	install -m 644 /mnt/home/vmlinuz /mnt/targetp1/vmlinuz
+	PARTUUID=`blkid -s PARTUUID -o value ${TARGETP1}`
+	if [ -e /mnt/home/initrd.gz ]; then
+		install -m 644 /mnt/home/initrd.gz /mnt/targetp1/initrd.gz
+
+		if [ -e /mnt/home/ucode.cpio ]; then
+			cp -f /mnt/home/ucode.cpio /mnt/targetp1/
+			cat << EOF > /mnt/targetp1/extlinux.conf
+DEFAULT ${DISTRO_FILE_PREFIX}
+
+LABEL ${DISTRO_FILE_PREFIX}
+	LINUX vmlinuz
+	INITRD ucode.cpio,initrd.gz
+	APPEND root=PARTUUID=$PARTUUID init=/frugalify rootfstype=ext4 rootwait rw
+EOF
+		else
+			cat << EOF > /mnt/targetp1/extlinux.conf
+DEFAULT ${DISTRO_FILE_PREFIX}
+
+LABEL ${DISTRO_FILE_PREFIX}
+	LINUX initrd.gz
+	APPEND root=PARTUUID=$PARTUUID init=/frugalify rootfstype=ext4 rootwait rw
+EOF
+		fi
+	else
+		if [ -e /mnt/home/ucode.cpio ]; then
+			cp -f /mnt/home/ucode.cpio /mnt/targetp1/
+			cat << EOF > /mnt/targetp1/extlinux.conf
+DEFAULT ${DISTRO_FILE_PREFIX}
+
+LABEL ${DISTRO_FILE_PREFIX}
+	LINUX vmlinuz
+	INITRD ucode.cpio
+	APPEND root=PARTUUID=$PARTUUID init=/frugalify rootfstype=ext4 rootwait rw
+EOF
+		else
+			cat << EOF > /mnt/targetp1/extlinux.conf
+DEFAULT ${DISTRO_FILE_PREFIX}
+
+LABEL ${DISTRO_FILE_PREFIX}
+	LINUX vmlinuz
+	APPEND root=PARTUUID=$PARTUUID init=/frugalify rootfstype=ext4 rootwait rw
+EOF
+		fi
+	fi
+	[ ! -e /mnt/home/frugalify ] || install -m 755 /mnt/home/frugalify /mnt/targetp1/frugalify
+	cp -a /mnt/home/*.sfs /mnt/targetp1/
 	busybox umount /mnt/targetp1 2>/dev/null
 	rmdir /mnt/targetp1
 
-	busybox umount /mnt/root 2>/dev/null
-	rmdir /mnt/root
-
 	sync
-else
-	echo "Unable to locate ${DISTRO_NAME} files"
-	exit 1
 fi
