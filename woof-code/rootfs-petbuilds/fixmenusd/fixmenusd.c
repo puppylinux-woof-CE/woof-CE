@@ -9,6 +9,10 @@
 #include <signal.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <regex.h>
+#include <stdio.h>
+
+#define SPOTLIST "^(firefox|firefox-[a-z]+|google-chrome-[a-z]+|chromium|vivaldi-[a-z]+|brave-browser|microsoft-edge-[a-z]+|transmission-[a-z]+|seamonkey|sylpheed|claws-mail|thunderbird|vlc|steam)$"
 
 static int
 sh(const char *cmd, const sigset_t *set)
@@ -33,8 +37,40 @@ sh(const char *cmd, const sigset_t *set)
 		return -1;
 }
 
+static void
+setup_spot(const regex_t *re, const int usrbin, const struct inotify_event *event, const sigset_t *set)
+{
+	static char orig[NAME_MAX + sizeof(".bin")];
+	struct stat stbuf;
+	size_t len;
+	char *cmd;
+
+	if (regexec(re, event->name, 0, NULL, 0) != 0)
+		return;
+
+	if (fstatat(usrbin, event->name, &stbuf, AT_SYMLINK_NOFOLLOW) < 0)
+		return;
+
+	if (((event->mask & IN_CREATE) && !S_ISLNK(stbuf.st_mode)) ||
+	    (S_ISREG(stbuf.st_mode) && (stbuf.st_size == 0)))
+		return;
+
+	len = strlen(event->name);
+	memcpy(orig, event->name, len);
+	memcpy(orig + len, ".bin", sizeof(".bin") - 1);
+
+	if ((fstatat(usrbin, orig, &stbuf, AT_SYMLINK_NOFOLLOW) == 0) ||
+	    (errno != ENOENT))
+		return;
+
+	if (asprintf(&cmd, "(setup-spot %s=true) &", event->name) < 0)
+		return;
+	sh(cmd, set);
+	free(cmd);
+}
+
 static int
-handle_events(const int fd)
+handle_events(const regex_t *re, const int fd, const int appwd, const int binwd, const int usrbin, const sigset_t *set)
 {
 	char buf[sizeof(struct inotify_event) + NAME_MAX + 1];
 	const struct inotify_event *event;
@@ -53,6 +89,11 @@ handle_events(const int fd)
 		for (event = (const struct inotify_event *)buf;
 		     (char *)event < (buf + out);
 		     event = (const struct inotify_event *)((char *)event + sizeof(*event) + event->len)) {
+			if (event->wd == binwd)
+				setup_spot(re, usrbin, event, set);
+			else if (event->wd != appwd)
+				continue;
+
 			if (!(event->mask & (IN_DELETE | IN_CLOSE_WRITE | IN_MOVED_TO)))
 				continue;
 
@@ -71,8 +112,9 @@ handle_events(const int fd)
 int
 main(int argc, char* argv[])
 {
+	regex_t re;
 	sigset_t set, oset;
-	int fd, wd, sig;
+	int fd, appwd, binwd, usrbin, sig;
 
 	if (argc != 2)
 		return EXIT_FAILURE;
@@ -87,32 +129,61 @@ main(int argc, char* argv[])
 	    (sigprocmask(SIG_BLOCK, &set, &oset) < 0))
 		return EXIT_FAILURE;
 
-	fd = inotify_init1(O_CLOEXEC);
-	if (fd < 0)
+	if (regcomp(&re, SPOTLIST, REG_EXTENDED | REG_NOSUB) != 0)
 		return EXIT_FAILURE;
 
-	wd = inotify_add_watch(fd, "/usr/share/applications", IN_CLOSE_WRITE | IN_DELETE | IN_MOVED_TO | IN_EXCL_UNLINK);
-	if (wd < 0) {
+	fd = inotify_init1(O_CLOEXEC);
+	if (fd < 0) {
+		regfree(&re);
+		return EXIT_FAILURE;
+	}
+
+	appwd = inotify_add_watch(fd, "/usr/share/applications", IN_CLOSE_WRITE | IN_DELETE | IN_MOVED_TO | IN_EXCL_UNLINK);
+	if (appwd < 0) {
 		close(fd);
+		regfree(&re);
+		return EXIT_FAILURE;
+	}
+
+	binwd = inotify_add_watch(fd, "/usr/bin", IN_CLOSE_WRITE | IN_CREATE | IN_MOVED_TO | IN_EXCL_UNLINK);
+	if (binwd < 0) {
+		inotify_rm_watch(fd, appwd);
+		close(fd);
+		regfree(&re);
+		return EXIT_FAILURE;
+	}
+
+	usrbin = open("/usr/bin", O_DIRECTORY | O_RDONLY);
+	if (usrbin < 0) {
+		inotify_rm_watch(fd, binwd);
+		inotify_rm_watch(fd, appwd);
+		close(fd);
+		regfree(&re);
 		return EXIT_FAILURE;
 	}
 
 	if ((fcntl(fd, F_SETFL, O_NONBLOCK | O_ASYNC) < 0) ||
 	    (fcntl(fd, F_SETSIG, SIGRTMIN) < 0) ||
 	    (fcntl(fd, F_SETOWN, getpid()) < 0)) {
-		inotify_rm_watch(fd, wd);
+		close(usrbin);
+		inotify_rm_watch(fd, binwd);
+		inotify_rm_watch(fd, appwd);
 		close(fd);
+		regfree(&re);
 		return EXIT_FAILURE;
 	}
 
 	while ((sigwait(&set, &sig) == 0) &&
-	       ((sig == SIGRTMIN) &&
-	        (handle_events(fd) == 0)) ||
-	       ((sig == SIGALRM) &&
-	        (sh(argv[1], &oset) == 0)) ||
-	       (sig == SIGCHLD));
+	       (((sig == SIGRTMIN) &&
+	         (handle_events(&re, fd, appwd, binwd, usrbin, &oset) == 0)) ||
+	        ((sig == SIGALRM) &&
+	         (sh(argv[1], &oset) == 0)) ||
+	        (sig == SIGCHLD)));
 
-	inotify_rm_watch(fd, wd);
+	close(usrbin);
+	inotify_rm_watch(fd, binwd);
+	inotify_rm_watch(fd, appwd);
 	close(fd);
+	regfree(&re);
 	return EXIT_FAILURE;
 }
