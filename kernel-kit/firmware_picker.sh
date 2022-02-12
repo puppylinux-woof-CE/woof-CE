@@ -15,7 +15,7 @@ CWD=`pwd`
 BUILD_LOG=${CWD}/build.log
 SRC_FW_DIR='../linux-firmware'
 FIRMWARE_SFS="output/${FDRV}"
-export FIRMWARE_RESULT_DIR='zfirmware_workdir/lib/firmware'
+export FIRMWARE_RESULT_DIR='zfirmware_workdir/usr/lib/firmware'
 
 ## functions
 log_msg()    { echo -e "$@" ; echo -e "$@" >> ${BUILD_LOG} ; }
@@ -73,7 +73,7 @@ cd ${CWD}
 
 [ -f "${FIRMWARE_SFS}" ] && rm -f ${FIRMWARE_SFS}
 
-export module_dir=output/${linux_kernel_dir}/lib/modules
+export module_dir=output/${linux_kernel_dir}/usr/lib/modules
 mkdir -p $FIRMWARE_RESULT_DIR
 firmware_list_dir=output/${linux_kernel_dir}/etc/modules/
 mkdir -p $firmware_list_dir
@@ -151,12 +151,12 @@ licence_func
 # copy firmwares to build
 case $1 in
 	f)[ -f "$FIRMWARE_SFS" ] && rm $FIRMWARE_SFS
-		[ -d "output/${linux_kernel_dir}/lib/firmware/" ] && rm -rf output/${linux_kernel_dir}/lib/firmware/ # redundant; also not in newer kernels
+		[ -d "output/${linux_kernel_dir}/usr/lib/firmware/" ] && rm -rf output/${linux_kernel_dir}/usr/lib/firmware/ # redundant; also not in newer kernels
 		mksquashfs zfirmware_workdir $FIRMWARE_SFS $COMP
 		(cd output/;md5sum ${FIRMWARE_SFS##*/} > ${FIRMWARE_SFS##*/}.md5.txt);;
-	b)[ -d "output/${linux_kernel_dir}/lib/firmware/" ] && rm -r output/${linux_kernel_dir}/lib/firmware/* ||\
-			mkdir -p output/${linux_kernel_dir}/lib/firmware/
-		cp -r -n $FIRMWARE_RESULT_DIR/* output/${linux_kernel_dir}/lib/firmware/ ;;
+	b)[ -d "output/${linux_kernel_dir}/usr/lib/firmware/" ] && rm -r output/${linux_kernel_dir}/usr/lib/firmware/* ||\
+			mkdir -p output/${linux_kernel_dir}/usr/lib/firmware/
+		cp -r -n $FIRMWARE_RESULT_DIR/* output/${linux_kernel_dir}/usr/lib/firmware/ ;;
 esac
 
 rm -rf zfirmware_workdir

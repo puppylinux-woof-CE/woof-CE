@@ -10,7 +10,7 @@
 export LANG=C
 
 TEMP=/tmp/fw$$
-OUT=$TEMP/lib/firmware
+OUT=$TEMP/usr/lib/firmware
 mkdir -p $OUT
 TOOLREPO=tools
 REPO=sources/firmware_extra

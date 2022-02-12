@@ -835,6 +835,7 @@ make DESTDIR=$CWD/output/${AUFS_UTIL_DIR} install
 		mv $CWD/output/${AUFS_UTIL_DIR}/usr/lib \
 			$CWD/output/${AUFS_UTIL_DIR}/usr/lib64
 	fi
+	mv $CWD/output/${AUFS_UTIL_DIR}/sbin $CWD/output/${AUFS_UTIL_DIR}/usr/
 	log_msg "aufs-util-${kernel_version} is in output"
 	#---
 	[ -z "$OLDPATH" ] || export PATH=$OLDPATH
@@ -855,7 +856,7 @@ else
 	export MAKE_TARGETS="bzImage modules"
 fi
 echo "$MAKE ${JOBS} ${MAKE_TARGETS}
-$MAKE INSTALL_MOD_PATH=${linux_kernel_dir} modules_install" > compile ## debug
+$MAKE INSTALL_MOD_PATH=${linux_kernel_dir}/usr modules_install" > compile ## debug
 
 log_msg "Compiling the kernel"
 $MAKE ${JOBS} ${MAKE_TARGETS} >> ${BUILD_LOG} 2>&1
@@ -879,11 +880,11 @@ fi
 #---------------------------------------------------------------------
 
 log_msg "Creating the kernel package"
-$MAKE INSTALL_MOD_PATH=${linux_kernel_dir} modules_install >> ${BUILD_LOG} 2>&1
+$MAKE INSTALL_MOD_PATH=${linux_kernel_dir}/usr modules_install >> ${BUILD_LOG} 2>&1
 if [ "$remove_sublevel" = "yes" ]; then
-	rm -f ${linux_kernel_dir}/lib/modules/${kernel_major_version}.0/{build,source}
+	rm -f ${linux_kernel_dir}/usr/lib/modules/${kernel_major_version}.0/{build,source}
 else
-	rm -f ${linux_kernel_dir}/lib/modules/${kernel_version}${custom_suffix}/{build,source}
+	rm -f ${linux_kernel_dir}/usr/lib/modules/${kernel_version}${custom_suffix}/{build,source}
 fi
 mkdir -p ${linux_kernel_dir}/boot
 mkdir -p ${linux_kernel_dir}/etc/modules
@@ -897,7 +898,7 @@ if [ "$kit_kernel" = "yes" ]; then
 else
 	cp .config ${linux_kernel_dir}/etc/modules/DOTconfig-${kernel_version}-${today}
 fi
-for i in `find ${linux_kernel_dir}/lib/modules -type f -name "modules.*"| grep -E 'order$|builtin$'`;do 
+for i in `find ${linux_kernel_dir}/usr/lib/modules -type f -name "modules.*"| grep -E 'order$|builtin$'`;do 
 	cp $i ${linux_kernel_dir}/etc/modules/${i##*/}-${kernel_version}${custom_suffix}
 	log_msg "copied ${i##*/} to ${linux_kernel_dir}/etc/modules/${i##*/}-${kernel_version}${custom_suffix}"
 done
@@ -961,13 +962,13 @@ if [ "$CREATE_SOURCES_SFS" != "no" ]; then
 	mkdir -p ${KERNEL_SOURCES_DIR}/usr/src
 	mv linux-${kernel_version} ${KERNEL_SOURCES_DIR}/usr/src/linux
 	if [ "$remove_sublevel" = "yes" ]; then
-		KERNEL_MODULES_DIR=${KERNEL_SOURCES_DIR}/lib/modules/${kernel_major_version}.0
+		KERNEL_MODULES_DIR=${KERNEL_SOURCES_DIR}/usr/lib/modules/${kernel_major_version}.0
 	else
-		KERNEL_MODULES_DIR=${KERNEL_SOURCES_DIR}/lib/modules/${kernel_version}${custom_suffix}
+		KERNEL_MODULES_DIR=${KERNEL_SOURCES_DIR}/usr/lib/modules/${kernel_version}${custom_suffix}
 	fi
 	mkdir -p ${KERNEL_MODULES_DIR}
-	ln -s ../../../usr/src/linux ${KERNEL_MODULES_DIR}/build
-	ln -s ../../../usr/src/linux ${KERNEL_MODULES_DIR}/source
+	ln -s ../../../src/linux ${KERNEL_MODULES_DIR}/build
+	ln -s ../../../src/linux ${KERNEL_MODULES_DIR}/source
 	if [ ! -f ${KERNEL_SOURCES_DIR}/usr/src/linux/include/linux/version.h ] ; then
 		ln -s /usr/src/linux/include/generated/uapi/linux/version.h \
 			${KERNEL_SOURCES_DIR}/usr/src/linux/include/linux/version.h
@@ -985,7 +986,7 @@ log_msg "Pausing here to add extra firmware."
 case ${FIRMWARE_OPT} in
 manual)
 	log_msg "once you have manually added firmware to "
-	log_msg "output/${linux_kernel_dir}/lib/firmware"
+	log_msg "output/${linux_kernel_dir}/usr/lib/firmware"
 	echo "hit ENTER to continue"
 	read firm
 ;;
