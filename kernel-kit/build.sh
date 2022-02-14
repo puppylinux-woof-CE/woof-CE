@@ -953,8 +953,10 @@ if [ "$AUFS" != "no" ] ; then
 fi
 if [ "$kit_kernel" = "yes" ]; then
 	KERNEL_SOURCES_DIR="kernel_sources-${package_version}${custom_suffix}-${package_name_suffix}"
+	KBUILD_DIR="kbuild-${package_version}${custom_suffix}-${package_name_suffix}"
 else
 	KERNEL_SOURCES_DIR="kernel_sources-${package_version}-${package_name_suffix}"
+	KBUILD_DIR="kbuild-${package_version}-${package_name_suffix}"
 fi
 if [ "$CREATE_SOURCES_SFS" != "no" ]; then
 	log_msg "Creating a kernel sources SFS"
@@ -976,6 +978,23 @@ if [ "$CREATE_SOURCES_SFS" != "no" ]; then
 	mksquashfs ${KERNEL_SOURCES_DIR} output/${KERNEL_SOURCES_DIR}.sfs $COMP
 	md5sum output/${KERNEL_SOURCES_DIR}.sfs > output/${KERNEL_SOURCES_DIR}.sfs.md5.txt
 	sha256sum output/${KERNEL_SOURCES_DIR}.sfs > output/${KERNEL_SOURCES_DIR}.sfs.sha256.txt
+
+	if [ "$CREATE_KBUILD_SFS" = "yes" ]; then
+		mkdir -p ${KBUILD_DIR}/usr/src/${KBUILD_DIR}
+		./kbuild.sh ${KERNEL_SOURCES_DIR}/usr/src/linux ${KBUILD_DIR}/usr/src/${KBUILD_DIR} || exit 1
+		if [ "$remove_sublevel" = "yes" ]; then
+			mkdir -p ${KBUILD_DIR}/lib/modules/${kernel_major_version}.0
+			ln -s ../../../usr/src/${KBUILD_DIR} ${KBUILD_DIR}/lib/modules/${kernel_major_version}.0/build
+			ln -s ../../../usr/src/${KBUILD_DIR} ${KBUILD_DIR}/lib/modules/${kernel_major_version}.0/source
+		else
+			mkdir -p ${KBUILD_DIR}/lib/modules/${kernel_version}${custom_suffix}
+			ln -s ../../../usr/src/${KBUILD_DIR} ${KBUILD_DIR}/lib/modules/${kernel_version}${custom_suffix}/build
+			ln -s ../../../usr/src/${KBUILD_DIR} ${KBUILD_DIR}/lib/modules/${kernel_version}${custom_suffix}/source
+		fi
+		mksquashfs ${KBUILD_DIR} output/${KBUILD_DIR}.sfs $COMP
+		md5sum output/${KBUILD_DIR}.sfs > output/${KBUILD_DIR}.sfs.md5.txt
+		sha256sum output/${KBUILD_DIR}.sfs > output/${KBUILD_DIR}.sfs.sha256.txt
+	fi
 fi
 
 #==============================================================
