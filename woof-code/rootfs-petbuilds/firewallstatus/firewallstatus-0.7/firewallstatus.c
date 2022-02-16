@@ -185,6 +185,7 @@ int main(int argc, char **argv) {
 	gtk_init(&argc, &argv);
 		
 	tray_icon = create_tray_icon();
+	Firestate(NULL);
                         
 	g_timeout_add(interval, Firestate, NULL);
 	gtk_main();
