@@ -19,7 +19,7 @@ int main(int argc, char **argv)
 		goto proxy;
 
 	for (i = 1; i < argc; ++i) {
-		if ((strcmp(argv[i], "-hold") == 0) || (strcmp(argv[1], "--hold") == 0)) {
+		if ((strcmp(argv[i], "-hold") == 0) || (strcmp(argv[i], "--hold") == 0)) {
 			hold = TRUE;
 			break;
 		}
