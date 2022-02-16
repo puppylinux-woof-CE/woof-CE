@@ -41,3 +41,18 @@ rm -rf ksrc
 
 md5sum $KSRC > $KSRC.md5.txt
 sha256sum $KSRC > $KSRC.sha256.txt
+
+KBUILD=`ls kbuild-*.sfs`
+unsquashfs -d kbuild $KBUILD
+rm -f $KBUILD
+TARGET="../../../src/`basename $(readlink kbuild/lib/modules/*/build)`"
+rm -vf kbuild/lib/modules/*/{build,source}
+usrmerge kbuild 0
+MODULES=`echo kbuild/usr/lib/modules/*`
+ln -sv ${TARGET} ${MODULES}/build
+ln -sv ${TARGET} ${MODULES}/source
+mksquashfs kbuild $KBUILD $COMP
+rm -rf kbuild
+
+md5sum $KBUILD > $KSRC.md5.txt
+sha256sum $KBUILD > $KSRC.sha256.txt
