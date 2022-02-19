@@ -57,9 +57,10 @@ chroot bdrv apt-get update
 # install all packages included in the woof-CE build
 chroot bdrv apt-get install -y `cat ../status/findpkgs_FINAL_PKGS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} | cut -f 5 -d \| | tr '\n' ' '`
 
-# add Synaptic
-chroot bdrv apt-get install -y synaptic
+# add Synaptic and gdebi
+chroot bdrv apt-get install -y synaptic gdebi
 sed -e 's/^Categories=.*/Categories=X-Setup-puppy/' -i bdrv/usr/share/applications/synaptic.desktop
+echo "NoDisplay=true" >> bdrv/usr/share/applications/gdebi.desktop
 
 umount -l bdrv/etc/resolv.conf
 
@@ -104,3 +105,36 @@ cat ../status/findpkgs_FINAL_PKGS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSIO
 		[ ! -d "bdrv/$FILE" ] || rmdir "bdrv/$FILE" 2>/dev/null || :
 	done < $LIST
 done
+
+# open .deb files with gdebi
+if [ -e rootfs-complete/usr/local/bin/rox ]; then
+	mkdir -p bdrv/etc/xdg/rox.sourceforge.net/MIME-types
+	for MIMETYPE in application_x-deb application_vnd.debian.binary-package; do
+		cat << EOF > bdrv/etc/xdg/rox.sourceforge.net/MIME-types/$MIMETYPE
+#!/bin/sh
+exec gdebi-gtk "\$1"
+EOF
+		chmod 755 bdrv/etc/xdg/rox.sourceforge.net/MIME-types/$MIMETYPE
+	done
+fi
+for DESKTOP in gpkgdialog.desktop Xpkgdialog.desktop pkgdialog.desktop petget.desktop; do
+	[ -e rootfs-complete/usr/share/applications/$DESKTOP ] || continue
+	(
+		while read LINE; do
+			case "$LINE" in
+			MimeType=*) echo "MimeType=`echo "$LINE" | cut -f 2 -d = | tr ';' '\n' | grep -v deb | grep -v -E '^$' | tr '\n' ';'`" ;;
+			*) echo "$LINE" ;;
+			esac
+		done < rootfs-complete/usr/share/applications/$DESKTOP
+	) > bdrv/usr/share/applications/$DESKTOP
+done
+if [ -e rootfs-complete/usr/share/applications/mimeapps.list ]; then
+	(
+		while read LINE; do
+			case "$LINE" in
+			*deb*=*) echo "${LINE%=*}=gdebi.desktop" ;;
+			*) echo "$LINE" ;;
+			esac
+		done < rootfs-complete/usr/share/applications/mimeapps.list
+	) > bdrv/usr/share/applications/mimeapps.list
+fi
