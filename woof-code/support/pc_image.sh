@@ -100,16 +100,16 @@ if [ "$WOOF_TARGETARCH" = "x86_64" ]; then
 	if [ "$FRUGALIFY" = "yes" ]; then
 		if [ -e build/ucode.cpio ]; then
 			install -m 644 build/ucode.cpio /mnt/uefiimagep1/EFI/BOOT/ucode.cpio
-			echo "-f 0:\EFI\BOOT\vmlinuz initrd=0:\EFI\BOOT\ucode.cpio root=PARTUUID=$PARTUUID init=/frugalify rootfstype=ext4 rootwait rw" > /mnt/uefiimagep1/EFI/BOOT/efilinux.cfg
+			echo "-f \EFI\BOOT\vmlinuz initrd=\EFI\BOOT\ucode.cpio root=PARTUUID=$PARTUUID init=/frugalify rootfstype=ext4 rootwait rw" > /mnt/uefiimagep1/EFI/BOOT/efilinux.cfg
 		else
-			echo "-f 0:\EFI\BOOT\vmlinuz root=PARTUUID=$PARTUUID init=/frugalify rootfstype=ext4 rootwait rw" > /mnt/uefiimagep1/EFI/BOOT/efilinux.cfg
+			echo "-f \EFI\BOOT\vmlinuz root=PARTUUID=$PARTUUID init=/frugalify rootfstype=ext4 rootwait rw" > /mnt/uefiimagep1/EFI/BOOT/efilinux.cfg
 		fi
 	else
 		if [ -e build/ucode.cpio ]; then
 			install -m 644 build/ucode.cpio /mnt/uefiimagep1/EFI/BOOT/ucode.cpio
-			echo "-f 0:\EFI\BOOT\vmlinuz initrd=0:\EFI\BOOT\ucode.cpio initrd=0:\EFI\BOOT\initrd.gz" > /mnt/uefiimagep1/EFI/BOOT/efilinux.cfg
+			echo "-f \EFI\BOOT\vmlinuz initrd=\EFI\BOOT\ucode.cpio initrd=\EFI\BOOT\initrd.gz" > /mnt/uefiimagep1/EFI/BOOT/efilinux.cfg
 		else
-			echo "-f 0:\EFI\BOOT\vmlinuz initrd=0:\EFI\BOOT\initrd.gz" > /mnt/uefiimagep1/EFI/BOOT/efilinux.cfg
+			echo "-f \EFI\BOOT\vmlinuz initrd=\EFI\BOOT\initrd.gz" > /mnt/uefiimagep1/EFI/BOOT/efilinux.cfg
 		fi
 
 		install -m 644 build/initrd.gz /mnt/uefiimagep1/EFI/BOOT/initrd.gz
