@@ -239,6 +239,9 @@ fi
 if [ -h ${SR}/usr/sbin/iptables-legacy ] ; then
 	ln -sv /usr/sbin/iptables-legacy ${SR}/usr/sbin/iptables
 fi
+if [ -h ${SR}/usr/sbin/ip6tables-legacy ] ; then
+	ln -sv /usr/sbin/ip6tables-legacy ${SR}/usr/sbin/ip6tables
+fi
 
 echo ----
 
