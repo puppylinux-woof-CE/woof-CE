@@ -1,15 +1,21 @@
 #!/bin/sh -e
 
+. ../DISTRO_SPECS
+. ../_00build.conf
+[ ! -e ../_00build_2.conf ] || . ../_00build_2.conf
+
+PETS=`cat ../status/findpkgs_FINAL_PKGS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} | cut -f 2,5 -d \| | grep -v ^compat\| | cut -f 2 -d \| | tr '\n' ' '`
+if [ -n "$PETS" ]; then
+	echo "Cannot build bdrv, using pet packages: $PETS"
+	exit 0
+fi
+
 debootstrap=`command -v debootstrap || :`
 if [ -z "$debootstrap" ]; then
 	echo "WARNING: debootstrap is missing"
 	[ -z "$GITHUB_ACTIONS" ] || exit 1
 	exit 0
 fi
-
-. ../DISTRO_SPECS
-. ../_00build.conf
-[ ! -e ../_00build_2.conf ] || . ../_00build_2.conf
 
 case "$DISTRO_TARGETARCH" in
 x86_64) ARCH=amd64 ;;
