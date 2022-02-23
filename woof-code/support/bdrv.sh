@@ -89,8 +89,8 @@ chroot bdrv apt-mark hold busybox-static
 # install all packages included in the woof-CE build
 chroot bdrv apt-get install -y `cat ../status/findpkgs_FINAL_PKGS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} | cut -f 5 -d \| | tr '\n' ' '`
 
-# add Synaptic and gdebi
-chroot bdrv apt-get install -y synaptic gdebi
+# add missing package recommendations, Synaptic and gdebi
+chroot bdrv apt-get install -y command-not-found synaptic gdebi
 sed -e 's/^Categories=.*/Categories=X-Setup-puppy/' -i bdrv/usr/share/applications/synaptic.desktop
 echo "NoDisplay=true" >> bdrv/usr/share/applications/gdebi.desktop
 
