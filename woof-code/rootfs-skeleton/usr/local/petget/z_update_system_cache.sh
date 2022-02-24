@@ -85,6 +85,8 @@ if [ "$(grep -q -m 1 '/udev/hwdb.d/' $PKGFILES)" != "" ]; then
   [ "$(udevadm --help 2>&1 | grep hwdb)" != "" ] && udevadm hwdb --update
 fi
 
+grep -q -m 1 '/udev/rules.d/' $PKGFILES && udevadm control --reload-rules
+
 if grep -q -m 1 "/lib/modules/$(uname -r)/" $PKGFILES ; then
   depmod -a
 fi
