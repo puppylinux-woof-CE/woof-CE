@@ -13,6 +13,8 @@ int main(int argc, char *argv[])
 	const char *display, *wayland_display;
 	int i, status, fd;
 	pid_t pid;
+	uid_t uid;
+	gid_t gid;
 
 	if ((argc == 1) || (argc > 30))
 		return EXIT_FAILURE;
@@ -28,11 +30,19 @@ int main(int argc, char *argv[])
 	if (wayland_display && !wayland_display[0])
 		return EXIT_FAILURE;
 
+	if (geteuid() != 0)
+		return EXIT_FAILURE;
+
+	uid = getuid();
+	gid = getgid();
+
+	if ((uid == 0) && (gid == 0))
+		goto run;
+
 	spot = getpwnam("spot");
 	if (!spot ||
-	    (getuid() != spot->pw_uid) ||
-	    (getgid() != spot->pw_gid) ||
-	    (geteuid() != 0))
+	    (uid != spot->pw_uid) ||
+	    (gid != spot->pw_gid))
 		return EXIT_FAILURE;
 
 	for (i = 1; i < argc; ++i)
@@ -86,6 +96,7 @@ int main(int argc, char *argv[])
 	if (!WIFEXITED(status) || (WEXITSTATUS(status) != EXIT_SUCCESS))
 		return EXIT_FAILURE;
 
+run:
 	execvp(argv[1], &argv[1]);
 	return EXIT_FAILURE;
 }
