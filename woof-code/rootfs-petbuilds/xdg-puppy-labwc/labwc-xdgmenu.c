@@ -112,6 +112,9 @@ start:
 		  gmenu_tree_directory_get_name(directory));
 
     GMenuTreeItemType entryType;
+    GMenuTreeEntry *entry;
+    const char *path;
+    GHashTable *history = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
 
      for (l = entryList; l; l = l->next)
     {
@@ -124,13 +127,21 @@ start:
             case GMENU_TREE_ITEM_DIRECTORY:
                 break;
             case GMENU_TREE_ITEM_ENTRY:
-                process_entry(GMENU_TREE_ENTRY(item));
+                entry = GMENU_TREE_ENTRY(item);
+                path = gmenu_tree_entry_get_desktop_file_path(entry);
+                if (!g_hash_table_lookup(history, path))
+                {
+                    process_entry(entry);
+                    g_hash_table_insert(history, g_strdup(path), (gpointer)1);
+                }
+                process_entry(entry);
                 break;
         }
 
         gmenu_tree_item_unref (item);
     }
 
+    g_hash_table_destroy(history);
     g_printf("</menu>\n");
     g_slist_free (entryList);
 }
