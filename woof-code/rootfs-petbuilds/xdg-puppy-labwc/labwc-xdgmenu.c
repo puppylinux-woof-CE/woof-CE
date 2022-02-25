@@ -134,7 +134,6 @@ start:
                     process_entry(entry);
                     g_hash_table_insert(history, g_strdup(path), (gpointer)1);
                 }
-                process_entry(entry);
                 break;
         }
 
