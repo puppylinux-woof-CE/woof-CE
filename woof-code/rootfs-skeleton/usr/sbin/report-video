@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 #note, this is the original report-video script, builtin to Woof.
 #TaZoc has written a more advanced version, available as a pet pkg (sys-info).
 #121128 BK complete rewrite.
@@ -15,24 +15,31 @@ function help() {
   echo "   ${0##*/} [option]"
   echo
   echo "[option] can be:"
-  echo "   driver  - get Xorg video driver (from /var/log/Xorg.0.log)"
-  echo "   modules - get xorg loaded modules (from /var/log/Xorg.0.log)"
+  if [ "$XDG_SESSION_TYPE" != 'wayland' ] ; then
+    echo "   driver  - get Xorg video driver (from /var/log/Xorg.0.log)"
+    echo "   modules - get xorg loaded modules (from /var/log/Xorg.0.log)"
+  fi
   echo "   chip    - get graphics chip description"
   echo "   res     - get actual resolution"
-  echo "   depth   - get actual bit depth"
+  if [ -n "$DISPLAY" ] ; then
+    echo "   depth   - get actual bit depth"
+  fi
   echo
-  echo "   xorgconf <opt>  - query /etc/X11/xorg.conf"
-  echo "        videodepth - requested depth (bits or planes)"
-  echo "        videores   - requested resolution"
-  echo "        reqmods    - modules requested to be loaded"
-  echo "        disabledmods - modules requested to not be loaded"
-  echo "        reqdriver    - drivers requested to be loaded"
-  echo
-  echo " If no option is given then a full report is printed"
-  echo
+  if [ "$XDG_SESSION_TYPE" != 'wayland' ] ; then
+    echo "   xorgconf <opt>  - query /etc/X11/xorg.conf"
+    echo "        videodepth - requested depth (bits or planes)"
+    echo "        videores   - requested resolution"
+    echo "        reqmods    - modules requested to be loaded"
+    echo "        disabledmods - modules requested to not be loaded"
+    echo "        reqdriver    - drivers requested to be loaded"
+    echo
+    echo " If no option is given then a full report is printed"
+    echo
+  fi
 }
 
 function XorgVideoDriver() {
+	[ ! -f /var/log/Xorg.0.log ] && return 1
 	drivers=$(grep -o 'Matched .* as autoconfigured driver' /var/log/Xorg.0.log | cut -f 2 -d ' ')
 	for ALOADED in $drivers ; do
 		CNTload=`grep "LoadModule: \"$ALOADED\"" /var/log/Xorg.0.log | wc -l`
@@ -63,6 +70,7 @@ function XorgVideoDriver() {
 }
 
 function XorgLoadedModules() {
+  [ ! -f /var/log/Xorg.0.log ] && return 1
   if [ "$video_driver" ] ; then
     VIDEODRIVER=${video_driver}
   else
@@ -122,18 +130,23 @@ function XorgConf() {
 }
 
 function ScreenResolution() {
-  if which xdpyinfo >/dev/null 2>&1 ; then
-    VIDEORES="$(LANG=C xdpyinfo | grep ' dimensions: ')"
-    read -r ZZ VIDEORES <<< $VIDEORES
-  elif which xrandr >/dev/null 2>&1 ; then
-    VIDEORES=$(xrandr 2>/dev/null | grep '\*' | awk '{print $1 $2}' | head -1)
-  else
-    VIDEORES=$(gettext 'unknown')
+  if [ -n "$WAYLAND_DISPLAY" ]; then
+    read VIDEORES not <<<$(wlr-randr|grep -m1 'current')
+  elif [ -n "$DISPLAY" ]; then
+    if which xdpyinfo >/dev/null 2>&1 ; then
+      VIDEORES="$(LANG=C xdpyinfo | grep ' dimensions: ')"
+      read -r ZZ VIDEORES <<< $VIDEORES
+    elif which xrandr >/dev/null 2>&1 ; then
+      VIDEORES=$(xrandr 2>/dev/null | grep '\*' | awk '{print $1 $2}' | head -1)
+    else
+      VIDEORES=$(gettext 'unknown')
+    fi
   fi
   echo $VIDEORES
 }
 
 function ScreenColorDepth() {
+  [ -z "$DISPLAY" ] && return 1
   VIDEODEPTH="$(LANG=C xdpyinfo | grep 'depth of root window:')"
   VIDEODEPTH="${VIDEODEPTH##*: }"
   [ "$VIDEODEPTH" = "" ] && VIDEODEPTH=$(gettext 'unknown')
@@ -142,7 +155,7 @@ function ScreenColorDepth() {
 
 function get_glxinfo() {
 	if [ `which glxinfo` ]; then 
-		glxinfo 2>/dev/null | grep -E -A2 "direct rendering|OpenGL vendor" | grep -v '\-\-'
+		[ -n "$DISPLAY" ] && glxinfo 2>/dev/null | grep -E -A2 "direct rendering|OpenGL vendor" | grep -v '\-\-'
 	elif [ `which fglrxinfo` ]; then #120807 ATI proprietary driver info
 		fglrxinfo
 	elif [ `which nvidia-xconfig` ]; then #120807 NVIDIA proprietary driver info
@@ -173,9 +186,15 @@ XSERVER="$(readlink /usr/bin/X)"
 echo "$(gettext 'VIDEO REPORT:') ${DISTRO_NAME}, $(gettext 'version') ${DISTRO_VERSION}"
 processor=`cat /proc/cpuinfo | grep "model name" | head -1`
 echo "Processor: ${processor##*:}"
-Xorg -version 2>&1 | head -n 3
+if [ -n "$WAYLAND_DISPLAY" ] ; then 
+  echo 'Wayland Display Server in use'
+  XSERVER=wayland
+  echo -n "$(gettext 'Screen Resolution'): "
+  ScreenResolution
+else
+  Xorg -version 2>&1 | head -n 3
+fi
 echo -e "\n$(gettext 'Chip description:')\n$(VideoChip)"
-
 if [ "$XSERVER" = "Xorg" ];then
   if [ -f /etc/X11/xorg.conf ];then
     sPTN='/^Section "Screen"/,/^$/p' #this is a multi-line block find expression.
