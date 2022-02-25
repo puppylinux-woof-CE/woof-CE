@@ -321,7 +321,9 @@ mk_efi_img() {
 	echo "copying files"
 	mkdir -p /tmp/efi_img/EFI/boot/ || return 4
 	cp -a $gfp/${xFEILD} /tmp/efi_img/EFI/boot/ || return 5
-	cp $gcer /tmp/efi_img/EFI/boot/ || return 5
+	if [ -n "$gcer" ]; then
+		cp $gcer /tmp/efi_img/EFI/boot/ || return 5
+	fi
 	rm -f /tmp/efi_img/EFI/boot/grub.cfg
 	echo "unmounting /tmp/efi_img"
 	umount /tmp/efi_img || return 7
@@ -374,6 +376,26 @@ if [ -e "${PX}/usr/local/frugalpup" ] ; then
 	FPBOOT=/tmp/grub2/EFI/boot
 	CER=/tmp/grub2/puppy.cer
 	FONT=$PX/usr/share/boot-dialog/font.pf2
+elif [ -d "${PX}/usr/share/cd-boot-images-amd64" ]; then
+	(
+		cd "${PX}/usr/share/cd-boot-images-amd64/tree"
+		mkdir -p /tmp/grub2/EFI/boot
+		cp EFI/boot/*.efi /tmp/grub2/EFI/boot/
+		cat << EOF > /tmp/grub2/EFI/boot/grub.cfg
+# The real config file for grub is /grub.cfg
+configfile /grub.cfg
+EOF
+		install -D /tmp/grub2/EFI/boot/grub.cfg /tmp/grub2/boot/grub/grub.cfg
+		cd /tmp/grub2
+		tar -c * | xz -1 > /tmp/grub2-efi.tar.xz
+		cd ..
+		rm -rf grub2
+	)
+	UEFI_ISO=yes
+	FPGRUB2XZ=/tmp/grub2-efi.tar.xz
+	FPBOOT=/tmp/grub2/EFI/boot
+	CER=
+	FONT=${PX}/usr/share/cd-boot-images-amd64/tree/boot/grub/fonts/unicode.pf2
 else
 	UEFI_ISO=
 	rm -f ${BUILD}/boot/efi.img
@@ -429,7 +451,7 @@ cp -a $BUILD/grub.cfg $BUILD/boot/grub/
 if [ -n "$UEFI_ISO" ] ; then
 	# extract grub2
 	tar -xvf $FPGRUB2XZ -C /tmp/grub2
-	cp -a $FONT $BUILD/boot/grub/
+	cp -a $FONT $BUILD/boot/grub/font.pf2
 else
 	# rm grub2 configs
 	rm -f $BUILD/boot/grub/*.cfg
@@ -463,7 +485,7 @@ cp -fv ${PX}/usr/share/boot-dialog/splash.jpg ${BUILD}/boot/
 
 # build efi image
 if [ -n "$UEFI_ISO" ] ; then
-	mk_efi_img $BUILD/boot $FPBOOT $CER || exit $?
+	mk_efi_img $BUILD/boot $FPBOOT "$CER" || exit $?
 	rm -rf /tmp/grub2 # cleanup
 fi
 
