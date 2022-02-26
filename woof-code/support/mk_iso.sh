@@ -376,9 +376,9 @@ if [ -e "${PX}/usr/local/frugalpup" ] ; then
 	FPBOOT=/tmp/grub2/EFI/boot
 	CER=/tmp/grub2/puppy.cer
 	FONT=$PX/usr/share/boot-dialog/font.pf2
-elif [ -d "${PX}/usr/share/cd-boot-images-amd64" ]; then
+elif [ -d "devx/usr/share/cd-boot-images-amd64" ]; then
 	(
-		cd "${PX}/usr/share/cd-boot-images-amd64/tree"
+		cd "devx/usr/share/cd-boot-images-amd64/tree"
 		mkdir -p /tmp/grub2/EFI/boot
 		cp EFI/boot/*.efi /tmp/grub2/EFI/boot/
 		cat << EOF > /tmp/grub2/EFI/boot/grub.cfg
@@ -395,7 +395,7 @@ EOF
 	FPGRUB2XZ=/tmp/grub2-efi.tar.xz
 	FPBOOT=/tmp/grub2/EFI/boot
 	CER=
-	FONT=${PX}/usr/share/cd-boot-images-amd64/tree/boot/grub/fonts/unicode.pf2
+	FONT=devx/usr/share/cd-boot-images-amd64/tree/boot/grub/fonts/unicode.pf2
 else
 	UEFI_ISO=
 	rm -f ${BUILD}/boot/efi.img
