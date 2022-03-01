@@ -86,6 +86,9 @@ chroot bdrv apt-get update
 chroot bdrv apt-mark hold busybox
 chroot bdrv apt-mark hold busybox-static
 
+# snap is broken without systemd
+chroot bdrv apt-mark hold snapd
+
 # install all packages included in the woof-CE build
 chroot bdrv apt-get install -y `cat ../status/findpkgs_FINAL_PKGS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} | cut -f 5 -d \| | tr '\n' ' '`
 
