@@ -132,13 +132,17 @@ cat ../status/findpkgs_FINAL_PKGS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSIO
 	LIST=bdrv/var/lib/dpkg/info/$NAME:$ARCH.list
 	[ -f "$LIST" ] || LIST=bdrv/var/lib/dpkg/info/$NAME.list
 
+	sort -r $LIST > /tmp/$NAME-sorted.list
+
 	while read FILE; do
 		[ -d "bdrv/$FILE" ] || rm -f "bdrv/$FILE" 2>/dev/null
-	done < $LIST
+	done < /tmp/$NAME-sorted.list
 
 	while read FILE; do
 		[ ! -d "bdrv/$FILE" ] || rmdir "bdrv/$FILE" 2>/dev/null || :
-	done < $LIST
+	done < /tmp/$NAME-sorted.list
+
+	rm -f /tmp/$NAME-sorted.list
 done
 
 # open .deb files with gdebi
@@ -172,4 +176,14 @@ if [ -e rootfs-complete/usr/share/applications/mimeapps.list ]; then
 			esac
 		done < rootfs-complete/usr/share/applications/mimeapps.list
 	) > bdrv/usr/share/applications/mimeapps.list
+fi
+
+# move large directories to docx and nlsx
+mkdir -p bdrv_NLS/usr/share bdrv_DOC/usr/share
+mv bdrv/usr/share/locale bdrv_NLS/usr/share/
+mv bdrv/usr/share/doc bdrv/usr/share/info bdrv/usr/share/man bdrv_DOC/usr/share/
+if [ -d bdrv/usr/share/gnome/help ]; then
+	mkdir -p bdrv_DOC/usr/share/gnome
+	mv bdrv/usr/share/gnome/help bdrv_DOC/usr/share/gnome/
+	rmdir bdrv/usr/share/gnome 2>/dev/null
 fi
