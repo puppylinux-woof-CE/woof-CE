@@ -678,7 +678,7 @@ do
     ln -snf "$FNDICON" /usr/share/pixmaps/${ICONNAMEONLY}
     iPTN="s%^Icon=.*%Icon=${ICONNAMEONLY}%"
     sed -i -e "$iPTN" $ONEDOT
-    continuecfzqw`
+    continue
    fi
   fi
   #substitute a default icon...
