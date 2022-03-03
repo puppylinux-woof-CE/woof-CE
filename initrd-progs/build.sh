@@ -2,8 +2,8 @@
 
 ARCH_LIST="i686 x86_64 arm aarch64"
 
-INITRD_STATIC='initrd_progs-20210401-static.tar.xz'
-PREBUILT_BINARIES="http://distro.ibiblio.org/puppylinux/initrd_progs/${INITRD_STATIC}"
+INITRD_STATIC='initrd_progs-static.tar.xz'
+PREBUILT_BINARIES="https://github.com/puppylinux-woof-CE/initrd_progs/releases/latest/download/${INITRD_STATIC}"
 
 ARCH=`uname -m`
 
