@@ -111,6 +111,20 @@ if [ -f /var/packages/${DB_pkgname}.files ];then
         fi
       fi
   done
+  
+ #Restore builtin files
+ PKGNAMEONLY="$(grep -m 1 "^${DB_pkgname}|" /var/packages/user-installed-packages | cut -f 2 '|')"
+ if [ "$ISLAYEREDFS" != "" ] && [ "$PKGNAMEONLY" != "" ] && [ -f "/var/packages/builtin_files/${PKGNAMEONLY}" ];then
+ 
+     while IFS= read -r line
+     do 
+       bname="$(basename $line)"
+       dname="$(dirname $line)"
+       [ -e "/initrd/pup_rw${dname}/.wh.${bname}" ] && rm -f "/initrd/pup_rw${dname}/.wh.${bname}" 2>/dev/null
+       [ -e "/initrd${SAVE_LAYER}${dname}/.wh.${bname}" ] && rm -f "/initrd${SAVE_LAYER}${dname}/.wh.${bname}" 2>/dev/null        
+     done < "/var/packages/builtin_files/${PKGNAMEONLY}"
+ 
+ fi
  
  #do it again, looking for empty directories...
  
