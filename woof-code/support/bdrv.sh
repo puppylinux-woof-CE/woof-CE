@@ -89,8 +89,16 @@ chroot bdrv apt-mark hold busybox-static
 # snap is broken without systemd
 chroot bdrv apt-mark hold snapd
 
-# install all packages included in the woof-CE build
-chroot bdrv apt-get install -y `cat ../status/findpkgs_FINAL_PKGS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} | cut -f 5 -d \| | tr '\n' ' '`
+# install all packages that didn't get fully redirected to devx
+PKGS=`cat ../status/findpkgs_FINAL_PKGS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} | cut -f 1,5 -d \| |
+while IFS=\| read GENERICNAME NAME; do
+	case "$NAME" in
+	*-dev|*-dev-bin|*-devtools|*-headers) continue ;;
+	esac
+
+	[ -d ../packages-${DISTRO_FILE_PREFIX}/${GENERICNAME//:}_DEV -a ! -e ../packages-${DISTRO_FILE_PREFIX}/${GENERICNAME//:} ] || echo "$NAME"
+done`
+chroot bdrv apt-get install -y $PKGS
 
 # add missing package recommendations, Synaptic and gdebi
 chroot bdrv apt-get install -y command-not-found synaptic gdebi
@@ -131,6 +139,7 @@ done
 cat ../status/findpkgs_FINAL_PKGS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} | cut -f 5 -d \| | while read NAME; do
 	LIST=bdrv/var/lib/dpkg/info/$NAME:$ARCH.list
 	[ -f "$LIST" ] || LIST=bdrv/var/lib/dpkg/info/$NAME.list
+	[ -f "$LIST" ] || continue
 
 	sort -r $LIST > /tmp/$NAME-sorted.list
 
