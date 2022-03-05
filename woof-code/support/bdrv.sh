@@ -93,7 +93,7 @@ chroot bdrv apt-mark hold snapd
 PKGS=`cat ../status/findpkgs_FINAL_PKGS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} | cut -f 1,5 -d \| |
 while IFS=\| read GENERICNAME NAME; do
 	case "$NAME" in
-	*-dev) continue ;;
+	*-dev|*-dev-bin|*-devtools) continue ;;
 	esac
 
 	[ -d ../packages-${DISTRO_FILE_PREFIX}/${GENERICNAME//:}_DEV -a ! -e ../packages-${DISTRO_FILE_PREFIX}/${GENERICNAME//:} ] || echo "$NAME"
