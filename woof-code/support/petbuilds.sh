@@ -232,6 +232,9 @@ for NAME in $PETBUILDS; do
                 for SO in `ls ../petbuild-output/${NAME}-${HASH}/${LIBDIR}/*.so* 2>/dev/null`; do
                     mv -f $SO ../petbuild-output/${NAME}-${HASH}/${LIBDIR}64/
                 done
+                if [ -d ../petbuild-output/${NAME}-${HASH}/${LIBDIR}/gio ]; then
+                    mv -f ../petbuild-output/${NAME}-${HASH}/${LIBDIR}/gio ../petbuild-output/${NAME}-${HASH}/${LIBDIR}64/
+                fi
                 rmdir ../petbuild-output/${NAME}-${HASH}/${LIBDIR} 2>/dev/null
             done
             ;;
@@ -244,6 +247,9 @@ for NAME in $PETBUILDS; do
                     for SO in `ls ../petbuild-output/${NAME}-${HASH}${PFIX}/${LIBDIR}/*.so* 2>/dev/null`; do
                         mv -f $SO ../petbuild-output/${NAME}-${HASH}${PFIX}/lib/${ARCHDIR}/
                     done
+                    if [ -d ../petbuild-output/${NAME}-${HASH}${PFIX}/${LIBDIR}/gio ]; then
+                        mv -f ../petbuild-output/${NAME}-${HASH}${PFIX}/${LIBDIR}/gio ../petbuild-output/${NAME}-${HASH}${PFIX}/lib/${ARCHDIR}/
+                    fi
                     rmdir ../petbuild-output/${NAME}-${HASH}${PFIX}/${LIBDIR}/${ARCHDIR} 2>/dev/null
                     rmdir ../petbuild-output/${NAME}-${HASH}${PFIX}/${LIBDIR} 2>/dev/null
                 done
