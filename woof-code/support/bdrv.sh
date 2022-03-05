@@ -60,6 +60,11 @@ deb ${MIRROR} ${DISTRO_COMPAT_VERSION}-updates main contrib non-free
 deb ${MIRROR}-security ${DISTRO_COMPAT_VERSION}-security main contrib non-free
 EOF
 	fi
+
+	cat << EOF > bdrv/etc/apt/apt.conf.d/00puppy
+APT::Install-Recommends "false";
+APT::Install-Suggests "false";
+EOF
 	;;
 
 ubuntu)
@@ -76,10 +81,6 @@ EOF
 	[ "$ARCH" != "amd64" ] || chroot bdrv dpkg --add-architecture i386
 	;;
 esac
-cat << EOF > bdrv/etc/apt/apt.conf.d/00puppy
-APT::Install-Recommends "false";
-APT::Install-Suggests "false";
-EOF
 chroot bdrv apt-get update
 
 # blacklist packages that may conflict with packages in the main SFS
@@ -98,10 +99,10 @@ while IFS=\| read GENERICNAME NAME; do
 
 	[ -d ../packages-${DISTRO_FILE_PREFIX}/${GENERICNAME//:}_DEV -a ! -e ../packages-${DISTRO_FILE_PREFIX}/${GENERICNAME//:} ] || echo "$NAME"
 done`
-chroot bdrv apt-get install -y $PKGS
+chroot bdrv apt-get install -y --no-install-recommends $PKGS
 
 # add missing package recommendations, Synaptic and gdebi
-chroot bdrv apt-get install -y command-not-found synaptic gdebi
+chroot bdrv apt-get install -y --no-install-recommends command-not-found synaptic gdebi
 sed -e 's/^Categories=.*/Categories=X-Setup-puppy/' -i bdrv/usr/share/applications/synaptic.desktop
 echo "NoDisplay=true" >> bdrv/usr/share/applications/gdebi.desktop
 
