@@ -38,6 +38,8 @@ if [ "$BUILD_DOCX" = "yes" ] ; then
 	rm -f docx/pet.specs
 	[ "$USR_SYMLINKS" = "yes" ] && usrmerge docx 0
 	echo "Creating $DOCXSFS..."
+	[ -d docx/root ] && busybox chmod 700 docx/root
+	[ -d docx/home/spot ] && busybox chmod 700 docx/home/spot
 	mksquashfs docx ${DOCXSFS} ${SFSCOMP}
 fi
 
@@ -63,6 +65,8 @@ if [ "$BUILD_NLSX" = "yes" ] ; then
 	touch nlsx/var/local/nlsx_loaded
 	[ "$USR_SYMLINKS" = "yes" ] && usrmerge nlsx 0
 	echo "Creating $NLSXSFS..."
+	[ -d nlsx/root ] && busybox chmod 700 nlsx/root
+	[ -d nlsx/home/spot ] && busybox chmod 700 nlsx/home/spot
 	mksquashfs nlsx ${NLSXSFS} ${SFSCOMP}
 fi
 
