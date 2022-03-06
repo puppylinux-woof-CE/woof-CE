@@ -813,7 +813,9 @@ if [ "$xpkgname" != "" ] && [ "$installed_pkg" != "" ]; then
 	 fi
 	done < /var/packages/${installed_files}.files
 	
-	rm -f /var/packages/${installed_files}.files
+	if [ "${DLPKG_NAME}.files" != "${installed_files}.files" ]; then
+	 rm -f /var/packages/${installed_files}.files
+	fi
 	
 	grep -v "$installed_pkg" /var/packages/user-installed-packages > /var/packages/user-installed-packages.tmp
 	echo "$DB_ENTRY" >> /var/packages/user-installed-packages.tmp
