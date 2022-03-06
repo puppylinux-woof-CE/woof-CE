@@ -737,6 +737,7 @@ fi
 
 xpkgname="$(echo "$DB_ENTRY" | cut -f 2 -d '|')"
 installed_pkg="$(grep -m 1 "|$xpkgname|" /var/packages/user-installed-packages)"
+installed_files="$(echo "$installed_pkg" | cut -f 1 -d '|')"
 
 PKGDEP="$(echo "$DB_ENTRY" | cut -f 9 -d '|')"
 PKGDESC="$(echo "$DB_ENTRY" | cut -f 10 -d '|')"
@@ -787,19 +788,31 @@ fi
 
 #If there is an already installed package, just update the package files list and its database entry
 
+if [ "$xpkgname" != "" ]; then
+ if [ "$installed_pkg" != "" ] || [ -e "/var/packages/builtin_files/${xpkgname}" ]; then
+  #Build file database first excluding packages involved in upgrade/downgrade
+  ls /var/packages/builtin_files | grep -v '^'$xpkgname'$' | xargs -i cat '/var/packages/builtin_files/{}' | uniq > /tmp/pkg-files.list.tmp
+  ls /var/packages/*.files | grep -v '/'${DLPKG_NAME}.files'$' | grep -v '/'${installed_files}.files'$' | xargs -i cat '{}' | uniq >> /tmp/pkg-files.list.tmp
+  cat /tmp/pkg-files.list.tmp | uniq > /tmp/pkg-files.list
+  rm -f /tmp/pkg-files.list.tmp
+ fi
+fi
+
+
 PKGUPDOWN=""
 
 if [ "$xpkgname" != "" ] && [ "$installed_pkg" != "" ]; then
   #There is an already installed package. Just update the package file list
-  installed_files="$(echo "$installed_pkg" | cut -f 1 -d '|')"
+  
   if [ "$installed_files" != "" ]; then
    #Check if the old package file list exists
     if [ -e /var/packages/${installed_files}.files ]; then
     
 	while IFS= read -r xline
 	do
-	 #Check if the file was a part of the newly installed package
-  	 if [ "$(grep -m 1 "$xline" /var/packages/${DLPKG_NAME}.files)" == "" ]; then
+	
+	 #Check if the file was a part of the newly installed package and also if the file was not part of other installed packages
+  	 if [ "$(grep -m 1 "$xline" /var/packages/${DLPKG_NAME}.files)" == "" ] && [ "$(grep -m 1 "$xline" /tmp/pkg-files.list)" == "" ]; then
 	  #Not a part of newly installed package. Do action
 
 	   #Delete the file which is not a part of upgrade
@@ -840,6 +853,7 @@ else
  echo "$DB_ENTRY" >> /var/packages/user-installed-packages
 fi
 
+
 if [ $PUPMODE -eq 2 ]; then
 	if [ "$xpkgname" != "" ] && [ "$installed_pkg" == "" ]; then
 	  if [ "$PKGUPDOWN" == "" ]; then
@@ -849,7 +863,7 @@ if [ $PUPMODE -eq 2 ]; then
 		do
 		
 		 #Check if the file was a part of the newly installed package
-		 if [ "$(grep -m 1 "$xline" /var/packages/${DLPKG_NAME}.files)" == "" ]; then
+		 if [ "$(grep -m 1 "$xline" /var/packages/${DLPKG_NAME}.files)" == "" ] && [ "$(grep -m 1 "$xline" /tmp/pkg-files.list)" == "" ]; then
 		  #Not a part of newly installed package. Do action
 
 		   #Delete the file which is not a part of upgrade
@@ -865,7 +879,7 @@ if [ $PUPMODE -eq 2 ]; then
 	fi
 fi
 
-
+rm -f /tmp/pkg-files.list 2>/dev/null
 
 #120907 post-install hacks...
 /usr/local/petget/hacks-postinstall.sh $DLPKG_MAIN
