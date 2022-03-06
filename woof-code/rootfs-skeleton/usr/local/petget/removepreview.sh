@@ -73,18 +73,6 @@ if [ -f /var/packages/${DB_pkgname}.files ];then
   cat /var/packages/${DB_pkgname}.files | sort -r |
   while read ONESPEC
   do
-     
-     dname="$(dirname "$ONESPEC")"
-    
-     if [ "$dname" != "" ] && [ "$dname" != "/" ]; then
-     #Log the dirnames.
-       if [ ! -f /tmp/ppm-dirlists.txt ]; then
-        echo "$dname" > /tmp/ppm-dirlists.txt
-       elif [ "$(grep -m 1 "$dname" /tmp/ppm-dirlists.txt)" == "" ]; then
-        echo "$dname"  >> /tmp/ppm-dirlists.txt
-       fi
-     fi
-     
      if [ -f "$ONESPEC" ] || [ -L "$ONESPEC" ]; then
         #Check if is layered fs.
         if [ "$ISLAYEREDFS" != "" ];then
@@ -126,45 +114,17 @@ if [ -f /var/packages/${DB_pkgname}.files ];then
  
  fi
  
- #do it again, looking for empty directories...
- 
- if [ -f /tmp/ppm-dirlists.txt ]; then
-  cat /tmp/ppm-dirlists.txt | sort -r |
-  while read ONESPEC
+ # do it again, looking for empty directories...
+  cat /var/packages/${DB_pkgname}.files 2>/dev/null | xargs -i dirname '{}' | sort -r | uniq | while read LINE
   do
-   if [ "$ONESPEC" != "" ] && [ "$ONESPEC" != "/" ]; then
-    if [ -d "$ONESPEC" ]; then
-     if [ "$ISLAYEREDFS" != "" ]; then
-      #Delete folder if it was not builtin
-      if [ ! -d "/initrd${PUP_LAYER}${ONESPEC}" ]; then
-       [ "`ls -1 "$ONESPEC"`" == "" ] && rmdir "$ONESPEC" 2>/dev/null #120107
+    DELLEVELS=$(echo -n "$LINE" | sed -e 's/[^/]//g' | wc -c | sed -e 's/ //g')
+    if [ $DELLEVELS -gt 2 ]; then      
+      if [ "$(ls -1 "$LINE")" == "" ]; then
+       [ -d "/initrd/pup_rw$LINE" ] && rmdir "/initrd/pup_rw$LINE" 2>/dev/null
+       [ -d "/initrd${SAVE_LAYER}$LINE" ] && rmdir "/initrd${SAVE_LAYER}$LINE" 2>/dev/null
       fi
-     else
-      [ "`ls -1 "$ONESPEC"`" == "" ] && rmdir "$ONESPEC" 2>/dev/null #120107
-     fi
     fi
-   fi
   done
-  rm -f /tmp/ppm-dirlists.txt
- fi 
-
-
- cat /var/packages/${DB_pkgname}.files | sort -r |
- while read ONESPEC
- do
-   if [ "$ONESPEC" != "" ] && [ "$ONESPEC" != "/" ]; then
-    if [ -d "$ONESPEC" ]; then
-     if [ "$ISLAYEREDFS" != "" ]; then
-      #Delete folder if it was not builtin
-      if [ ! -d "/initrd${PUP_LAYER}${ONESPEC}" ]; then
-       [ "`ls -1 "$ONESPEC"`" == "" ] && rmdir "$ONESPEC" 2>/dev/null #120107
-      fi
-     else
-      [ "`ls -1 "$ONESPEC"`" == "" ] && rmdir "$ONESPEC" 2>/dev/null #120107
-     fi
-    fi
-   fi
- done
   
  ###+++2011-12-27 KRG
 else
