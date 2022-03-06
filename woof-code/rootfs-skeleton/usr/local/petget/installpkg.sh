@@ -388,15 +388,21 @@ else #-- anything other than PUPMODE 2 or 6 (full install) --
 	  ONEPATTERN="`echo -n "$ONEWHITEOUT" | sed -e 's%/\\.wh\\.%/%'`"'/*'	;#echo "$ONEPATTERN" >&2
 	  [ "`grep -x "$ONEPATTERN" /var/packages/${DLPKG_NAME}.files`" != "" ] && rm -f "/initrd/pup_rw/$ONEWHITEOUT"
 	 done
+	 
+	 RW_TMPFS="$(mount 2>/dev/null | grep -m 1 "/initrd/pup_rw" | grep "tmpfs")"
+	 
 	 #111229 /usr/local/petget/removepreview.sh when uninstalling a pkg, may have copied a file from sfs-layer to top, check...
-	 cat /var/packages/${DLPKG_NAME}.files |
+	 cat /var/packages/package-files/${DLPKG_NAME}.files |
 	 while read ONESPEC
 	 do
 	  [ "$ONESPEC" = "" ] && continue #precaution.
 	  if [ ! -d "$ONESPEC" ];then
-	   [ -e "/initrd/pup_rw${ONESPEC}" ] && rm -f "/initrd/pup_rw${ONESPEC}"
+	   if [ -e "/initrd/pup_rw${ONESPEC}" ] && [ -e "${DIRECTSAVEPATH}${ONESPEC}" ] && [ "$RW_TMPFS" != "" ]; then 
+	    rm -f "/initrd/pup_rw${ONESPEC}"
+	   fi
 	  fi
 	 done
+	 
 	 #now re-evaluate all the layers...
 	 busybox mount -t aufs -o remount,udba=reval unionfs / #remount with faster evaluation mode.
 	 [ $? -ne 0 ] && logger -s -t "installpkg.sh" "Failed to remount aufs / with udba=reval"
