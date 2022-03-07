@@ -12,7 +12,7 @@
 #include <regex.h>
 #include <stdio.h>
 
-#define SPOTLIST "^(firefox|firefox-[a-z]+|google-chrome-[a-z]+|chromium|vivaldi-[a-z]+|brave-browser|microsoft-edge-[a-z]+|transmission-[a-z]+|seamonkey|sylpheed|claws-mail|thunderbird|vlc|steam|code)$"
+#define SPOTLIST "^(firefox|firefox-[a-z]+|google-chrome-[a-z]+|chromium|vivaldi-[a-z]+|brave-browser|microsoft-edge-[a-z]+|transmission-[a-z]+|seamonkey|sylpheed|claws-mail|thunderbird|vlc|steam|code|librewolf)$"
 
 static int
 sh(const char *cmd, const sigset_t *set)
