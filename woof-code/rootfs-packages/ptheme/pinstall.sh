@@ -121,6 +121,13 @@ gtk-toolbar-style = GTK_TOOLBAR_BOTH
 gtk-toolbar-icon-size = GTK_ICON_SIZE_LARGE_TOOLBAR
 _EOF
 fi
+if [ -d usr/share/themes/${PTHEME_GTK}/gtk-4.0 ]; then
+	mkdir -p root/.config/gtk-4.0
+	cat > root/.config/gtk-4.0/settings.ini << _EOF
+[Settings]
+gtk-theme-name = ${PTHEME_GTK}
+_EOF
+fi
 
 echo "gtk: ${PTHEME_GTK}"
 
@@ -145,6 +152,12 @@ gtk-button-images = 1
 gtk-enable-animations = 0
 EOF
 	fi
+	if [ -f root/.config/gtk-4.0/settings.ini ]; then
+		echo -e "gtk-icon-theme-name = $USE_ICON_THEME" >> root/.config/gtk-4.0/settings.ini
+		cat >> root/.config/gtk-4.0/settings.ini <<EOF
+gtk-enable-animations = 0
+EOF
+	fi
 	# then ROX
 	ROX_THEME_FILE="root/.config/rox.sourceforge.net/ROX-Filer/Options" # this could change in future
 	sed -i "s%<Option name=\"icon_theme\">.*%<Option name=\"icon_theme\">$USE_ICON_THEME</Option>%" $ROX_THEME_FILE
@@ -155,6 +168,10 @@ install -D -m 644 root/.gtkrc-2.0 etc/gtk-2.0/gtkrc
 if [ -f root/.config/gtk-3.0/settings.ini ]; then
 	install -D -m 644 root/.config/gtk-3.0/settings.ini etc/gtk-3.0/settings.ini
 	install -D -m 644 -o spot -g spot root/.config/gtk-3.0/settings.ini home/spot/.config/gtk-3.0/settings.ini
+fi
+if [ -f root/.config/gtk-4.0/settings.ini ]; then
+	install -D -m 644 root/.config/gtk-4.0/settings.ini etc/gtk-4.0/settings.ini
+	install -D -m 644 -o spot -g spot root/.config/gtk-4.0/settings.ini home/spot/.config/gtk-4.0/settings.ini
 fi
 
 ##### WALLPAPER #copy it as mv messes the themes
