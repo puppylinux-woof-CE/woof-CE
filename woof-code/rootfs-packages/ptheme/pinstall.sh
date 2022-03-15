@@ -223,9 +223,14 @@ echo "icons: ${PTHEME_ICONS}"
 ##### CURSOR
 if [ -d root/.icons/ ];then
 	if [ ! "`grep 'ORIGINAL THEME' <<< "$PTHEME_MOUSE"`" ] ; then
-		ln -snf $PTHEME_MOUSE root/.icons/default
 		mkdir -p home/spot/.icons
-		ln -s ../../../root/.icons/default home/spot/.icons/
+		if [ -d usr/share/icons/$PTHEME_MOUSE ]; then
+			ln -snf /usr/share/icons/$PTHEME_MOUSE root/.icons/default
+			ln -s /usr/share/icons/$PTHEME_MOUSE home/spot/.icons/default
+		else
+			ln -snf $PTHEME_MOUSE root/.icons/default
+			ln -s ../../../root/.icons/default home/spot/.icons/ # this won't work
+		fi
 		chroot . chown -R spot:spot /home/spot/.icons
 	fi
 	echo "cursor: ${PTHEME_MOUSE}"
