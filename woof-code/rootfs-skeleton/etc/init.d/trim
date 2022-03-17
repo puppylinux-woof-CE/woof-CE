@@ -1,0 +1,46 @@
+#!/bin/ash
+
+. /etc/rc.d/PUPSTATE
+[ $PUPMODE -eq 5 -o $PUPMODE -eq 6 ] && exit 0
+mountpoint -q /initrd/mnt/dev_save || exit 0
+
+# check once a day if the last trim was at least a week ago; we can't
+# check only once a week, because the system clock can be inaccurate
+# without an internet connection
+POLL=$((60*60*24))
+INTERVAL=$(($POLL*7))
+
+loop() {
+ LAST=0
+ [ -f /etc/rc.d/TRIMSTATE ] && . /etc/rc.d/TRIMSTATE
+ while :; do
+  NOW=`date +%s`
+  if [ $NOW -gt $LAST ]; then
+   SINCE=$(($NOW-$LAST))
+   if [ $SINCE -ge $INTERVAL ]; then
+    fstrim /initrd/mnt/dev_save
+    echo "# `date --date=@$LAST`
+BEFORELAST=$LAST" > /etc/rc.d/TRIMSTATE.tmp
+    LAST=`date +%s`
+    echo "# `date`
+LAST=$LAST" >> /etc/rc.d/TRIMSTATE.tmp
+    mv -f /etc/rc.d/TRIMSTATE{.tmp,}
+   fi
+  fi
+  sleep $POLL
+ done
+}
+
+case $1 in
+ start)
+  DEV="`grep -m1 /initrd/mnt/dev_save /proc/mounts`"
+  [ -z "$DEV" ] && exit 0
+  DEV="${DEV#/dev/}"
+  DEV="${DEV%% *}"
+  N="`cat /sys/block/$DEV/queue/discard_granularity 2>/dev/null`"
+  [ -z "$N" ] && exit 0
+  [ $N -eq 0 ] && exit 0
+
+  loop &
+ ;;
+esac
