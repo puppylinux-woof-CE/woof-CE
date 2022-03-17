@@ -132,7 +132,6 @@ build_menu_lst() {
 	micro="$4" # bool - add option to load ucode.cpio
 	if [ "$micro" = 'true' ] ; then
 		INITRDM='errorcheck off
-  initrd /initrd.gz
   initrd /ucode.cpio /initrd.gz'
 	else
 		INITRDM='initrd /initrd.gz'
