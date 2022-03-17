@@ -42,7 +42,7 @@ func_git() {
 	else
 		cd ..
 		log_msg "Cloning the firmware repo may take a long time"
-		git clone git://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git
+		git clone https://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git
 		if [ $? -ne 0 ];then
 			log_msg "Failed to clone the git firmware repo"
 			return 1
