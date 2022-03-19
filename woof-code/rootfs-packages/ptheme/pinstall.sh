@@ -221,15 +221,20 @@ echo -n "${PTHEME_ICONS}" > etc/desktop_icon_theme
 echo "icons: ${PTHEME_ICONS}"
 
 ##### CURSOR
-if [ -d root/.icons/ ];then
-	if [ ! "`grep 'ORIGINAL THEME' <<< "$PTHEME_MOUSE"`" ] ; then
+mkdir -p root/.icons/
+if [ ! "`grep 'ORIGINAL THEME' <<< "$PTHEME_MOUSE"`" ] ; then
+	mkdir -p home/spot/.icons
+	rm -f root/.icons/default home/spot/.icons/default
+	if [ -d usr/share/icons/$PTHEME_MOUSE ]; then
+		ln -snf /usr/share/icons/$PTHEME_MOUSE root/.icons/default
+		ln -s /usr/share/icons/$PTHEME_MOUSE home/spot/.icons/default
+	else
 		ln -snf $PTHEME_MOUSE root/.icons/default
-		mkdir -p home/spot/.icons
-		ln -s ../../../root/.icons/default home/spot/.icons/
-		chroot . chown -R spot:spot /home/spot/.icons
+		ln -s ../../../root/.icons/default home/spot/.icons/ # this won't work
 	fi
-	echo "cursor: ${PTHEME_MOUSE}"
+	chroot . chown -R spot:spot /home/spot/.icons
 fi
+echo "cursor: ${PTHEME_MOUSE}"
 
 ##### GTKDIALOG
 [ -d root/.config/ptheme/ ] || mkdir -p root/.config/ptheme/
