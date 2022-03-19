@@ -953,11 +953,10 @@ if [ "$AUFS" != "no" ] ; then
 fi
 if [ "$kit_kernel" = "yes" ]; then
 	KERNEL_SOURCES_DIR="kernel_sources-${package_version}${custom_suffix}-${package_name_suffix}"
-	KBUILD_DIR="kbuild-${package_version}${custom_suffix}-${package_name_suffix}"
 else
 	KERNEL_SOURCES_DIR="kernel_sources-${package_version}-${package_name_suffix}"
-	KBUILD_DIR="kbuild-${package_version}-${package_name_suffix}"
 fi
+KBUILD_DIR="kbuild-${package_version}${custom_suffix}"
 if [ "$CREATE_SOURCES_SFS" != "no" ]; then
 	log_msg "Creating a kernel sources SFS"
 	mkdir -p ${KERNEL_SOURCES_DIR}/usr/src
