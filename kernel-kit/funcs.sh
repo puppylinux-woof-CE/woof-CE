@@ -91,9 +91,11 @@ function git_aufs_branch() {
 	5.11)  aufsv=5.11 ;;
 	5.12)  aufsv=5.12 ;;
 	5.13)  aufsv=5.13 ;;
+	5.14)  aufsv=5.14 ;;
 	5.15)  aufsv=5.15
 		vercmp ${kernel_version} ge 5.15.5 && aufsv='5.15.5'
 		;;
+	5.16)  aufsv=5.16 ;;
 esac
 }
 #======================================================================
