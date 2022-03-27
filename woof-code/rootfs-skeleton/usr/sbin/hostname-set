@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 #Barry Kauler Oct. 2011
 #this is called from Internet Connection Wizard, script ''.
 #111028 have copied dlg code inside 'connectwizard' script, then call here with hostname passed param.
@@ -12,28 +12,27 @@
 #130511 shinobar: reconnect only if local dynamic DNS is available. See my modification near bottom of script.
 #170329 rerwin: for networkdisconnect, disconnect with current exec (instead of default of previous exec). 
 #200206 replace deprecated 'route' with 'ip route'' & ifconfig' with busybox 'ip'.
+#200910 remove check for gtkdialog4; resolve shellcheck warnings.
 
 export TEXTDOMAIN=hostname-set
 export OUTPUT_CHARSET=UTF-8
 
 #111103 current hostname is $HOSTNAME, but if rerun this script before restarting X, need to get from here...
-[ -f /etc/hostname ] && HOSTNAME="`cat /etc/hostname`"
+[ -f /etc/hostname ] && HOSTNAME="$(cat /etc/hostname)"
 
 NEW_HOSTNAME="$HOSTNAME" #111106
-[ $1 ] && NEW_HOSTNAME="$1"
-
-GTKDIALOGEXE="gtkdialog"
-[ "`which gtkdialog4`" ] && GTKDIALOGEXE="gtkdialog4"
+[ "$1" ] && NEW_HOSTNAME="$1"
 
 WINTITLE=$(gettext 'Set Hostname')
 M_1=$(gettext 'Type your computer name to identify in the network. Alpha-numeric without spaces.')
 M_2=$(gettext "Your computer has been assigned a unique name, known as the 'hostname', by which it identifies itself on a network. However, you might wish to change that to a name that is more meaningful to yourself, such as 'johnsmithpc'. The hostname can have letters and numbers, no spaces.")
 
 if [ "$1" = "" ];then #111028 111117
- export HOSTNAME_DIALOG='
-<window title="'${WINTITLE}'" window_position="1" icon-name="gtk-preferences" resizable="false">
+# shellcheck disable=SC2155
+    export HOSTNAME_DIALOG='
+<window title="'${WINTITLE}'" window_position="1" icon-name="gtk-preferences resizable="false"">
  <vbox>
-  '"`/usr/lib/gtkdialog/xml_info fixed network2.svg 50 "${M_2}"`"'
+  '"$(/usr/lib/gtkdialog/xml_info fixed network2.svg 50 "${M_2}")"'
   <hbox>
    <text><label>"'$(gettext 'Hostname')':"</label></text>
    <entry tooltip-text="'${M_1}'">
@@ -54,67 +53,68 @@ if [ "$1" = "" ];then #111028 111117
  </vbox>
 </window>'
 
- . /usr/lib/gtkdialog/xml_info gtk #build bg_pixmap for gtk-theme
- RETVALS="`${GTKDIALOGEXE} --program=HOSTNAME_DIALOG --styles=/tmp/gtkrc_xml_info.css`"
- eval "$RETVALS"
- [ "$EXIT" != "OK" ] && exit
+# shellcheck disable=SC1091
+    . /usr/lib/gtkdialog/xml_info gtk #build bg_pixmap for gtk-theme
+    RETVALS="$(gtkdialog --program=HOSTNAME_DIALOG --styles=/tmp/gtkrc_xml_info.css)" #200910
+    eval "$RETVALS"
+    [ "$EXIT" != "OK" ] && exit
 
- NEW_HOSTNAME="`echo -n "$ENTRY_HOSTNAME" | sed -e 's%[^0-9a-zA-Z-]%%g'`" #111103 gcmartin: accept '-' char.
+    NEW_HOSTNAME="$(echo -n "$ENTRY_HOSTNAME" | sed -e 's%[^0-9a-zA-Z-]%%g')" #111103 gcmartin: accept '-' char.
 fi
 
 RECONNECT=""; M_h3="" #130511 shinobar.
 if [ "$NEW_HOSTNAME" != "$HOSTNAME" ];then
 
- #130511 shinobar: check if network is ready...
- LANG=C ip route | grep -q '^default via' && grep -wq 'nameserver' /etc/resolv.conf && NETREADY="y" || NETREADY="" #200206
- if [ "$NETREADY" ]; then
-  #check if there is local Dynamic DNS...
-  mv -f /etc/hosts /etc/hosts.bak
-  nslookup "$HOSTNAME" >/dev/null 2>&1 && RECONNECT="y" || RECONNECT=""
-  mv -f /etc/hosts.bak /etc/hosts
- fi
+    #130511 shinobar: check if network is ready...
+    LANG=C ip route | grep -q '^default via' && grep -wq 'nameserver' /etc/resolv.conf && NETREADY="y" || NETREADY="" #200206
+    if [ "$NETREADY" ]; then
+        #check if there is local Dynamic DNS...
+        mv -f /etc/hosts /etc/hosts.bak
+        nslookup "$HOSTNAME" >/dev/null 2>&1 && RECONNECT="y" || RECONNECT=""
+        mv -f /etc/hosts.bak /etc/hosts
+    fi
 
- if [ "$RECONNECT" ]; then #130511
-  M_h3="$(gettext 'However, it will not take full effect until after X (the desktop) has been restarted -- see the <b>Shutdown</b> entry in the menu.')"
+    if [ "$RECONNECT" ]; then #130511
+        M_h3="$(gettext 'However, it will not take full effect until after X (the desktop) has been restarted -- see the <b>Shutdown</b> entry in the menu.')"
 
-  #120505 when hostname changed, also need to restart network connection...
-  IFCONFIG="`ip link show | grep -B 1 -E 'link/ether|link/ppp' | grep -w 'UP' | grep -v 'wmaster'`" #200206
-  if [ "$IFCONFIG" ];then
-   networkdisconnect --current-exec #170329
-   touch /tmp/services/network_default_reconnect_required_flag #/usr/bin/xwin will read this, will call /usr/sbin/network_default_connect
-   M_h3b="
+        #120505 when hostname changed, also need to restart network connection...
+        IFCONFIG="$(ip link show | grep -B 1 -E 'link/ether|link/ppp' | grep -w 'UP' | grep -v 'wmaster')" #200206
+        if [ "$IFCONFIG" ];then
+            networkdisconnect --current-exec #170329
+            touch /tmp/services/network_default_reconnect_required_flag #/usr/bin/xwin will read this, will call /usr/sbin/network_default_connect
+            M_h3b="
 
 $(gettext '<b>NOTE:</b> There did appear to be an active network connection, that has now been disconnected. Restart of the network is required for the new hostname to take effect over the network. After restarting X, there should be an automatic reconnection -- if not, you can do it manually by clicking the <b>connect</b> icon on the desktop')"
-  else
-   M_h3b=""
-  fi
- fi
+        else
+            M_h3b=""
+        fi
+    fi
 
- hostname $NEW_HOSTNAME
- echo -n $NEW_HOSTNAME > /etc/hostname
- echo "127.0.0.1 localhost $NEW_HOSTNAME" > /tmp/hostname-set-hosts
- echo "::1 localhost $NEW_HOSTNAME" >> /tmp/hostname-set-hosts
- grep -vw 'localhost'  /etc/hosts >> /tmp/hostname-set-hosts
- [ -s /tmp/hostname-set-hosts ] && mv -f /tmp/hostname-set-hosts /etc/hosts
- M_h1="$(gettext 'Set Hostname: done')"
- M_h2a="$(gettext 'New hostname')"
- M_h2b="$(gettext 'has been set.')"
- /usr/lib/gtkdialog/box_ok "${M_h1}" info "${M_h2a} <b>${NEW_HOSTNAME}</b> ${M_h2b}
+    hostname "$NEW_HOSTNAME"
+    echo -n "$NEW_HOSTNAME" > /etc/hostname
+    echo "127.0.0.1 localhost $NEW_HOSTNAME" > /tmp/hostname-set-hosts
+    echo "::1 localhost $NEW_HOSTNAME" >> /tmp/hostname-set-hosts
+    grep -vw 'localhost'  /etc/hosts >> /tmp/hostname-set-hosts
+    [ -s /tmp/hostname-set-hosts ] && mv -f /tmp/hostname-set-hosts /etc/hosts
+    M_h1="$(gettext 'Set Hostname: done')"
+    M_h2a="$(gettext 'New hostname')"
+    M_h2b="$(gettext 'has been set.')"
+    /usr/lib/gtkdialog/box_ok "${M_h1}" info "${M_h2a} <b>${NEW_HOSTNAME}</b> ${M_h2b}
 ${M_h3}${M_h3b}"
- [ "$M_h3" = "" ] && exit 2 #130511 BK
- #130511 ...i have added the above line, in addition to shinobar's changes. my memory of this stuff
- # is a bit vague. quicksetup calls hostname-set, if returns with 0 then will require a restart of X.
- # however, shinobar has modified $M_h3 in case of no dynamic DNS, no reconnection is needed
- # -- but I am still unclear whether that really means can avoid X restart -- will have to study that Forum link again.
- # This has also required a change to /usr/sbin/quicksetup, for that "2" return value.
- exit 0
+    [ "$M_h3" = "" ] && exit 2 #130511 BK
+    #130511 ...i have added the above line, in addition to shinobar's changes. my memory of this stuff
+    # is a bit vague. quicksetup calls hostname-set, if returns with 0 then will require a restart of X.
+    # however, shinobar has modified $M_h3 in case of no dynamic DNS, no reconnection is needed
+    # -- but I am still unclear whether that really means can avoid X restart -- will have to study that Forum link again.
+    # This has also required a change to /usr/sbin/quicksetup, for that "2" return value.
+    exit 0
 else #111028
- M_h4="$(gettext 'Set Hostname')"
- M_h5a="$(gettext 'The hostname is:')"
- M_h5b="$(gettext 'You have not changed it.')"
- /usr/lib/gtkdialog/box_ok "${M_h4}" info "${M_h5a} <b>${NEW_HOSTNAME}</b>
+    M_h4="$(gettext 'Set Hostname')"
+    M_h5a="$(gettext 'The hostname is:')"
+    M_h5b="$(gettext 'You have not changed it.')"
+    /usr/lib/gtkdialog/box_ok "${M_h4}" info "${M_h5a} <b>${NEW_HOSTNAME}</b>
 ${M_h5b}"
- exit 1
+    exit 1
 fi
 
 ###END###
