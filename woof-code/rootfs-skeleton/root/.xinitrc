@@ -55,6 +55,7 @@ if [ -e /usr/bin/wireplumber ]; then
         while [ ! -e /tmp/runtime-spot/pipewire-0 ]; do sleep 0.1; done
         run-as-spot pipewire-pulse &
         run-as-spot wireplumber &
+	run-as-spot pipewire-media-session &
     ) &
     export PULSE_SERVER=unix:/tmp/runtime-spot/pulse/native
     export PULSE_COOKIE=/home/spot/.config/pulse/cookie
