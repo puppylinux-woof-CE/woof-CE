@@ -855,7 +855,7 @@ else
 	export MAKE_TARGETS="bzImage modules"
 fi
 echo "$MAKE ${JOBS} ${MAKE_TARGETS}
-$MAKE INSTALL_MOD_PATH=${linux_kernel_dir} modules_install" > compile ## debug
+$MAKE INSTALL_MOD_PATH=${linux_kernel_dir} INSTALL_MOD_STRIP=1 modules_install" > compile ## debug
 
 log_msg "Compiling the kernel"
 $MAKE ${JOBS} ${MAKE_TARGETS} >> ${BUILD_LOG} 2>&1
@@ -879,7 +879,7 @@ fi
 #---------------------------------------------------------------------
 
 log_msg "Creating the kernel package"
-$MAKE INSTALL_MOD_PATH=${linux_kernel_dir} modules_install >> ${BUILD_LOG} 2>&1
+$MAKE INSTALL_MOD_PATH=${linux_kernel_dir} INSTALL_MOD_STRIP=1 modules_install >> ${BUILD_LOG} 2>&1
 if [ "$remove_sublevel" = "yes" ]; then
 	rm -f ${linux_kernel_dir}/lib/modules/${kernel_major_version}.0/{build,source}
 else
