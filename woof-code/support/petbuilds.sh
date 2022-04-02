@@ -1,7 +1,7 @@
 if [ -z "$WOOF_CFLAGS"]; then
     case "$DISTRO_TARGETARCH" in
     arm) WOOF_CFLAGS="-march=armv7-a -mfpu=neon-vfpv4 -mfloat-abi=hard" ;;
-    x86) WOOF_CFLAGS="-march=i486 -mtune=i686" ;;
+    x86) WOOF_CFLAGS="-march=i686 -mtune=i686" ;;
     x86_64) WOOF_CFLAGS="-march=x86-64 -mtune=generic" ;;
     esac
 fi

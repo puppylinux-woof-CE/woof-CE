@@ -129,6 +129,10 @@ find bdrv | tac | while read FILE; do
 	RELPATH=${FILE#bdrv/}
 	[ -e "rootfs-complete/$RELPATH" ] || continue
 
+	case "$RELPATH" in
+	etc/group|etc/passwd|etc/shadow) continue ;;
+	esac
+
 	if [ -L "bdrv/$RELPATH" -o -f "bdrv/$RELPATH" ]; then
 		rm -f "bdrv/$RELPATH"
 	elif [ -d "bdrv/$RELPATH" ]; then

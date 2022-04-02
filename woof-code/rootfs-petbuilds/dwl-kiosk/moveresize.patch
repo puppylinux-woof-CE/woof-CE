@@ -1,0 +1,167 @@
+From f662b5f454eaee58e63910b7421100445791f31e Mon Sep 17 00:00:00 2001
+From: Dima Krasner <dima@dimakrasner.com>
+Date: Sat, 2 Apr 2022 15:03:32 +0800
+Subject: [PATCH] add support for resizing and moving of floating windows
+
+---
+ dwl.c | 69 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++-
+ 1 file changed, 68 insertions(+), 1 deletion(-)
+
+diff --git a/dwl.c b/dwl.c
+index ac62120..bb3ab70 100644
+--- a/dwl.c
++++ b/dwl.c
+@@ -108,6 +108,9 @@ typedef struct {
+ 	struct wl_listener destroy;
+ 	struct wl_listener set_title;
+ 	struct wl_listener fullscreen;
++	struct wl_listener request_move;
++	struct wl_listener request_resize;
++	struct wl_listener request_maximize;
+ 	struct wlr_box geom, prev;  /* layout-relative, includes border */
+ 	Monitor *mon;
+ #ifdef XWAYLAND
+@@ -119,6 +122,7 @@ typedef struct {
+ 	int isfloating, isurgent;
+ 	uint32_t resize; /* configure serial of a pending resize */
+ 	int isfullscreen;
++	int ismaximized;
+ } Client;
+ 
+ typedef struct {
+@@ -238,6 +242,9 @@ static void focusclient(Client *c, int lift);
+ static void focusmon(const Arg *arg);
+ static void focusstack(const Arg *arg);
+ static void fullscreennotify(struct wl_listener *listener, void *data);
++static void startmove(struct wl_listener *listener, void *data);
++static void startresize(struct wl_listener *listener, void *data);
++static void togglemaximize(struct wl_listener *listener, void *data);
+ static Client *focustop(Monitor *m);
+ static void incnmaster(const Arg *arg);
+ static void inputdevice(struct wl_listener *listener, void *data);
+@@ -924,7 +931,14 @@ createnotify(struct wl_listener *listener, void *data)
+ 	LISTEN(&xdg_surface->toplevel->events.set_title, &c->set_title, updatetitle);
+ 	LISTEN(&xdg_surface->toplevel->events.request_fullscreen, &c->fullscreen,
+ 			fullscreennotify);
++	LISTEN(&xdg_surface->toplevel->events.request_move, &c->request_move,
++			startmove);
++	LISTEN(&xdg_surface->toplevel->events.request_resize, &c->request_resize,
++			startresize);
++	LISTEN(&xdg_surface->toplevel->events.request_maximize, &c->request_maximize,
++			togglemaximize);
+ 	c->isfullscreen = 0;
++	c->ismaximized = 0;
+ }
+ 
+ void
+@@ -1042,6 +1056,9 @@ destroynotify(struct wl_listener *listener, void *data)
+ 	wl_list_remove(&c->destroy.link);
+ 	wl_list_remove(&c->set_title.link);
+ 	wl_list_remove(&c->fullscreen.link);
++	wl_list_remove(&c->request_move.link);
++	wl_list_remove(&c->request_resize.link);
++	wl_list_remove(&c->request_maximize.link);
+ #ifdef XWAYLAND
+ 	if (c->type != XDGShell) {
+ 		wl_list_remove(&c->configure.link);
+@@ -1089,6 +1106,23 @@ setfullscreen(Client *c, int fullscreen)
+ 	printstatus();
+ }
+ 
++void
++setmaximized(Client *c, int maximized)
++{
++	if (!c->isfloating || c->isfullscreen)
++		return;
++
++	c->ismaximized = maximized;
++
++	if (maximized) {
++		c->prev = c->geom;
++		resize(c, c->mon->m.x, c->mon->m.y, c->mon->m.width, c->mon->m.height, 0);
++	} else
++		resize(c, c->prev.x, c->prev.y, c->prev.width, c->prev.height, 0);
++	arrange(c->mon);
++	printstatus();
++}
++
+ void
+ fullscreennotify(struct wl_listener *listener, void *data)
+ {
+@@ -1103,6 +1137,30 @@ fullscreennotify(struct wl_listener *listener, void *data)
+ 	setfullscreen(c, fullscreen);
+ }
+ 
++void
++startmove(struct wl_listener *listener, void *data)
++{
++	Client *c = wl_container_of(listener, c, request_move);
++
++	moveresize(&(Arg){.ui = CurMove});
++}
++
++void
++startresize(struct wl_listener *listener, void *data)
++{
++	Client *c = wl_container_of(listener, c, request_resize);
++
++	moveresize(&(Arg){.ui = CurResize});
++}
++
++void
++togglemaximize(struct wl_listener *listener, void *data)
++{
++	Client *c = wl_container_of(listener, c, request_maximize);
++
++	setmaximized(c, !c->ismaximized);
++}
++
+ Monitor *
+ dirtomon(enum wlr_direction dir)
+ {
+@@ -1390,7 +1448,6 @@ mapnotify(struct wl_listener *listener, void *data)
+ 	}
+ 
+ 	/* Initialize client geometry with room for border */
+-	client_set_tiled(c, WLR_EDGE_TOP | WLR_EDGE_BOTTOM | WLR_EDGE_LEFT | WLR_EDGE_RIGHT);
+ 	client_get_geometry(c, &c->geom);
+ 	c->geom.width += 2 * c->bw;
+ 	c->geom.height += 2 * c->bw;
+@@ -1405,6 +1462,8 @@ mapnotify(struct wl_listener *listener, void *data)
+ 
+ 	if (c->isfullscreen)
+ 		setfullscreen(c, 1);
++	if (!c->isfloating)
++		client_set_tiled(c, WLR_EDGE_TOP | WLR_EDGE_BOTTOM | WLR_EDGE_LEFT | WLR_EDGE_RIGHT);
+ 
+ 	c->mon->un_map = 1;
+ }
+@@ -1828,6 +1887,7 @@ void
+ setfloating(Client *c, int floating)
+ {
+ 	c->isfloating = floating;
++	client_set_tiled(c, floating ? 0 : WLR_EDGE_TOP | WLR_EDGE_BOTTOM | WLR_EDGE_LEFT | WLR_EDGE_RIGHT);
+ 	wlr_scene_node_reparent(c->scene, layers[c->isfloating ? LyrFloat : LyrTile]);
+ 	arrange(c->mon);
+ 	printstatus();
+@@ -2439,6 +2499,7 @@ createnotifyx11(struct wl_listener *listener, void *data)
+ 	c->type = xwayland_surface->override_redirect ? X11Unmanaged : X11Managed;
+ 	c->bw = borderpx;
+ 	c->isfullscreen = 0;
++	c->ismaximized = 0;
+ 
+ 	/* Listen to the various events it can emit */
+ 	LISTEN(&xwayland_surface->events.map, &c->map, mapnotify);
+@@ -2450,6 +2511,12 @@ createnotifyx11(struct wl_listener *listener, void *data)
+ 	LISTEN(&xwayland_surface->events.destroy, &c->destroy, destroynotify);
+ 	LISTEN(&xwayland_surface->events.request_fullscreen, &c->fullscreen,
+ 			fullscreennotify);
++	LISTEN(&xwayland_surface->events.request_move, &c->request_move,
++			startmove);
++	LISTEN(&xwayland_surface->events.request_resize, &c->request_resize,
++			startresize);
++	LISTEN(&xwayland_surface->events.request_maximize, &c->request_maximize,
++			togglemaximize);
+ }
+ 
+ Atom
