@@ -38,6 +38,11 @@ echo "that you can specify in build.conf: PTHEME=<theme>"
 
 . usr/share/ptheme/globals/"${theme}"
 
+cat << EOF > root/.pthemerc
+PTHEME_GTK="$PTHEME_GTK"
+PTHEME_ICONS_GTK="$PTHEME_ICONS_GTK"
+EOF
+
 ##### JWM
 [ ! -d root/.jwm ] && mkdir -p root/.jwm
 cp -af usr/share/jwm/themes/"${PTHEME_JWM_COLOR}-jwmrc" root/.jwm/jwmrc-theme

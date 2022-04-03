@@ -64,6 +64,11 @@ elif [ -e /usr/bin/pulseaudio ]; then
     export PULSE_COOKIE=/home/spot/.config/pulse/cookie
 fi
 
+if [ -n "$WAYLAND_DISPLAY" ]; then
+	. /etc/rc.d/wl_func
+	apply_pthemerc
+fi
+
 CURRENTWM="`cat /etc/windowmanager`"
 if [ "$CURRENTWM" = "startkde" ];then
  /sbin/pup_event_frontend_d & #130525
