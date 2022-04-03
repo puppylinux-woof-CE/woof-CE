@@ -171,7 +171,7 @@ _trap_exit() {
 }
 trap _trap_exit EXIT
 
-wlr-randr > $TEMPDIR/wrandr
+#wlr-randr > $TEMPDIR/wrandr
 
 mons $TEMPDIR/wrandr  || exit_error "error"
 i=0
