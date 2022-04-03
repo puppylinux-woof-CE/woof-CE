@@ -46,7 +46,7 @@ sync
 case "$DISABLE_LOCK" in
 y*|Y*|true|True|TRUE|1) echo -n mem > /sys/power/state ;;
 *)
-  if [ -n "$WAYLAND_DISPLAY" -a -z "`pidof cage`" ]; then
+  if [ -n "$WAYLAND_DISPLAY" ]; then
     puplock
     echo mem > /sys/power/state
   elif [ -n "$DISPLAY" ]; then
