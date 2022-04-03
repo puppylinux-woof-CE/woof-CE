@@ -73,6 +73,7 @@ DL_SAVE_FLAG=$(cat /var/local/petget/nd_category 2>/dev/null)
 
 clean_and_die () {
   rm -f /var/packages/${DLPKG_NAME}.files
+  rm -rf ${DIRECTSAVEPATH}/${DLPKG_BASE}-extracted 2>/dev/null
   [ "$PUPMODE" != "2" ] && busybox mount -t aufs -o remount,udba=reval unionfs / #remount with faster evaluation mode.
   exit 1
 }
@@ -244,6 +245,15 @@ elif [ $PUPMODE -eq 13 ];then
 	fi
 fi
 
+
+if [ -L /bin ] || [ -L /lib ] || [ -L /lib64 ] || [ -L /lib32 ] || [ -L /libx32 ] || [ -L /sbin ]; then
+ export USRMERGE="y"
+ export PKG_INSTALL_DIR=${DIRECTSAVEPATH}/${DLPKG_BASE}-extracted
+else
+ export USRMERGE=""
+ export PKG_INSTALL_DIR=${DIRECTSAVEPATH}/
+fi
+
 if [ $DISPLAY -a ! -f /tmp/petget_proc/install_quietly ];then #131222
  LANG=$LANG_USER
  . /usr/lib/gtkdialog/box_splash -close never -fontsize large -text "$(gettext 'Please wait, processing...')" &
@@ -277,13 +287,13 @@ case $DLPKG_BASE in
    pPATTERN="s%^\\./${DLPKG_NAME}%%"
    echo "$PETFILES" | sed -e "$pPATTERN" -e "s#^\.\/#\/#g" -e "s#^#\/#g" -e "s#^\/\/#\/#g" -e 's#^\/$##g' -e 's#^\/\.$##g' > /var/packages/${DLPKG_NAME}.files
    install_path_check
-   tar -x --force-local --strip=2 --directory=${DIRECTSAVEPATH}/ -f ${tarball} #120102. 120107 remove --unlink-first
+   tar -x --force-local --strip=2 --directory=${PKG_INSTALL_DIR}/ -f ${tarball} #120102. 120107 remove --unlink-first
   else
    #new2dir and tgz2pet creates them this way...
    pPATTERN="s%^${DLPKG_NAME}%%"
    echo "$PETFILES" | sed -e "$pPATTERN" -e "s#^\.\/#\/#g" -e "s#^#\/#g" -e "s#^\/\/#\/#g" -e 's#^\/$##g' -e 's#^\/\.$##g' > /var/packages/${DLPKG_NAME}.files
    install_path_check
-   tar -x --force-local --strip=1 --directory=${DIRECTSAVEPATH}/ -f ${tarball} #120102. 120107. 131122
+   tar -x --force-local --strip=1 --directory=${PKG_INSTALL_DIR}/ -f ${tarball} #120102. 120107. 131122
   fi
   rm -f "${tarball}"
   [ $? -ne 0 ] && clean_and_die
@@ -294,10 +304,10 @@ case $DLPKG_BASE in
   [ $? -ne 0 ] && exit 1
   echo "$PFILES" | sed -e "s#^\.\/#\/#g" -e "s#^#\/#g" -e "s#^\/\/#\/#g" -e 's#^\/$##g' -e 's#^\/\.$##g' > /var/packages/${DLPKG_NAME}.files
   install_path_check
-  dpkg-deb -x $DLPKG_BASE ${DIRECTSAVEPATH}/
+  dpkg-deb -x $DLPKG_BASE ${PKG_INSTALL_DIR}/
   [ $? -ne 0 ] && clean_and_die
-  [ -d /DEBIAN ] && rm -rf /DEBIAN #130112 precaution.
-  dpkg-deb -e $DLPKG_BASE /DEBIAN #130112 extracts deb control files to dir /DEBIAN. may have a post-install script, see below.
+  [ -d ${PKG_INSTALL_DIR}/DEBIAN ] && rm -rf ${PKG_INSTALL_DIR}/DEBIAN #130112 precaution.
+  dpkg-deb -e $DLPKG_BASE ${PKG_INSTALL_DIR}/DEBIAN #130112 extracts deb control files to dir /DEBIAN. may have a post-install script, see below.
  ;;
  *.t*z|*.tzst|*.tar.*z|*.tar.bz2|*.tar.zst) #slackware, arch, etc..
   DLPKG_MAIN="`basename $DLPKG_BASE`" #remove directory - filename only
@@ -307,7 +317,7 @@ case $DLPKG_BASE in
   PFILES="`tar --force-local --list -a -f $DLPKG_BASE`" || exit 1
   echo "$PFILES" | sed -e "s#^\.\/#\/#g" -e "s#^#\/#g" -e "s#^\/\/#\/#g" -e 's#^\/$##g' -e 's#^\/\.$##g' > /var/packages/${DLPKG_NAME}.files
   install_path_check
-  tar -x --force-local --directory=${DIRECTSAVEPATH}/ -f $DLPKG_BASE #120102. 120107
+  tar -x --force-local --directory=${PKG_INSTALL_DIR}/ -f $DLPKG_BASE #120102. 120107
   [ $? -ne 0 ] && clean_and_die
  ;;
  *.rpm) #110523
@@ -321,10 +331,10 @@ case $DLPKG_BASE in
   #110705 rpm -i does not work for mageia pkgs...
   
   if [ "$(cpio --help | grep "\-\-directory")" != "" ];  then
-   rpm2cpio $DLPKG_BASE | cpio -idmu -D ${DIRECTSAVEPATH}/
+   rpm2cpio $DLPKG_BASE | cpio -idmu -D ${PKG_INSTALL_DIR}/
   else
    lastpath=$(pwd)
-   cd ${DIRECTSAVEPATH}/
+   cd ${PKG_INSTALL_DIR}/
    rpm2cpio $DLPKG_BASE | cpio -idmu
   fi
   
@@ -334,6 +344,40 @@ case $DLPKG_BASE in
   
  ;;
 esac
+
+
+if [ "$USRMERGE" != "" ]; then
+
+   lastdir="$(pwd)"
+
+   cd ${PKG_INSTALL_DIR}/
+
+   #Fix file position for usrmerge FHS
+       
+   mkdir -p usr 2>/dev/null
+
+   [ -d bin ] && mv -f bin usr/
+   [ -d sbin ] && mv -f sbin usr/
+   [ -d lib ] && mv -f lib usr/
+   [ -d lib64 ] && mv -f lib64 usr/
+   [ -d lib32 ] && mv -f lib32 usr/
+   [ -d libx32 ] && mv -f libx32 usr/
+   
+   cp -a -f --remove-destination ./* ${DIRECTSAVEPATH}/
+   
+   cd "$lastdir"
+   
+   rm -rf ${DIRECTSAVEPATH}/${DLPKG_BASE}-extracted 2>/dev/null
+   
+   sed -i -e 's#^\/bin#\/usr\/bin#g' /var/packages/package-files/${DLPKG_NAME}.files
+   sed -i -e 's#^\/sbin#\/usr\/sbin#g' /var/packages/package-files/${DLPKG_NAME}.files
+   sed -i -e 's#^\/lib#\/usr\/lib#g' /var/packages/package-files/${DLPKG_NAME}.files
+   sed -i -e 's#^\/lib64#\/usr\/lib64#g' /var/packages/package-files/${DLPKG_NAME}.files
+   sed -i -e 's#^\/lib32#\/usr\/lib32#g' /var/packages/package-files/${DLPKG_NAME}.files
+   sed -i -e 's#^\/libx32#\/usr\/libx32#g' /var/packages/package-files/${DLPKG_NAME}.files
+  
+fi
+
 
 if [ "$PUPMODE" = "2" -o "$PUPMODE" = "6" ]; then #from BK's quirky6.1
 	mkdir /audit/${DLPKG_NAME}DEPOSED
