@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 #(c) Copyright Dec. 2016, Barry Kauler, www.barryk.org
 #license: gpl v3 (ref: /usr/share/doc/legal)
 #want to test if an active ethernet cable plugged in at first bootup.
@@ -12,78 +12,61 @@
 #190209 increase wait for ethtool link detected, to 7.5 secs total).
 #200206 replace deprecated ifconfig & iwconfig with busybox ip.
 #200412 increase wait for ethtool link detected, to 15 secs.
-
+#210415 /tmp/sns_interface_success no longer used by SNS 3.0+; simplify test for wireless; resolve shellcheck warnings.
+#220122 Override default dhcpcd response timeout if not already in conf file, to compensate for router possibly slowing due to MAC spoofing; replace ethtool with ip-show test for LOWER_UP.
+#220402 Retry dhcpcd once if failed.
 export LANG='C'
-
-# $1: interface
-interface_is_wireless() {
-	if [ ! "$1" ] ; then
-		return 1 #error
-	fi
-	if grep -q "${1}:" /proc/net/wireless ; then
-		return 0 #yes
-	fi
-	if [ -d /sys/class/net/${1}/wireless ] ; then
-		return 0 #yes
-	fi
-	# k3.2.x: my problematic wireless pci adapter is only recognized by iwconfig..
-	# hmm with 2 pci wireless adapters only iwconfig does the trick
-	if iw dev ${1} link 2>&1 | grep -q 'Not connected' ; then #200206
-		return 1 #no
-	fi
-	return 0 #yes
-}
 
 #171226 improved wait for eth...
 ifCNT=0; loopCNT=0
-ethCNT=$(lspci -n | grep ' 0200: ' | wc -l)
-if [ $ethCNT -eq 0 ] ; then
-	ethCNT=$(lspci -nn | grep ' \[0680\]: .* Ethernet ' | wc -l) #180104
+ethCNT="$(lspci -n | grep -c ' 0200: ')"
+if [ "$ethCNT" -eq 0 ]; then
+    ethCNT="$(lspci -nn | grep -c ' \[0680\]: .* Ethernet ')" #180104
 fi
-while [ $ifCNT -lt $ethCNT ];do
- ifCNT=$(ip link show | grep -B 1 'link/ether' | grep -E ': eth[0-9]|: en[oPps][0-9]|: enx[0-9a-f]' | wc -l) #200206
- [ $ifCNT -gt 0 -o $loopCNT -ge 30 ] && break #finding one i/f is enough, other may not have a driver. 180104
- sleep 1 #180104
- loopCNT=$(($loopCNT+1))
+
+while [ "$ifCNT" -lt "$ethCNT" ];do
+    ifCNT=$(ip link show | grep -B 1 'link/ether' | grep -Ec ': eth[0-9]|: en[oPps][0-9]|: enx[0-9a-f]') #200206
+    [ "$ifCNT" -gt 0 ] || [ $loopCNT -ge 30 ] && break #finding one i/f is enough, other may not have a driver. 180104
+    sleep 1 #180104
+    ((++loopCNT))
 done
-[ $loopCNT -gt 0 ] && echo "rc.network_eth: waited for ethernet interfaces: seconds = ${loopCNT}" >&2 #180104
+[ "$loopCNT" -gt 0 ] && echo "rc.network_eth: waited for ethernet interfaces: seconds = ${loopCNT}" >&2 #180104
 
 #code adapted from /usr/local/simple_network_setup/rc.network...
-INTERFACES="`ip link show | grep -B 1 'link/ether' | grep '^[0-9]' | cut -f 2 -d ':' | tr -d '\n'`" #200206
+INTERFACES="$(ip link show | grep -B 1 'link/ether' | grep '^[0-9]' | cut -f 2 -d ':' | tr -d '\n')" #200206
 for INTERFACE in $INTERFACES #exs: wlan0 eth0
 do
- if interface_is_wireless ${INTERFACE} ; then
-   continue #only want wired.
- fi
+    [ -d /sys/class/net/${INTERFACE}/wireless ] && continue #only want wired. #210415
+    ip link set "$INTERFACE" up || continue #200206
 
- ip link set $INTERFACE up #200206
- [ $? -ne 0 ] && continue
+    TIMEOUT=15 #200412
+    while [ $TIMEOUT -ge 0 ]; do #200412
+      ip link show "$INTERFACE" | grep -q 'LOWER_UP' && break #220122
+      [ $((--TIMEOUT)) -ge 0 ] && sleep 1 #200412
+    done
 
- LINK_DETECTED=no
- TIMEOUT=15 #200412
- while [ $TIMEOUT -ge 0 ]; do #200412
-   if ethtool "$INTERFACE" | grep -Fq 'Link detected: yes' ; then
-     LINK_DETECTED="yes"
-     break
-   fi
-   [ $((--TIMEOUT)) -ge 0 ] && sleep 1 #200412
- done
- if [ "$LINK_DETECTED" = "no" ] ; then
-   ip link set $INTERFACE down #200206
-   continue #no network.
- fi
+    if [ "$TIMEOUT" -lt 0 ]; then #220122
+        ip link set "$INTERFACE" down #200206
+        continue #no network.
+    fi
 
- DHCPCDFIX="-I ''"
- dhcpcd $DHCPCDFIX $INTERFACE
- sleep 0.1 #180110
- 
- if grep '^nameserver' /etc/resolv.conf >/dev/null; then
-  which sns >/dev/null 2>&1 && echo "$INTERFACE" > /tmp/sns_interface_success
-  exit #success.
- else
-  ip link set $INTERFACE down #200206
-  dhcpcd --release $INTERFACE 2>/dev/null
-  ip route flush dev $INTERFACE
- fi
+# shellcheck disable=SC2089
+    DHCPCDFIX="-I ''"
+    for ATTEMPT in 1 2 ; do #210915
+        #Override the 30-second default wait time for getting  a lease #220122...
+        if grep -wq '^timeout' /etc/dhcpcd.conf; then
+# shellcheck disable=SC2086,SC2090 #Do not quote $DHCPCDFIX, 's OK
+            dhcpcd $DHCPCDFIX "$INTERFACE" #timeout already set
+        else
+# shellcheck disable=SC2086,SC2090 #Do not quote $DHCPCDFIX, 's OK
+            dhcpcd --timeout 40 $DHCPCDFIX "$INTERFACE" #MAC spoofing may slow router response
+        fi
+        sleep 0.2 #180110
+        grep -q '^nameserver' /etc/resolv.conf && break #210415
+        ip link set "$INTERFACE" down #200206
+        dhcpcd --release "$INTERFACE" 2>/dev/null
+        ip route flush dev "$INTERFACE"
+        [ "$ATTEMPT" -eq 1 ] && sleep 8 #220402
+    done #210915
 done
-
+exit

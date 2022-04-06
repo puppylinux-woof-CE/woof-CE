@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 #(c) Copyright Barry Kauler Dec. 2010, License: GPL v3 /usr/share/doc/legal
 #called from pupdial.
 #got code out of rc.shutdown.
@@ -20,76 +20,80 @@
 #181209 add argument for use by rc.shutdown, for treatment of frisbee.
 #200206 replace deprecated ifconfig & iwconfig with busybox ip & full iw.
 #200425 add invocation of SNS rc.network; pause before checking for other links (timing issue). 
+#200910 resolve shellcheck warnings.
+#201216 after disconnect, remove .connectwizard_previous_exec.
+#210415 remove check of SNS success for active interface.
 
 CURRENT_EXEC='' #170724
 if [ -f /root/.connectwizardrc ];then #170724
- . /root/.connectwizardrc #sets CURRENT_EXEC 170329...
+# shellcheck disable=SC1091
+    . /root/.connectwizardrc #sets CURRENT_EXEC 170329...
 fi #170724
 
 ARGUMENT="$1"
 case "$ARGUMENT" in
- --current-exec|--shutdown) #181209
-  DISCONNECTEXEC="$CURRENT_EXEC"
-  ;;
- *)
-  DISCONNECTEXEC="`cat /tmp/.connectwizard_previous_exec 2> /dev/null`"
-  [ -z "$DISCONNECTEXEC" ] && DISCONNECTEXEC="$CURRENT_EXEC"
-  [ -z "$DISCONNECTEXEC" ] \
-   && DISCONNECTEXEC="`cat /usr/local/bin/defaultconnect | tail -n 1 | tr -s " " | cut -f 2 -d " "`"
-  ;;
- esac #170329 end
+    --current-exec|--shutdown) #181209
+        DISCONNECTEXEC="$CURRENT_EXEC"
+        ;;
+    *)
+        DISCONNECTEXEC="$(cat /tmp/.connectwizard_previous_exec 2> /dev/null)"
+        [ -z "$DISCONNECTEXEC" ] && DISCONNECTEXEC="$CURRENT_EXEC"
+        [ -z "$DISCONNECTEXEC" ] \
+          && DISCONNECTEXEC="$(tail -n 1 /usr/local/bin/defaultconnect | tr -s " " | cut -f 2 -d " ")"
+        ;;
+esac #170329 end
 
 ETHERNETDIR=network_ethernet
-ACTIVE_INTERFACE=""
-[ -f /tmp/sns_interface_success ] && ACTIVE_INTERFACE="`cat /tmp/sns_interface_success`" #SNS
-[ ! "$ACTIVE_INTERFACE" ] && ACTIVE_INTERFACE="`ip link show | grep -B 1 'link/ether' | grep -w 'UP' | cut -f 2 -d ' ' | tr -d : | head -n 1`" #200206
+ACTIVE_INTERFACE="$(ip link show | grep -B 1 'link/ether' | grep -w 'UP' | cut -f 2 -d ' ' | tr -d : | head -n 1)" #200206
 if [ "$ACTIVE_INTERFACE" ];then
- if [ -d /sys/class/net/${ACTIVE_INTERFACE}/statistics ];then
-  RX_BYTES="`cat /sys/class/net/${ACTIVE_INTERFACE}/statistics/rx_bytes`"
-  TX_BYTES="`cat /sys/class/net/${ACTIVE_INTERFACE}/statistics/tx_bytes`"
-  echo -n "$RX_BYTES" > /var/local/$ETHERNETDIR/rx_bytes_session
-  echo -n "$TX_BYTES" > /var/local/$ETHERNETDIR/tx_bytes_session
-  RX_BYTES_MONTH=`cat /var/local/$ETHERNETDIR/rx_bytes_month`
-  RX_BYTES_MONTH=`expr $RX_BYTES_MONTH + $RX_BYTES`
-  echo -n "$RX_BYTES_MONTH" > /var/local/$ETHERNETDIR/rx_bytes_month
-  TX_BYTES_MONTH=`cat /var/local/$ETHERNETDIR/tx_bytes_month`
-  TX_BYTES_MONTH=`expr $TX_BYTES_MONTH + $TX_BYTES`
-  echo -n "$TX_BYTES_MONTH" > /var/local/$ETHERNETDIR/tx_bytes_month
- fi
+    if [ -d /sys/class/net/"${ACTIVE_INTERFACE}"/statistics ];then
+        RX_BYTES="$(cat /sys/class/net/"${ACTIVE_INTERFACE}"/statistics/rx_bytes)"
+        TX_BYTES="$(cat /sys/class/net/"${ACTIVE_INTERFACE}"/statistics/tx_bytes)"
+        echo -n "$RX_BYTES" > /var/local/$ETHERNETDIR/rx_bytes_session
+        echo -n "$TX_BYTES" > /var/local/$ETHERNETDIR/tx_bytes_session
+        RX_BYTES_MONTH=$(cat /var/local/$ETHERNETDIR/rx_bytes_month)
+        RX_BYTES_MONTH=$((RX_BYTES_MONTH + RX_BYTES))
+        echo -n "$RX_BYTES_MONTH" > /var/local/$ETHERNETDIR/rx_bytes_month
+        TX_BYTES_MONTH=$(cat /var/local/$ETHERNETDIR/tx_bytes_month)
+        TX_BYTES_MONTH=$((TX_BYTES_MONTH + TX_BYTES))
+        echo -n "$TX_BYTES_MONTH" > /var/local/$ETHERNETDIR/tx_bytes_month
+    fi
 fi
 unset ETHERNETDIR
 
-[ "`pidof wpa_supplicant`" != "" ] \
- && wpa_cli terminate #100309 kills any running wpa_supplicant.
+[ -n "$(pidof wpa_supplicant)" ] \
+  && wpa_cli terminate #100309 kills any running wpa_supplicant.
 case "$DISCONNECTEXEC" in #170412...
- peasywifi) #180919...
-  /usr/local/peasywifi/rc.network stop
-  sleep 0.1
-  if [ -n "$(ps --no-headers -fC udhcpc,wpa_supplicant)" ];then
-    # 'stop' option ignored in peasywifi rc.network - workaround:
-    /etc/rc.d/rc.network_pwf_stop
-  fi
-  ;;
- sns) #200425...
-  /usr/local/simple_network_setup/rc.network stop
-  ;;
- net-setup.sh)
-  /usr/local/network-wizard/rc.network stop #180923
-  ;;
- frisbee) #180214...
-  if frisbee --test_active; then
-   frisbee --disconnect
-   [ "$ARGUMENT" != '--shutdown' ] && frisbee --deactivate #181209
-  fi
-  ;;
+    peasywifi) #180919...
+        /usr/local/peasywifi/rc.network stop
+        sleep 0.1
+        if pgrep -x 'udhcpc|wpa_supplicant' > /dev/null;then
+            # 'stop' option ignored in peasywifi rc.network - workaround:
+            /etc/rc.d/rc.network_pwf_stop
+        fi
+        ;;
+    sns) #200425...
+        /usr/local/simple_network_setup/rc.network stop
+        ;;
+    net-setup.sh)
+        /usr/local/network-wizard/rc.network stop #180923
+        ;;
+    frisbee) #180214...
+        if frisbee --test_active; then
+            frisbee --disconnect
+            [ "$ARGUMENT" != '--shutdown' ] && frisbee --deactivate #181209
+        fi
+        ;;
 esac #170309
 
 sleep 0.1 #200425
-for ONENETIF in `ip link show | grep -B 1 'link/ether' | grep -w 'UP' | cut -f 2 -d ' ' | tr -d : | tr '\n' ' '`; do #200206
- ip link set $ONENETIF down 2> /dev/null #200206
- iw dev ${ONENETIF} info 2> /dev/null | grep -qw "ssid" \
-  && iw dev $ONENETIF connect off #100309 200206
- dhcpcd --release $ONENETIF 2>/dev/null #100309
+for ONENETIF in $(ip link show | grep -B 1 'link/ether' | grep -w 'UP' | cut -f 2 -d ' ' | tr -d : | tr '\n' ' '); do #200206
+    ip link set "$ONENETIF" down 2> /dev/null #200206
+    iw dev "${ONENETIF}" info 2> /dev/null | grep -qw "ssid" \
+      && iw dev "$ONENETIF" connect off #100309 200206
+    dhcpcd --release "$ONENETIF" 2>/dev/null #100309
 done #180214 end
+
+rm -f /tmp/.connectwizard_previous_exec #201216
 
 ###END###
