@@ -56,7 +56,10 @@ PKGS=
 # busybox must be first, so other petbuilds can use coreutils commands
 for NAME in $PETBUILDS; do
     HASH=`cat ../DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} ../DISTRO_COMPAT_REPOS ../DISTRO_COMPAT_REPOS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} ../DISTRO_PET_REPOS ../rootfs-petbuilds/${NAME}/petbuild 2>/dev/null | md5sum | awk '{print $1}'`
+    [ ! "$BUILD_DEVX" = "yes" ] && HASH="latest"
+    new_petbuild="no"
     if [ ! -d "../petbuild-output/${NAME}-${HASH}" ]; then
+        new_petbuild="yes"
         if [ $HAVE_ROOTFS -eq 0 ]; then
             echo "Preparing build environment"
             rm -rf petbuild-rootfs-complete
@@ -279,8 +282,7 @@ for NAME in $PETBUILDS; do
         find ../petbuild-output/${NAME}-${HASH} -name '.git*' -delete
     fi
 
-    rm -f ../petbuild-output/${NAME}-latest
-    ln -s ${NAME}-${HASH} ../petbuild-output/${NAME}-latest
+    [ "$new_petbuild" = "yes" ] && rm -f ../petbuild-output/${NAME}-latest && ln -s ${NAME}-${HASH} ../petbuild-output/${NAME}-latest
 
     PKGS="$PKGS $NAME"
 done
