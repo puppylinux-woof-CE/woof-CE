@@ -55,9 +55,8 @@ PKGS=
 COPYPKGS="$PETBUILDS"
 
 # busybox must be first, so other petbuilds can use coreutils commands
-# PETBUILD_ENABLE is set in 3builddistro from BUILD_DEVX and can also be set in _00build.conf
-if [ "$PETBUILD_ENABLE" = "enabled" ]; then
-for NAME in $PETBUILDS; do
+if [ "$BUILD_DEVX" = "yes" ]; then
+  for NAME in $PETBUILDS; do
     HASH=`cat ../DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} ../DISTRO_COMPAT_REPOS ../DISTRO_COMPAT_REPOS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} ../DISTRO_PET_REPOS ../rootfs-petbuilds/${NAME}/petbuild 2>/dev/null | md5sum | awk '{print $1}'`
     if [ ! -d "../petbuild-output/${NAME}-${HASH}" ]; then
         if [ $HAVE_ROOTFS -eq 0 ]; then
@@ -286,10 +285,10 @@ for NAME in $PETBUILDS; do
     ln -s ${NAME}-${HASH} ../petbuild-output/${NAME}-latest
 
     PKGS="$PKGS $NAME"
-done
-COPYPKGS="$PKGS"
+  done
+  COPYPKGS="$PKGS"
 
-[ $HAVE_ROOTFS -eq 1 ] && rm -rf petbuild-rootfs-complete
+  [ $HAVE_ROOTFS -eq 1 ] && rm -rf petbuild-rootfs-complete
 fi
 
 echo "Copying petbuilds to rootfs-complete"
