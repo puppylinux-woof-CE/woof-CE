@@ -17,7 +17,7 @@ if [ ! -e ${SR}/usr/bin/rxvt-unicode ] && [ -f ${SR}/usr/bin/urxvt ] ; then
 fi
 
 # gtk2dialog symlink
-if [ ! -e ${SR}/usr/sbin/gtk2dialog ] && [ -f ${SR}/usr/sbin/gtkdialog ] ; then
+if [ ! -e ${SR}/usr/sbin/gtk2dialog ] && [ -e ${SR}/usr/sbin/gtkdialog ] ; then
 	ln -snfv gtkdialog ${SR}/usr/sbin/gtk2dialog
 fi
 
