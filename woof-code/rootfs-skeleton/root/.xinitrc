@@ -8,6 +8,7 @@
 if [ -n "$WAYLAND_DISPLAY" ]; then
 	export GDK_BACKEND=x11
 	unset SDL_VIDEODRIVER
+	export XDG_SESSION_TYPE=wayland
 else
 	export XDG_SESSION_TYPE=x11
 fi
