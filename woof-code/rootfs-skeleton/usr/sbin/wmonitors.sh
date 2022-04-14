@@ -39,6 +39,12 @@ rnr_gui() { # $1 next iter, $2 is the monitor gui, $3 is the next delim until EO
 			if echo $z | grep -q 'preferred, current' ; then
 				echo "<item>${z/\(preferred, current\)/\*}</item>" >> $TEMPDIR/${2}.xml
 				cnt=$(($cnt + $x))
+			elif echo $z | grep -q 'current' ; then
+				echo "<item>${z/\(current\)/\*}</item>" >> $TEMPDIR/${2}.xml
+				cnt=$(($cnt + $x))
+			elif echo $z | grep -q 'preferred' ; then
+				echo "<item>${z/\(preferred\)/\*}</item>" >> $TEMPDIR/${2}.xml
+				cnt=$(($cnt + $x))
 			else
 				echo "<item>$z</item>" >> $TEMPDIR/${2}.xml
 				cnt=$(($cnt + $x))
@@ -48,6 +54,12 @@ rnr_gui() { # $1 next iter, $2 is the monitor gui, $3 is the next delim until EO
 		else
 			if echo $z | grep -q 'preferred, current' ; then
 				echo "<item>${z/\(preferred, current\)/\*}</item>" >> $TEMPDIR/${2}.xml
+				cnt=$(($cnt + $x))
+			elif echo $z | grep -q 'current' ; then
+				echo "<item>${z/\(current\)/\*}</item>" >> $TEMPDIR/${2}.xml
+				cnt=$(($cnt + $x))
+			elif echo $z | grep -q 'preferred' ; then
+				echo "<item>${z/\(preferred\)/\*}</item>" >> $TEMPDIR/${2}.xml
 				cnt=$(($cnt + $x))
 			else
 				echo "<item>$z</item>" >> $TEMPDIR/${2}.xml
