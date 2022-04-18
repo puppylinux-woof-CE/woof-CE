@@ -57,8 +57,13 @@ PKGS=
 for NAME in $PETBUILDS; do
     # peabee hack to reuse old petbuild output if BUILD_DEVX=no
     if [ "$BUILD_DEVX" != "yes" ]; then
-        echo "WARNING - petbuilds require BUILD_DEVX=yes"
-        [ -n "$GITHUB_ACTIONS" ] && exit 1
+        case "$NAME" in
+        pmaterial_icons|puppy_flat_icons|puppy_standard_icons) ;;
+        *)
+            echo "WARNING - petbuilds require BUILD_DEVX=yes"
+            [ -n "$GITHUB_ACTIONS" ] && exit 1
+            ;;
+        esac
         PKGS="$PKGS $NAME"
         continue
     fi
