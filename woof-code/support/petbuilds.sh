@@ -52,11 +52,22 @@ fi
 
 HERE=`pwd`
 PKGS=
-COPYPKGS="$PETBUILDS"
 
 # busybox must be first, so other petbuilds can use coreutils commands
-if [ "$BUILD_DEVX" = "yes" ]; then
-  for NAME in $PETBUILDS; do
+for NAME in $PETBUILDS; do
+    # peabee hack to reuse old petbuild output if BUILD_DEVX=no
+    if [ "$BUILD_DEVX" != "yes" ]; then
+        case "$NAME" in
+        pmaterial_icons|puppy_flat_icons|puppy_standard_icons) ;;
+        *)
+            echo "WARNING - petbuilds require BUILD_DEVX=yes"
+            [ -n "$GITHUB_ACTIONS" ] && exit 1
+            ;;
+        esac
+        PKGS="$PKGS $NAME"
+        continue
+    fi
+
     HASH=`cat ../DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} ../DISTRO_COMPAT_REPOS ../DISTRO_COMPAT_REPOS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} ../DISTRO_PET_REPOS ../rootfs-petbuilds/${NAME}/petbuild 2>/dev/null | md5sum | awk '{print $1}'`
     if [ ! -d "../petbuild-output/${NAME}-${HASH}" ]; then
         if [ $HAVE_ROOTFS -eq 0 ]; then
@@ -285,17 +296,15 @@ if [ "$BUILD_DEVX" = "yes" ]; then
     ln -s ${NAME}-${HASH} ../petbuild-output/${NAME}-latest
 
     PKGS="$PKGS $NAME"
-  done
-  COPYPKGS="$PKGS"
+done
 
-  [ $HAVE_ROOTFS -eq 1 ] && rm -rf petbuild-rootfs-complete
-fi
+[ $HAVE_ROOTFS -eq 1 ] && rm -rf petbuild-rootfs-complete
 
 echo "Copying petbuilds to rootfs-complete"
 
 MAINPKGS=
 
-for NAME in $COPYPKGS; do
+for NAME in $PKGS; do
     rm -rf ../packages-${DISTRO_FILE_PREFIX}/${NAME} ../packages-${DISTRO_FILE_PREFIX}/${NAME}_NLS ../packages-${DISTRO_FILE_PREFIX}/${NAME}_DOC
 
     mkdir ../packages-${DISTRO_FILE_PREFIX}/${NAME}
