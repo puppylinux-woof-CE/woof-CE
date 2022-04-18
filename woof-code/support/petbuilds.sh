@@ -52,9 +52,11 @@ fi
 
 HERE=`pwd`
 PKGS=
+COPYPKGS="$PETBUILDS"
 
 # busybox must be first, so other petbuilds can use coreutils commands
-for NAME in $PETBUILDS; do
+if [ "$BUILD_DEVX" = "yes" ]; then
+  for NAME in $PETBUILDS; do
     HASH=`cat ../DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} ../DISTRO_COMPAT_REPOS ../DISTRO_COMPAT_REPOS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} ../DISTRO_PET_REPOS ../rootfs-petbuilds/${NAME}/petbuild 2>/dev/null | md5sum | awk '{print $1}'`
     if [ ! -d "../petbuild-output/${NAME}-${HASH}" ]; then
         if [ $HAVE_ROOTFS -eq 0 ]; then
@@ -283,15 +285,17 @@ for NAME in $PETBUILDS; do
     ln -s ${NAME}-${HASH} ../petbuild-output/${NAME}-latest
 
     PKGS="$PKGS $NAME"
-done
+  done
+  COPYPKGS="$PKGS"
 
-[ $HAVE_ROOTFS -eq 1 ] && rm -rf petbuild-rootfs-complete
+  [ $HAVE_ROOTFS -eq 1 ] && rm -rf petbuild-rootfs-complete
+fi
 
 echo "Copying petbuilds to rootfs-complete"
 
 MAINPKGS=
 
-for NAME in $PKGS; do
+for NAME in $COPYPKGS; do
     rm -rf ../packages-${DISTRO_FILE_PREFIX}/${NAME} ../packages-${DISTRO_FILE_PREFIX}/${NAME}_NLS ../packages-${DISTRO_FILE_PREFIX}/${NAME}_DOC
 
     mkdir ../packages-${DISTRO_FILE_PREFIX}/${NAME}
