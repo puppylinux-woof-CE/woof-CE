@@ -195,9 +195,26 @@ busybox mount -t devpts -o dev,suid,gid=2,mode=620 none /dev/pts ;STATUS=$((STAT
 mkdir /sys 2>/dev/null
 busybox mount -t sysfs none /sys ;STATUS=$((STATUS+$?))
 
+busybox mount -t cgroup2 -o nsdelegate,memory_recursiveprot cgroup2 /sys/fs/cgroup ;STATUS=$((STATUS+$?))
+
+# simulate what systemd does but only for /, podman needs this
+busybox mount --make-shared / 2>/dev/null
+
 ##v2.20 some apps need shm (shared memory) (ex: xfdiff)... 100319 do this always...
 mkdir -p /dev/shm #120503 if kernel mounts a f.s. on /dev, removes my skeleton /dev
 busybox mount -t tmpfs -o size=${QTRFREERAM}k shmfs /dev/shm ;STATUS=$((STATUS+$?))
+
+# some non-root processes write to /var/tmp, it must be 1777 like /tmp
+chmod 1777 /var/tmp 2>/dev/null
+
+# podman mounts a layered file system and it must not overlap with the one at /
+if [ $PUPMODE -ne 2 ] ; then
+	[ $PUPMODE -eq 6 ] && RW="/initrd/upper/save" || RW="/initrd/pup_rw"
+	mkdir /var/lib/containers 2>/dev/null
+	busybox mount -o bind ${RW}/var/lib/containers /var/lib/containers ;STATUS=$((STATUS+$?))
+	install -d -o spot -g spot /home/spot/.local /home/spot/.local/share /home/spot/.local/share/containers 2>/dev/null
+	busybox mount -o bind ${RW}/home/spot/.local/share/containers /home/spot/.local/share/containers ;STATUS=$((STATUS+$?))
+fi
 
 # kernel modules.builtin/order can also be found in /etc/modules
 # if somehow they're missing from /lib/modules, they will be copied back
@@ -337,7 +354,7 @@ KMS=no
 #130618 devtmpfs-enabled kernel, initrd may have loaded it on /dev
 #device nodes created by kernel in initrd are all 'root' group.
 #fix (before starting udevd)...
-chmod 666 /dev/* 2>/dev/null
+for DEV in /dev/*; do [ ! -d ${DEV} ] && chmod 666 ${DEV} 2>/dev/null; done
 chmod 666 /dev/pts/* 2>/dev/null
 chown -R root:tty /dev/pts/
 chmod 666 /dev/null
@@ -565,7 +582,8 @@ while read F1 F2 F3 F4 F5 F6 F7 F8 ETC ; do
 	esac
 	[ -z "$F7" ] && continue #precaution
 	# mknod: /dev/net/tun: No such file or directory
-	[ ! -d ${F2%/*} ] && mkdir -p -m $F3 ${F2%/*}
+	# /dev/net should be 755, while /dev/net/tun is 666
+	[ ! -d ${F2%/*} ] && mkdir -p ${F2%/*}
 	# c! /dev/cuse 0600 - - - 10:203
 	mknod -m $F3 $F2 ${F1:0:1} ${F7%:*} ${F7#*:} 2>/dev/null #mknod -m 0600 /dev/cuse c 10 203
 done
