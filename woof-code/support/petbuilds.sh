@@ -1,7 +1,7 @@
 if [ -z "$WOOF_CFLAGS"]; then
     case "$DISTRO_TARGETARCH" in
     arm) WOOF_CFLAGS="-march=armv7-a -mfpu=neon-vfpv4 -mfloat-abi=hard" ;;
-    x86) WOOF_CFLAGS="-march=i486 -mtune=i686" ;;
+    x86) WOOF_CFLAGS="-march=i686 -mtune=i686" ;;
     x86_64) WOOF_CFLAGS="-march=x86-64 -mtune=generic" ;;
     esac
 fi
@@ -55,6 +55,19 @@ PKGS=
 
 # busybox must be first, so other petbuilds can use coreutils commands
 for NAME in $PETBUILDS; do
+    # peabee hack to reuse old petbuild output if BUILD_DEVX=no
+    if [ "$BUILD_DEVX" != "yes" ]; then
+        case "$NAME" in
+        pmaterial_icons|puppy_flat_icons|puppy_standard_icons) ;;
+        *)
+            echo "WARNING - petbuilds require BUILD_DEVX=yes"
+            [ -n "$GITHUB_ACTIONS" ] && exit 1
+            ;;
+        esac
+        PKGS="$PKGS $NAME"
+        continue
+    fi
+
     HASH=`cat ../DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} ../DISTRO_COMPAT_REPOS ../DISTRO_COMPAT_REPOS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} ../DISTRO_PET_REPOS ../rootfs-petbuilds/${NAME}/petbuild 2>/dev/null | md5sum | awk '{print $1}'`
     if [ ! -d "../petbuild-output/${NAME}-${HASH}" ]; then
         if [ $HAVE_ROOTFS -eq 0 ]; then
@@ -71,17 +84,19 @@ for NAME in $PETBUILDS; do
             rm -f petbuild-rootfs-complete/pinstall.sh
 
             # to speed up compilation, we build a static, native ccache executable
-            if [ $CROSSBUILD -eq 1 -o ! -e devx/usr/bin/ccache ]; then
-                if [ ! -f ../petbuild-cache/ccache ]; then
-                    wget -t 1 -T 15 https://github.com/ccache/ccache/releases/download/v3.7.12/ccache-3.7.12.tar.xz
-                    tar -xJf ccache-3.7.12.tar.xz
-                    cd ccache-3.7.12
-                    CFLAGS=-O3 LDFLAGS="-static -Wl,-s" ./configure
-                    MAKEFLAGS="$MAKEFLAGS" make
-                    install -D -m 755 ccache ../../petbuild-cache/ccache
-                    cd ..
+            if [ "$BUILD_DEVX" = "yes" ]; then
+                if [ $CROSSBUILD -eq 1 -o ! -e devx/usr/bin/ccache ]; then
+                    if [ ! -f ../petbuild-cache/ccache ]; then
+                        wget -t 1 -T 15 https://github.com/ccache/ccache/releases/download/v3.7.12/ccache-3.7.12.tar.xz
+                        tar -xJf ccache-3.7.12.tar.xz
+                        cd ccache-3.7.12
+                        CFLAGS=-O3 LDFLAGS="-static -Wl,-s" ./configure
+                        MAKEFLAGS="$MAKEFLAGS" make
+                        install -D -m 755 ccache ../../petbuild-cache/ccache
+                        cd ..
+                    fi
+                    install -m 755 ../petbuild-cache/ccache petbuild-rootfs-complete/usr/bin/ccache
                 fi
-                install -m 755 ../petbuild-cache/ccache petbuild-rootfs-complete/usr/bin/ccache
             fi
 
             # speed up configure scripts by using a native shell executable and a native busybox
@@ -101,10 +116,10 @@ for NAME in $PETBUILDS; do
                 ln -s bash petbuild-rootfs-complete/bin/sh
 
                 if [ ! -f ../petbuild-cache/busybox ]; then
-                    wget -t 1 -T 15 https://busybox.net/downloads/busybox-1.34.1.tar.bz2
-                    tar -xjf busybox-1.34.1.tar.bz2
-                    cp -f ../rootfs-petbuilds/busybox/DOTconfig busybox-1.34.1/.config
-                    cd busybox-1.34.1
+                    wget -t 1 -T 15 https://busybox.net/downloads/busybox-1.35.0.tar.bz2
+                    tar -xjf busybox-1.35.0.tar.bz2
+                    cp -f ../rootfs-petbuilds/busybox/DOTconfig busybox-1.35.0/.config
+                    cd busybox-1.35.0
                     make CONFIG_STATIC=y
                     install -D -m 755 busybox ../../petbuild-cache/busybox || exit 1
                     cd ..
@@ -118,7 +133,7 @@ for NAME in $PETBUILDS; do
             chroot petbuild-rootfs-complete ldconfig
 
             # the shared-mime-info PET used by fossa64 doesn't put its pkg-config file in /usr/lib/x86_64-linux-gnu/pkgconfig
-            PKG_CONFIG_PATH=`dirname $(find petbuild-rootfs-complete devx -name '*.pc') | sed -e s/^petbuild-rootfs-complete//g -e s/^devx//g | sort | uniq | tr '\n' :`
+            PKG_CONFIG_PATH=`dirname $(find petbuild-rootfs-complete devx -name '*.pc' 2>/dev/null) 2>/dev/null | sed -e s/^petbuild-rootfs-complete//g -e s/^devx//g | sort | uniq | tr '\n' :`
 
             HAVE_ROOTFS=1
         fi
@@ -158,11 +173,12 @@ for NAME in $PETBUILDS; do
 
         rm -rf ../petbuild-output/${NAME}-* # remove older petbuilds of $NAME
         mkdir -p ../petbuild-output/${NAME}-${HASH} petbuild-rootfs-complete-${NAME}
+        [ "$BUILD_DEVX" = "yes" ] && LOWERDIR='devx:petbuild-rootfs-complete' || LOWERDIR='petbuild-rootfs-complete'
         if [ "$LAYER_TYPE" = 'overlay' ]; then
              mkdir petbuild-workdir
-             mount -t overlay -o upperdir=../petbuild-output/${NAME}-${HASH},lowerdir=devx:petbuild-rootfs-complete,workdir=petbuild-workdir petbuild petbuild-rootfs-complete-${NAME}
+             mount -t overlay -o upperdir=../petbuild-output/${NAME}-${HASH},lowerdir=${LOWERDIR},workdir=petbuild-workdir petbuild petbuild-rootfs-complete-${NAME}
         else
-             mount -t aufs -o br=../petbuild-output/${NAME}-${HASH}:devx:petbuild-rootfs-complete petbuild petbuild-rootfs-complete-${NAME}
+             mount -t aufs -o br=../petbuild-output/${NAME}-${HASH}:${LOWERDIR} petbuild petbuild-rootfs-complete-${NAME}
         fi
 
         mkdir -p petbuild-rootfs-complete-${NAME}/proc petbuild-rootfs-complete-${NAME}/sys petbuild-rootfs-complete-${NAME}/dev petbuild-rootfs-complete-${NAME}/tmp
@@ -178,7 +194,7 @@ for NAME in $PETBUILDS; do
 
         cp -a ../petbuild-sources/${NAME}/* petbuild-rootfs-complete-${NAME}/tmp/
         cp -a ../rootfs-petbuilds/${NAME}/* petbuild-rootfs-complete-${NAME}/tmp/
-        CC="$WOOF_CC" CXX="$WOOF_CXX" CFLAGS="$WOOF_CFLAGS" CXXFLAGS="$WOOF_CXXFLAGS" LDFLAGS="$WOOF_LDFLAGS" MAKEFLAGS="$MAKEFLAGS" CCACHE_DIR=/root/.ccache CCACHE_NOHASHDIR=1 PKG_CONFIG_PATH="$PKG_CONFIG_PATH" PYTHONDONTWRITEBYTECODE=1 PYTHONPYCACHEPREFIX=/root/.cache/__pycache__ PETBUILD_GTK=$PETBUILD_GTK $CHROOT_PFIX chroot petbuild-rootfs-complete-${NAME} bash -ec "cd /tmp && . ./petbuild && build"
+        CC="$WOOF_CC" CXX="$WOOF_CXX" CFLAGS="$WOOF_CFLAGS" CXXFLAGS="$WOOF_CXXFLAGS" LDFLAGS="$WOOF_LDFLAGS" MAKEFLAGS="$MAKEFLAGS" CCACHE_DIR=/root/.ccache CCACHE_NOHASHDIR=1 PKG_CONFIG_PATH="$PKG_CONFIG_PATH" PYTHONDONTWRITEBYTECODE=1 PYTHONPYCACHEPREFIX=/root/.cache/__pycache__ PETBUILD_GTK=$PETBUILD_GTK $CHROOT_PFIX chroot petbuild-rootfs-complete-${NAME} bash -ec "cd /tmp && . /etc/DISTRO_SPECS && . ./petbuild && build"
         ret=$?
         umount -l petbuild-rootfs-complete-${NAME}/root/.cache
         umount -l petbuild-rootfs-complete-${NAME}/root/.ccache
@@ -205,6 +221,7 @@ for NAME in $PETBUILDS; do
         rm -rf ../petbuild-output/${NAME}-${HASH}/tmp
         rm -rf ../petbuild-output/${NAME}-${HASH}/etc/ssl
         rm -f ../petbuild-output/${NAME}-${HASH}/etc/resolv.conf
+        rm -f ../petbuild-output/${NAME}-${HASH}/etc/ld.so.cache
         rm -f ../petbuild-output/${NAME}-${HASH}/root/.wget-hsts
 
         rm -rf ../petbuild-output/${NAME}-${HASH}/usr/share/man
@@ -217,7 +234,6 @@ for NAME in $PETBUILDS; do
         rm -rf ../petbuild-output/${NAME}-${HASH}/usr/include
 
         find ../petbuild-output/${NAME}-${HASH} -name '.wh*' -delete
-        find ../petbuild-output/${NAME}-${HASH} -name '.git*' -delete
         find ../petbuild-output/${NAME}-${HASH} -name '*.a' -delete
         find ../petbuild-output/${NAME}-${HASH} -name '*.la' -delete
 
@@ -229,6 +245,9 @@ for NAME in $PETBUILDS; do
                 for SO in `ls ../petbuild-output/${NAME}-${HASH}/${LIBDIR}/*.so* 2>/dev/null`; do
                     mv -f $SO ../petbuild-output/${NAME}-${HASH}/${LIBDIR}64/
                 done
+                if [ -d ../petbuild-output/${NAME}-${HASH}/${LIBDIR}/gio ]; then
+                    mv -f ../petbuild-output/${NAME}-${HASH}/${LIBDIR}/gio ../petbuild-output/${NAME}-${HASH}/${LIBDIR}64/
+                fi
                 rmdir ../petbuild-output/${NAME}-${HASH}/${LIBDIR} 2>/dev/null
             done
             ;;
@@ -241,6 +260,9 @@ for NAME in $PETBUILDS; do
                     for SO in `ls ../petbuild-output/${NAME}-${HASH}${PFIX}/${LIBDIR}/*.so* 2>/dev/null`; do
                         mv -f $SO ../petbuild-output/${NAME}-${HASH}${PFIX}/lib/${ARCHDIR}/
                     done
+                    if [ -d ../petbuild-output/${NAME}-${HASH}${PFIX}/${LIBDIR}/gio ]; then
+                        mv -f ../petbuild-output/${NAME}-${HASH}${PFIX}/${LIBDIR}/gio ../petbuild-output/${NAME}-${HASH}${PFIX}/lib/${ARCHDIR}/
+                    fi
                     rmdir ../petbuild-output/${NAME}-${HASH}${PFIX}/${LIBDIR}/${ARCHDIR} 2>/dev/null
                     rmdir ../petbuild-output/${NAME}-${HASH}${PFIX}/${LIBDIR} 2>/dev/null
                 done
@@ -266,6 +288,8 @@ for NAME in $PETBUILDS; do
             *) cp -a $EXTRAFILE ../petbuild-output/${NAME}-${HASH}/
             esac
         done
+
+        find ../petbuild-output/${NAME}-${HASH} -name '.git*' -delete
     fi
 
     rm -f ../petbuild-output/${NAME}-latest

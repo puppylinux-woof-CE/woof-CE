@@ -16,6 +16,11 @@ if [ ! -e ${SR}/usr/bin/rxvt-unicode ] && [ -f ${SR}/usr/bin/urxvt ] ; then
 	ln -snfv urxvt ${SR}/usr/bin/rxvt-unicode
 fi
 
+# gtk2dialog symlink
+if [ ! -e ${SR}/usr/sbin/gtk2dialog ] && [ -e ${SR}/usr/sbin/gtkdialog ] ; then
+	ln -snfv gtkdialog ${SR}/usr/sbin/gtk2dialog
+fi
+
 # zenity symlink
 if [ ! -L ${SR}/usr/bin/zenity ] && [ -f ${SR}/usr/bin/yad ] ; then
 	ln -snfv yad ${SR}/usr/bin/zenity
@@ -238,6 +243,9 @@ fi
 # iptables symlink
 if [ -h ${SR}/usr/sbin/iptables-legacy ] ; then
 	ln -sv /usr/sbin/iptables-legacy ${SR}/usr/sbin/iptables
+fi
+if [ -h ${SR}/usr/sbin/ip6tables-legacy ] ; then
+	ln -sv /usr/sbin/ip6tables-legacy ${SR}/usr/sbin/ip6tables
 fi
 
 echo ----

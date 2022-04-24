@@ -1,2 +1,4 @@
 echo '#!/bin/sh
-exec pcmanfm "$@"' > usr/local/bin/defaultfilemanager
+exec pcmanfm -n "$@"' > usr/local/bin/defaultfilemanager
+
+echo none > etc/desktop_app

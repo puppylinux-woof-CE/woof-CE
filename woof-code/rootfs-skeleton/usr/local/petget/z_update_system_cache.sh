@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# PKGFILES="/root/.packages/${DLPKG_NAME}.files"
+# PKGFILES="/var/packages/${DLPKG_NAME}.files"
 #
 
 PKGFILES=${1}
@@ -44,8 +44,8 @@ do
       for gtkcmd in gtk gtk4
       do
 	if [ -e /usr/bin/${gtkcmd}-update-icon-cache ] ; then
-	  find "$usrfld/share/icons/" -name "icon-theme.cache" -type f -exec rm -f '{}' \;
-	  find "$usrfld/share/icons" -maxdepth 1 -name "*" -exec ${gtkcmd}-update-icon-cache -f -i '{}' \; 2>/dev/null
+	  find "$usrfld/share/icons/" -name "icon-theme.cache" -type f | xargs -i rm -f '{}'
+	  find "$usrfld/share/icons" -maxdepth 1 -name "*" -type d | xargs -i ${gtkcmd}-update-icon-cache -f -i '{}' 2>/dev/null
 	  break
 	fi
       done
@@ -53,11 +53,11 @@ do
 
 done
 
-if [ "$(grep -q -m 1 '/gconv/' $PKGFILES)" != "" ]; then
+if [ "$(grep -m 1 '/gconv/' $PKGFILES)" != "" ]; then
   iconvconfig 2>/dev/null
 fi
 
-if [ "$(grep -q -m 1 '/usr/lib/gdk-pixbuf' $PKGFILES)" != "" ] || [ "$(grep -q -m 1 '/usr/local/lib/gdk-pixbuf' $PKGFILES)" != "" ]; then
+if [ "$(grep -m 1 '/usr/lib/gdk-pixbuf' $PKGFILES)" != "" ] || [ "$(grep -m 1 '/usr/local/lib/gdk-pixbuf' $PKGFILES)" != "" ]; then
 	if [ -e /usr/bin/update-gdk-pixbuf-loaders ] ; then
 	 update-gdk-pixbuf-loaders
 	elif [ -e /usr/bin/gdk-pixbuf-query-loaders ] ; then
@@ -65,7 +65,7 @@ if [ "$(grep -q -m 1 '/usr/lib/gdk-pixbuf' $PKGFILES)" != "" ] || [ "$(grep -q -
 	fi
 fi
 
-if [ "$(grep -q -m 1 '/usr/lib/pango/' $PKGFILES)" != "" ] || [ "$(grep -q -m 1 '/usr/local/lib/pango/' $PKGFILES)" != "" ]; then
+if [ "$(grep -m 1 '/usr/lib/pango/' $PKGFILES)" != "" ] || [ "$(grep -m 1 '/usr/local/lib/pango/' $PKGFILES)" != "" ]; then
 	if [ -e /usr/bin/update-pango-querymodules ] ; then
 		update-pango-querymodules
 	elif [ -e /usr/bin/pango-querymodules ] ; then
@@ -73,17 +73,19 @@ if [ "$(grep -q -m 1 '/usr/lib/pango/' $PKGFILES)" != "" ] || [ "$(grep -q -m 1 
 	fi
 fi
 
-if [ "$(grep -q -m 1 '/usr/share/fonts/' $PKGFILES)" != "" ] || [ "$(grep -q -m 1 '/usr/local/share/fonts/' $PKGFILES)" != "" ]; then
+if [ "$(grep -m 1 '/usr/share/fonts/' $PKGFILES)" != "" ] || [ "$(grep -m 1 '/usr/local/share/fonts/' $PKGFILES)" != "" ]; then
   fc-cache -f
 fi
 
-if [ "$(grep -q -m 1 '/etc/ld.so.conf.d/' $PKGFILES)" != "" ]; then
+if [ "$(grep -m 1 '/etc/ld.so.conf.d/' $PKGFILES)" != "" ]; then
   ldconfig
 fi
 
-if [ "$(grep -q -m 1 '/udev/hwdb.d/' $PKGFILES)" != "" ]; then
+if [ "$(grep -m 1 '/udev/hwdb.d/' $PKGFILES)" != "" ]; then
   [ "$(udevadm --help 2>&1 | grep hwdb)" != "" ] && udevadm hwdb --update
 fi
+
+grep -q -m 1 '/udev/rules.d/' $PKGFILES && udevadm control --reload-rules
 
 if grep -q -m 1 "/lib/modules/$(uname -r)/" $PKGFILES ; then
   depmod -a

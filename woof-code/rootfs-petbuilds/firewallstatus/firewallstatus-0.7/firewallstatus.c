@@ -6,6 +6,7 @@
 #include <gdk/gdk.h>
 #include <gdk/gdkkeysyms.h>
 #include <glib/gstdio.h>
+#include <glib-unix.h>
 #define THIS_VERSION "0.7"
 #include <libintl.h>
 #include <locale.h>
@@ -21,8 +22,11 @@ void quit(GtkWidget *w, gpointer dummy);
 void showme_window(GtkWidget *w, gpointer dummy);
 
 unsigned int interval = 2000; /*update interval in milliseconds */
+unsigned int long_interval = 600*1000;
+unsigned int max_tries = 30;
 
-int fw_status = 1;
+int fw_status = 1, tries = 0;
+guint id = 0;
 
 gboolean Firestate(gpointer ptr) {    /* This is the constantly updated routine */
 
@@ -32,11 +36,37 @@ gboolean Firestate(gpointer ptr) {    /* This is the constantly updated routine 
 	if (fw_status == 0) {
 		gtk_status_icon_set_from_file(tray_icon,"/usr/share/pixmaps/puppy/shield_yes.svg" );
 		gtk_status_icon_set_tooltip_text(tray_icon,_("Firewall On") );
+		if (id > 0) {
+			goto relax;
+		}
 	}
 	else {
 		gtk_status_icon_set_from_file(tray_icon,"/usr/share/pixmaps/puppy/shield_no.svg" );
 		gtk_status_icon_set_tooltip_text(tray_icon, _("Firewall Off, Right click for menu") );
+		if (id > 0) {
+			++tries;
+			if (tries == max_tries) {
+				goto relax;
+			}
+		}
 	} 
+	return TRUE;
+
+relax:
+	g_timeout_add(long_interval, Firestate, NULL);
+	id = 0;
+	return FALSE;
+}
+
+gboolean Update(gpointer ptr) {
+	Firestate(ptr);
+
+	/* poll infrequently if we have SIGHUP notifications */
+	if (id > 0) {
+		g_source_remove(id);
+		g_timeout_add(long_interval, Firestate, NULL);
+		id = 0;
+	}
 	return TRUE;
 }
 
@@ -185,8 +215,10 @@ int main(int argc, char **argv) {
 	gtk_init(&argc, &argv);
 		
 	tray_icon = create_tray_icon();
+	Firestate(NULL);
                         
-	g_timeout_add(interval, Firestate, NULL);
+	id = g_timeout_add(interval, Firestate, NULL);
+	g_unix_signal_add(SIGHUP, Update, NULL);
 	gtk_main();
 
 	return 0;

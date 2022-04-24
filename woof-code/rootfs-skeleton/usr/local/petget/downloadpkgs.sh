@@ -181,9 +181,6 @@ do
   if [ ! -f /tmp/petget_proc/install_quietly ]; then
    URL_BASIC="`echo "$RETPARAMS" | grep 'RADIO_URL_' | grep '"true"' | cut -f 1 -d '=' | cut -f 3 -d '_'`"
    DOWNLOADFROM="`cat /tmp/petget_proc/petget_repos | grep "$URL_BASIC" | head -n 1 | cut -f 2 -d '|'`"
-  else
-   DOWNLOADFROM="`awk '{ if (NR==1) print $0 }' /tmp/petget_proc/petget_repos | cut -f 2 -d '|'`"
-   DOWNLOADFROM_ALT="`awk '{ if (NR==2) print $0 }' /tmp/petget_proc/petget_repos | cut -f 2 -d '|'`"
   fi
  fi
  
@@ -198,6 +195,7 @@ do
   echo "$(gettext 'Testing that packages exist in repository')" > /tmp/petget_proc/petget/install_status
  fi
  DL_BAD_LIST=''
+ rm -f /tmp/petget_proc/download_urls
  for ONEFILE in `cat $ONELIST | cut -f 7,8,13 -d '|'` #path|fullfilename|repo-id
  do
   ONEREPOID="`echo -n "$ONEFILE" | cut -f 3 -d '|'`" #ex: official (...|puppy|wary5|official|)
@@ -219,17 +217,23 @@ do
    fi
    if [ ! -f /tmp/petget_proc/install_quietly ]; then
     LANG=C wget -4 -t 2 -T 20 --waitretry=20 --spider -S "${DOWNLOADFROM}/${ONEFILE}" > /tmp/petget_proc/download_file_spider.log0 2>&1 #
-    if [ $? -ne 0 ];then
+    if [ $? -eq 0 ];then
+     echo "${DOWNLOADFROM}/${ONEFILE}" >> /tmp/petget_proc/download_urls
+    else
      DL_BAD_LIST="${DL_BAD_LIST} ${ONEPKGNAME}"
     fi
    else
-    LANG=C wget -4 -t 2 -T 20 --waitretry=20 --spider -S "${DOWNLOADFROM}/${ONEFILE}" > /tmp/petget_proc/download_file_spider.log0 2>&1 #
-    if [ $? -ne 0 ];then
-     DOWNLOADFROM="${DOWNLOADFROM_ALT}"
-     LANG=C wget -4 -t 2 -T 20 --waitretry=20 --spider -S "${DOWNLOADFROM}/${ONEFILE}" > /tmp/petget_proc/download_file_spider.log0 2>&1 
-     if [ $? -ne 0 ];then
-      DL_BAD_LIST="${DL_BAD_LIST} ${ONEPKGNAME}"
+    FOUND=0
+    while IFS="|" read ONEURLENTRY_1 ONEURLENTRY_2 LISTNAME; do
+     LANG=C wget -4 -t 2 -T 20 --waitretry=20 --spider -S "${ONEURLENTRY_2}/${ONEFILE}" > /tmp/petget_proc/download_file_spider.log0 2>&1 #
+     if [ $? -eq 0 ];then
+      echo "${ONEURLENTRY_2}/${ONEFILE}" >> /tmp/petget_proc/download_urls
+      FOUND=1
+      break
      fi
+    done < /tmp/petget_proc/petget_repos
+    if [ $FOUND -eq 0 ]; then
+     DL_BAD_LIST="${DL_BAD_LIST} ${ONEPKGNAME}"
     fi
    fi
   fi 
@@ -270,7 +274,8 @@ do
    #101116 now have a download utility...
    echo "$(gettext 'downloading'): ${ONEFILE}" > /tmp/petget_proc/petget/install_status
    export DL_F_CALLED_FROM='ppm' #121019
-   download_file ${DOWNLOADFROM}/${ONEFILE}
+   DOWNLOADURL=`fgrep /${ONEFILE} /tmp/petget_proc/download_urls`
+   download_file ${DOWNLOADURL}
    if [ $? -ne 0 ];then #101116
     DLPKG="`basename $ONEFILE`"
     [ -f "${DL_PATH}"/$DLPKG ] && rm -f "${DL_PATH}"/$DLPKG

@@ -47,8 +47,8 @@ fi
 RELEASE_TAG=`echo "$RELEASES" | jq -r ".[$RELEASE_CHOICE].tag_name"`
 
 # make sure we haven't updated yet
-if [ -e "/mnt/root/${RELEASE_TAG}" ]; then
-	echo "/mnt/root/${RELEASE_TAG} already exists"
+if [ -e "/mnt/home/${RELEASE_TAG}" ]; then
+	echo "/mnt/home/${RELEASE_TAG} already exists"
 	[ "$1" = ask ] && read
 	exit 1
 fi
@@ -81,36 +81,28 @@ fi
 
 cleanup() {
 	cd /
-	rm -rf "/mnt/root/${RELEASE_TAG}"
-	umount -l /mnt/root
-	rmdir /mnt/root
+	rm -rf "/mnt/home/${RELEASE_TAG}"
 	umount -l /mnt/efi
 	rmdir /mnt/efi
 }
 trap "cleanup 2>/dev/null" ERR INT EXIT
 
-UEFI=0
-if [ -L "/dev/disk/by-partlabel/${DISTRO_FILE_PREFIX}_esp" -a -L "/dev/disk/by-partlabel/${DISTRO_FILE_PREFIX}_uefi_root" ]; then
-	mkdir -p /mnt/efi /mnt/root
-	mount "/dev/disk/by-partlabel/${DISTRO_FILE_PREFIX}_esp" /mnt/efi
-	mount "/dev/disk/by-partlabel/${DISTRO_FILE_PREFIX}_uefi_root" /mnt/root
-	UEFI=1
-elif [ -L "/dev/disk/by-label/${DISTRO_FILE_PREFIX}_bios" ]; then
-	mkdir -p /mnt/root
-	mount "/dev/disk/by-label/${DISTRO_FILE_PREFIX}_bios" /mnt/root
-else
-	echo "Unable to locate ${DISTRO_NAME} files"
-	exit 1
+PARTPFIX="`readlink /mnt/home | sed -E -e 's/[0-9]+$//g' -e 's~^/mnt/~~'`"
+ESP=`probepart | grep -E "^/dev/${PARTPFIX}[0-9]+\|vfat" | head -n 1 | cut -f 1 -d \|`
+
+if [ -n "$ESP" ]; then
+	mkdir -p /mnt/efi
+	mount "$ESP" /mnt/efi
 fi
 
-mkdir "/mnt/root/${RELEASE_TAG}"
+mkdir "/mnt/home/${RELEASE_TAG}"
 if [ $? -ne 0 ]; then
-	echo "Failed to create /mnt/root/${RELEASE_TAG}"
+	echo "Failed to create /mnt/home/${RELEASE_TAG}"
 	[ "$1" = ask ] && read
 	exit 1
 fi
 
-cd "/mnt/root/${RELEASE_TAG}"
+cd "/mnt/home/${RELEASE_TAG}"
 
 ASSET_NAME=`echo "$RELEASE_ASSETS" | jq -r ".[$ASSET_CHOICE].name"`
 echo "Downloading and extracting ${ASSET_NAME}"
@@ -130,7 +122,7 @@ if [ $? -ne 0 ]; then
 	[ "$1" = ask ] && read
 	exit 1
 fi
-rm -f sha256.sum README.txt
+rm -f sha256.sum
 
 echo "Flushing ${RELEASE_TAG} to disk"
 sync
@@ -141,7 +133,7 @@ for SFS in *.sfs; do
 done
 sync
 
-if [ $UEFI -eq 1 ]; then
+if [ -n "$ESP" ]; then
 	echo "Updating boot loader"
 	cp -f efilinux.efi /mnt/efi/EFI/BOOT/BOOTX64.EFI
 	if [ $? -ne 0 ]; then
@@ -158,12 +150,14 @@ if [ $UEFI -eq 1 ]; then
 		exit 1
 	fi
 
-	echo "Updating initrd"
-	cp -f initrd.gz /mnt/efi/EFI/BOOT/initrd.gz
-	if [ $? -ne 0 ]; then
-		echo "Failed to move initrd.gz to EFI partition"
-		[ "$1" = ask ] && read
-		exit 1
+	if [ -e /mnt/efi/EFI/BOOT/initrd.gz ]; then
+		echo "Updating initrd"
+		cp -f initrd.gz /mnt/efi/EFI/BOOT/initrd.gz
+		if [ $? -ne 0 ]; then
+			echo "Failed to move initrd.gz to EFI partition"
+			[ "$1" = ask ] && read
+			exit 1
+		fi
 	fi
 
 	rm -f /mnt/efi/EFI/BOOT/ucode.cpio
@@ -178,9 +172,9 @@ if [ $UEFI -eq 1 ]; then
 		fi
 	fi
 
-	if [ -e /mnt/root/frugalify ]; then
+	if [ -e /mnt/home/frugalify ]; then
 		echo "Updating frugalify"
-		install -m 755 frugalify /mnt/root/frugalify
+		install -m 755 frugalify /mnt/home/frugalify
 		if [ $? -ne 0 ]; then
 			echo "Failed to update frugalify"
 			cd ..
@@ -192,8 +186,10 @@ else
 	echo "Updating the kernel"
 	mv -f vmlinuz ..
 
-	echo "Updating initrd"
-	mv -f initrd.gz ..
+	if [ -e ../initrd.gz ]; then
+		echo "Updating initrd"
+		mv -f initrd.gz ..
+	fi
 
 	if [ -e ucode.cpio ]; then
 		echo "Updating microcode"

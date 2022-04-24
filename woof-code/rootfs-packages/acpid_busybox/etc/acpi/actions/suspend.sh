@@ -26,23 +26,30 @@ PS=$(ps)
 [ ! -f /tmp/suspend ] && echo "$PS"| grep -qE 'sh[ ].*poweroff' && rm -f "$LOCKFILE" && exit 0
 rm -f /tmp/suspend
 
+. /etc/DISTRO_SPECS
+
 # do not suspend if usb media mounted
-USBS=$(probedisk2|grep '|usb' | cut -d'|' -f1 )
-for USB in $USBS
-do
-	mount | grep -q "^$USB" && rm -f "$LOCKFILE" && exit 0
-done
+if [ "$DISTRO_TARGETARCH" = "x86" ]; then
+	USBS=$(probedisk2|grep '|usb' | cut -d'|' -f1 )
+	for USB in $USBS
+	do
+		mount | grep -q "^$USB" && rm -f "$LOCKFILE" && exit 0
+	done
+fi
 
 # process before suspend
 # sync for non-usb drives
 sync
-rmmod ehci_hcd
+[ "$DISTRO_TARGETARCH" = "x86" ] && rmmod ehci_hcd
 
 #suspend
 case "$DISABLE_LOCK" in
 y*|Y*|true|True|TRUE|1) echo -n mem > /sys/power/state ;;
 *)
-  if [ -n "$DISPLAY" ]; then
+  if [ -n "$WAYLAND_DISPLAY" ]; then
+    puplock
+    echo mem > /sys/power/state
+  elif [ -n "$DISPLAY" ]; then
     xlock -startCmd "echo mem > /sys/power/state"
   else
     echo -n mem > /sys/power/state
@@ -52,7 +59,7 @@ esac
 
 # process at recovery from suspend
 #restartwm
-modprobe ehci_hcd
+[ "$DISTRO_TARGETARCH" = "x86" ] && modprobe ehci_hcd
 #/etc/rc.d/rc.network restart
 
 rm -f "$LOCKFILE"

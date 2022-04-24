@@ -30,9 +30,16 @@ if [ "$BUILD_DOCX" = "yes" ] ; then
 			cp -a --remove-destination ../packages-${DISTRO_FILE_PREFIX}/${i}_DOC/* docx/
 		fi
 	done
+	if [ -d bdrv_DOC ] ; then
+		echo -n " bdrv_DOC"
+		cp -a --remove-destination bdrv_DOC/* docx/
+	fi
 	echo
 	rm -f docx/pet.specs
+	[ "$USR_SYMLINKS" = "yes" ] && usrmerge docx 0
 	echo "Creating $DOCXSFS..."
+	[ -d docx/root ] && busybox chmod 700 docx/root
+	[ -d docx/home/spot ] && busybox chmod 700 docx/home/spot
 	mksquashfs docx ${DOCXSFS} ${SFSCOMP}
 fi
 
@@ -48,9 +55,18 @@ if [ "$BUILD_NLSX" = "yes" ] ; then
 			cp -a --remove-destination ../packages-${DISTRO_FILE_PREFIX}/${i}_NLS/* nlsx/
 		fi
 	done
+	if [ -d bdrv_NLS ] ; then
+		echo -n " bdrv_NLS"
+		cp -a --remove-destination bdrv_NLS/* nlsx/
+	fi
 	echo
 	rm -f nlsx/pet.specs
+	mkdir -p nlsx/var/local
+	touch nlsx/var/local/nlsx_loaded
+	[ "$USR_SYMLINKS" = "yes" ] && usrmerge nlsx 0
 	echo "Creating $NLSXSFS..."
+	[ -d nlsx/root ] && busybox chmod 700 nlsx/root
+	[ -d nlsx/home/spot ] && busybox chmod 700 nlsx/home/spot
 	mksquashfs nlsx ${NLSXSFS} ${SFSCOMP}
 fi
 

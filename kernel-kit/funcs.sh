@@ -24,7 +24,7 @@ function git_aufs_branch() {
  esac
 
  case ${kernel_major_version} in
-	#### k3.0 #####
+	#### k3.x #####
 	3.2)  aufsv=3.2                #unknown actual value
 		vercmp ${kernel_version} ge 3.2.30 && aufsv='3.2.x'
 		;;
@@ -44,7 +44,7 @@ function git_aufs_branch() {
 		vercmp ${kernel_version} ge 3.18.25 && aufsv='3.18.25+'
 		;;
 
-	#### k4.0 #####
+	#### k4.x #####
 	4.1)  aufsv=4.1
 		vercmp ${kernel_version} ge 4.1.13 && aufsv='4.1.13+'
 		;;
@@ -70,30 +70,20 @@ function git_aufs_branch() {
 		vercmp ${kernel_version} ge 4.20.4 && aufsv='4.20.4+'
 		;;
 
-	#### k5.0 #####
-	5.0)  aufsv=5.0 ;;
-	5.1)  aufsv=5.1 ;;
+	#### k5.x #####
 	5.2)  aufsv=5.2
 		vercmp ${kernel_version} ge 5.2.5 && aufsv='5.2.5+'
 		;;
-	5.3)  aufsv=5.3 ;;
 	5.4)  aufsv=5.4 
 		vercmp ${kernel_version} ge 5.4.3 && aufsv='5.4.3'
 		;;
-	5.5)  aufsv=5.5 ;;
-	5.6)  aufsv=5.6 ;;
-	5.7)  aufsv=5.7 ;;
-	5.8)  aufsv=5.8 ;;
-	5.9)  aufsv=5.9 ;;
 	5.10)  aufsv=5.10
 		vercmp ${kernel_version} ge 5.10.82 && aufsv='5.10.82'
 		;;
-	5.11)  aufsv=5.11 ;;
-	5.12)  aufsv=5.12 ;;
-	5.13)  aufsv=5.13 ;;
 	5.15)  aufsv=5.15
 		vercmp ${kernel_version} ge 5.15.5 && aufsv='5.15.5'
 		;;
+	*)     aufsv=${kernel_major_version} ;;
 esac
 }
 #======================================================================
