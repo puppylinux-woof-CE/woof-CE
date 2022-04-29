@@ -38,12 +38,15 @@ sh(const char *cmd, const sigset_t *set)
 }
 
 static void
-setup_spot(const regex_t *re, const int usrbin, const struct inotify_event *event, const sigset_t *set)
+setup_spot(const regex_t *re, const int usrbin, const struct inotify_event *event, const sigset_t *set, const int force)
 {
 	static char orig[NAME_MAX + sizeof(".bin")];
 	struct stat stbuf;
 	size_t len;
 	char *cmd;
+
+	if (force)
+		goto doit;
 
 	if (regexec(re, event->name, 0, NULL, 0) != 0)
 		return;
@@ -55,6 +58,7 @@ setup_spot(const regex_t *re, const int usrbin, const struct inotify_event *even
 	    (S_ISREG(stbuf.st_mode) && (stbuf.st_size == 0)))
 		return;
 
+doit:
 	len = strlen(event->name);
 	memcpy(orig, event->name, len);
 	memcpy(orig + len, ".bin", sizeof(".bin") - 1);
@@ -70,7 +74,7 @@ setup_spot(const regex_t *re, const int usrbin, const struct inotify_event *even
 }
 
 static int
-handle_events(const regex_t *re, const int fd, const int appwd, const int binwd, const int usrbin, const sigset_t *set)
+handle_events(const regex_t *re, const int fd, const int appwd, const int flatpakappwd, const int binwd, const int flatpakwd, const int usrbin, const sigset_t *set)
 {
 	char buf[sizeof(struct inotify_event) + NAME_MAX + 1];
 	const struct inotify_event *event;
@@ -90,8 +94,10 @@ handle_events(const regex_t *re, const int fd, const int appwd, const int binwd,
 		     (char *)event < (buf + out);
 		     event = (const struct inotify_event *)((char *)event + sizeof(*event) + event->len)) {
 			if (event->wd == binwd)
-				setup_spot(re, usrbin, event, set);
-			else if (event->wd != appwd)
+				setup_spot(re, usrbin, event, set, 0);
+			else if (event->wd == flatpakwd)
+				setup_spot(re, usrbin, event, set, 1);
+			else if ((event->wd != appwd) && (event->wd != flatpakappwd))
 				continue;
 
 			if (!(event->mask & (IN_DELETE | IN_CLOSE_WRITE | IN_MOVED_TO)))
@@ -114,7 +120,7 @@ main(int argc, char* argv[])
 {
 	regex_t re;
 	sigset_t set, oset;
-	int fd, appwd, binwd, usrbin, sig;
+	int fd, appwd, flatpakappwd, binwd, flatpakwd, usrbin, sig;
 
 	if (argc != 2)
 		return EXIT_FAILURE;
@@ -145,17 +151,24 @@ main(int argc, char* argv[])
 		return EXIT_FAILURE;
 	}
 
+	flatpakappwd = inotify_add_watch(fd, "/var/lib/flatpak/exports/share/applications", IN_CREATE | IN_DELETE | IN_MOVED_TO | IN_EXCL_UNLINK);
+
 	binwd = inotify_add_watch(fd, "/usr/bin", IN_CLOSE_WRITE | IN_CREATE | IN_MOVED_TO | IN_EXCL_UNLINK);
 	if (binwd < 0) {
+		inotify_rm_watch(fd, flatpakappwd);
 		inotify_rm_watch(fd, appwd);
 		close(fd);
 		regfree(&re);
 		return EXIT_FAILURE;
 	}
 
+	flatpakwd = inotify_add_watch(fd, "/var/lib/flatpak/exports/bin", IN_CREATE | IN_CREATE | IN_MOVED_TO | IN_EXCL_UNLINK);
+
 	usrbin = open("/usr/bin", O_DIRECTORY | O_RDONLY);
 	if (usrbin < 0) {
+		inotify_rm_watch(fd, flatpakwd);
 		inotify_rm_watch(fd, binwd);
+		inotify_rm_watch(fd, flatpakappwd);
 		inotify_rm_watch(fd, appwd);
 		close(fd);
 		regfree(&re);
@@ -166,7 +179,9 @@ main(int argc, char* argv[])
 	    (fcntl(fd, F_SETSIG, SIGRTMIN) < 0) ||
 	    (fcntl(fd, F_SETOWN, getpid()) < 0)) {
 		close(usrbin);
+		inotify_rm_watch(fd, flatpakwd);
 		inotify_rm_watch(fd, binwd);
+		inotify_rm_watch(fd, flatpakappwd);
 		inotify_rm_watch(fd, appwd);
 		close(fd);
 		regfree(&re);
@@ -175,13 +190,15 @@ main(int argc, char* argv[])
 
 	while ((sigwait(&set, &sig) == 0) &&
 	       (((sig == SIGRTMIN) &&
-	         (handle_events(&re, fd, appwd, binwd, usrbin, &oset) == 0)) ||
+	         (handle_events(&re, fd, appwd, flatpakappwd, binwd, flatpakwd, usrbin, &oset) == 0)) ||
 	        ((sig == SIGALRM) &&
 	         (sh(argv[1], &oset) == 0)) ||
 	        (sig == SIGCHLD)));
 
 	close(usrbin);
+	inotify_rm_watch(fd, flatpakwd);
 	inotify_rm_watch(fd, binwd);
+	inotify_rm_watch(fd, flatpakappwd);
 	inotify_rm_watch(fd, appwd);
 	close(fd);
 	regfree(&re);
