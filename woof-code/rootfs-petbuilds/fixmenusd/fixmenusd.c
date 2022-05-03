@@ -57,7 +57,7 @@ setup_spot(const regex_t *re, const int usrbin, const struct inotify_event *even
 
 	len = strlen(event->name);
 	memcpy(orig, event->name, len);
-	memcpy(orig + len, ".bin", sizeof(".bin") - 1);
+	memcpy(orig + len, ".bin", sizeof(".bin"));
 
 	if ((fstatat(usrbin, orig, &stbuf, AT_SYMLINK_NOFOLLOW) == 0) ||
 	    (errno != ENOENT))
