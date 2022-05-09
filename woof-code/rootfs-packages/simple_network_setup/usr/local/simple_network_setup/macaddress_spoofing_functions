@@ -1,0 +1,80 @@
+#!/bin/bash
+#Functions related to spoofing of MAC addresses
+#211215 v3.3: New SNS component
+
+macaddress_spoofing_enabled() {
+    #Return 0 if enabled -- enabled if macchanger installed
+    which macchanger >/dev/null 2>&1
+} #macaddress_spoofing_enabled
+
+set_active_interface_macaddresses() {
+    #Sets ACTIVE_INTERFACE_MACADDRESSES
+    #Format: [interface]_[current MAC]_[real MAC]
+    local ONEIFMAC NETDRIVER CURRREALMACADDRS CURRMACADDR REALMACADDR SEDSCRIPT
+    ACTIVE_INTERFACE_MACADDRESSES="$(ip link show | \
+      grep -B 1 'link/ether' | \
+      sed -n '/^[0-9]/ {N;s%^[0-9]\+: \([^:]*\).*link/ether \([^ ]*\).*%\1_\2_\2%p}')" #ex. wlan0 xx:xx:xx:xx:xx:xx, avoid using busybox 'ip -oneline' #210202 210208
+    for ONEIFMAC in $ACTIVE_INTERFACE_MACADDRESSES; do
+        #Because tethered phones can have dynamic MAC addresses, change their address to zeroes to match connection profile...
+        NETDRIVER="$(sed -n '/DRIVERS=="[^"]/ {s/[^"]*"\([^"]*\).*/\1/p ; q}' <<< "$(udevadm info -a -p /sys/class/net/"${ONEIFMAC%%_*}")")"
+        if [ "$NETDRIVER" = 'rndis_host' ]; then #USB-connected gadget
+#        if [ "$NETDRIVER" = 'forcedeth' ]; then #USB-connected gadget #DEBUG
+            #Assume only one "gadget" (e.g>, smart phone) tethered.
+            #For "gadgets" spoofing MAC, change profile real MAC to current MAC and avoid re-spoofing.
+            if grep "|Wired|$NETDRIVER|" <<< "$ALL_CONNECTION_PROFILES"; then
+                if ! grep -q "^${ONEIFMAC##*_}|Wired|$NETDRIVER|" <<< "$ALL_CONNECTION_PROFILES"; then #spoofing
+                    SEDSCRIPT="/|$NETDRIVER|/ s/^[^#][^|]*/${ONEIFMAC##*_}/"
+                    sed -i "$SEDSCRIPT" /etc/simple_network_setup/connections
+                    ALL_CONNECTION_PROFILES="$(sed "$SEDSCRIPT" <<< "$ALL_CONNECTION_PROFILES")"
+                fi
+                #Because gadgets can control their own spoofing, clear current MAC address to prevent re-spoofing.
+# shellcheck disable=SC2001
+                ACTIVE_INTERFACE_MACADDRESSES="$(sed "s/_${ONEIFMAC##*_}_/__/" <<< "$ACTIVE_INTERFACE_MACADDRESSES")"
+            fi
+        elif which macchanger >/dev/null 2>&1; then
+            #Use real MAC if MAC spoofed
+            CURRREALMACADDRS="$(macchanger -s "${ONEIFMAC%%_*}" | grep -Eow '[0-9a-f:]+')"
+            CURRMACADDR="$(head -n 1 <<< "$CURRREALMACADDRS")"
+            REALMACADDR="$(tail -n 1 <<< "$CURRREALMACADDRS")"
+            if [ "$CURRMACADDR" != "$REALMACADDR" ]; then #Spoofing MAC
+                SEDSCRIPT="/^${ONEIFMAC%%_*}_/ s/^\(.*_\).*/\1$REALMACADDR/"
+                ACTIVE_INTERFACE_MACADDRESSES="$(sed "$SEDSCRIPT" <<< "$ACTIVE_INTERFACE_MACADDRESSES")"
+            fi
+        fi
+    done
+} #set_active_interface_macaddresses
+
+spoof_macaddress() {
+    #Arguments: [(text prefix)]
+    #Returns log entries, for redirection
+    if which macchanger >/dev/null 2>&1; then #MAC changer installed, so...
+        #If using real MAC, spoof it.
+        local MACS
+        MACS="$(macchanger -s "$INTERFACE" | grep -Eow '[0-9a-f:]+')"
+        if [ "$(head -n 1 <<< "$MACS")" = "$(tail -n 1 <<< "$MACS")" ]; then
+            echo "${1}macchanger -e ${INTERFACE}"
+            macchanger -e "$INTERFACE" #Set random MAC for same vendor
+        fi
+    fi
+} #spoof_macaddress
+
+reset_macaddress() {
+    which macchanger >/dev/null 2>&1 \
+      && macchanger -p "$INTERFACE" >/dev/null #Undo spoofing
+} #reset_macaddress
+
+unspoof_macaddress() {
+    #Sets permanent MAC address in MACADDRESS
+    if which macchanger >/dev/null 2>&1; then #211215...
+        MACADDRESS="$(macchanger -s "$INTERFACE" | sed -n 's/Permanent MAC: \([0-9a-f:]\+\).*/\1/p')"
+    fi
+} #unspoof_macaddress
+
+set_dhcpcd_timeout() {
+    #Overrides the 30-second default wait time for getting  a lease
+    if grep -wq '^timeout' /etc/dhcpcd.conf; then
+        DHCPCD_TIMEOUT='' #timeout already set
+    else
+        DHCPCD_TIMEOUT='--timeout 40' #MAC spoofing may slow router response
+    fi
+} #set_dhcpcd_timeout

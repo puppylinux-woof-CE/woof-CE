@@ -63,9 +63,11 @@
 #210623 v3.0 (not annotated) Support hidden networks; remove unnecessary user selection of encryption protocols; use 'read' to extract fields from one-line entries; change profile format to omit unused fields; add wireless network name to status message; use eval_gettext where appropriate; rework connection wait splash messaging.
 #210703 v3.1 Accommodate EasyOS which does not use pup_event_backend_modprobe for module loading (udev rule, build_udevmodulelist, rc.network); change yaf-splash to gtkdialog-splash.
 #211002 v3.2 Add 'wired' profiles to top of connections list (as well as 'wireless' profiles); add splash message if 'iw' command not installed.
+#211215 v3.3 Accommodate spoofed gadget (USB-tethered smartphone) MAC addresses; add spoofing if macchanger installed; group same-MAC connections, so list shows connection priority; correct driver & interface searches and selection; override default dhcpcd response timeout if not already in conf file, to compensate for router possibly slowing due to MAC spoofing.
+#211231 v3.3 Replace ethtool with ip-show test for LOWER_UP.
+#220123 v3.3 Add iw-missing message to wireless configure dialog; remove unnecessary iw splash message (211002) and avoid iw-missing error messages, for clean support of wired interfaces when 'iw' is missing.
 
-#set -x; exec >&2 #DEBUG
-export VERSION='3.2'  #UPDATE this with each release!
+export VERSION='3.3'  #UPDATE this with each release!
 
 export TEXTDOMAIN=simple_network_setup
 export OUTPUT_CHARSET=UTF-8
@@ -73,13 +75,17 @@ export OUTPUT_CHARSET=UTF-8
 
 [ "$(whoami)" != "root" ] && exec sudo -A "${0}" "${@}" #110505
 
+# shellcheck disable=SC2009
 if ps --no-headers -C sns | grep -qwv "^ *$$"; then #170514... 190216
     sleep 1 #190525
+# shellcheck disable=SC2009
     if ps --no-headers -C sns | grep -qwv "^ *$$"; then #190525
         Xdialog --left --wmclass "sns" --title "$(gettext 'Simple Network Setup')"  --backtitle "\n$(gettext 'Simple Network Setup cannot start now because it is already active.')" --icon /usr/local/lib/X11/pixmaps/error.xpm --msgbox "\n$(gettext 'Please use the active SNS session or\nterminate it and start SNS again.')\n" 0 70
         exit 1
     fi #190525
 fi #170514 end
+
+. /usr/local/simple_network_setup/macaddress_spoofing_functions #211215
 
 #each line of /etc/simple_network_setup/connections has everything needed about a connection:
 #(please ignore spaces, put here for readability only)
@@ -176,8 +182,9 @@ find_usable_interfaces() {
         if [ "$(wc -w <<< "$WORKINGIF")" -gt 1 ]; then
             MSGSTATUS="$(eval_gettext "Current Internet connections are on interfaces \${MSGWIF}")"
         else
-            WORKSSID="$(iw dev "$WORKINGIF" link | sed -n 's%.*SSID: \(.*\)%\1%p')"
+            WORKSSID="$(iw dev "$WORKINGIF" link 2>/dev/null | sed -n 's%.*SSID: \(.*\)%\1%p')" #220123
             if [ -n "$WORKSSID" ]; then
+# shellcheck disable=SC2034 # Missed, but MSGWSSID used in eval_gettext.
                 MSGWSSID="<b>${WORKSSID:0:20}</b>"
                 MSGSTATUS="$(eval_gettext "Current Internet connection is on interface \${MSGWIF} network \${MSGWSSID}")"
             else
@@ -211,6 +218,7 @@ connect_button_splash() { #170505...
 export -f connect_button_splash #170505 end
 
 build_connection_display_list() {
+    set_active_interface_macaddresses #211215
     echo "" >/tmp/sns_CNT_P
     echo "<b>$(gettext 'Interface')</b>" >/tmp/sns_I_P
     echo "<b>$(gettext 'Type')</b>" >/tmp/sns_T_P
@@ -221,23 +229,33 @@ build_connection_display_list() {
     if grep -q '^..:.*|Wireless|' /etc/simple_network_setup/connections; then
         echo "<b>$(gettext 'Network')</b>" >/tmp/sns_S_P
         echo "<b>$(gettext 'Security')</b>" >/tmp/sns_SEC_P
+    else
+        echo "       " >/tmp/sns_S_P
+        echo "        " >/tmp/sns_SEC_P
     fi
     echo "" >/tmp/sns_DEL_BTN
     CNT=0
     while read -r ONECONNECTION; do
         IFS='|' read -r MAC_P TYPE_P DRIVER_P BUS_P _ _ SSID_P _ SEC_P _ <<< "$ONECONNECTION" #210211
         if [ "${#MAC_P}" -ge 17 ]; then #ignore old profile format
+            IF_CURR_REAL_MACS="$(grep -E "_${MAC_P}$" <<< "$ACTIVE_INTERFACE_MACADDRESSES")" #211215
+            [ -z "$IF_CURR_REAL_MACS" ] \
+              && IF_CURR_REAL_MACS=" _${MAC_P}_${MAC_P}" #space before first '_', for "no interface" #211215
             ((++CNT))
             echo "<b>$CNT</b>" >> /tmp/sns_CNT_P
-            INTERFACE_P="$(ip link show | grep -B 1 "link/ether $MAC_P" | sed -n "1 s/^[0-9]\+: \([^:]\+\).*/\1/p")" >> /tmp/sns_I_P #210211
-            echo "${INTERFACE_P:= }" >> /tmp/sns_I_P #i/f or space
+            INTERFACE_P="$(cut -f 1 -d _ <<< "$IF_CURR_REAL_MACS")" #211215
+            echo "$INTERFACE_P" >> /tmp/sns_I_P
             if [ "$TYPE_P" = "Wireless" ]; then
+# shellcheck disable=SC2005 #need newline by echo
                 echo "$(gettext 'Wireless')" >> /tmp/sns_T_P
             else
+# shellcheck disable=SC2005 #need newline by echo
                 echo "$(gettext 'Wired')" >> /tmp/sns_T_P
             fi
             echo "$DRIVER_P" >> /tmp/sns_D_P
             echo "$BUS_P" >> /tmp/sns_B_P
+            MAC_P="$(cut -f 2 -d _ <<< "$IF_CURR_REAL_MACS")" #211215
+            [ -z "$MAC_P" ] && MAC_P="$(cut -f 3 -d _ <<< "$IF_CURR_REAL_MACS")" #spoofed gadget #211215
             echo "$MAC_P" >> /tmp/sns_M_P
             if [ "$TYPE_P" = "Wireless" ]; then
                 echo "$SSID_P" >> /tmp/sns_S_P
@@ -259,7 +277,7 @@ build_connection_display_list() {
             <action>rm -f /etc/simple_network_setup/wpa_supplicant.conf-\"$WPACONFSFX\"</action>
             <action type=\"exit\">EXITRESTART></action></button>" >> /tmp/sns_DEL_BTN #170529 #210213
         fi
-    done <<< "$(grep -s '^..:' /etc/simple_network_setup/connections)"
+    done <<< "$ALL_CONNECTION_PROFILES" #211215
 } #build_connection_display_list
 
 build_display_connect_button() {
@@ -277,7 +295,10 @@ build_display_connect_button() {
     DISCONNECT_XML='' #190223
     grep -qswv 'sns' /root/.connectwizardrc \
       && DISCONNECT_XML="$(gettext '<b>Note:</b> The current connection was started by another network tool.  To control it with SNS, disconnect now, then re-connect or choose an interface.')" #190223
-    PROFILE_XML="$(/usr/lib/gtkdialog/xml_info fixed "internet_connect.svg" 60 "$(gettext 'Connection profiles have previously been created by SNS.')" "$(gettext "The <b>Connect</b> button will try to establish an internet connection by any of the available profiles.")" "${DISCONNECT_XML}")
+    SPOOFING_XML=''  #211215...
+    macaddress_spoofing_enabled \
+      && SPOOFING_XML="$(gettext '<b>Note:</b> Active interface hardware address is spoofed.')"
+    PROFILE_XML="$(/usr/lib/gtkdialog/xml_info fixed "internet_connect.svg" 60 "$(gettext 'Connection profiles have previously been created by SNS.')" "$(gettext "The <b>Connect</b> button will try to establish an internet connection by any of the available profiles.")" "${DISCONNECT_XML}" "${SPOOFING_XML}")
  <hbox border-width=\"7\" spacing=\"10\"><text use-markup=\"true\"><label>\"$(cat /tmp/sns_CNT_P)\"</label></text><text use-markup=\"true\"><label>\"$(cat /tmp/sns_I_P)\"</label></text><text use-markup=\"true\"><label>\"$(cat /tmp/sns_T_P)\"</label></text><text use-markup=\"true\"><label>\"$(cat /tmp/sns_D_P)\"</label></text><text use-markup=\"true\"><label>\"$(cat /tmp/sns_B_P)\"</label></text><text use-markup=\"true\"><label>\"$(cat /tmp/sns_M_P)\"</label></text><text use-markup=\"true\"><label>\"$(cat /tmp/sns_S_P)\"</label></text><text use-markup=\"true\"><label>\"$(cat /tmp/sns_SEC_P)\"</label></text></hbox>
  <hbox><text><label>$(gettext 'Delete:')</label></text>$(cat /tmp/sns_DEL_BTN)</hbox>
 " #190223
@@ -465,6 +486,7 @@ complete_the_wireless_connection() {
         show_wait_splash "$fuCNT"
         ((--fuCNT))
         [ "$CELL_ENCRYPTIONKEY" = "on" ] && configure_wpa_supplicant
+        spoof_macaddress 'STEP1d: ' >> /tmp/sns_wireless_log #If using real MAC, spoof it #211215
         echo "STEP5a: ip link set $INTERFACE up" >> /tmp/sns_wireless_log #210202
         ip link set "$INTERFACE" up #210202
         sleep 4
@@ -526,16 +548,20 @@ scan_for_wireless_networks() {
     if ! ip link set "$INTERFACE" up >> /tmp/sns_wireless_log 2>&1; then #210202
         FLAGERR=1
     else
-        sleep 0.1 #210205
-        echo "STEP1b: iw dev $INTERFACE scan | grep -E (messages & labels)" >> /tmp/sns_wireless_log #180706 210202
+        if which iw >/dev/null 2>&1; then #220123
+            sleep 0.1 #210205
+            echo "STEP1b: iw dev $INTERFACE scan | grep -E (messages & labels)" >> /tmp/sns_wireless_log #180706 210202
 # shellcheck disable=SC2034
-        for I in 1 2 3 4 5; do #210205
-            SCANRESULT="$(iw dev "$INTERFACE" scan | \
-              grep -E '^BSS |freq:|capability:|signal:|SSID:|DS Parameter set:|RSN:|Pairwise ciphers:|Authentication suites:|WPA:')" ###SCANNING### 110203 210203 210202
-            [ -n "$SCANRESULT" ] && break #210202
-            sleep 1 #210205
-        done #210205
-        echo "$SCANRESULT" >> /tmp/sns_wireless_log
+            for I in 1 2 3 4 5; do #210205
+                SCANRESULT="$(iw dev "$INTERFACE" scan | \
+                  grep -E '^BSS |freq:|capability:|signal:|SSID:|DS Parameter set:|RSN:|Pairwise ciphers:|Authentication suites:|WPA:')" ###SCANNING### 110203 210203 210202
+                [ -n "$SCANRESULT" ] && break #210202
+                sleep 1 #210205
+            done #210205
+            echo "$SCANRESULT" >> /tmp/sns_wireless_log
+        else #220123...
+            SCANRESULT=''
+        fi
     fi #210201
 } #scan_for_wireless_networks
 
@@ -662,7 +688,11 @@ build_display_radio_buttons() {
         FRAME1='<text space-expand="true" space-fill="true"><label>""</label></text>'
         HIDDENBOX=""
         FRAME2=""
-        WIN2MSG1="$(gettext 'No wireless networks found')"
+        if which iw >/dev/null 2>&1; then #220123...
+            WIN2MSG1="$(gettext 'No wireless networks found.')"
+        else
+            WIN2MSG1="$(gettext "Cannot scan for networks -- 'iw' command is missing.")"
+        fi
         WIN2BUT1=""
         WIN2BUT2=""
     else
@@ -768,7 +798,7 @@ build_and_display_wireless_setup_window() {
     <hbox space-expand="false" space-fill="false">
       <button space-expand="false" space-fill="false">
         <label>'$(gettext "Rescan")'</label>
-        '"`/usr/lib/gtkdialog/xml_button-icon refresh`"'
+        '"$(/usr/lib/gtkdialog/xml_button-icon refresh)"'
         <action type="exit">BUT_RESCAN</action>
       </button>
       '${WIN2BUT2}'
@@ -965,9 +995,9 @@ run_dhcpcd() {
     for iterDHCPCD in a b; do #100320
         [ "$iterDHCPCD" = "a" ] && DHCPCDFIX=""
         [ "$iterDHCPCD" = "b" ] && DHCPCDFIX="-I ''" #some dhcp servers require empty Client ID (default is macaddress).
-        echo "STEP6${iterDHCPCD}: dhcpcd $DHCPCDFIX $INTERFACE" >> /tmp/sns_wireless_log
-# shellcheck disable=SC2086 #word-split $DHCPCDFIX
-        dhcpcd $DHCPCDFIX "$INTERFACE" >> /tmp/sns_wireless_log 2>&1 ####DHCP CLIENT#### 121117
+        echo "STEP6${iterDHCPCD}: dhcpcd $DHCPCD_TIMEOUT $DHCPCDFIX $INTERFACE" >> /tmp/sns_wireless_log
+# shellcheck disable=SC2086 #word-split $DHCPCD_TIMEOUT & $DHCPCDFIX
+        dhcpcd $DHCPCD_TIMEOUT $DHCPCDFIX "$INTERFACE" >> /tmp/sns_wireless_log 2>&1 ####DHCP CLIENT#### 121117 #211215
         local RC=$? #170402
         [ $RC -eq 0 ] || break
         #need to wait awhile #210212...
@@ -997,9 +1027,14 @@ add_wireless_connection_profile_and_conf() { #211002
         blinky_tray & #210202
     fi
     [ "$SEC_MGMT" != 'open' ] && SEC_MGMT="$WPA_SEC_MGMT"
-    macssidPATTERN="^$MACADDRESS|.*|$CELL_ESSID|" #210208
+    unspoof_macaddress #Set MACADDRESS to permanent MAC address #211215
     touch /etc/simple_network_setup/connections
-    echo -e "${MACADDRESS}|${IF_INTTYPE}|${IF_DRIVER}|${IF_BUS}|${IF_INFO}|${DHCPCDFIX}|${CELL_ESSID}|${CELL_ADDRESS}|${SEC_MGMT}|${SEC_KEY}|${WPA_DRIVER}|\n$(grep -v "$macssidPATTERN" /etc/simple_network_setup/connections)" > /tmp/sns_connections.tmp #210207 210208 #210428 #211002
+    ( #210207,210208,211215...
+        echo "${MACADDRESS}|${IF_INTTYPE}|${IF_DRIVER}|${IF_BUS}|${IF_INFO}|${DHCPCDFIX}|\
+${CELL_ESSID}|${CELL_ADDRESS}|${SEC_MGMT}|${SEC_KEY}|${WPA_DRIVER}|"
+        grep "^$MACADDRESS|" < /etc/simple_network_setup/connections | grep -v "^$MACADDRESS.*|$CELL_ESSID|"
+        grep -v "^$MACADDRESS|" < /etc/simple_network_setup/connections
+    ) > /tmp/sns_connections.tmp
     mv  /tmp/sns_connections.tmp /etc/simple_network_setup/connections #211002
     mv -f /tmp/sns_wpa_supplicant_conf "/etc/simple_network_setup/wpa_supplicant.conf-${CELL_ESSID}-${MACADDRESS}"
 } #add_wireless_connection_profile_and_conf
@@ -1099,18 +1134,38 @@ build_and_display_wireless_error_window() {
     export SNS_error
     RETSTRING="$(gtkdialog -p SNS_error --center)"
 } #build_and_display_wireless_error_window
+    
+perform_wired_setup() {
+    gtkdialog-splash -placement center -bg orange -text "$(eval_gettext "Please wait, trying to connect to interface '\${INTERFACE}'...")" >/dev/null &
+    PIDXX=$!
+    echo "Information about this interface:
+ Interface: $INTERFACE  Driver: $IF_DRIVER  Bus: $IF_BUS  MacAddress: $MACADDRESS
+ Description: $IF_INFO
+ " > /tmp/sns_wired_log
+    spoof_macaddress >> /tmp/sns_wired_log #If using real MAC, spoof it #211215
+    if ip link set "$INTERFACE" up >> /tmp/sns_wired_log 2>&1; then #210202
+        check_and_connect_wired_link
+        kill $PIDXX 2>/dev/null
 
-detect_and_connect_wired_link() {
-    LINK_DETECTED=no
+        if grep -q '^nameserver' /etc/resolv.conf; then #210212
+            add_wired_connection_profile #211002
+            build_and_display_wired_success_window
+        else
+            build_and_display_wired_error_window
+            grep '^EXIT' <<< "$RETSTRING" | grep -q 'BUT_GOBACK' && exec sns
+        fi
+    else
+        kill $PIDXX 2>/dev/null
+    fi
+} #perform_wired_setup
+
+check_and_connect_wired_link() {
     TIMEOUT=15 #200412
     while [ $TIMEOUT -ge 0 ]; do #200412
-        if ethtool "$INTERFACE" | grep -Fq 'Link detected: yes' ; then
-            LINK_DETECTED="yes"
-            break
-        fi
+        ip link show "$INTERFACE" | grep -q 'LOWER_UP' && break #211231
         [ $((--TIMEOUT)) -ge 0 ] && sleep 1 #190209 190216 200412
     done
-    if [ "$LINK_DETECTED" = "no" ] ; then
+    if [ $TIMEOUT -lt 0 ]; then #211231
         ip link set "$INTERFACE" down #210202
         kill "$PIDXX" 2>/dev/null
         /usr/lib/gtkdialog/box_ok "$(gettext 'Simple Network Setup')" error "<b>$(eval_gettext "There does not seem to be any network connected to \${INTERFACE}")</b>" " " "$(gettext "Is the network cable unplugged? Modem router turned off? If you can fix it, great, otherwise try a different interface.")"
@@ -1118,7 +1173,8 @@ detect_and_connect_wired_link() {
         exit
     fi
     DHCPCDFIX=""
-    dhcpcd "$INTERFACE" >> /tmp/sns_wired_log 2>&1
+# shellcheck disable=SC2086 #word-split $DHCPCD_TIMEOUT
+    dhcpcd $DHCPCD_TIMEOUT "$INTERFACE" >> /tmp/sns_wired_log 2>&1 #211215
     RC=$? #170402
     #need to wait awhile #210212...
     if [ $RC -eq 0 ]; then
@@ -1132,7 +1188,8 @@ detect_and_connect_wired_link() {
         DHCPCDFIX="-I ''"
         dhcpcd --release "$INTERFACE"
         sleep 0.1
-        dhcpcd -I '' "$INTERFACE" >> /tmp/sns_wired_log 2>&1
+# shellcheck disable=SC2086 #word-split $DHCPCD_TIMEOUT
+        dhcpcd $DHCPCD_TIMEOUT -I '' "$INTERFACE" >> /tmp/sns_wired_log 2>&1 #211215
         RC=$? #170402
        #need to wait awhile #210212...
         if [ $RC -eq 0 ]; then
@@ -1142,7 +1199,7 @@ detect_and_connect_wired_link() {
             done
         fi
     fi
-} #detect_and_connect_wired_link
+} #check_and_connect_wired_link
 
 build_and_display_wired_success_window() {
     SNS_complete='
@@ -1180,8 +1237,9 @@ build_and_display_wired_success_window() {
 } #build_and_display_wired_success_window
 
 add_wired_connection_profile() { #211002...
-    MACADDRESS="$(ip link show "$INTERFACE" | grep 'link/ether' | tr -s ' ' | cut -f 3 -d ' ')" #210202
-    aPATTERN="^$MACADDRESS|"
+    #Use real address if using dynamic MAC addresses 
+    unspoof_macaddress #Set MACADDRESS to permanent MAC address #211215
+    aPATTERN="^$MACADDRESS.*|Wired|"
     touch /etc/simple_network_setup/connections
     echo -e "${MACADDRESS}|${IF_INTTYPE}|${IF_DRIVER}|${IF_BUS}|${IF_INFO}|${DHCPCDFIX}|\n$(grep -i -v "$aPATTERN" /etc/simple_network_setup/connections)" > /tmp/sns_connections.tmp #211002
     mv  /tmp/sns_connections.tmp /etc/simple_network_setup/connections #211002
@@ -1225,11 +1283,6 @@ build_and_display_wired_error_window() {
 
 ################# MAIN ####################
 
-if ! which iw; then #211002...
-    gtkdialog-splash -bg orange -close never -fontsize large -timeout 20 -text "$(gettext 'Simple_network_setup needs the command: iw.  Please install it.')" >/dev/null
-    exit
-fi
-
 #firewall
 if which firewall_ng >/dev/null 2>&1; then
     FW_EXEC=firewall_ng
@@ -1237,6 +1290,7 @@ else
     FW_EXEC="urxvt -e firewallinstallshell"
 fi
 
+set_dhcpcd_timeout #211215
 echo -n '' > /tmp/sns_interfaces
 INTERFACES="$(ip link show | grep -B 1 'link/ether' | grep '^[0-9]' | cut -f 2 -d ':' | tr -d '\n')" #210202
 for INTERFACE in $INTERFACES; do #exs: wlan0 eth0
@@ -1248,7 +1302,8 @@ find_usable_interfaces #sets WORKINGIF
 
 #120107 new 'Profile' frame...
 PROFILE_XML=""
-if grep -qs '^..:' /etc/simple_network_setup/connections; then
+ALL_CONNECTION_PROFILES="$(grep -s '^..:' /etc/simple_network_setup/connections)" #211215
+if [ -n "$ALL_CONNECTION_PROFILES" ]; then #211215
     build_connection_display_list
     build_display_connect_button
 fi
@@ -1273,33 +1328,10 @@ extract_interface_data
 ############ WIRELESS SETUP ###############
 if [ "$IF_INTTYPE" = "Wireless" ]; then
     perform_wireless_setup
-    exit
-fi
-
 ############ WIRED SETUP ###############
-if [ "$IF_INTTYPE" = "Wired" ]; then
-    gtkdialog-splash -placement center -bg orange -text "$(eval_gettext "Please wait, trying to connect to interface '\${INTERFACE}'...")" >/dev/null &
-    PIDXX=$!
-    echo "Information about this interface:
- Interface: $INTERFACE  Driver: $IF_DRIVER  Bus: $IF_BUS  MacAddress: $MACADDRESS
- Description: $IF_INFO
- " > /tmp/sns_wired_log
- 
-    if ip link set "$INTERFACE" up >> /tmp/sns_wired_log 2>&1; then #210202
-        detect_and_connect_wired_link
-        kill $PIDXX 2>/dev/null
-
-        if grep -q '^nameserver' /etc/resolv.conf; then #210212
-            add_wired_connection_profile #211002
-            build_and_display_wired_success_window
-        else
-            build_and_display_wired_error_window
-            grep '^EXIT' <<< "$RETSTRING" | grep -q 'BUT_GOBACK' && exec sns
-        fi
-    else
-        kill $PIDXX 2>/dev/null
-    fi
-    exit
+elif [ "$IF_INTTYPE" = "Wired" ]; then
+    perform_wired_setup
 fi
+exit
 
 ###END###
