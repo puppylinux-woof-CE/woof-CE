@@ -18,7 +18,14 @@ if command -v startlabwc >/dev/null 2>&1 ; then
 	else
 		/usr/sbin/pm13 cli
 	fi
-elif command -v Xorg startxwayland >/dev/null 2>&1 ; then
+elif command -v startdwl >/dev/null 2>&1 ; then
+	if [ ! -f /tmp/bootcnt.txt ] ; then
+		touch /tmp/bootcnt.txt
+		startdwl
+	else
+		/usr/sbin/pm13 cli
+	fi
+elif command -v Xorg >/dev/null 2>&1 ; then
 	#want to go straight into X on bootup only...
 	if [ ! -f /tmp/bootcnt.txt ] ; then
 		touch /tmp/bootcnt.txt
