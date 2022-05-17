@@ -6,7 +6,7 @@ on_get_capabilities (OrgFreedesktopNotifications *object,
                      GDBusMethodInvocation       *invocation,
                      gpointer                    user_data)
 {
-  static const gchar *capabilities[] = {"body", "actions", NULL};
+  static const gchar *capabilities[] = {"body", NULL};
   org_freedesktop_notifications_complete_get_capabilities (object, invocation, capabilities);
   return G_DBUS_METHOD_INVOCATION_HANDLED;
 }
