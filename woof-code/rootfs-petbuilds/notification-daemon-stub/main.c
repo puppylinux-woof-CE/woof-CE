@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include "generated-code.h"
 
 
@@ -8,6 +9,24 @@ on_get_capabilities (OrgFreedesktopNotifications *object,
 {
   static const gchar *capabilities[] = {"body", NULL};
   org_freedesktop_notifications_complete_get_capabilities (object, invocation, capabilities);
+  return G_DBUS_METHOD_INVOCATION_HANDLED;
+}
+
+
+static gboolean
+on_notify (OrgFreedesktopNotifications *object,
+           GDBusMethodInvocation       *invocation,
+           const gchar                 *app_name,
+           guint                        replaces_id,
+           const gchar                 *app_icon,
+           const gchar                 *summary,
+           const gchar                 *body,
+           const gchar *const          *actions,
+           GVariant                    *hints,
+           gint                         expire_timeout,
+           gpointer                     user_data)
+{
+  org_freedesktop_notifications_complete_notify (object, invocation, 0);
   return G_DBUS_METHOD_INVOCATION_HANDLED;
 }
 
@@ -25,6 +44,10 @@ on_bus_acquired (GDBusConnection *connection,
   g_signal_connect (object,
                     "handle-get-capabilities",
                     G_CALLBACK (on_get_capabilities),
+                    NULL);
+  g_signal_connect (object,
+                    "handle-notify",
+                    G_CALLBACK (on_notify),
                     NULL);
 
   exported = g_dbus_interface_skeleton_export (G_DBUS_INTERFACE_SKELETON (object),
