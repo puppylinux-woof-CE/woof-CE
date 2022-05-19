@@ -2,6 +2,12 @@
 #include "generated-code.h"
 
 
+/* for < 2.68 */
+#ifndef G_DBUS_METHOD_INVOCATION_HANDLED
+#	define G_DBUS_METHOD_INVOCATION_HANDLED TRUE
+#endif
+
+
 static gboolean
 on_get_capabilities (OrgFreedesktopNotifications *object,
                      GDBusMethodInvocation       *invocation,
