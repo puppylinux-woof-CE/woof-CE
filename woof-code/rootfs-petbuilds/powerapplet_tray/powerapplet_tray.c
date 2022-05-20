@@ -106,6 +106,19 @@ gboolean Update(gpointer ptr) {
             if (chdir(dirname(g.gl_pathv[i])) < 0)
                 continue;
 
+            if((fp = fopen("type","r")) == NULL) continue;
+            char type[sizeof("Battery\n")];
+            fscanf(fp,"%8s",type);
+            fclose(fp);
+            if (strcmp(type, "Battery") != 0) continue;
+
+            if((fp = fopen("scope","r")) != NULL) {
+                char scope[sizeof("System\n")];
+                fscanf(fp,"%7s",scope);
+                fclose(fp);
+                if (strcmp(scope, "System") != 0) continue;
+            }
+
             long full;
             fp = fopen("charge_full","r");
             if (!fp) {
@@ -194,7 +207,7 @@ gboolean Update(gpointer ptr) {
 
 void tray_icon_on_click(GtkStatusIcon *status_icon, gpointer user_data) {
     int success = 0;
-    success = system(("for i in /sys/class/power_supply/*; do cd $i; [ -e charge_now ] && break; done; gxmessage -center -fn \"mono 12\" -title \"Battery Info\" -borderless -buttons OK:0 -bg thistle \"$(for i in * ; do [ \"$i\" = 'uevent' ] && continue; [ -d \"$i\" ] && continue; echo -n \"${i}: \" && cat $i ; done)\" & "));
+    success = system(("for i in /sys/class/power_supply/*; do cd $i; [ \"`cat type`\" != Battery ] && continue; [ ! -e scope ] && break; [ \"`cat scope`\" = System ] && break; done; gxmessage -center -fn \"mono 12\" -title \"Battery Info\" -borderless -buttons OK:0 -bg thistle \"$(for i in * ; do [ \"$i\" = 'uevent' ] && continue; [ -d \"$i\" ] && continue; echo -n \"${i}: \" && cat $i ; done)\" & "));
     if (success != 0) {printf("system gxmessage call failed with %d\n", success);}
 }
 
