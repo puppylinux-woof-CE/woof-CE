@@ -82,6 +82,7 @@ EOF
 	;;
 esac
 chroot bdrv apt-get update
+chroot bdrv apt-get upgrade -y
 
 # blacklist packages that may conflict with packages in the main SFS
 chroot bdrv apt-mark hold busybox
