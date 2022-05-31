@@ -224,8 +224,6 @@ for NAME in $PETBUILDS; do
         rm -f ../petbuild-output/${NAME}-${HASH}/etc/ld.so.cache
         rm -f ../petbuild-output/${NAME}-${HASH}/root/.wget-hsts
 
-        rm -rf ../petbuild-output/${NAME}-${HASH}/usr/share/man
-        rm -rf ../petbuild-output/${NAME}-${HASH}/usr/share/info
         rm -f ../petbuild-output/${NAME}-${HASH}/usr/share/icons/hicolor/icon-theme.cache
         rm -rf ../petbuild-output/${NAME}-${HASH}/usr/lib/python*
         rm -rf ../petbuild-output/${NAME}-${HASH}/lib/pkgconfig
@@ -320,6 +318,11 @@ for NAME in $PKGS; do
         mkdir -p ../packages-${DISTRO_FILE_PREFIX}/${NAME}_DOC/usr/share
         mv ../packages-${DISTRO_FILE_PREFIX}/${NAME}/usr/share/${DOCDIR} ../packages-${DISTRO_FILE_PREFIX}/${NAME}_DOC/usr/share/
     done
+
+    if [ "$INCLUDE_MAN_PAGES" = "yes" -a -d ../packages-${DISTRO_FILE_PREFIX}/${NAME}_DOC/usr/share/man ]; then
+        mkdir ../packages-${DISTRO_FILE_PREFIX}/${NAME}/usr/share/man
+        mv -v ../packages-${DISTRO_FILE_PREFIX}/${NAME}_DOC/usr/share/man/man[1-9]* ../packages-${DISTRO_FILE_PREFIX}/${NAME}/usr/share/man/
+    fi
 
     for SUFFIX in _DOC _NLS; do
         [ ! -d ../packages-${DISTRO_FILE_PREFIX}/${NAME}${SUFFIX} ] && continue

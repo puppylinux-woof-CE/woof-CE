@@ -203,6 +203,10 @@ fi
 mkdir -p bdrv_NLS/usr/share bdrv_DOC/usr/share
 mv bdrv/usr/share/locale bdrv_NLS/usr/share/
 mv bdrv/usr/share/doc bdrv/usr/share/info bdrv/usr/share/man bdrv_DOC/usr/share/
+if [ "$INCLUDE_MAN_PAGES" = "yes" ]; then
+	mkdir -p bdrv/usr/share/man
+	mv -v bdrv_DOC/usr/share/man/man[1-9]* bdrv/usr/share/man/
+fi
 if [ -d bdrv/usr/share/gnome/help ]; then
 	mkdir -p bdrv_DOC/usr/share/gnome
 	mv bdrv/usr/share/gnome/help bdrv_DOC/usr/share/gnome/
