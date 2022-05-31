@@ -86,17 +86,21 @@ esac
 echo "jwm size: ${PTHEME_JWM_SIZE}"
 
 mkdir -p root/.jwm/window_buttons
-Dir=usr/share/jwm/themes_window_buttons/${PTHEME_JWM_BUTTONS}
-for icon in $Dir/*; do
-    ifile=$(basename $icon)
-    ext=${ifile##*.}
-    newicon=`echo $ifile|sed "s%${ext}$%png%"`
-    if [ "`which rsvg-convert`" ]; then
-        rsvg-convert -w 48 -h 48 -o root/.jwm/window_buttons/${newicon} ${icon}
-    else
-        chroot . rsvg-convert -w 48 -h 48 -o root/.jwm/window_buttons/${newicon} /${icon}
-    fi
-done
+if [ "$PTHEME_JWM_BUTTONS" = "default" ]; then
+    sed -i -e '/^<ButtonClose>/d' -e '/^<ButtonMax>/d' -e '/^<ButtonMaxActive>/d' -e '/^<ButtonMin>/d' root/.jwm/jwmrc-personal
+else
+    Dir=usr/share/jwm/themes_window_buttons/${PTHEME_JWM_BUTTONS}
+    for icon in $Dir/*; do
+        ifile=$(basename $icon)
+        ext=${ifile##*.}
+        newicon=`echo $ifile|sed "s%${ext}$%png%"`
+        if [ "`which rsvg-convert`" ]; then
+            rsvg-convert -w 48 -h 48 -o root/.jwm/window_buttons/${newicon} ${icon}
+        else
+            chroot . rsvg-convert -w 48 -h 48 -o root/.jwm/window_buttons/${newicon} /${icon}
+        fi
+    done
+fi
 echo "jwm buttons: ${PTHEME_JWM_BUTTONS}"
 
 ##### GTK
