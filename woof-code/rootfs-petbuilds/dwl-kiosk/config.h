@@ -115,6 +115,7 @@ static const Key keys[] = {
 	{ MODKEY,                    XKB_KEY_p,          spawn,          {.v = menucmd} },
 	{ MODKEY|WLR_MODIFIER_SHIFT, XKB_KEY_Return,     spawn,          {.v = termcmd} },
 #endif
+	{ MODKEY,                    XKB_KEY_Tab,        nextstacked,    {0} },
 	{ MODKEY|WLR_MODIFIER_CTRL,  XKB_KEY_t,          spawn,          {.v = termcmd} },
 	{ MODKEY,                    XKB_KEY_F2,         spawn,          {.v = runcmd} },
 	{ MODKEY,                    XKB_KEY_F4,         killclient,     {0} },
