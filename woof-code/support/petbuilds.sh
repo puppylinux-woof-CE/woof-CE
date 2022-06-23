@@ -284,7 +284,7 @@ for NAME in $PETBUILDS; do
 
         for EXTRAFILE in ../rootfs-petbuilds/${NAME}/*; do
             case "${EXTRAFILE##*/}" in
-            petbuild|*.patch|sha256.sum|*-*|DOTconfig|*.c) ;;
+            petbuild|*.patch|sha256.sum|*-*|DOTconfig|*.c|*.h) ;;
             *) cp -a $EXTRAFILE ../petbuild-output/${NAME}-${HASH}/
             esac
         done
