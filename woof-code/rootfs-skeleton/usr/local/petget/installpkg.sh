@@ -64,7 +64,7 @@ export LANG=C
 
 [ "$PUPMODE" == "" ] && PUPMODE=2
 
-[ "$PUPMODE" = "2" -o "$PUPMODE" = "6" ] && [ ! -d /audit ] && mkdir -p /audit
+[ "$PUPMODE" = "2" ] && [ ! -d /audit ] && mkdir -p /audit
 
 DLPKG="$1"
 DLPKG_BASE="`basename "$DLPKG"`" #ex: scite-1.77-i686-2as.tgz
@@ -167,7 +167,7 @@ read -r TFS TMAX TUSED TMPK TPERCENT TMNTPT <<<$(df -k | grep -w '^tmpfs') #free
 SIZEB=`stat -c %s "${DLPKG_PATH}"/${DLPKG_BASE}`
 SIZEK=$(( $SIZEB / 1024 ))
 EXPK=$(( $SIZEK * 5)) #estimated worst-case expanded size.
-if [ "$PUPMODE" = "2" -o "$PUPMODE" = "6" ]; then # from BK's quirky6.1
+if [ "$PUPMODE" = "2" ]; then # from BK's quirky6.1
 	#131220  131229 detect if not enough room in /tmp...
 	DIRECTSAVEPATH="/tmp/petget_proc/petget/directsavepath"
 	NEEDK=$EXPK
@@ -335,7 +335,7 @@ case $DLPKG_BASE in
  ;;
 esac
 
-if [ "$PUPMODE" = "2" -o "$PUPMODE" = "6" ]; then #from BK's quirky6.1
+if [ "$PUPMODE" = "2" ]; then #from BK's quirky6.1
 	mkdir /audit/${DLPKG_NAME}DEPOSED
 	echo -n '' > /tmp/petget_proc/petget/FLAGFND
 	find ${DIRECTSAVEPATH}/ -mindepth 1 | sed -e "s%${DIRECTSAVEPATH}%%" |
