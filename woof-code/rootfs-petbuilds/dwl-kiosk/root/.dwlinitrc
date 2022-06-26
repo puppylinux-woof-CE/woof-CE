@@ -18,38 +18,45 @@ for F in $WAYLAND_DISPLAY $WAYLAND_DISPLAY.lock; do
 	mount --bind $XDG_RUNTIME_DIR/$F $SPOT_RUNTIME_DIR/$F
 done
 
-DISPLAY=:0
-XAUTHORITY=~/.Xauthority
+if [ "$GDK_BACKEND" = "x11" ]; then
+	DISPLAY=:0
+	XAUTHORITY=~/.Xauthority
 
-echo "add $DISPLAY . `mcookie`" | xauth -q -f "$XAUTHORITY"
-if [ "`id -u`" -eq 0 ]; then
-	cp -f $XAUTHORITY /home/spot/.Xauthority
-	chown spot:spot /home/spot/.Xauthority
+	echo "add $DISPLAY . `mcookie`" | xauth -q -f "$XAUTHORITY"
+	if [ "`id -u`" -eq 0 ]; then
+		cp -f $XAUTHORITY /home/spot/.Xauthority
+		chown spot:spot /home/spot/.Xauthority
+	fi
+
+	args=
+	if [ -f ~/.Xresources ]; then
+		dpi=`grep ^Xft\.dpi: ~/.Xresources | awk '{print $2}'`
+		[ -n "$dpi" ] && args="$args -dpi $dpi"
+	fi
+
+	export DISPLAY
+	export XAUTHORITY
+
+	Xwayland $DISPLAY -auth $XAUTHORITY $args &
+
+	MAX=20
+	CT=0
+	while ! xdpyinfo >/dev/null 2>&1; do
+		sleep 0.50s
+		CT=$(( CT + 1 ))
+		if [ "$CT" -ge "$MAX" ]; then
+			echo "FATAL: $0: Gave up waiting for X server $DISPLAY"
+			exit 11
+		fi
+	done
 fi
 
-args=
-if [ -f ~/.Xresources ]; then
-	dpi=`grep ^Xft\.dpi: ~/.Xresources | awk '{print $2}'`
-	[ -n "$dpi" ] && args="$args -dpi $dpi"
-fi
-
-export DISPLAY
-export XAUTHORITY
-
-Xwayland $DISPLAY -auth $XAUTHORITY $args &
-
-MAX=20
-CT=0
-while ! xdpyinfo >/dev/null 2>&1; do
-    sleep 0.50s
-    CT=$(( CT + 1 ))
-    if [ "$CT" -ge "$MAX" ]; then
-        echo "FATAL: $0: Gave up waiting for X server $DISPLAY"
-        exit 11
-    fi
-done
-
-run-as-spot dbus-launch --exit-with-x11 > /tmp/.spot-session-bus
+(
+	read DBUS_SESSION_BUS_PID
+	read DBUS_SESSION_BUS_ADDRESS
+	echo "DBUS_SESSION_BUS_PID=$DBUS_SESSION_BUS_PID
+DBUS_SESSION_BUS_ADDRESS=$DBUS_SESSION_BUS_ADDRESS" > /tmp/.spot-session-bus
+) < <(run-as-spot dbus-daemon --fork --print-address 1 --print-pid 1 --session)
 
 if [ -e /usr/bin/wireplumber ]; then
     rm -f /tmp/runtime-spot/pipewire-0
@@ -70,9 +77,10 @@ fi
 . /etc/rc.d/wl_func
 apply_pthemerc
 
+[ "$GDK_BACKEND" != "x11" ] && xdg_autostart.sh
 /usr/sbin/delayedrun &
 
-[ "$GDK_BACKEND" != "x11" ] && yambar >/dev/null 2>&1 &
+[ "$GDK_BACKEND" != "x11" ] && yambar -c $XDG_RUNTIME_DIR/yambar-config.yml >/dev/null 2>&1 &
 
 # desktop settings
 [ -e "$XDG_CONFIG_HOME/wmonitors/wmon_cmd" ] && . $XDG_CONFIG_HOME/wmonitors/wmon_cmd
@@ -82,4 +90,4 @@ swayidle &
 # allow applications running as spot to talk to Xwayland
 xhost +local:
 
-exec jwm
+[ "$GDK_BACKEND" = "x11" ] && jwm &

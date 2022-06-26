@@ -41,6 +41,8 @@ echo "that you can specify in build.conf: PTHEME=<theme>"
 cat << EOF > root/.pthemerc
 PTHEME_GTK="$PTHEME_GTK"
 PTHEME_ICONS_GTK="$PTHEME_ICONS_GTK"
+PTHEME_YAMBAR_COLOR="$PTHEME_YAMBAR_COLOR"
+PTHEME_FUZZEL="$PTHEME_FUZZEL"
 EOF
 
 ##### JWM
