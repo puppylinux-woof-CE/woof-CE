@@ -107,6 +107,7 @@ static const char *brightnessupcmd[] = { "brightnessctl", "set", "+10%", NULL };
 static const char *brightnessdowncmd[] = { "brightnessctl", "set", "10%-", NULL };
 static const char *volumeupcmd[] = { "pactl", "set-sink-volume", "@DEFAULT_SINK@", "+1%", NULL };
 static const char *volumedowncmd[] = { "pactl", "set-sink-volume", "@DEFAULT_SINK@", "-1%", NULL };
+static const char *screenshotcmd[] = { "defaultscreenshot", NULL };
 
 static const Key keys[] = {
 #if 0
@@ -123,6 +124,7 @@ static const Key keys[] = {
 	{ 0,                         XKB_KEY_XF86MonBrightnessDown,      spawn,          {.v = brightnessdowncmd} },
 	{ 0,                         XKB_KEY_XF86AudioRaiseVolume,       spawn,          {.v = volumeupcmd} },
 	{ 0,                         XKB_KEY_XF86AudioLowerVolume,       spawn,          {.v = volumedowncmd} },
+	{ 0,                         XKB_KEY_Print,                      spawn,          {.v = screenshotcmd} },
 	{ WLR_MODIFIER_LOGO,         XKB_KEY_r,          spawn,          {.v = runcmd} },
 	{ WLR_MODIFIER_LOGO,         XKB_KEY_l,          spawn,          {.v = lockcmd} },
 	{ WLR_MODIFIER_LOGO,         XKB_KEY_Up,         togglemaximizesel,          {0} },
