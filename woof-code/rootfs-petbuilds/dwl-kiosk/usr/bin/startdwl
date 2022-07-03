@@ -3,10 +3,34 @@
 export TEXTDOMAIN=xwin
 export OUTPUT_CHARSET=UTF-8
 
-export WLR_RENDERER_ALLOW_SOFTWARE=1
+cleanup() {
+	. /tmp/.spot-session-bus
+	kill $DBUS_SESSION_BUS_PID 2>/dev/null
+}
+trap cleanup EXIT
 
+(
+	read DBUS_SESSION_BUS_ADDRESS
+	read DBUS_SESSION_BUS_PID
+	echo "DBUS_SESSION_BUS_PID=$DBUS_SESSION_BUS_PID
+DBUS_SESSION_BUS_ADDRESS=$DBUS_SESSION_BUS_ADDRESS" > /tmp/.spot-session-bus
+) < <(run-as-spot dbus-daemon --fork --print-address 1 --print-pid 1 --session)
+
+if [ -e /usr/bin/wireplumber ]; then
+    rm -f /tmp/runtime-spot/pipewire-0
+    run-as-spot pipewire > /dev/null 2>&1 &
+    (
+        while [ ! -e /tmp/runtime-spot/pipewire-0 ]; do sleep 0.1; done
+        run-as-spot pipewire-pulse > /dev/null 2>&1 &
+        run-as-spot wireplumber > /dev/null 2>&1 &
+    ) &
+elif [ -e /usr/bin/pulseaudio ]; then
+    run-as-spot sh -c "pulseaudio --kill > /dev/null 2>&1; pulseaudio --start --log-target=syslog"
+fi
 export PULSE_SERVER=unix:/tmp/runtime-spot/pulse/native
 export PULSE_COOKIE=/home/spot/.config/pulse/cookie
+
+export WLR_RENDERER_ALLOW_SOFTWARE=1
 
 while :
 do
@@ -14,6 +38,7 @@ do
 	unset XKB_DEFAULT_MODEL
 	unset XKB_DEFAULT_OPTIONS
 	unset XKB_DEFAULT_RULES
+	unset XKB_DEFAULT_VARIANT
 	unset LIBINPUT_DEFAULT_TAP
 	unset LIBINPUT_DEFAULT_NATURAL_SCROLL
 	unset LIBINPUT_DEFAULT_ACCELERATION
@@ -24,12 +49,16 @@ do
 	unset LIBINPUT_DEFAULT_DISABLE_WHILE_TYPING
 	unset LIBINPUT_DEFAULT_MIDDLE_EMULATION
 	unset LIBINPUT_DEFAULT_LEFT_HANDED
+	unset GDK_BACKEND
+	unset MOZ_ENABLE_WAYLAND
 
-	. ~/.dwlrc
+	. ~/.xkbrc
 	[ -n "$XKB_DEFAULT_LAYOUT" ] && export XKB_DEFAULT_LAYOUT
 	[ -n "$XKB_DEFAULT_MODEL" ] && export XKB_DEFAULT_MODEL
 	[ -n "$XKB_DEFAULT_OPTIONS" ] && export XKB_DEFAULT_OPTIONS
 	[ -n "$XKB_DEFAULT_RULES" ] && export XKB_DEFAULT_RULES
+	[ -n "$XKB_DEFAULT_VARIANT" ] && export XKB_DEFAULT_VARIANT
+	. ~/.inputrc
 	[ -n "$LIBINPUT_DEFAULT_TAP" ] && export LIBINPUT_DEFAULT_TAP
 	[ -n "$LIBINPUT_DEFAULT_NATURAL_SCROLL" ] && export LIBINPUT_DEFAULT_NATURAL_SCROLL
 	[ -n "$LIBINPUT_DEFAULT_ACCELERATION" ] && export LIBINPUT_DEFAULT_ACCELERATION
@@ -40,11 +69,21 @@ do
 	[ -n "$LIBINPUT_DEFAULT_DISABLE_WHILE_TYPING" ] && export LIBINPUT_DEFAULT_DISABLE_WHILE_TYPING
 	[ -n "$LIBINPUT_DEFAULT_MIDDLE_EMULATION" ] && export LIBINPUT_DEFAULT_MIDDLE_EMULATION
 	[ -n "$LIBINPUT_DEFAULT_LEFT_HANDED" ] && export LIBINPUT_DEFAULT_LEFT_HANDED
+	. ~/.dwlrc
+	[ -n "$GDK_BACKEND" ] && export GDK_BACKEND
 
-	if [ /var/local/xwin_disable_xerrs_log_flag ]; then
-		dwl-kiosk -s ~/.dwlinitrc > /dev/null 2>&1
+	DWL_ARGS="-s ~/.dwlinitrc"
+	if [ "$GDK_BACKEND" = "x11" ]; then
+		DWL_ARGS="$DWL_ARGS -k"
 	else
-		dwl-kiosk -s ~/.dwlinitrc > /tmp/xerrs.log 2>&1
+		export MOZ_ENABLE_WAYLAND=1
+		DWL_ARGS="$DWL_ARGS -f"
+	fi
+
+	if [ -f /var/local/xwin_disable_xerrs_log_flag ]; then
+		dbus-run-session -- dwl-kiosk $DWL_ARGS > /dev/null 2>&1
+	else
+		dbus-run-session -- dwl-kiosk $DWL_ARGS > /tmp/xerrs.log 2>&1
 	fi
 
 	echo '--------'
