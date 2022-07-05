@@ -136,6 +136,11 @@ psubdir=</path/to/install/directory>
    If a leading "/" is not provided, init will add it.
    This is the default path for locating any puppy file and any partition.
 
+punionfs=<aufs|overlay>
+   Overrides the union file system choice made at build time.
+   Use with care, as aufs and overlay are incompatible with each other.
+   To switch from aufs to overlay or vice versa, start with a fresh save layer (pfix=ram).
+
 ------------------------------------------------------------
 pupsfs=<partition> Specifies the puppy...sfs partition
 zdrv=<partition>   Specifies the zdrv...sfs  partition

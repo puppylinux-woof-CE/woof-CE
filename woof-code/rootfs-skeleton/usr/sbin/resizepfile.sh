@@ -23,6 +23,11 @@ $(eval_gettext "If you have installed Puppy to hard drive, or installed such tha
 
 esac
 
+if [ -L "$PERSISTMNTPT" ] ; then
+	PERSISTMNTPT="`readlink "$PERSISTMNTPT"`"
+	[ -d "$PERSISTMNTPT" ] && PERSISTMNTPT="${PERSISTMNTPT%/upper}"
+fi
+
 SAVEFS="`echo -n "$PUPSAVE" | cut -f 2 -d ','`"
 SAVEPART="`echo -n "$PUPSAVE" | cut -f 1 -d ','`"
 SAVEFILE="`echo -n "$PUPSAVE" | cut -f 3 -d ','`"
