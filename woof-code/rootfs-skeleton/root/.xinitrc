@@ -126,15 +126,6 @@ fi
 if [ -f /root/.xset.sh ];then
  #this is created by /usr/bin/pupx...
  eval "/root/.xset.sh"
-else
- ##Xorg has it's own fontpath settings in /etc/X11/xorg.conf...
- #if [ "`readlink /usr/bin/X`" != "Xorg" ];then
- # #xset fp+ /usr/lib/X11/fonts/Type1/
- # #xset fp+ /usr/lib/X11/fonts/TTF/
- # xset fp+ /usr/share/fonts/default/Type1/
- # xset fp+ /usr/share/fonts/default/TTF/
- #fi
- xset s 600 600 s blank
 fi
 
 #v1.0.7 also see /etc/rc.d/rc.local0
