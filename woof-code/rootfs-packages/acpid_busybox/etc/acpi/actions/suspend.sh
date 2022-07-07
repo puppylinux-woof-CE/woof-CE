@@ -49,7 +49,7 @@ y*|Y*|true|True|TRUE|1) echo -n mem > /sys/power/state ;;
   if [ -n "$WAYLAND_DISPLAY" ]; then
     puplock
     echo mem > /sys/power/state
-  elif [ -n "$DISPLAY" ]; then
+  elif [ -n "$DISPLAY" -a -z "`pidof -s xlock`" ]; then
     xlock -startCmd "echo mem > /sys/power/state"
   else
     echo -n mem > /sys/power/state
