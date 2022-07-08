@@ -132,7 +132,7 @@ do
 				mkdir -p $FIRMWARE_RESULT_DIR/intel
 				for F in $SRC_FW_DIR/intel/ibt-*.{sfi,ddc} $SRC_FW_DIR/intel/ibt-hw-*.bseq;do
 					cp -L -n $F $FIRMWARE_RESULT_DIR/intel
-					fw_msg $F $fw_tmp_list # log to zdrv
+					fw_msg ${F#$SRC_FW_DIR/} $fw_tmp_list # log to zdrv
 				done
 				intelbt=1
 				continue
