@@ -86,6 +86,7 @@ echo "### If 'missing' is after a firmware entry it is missing or non-free and w
 # NOTE 1: some firmware files won't exist because they are proprietary
 # broadcom wireless is an example, and some dvb tuners and some bluetooth
 
+intelbt=0
 for m in `find "$module_dir" -type f -name "*.ko"`
 do
 	modinfo "$m" -F firmware | while read fw
@@ -125,6 +126,19 @@ do
 				;;
 			esac
 		else
+			case $fw in
+				intel/ibt-*.sfi|intel/ibt-*.ddc) # intel/ibt-%u-%u.sfi is formatted at runtime
+				[ $intelbt -eq 1 ] && continue
+				mkdir -p $FIRMWARE_RESULT_DIR/intel
+				for F in $SRC_FW_DIR/intel/ibt-*.{sfi,ddc} $SRC_FW_DIR/intel/ibt-hw-*.bseq;do
+					cp -L -n $F $FIRMWARE_RESULT_DIR/intel
+					fw_msg $F $fw_tmp_list # log to zdrv
+				done
+				intelbt=1
+				continue
+				;;
+			esac
+
 			if [ -e "$SRC_FW_DIR/$fw" ];then
 				mkdir -p $FIRMWARE_RESULT_DIR/$fw_dir
 				cp -L -n $SRC_FW_DIR/$fw $FIRMWARE_RESULT_DIR/$fw_dir
