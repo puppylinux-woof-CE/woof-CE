@@ -148,6 +148,24 @@ do
 			fi
 		fi		
 	done
+
+	case $m in
+	*/ath*k*.ko) # some firmware doesn't appear in modinfo
+	fw_top_dir=${m##*/}
+	fw_top_dir=${fw_top_dir%%_*}
+	fw_top_dir=${fw_top_dir%.ko}
+	strings -a $m > /tmp/modstrings
+	for F in $SRC_FW_DIR/$fw_top_dir/*/hw*;do
+		fw_subdir=${F#$SRC_FW_DIR/}
+		[ -e $FIRMWARE_RESULT_DIR/$fw_subdir ] && continue
+		fgrep -qlm1 ${fw_subdir#$fw_top_dir/} /tmp/modstrings || continue
+		mkdir -p $FIRMWARE_RESULT_DIR/${fw_subdir%/*}
+		cp -r -L -n $F $FIRMWARE_RESULT_DIR/${fw_subdir%/*}
+		fw_msg $fw_subdir $fw_tmp_list # log to zdrv
+	done
+	rm -f /tmp/modstrings
+	;;
+	esac
 done
 # extra firmware from other sources
 if [ "$EXTRA_FW" = 'yes' ];then
