@@ -168,6 +168,9 @@ do
 	esac
 done
 # extra firmware from other sources
+if [ -n "`find $module_dir -name 'snd-sof*.ko' | head -n 1`" ];then
+	./get_sof.sh `pwd`/zfirmware_workdir "`pwd`/$module_dir" || exit 1
+fi
 if [ "$EXTRA_FW" = 'yes' ];then
 	./firmware_extra.sh
 	sed -i -e '/^b43/d' -e '/^ipw/d' $fw_tmp_list
