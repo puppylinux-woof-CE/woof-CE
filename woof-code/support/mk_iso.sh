@@ -255,6 +255,9 @@ title pdev1=sdc1      The boot partition.\nPress Enter to go back to main menu
 title psubdir=/pathto/slacko64 Path in which the OS is installed.\nPress Enter to go back to main menu
   configfile /boot/grub/menu.lst
 
+title punionfs=aufs Union file system to use.\n aufs overlay
+  configfile /boot/grub/menu.lst
+
 title psavemark=2     Partition no. (in boot drive) to save session to.\nPress Enter to go back to main menu
   configfile /boot/grub/menu.lst
 

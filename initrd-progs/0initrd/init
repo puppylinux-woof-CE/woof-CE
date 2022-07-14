@@ -42,7 +42,7 @@ L_ERR_ONEPART_MOUNT_SFS_FAILED="%s %s mount of sfs failed." #printf
 L_ERR_AUFS_SFS_FAILED="aufs mount of %s failed." #printf
 L_ERR_TYPE_PUPSAVE="Type a number to choose which personal file to use:"
 L_DROPPED_TO_INITRD_SHELL="Dropped to initramfs shell. Type 'exec switch' to continue booting Puppy."
-L_SWITCH_ROOT="Performing a 'switch_root' to the layered filesystem..."
+L_SWITCH_ROOT="Performing a 'switch_root' to the %s filesystem..." #printf
 L_FOLDER_MARKED_BAD="Folder %s marked bad." #printf
 L_0_NONE="0  none"
 L_ERROR_FAILED_AUFS_STACK='Failed to create empty aufs stack'
@@ -104,6 +104,9 @@ LINUXFSLIST="ext2|ext3|ext4|btrfs|minix|f2fs|reiserfs"
 
 #Filesystem to be fsck
 FSCKLIST="ext2|ext3|ext4|vfat|msdos|exfat"
+
+# Layered file system to use
+UNIONFS='aufs'
 
 #=============================================================
 #                        FUNCTIONS
@@ -294,8 +297,10 @@ ensure_save_mounted() {
   if [ "$ONE_MP" != "$SAVE_MP" ];then
    #ensure SAVEPART is mounted on /mnt/dev_save
    [ -d "$SAVE_MP" ] || mkdir -p $SAVE_MP
-   echo "mount -o move $ONE_MP $SAVE_MP" #debug
-   mount -o move $ONE_MP $SAVE_MP
+   OPT="move"
+   [ "$UNIONFS" = 'overlay' ] && OPT="bind"
+   echo "mount -o $OPT $ONE_MP $SAVE_MP" #debug
+   mount -o $OPT $ONE_MP $SAVE_MP
   fi
   SAVE_FS="$ONE_FS"
  else
@@ -306,6 +311,7 @@ ensure_save_mounted() {
 find_drv_file() {
 # "$1" - specified filename - ex: /pup/mydrv-1.2.3.sfs
 # "$2" - default filename - ex: adrv_tahr_6.0.5.sfs
+# "$3" - look under root too - ex. 1
  ONE_FN=""
  [ "${1}" ] || [ "${2}" ] || return
  if [ "${1}" ];then
@@ -315,6 +321,7 @@ find_drv_file() {
   esac
  else
   ONE_TRY_FN="${PSUBDIR}/${2}"
+  [ "$3" -a ! -e "${ONE_MP}${ONE_TRY_FN}" ] && ONE_TRY_FN="/$2"
  fi
  if [ -L "${ONE_MP}${ONE_TRY_FN}" ];then
    C_MP="$(readlink -f "$ONE_MP")"
@@ -329,6 +336,7 @@ find_onepupdrv() {
 # "$2" - specified filename - ex: /pup/mydrv-1.2.3.sfs
 # "$3" - default filename - ex: adrv_tahr_6.0.5.sfs
 # "$4" - prefix for "drv" mountpoint - ex: a
+# "$5" - look under root too - ex. 1
  ONE_FN=""
  [ "${2}" ] || [ "${3}" ] || return
  [ "${4}" ] || return
@@ -340,7 +348,7 @@ find_onepupdrv() {
  [ "$ONE_PART" ] || return
  ensure_mounted "$ONE_PART" "/mnt/${4}drv"
  [ "$ONE_MP" ] || return
- find_drv_file "${2}" "${3}"
+ find_drv_file "${2}" "${3}" "${5}"
  [ "$ONE_FN" = "" -a "${2}" ] && echo "$ONE_PART, $ONE_TRY_FN file not found."
 }
 
@@ -423,14 +431,31 @@ setup_onepupdrv() {
  if ! [ "$ONE_LAYER" ] ; then
    return 4 #sfs mount failed
  fi
- if [ "$ONE_PREP" ];then
-  echo "mount -o remount,add:1:$ONE_LAYER /pup_new" #debug
-  mount -o remount,add:1:$ONE_LAYER /pup_new
+ if [ -n "$punionfs" ]; then
+  UNIONFS="$punionfs"
+ elif [ -f $SFS_MP/etc/rc.d/PUPSTATE ]; then
+  . $SFS_MP/etc/rc.d/PUPSTATE
+  [ -n "$PUNIONFS" ] && UNIONFS="$PUNIONFS"
+ fi
+ if [ "$UNIONFS" = 'overlay' ]; then
+  remount_overlay -e "s~lowerdir=([^,]+)~lowerdir=${SFS_MP}:\1~" -e "s~lowerdir=,~lowerdir=${SFS_MP},~"
   [ $? -eq 0 ] || return 5
  else
-  echo "mount -o remount,append:$ONE_LAYER /pup_new" #debug
-  mount -o remount,append:$ONE_LAYER /pup_new
-  [ $? -eq 0 ] || return 5
+  mountpoint -q /pup_new
+  if [ $? -ne 0 ];then
+   echo "mount -t aufs -o udba=reval,diropq=w,br=/mnt/tmpfs/pup_rw=rw,xino=/mnt/tmpfs/.aufs.xino unionfs /pup_new" #debug
+   mount -t aufs -o udba=reval,diropq=w,br=/mnt/tmpfs/pup_rw=rw,xino=/mnt/tmpfs/.aufs.xino unionfs /pup_new
+   [ $? -eq 0 ] || fatal_error "${L_ERROR_FAILED_AUFS_STACK}"
+  fi
+  if [ "$ONE_PREP" ];then
+   echo "mount -o remount,add:1:$ONE_LAYER /pup_new" #debug
+   mount -o remount,add:1:$ONE_LAYER /pup_new
+   [ $? -eq 0 ] || return 5
+  else
+   echo "mount -o remount,append:$ONE_LAYER /pup_new" #debug
+   mount -o remount,append:$ONE_LAYER /pup_new
+   [ $? -eq 0 ] || return 5
+  fi
  fi
  NEWUNIONRECORD="${NEWUNIONRECORD}${ONE_BASENAME} "
  return 0
@@ -451,17 +476,36 @@ setup_psave(){ # setup savefile or savefolder
   /sbin/load_ext_file "$SAVE_FN" "$SAVE_MP" #reads $PFSCK
   if [ -f /tmp/savefile_loop ] ; then
     . /tmp/savefile_loop # $SAVEFILE_LOOP $SFFS
-    [ -d "$SAVE_LAYER" ] || mkdir $SAVE_LAYER
-    echo "mount -t $SFFS -o noatime $SAVEFILE_LOOP $SAVE_LAYER" #debug
-    mount -t $SFFS -o noatime $SAVEFILE_LOOP $SAVE_LAYER
-    [ $? -ne 0 ] && PUPSAVE=""
+    if [ "$UNIONFS" = 'overlay' ]; then
+      mkdir /pup_loop
+      echo "mount -t $SFFS -o noatime $SAVEFILE_LOOP /pup_loop" #debug
+      mount -t $SFFS -o noatime $SAVEFILE_LOOP /pup_loop
+      if [ $? -ne 0 ]; then
+        PUPSAVE=""
+      else
+        mkdir -p "/pup_loop/upper" "/pup_loop/work"
+        ln -sv "/pup_loop/upper" "$SAVE_LAYER"
+        ln -sv "/pup_loop/work" "$WORKDIR"
+      fi
+    else
+      [ -d "$SAVE_LAYER" ] || mkdir $SAVE_LAYER
+      echo "mount -t $SFFS -o noatime $SAVEFILE_LOOP $SAVE_LAYER" #debug
+      mount -t $SFFS -o noatime $SAVEFILE_LOOP $SAVE_LAYER
+      [ $? -ne 0 ] && PUPSAVE=""
+    fi
   else # load_ext_file failed
     FLAG_NO_TIMEOUT=1
     PUPSAVE=""
   fi
  elif [ -d "$SAVE_FN" ];then #savefolder
   echo "--SAVEFOLDER-- $SAVE_FN" #debug
-  ln -sv "$SAVE_FN" "$SAVE_LAYER"
+  if [ "$UNIONFS" = 'overlay' ]; then
+   mkdir -p "$SAVE_FN/upper" "$SAVE_FN/work"
+   ln -sv "$SAVE_FN/upper" "$SAVE_LAYER"
+   ln -sv "$SAVE_FN/work" "$WORKDIR"
+  else
+   ln -sv "$SAVE_FN" "$SAVE_LAYER"
+  fi
  else
   PUPSAVE=""
  fi
@@ -662,7 +706,7 @@ $TRY_PARTS_LAST"
     fi
    fi
    if [ "$LOOK_PUP" ];then
-    find_drv_file "$P_BP_FN" "$P_DEF_FN"
+    find_drv_file "$P_BP_FN" "$P_DEF_FN" ""
     if [ "$ONE_FN" ];then
      PDRV="$ONE_PART,$ONE_FS,$ONE_FN"
      P_MP="$ONE_MP"
@@ -740,6 +784,25 @@ fatal_error() {
  umount_unneeded
  [ "${2}" ] && echo -n "${2}" > /dev/console
  check_status -critical 1 "$1"
+}
+
+remount_overlay() {
+ OPTS=`grep '^unionfs /pup_new overlay' /proc/mounts | awk '{print $4}'`
+ if [ -n "$OPTS" ]; then
+  umount -l /pup_new
+ else
+  mkdir /mnt/tmpfs/pup_work
+  OPTS="lowerdir=,upperdir=/mnt/tmpfs/pup_rw,workdir=/mnt/tmpfs/pup_work,xino=on"
+ fi
+ NEWOPTS=`echo "$OPTS" | sed -E "$@"`
+ echo "mount -t overlay -o ${NEWOPTS} unionfs /pup_new" #debug
+ mount -t overlay -o ${NEWOPTS} unionfs /pup_new
+ STATUS=$?
+ if [ $STATUS -ne 0 ]; then
+  echo "mount -t overlay -o ${OPTS} unionfs /pup_new" #debug
+  mount -t overlay -o ${OPTS} unionfs /pup_new
+ fi
+ return $STATUS
 }
 
 #=============================================================
@@ -874,7 +937,7 @@ P_PART=""; LOOK_PUP=""; LOOK_SAVE=""
 if [ "$P_BP_ID" ];then #specified as parameter
  decode_id "$P_BP_ID"
  [ "$ONE_PART" ] && { P_PART="$ONE_PART"; P_BP_ID=""; }
- find_onepupdrv "$P_PART" "$P_BP_FN" "$P_DEF_FN" "p"
+ find_onepupdrv "$P_PART" "$P_BP_FN" "$P_DEF_FN" "p" ""
  [ "$ONE_FN" ] && { PDRV="$ONE_PART,$ONE_FS,$ONE_FN"; P_MP="$ONE_MP"; }
  [ "$PDEBUG" ] && echo "2: ONE_PART=$ONE_PART ONE_FN=$ONE_FN ONE_MP=$ONE_MP"
 elif [ "$PDRV" = "" ];then #not specified anywhere
@@ -931,8 +994,6 @@ RAMSIZE=$(free | grep -o 'Mem: .*' | tr -s ' ' | cut -f 2 -d ' ') #total physica
 
 mount -t tmpfs tmpfs /mnt/tmpfs
 [ -d "/mnt/tmpfs/pup_rw" ] || mkdir /mnt/tmpfs/pup_rw
-mount -t aufs -o udba=reval,diropq=w,br=/mnt/tmpfs/pup_rw=rw,xino=/mnt/tmpfs/.aufs.xino unionfs /pup_new 
-[ $? -eq 0 ] || fatal_error "${L_ERROR_FAILED_AUFS_STACK}"
 
 NEWUNIONRECORD=""
 COPY2RAM=""
@@ -961,27 +1022,27 @@ PUP_LAYER="$SFS_MP"
 [ "$SAVE_BP_ID" ] && log_part_id "$SAVE_BP_ID"
 
 #have basic system, now try to add optional stuff
-find_onepupdrv "$F_PART" "$F_BP_FN" "$F_DEF_FN" "f"
+find_onepupdrv "$F_PART" "$F_BP_FN" "$F_DEF_FN" "f" ""
 [ "$ONE_FN" ] && FDRV="$ONE_PART,$ONE_FS,$ONE_FN"
 [ "$FDRV" ] && { LOADMSG="fdrv"; setup_onepupdrv "$FDRV" "f"; }
 
-find_onepupdrv "$Z_PART" "$Z_BP_FN" "$Z_DEF_FN" "z"
+find_onepupdrv "$Z_PART" "$Z_BP_FN" "$Z_DEF_FN" "z" ""
 [ "$ONE_FN" ] && ZDRV="$ONE_PART,$ONE_FS,$ONE_FN"
 [ "$ZDRV" ] && { LOADMSG="zdrv"; setup_onepupdrv "$ZDRV" "z"; }
 
-find_onepupdrv "$Y_PART" "$Y_BP_FN" "$Y_DEF_FN" "y"
+find_onepupdrv "$Y_PART" "$Y_BP_FN" "$Y_DEF_FN" "y" ""
 [ "$ONE_FN" ] && YDRV="$ONE_PART,$ONE_FS,$ONE_FN"
 [ "$YDRV" ] && { LOADMSG="ydrv"; setup_onepupdrv "$YDRV" "y" "p"; }
 
-find_onepupdrv "$B_PART" "$B_BP_FN" "$B_DEF_FN" "b"
+find_onepupdrv "$B_PART" "$B_BP_FN" "$B_DEF_FN" "b" ""
 [ "$ONE_FN" ] && BDRV="$ONE_PART,$ONE_FS,$ONE_FN"
 [ "$BDRV" ] && { LOADMSG="bdrv"; setup_onepupdrv "$BDRV" "b" "p"; }
 
-find_onepupdrv "$A_PART" "$A_BP_FN" "$A_DEF_FN" "a"
+find_onepupdrv "$A_PART" "$A_BP_FN" "$A_DEF_FN" "a" ""
 [ "$ONE_FN" ] && ADRV="$ONE_PART,$ONE_FS,$ONE_FN"
 [ "$ADRV" ] && { LOADMSG="adrv"; setup_onepupdrv "$ADRV" "a" "p"; }
 
-find_onepupdrv "" "" "$KBUILD_DEF_FN" "k"
+find_onepupdrv "" "" "$KBUILD_DEF_FN" "k" ""
 [ "$ONE_FN" ] && KBUILD="$ONE_PART,$ONE_FS,$ONE_FN"
 [ "$KBUILD" ] && { LOADMSG="kbuild"; setup_onepupdrv "$KBUILD" "k" "p"; }
 
@@ -1152,6 +1213,7 @@ if [ "${SAVE_MP}" != "" -a "$PRAMONLY" != "yes" ];then #have mounted save? parti
 fi
 
 SAVE_LAYER=""
+WORKDIR="/pup_work"
 if [ "$PUPSAVE" ];then #refine pupmode
  # refine pupmode
  if [ $PUPMODE -eq 12 ];then
@@ -1179,8 +1241,14 @@ case $PUPMODE in
     #prepend ro1 - #SAVE_LAYER=/pup_ro1
     rm -rf ${SAVE_LAYER}/tmp #in case last boot was pupmode=12
     #adjust stack
-    echo "mount -o remount,add:1:${SAVE_LAYER}=ro+wh /pup_new" #debug
-    mount -o remount,add:1:${SAVE_LAYER}=ro+wh /pup_new #ro+wh = Readonly branch and it has/might have whiteouts on it
+    if [ "$UNIONFS" = 'overlay' ]; then
+     #pup_rw is bigger because files are copied, not moved to pup_ro1
+     mount -o remount,size=75% /mnt/tmpfs
+     remount_overlay "s~lowerdir=([^,]+)~lowerdir=${SAVE_LAYER}:\1~"
+    else
+     echo "mount -o remount,add:1:${SAVE_LAYER}=ro+wh /pup_new" #debug
+     mount -o remount,add:1:${SAVE_LAYER}=ro+wh /pup_new #ro+wh = Readonly branch and it has/might have whiteouts on it
+    fi
     if [ $? -eq 0 ];then
       [ $PUPMODE -ne 77 ] && KEEPMOUNTED="${KEEPMOUNTED}${SAVEPART} "
       [ "$SAVE_NAME" ] && NEWUNIONRECORD="$SAVE_NAME $NEWUNIONRECORD"
@@ -1196,8 +1264,12 @@ case $PUPMODE in
     #setup empty /tmp on tmpfs for in stack
     rm -rf ${SAVE_LAYER}/tmp
     #adjust stack
-    echo "mount -o remount,prepend:${SAVE_LAYER}=rw,mod:/mnt/tmpfs/pup_rw=ro,del:/mnt/tmpfs/pup_rw /pup_new" #debug
-    mount -o remount,prepend:${SAVE_LAYER}=rw,mod:/mnt/tmpfs/pup_rw=ro,del:/mnt/tmpfs/pup_rw /pup_new
+    if [ "$UNIONFS" = 'overlay' ]; then
+     remount_overlay -e "s~upperdir=[^,]+~upperdir=${SAVE_LAYER}~" -e "s~workdir=[^,]+~workdir=${WORKDIR}~"
+    else
+     echo "mount -o remount,prepend:${SAVE_LAYER}=rw,mod:/mnt/tmpfs/pup_rw=ro,del:/mnt/tmpfs/pup_rw /pup_new" #debug
+     mount -o remount,prepend:${SAVE_LAYER}=rw,mod:/mnt/tmpfs/pup_rw=ro,del:/mnt/tmpfs/pup_rw /pup_new
+    fi
     if [ $? -eq 0 ];then
       rm -rf /mnt/tmpfs/pup_rw
       KEEPMOUNTED="${KEEPMOUNTED}${SAVEPART} "
@@ -1216,13 +1288,23 @@ case $PUPMODE in
     rm -r -f "$PM66_DIR"
     [ -d "$PM66_DIR" ] || mkdir $PM66_DIR
     mount -t tmpfs tmpfs $PM66_DIR
-    tar xf "$ARCHIVE_FN" -m -C $PM66_DIR 2>/dev/null
-    STATUS=$?
-    if [ $STATUS -eq 0 ];then
-      #replace rw branch with new populated tmpfs
-      echo "mount -o remount,prepend:${PM66_DIR}=rw,mod:/mnt/tmpfs/pup_rw=ro,del:/mnt/tmpfs/pup_rw /pup_new" #debug
-      mount -o remount,prepend:${PM66_DIR}=rw,mod:/mnt/tmpfs/pup_rw=ro,del:/mnt/tmpfs/pup_rw /pup_new
+    if [ "$UNIONFS" = 'overlay' ]; then
+      mkdir $PM66_DIR/upper $PM66_DIR/work
+      tar xf "$ARCHIVE_FN" -m -C $PM66_DIR/upper 2>/dev/null
       STATUS=$?
+      if [ $STATUS -eq 0 ];then
+        remount_overlay -e "s~upperdir=[^,]+~upperdir=${PM66_DIR}/upper~" -e "s~workdir=[^,]+~workdir=${PM66_DIR}/work~"
+        STATUS=$?
+      fi
+    else
+      tar xf "$ARCHIVE_FN" -m -C $PM66_DIR 2>/dev/null
+      STATUS=$?
+      if [ $STATUS -eq 0 ];then
+        #replace rw branch with new populated tmpfs
+        echo "mount -o remount,prepend:${PM66_DIR}=rw,mod:/mnt/tmpfs/pup_rw=ro,del:/mnt/tmpfs/pup_rw /pup_new" #debug
+        mount -o remount,prepend:${PM66_DIR}=rw,mod:/mnt/tmpfs/pup_rw=ro,del:/mnt/tmpfs/pup_rw /pup_new
+        STATUS=$?
+      fi
     fi
     if [ $STATUS -eq 0 ];then
       SAVE_MP=''
@@ -1237,6 +1319,16 @@ case $PUPMODE in
   SAVE_MP=""
  ;;
 esac
+
+if [ "$SAVEPART" -a "$UNIONFS" = 'overlay' -a -f /pup_new/etc/rc.d/BOOTCONFIG ]; then
+ EXTRASFSLIST=""
+ . /pup_new/etc/rc.d/BOOTCONFIG
+ for ONE_SFS in $EXTRASFSLIST; do
+  LOOP=`losetup -f`
+  find_onepupdrv "$SAVEPART" "" "$ONE_SFS" "p" "1"
+  [ "$ONE_FN" ] && { LOADMSG="extra"; setup_onepupdrv "$ONE_PART,$ONE_FS,$ONE_FN" "ro${LOOP#/dev/loop}" "p"; }
+ done
+fi
 
 umount_unneeded
 
@@ -1275,7 +1367,7 @@ echo "PSAVEMARK='$PSAVEMARK'"
 echo "PSAVEPART='$PSAVEPART'"
 echo "PSAVEDIR='$SAVE_BP_DIR'"
 echo "PSUBDIR='$PSUBDIR'"
-echo "PUNIONFS='aufs'"
+echo "PUNIONFS='$UNIONFS'"
 echo "DOIMODS='yes'"
 echo "DOMIBS='no'"
 [ -f /sbin/set_plang ] && plang_pupstate #echo
@@ -1290,19 +1382,21 @@ else
  echo "LASTUNIONRECORD=''" >> /pup_new/etc/rc.d/BOOTCONFIG
 fi
 
-echo -n "${L_SWITCH_ROOT}" > /dev/console
+echo -n "$(printf "${L_SWITCH_ROOT}" "${UNIONFS}")" >/dev/console
 
 echo "Moving mountpoints to /pup_new/initrd for after switch..." #debug
 rm -r -f "/pup_new/initrd${SAVE_LAYER}"
+OPT="move"
+[ "$UNIONFS" = 'overlay' ] && OPT="bind"
 for ONEMNT in $(mount | cut -f 3 -d ' ' | grep -v 'pup_new' | grep '^/pup_' | tr '\n' ' ');do
  mkdir -p /pup_new/initrd${ONEMNT}
- echo "mount -o move $ONEMNT /pup_new/initrd${ONEMNT}" #debug
- mount -o move $ONEMNT /pup_new/initrd${ONEMNT}
+ echo "mount -o $OPT $ONEMNT /pup_new/initrd${ONEMNT}" #debug
+ mount -o $OPT $ONEMNT /pup_new/initrd${ONEMNT}
 done
 for ONEMNT in $(mount | cut -f 3 -d ' ' | grep '^/mnt/' | tr '\n' ' ');do
  mkdir -p /pup_new/initrd${ONEMNT}
- echo "mount -o move $ONEMNT /pup_new/initrd${ONEMNT}" #debug
- mount -o move $ONEMNT /pup_new/initrd${ONEMNT}
+ echo "mount -o $OPT $ONEMNT /pup_new/initrd${ONEMNT}" #debug
+ mount -o $OPT $ONEMNT /pup_new/initrd${ONEMNT}
 done
 
 echo -------------------- # debug
@@ -1324,7 +1418,7 @@ echo "SAVE_LAYER=${SAVE_LAYER}" #debug
 # (for savefiles and savepartitions the SAVE_LAYER is not a symlink)
 if [ "$PUPSAVE" ];then
  if [ "$SAVE_LAYER" -a -L "$SAVE_LAYER" ];then
-  ln -sv "/initrd${SAVE_FN}" "/pup_new/initrd${SAVE_LAYER}" #for after switch
+  ln -sv "/initrd`readlink ${SAVE_LAYER}`" "/pup_new/initrd${SAVE_LAYER}" #for after switch
  fi
 fi
 
