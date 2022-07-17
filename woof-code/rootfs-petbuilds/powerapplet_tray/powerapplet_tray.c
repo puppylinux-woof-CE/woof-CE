@@ -207,7 +207,7 @@ gboolean Update(gpointer ptr) {
 
 void tray_icon_on_click(GtkStatusIcon *status_icon, gpointer user_data) {
     int success = 0;
-    success = system(("for i in /sys/class/power_supply/*; do cd $i; [ \"`cat type`\" != Battery ] && continue; [ ! -e scope ] && break; [ \"`cat scope`\" = System ] && break; done; gxmessage -center -fn \"mono 12\" -title \"Battery Info\" -borderless -buttons OK:0 -bg thistle \"$(for i in * ; do [ \"$i\" = 'uevent' ] && continue; [ -d \"$i\" ] && continue; echo -n \"${i}: \" && cat $i ; done)\" & "));
+    success = system("batinfo");
     if (success != 0) {printf("system gxmessage call failed with %d\n", success);}
 }
 
