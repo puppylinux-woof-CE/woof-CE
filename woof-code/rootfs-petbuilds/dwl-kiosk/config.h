@@ -99,7 +99,8 @@ static const double accel_speed = 0.0;
 #define SHCMD(cmd) { .v = (const char*[]){ "/bin/sh", "-c", cmd, NULL } }
 
 /* commands */
-static const char *termcmd[] = { "defaultterminal", NULL };
+static const char *termcmd[] = { "footclient", NULL };
+static const char *defaulttermcmd[] = { "defaultterminal", NULL };
 static const char *runcmd[] = { "defaultrun", NULL };
 static const char *lockcmd[] = { "puplock", NULL };
 static const char *menucmd[] = { "bemenu-run", NULL };
@@ -117,7 +118,7 @@ static const Key keys[] = {
 	{ MODKEY|WLR_MODIFIER_SHIFT, XKB_KEY_Return,     spawn,          {.v = termcmd} },
 #endif
 	{ MODKEY,                    XKB_KEY_Tab,        nextstacked,    {0} },
-	{ MODKEY|WLR_MODIFIER_CTRL,  XKB_KEY_t,          spawn,          {.v = termcmd} },
+	{ MODKEY|WLR_MODIFIER_CTRL,  XKB_KEY_t,          spawn,          {.v = defaulttermcmd} },
 	{ MODKEY,                    XKB_KEY_F2,         spawn,          {.v = runcmd} },
 	{ MODKEY,                    XKB_KEY_F4,         killclient,     {0} },
 	{ 0,                         XKB_KEY_XF86MonBrightnessUp,        spawn,          {.v = brightnessupcmd} },
