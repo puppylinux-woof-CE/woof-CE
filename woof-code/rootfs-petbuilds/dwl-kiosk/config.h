@@ -88,7 +88,7 @@ static const enum libinput_config_accel_profile accel_profile = LIBINPUT_CONFIG_
 static const double accel_speed = 0.0;
 
 /* If you want to use the windows key change this to WLR_MODIFIER_LOGO */
-#define MODKEY WLR_MODIFIER_ALT
+#define MODKEY WLR_MODIFIER_LOGO
 #define TAGKEYS(KEY,SKEY,TAG) \
 	{ WLR_MODIFIER_LOGO,                    KEY,            view,            {.ui = 1 << TAG} }, \
 	{ WLR_MODIFIER_LOGO|WLR_MODIFIER_CTRL,  KEY,            toggleview,      {.ui = 1 << TAG} }, \
@@ -111,26 +111,10 @@ static const char *volumedowncmd[] = { "pactl", "set-sink-volume", "@DEFAULT_SIN
 static const char *screenshotcmd[] = { "defaultscreenshot", NULL };
 
 static const Key keys[] = {
-#if 0
 	/* Note that Shift changes certain key codes: c -> C, 2 -> at, etc. */
 	/* modifier                  key                 function        argument */
 	{ MODKEY,                    XKB_KEY_p,          spawn,          {.v = menucmd} },
 	{ MODKEY|WLR_MODIFIER_SHIFT, XKB_KEY_Return,     spawn,          {.v = termcmd} },
-#endif
-	{ MODKEY,                    XKB_KEY_Tab,        nextstacked,    {0} },
-	{ MODKEY|WLR_MODIFIER_CTRL,  XKB_KEY_t,          spawn,          {.v = defaulttermcmd} },
-	{ MODKEY,                    XKB_KEY_F2,         spawn,          {.v = runcmd} },
-	{ MODKEY,                    XKB_KEY_F4,         killclient,     {0} },
-	{ 0,                         XKB_KEY_XF86MonBrightnessUp,        spawn,          {.v = brightnessupcmd} },
-	{ 0,                         XKB_KEY_XF86MonBrightnessDown,      spawn,          {.v = brightnessdowncmd} },
-	{ 0,                         XKB_KEY_XF86AudioRaiseVolume,       spawn,          {.v = volumeupcmd} },
-	{ 0,                         XKB_KEY_XF86AudioLowerVolume,       spawn,          {.v = volumedowncmd} },
-	{ 0,                         XKB_KEY_Print,                      spawn,          {.v = screenshotcmd} },
-	{ WLR_MODIFIER_LOGO,         XKB_KEY_r,          spawn,          {.v = runcmd} },
-	{ WLR_MODIFIER_LOGO,         XKB_KEY_l,          spawn,          {.v = lockcmd} },
-	{ WLR_MODIFIER_LOGO,         XKB_KEY_Up,         togglemaximizesel,          {0} },
-	{ WLR_MODIFIER_LOGO,         XKB_KEY_Down,       toggleminimizesel,          {0} },
-#if 0
 	{ MODKEY,                    XKB_KEY_j,          focusstack,     {.i = +1} },
 	{ MODKEY,                    XKB_KEY_k,          focusstack,     {.i = -1} },
 	{ MODKEY,                    XKB_KEY_i,          incnmaster,     {.i = +1} },
@@ -152,7 +136,6 @@ static const Key keys[] = {
 	{ MODKEY,                    XKB_KEY_period,     focusmon,       {.i = WLR_DIRECTION_RIGHT} },
 	{ MODKEY|WLR_MODIFIER_SHIFT, XKB_KEY_less,       tagmon,         {.i = WLR_DIRECTION_LEFT} },
 	{ MODKEY|WLR_MODIFIER_SHIFT, XKB_KEY_greater,    tagmon,         {.i = WLR_DIRECTION_RIGHT} },
-#endif
 	TAGKEYS(          XKB_KEY_1, XKB_KEY_exclam,                     0),
 	TAGKEYS(          XKB_KEY_2, XKB_KEY_at,                         1),
 	TAGKEYS(          XKB_KEY_3, XKB_KEY_numbersign,                 2),
@@ -162,19 +145,34 @@ static const Key keys[] = {
 	TAGKEYS(          XKB_KEY_7, XKB_KEY_ampersand,                  6),
 	TAGKEYS(          XKB_KEY_8, XKB_KEY_asterisk,                   7),
 	TAGKEYS(          XKB_KEY_9, XKB_KEY_parenleft,                  8),
-#if 0
 	{ MODKEY|WLR_MODIFIER_SHIFT, XKB_KEY_Q,          quit,           {0} },
-#endif
 
 	/* Ctrl-Alt-Backspace and Ctrl-Alt-Fx used to be handled by X server */
 	{ WLR_MODIFIER_CTRL|WLR_MODIFIER_ALT,XKB_KEY_Terminate_Server, quit, {0} },
 #define CHVT(n) { WLR_MODIFIER_CTRL|WLR_MODIFIER_ALT,XKB_KEY_XF86Switch_VT_##n, chvt, {.ui = (n)} }
 	CHVT(1), CHVT(2), CHVT(3), CHVT(4), CHVT(5), CHVT(6),
 	CHVT(7), CHVT(8), CHVT(9), CHVT(10), CHVT(11), CHVT(12),
+
+	{ WLR_MODIFIER_ALT|WLR_MODIFIER_CTRL,  XKB_KEY_t,          spawn,          {.v = defaulttermcmd} },
+
+	{ WLR_MODIFIER_ALT,          XKB_KEY_Tab,        focusstack,     {.i = +1} },
+	{ WLR_MODIFIER_ALT,          XKB_KEY_F2,         spawn,          {.v = runcmd} },
+	{ WLR_MODIFIER_ALT,          XKB_KEY_F4,         killclient,     {0} },
+	{ MODKEY,                    XKB_KEY_r,          spawn,          {.v = runcmd} },
+	{ MODKEY,                    XKB_KEY_Up,         togglemaximizesel,          {0} },
+	{ MODKEY,                    XKB_KEY_Down,       toggleminimizesel,          {0} },
+
+	{ MODKEY|WLR_MODIFIER_SHIFT,                    XKB_KEY_l,          spawn,          {.v = lockcmd} },
+
+	{ 0,                         XKB_KEY_XF86MonBrightnessUp,        spawn,          {.v = brightnessupcmd} },
+	{ 0,                         XKB_KEY_XF86MonBrightnessDown,      spawn,          {.v = brightnessdowncmd} },
+	{ 0,                         XKB_KEY_XF86AudioRaiseVolume,       spawn,          {.v = volumeupcmd} },
+	{ 0,                         XKB_KEY_XF86AudioLowerVolume,       spawn,          {.v = volumedowncmd} },
+	{ 0,                         XKB_KEY_Print,                      spawn,          {.v = screenshotcmd} },
 };
 
 static const Button buttons[] = {
-	{ MODKEY, BTN_LEFT,   moveresize,     {.ui = CurMove} },
-	{ MODKEY, BTN_MIDDLE, togglefloating, {0} },
-	{ MODKEY, BTN_RIGHT,  moveresize,     {.ui = CurResize} },
+	{ WLR_MODIFIER_ALT, BTN_LEFT,   moveresize,     {.ui = CurMove} },
+	{ WLR_MODIFIER_ALT, BTN_MIDDLE, togglefloating, {0} },
+	{ WLR_MODIFIER_ALT, BTN_RIGHT,  moveresize,     {.ui = CurResize} },
 };
