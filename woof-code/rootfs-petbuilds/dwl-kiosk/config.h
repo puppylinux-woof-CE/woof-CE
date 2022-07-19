@@ -108,6 +108,7 @@ static const char *brightnessupcmd[] = { "brightnessctl", "set", "+10%", NULL };
 static const char *brightnessdowncmd[] = { "brightnessctl", "set", "10%-", NULL };
 static const char *volumeupcmd[] = { "pactl", "set-sink-volume", "@DEFAULT_SINK@", "+1%", NULL };
 static const char *volumedowncmd[] = { "pactl", "set-sink-volume", "@DEFAULT_SINK@", "-1%", NULL };
+static const char *mutecmd[] = { "pactl", "set-sink-mute", "@DEFAULT_SINK@", "toggle", NULL };
 static const char *screenshotcmd[] = { "defaultscreenshot", NULL };
 
 static const Key keys[] = {
@@ -168,6 +169,7 @@ static const Key keys[] = {
 	{ 0,                         XKB_KEY_XF86MonBrightnessDown,      spawn,          {.v = brightnessdowncmd} },
 	{ 0,                         XKB_KEY_XF86AudioRaiseVolume,       spawn,          {.v = volumeupcmd} },
 	{ 0,                         XKB_KEY_XF86AudioLowerVolume,       spawn,          {.v = volumedowncmd} },
+	{ 0,                         XKB_KEY_XF86AudioMute,              spawn,          {.v = mutecmd} },
 	{ 0,                         XKB_KEY_Print,                      spawn,          {.v = screenshotcmd} },
 };
 
