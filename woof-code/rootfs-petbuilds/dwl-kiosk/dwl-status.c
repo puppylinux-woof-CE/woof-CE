@@ -30,10 +30,17 @@ int main(int argc, char *argv[])
 		return EXIT_FAILURE;
 	}
 
-	puts("1_sel|bool|true\n1_occ|bool|false");
-	for (i = 2; i <= 9; ++i) printf("%d_sel|bool|false\n%d_occ|bool|false\n", i, i);
-	puts("title|string|\nlayout|string|\n");
-	fflush(stdout);
+	setlinebuf(stdout);
+
+	puts("1_sel|bool|true");
+	puts("1_occ|bool|false");
+	for (i = 2; i <= 9; ++i) {
+		printf("%d_sel|bool|false\n", i);
+		printf("%d_occ|bool|false\n", i);
+	}
+	puts("title|string|");
+	puts("layout|string|");
+	putchar('\n');
 
 	while ((len = recvfrom(s, buf, sizeof(buf) - 1, 0, NULL, NULL)) > 0) {
 		buf[len] = '\0';
@@ -65,8 +72,8 @@ int main(int argc, char *argv[])
 		}
 		puts("title|string|");
 layout:
-		printf("layout|string|%s\n\n", layout);
-		fflush(stdout);
+		printf("layout|string|%s\n", layout);
+		putchar('\n');
 		ntitles = selocc = seltags = 0;
 		selmon[0] = layout[0] = '\0';
 	}
