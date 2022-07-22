@@ -165,7 +165,7 @@ static const Key keys[] = {
 	{ MODKEY,                    XKB_KEY_Up,         togglemaximizesel,          {0} },
 	{ MODKEY,                    XKB_KEY_Down,       toggleminimizesel,          {0} },
 
-	{ MODKEY|WLR_MODIFIER_SHIFT,                    XKB_KEY_l,          spawn,          {.v = lockcmd} },
+	{ MODKEY|WLR_MODIFIER_SHIFT,                    XKB_KEY_L,          spawn,          {.v = lockcmd} },
 
 	{ 0,                         XKB_KEY_XF86MonBrightnessUp,        spawn,          {.v = brightnessupcmd} },
 	{ 0,                         XKB_KEY_XF86MonBrightnessDown,      spawn,          {.v = brightnessdowncmd} },
