@@ -6,13 +6,13 @@
 #include <gio/gio.h>
 
 // copy-paste of powerapplet_tray from 3e8f8e2
-static gboolean
-update(gpointer user_data)
+static float
+get(void)
 {
 	glob_t g = {0};
 	char type[sizeof("Battery\n")], scope[sizeof("System\n")], status[sizeof("Discharging\n")];
 	FILE *fp;
-	float batpercentf;
+	float batpercentf = -1;
 	long full, now;
 	int energy = 0;
 
@@ -51,12 +51,26 @@ update(gpointer user_data)
 				batpercentf = (((float)now * 100) / full);
 			}
 
-			g_printf("capacity|int|%d\n\n", batpercentf <= 20 ? (int)floorf(batpercentf) : (int)roundf(batpercentf));
 			break;
 		}
 	}
 
 	globfree(&g);
+	return batpercentf;
+}
+
+static float
+print(void)
+{
+	float batpercentf = get();
+	g_printf("capacity|int|%d\n\n", batpercentf <= 20 ? (int)floorf(batpercentf) : (int)roundf(batpercentf));
+	return batpercentf;
+}
+
+static gboolean
+update(gpointer user_data)
+{
+	print();
 	return TRUE;
 }
 
@@ -68,8 +82,8 @@ int main(int argc, char *argv[])
 	setlinebuf(stdout);
 
 	loop = g_main_loop_new(NULL, 0);
-	tag = g_timeout_add(15000, update, NULL);
-	update(NULL);
+	if (print() != -1)
+		tag = g_timeout_add(15000, update, NULL);
 	g_main_loop_run(loop);
 	g_source_remove(tag);
 	g_main_loop_unref(loop);
