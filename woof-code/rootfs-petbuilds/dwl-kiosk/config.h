@@ -16,8 +16,8 @@ static const Rule rules[] = {
 	/* app_id     title       tags mask     isfloating   monitor */
 	/* examples:
 	{ "Gimp",     NULL,       0,            1,           -1 },
-	*/
 	{ "firefox",  NULL,       1 << 8,       0,           -1 },
+	*/
 };
 
 /* layout(s) */
