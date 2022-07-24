@@ -1,4 +1,4 @@
-# woof - the Puppy builder
+# woof - the Puppy builder.
 
 Currently supported: [![Build status](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/build.yml/badge.svg)](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/build.yml)
 
