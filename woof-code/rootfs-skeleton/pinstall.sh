@@ -98,7 +98,6 @@ curl -s https://dl.jami.net/public-key.gpg | sudo tee /usr/share/keyrings/jami-a
 echo 'deb [signed-by=/usr/share/keyrings/jami-archive-keyring.gpg] https://dl.jami.net/nightly/debian_11/ jami main' > /etc/apt/sources.list.d/jami.list
 apt-get update
 apt-get -y install jami
-apt-get -y install jami-all_amd64.deb
 echo "MOOOOOOO"
 
 ### END ###
