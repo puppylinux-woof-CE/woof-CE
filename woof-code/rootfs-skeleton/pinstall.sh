@@ -92,7 +92,13 @@ exec '${DEFBROWSER}' "$@"
 fi
 
 echo "Installing Jami"
-wget https://dl.jami.net/ring-manual/debian_11/jami-all_amd64.deb
+apt-get update
+apt-get -y install gnupg dirmngr ca-certificates curl --no-install-recommends
+curl -s https://dl.jami.net/public-key.gpg | sudo tee /usr/share/keyrings/jami-archive-keyring.gpg
+echo 'deb [signed-by=/usr/share/keyrings/jami-archive-keyring.gpg] https://dl.jami.net/nightly/debian_11/ jami main' > /etc/apt/sources.list.d/jami.list
+apt-get update
+apt-get -y install jami
 apt-get -y install jami-all_amd64.deb
+echo "MOOOOOOO"
 
 ### END ###
