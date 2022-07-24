@@ -158,8 +158,6 @@ cat ../status/findpkgs_FINAL_PKGS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSIO
 	done < /tmp/$NAME-sorted.list
 
 	while read FILE; do
-    echo "DEBUG PIETER filerm"
-    echo "$FILE"
 		[ ! -d "bdrv/$FILE" ] || rmdir "bdrv/$FILE" 2>/dev/null || :
 	done < /tmp/$NAME-sorted.list
 
@@ -173,7 +171,8 @@ echo "VERSION_CODENAME=${DISTRO_COMPAT_VERSION}" >> bdrv/usr/lib/os-release
 chmod 644 bdrv/usr/lib/os-release
 
 # prevent updates
-chroot bdrv apt-mark hold `chroot bdrv dpkg-query -f '${binary:Package}\n' -W | tr '\n' ' '`
+#UNCOMMENT LATER PIETER
+#chroot bdrv apt-mark hold `chroot bdrv dpkg-query -f '${binary:Package}\n' -W | tr '\n' ' '`
 
 # open .deb files with gdebi
 if [ -e rootfs-complete/usr/local/bin/rox ]; then
