@@ -91,4 +91,8 @@ exec '${DEFBROWSER}' "$@"
 	fi
 fi
 
+echo "Installing Jami"
+wget https://dl.jami.net/ring-manual/debian_11/jami-all_amd64.deb
+apt-get -y install jami-all_amd64.deb
+
 ### END ###
