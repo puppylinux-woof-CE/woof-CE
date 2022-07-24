@@ -112,6 +112,13 @@ umount -l bdrv/etc/resolv.conf
 # remove any unneeded packages
 chroot bdrv apt-get autoremove -y --purge
 
+# add jami stuff...
+chroot bdrv wget https://dl.jami.net/public-key.gpg -O /usr/share/keyrings/jami-archive-keyring.gpg
+chroot bdrv echo 'deb [signed-by=/usr/share/keyrings/jami-archive-keyring.gpg] https://dl.jami.net/nightly/debian_11/ jami main' > /etc/apt/sources.list.d/jami.list
+chroot bdrv apt-get update
+chroot bdrv apt -y install --no-install-recommends jami
+echo "DONE INSTALL JAMI PIETER"
+
 # prevent updates
 chroot bdrv apt-mark hold `chroot bdrv dpkg-query -f '${binary:Package}\n' -W | tr '\n' ' '`
 
