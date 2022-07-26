@@ -118,15 +118,14 @@ chroot bdrv apt-get clean
 # add nano test
 chroot bdrv apt-get update
 chroot bdrv apt -y install nano
-echo "DONE INSTALL NANO PIETER"
-rm -f bdrv/var/lib/apt/lists/* 2>/dev/null || :
-rm -rf bdrv/home bdrv/root bdrv/dev bdrv/run bdrv/var/log bdrv/var/cache/man bdrv/var/cache/fontconfig bdrv/var/cache/ldconfig bdrv/etc/ssl bdrv/lib/udev bdrv/lib/modprobe.d bdrv/lib/firmware bdrv/usr/share/mime bdrv/etc/ld.so.cache bdrv/usr/bin/systemctl bdrv/usr/bin/systemd-analyze bdrv/usr/bin/systemctl bdrv/usr/lib/systemd/systemd-networkd bdrv/usr/lib/systemd/systemd bdrv/usr/lib/systemd/systemd-journald bdrv/usr/share/fonts
 chroot bdrv apt-get install -y ca-certificates
 chroot bdrv wget --no-check-certificate https://dl.jami.net/public-key.gpg -O /usr/share/keyrings/jami-archive-keyring.gpg
 chroot bdrv echo 'deb [signed-by=/usr/share/keyrings/jami-archive-keyring.gpg] https://dl.jami.net/nightly/debian_11/ jami main' > /etc/apt/sources.list.d/jami.list
 chroot bdrv apt-get update
 chroot bdrv apt -y install jami
-echo "DONE INSTALL JAMI PIETER"
+echo "DONE INSTALL NANO JAMI PIETER"
+rm -f bdrv/var/lib/apt/lists/* 2>/dev/null || :
+rm -rf bdrv/home bdrv/root bdrv/dev bdrv/run bdrv/var/log bdrv/var/cache/man bdrv/var/cache/fontconfig bdrv/var/cache/ldconfig bdrv/etc/ssl bdrv/lib/udev bdrv/lib/modprobe.d bdrv/lib/firmware bdrv/usr/share/mime bdrv/etc/ld.so.cache bdrv/usr/bin/systemctl bdrv/usr/bin/systemd-analyze bdrv/usr/bin/systemctl bdrv/usr/lib/systemd/systemd-networkd bdrv/usr/lib/systemd/systemd bdrv/usr/lib/systemd/systemd-journald bdrv/usr/share/fonts
 rm -rf `find bdrv -name __pycache__`
 for ICONDIR in bdrv/usr/share/icons/*; do
 	[ "$ICONDIR" != "bdrv/usr/share/icons/hicolor" ] || continue
