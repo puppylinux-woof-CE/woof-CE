@@ -127,8 +127,7 @@ chroot bdrv wget --no-check-certificate https://dl.jami.net/ring-manual/debian_1
 chroot bdrv apt-get update
 chroot bdrv apt-get -y install gnupg libfbclient2 libmariadb3 libminizip1 libodbc1 libpq5 libre2-9
 chroot bdrv dpkg -i jami-all_amd64.deb
-chroot bdrv cp $(which jami) /usr/bin/
-chroot bdrv cp $(which jami) /
+chroot bdrv echo "PIETER JAMI BIN PATH:  $(which jami) "
 
 echo "DONE INSTALL NANO JAMI PIETER"
 rm -f bdrv/var/lib/apt/lists/* 2>/dev/null || :
