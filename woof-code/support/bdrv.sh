@@ -128,9 +128,9 @@ chroot bdrv apt-get update
 chroot bdrv apt-get -y install gnupg libfbclient2 libmariadb3 libminizip1 libodbc1 libpq5 libre2-9
 chroot bdrv dpkg -i jami-all_amd64.deb
 chroot bdrv echo "PIETER JAMI BIN PATH:  $(which jami) "
-chroot bdrv cp /usr/bin/jami-qt /
-chroot bdrv cp /usr/bin/jami-qt /bin/
 chroot bdrv apt-get -y install libjsoncpp24 --reinstall
+chroot bdrv cp /usr/bin/jami-qt /
+#chroot bdrv cp /usr/bin/jami-qt /bin/
 
 echo "DONE INSTALL NANO JAMI PIETER"
 rm -f bdrv/var/lib/apt/lists/* 2>/dev/null || :
