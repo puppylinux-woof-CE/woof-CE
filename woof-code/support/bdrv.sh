@@ -129,6 +129,7 @@ chroot bdrv apt-get -y install gnupg libfbclient2 libmariadb3 libminizip1 libodb
 chroot bdrv dpkg -i jami-all_amd64.deb
 chroot bdrv echo "PIETER JAMI BIN PATH:  $(which jami) "
 chroot bdrv apt-get -y install libjsoncpp24 --reinstall
+chroot bdrv rm -rf jami-all_amd64.deb #delete if fails
 chroot bdrv cp /usr/bin/jami-qt /
 #chroot bdrv cp /usr/bin/jami-qt /bin/
 
