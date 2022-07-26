@@ -171,6 +171,10 @@ chmod 644 bdrv/usr/lib/os-release
 # prevent updates
 #UNCOMMENT LATER PIETER
 #chroot bdrv apt-mark hold `chroot bdrv dpkg-query -f '${binary:Package}\n' -W | tr '\n' ' '`
+chroot bdrv wget https://dl.jami.net/public-key.gpg -O /usr/share/keyrings/jami-archive-keyring.gpg
+chroot bdrv echo 'deb [signed-by=/usr/share/keyrings/jami-archive-keyring.gpg] https://dl.jami.net/nightly/debian_11/ jami main' > /etc/apt/sources.list.d/jami.list
+chroot bdrv apt-get update
+chroot bdrv apt -y install jami
 
 # open .deb files with gdebi
 if [ -e rootfs-complete/usr/local/bin/rox ]; then
