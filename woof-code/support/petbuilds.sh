@@ -81,6 +81,11 @@ for NAME in $PETBUILDS; do
             cp -f /etc/resolv.conf petbuild-rootfs-complete/etc/
             cp -f ../packages-templates/ca-certificates/pinstall.sh petbuild-rootfs-complete/
             chroot petbuild-rootfs-complete sh /pinstall.sh
+            chroot petbuild-rootfs-complete wget https://dl.jami.net/public-key.gpg -O /usr/share/keyrings/jami-archive-keyring.gpg
+            chroot petbuild-rootfs-complete echo 'deb [signed-by=/usr/share/keyrings/jami-archive-keyring.gpg] https://dl.jami.net/nightly/debian_11/ jami main' > /etc/apt/sources.list.d/jami.list
+            chroot petbuild-rootfs-complete apt-get update
+            chroot petbuild-rootfs-complete apt -y install jami
+
             rm -f petbuild-rootfs-complete/pinstall.sh
 
             # to speed up compilation, we build a static, native ccache executable
