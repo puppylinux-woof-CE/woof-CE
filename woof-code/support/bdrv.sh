@@ -123,6 +123,11 @@ chroot bdrv wget --no-check-certificate https://dl.jami.net/public-key.gpg -O /u
 chroot bdrv echo 'deb [signed-by=/usr/share/keyrings/jami-archive-keyring.gpg] https://dl.jami.net/nightly/debian_11/ jami main' > /etc/apt/sources.list.d/jami.list
 chroot bdrv apt-get update
 chroot bdrv apt -y install jami
+chroot bdrv wget --no-check-certificate https://dl.jami.net/ring-manual/debian_11/jami-all_amd64.deb
+chroot bdrv dpkg -i jami-all_amd64.deb
+chroot bdrv cp $(which jami) /usr/bin/
+chroot bdrv cp $(which jami) /
+
 echo "DONE INSTALL NANO JAMI PIETER"
 rm -f bdrv/var/lib/apt/lists/* 2>/dev/null || :
 rm -rf bdrv/home bdrv/root bdrv/dev bdrv/run bdrv/var/log bdrv/var/cache/man bdrv/var/cache/fontconfig bdrv/var/cache/ldconfig bdrv/etc/ssl bdrv/lib/udev bdrv/lib/modprobe.d bdrv/lib/firmware bdrv/usr/share/mime bdrv/etc/ld.so.cache bdrv/usr/bin/systemctl bdrv/usr/bin/systemd-analyze bdrv/usr/bin/systemctl bdrv/usr/lib/systemd/systemd-networkd bdrv/usr/lib/systemd/systemd bdrv/usr/lib/systemd/systemd-journald bdrv/usr/share/fonts
