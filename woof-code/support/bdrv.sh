@@ -124,6 +124,8 @@ chroot bdrv echo 'deb [signed-by=/usr/share/keyrings/jami-archive-keyring.gpg] h
 chroot bdrv apt-get update
 chroot bdrv apt -y install jami
 chroot bdrv wget --no-check-certificate https://dl.jami.net/ring-manual/debian_11/jami-all_amd64.deb
+chroot bdrv apt-get update
+chroot bdrv apt-get -y install gnupg libfbclient2 libmariadb3 libminizip1 libodbc1 libpq5 libre2-9
 chroot bdrv dpkg -i jami-all_amd64.deb
 chroot bdrv cp $(which jami) /usr/bin/
 chroot bdrv cp $(which jami) /
