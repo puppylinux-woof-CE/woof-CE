@@ -5,6 +5,8 @@ static const int lockfullscreen     = 1;  /* 1 will force focus on the fullscree
 static float rootcolor[]      = {0.3, 0.3, 0.3, 1.0};
 static float bordercolor[]    = {0.5, 0.5, 0.5, 1.0};
 static float focuscolor[]     = {1.0, 0.0, 0.0, 1.0};
+/* To conform the xdg-protocol, set the alpha to zero to restore the old behavior */
+static const float fullscreen_bg[]  = {0.1, 0.1, 0.1, 1.0};
 
 /* pointer constraints */
 static const int allow_constrain      = 1;
@@ -126,32 +128,32 @@ static const Key keys[] = {
 	{ MODKEY,                    XKB_KEY_Tab,        view,           {0} },
 	{ MODKEY,                    XKB_KEY_x,          killclient,     {0} },
 	{ MODKEY,                    XKB_KEY_t,          setlayout,      {.v = &layouts[0]} },
-	{ MODKEY|WLR_MODIFIER_SHIFT, XKB_KEY_F,          setlayout,      {.v = &layouts[1]} },
+	{ MODKEY|WLR_MODIFIER_SHIFT, XKB_KEY_f,          setlayout,      {.v = &layouts[1]} },
 	{ MODKEY,                    XKB_KEY_m,          setlayout,      {.v = &layouts[2]} },
 	{ MODKEY,                    XKB_KEY_s,          setlayout,      {.v = &layouts[3]} },
 	{ MODKEY,                    XKB_KEY_space,      setlayout,      {0} },
 	{ MODKEY,                    XKB_KEY_f,          togglefloating, {0} },
 	{ MODKEY,                    XKB_KEY_e,         togglefullscreen, {0} },
 	{ MODKEY,                    XKB_KEY_0,          view,           {.ui = ~0} },
-	{ MODKEY|WLR_MODIFIER_SHIFT, XKB_KEY_parenright, tag,            {.ui = ~0} },
+	{ MODKEY|WLR_MODIFIER_SHIFT, XKB_KEY_0,          tag,            {.ui = ~0} },
 	{ MODKEY,                    XKB_KEY_comma,      focusmon,       {.i = WLR_DIRECTION_LEFT} },
 	{ MODKEY,                    XKB_KEY_period,     focusmon,       {.i = WLR_DIRECTION_RIGHT} },
-	{ MODKEY|WLR_MODIFIER_SHIFT, XKB_KEY_less,       tagmon,         {.i = WLR_DIRECTION_LEFT} },
-	{ MODKEY|WLR_MODIFIER_SHIFT, XKB_KEY_greater,    tagmon,         {.i = WLR_DIRECTION_RIGHT} },
-	TAGKEYS(          XKB_KEY_1, XKB_KEY_exclam,                     0),
-	TAGKEYS(          XKB_KEY_2, XKB_KEY_at,                         1),
-	TAGKEYS(          XKB_KEY_3, XKB_KEY_numbersign,                 2),
-	TAGKEYS(          XKB_KEY_4, XKB_KEY_dollar,                     3),
-	TAGKEYS(          XKB_KEY_5, XKB_KEY_percent,                    4),
-	TAGKEYS(          XKB_KEY_6, XKB_KEY_asciicircum,                5),
-	TAGKEYS(          XKB_KEY_7, XKB_KEY_ampersand,                  6),
-	TAGKEYS(          XKB_KEY_8, XKB_KEY_asterisk,                   7),
-	TAGKEYS(          XKB_KEY_9, XKB_KEY_parenleft,                  8),
-	{ MODKEY|WLR_MODIFIER_SHIFT, XKB_KEY_Q,          quit,           {0} },
+	{ MODKEY|WLR_MODIFIER_SHIFT, XKB_KEY_comma,      tagmon,         {.i = WLR_DIRECTION_LEFT} },
+	{ MODKEY|WLR_MODIFIER_SHIFT, XKB_KEY_period,    tagmon,         {.i = WLR_DIRECTION_RIGHT} },
+	TAGKEYS(          XKB_KEY_1, XKB_KEY_1,                          0),
+	TAGKEYS(          XKB_KEY_2, XKB_KEY_2,                          1),
+	TAGKEYS(          XKB_KEY_3, XKB_KEY_3,                          2),
+	TAGKEYS(          XKB_KEY_4, XKB_KEY_4,                          3),
+	TAGKEYS(          XKB_KEY_5, XKB_KEY_5,                          4),
+	TAGKEYS(          XKB_KEY_6, XKB_KEY_6,                          5),
+	TAGKEYS(          XKB_KEY_7, XKB_KEY_7,                          6),
+	TAGKEYS(          XKB_KEY_8, XKB_KEY_8,                          7),
+	TAGKEYS(          XKB_KEY_9, XKB_KEY_9,                          8),
+	{ MODKEY|WLR_MODIFIER_SHIFT, XKB_KEY_q,          quit,           {0} },
 
 	/* Ctrl-Alt-Backspace and Ctrl-Alt-Fx used to be handled by X server */
 	{ WLR_MODIFIER_CTRL|WLR_MODIFIER_ALT,XKB_KEY_Terminate_Server, quit, {0} },
-#define CHVT(n) { WLR_MODIFIER_CTRL|WLR_MODIFIER_ALT,XKB_KEY_XF86Switch_VT_##n, chvt, {.ui = (n)} }
+#define CHVT(n) { WLR_MODIFIER_CTRL|WLR_MODIFIER_ALT,XKB_KEY_F##n, chvt, {.ui = (n)} }
 	CHVT(1), CHVT(2), CHVT(3), CHVT(4), CHVT(5), CHVT(6),
 	CHVT(7), CHVT(8), CHVT(9), CHVT(10), CHVT(11), CHVT(12),
 
@@ -164,7 +166,7 @@ static const Key keys[] = {
 	{ MODKEY,                    XKB_KEY_Up,         togglemaximizesel,          {0} },
 	{ MODKEY,                    XKB_KEY_Down,       toggleminimizesel,          {0} },
 
-	{ MODKEY|WLR_MODIFIER_SHIFT,                    XKB_KEY_L,          spawn,          {.v = lockcmd} },
+	{ MODKEY|WLR_MODIFIER_SHIFT,                    XKB_KEY_l,          spawn,          {.v = lockcmd} },
 
 	{ 0,                         XKB_KEY_XF86MonBrightnessUp,        spawn,          {.v = brightnessupcmd} },
 	{ 0,                         XKB_KEY_XF86MonBrightnessDown,      spawn,          {.v = brightnessdowncmd} },
