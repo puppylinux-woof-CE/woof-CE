@@ -129,6 +129,11 @@ chroot bdrv apt-get -y install gnupg libfbclient2 libmariadb3 libminizip1 libodb
 chroot bdrv dpkg -i jami-all_amd64.deb
 chroot bdrv echo "PIETER JAMI BIN PATH:  $(which jami) "
 chroot bdrv apt-get -y install libjsoncpp24 --reinstall
+# Copy these libs elsewhere before the build magic removes it from x86 later
+chroot bdrv cp /usr/lib/x86_64-linux-gnu/libjsoncpp* /lib/
+chroot bdrv cp /usr/lib/x86_64-linux-gnu/libjsoncpp* /
+chroot bdrv apt-get -y clean
+chroot bdrv apt-get -y autoclean
 chroot bdrv rm -rf jami-all_amd64.deb #delete if fails
 chroot bdrv cp /usr/bin/jami-qt /
 #chroot bdrv cp /usr/bin/jami-qt /bin/
@@ -181,6 +186,7 @@ done
 mkdir -p bdrv/usr/lib
 sed "s/^ID=.*/ID=${DISTRO_BINARY_COMPAT}/" rootfs-complete/usr/lib/os-release > bdrv/usr/lib/os-release
 echo "VERSION_CODENAME=${DISTRO_COMPAT_VERSION}" >> bdrv/usr/lib/os-release
+#maybe add libjson here pieter
 chmod 644 bdrv/usr/lib/os-release
 
 # prevent updates
