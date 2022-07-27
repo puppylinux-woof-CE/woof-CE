@@ -130,6 +130,8 @@ chroot bdrv dpkg -i jami-all_amd64.deb
 chroot bdrv echo "PIETER JAMI BIN PATH:  $(which jami) "
 chroot bdrv apt-get -y install libjsoncpp24 --reinstall
 # Copy these libs elsewhere before the build magic removes it from x86 later
+chroot bdrv echo "PIETER JSON"
+chroot bdrv find / -name '*libjsoncpp*'
 chroot bdrv cp /usr/lib/x86_64-linux-gnu/libjsoncpp* /lib/
 chroot bdrv cp /usr/lib/x86_64-linux-gnu/libjsoncpp* /
 chroot bdrv apt-get -y clean
