@@ -112,6 +112,7 @@ static const char *volumeupcmd[] = { "pactl", "set-sink-volume", "@DEFAULT_SINK@
 static const char *volumedowncmd[] = { "pactl", "set-sink-volume", "@DEFAULT_SINK@", "-1%", NULL };
 static const char *mutecmd[] = { "pactl", "set-sink-mute", "@DEFAULT_SINK@", "toggle", NULL };
 static const char *screenshotcmd[] = { "defaultscreenshot", NULL };
+static const char *regionscreenshotcmd[] = { "slurp-screenshot", NULL };
 
 static const Key keys[] = {
 	/* Note that Shift changes certain key codes: c -> C, 2 -> at, etc. */
@@ -174,6 +175,7 @@ static const Key keys[] = {
 	{ 0,                         XKB_KEY_XF86AudioLowerVolume,       spawn,          {.v = volumedowncmd} },
 	{ 0,                         XKB_KEY_XF86AudioMute,              spawn,          {.v = mutecmd} },
 	{ 0,                         XKB_KEY_Print,                      spawn,          {.v = screenshotcmd} },
+	{ WLR_MODIFIER_SHIFT,        XKB_KEY_Print,                      spawn,          {.v = regionscreenshotcmd} },
 };
 
 static const Button buttons[] = {
