@@ -6,13 +6,12 @@
 #include <gio/gio.h>
 
 // copy-paste of powerapplet_tray from 3e8f8e2
-static float
-get(void)
+static void
+get(float *batpercentf, int *charging)
 {
 	glob_t g = {0};
 	char type[sizeof("Battery\n")], scope[sizeof("System\n")], status[sizeof("Discharging\n")];
 	FILE *fp;
-	float batpercentf = -1;
 	long full, now;
 	int energy = 0;
 
@@ -42,13 +41,17 @@ get(void)
 			fscanf(fp, "%12s", status);
 			fclose(fp);
 
-			if (strcmp(status, "Full") == 0) batpercentf = 100;
-			else {
+			if (strcmp(status, "Full") == 0) {
+				*batpercentf = 100;
+				*charging = 1;
+			} else {
+				*charging = (g_strcmp0(status, "Charging") == 0);
+
 				if (!(fp = fopen(energy ? "energy_now" : "charge_now", "r"))) continue;
 				fscanf(fp, "%ld", &now);
 				fclose(fp);
 
-				batpercentf = (((float)now * 100) / full);
+				*batpercentf = (((float)now * 100) / full);
 			}
 
 			break;
@@ -56,14 +59,17 @@ get(void)
 	}
 
 	globfree(&g);
-	return batpercentf;
 }
 
 static float
 print(void)
 {
-	float batpercentf = get();
-	g_printf("capacity|int|%d\n\n", batpercentf <= 20 ? (int)floorf(batpercentf) : (int)roundf(batpercentf));
+	float batpercentf = -1;
+	int charging = 0;
+	get(&batpercentf, &charging);
+	g_printf("capacity|int|%d\n", batpercentf <= 20 ? (int)floorf(batpercentf) : (int)roundf(batpercentf));
+	g_printf("charging|bool|%s\n", charging ? "true" : "false");
+	g_printf("\n\n");
 	return batpercentf;
 }
 
