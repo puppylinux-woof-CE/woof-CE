@@ -113,6 +113,7 @@ static const char *volumedowncmd[] = { "pactl", "set-sink-volume", "@DEFAULT_SIN
 static const char *mutecmd[] = { "pactl", "set-sink-mute", "@DEFAULT_SINK@", "toggle", NULL };
 static const char *screenshotcmd[] = { "defaultscreenshot", NULL };
 static const char *regionscreenshotcmd[] = { "slurp-screenshot", NULL };
+static const char *browsercmd[] = { "defaultbrowser", NULL };
 
 static const Key keys[] = {
 	/* Note that Shift changes certain key codes: c -> C, 2 -> at, etc. */
@@ -157,6 +158,8 @@ static const Key keys[] = {
 #define CHVT(n) { WLR_MODIFIER_CTRL|WLR_MODIFIER_ALT,XKB_KEY_F##n, chvt, {.ui = (n)} }
 	CHVT(1), CHVT(2), CHVT(3), CHVT(4), CHVT(5), CHVT(6),
 	CHVT(7), CHVT(8), CHVT(9), CHVT(10), CHVT(11), CHVT(12),
+
+	{ MODKEY,                    XKB_KEY_w,          spawn,          {.v = browsercmd} },
 
 	{ WLR_MODIFIER_ALT|WLR_MODIFIER_CTRL,  XKB_KEY_t,          spawn,          {.v = termcmd} },
 
