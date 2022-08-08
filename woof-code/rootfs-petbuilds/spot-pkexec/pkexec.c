@@ -10,7 +10,7 @@ int main(int argc, char *argv[])
 {
 	static char *ask[32] = {"/usr/sbin/run-as-spot", "/usr/sbin/pkexec-ask"};
 	struct passwd *spot;
-	const char *display, *wayland_display;
+	const char *display, *wayland_display, *gdk_backend;
 	int i, status, fd;
 	pid_t pid;
 	uid_t uid;
@@ -29,6 +29,8 @@ int main(int argc, char *argv[])
 
 	if (wayland_display && !wayland_display[0])
 		return EXIT_FAILURE;
+
+	gdk_backend = getenv("GDK_BACKEND");
 
 	if (geteuid() != 0)
 		return EXIT_FAILURE;
@@ -79,6 +81,9 @@ int main(int argc, char *argv[])
 
 		if (wayland_display && wayland_display[0])
 			setenv("WAYLAND_DISPLAY", wayland_display, 1);
+
+		if (gdk_backend)
+			setenv("GDK_BACKEND", gdk_backend, 1);
 
 		execv(ask[0], ask);
 		exit(EXIT_FAILURE);
