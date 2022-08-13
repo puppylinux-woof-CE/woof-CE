@@ -73,7 +73,7 @@ DL_SAVE_FLAG=$(cat /var/local/petget/nd_category 2>/dev/null)
 
 clean_and_die () {
   rm -f /var/packages/${DLPKG_NAME}.files
-  [ "$PUPMODE" != "2" ] && busybox mount -t aufs -o remount,udba=reval unionfs / #remount with faster evaluation mode.
+  [ "$PUPMODE" != "2" -a "$PUNIONFS" != "overlay" ] && busybox mount -t aufs -o remount,udba=reval unionfs / #remount with faster evaluation mode.
   exit 1
 }
 
@@ -194,7 +194,7 @@ if [ "$PUPMODE" = "2" ]; then # from BK's quirky6.1
 	fi
 
 #boot from flash: bypass tmpfs top layer, install direct to pup_save file... #170623 reverse this!
-elif [ $PUPMODE -eq 13 ];then
+elif [ $PUPMODE -eq 13 -a "$PUNIONFS" != "overlay" ];then
 	# SFR: let user chose...
 	if [ -f /var/local/petget/install_mode ] ; then
 	 IM="`cat /var/local/petget/install_mode`"

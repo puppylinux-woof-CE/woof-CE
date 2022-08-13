@@ -1,0 +1,197 @@
+From 40ba5e318b2b6b05634066188d28360d0c56b55e Mon Sep 17 00:00:00 2001
+From: Dima Krasner <dima@dimakrasner.com>
+Date: Sat, 6 Aug 2022 07:29:48 +0000
+Subject: [PATCH] avoid X-specific calls under Wayland
+
+---
+ src/desktop/desktop.c      |  9 +++++++--
+ src/desktop/working-area.c |  5 +++++
+ src/main-window.c          |  4 ++++
+ src/main.c                 | 21 ++++++++++++++++-----
+ src/vfs/vfs-execute.c      | 28 +++++++++++++++++++++++++---
+ 5 files changed, 57 insertions(+), 10 deletions(-)
+
+diff --git a/src/desktop/desktop.c b/src/desktop/desktop.c
+index 29a1be3..4bcf58d 100644
+--- a/src/desktop/desktop.c
++++ b/src/desktop/desktop.c
+@@ -27,6 +27,7 @@
+ #ifdef DESKTOP_INTEGRATION
+ 
+ #include <gtk/gtk.h>
++#include <gdk/gdkx.h>
+ //#include "fm-desktop.h"
+ 
+ #include "vfs-file-info.h"
+@@ -74,6 +75,12 @@ void fm_turn_on_desktop_icons(gboolean transparent)
+     gint i;
+     int big = 0;
+ 
++    gdpy = gdk_display_get_default();
++#if GTK_CHECK_VERSION (3, 0, 0)
++    if( ! GDK_IS_X11_DISPLAY( gdpy ) )
++        return;
++#endif
++
+     if( ! group )
+         group = gtk_window_group_new();
+ 
+@@ -82,8 +89,6 @@ void fm_turn_on_desktop_icons(gboolean transparent)
+ 
+     vfs_mime_type_get_icon_size( &big, NULL );
+ 
+-    gdpy = gdk_display_get_default();
+-
+     n_screens = gdk_display_get_n_screens( gdpy );
+     desktops = g_new( GtkWidget *, n_screens );
+     for ( i = 0; i < n_screens; i++ )
+diff --git a/src/desktop/working-area.c b/src/desktop/working-area.c
+index c0b7631..3050ad9 100644
+--- a/src/desktop/working-area.c
++++ b/src/desktop/working-area.c
+@@ -22,6 +22,7 @@
+   This piece of code detecting working area is got from Guifications, a plug-in for Gaim.
+ */
+ 
++# include <gtk/gtk.h>
+ # include <gdk/gdk.h>
+ # include <gdk/gdkx.h>
+ # include <X11/Xlib.h>
+@@ -43,7 +44,11 @@ gf_display_get_workarea(GdkScreen* g_screen, GdkRectangle *rect) {
+ 
+ 	/* get the gdk display */
+ 	g_display = gdk_display_get_default();
++#if GTK_CHECK_VERSION(3, 0, 0)
++	if(!g_display || !GDK_IS_X11_DISPLAY(g_display))
++#else
+ 	if(!g_display)
++#endif
+ 		return FALSE;
+ 
+ 	/* get the x display from the gdk display */
+diff --git a/src/main-window.c b/src/main-window.c
+index 574a75f..f3a37fe 100644
+--- a/src/main-window.c
++++ b/src/main-window.c
+@@ -4175,7 +4175,11 @@ static long get_desktop_index( GtkWindow* win )
+     {
+         // get current desktop
+         display = gdk_display_get_default();
++#if GTK_CHECK_VERSION (3, 0, 0)
++        if ( display && GDK_IS_X11_DISPLAY (display ) )
++#else
+         if ( display )
++#endif
+             window = gdk_x11_window_lookup_for_display( display,
+                                     gdk_x11_get_default_root_xwindow() );
+     }
+diff --git a/src/main.c b/src/main.c
+index 27f5614..267555e 100644
+--- a/src/main.c
++++ b/src/main.c
+@@ -329,12 +329,23 @@ gboolean on_socket_event( GIOChannel* ioc, GIOCondition cond, gpointer data )
+ 
+ void get_socket_name_nogdk( char* buf, int len )
+ {
+-    char* dpy = g_strdup( g_getenv( "DISPLAY" ) );
+-    if ( dpy && !strcmp( dpy, ":0.0" ) )
++    char* dpy;
++#if GTK_CHECK_VERSION(3, 0, 0)
++    const char* tmp = g_getenv( "WAYLAND_DISPLAY" );
++    if ( tmp )
++        dpy = g_strdup( tmp );
++    else
++#else
++    if ( TRUE )
++#endif
+     {
+-        // treat :0.0 as :0 to prevent multiple instances on screen 0
+-        g_free( dpy );
+-        dpy = g_strdup( ":0" );
++        dpy = g_strdup( g_getenv( "DISPLAY" ) );
++        if ( dpy && !strcmp( dpy, ":0.0" ) )
++        {
++            // treat :0.0 as :0 to prevent multiple instances on screen 0
++            g_free( dpy );
++            dpy = g_strdup( ":0" );
++        }
+     }
+     g_snprintf( buf, len, "%s/.spacefm-socket%s-%s", xset_get_tmp_dir(),
+                                                      dpy,
+diff --git a/src/vfs/vfs-execute.c b/src/vfs/vfs-execute.c
+index 55571c1..3402cef 100644
+--- a/src/vfs/vfs-execute.c
++++ b/src/vfs/vfs-execute.c
+@@ -12,13 +12,13 @@
+ 
+ #include "vfs-execute.h"
+ 
++#include <gtk/gtk.h>
++#include <gdk/gdkx.h>
+ #ifdef HAVE_SN
+ /* FIXME: Startup notification may cause problems */
+ #define SN_API_NOT_YET_FROZEN
+ #include <libsn/sn-launcher.h>
+ #include <X11/Xatom.h>
+-#include <gtk/gtk.h>
+-#include <gdk/gdkx.h>
+ #include <time.h>
+ #endif
+ 
+@@ -63,6 +63,11 @@ tvsn_get_active_workspace_number ( GdkScreen *screen )
+     gint format_ret;
+     gint ws_num = 0;
+ 
++# if GTK_CHECK_VERSION (3, 0, 0)
++    if ( ! GDK_IS_X11_SCREEN ( screen ) )
++        return ws_num;
++# endif
++
+     gdk_error_trap_push ();
+ 
+     root = gdk_screen_get_root_window ( screen );
+@@ -131,7 +136,11 @@ gboolean vfs_exec_on_screen( GdkScreen* screen,
+     for ( i = 0; i < n_env; ++i )
+     {
+         /* g_debug( "old envp[%d] = \"%s\"" , i, envp[i]); */
++#if GTK_CHECK_VERSION (3, 0, 0)
++        if ( ( GDK_IS_X11_SCREEN ( screen ) && 0 == strncmp( envp[ i ], "DISPLAY=", 8 ) ) || ( ( ! GDK_IS_X11_SCREEN ( screen ) ) && ( 0 == strncmp( envp[ i ], "WAYLAND_DISPLAY=", 16 ) ) ) )
++#else
+         if ( 0 == strncmp( envp[ i ], "DISPLAY=", 8 ) )
++#endif
+             display_index = i;
+         else
+         {
+@@ -142,7 +151,11 @@ gboolean vfs_exec_on_screen( GdkScreen* screen,
+     }
+ 
+ #ifdef HAVE_SN
++# if GTK_CHECK_VERSION (3, 0, 0)
++    if ( use_startup_notify && GDK_IS_X11_SCREEN ( screen ) )
++# else
+     if ( use_startup_notify )
++# endif
+         display = sn_display_new ( GDK_SCREEN_XDISPLAY ( screen ),
+                                ( SnDisplayErrorTrapPush ) gdk_error_trap_push,
+                                ( SnDisplayErrorTrapPush ) gdk_error_trap_pop );
+@@ -182,7 +195,16 @@ gboolean vfs_exec_on_screen( GdkScreen* screen,
+ 
+     /* This is taken from gdk_spawn_on_screen */
+     display_name = gdk_screen_make_display_name ( screen );
+-    if ( display_index >= 0 )
++
++#if GTK_CHECK_VERSION (3, 0, 0)
++    if ( ( ! GDK_IS_X11_SCREEN ( screen ) ) && display_index >= 0 )
++        new_env[ display_index ] = g_strconcat( "WAYLAND_DISPLAY=", display_name, NULL );
++    if ( ! GDK_IS_X11_SCREEN ( screen ) )
++        new_env[ i++ ] = g_strconcat( "WAYLAND_DISPLAY=", display_name, NULL );
++#else
++    if ( FALSE ) do {} while ( 0 );
++#endif
++    else if ( display_index >= 0 )
+         new_env[ display_index ] = g_strconcat( "DISPLAY=", display_name, NULL );
+     else
+         new_env[ i++ ] = g_strconcat( "DISPLAY=", display_name, NULL );
+-- 
+2.35.1
+

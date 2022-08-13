@@ -2,9 +2,9 @@
 static const int sloppyfocus        = 0;  /* focus follows mouse */
 static unsigned int borderpx  = 1;  /* border pixel of windows */
 static const int lockfullscreen     = 1;  /* 1 will force focus on the fullscreen window */
-static float rootcolor[]      = {0.3, 0.3, 0.3, 1.0};
-static float bordercolor[]    = {0.5, 0.5, 0.5, 1.0};
-static float focuscolor[]     = {1.0, 0.0, 0.0, 1.0};
+static float rootcolor[]      = {0.0, 0.0, 0.0, 1.0};
+static float bordercolor[]    = {0.266667, 0.266667, 0.266667, 1.0};
+static float focuscolor[]     = {0.0, 0.333333, 0.466667, 1.0};
 /* To conform the xdg-protocol, set the alpha to zero to restore the old behavior */
 static const float fullscreen_bg[]  = {0.1, 0.1, 0.1, 1.0};
 
@@ -112,6 +112,8 @@ static const char *volumeupcmd[] = { "pactl", "set-sink-volume", "@DEFAULT_SINK@
 static const char *volumedowncmd[] = { "pactl", "set-sink-volume", "@DEFAULT_SINK@", "-1%", NULL };
 static const char *mutecmd[] = { "pactl", "set-sink-mute", "@DEFAULT_SINK@", "toggle", NULL };
 static const char *screenshotcmd[] = { "defaultscreenshot", NULL };
+static const char *regionscreenshotcmd[] = { "slurp-screenshot", NULL };
+static const char *browsercmd[] = { "defaultbrowser", NULL };
 
 static const Key keys[] = {
 	/* Note that Shift changes certain key codes: c -> C, 2 -> at, etc. */
@@ -157,6 +159,8 @@ static const Key keys[] = {
 	CHVT(1), CHVT(2), CHVT(3), CHVT(4), CHVT(5), CHVT(6),
 	CHVT(7), CHVT(8), CHVT(9), CHVT(10), CHVT(11), CHVT(12),
 
+	{ MODKEY,                    XKB_KEY_w,          spawn,          {.v = browsercmd} },
+
 	{ WLR_MODIFIER_ALT|WLR_MODIFIER_CTRL,  XKB_KEY_t,          spawn,          {.v = termcmd} },
 
 	{ WLR_MODIFIER_ALT,          XKB_KEY_Tab,        focusstack,     {.i = +1} },
@@ -174,6 +178,7 @@ static const Key keys[] = {
 	{ 0,                         XKB_KEY_XF86AudioLowerVolume,       spawn,          {.v = volumedowncmd} },
 	{ 0,                         XKB_KEY_XF86AudioMute,              spawn,          {.v = mutecmd} },
 	{ 0,                         XKB_KEY_Print,                      spawn,          {.v = screenshotcmd} },
+	{ WLR_MODIFIER_SHIFT,        XKB_KEY_Print,                      spawn,          {.v = regionscreenshotcmd} },
 };
 
 static const Button buttons[] = {

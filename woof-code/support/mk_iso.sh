@@ -399,6 +399,27 @@ EOF
 	FPBOOT=/tmp/grub2/EFI/boot
 	CER=
 	FONT=devx/usr/share/cd-boot-images-amd64/tree/boot/grub/fonts/unicode.pf2
+elif [ -f "devx/usr/lib/shim/shimx64.efi.signed" -a -f "devx/usr/lib/shim/mmx64.efi.signed" -a -f "devx/usr/lib/grub/x86_64-efi-signed/gcdx64.efi.signed" -a -f "devx/usr/share/grub/unicode.pf2" ]; then
+	(
+		mkdir -p /tmp/grub2/EFI/boot
+		cp -f devx/usr/lib/shim/shimx64.efi.signed /tmp/grub2/EFI/boot/bootx64.efi
+		cp -f devx/usr/lib/shim/mmx64.efi.signed /tmp/grub2/EFI/boot/mmx64.efi
+		cp -f devx/usr/lib/grub/x86_64-efi-signed/gcdx64.efi.signed /tmp/grub2/EFI/boot/grubx64.efi
+		cat << EOF > /tmp/grub2/EFI/boot/grub.cfg
+# The real config file for grub is /grub.cfg
+configfile /grub.cfg
+EOF
+		install -D /tmp/grub2/EFI/boot/grub.cfg /tmp/grub2/boot/grub/grub.cfg
+		cd /tmp/grub2
+		tar -c * | xz -1 > /tmp/grub2-efi.tar.xz
+		cd ..
+		rm -rf grub2
+	)
+	UEFI_ISO=yes
+	FPGRUB2XZ=/tmp/grub2-efi.tar.xz
+	FPBOOT=/tmp/grub2/EFI/boot
+	CER=
+	FONT=devx/usr/share/grub/unicode.pf2
 else
 	UEFI_ISO=
 	rm -f ${BUILD}/boot/efi.img
