@@ -35,7 +35,7 @@ export OUTPUT_CHARSET=UTF-8
 
 #Check if the / is layered fs
 ISLAYEREDFS="$(mount | grep "on / type" | grep "unionfs")"
-[ "$ISLAYEREDFS" == "" ] && ISLAYEREDFS="$(mount | grep "on / type" | grep "aufs")"
+[ "$ISLAYEREDFS" == "" ] && ISLAYEREDFS="$(mount | grep "on / type" | grep -E "aufs|overlay")"
 
 DB_pkgname="$TREE2"
 
@@ -56,7 +56,7 @@ elif [ ! "$DISPLAY" ]; then
  [ $? -ne 0 ] && exit 0
 fi
 
-if [ "$ISLAYEREDFS" != "" ];then
+if [ "$ISLAYEREDFS" != "" -a "$PUNIONFS" != "overlay" ];then
  busybox mount -t aufs -o remount,udba=notify unionfs /
 fi
 
@@ -75,7 +75,7 @@ if [ -f /var/packages/${DB_pkgname}.files ];then
   do
      if [ -f "$ONESPEC" ] || [ -L "$ONESPEC" ]; then
         #Check if is layered fs.
-        if [ "$ISLAYEREDFS" != "" ];then
+        if [ "$ISLAYEREDFS" != "" -a "$PUNIONFS" != "overlay" ];then
          
 	 #Delete at pup_rw layer
          [ -e "/initrd/pup_rw${ONESPEC}" ] && rm -f "/initrd/pup_rw${ONESPEC}"
@@ -102,7 +102,7 @@ if [ -f /var/packages/${DB_pkgname}.files ];then
   
  #Restore builtin files
  PKGNAMEONLY="$(grep -m 1 "^${DB_pkgname}|" /var/packages/user-installed-packages | cut -f 2 '|')"
- if [ "$ISLAYEREDFS" != "" ] && [ "$PKGNAMEONLY" != "" ] && [ -f "/var/packages/builtin_files/${PKGNAMEONLY}" ];then
+ if [ "$ISLAYEREDFS" != "" -a "$PUNIONFS" != "overlay" ] && [ "$PKGNAMEONLY" != "" ] && [ -f "/var/packages/builtin_files/${PKGNAMEONLY}" ];then
  
      while IFS= read -r line
      do 
@@ -120,8 +120,12 @@ if [ -f /var/packages/${DB_pkgname}.files ];then
     DELLEVELS=$(echo -n "$LINE" | sed -e 's/[^/]//g' | wc -c | sed -e 's/ //g')
     if [ $DELLEVELS -gt 2 ]; then      
       if [ "$(ls -1 "$LINE")" == "" ]; then
-       [ -d "/initrd/pup_rw$LINE" ] && rmdir "/initrd/pup_rw$LINE" 2>/dev/null
-       [ -d "/initrd${SAVE_LAYER}$LINE" ] && rmdir "/initrd${SAVE_LAYER}$LINE" 2>/dev/null
+       if [ "$ISLAYEREDFS" != "" -a "$PUNIONFS" = "overlay" ]; then
+        [ -d "$LINE" ] && rmdir "$LINE" 2>/dev/null
+       else
+        [ -d "/initrd/pup_rw$LINE" ] && rmdir "/initrd/pup_rw$LINE" 2>/dev/null
+        [ -d "/initrd${SAVE_LAYER}$LINE" ] && rmdir "/initrd${SAVE_LAYER}$LINE" 2>/dev/null
+      fi
       fi
     fi
   done
@@ -319,7 +323,7 @@ export LANG="$ORIGLANG"
 
 fi
 
-if [ "$ISLAYEREDFS" != "" ];then
+if [ "$ISLAYEREDFS" != "" -a "$PUNIONFS" != "overlay" ];then
  #now re-evaluate all the layers...
 	busybox mount -t aufs -o remount,udba=reval unionfs / #remount with faster evaluation mode.
 fi
