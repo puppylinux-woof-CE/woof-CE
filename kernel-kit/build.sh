@@ -222,7 +222,7 @@ fi
 log_msg "kernel_version=${kernel_version}"
 log_msg "kernel_version_info=${kernel_version_info}"
 case "$kernel_version" in
-	3.*|4.*|5.*) ok=1 ;; #----
+	3.*|4.*|5.*|6.*) ok=1 ;; #----
 	*) exit_error "ERROR: Unsupported kernel version" ;;
 esac
 
@@ -237,10 +237,12 @@ export kernel_version
 aufs_git_3="https://github.com/puppylinux-woof-CE/aufs3-standalone.git"
 aufs_git_4="https://github.com/sfjro/aufs4-standalone.git"
 aufs_git_5="https://github.com/sfjro/aufs5-standalone.git"
+aufs_git_6="https://github.com/sfjro/aufs6-standalone.git"
 [ ! "$kernel_mirrors" ] && kernel_mirrors="https://www.kernel.org/pub/linux/kernel"
 ksubdir_3=v3.x #http://www.kernel.org/pub/linux/kernel/v3.x
 ksubdir_4=v4.x
 ksubdir_5=v5.x
+ksubdir_6=v6.x
 #-- random kernel mirror first
 rn=$(( ( RANDOM % $(echo "$kernel_mirrors" | wc -l) )  + 1 ))
 x=0
