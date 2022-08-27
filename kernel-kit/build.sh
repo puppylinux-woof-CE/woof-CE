@@ -259,15 +259,21 @@ if [ -f /etc/DISTRO_SPECS ] ; then
 	[ ! "$package_name_suffix" ] && package_name_suffix=${DISTRO_FILE_PREFIX}
 fi
 
-if [ "$AUFS" != "no" -a -f DOTconfig ] ; then
+if [ -f DOTconfig ] ; then
 	echo ; tail -n10 README ; echo
-	for i in CONFIG_AUFS_FS=y CONFIG_NLS_CODEPAGE_850=y
+	BUILTINS="CONFIG_NLS_CODEPAGE_850=y"
+	[ "$AUFS" != "no" ] && BUILTINS="$BUILTINS CONFIG_AUFS_FS=y"
+	vercmp ${kernel_version} ge 3.18 && BUILTINS="$BUILTINS CONFIG_OVERLAY_FS=y"
+	for i in $BUILTINS
 	do
 		grep -q "$i" DOTconfig && { echo "$i is ok" ; continue ; }
 		echo -e "\033[1;31m""\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!   WARNING     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n""\033[0m"
-		if [ "$i" = "CONFIG_AUFS_FS=y" ] ; then
+		if [ "$AUFS" != "no" -a "$i" = "CONFIG_AUFS_FS=y" ] ; then
 			log_msg "For your kernel to boot AUFS as a built in is required:"
 			fs_msg="File systems -> Miscellaneous filesystems -> AUFS"
+		elif [ "$i" = "CONFIG_OVERLAY_FS=y" ] ; then
+			log_msg "For your kernel to boot overlay as a built in is required:"
+			fs_msg="File systems -> Overlay filesystem support"
 		else
 			log_msg "For NLS to work at boot some configs are required:"
 			fs_msg="NLS Support"
@@ -278,6 +284,7 @@ if [ "$AUFS" != "no" -a -f DOTconfig ] ; then
 	the kernel has downloaded and been patched.
 	Look under ' $fs_msg'
 	"
+		[ -n "$GITHUB_ACTIONS" ] && exit 1
 		[ "$AUTO" != "yes" ] && echo -n "PRESS ENTER" && read zzz
 	done
 fi
