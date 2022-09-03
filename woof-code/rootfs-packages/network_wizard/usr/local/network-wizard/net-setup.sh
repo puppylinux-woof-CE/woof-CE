@@ -78,6 +78,7 @@
 #190223 v2.1.1: Avoid exec change on exiting if no interface buttons used.
 #200412 v2.1.2: Increase wait for ethtool link detected, to 15 secs.
 #210415 v2.2: Correct pcmcia check; set 'selected device' softlink when saving configuration; simplify link detection; set IS_WIRELESS; remove v411 BK hack to remove old network wizard configs (*[0-9]mode).
+#220704 v2.2.1: Fixes in wag_profiles.sh and rc.network.
 
 # $1: interface
 interface_is_wireless() {
@@ -115,7 +116,7 @@ if [ -f "/usr/share/locale/${LANG%.*}/LC_MESSAGES/$mo" ];then
 elif [ -f "/usr/share/locale/${LANG%_*}/LC_MESSAGES/$mo" ];then
   . "/usr/share/locale/${LANG%_*}/LC_MESSAGES/$mo"
 fi
-#set -x; exec >&2 #DEBUG
+
 # Check if output should go to the console
 if [ "${1}" = "-d" ] ; then
 	DEBUG_OUTPUT=/dev/stderr
