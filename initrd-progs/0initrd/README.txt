@@ -137,7 +137,8 @@ psubdir=</path/to/install/directory>
    This is the default path for locating any puppy file and any partition.
 
 punionfs=<aufs|overlay>
-   Overrides the union file system choice made at build time.
+   Overrides the union file system choice.
+   The default is aufs, if the kernel is built with aufs support.
    Use with care, as aufs and overlay are incompatible with each other.
    To switch from aufs to overlay or vice versa, start with a fresh save layer (pfix=ram).
 
