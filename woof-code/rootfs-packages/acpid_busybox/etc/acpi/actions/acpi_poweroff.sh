@@ -61,7 +61,7 @@ SOUND="/usr/share/audio/bark.au"
 PLAY="aplay"
 [ -f "$SOUND" ] && which $(basename $PLAY) >/dev/null && $(basename $PLAY) "$SOUND"
 
-if [ "$DISPLAY" != "" ]; then
+if [ -n "$DISPLAY" -o -n "$WAYLAND_DISPLAY" ]; then
 
  for P in gtkdialog3 gtkdialog gtkdialog4; do
    which $P &>/dev/null && GTKDIALOG=$P

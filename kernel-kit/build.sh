@@ -599,6 +599,7 @@ if [ "$AUFS" != "no" ] ; then
 		patch -N -p1 < ${patchfile} &>> ${BUILD_LOG}
 		if [ $? -ne 0 ] ; then
 			log_msg "WARNING: failed to add some Aufs patches to the kernel sources."
+			[ -n "$GITHUB_ACTIONS" ] && exit 1
 			log_msg "Check it manually and either CRTL+C to bail or hit enter to go on"
 			read goon
 		fi

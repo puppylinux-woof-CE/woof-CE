@@ -274,7 +274,7 @@ do
    #101116 now have a download utility...
    echo "$(gettext 'downloading'): ${ONEFILE}" > /tmp/petget_proc/petget/install_status
    export DL_F_CALLED_FROM='ppm' #121019
-   DOWNLOADURL=`fgrep /${ONEFILE} /tmp/petget_proc/download_urls`
+   DOWNLOADURL=`grep -F /${ONEFILE} /tmp/petget_proc/download_urls`
    download_file ${DOWNLOADURL}
    if [ $? -ne 0 ];then #101116
     DLPKG="`basename $ONEFILE`"
