@@ -17,6 +17,6 @@ cp -f LICENCE.* Notice.* "$1/usr/share/doc/sof-bin/"
 
 strings -a `find "$2" -type f -name 'snd-*.ko'` | grep ^sof- | sort | uniq > /tmp/sofstrings
 find "$1/lib/firmware/intel/sof-$ver" "$1/lib/firmware/intel/sof-tplg-$ver" -type f -name 'sof-*.*' | while read F; do
-	fgrep -qlm1 ${F##*/} /tmp/sofstrings || rm -f $F
+	grep -Fqlm1 ${F##*/} /tmp/sofstrings || rm -f $F
 done
 rm -f /tmp/sofstrings

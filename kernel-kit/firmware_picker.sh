@@ -158,7 +158,7 @@ do
 	for F in $SRC_FW_DIR/$fw_top_dir/*/hw*;do
 		fw_subdir=${F#$SRC_FW_DIR/}
 		[ -e $FIRMWARE_RESULT_DIR/$fw_subdir ] && continue
-		fgrep -qlm1 ${fw_subdir#$fw_top_dir/} /tmp/modstrings || continue
+		grep -Fqlm1 ${fw_subdir#$fw_top_dir/} /tmp/modstrings || continue
 		mkdir -p $FIRMWARE_RESULT_DIR/${fw_subdir%/*}
 		cp -r -L -n $F $FIRMWARE_RESULT_DIR/${fw_subdir%/*}
 		fw_msg $fw_subdir $fw_tmp_list # log to zdrv
