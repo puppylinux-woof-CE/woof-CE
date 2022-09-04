@@ -147,7 +147,7 @@ fi
 #131222 do not allow duplicate installs...
 PTN1='^'"$DLPKG_NAME"'|'
 if [ "`grep "$PTN1" /var/packages/user-installed-packages`" != "" ];then
- if [ ! $DISPLAY ];then
+ if [ -z "$DISPLAY" -a -z "$WAYLAND_DISPLAY" ];then
   [ -f /tmp/petget_proc/install_quietly ] && DISPTIME1="--timeout 3" || DISPTIME1=''
   LANG=$LANG_USER
   dialog ${DISPTIME1} --msgbox "$(gettext 'This package is already installed. Cannot install it twice:') ${DLPKG_NAME}" 0 0
@@ -184,7 +184,7 @@ if [ "$PUPMODE" = "2" ]; then # from BK's quirky6.1
 	PARTK=`df -k / | grep '/$' | tr -s ' ' | cut -f 4 -d ' '` #free space in partition.
 	if [ $NEEDK -gt $PARTK ];then
 	 LANG=$LANG_USER
-	 if [ "$DISPLAY" ];then
+	 if [ -n "$DISPLAY" -o -n "$WAYLAND_DISPLAY" ];then
 	  /usr/lib/gtkdialog/box_ok "$(gettext 'Puppy package manager')" error "$(gettext 'Not enough free space in the partition to install this package'):" "<i>${DLPKG_BASE}</i>"
 	 else
 	  echo -e "$(gettext 'Not enough free space in the partition to install this package'):\n${DLPKG_BASE}"
@@ -205,7 +205,7 @@ elif [ $PUPMODE -eq 13 -a "$PUNIONFS" != "overlay" ];then
 	  if [ $TMPK -lt $EXPK ] ;then # EXPK is 5x package size
 	   YMSG1=$(gettext "There is not enough temporary space to install the package: ")
 	   YMSG2=$(gettext "Recommendation: Press 'No' to abort the installation and create some swap space. ('swap file' or 'swap partition'). You can press 'Yes' but corruption could occur in the installation.")
-	   if [ "$DISPLAY" ];then
+	   if [ -n "$DISPLAY" -o -n "$WAYLAND_DISPLAY" ];then
 	    YTTLE=$(gettext "Puppy Package Manager")
 	    /usr/lib/gtkdialog/box_yesno "$YTTLE" "${YMSG1}<i>${DLPKG_BASE}</i>" "$YMSG2"
 	    yret=$?
@@ -244,7 +244,7 @@ elif [ $PUPMODE -eq 13 -a "$PUNIONFS" != "overlay" ];then
 	fi
 fi
 
-if [ $DISPLAY -a ! -f /tmp/petget_proc/install_quietly ];then #131222
+if [ -n "$DISPLAY" -o -n "$WAYLAND_DISPLAY" ] && [ ! -f /tmp/petget_proc/install_quietly ];then #131222
  LANG=$LANG_USER
  . /usr/lib/gtkdialog/box_splash -close never -fontsize large -text "$(gettext 'Please wait, processing...')" &
  YAFPID1=$!
@@ -265,7 +265,7 @@ case $DLPKG_BASE in
   if [ "${DLPKG_MAIN}" != "${PETFOLDER}" ]; then
    pupkill $YAFPID1
    LANG=$LANG_USER
-   if [ "$DISPLAY" ]; then
+   if [ -n "$DISPLAY" -o -n "$WAYLAND_DISPLAY" ]; then
     . /usr/lib/gtkdialog/box_ok "$(gettext 'Puppy Package Manager')" error "<b>${DLPKG_MAIN}.pet</b> $(gettext 'is named') <b>${PETFOLDER}</b> $(gettext 'inside the pet file. Will not install it!')"
    else
     . dialog --msgbox "$DLPKG_MAIN.pet $(gettext 'is named') $PETFOLDER $(gettext 'inside the pet file. Will not install it!')" 0 0

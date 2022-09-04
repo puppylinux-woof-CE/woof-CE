@@ -63,7 +63,7 @@ case "$1" in
 esac
 
 # 0.4 if not running from terminal but in Xorg, then launch via terminal
-! [ -t 0 ] && [ -n "$DISPLAY" ] && exec $XTERM -e "$0" "$@"
+! [ -t 0 ] && [ -n "$DISPLAY" -o -n "$WAYLAND_DISPLAY" ] && exec $XTERM -e "$0" "$@"
 ! [ -t 0 ] && exit
 
 # 0.5 is this the first sandbox? If not, then create another name for mountpoints

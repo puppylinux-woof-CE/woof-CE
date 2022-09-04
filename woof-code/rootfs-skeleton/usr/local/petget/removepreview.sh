@@ -48,10 +48,10 @@ fi
 #exit 0                         #clicking an empty line in the gui would have
 #fi                             #thrown the above REM_DIALOG even if pkgs are installed
 
-if [ ! -f /tmp/petget_proc/remove_pets_quietly ] && [ "$DISPLAY" ]; then
+if [ ! -f /tmp/petget_proc/remove_pets_quietly ] && [ -n "$DISPLAY" -o -n "$WAYLAND_DISPLAY" ]; then
  . /usr/lib/gtkdialog/box_yesno "$(gettext 'Puppy Package Manager')" "$(gettext "Do you want to uninstall package")" "<b>${DB_pkgname}</b>"
  [ "$EXIT" != "yes" ] && exit 0
-elif [ ! "$DISPLAY" ]; then
+elif [ -z "$DISPLAY" -a -z "$WAYLAND_DISPLAY" ]; then
  dialog --yesno "$(gettext 'Do you want to uninstall package ')${DB_pkgname}" 0 0
  [ $? -ne 0 ] && exit 0
 fi
@@ -145,7 +145,7 @@ else
 $(gettext 'The first 5 are')
 $possible5"
  fi
- if [ "$DISPLAY" ];then
+ if [ -n "$DISPLAY" -o -n "$WAYLAND_DISPLAY" ];then
   /usr/lib/gtkdialog/box_ok "$(gettext 'Puppy package manager')" warning "<b>$(gettext 'No file named') ${DB_pkgname}.files $(gettext 'found in') /var/packages/ $(gettext 'folder.')</b>" "$0 $(gettext 'refusing cowardly to remove the package.')" " " "<b>$(gettext 'Possible suggestions:')</b> $WARNMSG" "<b>$(gettext 'Possible solution:')</b> $(gettext 'Edit') <i>/var/packages/user-installed-packages</i> $(gettext 'to match the pkgname') $(gettext 'and start again.')"
   rox /var/packages
   geany /var/packages/user-installed-packages
@@ -413,7 +413,7 @@ if [ ! -f /tmp/petget_proc/remove_pets_quietly ]; then
   </vbox>
  </window>
  "
- if [ "$DISPLAY" != "" ];then
+ if [ -n "$DISPLAY" -o -n "$WAYLAND_DISPLAY" ];then
   if [ "$EXTRAMSG" != "" ]; then
    gtkdialog -p REM_DIALOG
   else
