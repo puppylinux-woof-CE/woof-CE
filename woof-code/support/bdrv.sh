@@ -238,3 +238,6 @@ if [ -d bdrv/usr/share/gnome/help ]; then
 	mv bdrv/usr/share/gnome/help bdrv_DOC/usr/share/gnome/
 	rmdir bdrv/usr/share/gnome 2>/dev/null
 fi
+
+mkdir -p bdrv/var/local
+touch bdrv/var/local/bdrv_loaded
