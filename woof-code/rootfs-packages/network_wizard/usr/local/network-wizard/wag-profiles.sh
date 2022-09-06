@@ -110,6 +110,7 @@
 #170622 display networks in order of signal quality (except prism2); remove cell number from display.
 #190217 v2.1: avoid logging progress updates when X not running; correct use of argument in kill functions.
 #210415 v2.2: Set 'selected device' softlink when "Use This Profile" button selected & remove it if target profile deleted; correct iwconfig check to test for associated AP address; prevent multiple psk= lines in wpa profile; correct PID test; add interface name to dhcpcd progress dialog; for wpa_supplicant progress, delay start of first input to avoid piping errors & pause between initial updates.
+#220704 v2.2.1: Recognize essid '\x00...' as hidden network; pause before running dhcpcd after interface test; collect all dhcpcd runs in dhcpcd.log; remove setting of 'selected device' softlink when "Use This Profile" button selected.
 
 #
 # Paul Siu
@@ -273,7 +274,7 @@ setupDHCP()
 		# Run dhcpcd. The output goes to the text in the progressbar...
 		DHCPCDLOG="$(dhcpcd -d -I '' "$INTERFACE" 2>&1)"
 		HAS_ERROR=$?
-		echo "$DHCPCDLOG" | tee /tmp/dhcpcd.log
+		echo "$DHCPCDLOG" | tee -a /tmp/dhcpcd.log #220704
 		echo "$DHCPCDLOG" | grep -q 'Error' && HAS_ERROR=1 #121117
 		# we're in a subshell, so variables set here will not be seen outside...
 		echo "$HAS_ERROR" > /tmp/net-setup_HAS_ERROR.txt
@@ -976,7 +977,7 @@ assignProfileData(){
 	PROFILE_FREQ="$FREQ"
 	PROFILE_CHANNEL="$CHANNEL"
 	PROFILE_AP_MAC="$AP_MAC"
-	[ "$PROFILE_ESSID" = "<hidden>" ] && PROFILE_ESSID=""
+	[ "$PROFILE_ESSID" = "<hidden>" ] || [ "${PROFILE_ESSID:0:4}" = '\x00' ] && PROFILE_ESSID="" #220704
 
 	if [ "$PROFILE_KEY" = "" ] ; then
 		PROFILE_ENCRYPTION="Open"
@@ -1228,10 +1229,6 @@ useProfile ()
 			fi
 			;;		
 	esac
-	local HWADDRESS=$(ifconfig "$INTERFACE" | grep "^$INTERFACE" | tr -s ' ' | cut -d' ' -f5) #210415...
-	if [ -f "$HWADDRESS.conf" ] ; then
-		ln -snf $HWADDRESS.conf ${NETWORK_INTERFACES_DIR}/selected_conf
-	fi
 } # end useProfile
 
 #=============================================================================
@@ -1824,7 +1821,7 @@ buildScanWindow()
 			for CELL in $(echo "$CELL_LIST" | cut -f 1 -d '@') ; do #170622
 				#getCellParameters $CELL
 				Get_Cell_Parameters $CELL
-				[ -z "$CELL_ESSID" ] && CELL_ESSID="(hidden ESSID)"
+				[ -z "$CELL_ESSID" ] || [ "${CELL_ESSID:0:4}" = '\x00' ] && CELL_ESSID="(hidden ESSID)" #220704
 				SCANWINDOW_BUTTONS="$SCANWINDOW_BUTTONS \"$CELL\" \"$CELL_ESSID (${CELL_MODE}; ${L_SCANWINDOW_Encryption}$CELL_ENC_TYPE)\" off \"${L_SCANWINDOW_Channel}${CELL_CHANNEL}; ${L_SCANWINDOW_Frequency}${CELL_FREQ}; ${L_SCANWINDOW_AP_MAC}${CELL_AP_MAC};
 ${L_SCANWINDOW_Strength}${CELL_QUALITY}\"" 
 			done
@@ -2080,7 +2077,7 @@ getCellParameters()
 	fi
 	SCAN_CELL=$(echo "$SCAN_LIST" | sed -n "${START},${END}p")
 	CELL_ESSID=$(echo "$SCAN_CELL" | grep -E -o 'ESSID:".+"' | grep -E -o '".+"' | grep -E -o '[^"]+')
-	[ "$CELL_ESSID" = "<hidden>" ] && CELL_ESSID=""
+	[ "$CELL_ESSID" = "<hidden>" ] || [ "${CELL_ESSID:0:4}" = '\x00' ] && CELL_ESSID="" #220704
 	CELL_FREQ=$(echo "$SCAN_CELL" | grep "Frequency" | grep -Eo '[0-9]+\.[0-9]+ +G' | sed -e 's/ G/G/') 
 	CELL_CHANNEL=$(echo "$SCAN_CELL" | grep "Frequency" | grep -Eo 'Channel [0-9]+' | cut -f2 -d" ")
 	[ ! "$CELL_CHANNEL" ] && CELL_CHANNEL=$(echo "$SCAN_CELL" | grep -F 'Channel:' | grep -Eo [0-9]+)
@@ -2115,7 +2112,7 @@ Get_Cell_Parameters(){
 	fi
 	SCAN_CELL=$(sed -n "${START},${END}p" $ScanListFile)
 	CELL_ESSID=$(echo "$SCAN_CELL" | grep -E -o 'ESSID:".+"' | grep -E -o '".+"' | grep -E -o '[^"]+')
-	[ "$CELL_ESSID" = "<hidden>" ] && CELL_ESSID=""
+	[ "$CELL_ESSID" = "<hidden>" ] || [ "${CELL_ESSID:0:4}" = '\x00' ] && CELL_ESSID="" #220704
 	CELL_FREQ=$(echo "$SCAN_CELL" | grep "Frequency" | grep -Eo '[0-9]+\.[0-9]+ +G' | sed -e 's/ G/G/') 
 	CELL_CHANNEL=$(echo "$SCAN_CELL" | grep "Frequency" | grep -Eo 'Channel [0-9]+' | cut -f2 -d" ")
 	[ -z "$CELL_CHANNEL" ] && CELL_CHANNEL=$(echo "$SCAN_CELL" | grep -F 'Channel:' | grep -Eo [0-9]+)
