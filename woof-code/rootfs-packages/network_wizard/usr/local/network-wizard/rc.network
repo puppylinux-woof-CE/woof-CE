@@ -63,6 +63,7 @@
 #190217 v2.1: Correct wait for all ethernet hardware to be detected, preserving 31may12 but respecting predictable interface names; filter iwlist output to reduce file size; remove unused ethtool 'progress' ticks.
 #200412 v2.1.2: Increase wait for ethtool link detected, to 15 secs.
 #210415 v2.2: Correct wait for initialized interfaces, to retry /sys/class/net/*/address; simplify link detection; try 'selected device' first; correct test for X active.
+#220704 v2.2.1 Pause before running dhcpcd after interface test, to improve chances of obtaining a valid IP address; clear dhcpcd.log, to log only current run; replace temporary file with "here string" for write-then-read reliability.
 
 ######### TODO ###########
 #- need to find out about static ip... can we check somehow (arp)? maybe use
@@ -270,6 +271,7 @@ try_and_connect(){
 	    RETURN=0
 	  fi
     else
+      sleep 2 #220704
       setupDHCP #|| killDhcpcd "$INTERFACE" # 25feb10 
       RETURN=$?
 	fi
@@ -303,6 +305,7 @@ rewrite_mac_address () {
 }
 
 SELECTED_HWADDR="$(readlink $NETWORK_INTERFACES_DIR/selected_conf 2>/dev/null | sed 's/.conf//')" #210415
+rm -f /tmp/dhcpcd.log #220704
 # Dougal: when running after boot, we don't need this
 if [ "$ACTION" = "restart" ] ; then # connect
   [ -n "$DISPLAY" -o -n "$WAYLAND_DISPLAY" ] && HAVEX="yes" #210415
@@ -387,14 +390,13 @@ rewrite_mac_address  # 20feb10 moved here
 stop_all -a >/dev/null 2>&1
 
 #190217 Try selected interface first...
-FIRST_CONFIG="$(ifconfig -a | grep -F 'Link encap:' | grep 'HWaddr' | tee /tmp/ifconfig.tmp | head -n 1)" #210415
-if [ -n "$SELECTED_HWADDR" ] ; then
-  SELECTED_CONFIG="$(grep "$SELECTED_HWADDR" /tmp/ifconfig.tmp)"
-  if [ -n "$SELECTED_CONFIG" ] \
-   && [ "$SELECTED_CONFIG" != "$FIRST_CONFIG" ] ; then
+CONFIG="$(ifconfig -a | grep -F 'Link encap:' | grep 'HWaddr')" #210415 220704
+if [ -n "$SELECTED_HWADDR" ] && [ $(wc -l <<< "$CONFIG") -gt 1 ] ; then #220704
+  SELECTED_CONFIG="$(grep "$SELECTED_HWADDR" <<< "$CONFIG")" #220704
+  if [ -n "$SELECTED_CONFIG" ] ; then #220704
     SEDSCRIPT1="/$SELECTED_HWADDR/d"
     SEDSCRIPT2="1s/^./$SELECTED_CONFIG\n&/"
-    sed -i -e "$SEDSCRIPT1" -e "$SEDSCRIPT2" /tmp/ifconfig.tmp
+    CONFIG="$(sed -e "$SEDSCRIPT1" -e "$SEDSCRIPT2" <<< "$CONFIG")" #220704
   fi
 fi
   
@@ -698,7 +700,7 @@ do
   # clean up (kills dhcpcd etc)
   cleanUpInterface "$INTERFACE"
   ifconfig "$INTERFACE" down
-done < /tmp/ifconfig.tmp #190217
+done <<< "$CONFIG" #190217 220704
 rm -f /tmp/ifconfig.tmp #190217
 
 #  if we got here and have x, it means we're running with the "connect"
