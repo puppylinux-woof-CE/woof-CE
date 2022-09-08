@@ -95,7 +95,7 @@ if [ -n "$DOTconfig_file" -a -n "$LatestK" ] ; then
 	else
 		DOTconfig_new_ver=${DOTconfig_new_ver_pre% *}
 		# TODO: remove this when https://github.com/sfjro/aufs5-standalone/issues/20 is fixed
-		[ ${DOTconfig_new_ver%.*} = "5.10" -a ${DOTconfig_new_ver##*.} -gt 139 ] && DOTconfig_new_ver="5.10.139"
+		[ "$AUFS" != "no" -a ${DOTconfig_new_ver%.*} = "5.10" -a ${DOTconfig_new_ver##*.} -gt 139 ] && DOTconfig_new_ver="5.10.139"
 		DOTconfig_type=${DOTconfig_new_ver_pre#* }
 		log_msg "Latest Linux $DOTconfig_new_ver $DOTconfig_type"
 		NEW_DOTconfig_file=`echo $DOTconfig_file | sed "s%$b%$DOTconfig_new_ver%"`
