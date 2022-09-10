@@ -4,12 +4,6 @@
 . ../_00build.conf
 [ ! -e ../_00build_2.conf ] || . ../_00build_2.conf
 
-PETS=`cat ../status/findpkgs_FINAL_PKGS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} | cut -f 2,5 -d \| | grep -v ^compat\| | cut -f 2 -d \| | tr '\n' ' '`
-if [ -n "$PETS" ]; then
-	echo "Cannot build bdrv, using pet packages: $PETS"
-	exit 0
-fi
-
 debootstrap=`command -v debootstrap || :`
 if [ -z "$debootstrap" ]; then
 	echo "WARNING: debootstrap is missing"
@@ -91,8 +85,10 @@ chroot bdrv apt-mark hold busybox-static
 chroot bdrv apt-mark hold snapd
 
 # install all packages that didn't get fully redirected to devx
-PKGS=`cat ../status/findpkgs_FINAL_PKGS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} | cut -f 1,5 -d \| |
-while IFS=\| read GENERICNAME NAME; do
+PKGS=`cat ../status/findpkgs_FINAL_PKGS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} | cut -f 1,2,5 -d \| |
+while IFS=\| read GENERICNAME TYPE NAME; do
+	[ "$TYPE" = "compat" ] || continue
+
 	case "$NAME" in
 	*-dev|*-dev-bin|*-devtools|*-headers) continue ;;
 	esac
@@ -141,7 +137,9 @@ find bdrv | tac | while read FILE; do
 done
 
 # delete files and directories present in the main SFS
-cat ../status/findpkgs_FINAL_PKGS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} | cut -f 5 -d \| | while read NAME; do
+cat ../status/findpkgs_FINAL_PKGS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} | cut -f 2,5 -d \| | while IFS=\| read TYPE NAME; do
+	[ "$TYPE" = "compat" ] || continue
+
 	LIST=bdrv/var/lib/dpkg/info/$NAME:$ARCH.list
 	[ -f "$LIST" ] || LIST=bdrv/var/lib/dpkg/info/$NAME.list
 	[ -f "$LIST" ] || continue
