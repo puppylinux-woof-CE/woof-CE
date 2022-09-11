@@ -80,6 +80,7 @@ function git_aufs_branch() {
 	5.10)  aufsv=5.10
 		vercmp ${kernel_version} ge 5.10.82 && aufsv='5.10.82'
 		vercmp ${kernel_version} ge 5.10.117 && aufsv='5.10.117'
+		vercmp ${kernel_version} ge 5.10.140 && aufsv='5.10.140'
 		;;
 	5.15)  aufsv=5.15
 		vercmp ${kernel_version} ge 5.15.5 && aufsv='5.15.5'
