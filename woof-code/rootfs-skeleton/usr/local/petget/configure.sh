@@ -29,7 +29,7 @@ export OUTPUT_CHARSET=UTF-8
 CHECKBOXES_REPOS=""
 #for ONEREPO in `ls -1 /root/.packages/Packages-*`
 #120510 bugfix with ui_Ziggy. add CHECKBOX_MAIN_REPO var to gui
-MAIN_REPO="`ls -1 /root/.packages/Packages-* | grep "puppy\-${DISTRO_DB_SUBNAME}\-" | head -n 1 | sed 's%^/root/.packages/%%'`" #121102 121129
+MAIN_REPO="`ls -1 /root/.packages/Packages-* | grep "puppy-${DISTRO_DB_SUBNAME}-" | head -n 1 | sed 's%^/root/.packages/%%'`" #121102 121129
 #120515 hmmm, in some cases, Packages-puppy-${DISTRO_FILE_PREFIX}-* may not exist (ex, Racy only has Packages-puppy-wary5-official)...
 #121102 ...now using DISTRO_DB_SUBNAME, should always exist.
 [ "$MAIN_REPO" = "" ] && MAIN_REPO="`echo "$PACKAGELISTS_PET_ORDER" | tr ' ' '\n' | head -n 1`" #PACKAGELISTS_PET_ORDER is in /root/.packages/DISTRO_PET_REPOS.

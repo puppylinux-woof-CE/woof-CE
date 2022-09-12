@@ -80,7 +80,7 @@ amd_func() {
 	curl -s https://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git/tree/amd-ucode | grep -o 'plain.*bin' | sed 's/plain.*ucode\///' | sort | uniq > /tmp/amd_ucode.lst
 	while read ver
 	do
-		curl -s $LOGURL/$AMD_UCODE | grep -om1 '20[0-2][0-9]\-[01][0-9]\-[0-3][0-9]' | sort -u | tr -d '-' >> /tmp/ucode_amd.tmp	
+		curl -s $LOGURL/$AMD_UCODE | grep -om1 '20[0-2][0-9]-[01][0-9]-[0-3][0-9]' | sort -u | tr -d '-' >> /tmp/ucode_amd.tmp	
 	done < /tmp/amd_ucode.lst
 	sort -r < /tmp/ucode_amd.tmp | head -n1 > /tmp/ucode_amd.log && rm /tmp/ucode_amd.tmp
 	[ -n "$R" ] && rm /tmp/amd_ucode.lst && return

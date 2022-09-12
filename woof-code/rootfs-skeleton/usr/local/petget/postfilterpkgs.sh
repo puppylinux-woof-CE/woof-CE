@@ -33,7 +33,7 @@ sed -i -e '/-dbg_/d' /tmp/petget_proc/petget/filterpkgs.results.post #120525 alw
 [ "$DEF_CHK_NLS" = "false" ] && sed -i -e '/_NLS/d' -e '/-langpack/d' -e '/-lang-/d' /tmp/petget_proc/petget/filterpkgs.results.post
 #120504b fix filtering out _EXE... 120515 must escape the dashes...
 if [ "$DEF_CHK_EXE" = "false" ];then
- grep -E '_DEV|_DOC|_NLS|\-dev_|\-doc_|\-docs_|\-langpack|\-lang\-|\-devel\-|\-doc\-' /tmp/petget_proc/petget/filterpkgs.results.post > /tmp/petget_proc/petget/filterpkgs.results.post.tmp
+ grep -E '_DEV|_DOC|_NLS|-dev_|-doc_|-docs_|-langpack|-lang-|-devel-|-doc-' /tmp/petget_proc/petget/filterpkgs.results.post > /tmp/petget_proc/petget/filterpkgs.results.post.tmp
  mv -f /tmp/petget_proc/petget/filterpkgs.results.post.tmp /tmp/petget_proc/petget/filterpkgs.results.post
 fi
 
