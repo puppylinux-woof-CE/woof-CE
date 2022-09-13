@@ -66,14 +66,14 @@ DB_OTHERS="`ls -1 ${PREPATH}Packages-* | grep -v "$DB_MAIN"`"
 #120903 improve pkg db selection...
 case $DB_MAIN in
   *"-puppy-2-"*|*"-puppy-3-"*|*"-puppy-4-"*|*"-puppy-5-"*) DB_OTHERS="" ;;
-  *) DB_OTHERS="`echo "$DB_OTHERS" | grep -v '\\-puppy\\-[2345]\\-'`" ;; #do not look in puppy-2, puppy-3, puppy-4 or puppy-5.
+  *) DB_OTHERS="`echo "$DB_OTHERS" | grep -v '\-puppy-[2345]-'`" ;; #do not look in puppy-2, puppy-3, puppy-4 or puppy-5.
 esac
 
 case $DB_MAIN in
   *-puppy-*) true ;;
   *)
    #looking in a compat-distro db, then only puppy db allow is Packages-puppy-${DISTRO_DB_SUBNAME}-*  121102
-   DB_OTHERS="$(echo "$DB_OTHERS" | grep -v '\-puppy\-')"
+   DB_OTHERS="$(echo "$DB_OTHERS" | grep -v '\-puppy-')"
    PUPDB="$(ls -1 ${PREPATH}Packages-puppy-${DISTRO_DB_SUBNAME}-* 2>/dev/null)" #121102
    [ "$PUPDB" ] && DB_OTHERS="$DB_OTHERS
 $PUPDB"
