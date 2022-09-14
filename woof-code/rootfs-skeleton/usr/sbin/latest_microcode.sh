@@ -64,10 +64,11 @@ intel_func() {
 	SRC_URL_INTEL="https://github.com/intel/Intel-Linux-Processor-Microcode-Data-Files/releases"
 	PRE_URL_INTEL=$(curl -s $SRC_URL_INTEL | grep -om1 '\/intel.*tar\.gz')
 	INTEL_TIMESTAMP=$(curl -s $SRC_URL_INTEL | grep -om1 '202[0-9][01][0-9][0-3][0-9]' | sort -u)
+	[ -n "$INTEL_TIMESTAMP" ] || return 1
 	echo $INTEL_TIMESTAMP > /tmp/ucode_intel.log
 	[ -n "$Q" ] && return
-	PKG_INTEL=${PRE_URL_INTEL##*\/}
-	URL_INTEL="https://github.com/${PRE_URL_INTEL}"
+	PKG_INTEL=microcode-${INTEL_TIMESTAMP}.tar.gz
+	URL_INTEL="https://github.com/intel/Intel-Linux-Processor-Microcode-Data-Files/archive/refs/tags/${PKG_INTEL}"
 	wget -q $URL_INTEL || return 1
 	tar axf $PKG_INTEL || return 1
 }
