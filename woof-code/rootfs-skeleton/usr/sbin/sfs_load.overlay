@@ -31,6 +31,76 @@ EOF
 
 if [ $# -ne 0 ]; then
 	for SFS in "$@"; do
+		ASKMOUNT=1
+		# assumption: if we have a loop device associated with this SFS, it's mounted or loaded
+		LOOPDEV="`losetup -n -j "$SFS" | head -n 1 | cut -f 1 -d :`"
+
+		# TODO: add PUPMODE 12 support, without leaving broken symlinks behind after reboot
+		if [ $PUPMODE -eq 5 -o $PUPMODE -eq 13 ] && [ -z "$LOOPDEV" ]; then
+			yad --title sfs_load --window-icon=dialog-question --image=dialog-question --text "$(gettext "Do you want to load") ${SFS}?" --form --button="gtk-yes:0" --button="gtk-no:1"
+			if [ $? -eq 0 ]; then
+				FOUND=0
+				for i in `seq 3 99`
+				do
+					MNT="/initrd/pup_ro$i"
+					mountpoint -q "$MNT" && continue
+					FOUND=1
+					break
+				done
+				[ $FOUND -eq 0 ] && exit 1
+
+				mkdir -p "$MNT" || continue
+				mount -r -t squashfs -o loop,noatime "$SFS" "$MNT"
+				if [ $? -ne 0 ]; then
+					rmdir "$MNT"
+					continue
+				fi
+				ASKMOUNT=0
+
+				# mirror the SFS directory tree in /, then create
+				# symlinks for everything else
+				while read ABSPATH; do
+					RELPATH=${ABSPATH#$MNT}
+					[ -z "$RELPATH" -o -e "$RELPATH" ] && continue
+					if [ -d "$ABSPATH" -a ! -L "$ABSPATH" ]; then
+						mkdir "$RELPATH"
+					else
+						ln -s "$ABSPATH" "$RELPATH"
+					fi
+					chown-FULL -h --reference "$ABSPATH" "$RELPATH"
+					touch -h --reference "$ABSPATH" "$RELPATH"
+				done < <(find "$MNT" | sort)
+
+				if [ -e "$MNT/usr/share/applications" -o -e "$MNT/usr/local/share/applications" ]; then
+					fixmenus
+					pidof -s jwm && jwm -reload
+				fi
+			fi
+		elif [ -n "$LOOPDEV" ]; then
+			yad --title sfs_load --window-icon=dialog-question --image=dialog-question --text "$(gettext "Do you want to unload") ${SFS}?" --form --button="gtk-yes:0" --button="gtk-no:1"
+			if [ $? -eq 0 ]; then
+				MNT="`grep "^$LOOPDEV " /proc/mounts 2>/dev/null | head -n 1 | cut -f 2 -d ' '`"
+				if [ -n "$MNT" ]; then
+					while read ABSPATH; do
+						RELPATH=${ABSPATH#$MNT}
+						[ -z "$RELPATH" -o ! -L "$RELPATH" ] && continue
+						[ "`readlink "$RELPATH" 2>/dev/null`" = "$ABSPATH" ] && rm -f "$RELPATH"
+					done < <(find "$MNT")
+					NEEDFIXMENUS=0
+					[ -e "$MNT/usr/share/applications" -o -e "$MNT/usr/local/share/applications" ] && NEEDFIXMENUS=1
+					umount -l "$LOOPDEV"
+					if [ $NEEDFIXMENUS -eq 1 ]; then
+						fixmenus
+						pidof -s jwm && jwm -reload
+					fi
+				else
+					losetup -d "$LOOPDEV"
+				fi
+			fi
+
+			ASKMOUNT=0
+		fi
+
 		BASE="${SFS##*/}"
 
 		SKIP=0
@@ -62,6 +132,9 @@ if [ $# -ne 0 ]; then
 			fi
 		fi
 
+		[ $ASKMOUNT -eq 0 ] && continue
+		yad --title sfs_load --window-icon=dialog-question --image=dialog-question --text "$(gettext "Do you want to mount") ${SFS}?" --form --button="gtk-yes:0" --button="gtk-no:1"
+		[ $? -ne 0 ] && continue
 		MNT="/mnt/`echo "$BASE" | tr '/ ' '+_'`"
 		mkdir -p "$MNT"
 		mountpoint -q "$MNT"
