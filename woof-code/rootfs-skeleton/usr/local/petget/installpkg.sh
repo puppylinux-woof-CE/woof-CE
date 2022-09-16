@@ -320,7 +320,7 @@ case $DLPKG_BASE in
   install_path_check
   #110705 rpm -i does not work for mageia pkgs...
   
-  if [ "$(cpio --help | grep "\-\-directory")" != "" ];  then
+  if [ "$(cpio --help | grep "\--directory")" != "" ];  then
    rpm2cpio $DLPKG_BASE | cpio -idmu -D ${DIRECTSAVEPATH}/
   else
    lastpath=$(pwd)

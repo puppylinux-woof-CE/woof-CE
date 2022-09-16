@@ -13,7 +13,7 @@ if [ -f ../_00build.conf ] ; then
 fi
 
 CWD=`pwd`
-wget --help | grep -q '\-\-show\-progress' && WGET_SHOW_PROGRESS='-q --show-progress'
+wget --help | grep -q '\--show-progress' && WGET_SHOW_PROGRESS='-q --show-progress'
 WGET_OPT='--no-check-certificate '${WGET_SHOW_PROGRESS}
 
 MWD=$(pwd)
@@ -94,8 +94,6 @@ if [ -n "$DOTconfig_file" -a -n "$LatestK" ] ; then
 		log_msg "$DOTconfig_file is up to date. Continuing." # unlikely but possible
 	else
 		DOTconfig_new_ver=${DOTconfig_new_ver_pre% *}
-		# TODO: remove this when https://github.com/sfjro/aufs5-standalone/issues/20 is fixed
-		[ "$AUFS" != "no" -a ${DOTconfig_new_ver%.*} = "5.10" -a ${DOTconfig_new_ver##*.} -gt 139 ] && DOTconfig_new_ver="5.10.139"
 		DOTconfig_type=${DOTconfig_new_ver_pre#* }
 		log_msg "Latest Linux $DOTconfig_new_ver $DOTconfig_type"
 		NEW_DOTconfig_file=`echo $DOTconfig_file | sed "s%$b%$DOTconfig_new_ver%"`
@@ -1042,7 +1040,7 @@ fi
 
 if [ "$STRIP_KMODULES" = "yes" ] ; then
  [ -z "$STRIP" ] && STRIP=strip
- if [ "$(which $STRIP)" != "" -a "$($STRIP --help | grep "\-\-strip\-unneeded")" != "" ]; then
+ if [ "$(which $STRIP)" != "" -a "$($STRIP --help | grep "\--strip-unneeded")" != "" ]; then
 	for mods1 in $(find "$(pwd)/output/${linux_kernel_dir}" -type f -name "*.ko")
 	do
 		file "$mods1" | grep -q "unstripped" || $STRIP --strip-unneeded "$mods1"

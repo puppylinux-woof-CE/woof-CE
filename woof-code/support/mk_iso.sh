@@ -373,37 +373,15 @@ OUT=${WOOF_OUTPUT}/${ISO_BASENAME}.iso
 ISOLINUX=`find $PX/usr -maxdepth 3 -type f -name 'isolinux.bin'`
 CHAIN32=`find $PX/usr -maxdepth 5 -type f -name 'chain.c32' | grep -v efi`
 #FIXUSB=`find $PX/usr -maxdepth 2 -type f -name 'fix-usb.sh'`
-if [ -e "${PX}/usr/local/frugalpup" ] ; then
-	UEFI_ISO=yes
-	FPGRUB2XZ=`find $PX/usr/local/frugalpup -maxdepth 1 -name 'grub2-efi.tar.xz'`
-	FPBOOT=/tmp/grub2/EFI/boot
-	CER=/tmp/grub2/puppy.cer
-	FONT=$PX/usr/share/boot-dialog/font.pf2
-elif [ -d "devx/usr/share/cd-boot-images-amd64" ]; then
-	(
-		cd "devx/usr/share/cd-boot-images-amd64/tree"
-		mkdir -p /tmp/grub2/EFI/boot
-		cp EFI/boot/*.efi /tmp/grub2/EFI/boot/
-		cat << EOF > /tmp/grub2/EFI/boot/grub.cfg
-# The real config file for grub is /grub.cfg
-configfile /grub.cfg
-EOF
-		install -D /tmp/grub2/EFI/boot/grub.cfg /tmp/grub2/boot/grub/grub.cfg
-		cd /tmp/grub2
-		tar -c * | xz -1 > /tmp/grub2-efi.tar.xz
-		cd ..
-		rm -rf grub2
-	)
-	UEFI_ISO=yes
-	FPGRUB2XZ=/tmp/grub2-efi.tar.xz
-	FPBOOT=/tmp/grub2/EFI/boot
-	CER=
-	FONT=devx/usr/share/cd-boot-images-amd64/tree/boot/grub/fonts/unicode.pf2
-elif [ -f "devx/usr/lib/shim/shimx64.efi.signed" -a -f "devx/usr/lib/shim/mmx64.efi.signed" -a -f "devx/usr/lib/grub/x86_64-efi-signed/gcdx64.efi.signed" -a -f "devx/usr/share/grub/unicode.pf2" ]; then
+if [ -f "devx/usr/lib/shim/shimx64.efi.signed" -a -f "devx/usr/lib/grub/x86_64-efi-signed/gcdx64.efi.signed" -a -f "devx/usr/share/grub/unicode.pf2" ] && [ -f "devx/usr/lib/shim/mmx64.efi.signed" -o -f "devx/usr/lib/shim/mmx64.efi" ] ; then
 	(
 		mkdir -p /tmp/grub2/EFI/boot
 		cp -f devx/usr/lib/shim/shimx64.efi.signed /tmp/grub2/EFI/boot/bootx64.efi
-		cp -f devx/usr/lib/shim/mmx64.efi.signed /tmp/grub2/EFI/boot/mmx64.efi
+		if [ -f devx/usr/lib/shim/mmx64.efi.signed ]; then
+			cp -f devx/usr/lib/shim/mmx64.efi.signed /tmp/grub2/EFI/boot/mmx64.efi
+		else
+			cp -f devx/usr/lib/shim/mmx64.efi /tmp/grub2/EFI/boot/mmx64.efi
+		fi
 		cp -f devx/usr/lib/grub/x86_64-efi-signed/gcdx64.efi.signed /tmp/grub2/EFI/boot/grubx64.efi
 		cat << EOF > /tmp/grub2/EFI/boot/grub.cfg
 # The real config file for grub is /grub.cfg
@@ -420,6 +398,12 @@ EOF
 	FPBOOT=/tmp/grub2/EFI/boot
 	CER=
 	FONT=devx/usr/share/grub/unicode.pf2
+elif [ -e "${PX}/usr/local/frugalpup" ] ; then
+	UEFI_ISO=yes
+	FPGRUB2XZ=`find $PX/usr/local/frugalpup -maxdepth 1 -name 'grub2-efi.tar.xz'`
+	FPBOOT=/tmp/grub2/EFI/boot
+	CER=/tmp/grub2/puppy.cer
+	FONT=$PX/usr/share/boot-dialog/font.pf2
 else
 	UEFI_ISO=
 	rm -f ${BUILD}/boot/efi.img
