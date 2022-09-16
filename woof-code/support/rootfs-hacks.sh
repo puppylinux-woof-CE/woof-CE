@@ -228,6 +228,7 @@ done
 
 # need to enforce pterminfo: xterm -- see /etc/profile
 if [ -d ${SR}/usr/share/terminfox ] ; then
+	[ -e ${SR}/usr/share/terminfo ] && cp -r ${SR}/usr/share/terminfo/* ${SR}/usr/share/terminfox/
 	rm -rf ${SR}/usr/share/terminfo
 	mv -f ${SR}/usr/share/terminfox ${SR}/usr/share/terminfo
 fi
