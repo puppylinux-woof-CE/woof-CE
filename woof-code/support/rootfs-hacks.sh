@@ -172,8 +172,9 @@ if [ -f ${SR}/usr/bin/Xorg ] && [ ! -L ${SR}/usr/bin/X ] ; then
 fi
 
 # need a working wget
-if [ -f ${SR}/etc/wgetrc ] ; then
+if [ -f ${SR}/etc/wgetrc -a ! -f ${SR}/etc/ssl/certs/ca-certificates.crt ] ; then
 	if ! grep -q "check_certificate = off" ${SR}/etc/wgetrc ; then
+		echo "WARNING: disabling wget certificate validation"
 		echo "check_certificate = off
 	#ca_certificate = /etc/ssl/certs/ca-certificates.crt
 	continue = on" >> ${SR}/etc/wgetrc
