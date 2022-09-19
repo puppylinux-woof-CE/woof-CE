@@ -172,8 +172,9 @@ if [ -f ${SR}/usr/bin/Xorg ] && [ ! -L ${SR}/usr/bin/X ] ; then
 fi
 
 # need a working wget
-if [ -f ${SR}/etc/wgetrc ] ; then
+if [ -f ${SR}/etc/wgetrc -a ! -f ${SR}/etc/ssl/certs/ca-certificates.crt ] ; then
 	if ! grep -q "check_certificate = off" ${SR}/etc/wgetrc ; then
+		echo "WARNING: disabling wget certificate validation"
 		echo "check_certificate = off
 	#ca_certificate = /etc/ssl/certs/ca-certificates.crt
 	continue = on" >> ${SR}/etc/wgetrc
@@ -228,6 +229,7 @@ done
 
 # need to enforce pterminfo: xterm -- see /etc/profile
 if [ -d ${SR}/usr/share/terminfox ] ; then
+	[ -e ${SR}/usr/share/terminfo ] && cp -r ${SR}/usr/share/terminfo/* ${SR}/usr/share/terminfox/
 	rm -rf ${SR}/usr/share/terminfo
 	mv -f ${SR}/usr/share/terminfox ${SR}/usr/share/terminfo
 fi
