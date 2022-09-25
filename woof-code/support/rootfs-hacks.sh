@@ -271,4 +271,7 @@ if [ -e ${SR}/usr/bin/pmwget ] ; then
 			${SR}/usr/bin/pmwget
 fi
 
+# if fusermount loses the SUID bit, AppImages don't work as spot
+[ -e ${SR}/bin/fusermount ] && chmod 4755 ${SR}/bin/fusermount
+
 ### END ###
