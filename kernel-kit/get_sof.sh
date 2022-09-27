@@ -6,11 +6,15 @@ ver=`git describe --abbrev=0 --tags`
 git checkout $ver
 mkdir -p "$1/lib/firmware/intel"
 verfile=`ls */$ver`
-[ -n "$verfile" ] || exit 1
+test -n "$verfile"
 verdir=`dirname $verfile`
-cp -r $verdir/sof/ "$1/lib/firmware/intel/sof-$ver"
+sofdir=`ls -d "$verdir/sof-v"* | sort -V | tail -n 1`
+test -n "$sofdir"
+cp -r "$sofdir" "$1/lib/firmware/intel/sof-$ver"
 ln -s sof-$ver "$1/lib/firmware/intel/sof"
-cp -r $verdir/sof-tplg/ "$1/lib/firmware/intel/sof-tplg-$ver"
+tplgdir=`ls -d "$verdir/sof-tplg-v"* | sort -V | tail -n 1`
+test -n "$tplgdir"
+cp -r "$tplgdir" "$1/lib/firmware/intel/sof-tplg-$ver"
 ln -s sof-tplg-$ver "$1/lib/firmware/intel/sof-tplg"
 mkdir -p "$1/usr/share/doc/sof-bin"
 cp -f LICENCE.* Notice.* "$1/usr/share/doc/sof-bin/"
