@@ -448,37 +448,42 @@ if [ $PUPMODE -eq 2 ] ; then #full hd installation.
 fi
 
 [ ! -d /proc/acpi ] && modprobe apm #load apm.ko if no acpi.
-zcat /proc/config.gz | grep -m 1 -q '^CONFIG_INPUT_LEDS=m' && modprobe input-leds #for >= k4.2x
+modprobe input-leds 2>/dev/null #for >= k4.2x
 
-### /var/local/xorg_udev is created when:
+### /var/local/xorg_udev is created when X.Org is present and:
 ### - a touchscreen has been detected
 ### - missing xorg input-kbd and input-mouse drivers [ex: ubuntu xenial]
 ISITAMAC=`grep -i -m 1 '^Apple' /sys/class/dmi/id/board_vendor`
-[ -f /lib64/libc.so.6 ] && lsuffix=64 || lsuffix= #slackware64
-if [ ! -f /usr/lib${lsuffix}/xorg/modules/input/kbd_drv.so -a ! -f /usr/lib${lsuffix}/xorg/modules/input/mouse_drv.so ] ; then
-  echo "XORG_UDEV=1: Xorg kbd_drv.so and mouse_drv.so are missing"
-  XORG_UDEV=1
-fi
+if [ -e /usr/bin/X ] ; then
+  XORG_UDEV=0
+  if [ -n "$ISITAMAC" ] ; then
+    echo "MAC detected: $ISITAMAC"
+    XORG_UDEV=1
+  else
+    [ -f /lib64/libc.so.6 ] && lsuffix=64 || lsuffix= #slackware64
+    if [ ! -f /usr/lib${lsuffix}/xorg/modules/input/kbd_drv.so -a ! -f /usr/lib${lsuffix}/xorg/modules/input/mouse_drv.so ] ; then
+      echo "XORG_UDEV=1: Xorg kbd_drv.so and mouse_drv.so are missing"
+      XORG_UDEV=1
+    else
+      TOUCHSCREEN="$(udevadm info --export-db | grep -m 1 ID_INPUT_TOUCHSCREEN=1)"
+      if [ -n "$TOUCHSCREEN" ] ; then
+        echo "Touchscreen detected: $TOUCHSCREEN"
+        XORG_UDEV=1
+      else
+        case $(uname -m) in arm*|aarch*) XORG_UDEV=1 ;; esac
+      fi
+    fi
+  fi
 
-TOUCHSCREEN="$(udevadm info --export-db | grep -m 1 ID_INPUT_TOUCHSCREEN=1)"
-if [ -n "$TOUCHSCREEN" ] ; then
-  echo "Touchscreen detected: $TOUCHSCREEN"
-  XORG_UDEV=1
-fi
-if [ -n "$ISITAMAC" ] ; then
-  echo "MAC detected: $ISITAMAC"
-  XORG_UDEV=1
-fi
-case $(uname -m) in arm*|aarch*) XORG_UDEV=1 ;; esac
-
-if [ "$XORG_UDEV" = '1' ] ; then
-  echo "Activating Xorg Evdev"
-  [ ! -f /var/local/xorg_udev ] && rm -fv /etc/X11/xorg.conf #force xorgwizard-automatic
-  touch /var/local/xorg_udev
-else
-  echo "Deactivating Xorg Evdev"
-  [ -f /var/local/xorg_udev ] && rm -fv /etc/X11/xorg.conf #force xorgwizard-automatic
-  rm -fv /var/local/xorg_udev
+  if [ "$XORG_UDEV" = '1' ] ; then
+    echo "Activating Xorg Evdev"
+    [ ! -f /var/local/xorg_udev ] && rm -fv /etc/X11/xorg.conf #force xorgwizard-automatic
+    touch /var/local/xorg_udev
+  else
+    echo "Deactivating Xorg Evdev"
+    [ -f /var/local/xorg_udev ] && rm -fv /etc/X11/xorg.conf #force xorgwizard-automatic
+    rm -fv /var/local/xorg_udev
+  fi
 fi
 
 status_func 0
@@ -508,7 +513,9 @@ echo "WAIT MODULES LOADED"
 #previous module loading may not have completed...
 echo -n "Waiting for modules to complete loading..." >/dev/console
 PCMCIABUILTIN='no'
-if [ "`modinfo yenta_socket 2>/dev/null`" = "" ];then   #Marvmod shut this up.
+if modinfo yenta_socket | grep -m 1 -q '(builtin)';then
+ PCMCIABUILTIN='yes'
+elif [ "`modinfo yenta_socket 2>/dev/null`" = "" ];then   #Marvmod shut this up.
  #kernel has PCMCIA core drivers builtin.
  PCMCIABUILTIN='yes'
 else
@@ -527,11 +534,11 @@ fi
 
 #note, if initrd then usb-storage will have already loaded...
 USBBUILTIN='no'
-if [ "`modinfo ehci_hcd 2>/dev/null`" = "" ];then #110712 shut this up.
+if modinfo ehci_hcd | grep -m 1 -q '(builtin)' ;then #kmod new version
+ USBBUILTIN='yes'
+elif [ "`modinfo ehci_hcd 2>/dev/null`" = "" ];then #110712 shut this up.
  #kernel has usb core drivers (and usb-storage) builtin.
  USBBUILTIN='yes'
-elif modinfo ehci_hcd | grep -m 1 -q '(builtin)' ;then #kmod new version
- USBBUILTIN='yes' 
 else
  PCIUSB="`lspci -n | grep -o -E ' 0c03: '`" #160609
  if [ "$PCIUSB" != "" ];then #this may be slow to respond.
