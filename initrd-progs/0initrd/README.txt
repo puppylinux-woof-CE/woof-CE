@@ -226,11 +226,10 @@ pimod=<, separated list of kernel module names>
    But sometimes init needs to request input from the user via the keyboard.
    Specifying kernel modules in this parameter will cause init to load them before any possible keyboard interaction.
 
-pfix=<ram, nox, trim, nocopy, fsck, fsckp, rdsh, <number>>
+pfix=<ram, nox, nocopy, fsck, fsckp, rdsh, <number>>
    The pfix parameter is a ',' separated list of 1 or more of the above sub-parameters.
    ram:      run in ram only (do not load ${DISTRO_FILE_PREFIX}save).
    nox:      do not start X.
-   trim:     add "discard" to mount options if SSD.
    copy:     copy .sfs files into ram
    nocopy:   do not copy .sfs files into ram (default is copy if ram <= 1024 MB).
    fsck:     do fsck of ${DISTRO_FILE_PREFIX}save.?fs file.
