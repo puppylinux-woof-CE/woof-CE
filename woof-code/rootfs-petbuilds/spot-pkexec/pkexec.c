@@ -1,107 +1,61 @@
-#include <unistd.h>
-#include <stdlib.h>
 #include <sys/types.h>
-#include <sys/wait.h>
-#include <pwd.h>
-#include <fcntl.h>
-#include <paths.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <errno.h>
+#include <unistd.h>
+#include <string.h>
+#include <stdlib.h>
+
+static
+int sendall(const int s, const char *buf, const size_t len)
+{
+	size_t total;
+	ssize_t sent;
+
+	for (total = 0; total < len; total += (size_t)sent) {
+		sent = send(s, buf + total, len - total, MSG_NOSIGNAL);
+		if (sent <= 0)
+			return -1;
+	}
+
+	return 0;
+}
 
 int main(int argc, char *argv[])
 {
-	static char *ask[32] = {"/usr/sbin/run-as-spot", "/usr/sbin/pkexec-ask"};
-	struct passwd *spot;
-	const char *display, *wayland_display, *gdk_backend;
-	int i, status, fd;
-	pid_t pid;
-	uid_t uid;
-	gid_t gid;
+	struct sockaddr_un sun = {.sun_family = AF_UNIX, .sun_path = "/tmp/pkexecd.socket"};
+	size_t len;
+	int s, i;
 
-	if ((argc == 1) || (argc > 30))
+	if (argc == 1 || argc > 30)
 		return EXIT_FAILURE;
 
-	display = getenv("DISPLAY");
-	if (display && !display[0])
-		return EXIT_FAILURE;
-
-	wayland_display = getenv("WAYLAND_DISPLAY");
-	if (!display && !wayland_display)
-		return EXIT_FAILURE;
-
-	if (wayland_display && !wayland_display[0])
-		return EXIT_FAILURE;
-
-	gdk_backend = getenv("GDK_BACKEND");
-
-	if (geteuid() != 0)
-		return EXIT_FAILURE;
-
-	uid = getuid();
-	gid = getgid();
-
-	if ((uid == 0) && (gid == 0))
-		goto run;
-
-	spot = getpwnam("spot");
-	if (!spot ||
-	    (uid != spot->pw_uid) ||
-	    (gid != spot->pw_gid))
-		return EXIT_FAILURE;
-
-	for (i = 1; i < argc; ++i)
-		ask[i + 1] = argv[i];
-
-	for (fd = sysconf(_SC_OPEN_MAX); fd > STDERR_FILENO; --fd)
-		close(fd);
-
-	fd = open(_PATH_DEVNULL, O_RDWR);
-	if (fd < 0)
-		return EXIT_FAILURE;
-
-	if (setuid(0) < 0) {
-		close(fd);
+	if (getuid() == 0 && getgid() == 0) {
+		execvp(argv[1], &argv[1]);
 		return EXIT_FAILURE;
 	}
 
-	pid = fork();
-	if (pid == 0) {
-		if ((dup2(fd, STDIN_FILENO) != STDIN_FILENO) ||
-		    (dup2(fd, STDOUT_FILENO) != STDOUT_FILENO) ||
-		    (dup2(fd, STDERR_FILENO) != STDERR_FILENO))
-			exit(EXIT_FAILURE);
+	if ((s = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0)) < 0) return EXIT_FAILURE;
 
-		if (chdir(spot->pw_dir) < 0)
-			exit(EXIT_FAILURE);
-
-		close(fd);
-
-		clearenv();
-
-		if (display && display[0])
-			setenv("DISPLAY", display, 1);
-
-		if (wayland_display && wayland_display[0])
-			setenv("WAYLAND_DISPLAY", wayland_display, 1);
-
-		if (gdk_backend)
-			setenv("GDK_BACKEND", gdk_backend, 1);
-
-		execv(ask[0], ask);
-		exit(EXIT_FAILURE);
-	}
-	else if (pid < 0) {
-		close(fd);
+	if (connect(s, (const struct sockaddr *)&sun, sizeof(sun))) {
+		close(s);
 		return EXIT_FAILURE;
 	}
 
-	close(fd);
-
-	if (waitpid(pid, &status, 0) != pid)
+	for (i = 1; i < argc; ++i) {
+		len = strlen(argv[i]);
+		if ((len > 0 && sendall(s, argv[i], len) < 0) || sendall(s, "\0", 1) < 0) {
+			close(s);
+			return EXIT_FAILURE;
+		}
+	}
+	if (sendall(s, "\0", 1) < 0) {
+		close(s);
 		return EXIT_FAILURE;
+	}
 
-	if (!WIFEXITED(status) || (WEXITSTATUS(status) != EXIT_SUCCESS))
-		return EXIT_FAILURE;
+	recv(s, &i, 1, 0);
 
-run:
-	execvp(argv[1], &argv[1]);
-	return EXIT_FAILURE;
+	close(s);
+	return EXIT_SUCCESS;
 }
