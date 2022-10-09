@@ -1,0 +1,237 @@
+#!/bin/bash
+
+# wayland wallpapers - 'wwals'
+
+# choose a wallpaper
+# (c) Michael Amadio (@01micko) 2022 GPL (/usr/share/doc/legal)
+# this changes walls for wayland wlroots compositors
+# requires 'swaybg', 'wlr-randr', 'gtkdialog', 'bash'
+# thanks to @johanmalm for testing and input
+
+# setup config #------------------
+BGDIR=${BGDIR:-/usr/share/backgrounds}
+export CONFDIR=${XDG_CONFIG_HOME:-$HOME/.config}/wwals
+export TEMPDIR=/tmp/walls
+mkdir -p $TEMPDIR
+[ -d "$CONFDIR" ] || mkdir -p $CONFDIR
+CONF=$CONFDIR/wwals.conf
+if [ ! -f "$CONF" ];then
+	echo "BGDIR=$BGDIR" > $CONF
+fi
+. $CONF
+export CMD_FILE=$CONFDIR/cmd
+export CMD_TMP=$TEMPDIR/cmd
+export BGDIR
+
+## setup vars #------------------
+a=$(wlr-randr | while read l m n o p
+do [ "${p:1:9}" = 'preferred' ] && echo $l && break
+done)
+NUM_MONS=1
+MONITOR=
+# for gui on main monitor
+SCRX=${a%x*}
+SCRY=${a#*x}
+
+# get number of monitors and output names
+MONITORS="$(while read -r MON REST
+do
+	case "${MON:0:3}" in
+		[0-9]*|Phy|Ena|Mod|Pos|Tra|Sca)continue;;
+	esac
+	echo $MON
+done <<<$(printf "$(wlr-randr)"))"
+
+echo $MONITORS
+e=0
+NUM_MONS=$(for i in $MONITORS;do e=$(($e + 1));done;echo $e)
+
+# bail out if in portrait (tablets)
+[ $SCRX -lt $SCRY ] && echo '<window icon-name="background" title="Background Choice" width-request="400" resizable="false">
+	<vbox>
+	<hbox space-expand="true" space-fill="true">
+		<pixmap icon_size="6">
+			<input file stock="gtk-dialog-warning"></input>
+		</pixmap>
+		<text space-expand="true" space-fill="true">
+			<label>Please switch back into Landscape mode to choose a Wallpaper</label>
+		</text>
+	</hbox>
+	<hbox>
+		<button ok></button>
+	</hbox>
+	</vbox>
+	</window>'|gtkdialog -s -c && exit
+
+export W=$((7 * $SCRX / 10)) #70%
+export H=$((6 * $SCRY / 10)) #60%
+export PH=$(($H - 70))
+
+## functions #------------------
+set_wall() { # single wallpaper
+	wall="${BGDIR}/$1"
+	[ -n "$2" ] && M="-m $2"
+	# build command
+	printf %s "swaybg -i \"$wall\" $M >/dev/null 2>&1 &" > $CMD_TMP # so compositor can set bg at start up
+	echo "$wall" $HOME/.config/wallpaper/bg_img
+}
+
+set_multi() { # diferent wallpapers per monitor
+	echo "$1"
+	wallmulti="${BGDIR}/$1"
+	[ -n "$3" ] && M="-m $3"
+	# build command
+	echo -n "--output $2 -i \"$wallmulti\" $M " >> $CMD_TMP
+	echo "$wallmulti" >> $TEMPDIR/wallmulti
+}
+
+multimon() {
+	export Q='<window icon-name="background" title="Multiple Monitors" width-request="400" resizable="false">
+	<vbox>
+	<hbox space-expand="true" space-fill="true">
+		<pixmap icon_size="6">
+			<input file stock="gtk-dialog-info"></input>
+		</pixmap>
+		<text space-expand="true" space-fill="true" use-markup="true">
+			<label>"You have '$1' monitors connected. Would you like the same background on each of them? If you choose <b>No</b> then you will be given the option to use different backgrounds on each screen."</label>
+		</text>
+	</hbox>
+	<hbox>
+		<button yes></button><button no></button>
+	</hbox>
+	</vbox>
+	</window>'
+	eval `gtkdialog -p Q -c`
+	case $EXIT in
+		Yes)return 1;;
+		No)return 0;;
+		*)exit 0;;
+	esac
+}
+
+button_gui() {
+	# populate main gui
+	WALLS=$(ls -1 $BGDIR)
+	c=1
+	while read WALL
+	  do 
+		echo '<button image-position="top" tooltip-text="Click to set '"${WALL##*/}"' as wallpaper!">
+	        <label>'"$WALL"'</label>
+			<variable>'"BG${c}"'</variable>
+			<input file>'$BGDIR'/'"$WALL"'</input>
+			<height>'$PH'</height>
+			<action>'$1 "\"$WALL\"" $2' $MODE</action>
+			<action type="exit">exit</action>
+	      </button>' >> $TEMPDIR/buttons
+	      c=$((${c}+1))
+	  done <<<$WALLS
+}
+
+main_gui() {
+	BUTTONS=`cat $TEMPDIR/buttons`
+	export GUI='<window icon-name="background" title="Background Choice '$1'">
+  <vbox>
+    <hbox space-expand="true" space-fill="true">
+      <text use-markup="true"><label>"<b>Press an image to select wallpaper '$1'</b>"</label></text>
+    </hbox>
+    <hbox space-expand="true" space-fill="false">
+      <text use-markup="true"><label>"<big>Mode:</big>"</label></text>
+      <comboboxtext>
+        <variable>MODE</variable>
+        <item>stretch</item>
+        <item>center</item>
+        <item>tile</item>
+        <item>fit</item>
+      </comboboxtext>    
+    </hbox>
+    <hbox height-request="'$H'" width-request="'$W'">
+      <hbox scrollable="true">
+        '$BUTTONS'
+      </hbox>
+    </hbox>
+  </vbox>
+</window>'
+	eval `gtkdialog -p GUI -c >/dev/null 2>&1`
+	[ "$EXIT" = 'abort' ] && exit
+	rm -f $TEMPDIR/buttons
+}
+
+pixmap_gui() {
+	if [ -f $CMD_TMP ]; then
+		while read -d ' ' x ; do
+			echo $x | grep -q "$BGDIR" && \
+			echo '		<pixmap>
+				<height>200</height>
+				<input file>'$x'</input>
+			</pixmap>' >> $TEMPDIR/pixmap
+		done < $CMD_TMP
+	else
+		return 1
+	fi
+}
+
+confirm_gui() {
+	[ -f "$TEMPDIR/pixmap" ] && PIX=`cat $TEMPDIR/pixmap` || return 1
+	export CON='<window icon-name="background" title="Confirm selection" resizable="false">
+	<vbox>
+	  <hbox space-expand="true" space-fill="true">
+	    <text><label>Please confirm that the image(s) below is your correct choice</label></text>
+	  </hbox>
+	  <hbox space-expand="true" space-fill="true">
+		'$PIX'
+	  </hbox>
+	  <hbox>
+	    <button yes></button><button no></button>
+	  </hbox>
+	</vbox>
+</window>'
+	eval `gtkdialog -p CON`
+	case $EXIT in
+		Yes)return 0;;
+		*)return 1;;
+	esac
+}
+
+trap_exit() {
+	trap "rm -rf $TEMPDIR" EXIT
+}
+
+export -f set_wall set_multi multimon button_gui main_gui pixmap_gui confirm_gui trap_exit
+
+# main #------------------
+trap_exit
+SET_CMD=set_wall
+if [ $NUM_MONS -gt 1 ]; then
+	if multimon $NUM_MONS ; then
+		SET_CMD=set_multi
+		echo -n 'swaybg ' > $CMD_TMP
+		for MONITOR in $(echo $MONITORS); do
+			button_gui $SET_CMD $MONITOR
+			main_gui " - Monitor: $MONITOR"
+		done
+		if [ -e "$CMD_TMP" ]; then
+			echo -n ' >/dev/null 2>&1 &' >> $CMD_TMP
+		fi
+		[ -f "$TEMPDIR/wallmulti" ] && \
+			head -n1 $TEMPDIR/wallmulti > $HOME/.config/wallpaper/bg_img && rm $TEMPDIR/wallmulti
+	else
+		button_gui $SET_CMD
+		main_gui
+	fi
+else
+	button_gui $SET_CMD
+	main_gui
+fi
+pixmap_gui
+if confirm_gui ; then
+	[ -f "$CMD_TMP" ] && mv -f $CMD_TMP $CMD_FILE || exit 1
+else
+	exit 1
+fi
+if [ -e "$CMD_FILE" ]; then
+	killall swaybg >/dev/null 2>&1
+	. $CMD_FILE
+else
+	exit 1
+fi
+exit 0
