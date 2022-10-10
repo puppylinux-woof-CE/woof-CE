@@ -12,6 +12,10 @@
 
 #ifdef HAVE_LANDLOCK
 
+#	ifndef LANDLOCK_ACCESS_FS_REFER
+#		define LANDLOCK_ACCESS_FS_REFER 0
+#	endif
+
 static inline
 long landlock_create_ruleset(const struct landlock_ruleset_attr *const attr, const size_t size, const __u32 flags)
 {
@@ -108,10 +112,12 @@ int main(int argc, char *argv[])
 	if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) < 0) goto exec;
 
 #ifdef HAVE_LANDLOCK
+#	if LANDLOCK_ACCESS_FS_REFER != 0
 	if (landlock_create_ruleset(NULL, 0, LANDLOCK_CREATE_RULESET_VERSION) < 2) {
 		ruleset_attr.handled_access_fs &= ~LANDLOCK_ACCESS_FS_REFER;
 		rw_attr.allowed_access &= ~LANDLOCK_ACCESS_FS_REFER;
 	}
+#	endif
 
 	if ((ruleset_fd = landlock_create_ruleset(&ruleset_attr, sizeof(ruleset_attr), 0)) < 0) goto exec;
 	if ((root_fd = open("/", O_DIRECTORY)) < 0) goto exec;
