@@ -8,6 +8,10 @@
 #include <dirent.h>
 #include <errno.h>
 #include <string.h>
+#include <sched.h>
+#include <sys/types.h>
+#include <pwd.h>
+#include <stdio.h>
 #include <stdlib.h>
 
 #ifdef HAVE_LANDLOCK
@@ -57,6 +61,7 @@ int main(int argc, char *argv[])
 		"tmp",
 	};
 	static const char *skip_dirs[] = {
+		".",
 		"..",
 		"root",
 		"home",
@@ -108,6 +113,9 @@ int main(int argc, char *argv[])
 	struct dirent *ent;
 	int i, root_fd = -1, ruleset_fd = -1;
 #endif
+	struct passwd *spot;
+	FILE *fp;
+	int out;
 
 	if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) < 0) goto exec;
 
@@ -148,6 +156,23 @@ next:
 #endif
 
 exec:
+	if (unshare(CLONE_NEWUSER) < 0 || !(spot = getpwnam("spot"))) goto cleanup;
+
+	if (!(fp = fopen("/proc/self/uid_map", "w"))) goto cleanup;
+	out = fprintf(fp, "%d %d 1", spot->pw_uid, spot->pw_uid);
+	fclose(fp);
+	if (out <= 0) goto cleanup;
+
+	if (!(fp = fopen("/proc/self/setgroups", "w"))) goto cleanup;
+	out = fwrite("deny", 1,  4, fp);
+	fclose(fp);
+	if (out != 4) goto cleanup;
+
+	if (!(fp = fopen("/proc/self/gid_map", "w"))) goto cleanup;
+	fprintf(fp, "%d %d 1", spot->pw_gid, spot->pw_gid);
+	fclose(fp);
+
+cleanup:
 #ifdef HAVE_LANDLOCK
 	if (dir) closedir(dir);
 	else if (root_fd != -1) close(root_fd);
