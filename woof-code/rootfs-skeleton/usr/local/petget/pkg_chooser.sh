@@ -404,13 +404,17 @@ cp  /usr/share/pixmaps/puppy/close.svg "$ICONDIR"/true.svg
 ln -sf "$ICONDIR"/true.svg "$ICONDIR"/tgb0.svg
 
 # check screen size
-while read a b c ; do
-	case $a in -geometry)
-		SCRNXY=${b%%+*} #1366x768
-		read SCRN_X SCRN_Y <<< "${SCRNXY//x/ }"
-		break
-	esac
-done <<< "$(LANG=C xwininfo -root)"
+if [ "$XDG_SESSION_TYPE" = 'wayland' ]; then
+	read SCRNXY ETC < <(wlr-randr | grep -m1 current)
+else
+	while read a b c ; do
+		case $a in -geometry)
+			SCRNXY=${b%%+*} #1366x768
+			break
+		esac
+	done <<< "$(LANG=C xwininfo -root)"
+fi
+read SCRN_X SCRN_Y <<< "${SCRNXY//x/ }"
 
 UO_1="1000"
 UO_2="650"
