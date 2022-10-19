@@ -96,6 +96,7 @@ generate_initrd() {
 	fi
 	[ -f "$DISTRO_SPECS" ] && cp -f ${V} "${DISTRO_SPECS}" .
 	[ -x ../init ] && cp -f ../init .
+	[ -x ../init.overlay ] && cp -f ../init.overlay .
 
 	. ./DISTRO_SPECS
 
