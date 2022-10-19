@@ -96,6 +96,7 @@ if [ -n "$DOTconfig_file" -a -n "$LatestK" ] ; then
 		DOTconfig_new_ver=${DOTconfig_new_ver_pre% *}
 		DOTconfig_type=${DOTconfig_new_ver_pre#* }
 		log_msg "Latest Linux $DOTconfig_new_ver $DOTconfig_type"
+		b=`echo "$b" | sed 's/\\./\\\\./g'`
 		NEW_DOTconfig_file=`echo $DOTconfig_file | sed "s%$b%$DOTconfig_new_ver%"`
 		log_msg "New DOTconfig_file is $NEW_DOTconfig_file"
 		mv $DOTconfig_file $NEW_DOTconfig_file
