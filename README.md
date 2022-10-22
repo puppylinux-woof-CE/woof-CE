@@ -1,10 +1,21 @@
 # woof - the Puppy builder
 
-Currently supported: [![Build status](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/build.yml/badge.svg)](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/build.yml)
+Currently supported:
 
-- Slackware
-- Ubuntu
-- Debian
+| Distro        | Version       | Architecture | Status   |
+| ------------- | ------------- | -------------| -------- |
+| Slackware     | 15.0          | x86_64       | [![slackware64-15.0](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/slackware64-15.0.yml/badge.svg)](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/slackware64-15.0.yml) |
+| Slackware     | 15.0          | x86          | [![slackware-15.0](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/slackware-15.0.yml/badge.svg)](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/slackware-15.0.yml) |
+| Slackware     | 14.2          | x86_64       | [![slackware64-14.2](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/slackware64-14.2.yml/badge.svg)](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/slackware64-14.2.yml) |
+| Slackware     | 14.2          | x86          | [![slackware-14.2](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/slackware-14.2.yml/badge.svg)](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/slackware-14.2.yml) |
+| Ubuntu        | 22.04         | x86_64       | [![ubuntu-jammy64](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/ubuntu-jammy64.yml/badge.svg)](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/ubuntu-jammy64.yml) |
+| Ubuntu        | 20.04         | x86_64       | [![ubuntu-focal64](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/ubuntu-focal64.yml/badge.svg)](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/ubuntu-focal64.yml) |
+| Ubuntu        | 18.04         | x86_64       | [![ubuntu-bionic64](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/ubuntu-bionic64.yml/badge.svg)](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/ubuntu-bionic64.yml) |
+| Debian        | Unstable      | x86_64       | [![debian-sid64](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/debian-sid64.yml/badge.svg)](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/debian-sid64.yml) |
+| Debian        | Testing       | x86_64       | [![debian-bookworm64](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/debian-bookworm64.yml/badge.svg)](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/debian-bookworm64.yml) |
+| Debian        | Testing       | x86          | [![debian-bookworm](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/debian-bookworm.yml/badge.svg)](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/debian-bookworm.yml) |
+| Debian        | 11            | x86_64       | [![debian-bullseye64](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/debian-bullseye64.yml/badge.svg)](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/debian-bullseye64.yml) |
+| Debian        | 11            | x86          | [![debian-bullseye](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/debian-bullseye.yml/badge.svg)](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/debian-bullseye.yml) |
 
 # Building a Puppy: using GitHub Actions
 
