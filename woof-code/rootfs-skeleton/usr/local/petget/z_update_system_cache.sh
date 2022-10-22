@@ -82,6 +82,7 @@ if [ "$(grep -m 1 '/etc/ld.so.conf.d/' $PKGFILES)" != "" ]; then
 fi
 
 if [ "$(grep -m 1 '/udev/hwdb.d/' $PKGFILES)" != "" ]; then
+  systemd-hwdb update 2>/dev/null
   [ "$(udevadm --help 2>&1 | grep hwdb)" != "" ] && udevadm hwdb --update
 fi
 
