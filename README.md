@@ -5,6 +5,7 @@ Currently supported: [![Build status](https://github.com/puppylinux-woof-CE/woof
 - Slackware
 - Ubuntu
 - Debian
+- Void
 
 # Building a Puppy: using GitHub Actions
 
