@@ -21,11 +21,11 @@ on:
         description: 'Architecture'
         required: false
         default: 'x86_64'
-      compat_distro:
+      compat-distro:
         description: 'Compatible distro'
         required: false
         default: 'slackware64'
-      compat_version:
+      compat-distro-version:
         description: 'Compatible distro version'
         required: false
         default: '15.0'
@@ -44,105 +44,36 @@ on:
 
 jobs:
   build:
+    uses: ./.github/workflows/build.yml
+    with:
+      repo: ${{ github.repository }}
+      ref: ${{ github.ref }}     
+      name: ${{ github.event.inputs.name }}
+      version: ${{ github.event.inputs.version }}
+      arch: ${{ github.event.inputs.arch }}
+      compat-distro: ${{ github.event.inputs.compat-distro }}
+      compat-distro-version: ${{ github.event.inputs.compat-distro-version }}
+      kernel: ${{ github.event.inputs.kernel }}
+      unionfs: ${{ github.event.inputs.unionfs }}
+      artifact: ${{ github.workflow }}-${{ github.event.inputs.arch }}-${{ github.event.inputs.compat-distro }}-${{ github.event.inputs.compat-distro-version }}-${{ github.run_number }}
+      retention: 1
+  upload:
+    needs: build
     runs-on: ubuntu-20.04
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
-    - name: Create cache directories
-      run: |
-        mkdir -p local-repositories petbuild-sources
-        ln -s `pwd`/local-repositories ../local-repositories
-    - name: Get cached local-repositories
-      uses: actions/cache@v3
-      with:
-        path: local-repositories
-        key: ${{ github.workflow }}-local-repositories-${{ github.sha }}
-        restore-keys: |
-          ${{ github.workflow }}-local-repositories-
-    - name: Prepare build environment
-      run: |
-        [ -f local-repositories/vercmp ] || (curl https://raw.githubusercontent.com/puppylinux-woof-CE/initrd_progs/master/pkg/w_apps_static/w_apps/vercmp.c | gcc -x c -o ../local-repositories/vercmp -)
-        sudo install -m 755 local-repositories/vercmp /usr/local/bin/vercmp
-        sudo install -D -m 644 woof-code/rootfs-skeleton/usr/local/petget/categories.dat /usr/local/petget/categories.dat
-        echo "dash dash/sh boolean false" | sudo debconf-set-selections
-        sudo DEBIAN_FRONTEND=noninteractive dpkg-reconfigure dash
-        sudo ln -s bash /bin/ash
-    - name: merge2out
-      run: |
-        yes "" | sudo -E ./merge2out woof-distro/${{ github.event.inputs.arch }}/${{ github.event.inputs.compat_distro }}/${{ github.event.inputs.compat_version }}
-        sudo chown -R root:root ../woof-out_*
-    - name: Set name
-      run: sudo sed -i 's/^DISTRO_NAME=.*/DISTRO_NAME="${{ github.event.inputs.name }}"/' ../woof-out_*/DISTRO_SPECS
-    - name: Set version
-      run: sudo sed -i s/^DISTRO_VERSION=.*/DISTRO_VERSION=${{ github.event.inputs.version }}/ ../woof-out_*/DISTRO_SPECS
-    - name: Set file name prefix
-      run: sudo sed -i s/^DISTRO_FILE_PREFIX=.*/DISTRO_FILE_PREFIX=${{ github.event.inputs.prefix }}/ ../woof-out_*/DISTRO_SPECS
-    - name: 0setup
-      run: |
-        cd ../woof-out_*
-        sudo -E ./0setup
-    - name: 1download
-      run: |
-        cd ../woof-out_*
-        sudo -E ./1download
-    - name: 2createpackages
-      run: |
-        cd ../woof-out_*
-        echo | sudo -E ./2createpackages
-    - name: Choose kernel variant
-      run: |
-        cd ../woof-out_*
-        . _00build.conf
-        [ ! -e _00build_2.conf ] || . _00build_2.conf
-        name="kernel-kit-output-usrmerge-${{ github.event.inputs.unionfs }}-${{ github.event.inputs.kernel }}-${{ github.event.inputs.arch }}"
-        [ "$USR_SYMLINKS" = yes ] || name="kernel-kit-output-${{ github.event.inputs.unionfs }}-${{ github.event.inputs.kernel }}-${{ github.event.inputs.arch }}"
-        echo "kernel_artifact=$name" >> $GITHUB_ENV
-      shell: bash
-    - name: Get cached kernel-kit output
-      uses: dawidd6/action-download-artifact@v2
-      with:
-        repo: puppylinux-woof-CE/woof-CE
-        branch: testing
-        workflow: ${{ startsWith(github.event.inputs.kernel, 'debian-') && 'dpup-kernel.yml' || 'kernel-kit.yml' }}
-        workflow_conclusion: success
-        name: ${{ env.kernel_artifact }}
-        path: output
-    - name: Move cached kernel-kit output
-      run: sudo mv output ../woof-out_*/kernel-kit/
-    - name: Get cached petbuild-sources
-      uses: actions/cache@v3
-      with:
-        path: petbuild-sources
-        key: ${{ github.workflow }}-petbuild-sources-${{ github.sha }}
-        restore-keys: |
-          ${{ github.workflow }}-petbuild-sources-
-    - name: Install 3builddistro dependencies
-      run: |
-        sudo apt-get update -qq
-        sudo apt-get install -y --no-install-recommends patchelf dc debootstrap
-    - name: Install cdrtools
-      run: |
-        [ -f local-repositories/mkisofs ] || (curl -L https://sourceforge.net/projects/cdrtools/files/alpha/cdrtools-3.02a09.tar.bz2/download | tar -xjf- && cd cdrtools-3.02 && make -j`nproc` && mv mkisofs/OBJ/x86_64-linux-cc/mkisofs ../local-repositories/mkisofs)
-        sudo install -m 755 local-repositories/mkisofs /usr/local/bin/mkisofs
-    - name: 3builddistro
-      run: |
-        sudo mv petbuild-sources ../woof-out_*/
-        cd ../woof-out_*
-        sudo -E HOME=/root XDG_CONFIG_HOME=/root/.config ./3builddistro release
-        sudo mv -f woof-output-${{ github.event.inputs.prefix }}-${{ github.event.inputs.version }}/${{ github.event.inputs.prefix }}-${{ github.event.inputs.version }}.iso $GITHUB_WORKSPACE/
-        sudo mv -f kernel-kit/output/kbuild-*.sfs woof-output-${{ github.event.inputs.prefix }}-${{ github.event.inputs.version }}/
-        cd woof-output-${{ github.event.inputs.prefix }}-${{ github.event.inputs.version }}
-        sudo tar -f $GITHUB_WORKSPACE/${{ github.event.inputs.prefix }}-${{ github.event.inputs.version }}-extra.tar -c `ls *{x,drv}_${{ github.event.inputs.prefix }}_${{ github.event.inputs.version }}.sfs 2>/dev/null` kbuild-*.sfs
-    - name: Create Release
-      uses: softprops/action-gh-release@v1
-      with:
-        name: ${{ github.event.inputs.prefix }}-${{ github.event.inputs.version }}${{ github.event.inputs.suffix }}
-        tag_name: ${{ github.event.inputs.prefix }}-${{ github.event.inputs.version }}${{ github.event.inputs.suffix }}
-        fail_on_unmatched_files: true
-        files: |
-          ${{ github.event.inputs.prefix }}-${{ github.event.inputs.version }}.iso
-          ${{ github.event.inputs.prefix }}-${{ github.event.inputs.version }}-extra.tar
-        draft: true
-        prerelease: false
-    - name: Move cached directories
-      run: sudo mv ../woof-out_*/petbuild-sources .
+      - name: Download build artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: ${{ github.workflow }}-${{ github.event.inputs.arch }}-${{ github.event.inputs.compat-distro }}-${{ github.event.inputs.compat-distro-version }}-${{ github.run_number }}
+          path: .
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: ${{ github.event.inputs.prefix }}-${{ github.event.inputs.version }}${{ github.event.inputs.suffix }}
+          tag_name: ${{ github.event.inputs.prefix }}-${{ github.event.inputs.version }}${{ github.event.inputs.suffix }}
+          fail_on_unmatched_files: true
+          files: |
+            *.iso
+            *.sfs
+          draft: true
+          prerelease: false
