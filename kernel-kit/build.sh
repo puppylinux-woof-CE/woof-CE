@@ -237,8 +237,8 @@ export kernel_version
 # $package_name_suffix $custom_suffix $kernel_ver
 aufs_git_3="https://github.com/puppylinux-woof-CE/aufs3-standalone.git"
 aufs_git_4="https://github.com/sfjro/aufs4-standalone.git"
-aufs_git_5="https://github.com/sfjro/aufs5-standalone.git"
-aufs_git_6="https://github.com/sfjro/aufs6-standalone.git"
+aufs_git_5="https://github.com/sfjro/aufs-standalone.git"
+aufs_git_6="https://github.com/sfjro/aufs-standalone.git"
 [ ! "$kernel_mirrors" ] && kernel_mirrors="https://www.kernel.org/pub/linux/kernel"
 ksubdir_3=v3.x #http://www.kernel.org/pub/linux/kernel/v3.x
 ksubdir_4=v4.x
