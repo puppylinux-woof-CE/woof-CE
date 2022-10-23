@@ -61,8 +61,6 @@ if [ "$BUILD_NLSX" = "yes" ] ; then
 	fi
 	echo
 	rm -f nlsx/pet.specs
-	mkdir -p nlsx/var/local
-	touch nlsx/var/local/nlsx_loaded
 	[ "$USR_SYMLINKS" = "yes" ] && usrmerge nlsx 0
 	echo "Creating $NLSXSFS..."
 	[ -d nlsx/root ] && busybox chmod 700 nlsx/root
