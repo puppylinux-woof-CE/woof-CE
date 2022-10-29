@@ -1,26 +1,20 @@
-#!/bin/sh -xe
+#!/bin/bash -xe
 
-[ -d sof-bin ] || git clone https://github.com/thesofproject/sof-bin
-cd sof-bin
-ver=`git describe --abbrev=0 --tags`
-git checkout $ver
+read TAG URL < <(curl -H "Accept: application/vnd.github+json" https://api.github.com/repos/thesofproject/sof-bin/releases | jq -r '.[0].tag_name + " " + .[0].assets[0].browser_download_url')
+test -n "$TAG"
+test "$TAG" != null
+test -n "$URL"
+test "$URL" != null
+BASE=${URL##*/}
+[ -e "$BASE" ] || curl -fLo "$BASE" "$URL"
+DIR=${BASE%*.tar.*}
+rm -rf "$DIR"
+tar -xf "$BASE"
+cd "$DIR"
 mkdir -p "$1/lib/firmware/intel"
-verfile=`ls */$ver`
-test -n "$verfile"
-verdir=`dirname $verfile`
-sofdir=`ls -d "$verdir/sof-v"* | sort -V | tail -n 1`
-test -n "$sofdir"
-cp -r "$sofdir" "$1/lib/firmware/intel/sof-$ver"
-ln -s sof-$ver "$1/lib/firmware/intel/sof"
-tplgdir=`ls -d "$verdir/sof-tplg-v"* | sort -V | tail -n 1`
-test -n "$tplgdir"
-cp -r "$tplgdir" "$1/lib/firmware/intel/sof-tplg-$ver"
-ln -s sof-tplg-$ver "$1/lib/firmware/intel/sof-tplg"
+cp -r sof-$TAG "$1/lib/firmware/intel/sof-$TAG"
+ln -s sof-$TAG "$1/lib/firmware/intel/sof"
+cp -r sof-tplg-$TAG "$1/lib/firmware/intel/sof-tplg-$TAG"
+ln -s sof-tplg-$TAG "$1/lib/firmware/intel/sof-tplg"
 mkdir -p "$1/usr/share/doc/sof-bin"
 cp -f LICENCE.* Notice.* "$1/usr/share/doc/sof-bin/"
-
-strings -a `find "$2" -type f -name 'snd-*.ko'` | grep ^sof- | sort | uniq > /tmp/sofstrings
-find "$1/lib/firmware/intel/sof-$ver" "$1/lib/firmware/intel/sof-tplg-$ver" -type f -name 'sof-*.*' | while read F; do
-	grep -Fqlm1 ${F##*/} /tmp/sofstrings || rm -f $F
-done
-rm -f /tmp/sofstrings
