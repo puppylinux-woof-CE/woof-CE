@@ -15,9 +15,11 @@
 
 DB_dependencies="$1" #in standard format of the package database, field 9.
 
+REPODIR=/var/packages
+
 . /etc/DISTRO_SPECS #has DISTRO_BINARY_COMPAT, DISTRO_COMPAT_VERSION
-. /root/.packages/DISTRO_PKGS_SPECS #has PKGS_SPECS_TABLE
-. /root/.packages/PKGS_MANAGEMENT #has PKG_ALIASES_INSTALLED
+. /var/packages/DISTRO_PKGS_SPECS #has PKGS_SPECS_TABLE
+. /var/packages/PKGS_MANAGEMENT #has PKG_ALIASES_INSTALLED
 
 #110722 versioning info added to dependencies...
 #the dependencies field can now have &ge, &gt, &eq, &le, &lt
@@ -60,22 +62,23 @@ done
 #need patterns of all installed pkgs...
 #100711 /tmp/petget_proc/petget_installed_patterns_system is created in pkg_chooser.sh.
 cp -f /tmp/petget_proc/petget_installed_patterns_system /tmp/petget_proc/petget_installed_patterns_all
-if [ -s /root/.packages/user-installed-packages ];then
- INSTALLED_PATTERNS_USER="`cat /root/.packages/user-installed-packages | cut -f 2 -d '|' | sed -e 's%^%|%' -e 's%$%|%' -e 's%\\-%\\\\-%g'`"
+
+if [ -s /var/packages/user-installed-packages ];then
+ INSTALLED_PATTERNS_USER="`cat /var/packages/user-installed-packages | cut -f 2 -d '|' | sed -e 's%^%|%' -e 's%$%|%' -e 's%\\-%\\\\-%g'`"
  echo "$INSTALLED_PATTERNS_USER" >> /tmp/petget_proc/petget_installed_patterns_all
  #120822 this code also in pkg_chooser.sh, find alt deb names...
  case $DISTRO_BINARY_COMPAT in
   ubuntu|debian|devuan|raspbian)
    #120904 bugfix, was very slow...
-   MODIF1=`stat -c %Y /root/.packages/user-installed-packages` #seconds since epoch.
+   MODIF1=`stat -c %Y /var/packages/user-installed-packages` #seconds since epoch.
    MODIF2=0
    [ -f /var/local/petget/installed_alt_ptns_pet_user ] && MODIF2=`stat -c %Y /var/local/petget/installed_alt_ptns_pet_user`
    if [ $MODIF1 -gt $MODIF2 ];then
-    INSTALLED_PTNS_PET="$(grep '\.pet|' /root/.packages/user-installed-packages | cut -f 2 -d '|')"
+    INSTALLED_PTNS_PET="$(grep '\.pet|' /var/packages/user-installed-packages | cut -f 2 -d '|')"
     if [ "$INSTALLED_PTNS_PET" != "" ];then
      xINSTALLED_PTNS_PET="$(echo "$INSTALLED_PTNS_PET" | sed -e 's%^%/%' -e 's%$%|%' -e 's%\-%\\-%g')"
      echo "$xINSTALLED_PTNS_PET" > /tmp/petget_proc/petget/fmp_xipp
-     INSTALLED_ALT_NAMES="$(grep --no-filename -f /tmp/petget_proc/petget/fmp_xipp /root/.packages/Packages-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}-* | cut -f 2 -d '|')"
+     INSTALLED_ALT_NAMES="$(grep --no-filename -f /tmp/petget_proc/petget/fmp_xipp ${REPODIR}/Packages-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}-* | cut -f 2 -d '|')"
      if [ "$INSTALLED_ALT_NAMES" ];then
       INSTALLED_ALT_PTNS="$(echo "$INSTALLED_ALT_NAMES" | sed -e 's%^%|%' -e 's%$%|%' -e 's%\-%\\-%g')"
       echo "$INSTALLED_ALT_PTNS" > /var/local/petget/installed_alt_ptns_pet_user
@@ -108,7 +111,7 @@ done
 
 #100126 some names to ignore, as most likely already installed...
 #/tmp/petget_proc/petget_pkg_name_ignore_patterns is created in pkg_choose.sh
-cat /tmp/petget_proc/petget_pkg_name_ignore_patterns >> /tmp/petget_proc/petget_installed_patterns_all
+cat /tmp/petget_proc/petget_pkg_name_ignore_patterns | sort | uniq >> /tmp/petget_proc/petget_installed_patterns_all
 
 #clean it up...
 grep -v '^$' /tmp/petget_proc/petget_installed_patterns_all > /tmp/petget_proc/petget_installed_patterns_all-tmp
@@ -116,7 +119,19 @@ mv -f /tmp/petget_proc/petget_installed_patterns_all-tmp /tmp/petget_proc/petget
 
 #remove installed pkgs from the list of dependencies...
 MISSINGDEPS_PATTERNS="`grep --file=/tmp/petget_proc/petget_installed_patterns_all -v /tmp/petget_proc/petget_pkg_deps_patterns | grep -v '^$'`"
-echo "$MISSINGDEPS_PATTERNS" > /tmp/petget_proc/petget_missingpkgs_patterns #can be read by dependencies.sh, find_deps.sh.
+
+rm -f /tmp/petget_proc/petget_missingpkgs_patterns 2>/dev/null
+
+for PTN1 in $MISSINGDEPS_PATTERNS
+do
+
+DB_nameonly="$(echo $PTN1 | cut -f 2 -d '|')"
+
+if [ "$(cat /var/packages/package-deps-ignore.list 2>/dev/null | grep "$DB_nameonly")" == "" ]; then
+ echo "$PTN1" >> /tmp/petget_proc/petget_missingpkgs_patterns #can be read by dependencies.sh, find_deps.sh.
+fi
+
+done
 
 #notes on results:
 #/tmp/petget_proc/petget_missingpkgs_patterns has a list of missing dependencies, format ex:

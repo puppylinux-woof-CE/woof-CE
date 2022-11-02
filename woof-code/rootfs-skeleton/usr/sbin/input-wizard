@@ -1,16 +1,31 @@
-#!/bin/sh
+#!/bin/bash
 #(c) Barry Kauler 2005/2006 www.puppylinux.com
 #(c) rarsa, zigbert, rerwin, rodin.s, ecube, 01micko, etc
 #2007 Lesser GPL licence v2 (http://www.fsf.org/licensing/licenses/lgpl.html)
 #keyboard/mouse wizard for Puppy Linux
-#130216 add button for "mouse sensitivity", run pupx.
+
+# Dialogs:
+# - X Keyboard Properties (xset) [$HOME/.xset (/root/.xinitrc)]
+# - Mouse sensitivity     (xset) [$HOME/.xset (/root/.xinitrc)]
+# - Mouse Properties (xorg.conf, xmodmap, unclutter) [requires X restart)
+# - * Input-wizard *
 
 export TEXTDOMAIN=input-wizard
 export OUTPUT_CHARSET=UTF-8
 
 #==============================================================
-#    MOUSE PROPERTIES (xmodmap, xorg.conf opts)
+#    MOUSE PROPERTIES (xmodmap, unclutter, xorg.conf opts)
 #==============================================================
+
+touchpad_utils(){
+	if type psynclient >/dev/null 2>&1; then
+		exec psynclient
+	elif type flsynclient >/dev/null 2>&1; then
+		exec flsynclient
+	fi
+}
+
+export -f touchpad_utils
 
 if [ "$1" = "mouse" ] ; then
 
@@ -48,7 +63,7 @@ if [ "$1" = "mouse" ] ; then
 	fi
   
 	export MouseWizard='
-<window title="'$(gettext 'Mouse properties')'" icon-name="gtk-preferences">
+<window title="'$(gettext 'Mouse properties')'" icon-name="gtk-preferences" resizable="false">
 <vbox space-expand="true" space-fill="true">
   '"`/usr/lib/gtkdialog/xml_info fixed mouse.svg 40 "<b>$(gettext "Configure your mouse.")</b>"`"'
   <hbox space-expand="true" space-fill="true">
@@ -96,7 +111,7 @@ if [ "$1" = "mouse" ] ; then
 </window>'
 
 	. /usr/lib/gtkdialog/xml_info gtk #build bg_pixmap for gtk-theme
-	RETPARAMS=`gtkdialog --center -p MouseWizard`
+	RETPARAMS=`gtkdialog --center -p MouseWizard --styles=/tmp/gtkrc_xml_info.css`
 	eval "$RETPARAMS"
 
 	if [ "$EXIT" != "OK" ] ; then
@@ -166,16 +181,468 @@ if [ "$1" = "mouse" ] ; then
 	exit
 fi
 
+
+#==============================================================
+#                    MOUSE SENSITIVITY
+#==============================================================
+
+if [ "$1" = "mousex" ] ; then
+	XSETQ="`LANG=C xset q`"
+	MOUSEACCEL10=`echo "$XSETQ" | grep '  acceleration:' | grep ' threshold:' | tr -s ' ' | cut -f 3 -d ' ' | cut -f 1 -d '/'`
+	MOUSEACCELDIV=`echo "$XSETQ" | grep '  acceleration:' | grep ' threshold:' | tr -s ' ' | cut -f 3 -d ' ' | cut -f 2 -d '/'`
+	MOUSEACCEL=`LANG=C dc -e "${MOUSEACCEL10} ${MOUSEACCELDIV} 2 k / p"` #130209
+	MOUSETHRESHOLD=`echo "$XSETQ" | grep '  acceleration:' | grep ' threshold:' | tr -s ' ' | cut -f 5 -d ' '`
+	#precaution
+	[ "$MOUSEACCEL" = "" ] && MOUSEACCEL='2.0'
+	[ "$MOUSETHRESHOLD" = "" ] && MOUSETHRESHOLD='4'
+
+	function pupx_mouseaccel() {
+		if [ -z "$MOUSEACCEL" ] ; then
+			return
+		fi
+		MOUSEACCX10=`LANG=C dc ${MOUSEACCEL} 10 \* p` #130209
+		LANG=C xset m ${MOUSEACCX10}/10 ${MOUSETHRESHOLD} #130209
+		XSET_MOUSE="LANG=C xset m ${MOUSEACCX10}/10 ${MOUSETHRESHOLD}"
+		[ ! "$1" ] && Xdialog --title "Mouse settings" --msgbox "Mouse acceleration set to ${MOUSEACCX10}/10\nMouse threshold set to ${MOUSETHRESHOLD}\n(for this session only)" 0 0
+	}
+	export -f pupx_mouseaccel
+	combo_items() {
+		for i in $@ ; do echo "<item>${i}</item>" ; done
+	}
+
+	export MAIN_DIALOG='<window title="'$(gettext 'Mouse sensitivity')'" icon-name="gtk-preferences" resizable="false">
+<vbox>
+   <vbox>
+    <frame>
+     <hbox>
+      <text>
+       <label>'$(gettext 'Acceleration:')'</label>
+      </text>
+      <comboboxtext>
+       <variable>MOUSEACCEL</variable>
+       '$(combo_items ${MOUSEACCEL} 7.0 6.5 6.0 5.5 5.0 4.5 4.0 3.5 3.0 2.5 2.0 1.8 1.6 1.4 1.2 1.0)'
+      </comboboxtext>
+     </hbox>
+     <text><label>'$(gettext "The mouse will accelerate with this factor when moved more than 'threshold' pixels in a short time")'</label></text>
+     <hbox>
+      <text>
+       <label>'$(gettext 'Threshold:')'</label>
+      </text>
+      <comboboxtext>
+       <variable>MOUSETHRESHOLD</variable>
+       '$(combo_items ${MOUSETHRESHOLD} 16 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1)'
+      </comboboxtext>
+     </hbox>
+     <text><label>'$(gettext 'Acceleration will happen when the mouse is moved this many pixels in a short time')'</label></text>
+    </frame>
+   </vbox>
+  <hbox>
+   <button cancel>
+    <action type="exit">no save</action>
+   </button>
+   <button>
+    <input file stock="gtk-apply"></input>
+    <label>'$(gettext 'Apply')'</label>
+    <action>pupx_mouseaccel &</action>
+   </button>
+   <button ok>
+    <action type="exit">save settings</action>
+   </button>
+  </hbox>
+</vbox>
+</window>'
+
+	RETPARAMS="`gtkdialog --center --program=MAIN_DIALOG`"
+	eval "$RETPARAMS"
+	if [ "$EXIT" = "save settings" ] ; then
+		pupx_mouseaccel z
+		touch $HOME/.xset.sh
+		sed -i '/ m /d' $HOME/.xset.sh
+		echo "$XSET_MOUSE" >> $HOME/.xset.sh
+	fi
+	exit
+fi
+
+
+#==============================================================
+#                    LIBINPUT MOUSE PROPERTIES
+#==============================================================
+
+if [ "$1" = "libinputmouse" ] ; then
+	. ~/.inputrc
+
+	function libinput_apply() {
+		[ -n "$MOUSEACCEL" ] && sed -i "s%^LIBINPUT_DEFAULT_ACCELERATION=.*%LIBINPUT_DEFAULT_ACCELERATION=$MOUSEACCEL%" ~/.inputrc
+
+		MOUSEACCELPROFILENUM=-1
+		case "$MOUSEACCELPROFILE" in
+			"$(gettext 'Flat')") MOUSEACCELPROFILENUM=1 ;;
+			"$(gettext 'Adaptive')") MOUSEACCELPROFILENUM=2 ;;
+		esac
+		[ $MOUSEACCELPROFILENUM -ge 0 ] && sed -i "s%^LIBINPUT_DEFAULT_ACCELERATION_PROFILE=.*%LIBINPUT_DEFAULT_ACCELERATION_PROFILE=$MOUSEACCELPROFILENUM%" ~/.inputrc
+
+		case "$TAPTOCLICK" in
+			true) sed -i "s%^LIBINPUT_DEFAULT_TAP=.*%LIBINPUT_DEFAULT_TAP=1%" ~/.inputrc ;;
+			false) sed -i "s%^LIBINPUT_DEFAULT_TAP=.*%LIBINPUT_DEFAULT_TAP=0%" ~/.inputrc ;;
+		esac;
+
+		case "$TAPANDDRAG" in
+			true) sed -i "s%^LIBINPUT_DEFAULT_DRAG=.*%LIBINPUT_DEFAULT_DRAG=1%" ~/.inputrc ;;
+			false) sed -i "s%^LIBINPUT_DEFAULT_DRAG=.*%LIBINPUT_DEFAULT_DRAG=0%" ~/.inputrc ;;
+		esac;
+
+		case "$DISABLEWHILETYPING" in
+			true) sed -i "s%^LIBINPUT_DEFAULT_DISABLE_WHILE_TYPING=.*%LIBINPUT_DEFAULT_DISABLE_WHILE_TYPING=1%" ~/.inputrc ;;
+			false) sed -i "s%^LIBINPUT_DEFAULT_DISABLE_WHILE_TYPING=.*%LIBINPUT_DEFAULT_DISABLE_WHILE_TYPING=0%" ~/.inputrc ;;
+		esac;
+
+		case "$MIDDLEEMULATION" in
+			true) sed -i "s%^LIBINPUT_DEFAULT_MIDDLE_EMULATION=.*%LIBINPUT_DEFAULT_MIDDLE_EMULATION=1%" ~/.inputrc ;;
+			false) sed -i "s%^LIBINPUT_DEFAULT_MIDDLE_EMULATION=.*%LIBINPUT_DEFAULT_MIDDLE_EMULATION=0%" ~/.inputrc ;;
+		esac;
+
+		case "$NATURALSCROLLING" in
+			true) sed -i "s%^LIBINPUT_DEFAULT_NATURAL_SCROLL=.*%LIBINPUT_DEFAULT_NATURAL_SCROLL=1%" ~/.inputrc ;;
+			false) sed -i "s%^LIBINPUT_DEFAULT_NATURAL_SCROLL=.*%LIBINPUT_DEFAULT_NATURAL_SCROLL=0%" ~/.inputrc ;;
+		esac;
+	
+		CLICKMETHODNUM=-1
+		case "$CLICKMETHOD" in
+			"$(gettext 'None')") CLICKMETHODNUM=0 ;;
+			"$(gettext 'Button areas')") CLICKMETHODNUM=1 ;;
+			"$(gettext 'Fingers')") CLICKMETHODNUM=2 ;;
+		esac
+		[ $CLICKMETHODNUM -ge 0 ] && sed -i "s%^LIBINPUT_DEFAULT_CLICK_METHOD=.*%LIBINPUT_DEFAULT_CLICK_METHOD=$CLICKMETHODNUM%" ~/.inputrc
+
+		SCROLLMETHODNUM=-1
+		case "$SCROLLMETHOD" in
+			"$(gettext 'No scrolling')") SCROLLMETHODNUM=0 ;;
+			"$(gettext '2 fingers')") SCROLLMETHODNUM=1 ;;
+			"$(gettext 'Edge')") SCROLLMETHODNUM=2 ;;
+			"$(gettext 'On button down')") SCROLLMETHODNUM=4 ;;
+		esac
+		[ $SCROLLMETHODNUM -ge 0 ] && sed -i "s%^LIBINPUT_DEFAULT_SCROLL_METHOD=.*%LIBINPUT_DEFAULT_SCROLL_METHOD=$SCROLLMETHODNUM%" ~/.inputrc
+
+		case "$LEFTHANDED" in
+			true) sed -i "s%^LIBINPUT_DEFAULT_LEFT_HANDED=.*%LIBINPUT_DEFAULT_LEFT_HANDED=1%" ~/.inputrc ;;
+			false) sed -i "s%^LIBINPUT_DEFAULT_LEFT_HANDED=.*%LIBINPUT_DEFAULT_LEFT_HANDED=0%" ~/.inputrc ;;
+		esac;
+
+		if [ -z "$WAYLAND_DISPLAY" ]; then
+			xinput-apply
+			return
+		fi
+
+		/usr/lib/gtkdialog/box_yesno --yes-first "$(gettext 'Pointer Properties')" "$(gettext 'For the changes to effect you must restart X... Would you like to restart X now?')"
+		[ $? -eq 0 ] && restartwm
+	}
+	export -f libinput_apply
+	combo_items() {
+		for i in $@ ; do echo "<item>${i}</item>" ; done
+	}
+
+	case "$LIBINPUT_DEFAULT_ACCELERATION_PROFILE" in
+		1) MOUSEACCELPROFILES="<item>$(gettext 'Flat')</item><item>$(gettext 'Adaptive')</item>" ;;
+		*) MOUSEACCELPROFILES="<item>$(gettext 'Adaptive')</item><item>$(gettext 'Flat')</item>" ;;
+	esac
+
+	case "$LIBINPUT_DEFAULT_CLICK_METHOD" in
+		0) CLICKMETHODS="<item>$(gettext 'None')</item><item>$(gettext 'Button areas')</item><item>$(gettext 'Fingers')</item>" ;;
+		1) CLICKMETHODS="<item>$(gettext 'Button areas')</item><item>$(gettext 'None')</item><item>$(gettext 'Fingers')</item>" ;;
+		2) CLICKMETHODS="<item>$(gettext 'Fingers')</item><item>$(gettext 'None')</item><item>$(gettext 'Button areas')</item>" ;;
+		*) CLICKMETHODS="<item>$(gettext 'None')</item><item>$(gettext 'Button areas')</item><item>$(gettext 'Fingers')</item>" ;;
+	esac
+
+	case "$LIBINPUT_DEFAULT_SCROLL_METHOD" in
+		0) SCROLLMETHODS="<item>$(gettext 'No scrolling')</item><item>$(gettext '2 fingers')</item><item>$(gettext 'Edge')</item><item>$(gettext 'On button down')</item>" ;;
+		1) SCROLLMETHODS="<item>$(gettext '2 fingers')</item><item>$(gettext 'No scrolling')</item><item>$(gettext 'Edge')</item><item>$(gettext 'On button down')</item>" ;;
+		2) SCROLLMETHODS="<item>$(gettext 'Edge')</item><item>$(gettext 'No scrolling')</item><item>$(gettext '2 fingers')</item><item>$(gettext 'On button down')</item>" ;;
+		4) SCROLLMETHODS="<item>$(gettext 'On button down')</item><item>$(gettext 'No scrolling')</item><item>$(gettext '2 fingers')</item><item>$(gettext 'Edge')</item>" ;;
+		*) SCROLLMETHODS="<item>$(gettext 'No scrolling')</item><item>$(gettext '2 fingers')</item><item>$(gettext 'Edge')</item><item>$(gettext 'On button down')</item>" ;;
+	esac
+
+	TAPTOCLICK=false
+	[ "$LIBINPUT_DEFAULT_TAP" = "1" ] && TAPTOCLICK=true
+	
+	TAPANDDRAG=false
+	[ "$LIBINPUT_DEFAULT_DRAG" = "1" ] && TAPANDDRAG=true
+
+	DISABLEWHILETYPING=false
+	[ "$LIBINPUT_DEFAULT_DISABLE_WHILE_TYPING" = "1" ] && DISABLEWHILETYPING=true
+
+	MIDDLEEMULATION=false
+	[ "$LIBINPUT_DEFAULT_MIDDLE_EMULATION" = "1" ] && MIDDLEEMULATION=true
+
+	NATURALSCROLLING=false
+	[ "$LIBINPUT_DEFAULT_NATURAL_SCROLL" = "1" ] && NATURALSCROLLING=true
+
+	LEFTHANDED=false
+	[ "$LIBINPUT_DEFAULT_LEFT_HANDED" = "1" ] && LEFTHANDED=true
+	
+	export MAIN_DIALOG='<window title="'$(gettext 'Pointer properties')'" icon-name="gtk-preferences" resizable="false">
+ <vbox>
+  <vbox>
+   <frame>
+    <checkbox>
+     <label>'$(gettext 'Tap to click')'</label>
+     <variable>TAPTOCLICK</variable>
+     <default>'$TAPTOCLICK'</default>
+    </checkbox>
+    <checkbox>
+     <label>'$(gettext 'Tap and drag')'</label>
+     <variable>TAPANDDRAG</variable>
+     <default>'$TAPANDDRAG'</default>
+    </checkbox>
+    <checkbox>
+     <label>'$(gettext 'Disable while typing')'</label>
+     <variable>DISABLEWHILETYPING</variable>
+     <default>'$DISABLEWHILETYPING'</default>
+    </checkbox>
+    <checkbox>
+     <label>'$(gettext 'Natural scrolling')'</label>
+     <variable>NATURALSCROLLING</variable>
+     <default>'$NATURALSCROLLING'</default>
+    </checkbox>
+    <hbox>
+     <text>
+      <label>'$(gettext 'Scroll method:')'</label>
+     </text>
+     <comboboxtext>
+      <variable>SCROLLMETHOD</variable>
+      '$SCROLLMETHODS'
+     </comboboxtext>
+    </hbox>
+    <hbox>
+     <text>
+      <label>'$(gettext 'Acceleration:')'</label>
+     </text>
+     <comboboxtext>
+      <variable>MOUSEACCEL</variable>
+       '$(combo_items ${LIBINPUT_DEFAULT_ACCELERATION} 1.0 0.8 0.6 0.4 0.2 0 -0.2 -0.4 -0.6 -0.8 -1.0)'
+     </comboboxtext>
+    </hbox>
+    <hbox>
+     <text>
+      <label>'$(gettext 'Acceleration profile:')'</label>
+     </text>
+     <comboboxtext>
+      <variable>MOUSEACCELPROFILE</variable>
+       '$MOUSEACCELPROFILES'
+     </comboboxtext>
+    </hbox>
+    <hbox>
+     <text>
+      <label>'$(gettext 'Click method:')'</label>
+     </text>
+     <comboboxtext>
+      <variable>CLICKMETHOD</variable>
+       '$CLICKMETHODS'
+     </comboboxtext>
+    </hbox>
+    <checkbox>
+     <label>'$(gettext 'Middle button emulation')'</label>
+     <variable>MIDDLEEMULATION</variable>
+     <default>'$MIDDLEEMULATION'</default>
+    </checkbox>
+    <checkbox>
+     <label>'$(gettext 'Left-handed mode')'</label>
+     <variable>LEFTHANDED</variable>
+     <default>'$LEFTHANDED'</default>
+    </checkbox>
+   </frame>
+  </vbox>
+  <hbox>
+   <button cancel>
+    <action type="exit">no save</action>
+   </button>
+   <button ok>
+    <action type="exit">save settings</action>
+   </button>
+  </hbox>
+ </vbox>
+</window>'
+
+	RETPARAMS="`gtkdialog --center --program=MAIN_DIALOG`"
+	eval "$RETPARAMS"
+	if [ "$EXIT" = "save settings" ] ; then
+		libinput_apply
+	fi
+	exit
+fi
+
+#==============================================================
+#                   X KEYBOARD PROPERTIES
+#==============================================================
+
+if [ "$1" = "keyboard" ] ; then
+	XSETQ="`LANG=C xset q`"
+	KEYBOARDVOL="`echo "$XSETQ" | grep 'key click percent: ' | tr -s ' ' | cut -f 8 -d ' '`"
+	KEYBOARDAUTO="`echo "$XSETQ" | grep ' auto repeat: ' | tr -s ' ' | cut -f 4 -d ' '`"
+	if [ "$KEYBOARDAUTO" = "on" ];then
+		KEYBOARDAUTO="yes"
+		KBVISIBLE="enabled"
+	fi
+	if [ "$KEYBOARDAUTO" = "off" ];then
+		KEYBOARDAUTO="no"
+		KBVISIBLE="disabled"
+	fi
+	KEYBOARDDELAY="`echo "$XSETQ" | grep ' auto repeat delay: ' | tr -s ' ' | cut -f 5 -d ' '`"
+	KEYBOARDRATE="`echo "$XSETQ" | grep ' auto repeat delay: ' | grep 'repeat rate:' | tr -s ' ' | cut -f 8 -d ' '`"
+	#precaution
+	[ "$KEYBOARDVOL" = "" ] && KEYBOARDVOL='0'
+	[ "$KEYBOARDAUTO" = "" ] && KEYBOARDAUTO='yes'
+	[ "$KEYBOARDDELAY" = "" ] && KEYBOARDDELAY='500'
+	[ "$KEYBOARDRATE" = "" ] && KEYBOARDRATE='6'
+	#-
+	function pupx_keyboard() {
+		if [ -z "$KEYBOARDAUTO" ] ; then
+			return
+		fi
+		KEYBOARDDELAY=`echo -n $KEYBOARDDELAY | cut -f 1 -d '.'`
+		KEYBOARDRATE=`echo -n $KEYBOARDRATE | cut -f 1 -d '.'`
+		[ $KEYBOARDVOL -eq 0 ] && KEYBOARDVOL=off
+		if [ "$KEYBOARDAUTO" = "false" ];then
+			KEYBOARDPARAMS="off"
+		else
+			KEYBOARDPARAMS="rate $KEYBOARDDELAY $KEYBOARDRATE"
+		fi
+		LANG=C xset c $KEYBOARDVOL r $KEYBOARDPARAMS
+		XSET_KEYBOARD="LANG=C xset c $KEYBOARDVOL r $KEYBOARDPARAMS" #130209
+		[ ! "$1" ] && Xdialog --title "Keyboard settings" --msgbox "Keyclick volume set to ${KEYBOARDVOL}\nAuto-repeat set to ${KEYBOARDPARAMS}\n(for this session only)" 0 0
+	}
+	export -f pupx_keyboard
+	combo_items() {
+		for i in $@ ; do echo "<item>${i}</item>" ; done
+	}
+
+	export MAIN_DIALOG='<window title="'$(gettext 'Keyboard settings')'" icon-name="gtk-preferences" resizable="false">
+<vbox>
+    <vbox>
+     <hbox>
+      <text><label>'$(gettext 'Volume:')'</label></text>
+      <comboboxtext>
+       <variable>KEYBOARDVOL</variable>
+       '$(combo_items ${KEYBOARDVOL} 100 90 80 70 60 50 40 30 20 10 0)'
+      </comboboxtext>
+     </hbox>
+     <text><label>'$(gettext 'Keyclick volume in percentage (0-100)')'</label></text>
+     <frame '$(gettext 'Auto-repeat')'>
+      <checkbox>
+       <label>'$(gettext 'Enable auto-repeat')'</label>
+       <variable>KEYBOARDAUTO</variable>
+       <default>'${KEYBOARDAUTO}'</default>
+       <action>if true enable: KEYBOARDDELAY</action>
+       <action>if true enable: KEYBOARDRATE</action>
+       <action>if false disable: KEYBOARDDELAY</action>
+       <action>if false disable: KEYBOARDRATE</action>
+      </checkbox>
+      <hbox>
+       <text><label>"       "</label></text>
+       <text><label>'$(gettext 'Delay:')'</label></text>
+       
+       <spinbutton range-min="1" range-max="9999" range-step="1" range-value="'${KEYBOARDDELAY}'">
+         <variable>KEYBOARDDELAY</variable>
+         <visible>'${KBVISIBLE}'</visible>   
+       </spinbutton>
+       
+       <text><label>'$(gettext '(milliseconds)       ')'</label></text>
+      </hbox>
+      <text><label>'$(gettext 'This is the delay before keys start repeating')'</label></text>
+      <hbox>
+       <text><label>"        "</label></text>
+       <text><label>'$(gettext 'Rate:')'</label></text>
+       
+       <spinbutton range-min="1" range-max="99" range-step="1" range-value="'${KEYBOARDRATE}'">
+         <variable>KEYBOARDRATE</variable>
+         <visible>'${KBVISIBLE}'</visible>   
+       </spinbutton>
+  
+       <text><label>'$(gettext '(repeats per second)       ')'</label></text>
+      </hbox>
+      <text><label>'$(gettext 'This is the rate at which keys repeat')'</label></text>
+     </frame>
+    </vbox>
+  <hbox>
+   <button cancel>
+    <action type="exit">no save</action>
+   </button>
+   <button>
+    <input file stock="gtk-apply"></input>
+    <label>'$(gettext 'Apply')'</label>
+    <action>pupx_keyboard &</action>
+   </button>
+   <button ok>
+    <action type="exit">save settings</action>
+   </button>
+  </hbox>
+</vbox>
+</window>'
+	RETPARAMS="`gtkdialog --center --program=MAIN_DIALOG`"
+	eval "$RETPARAMS"
+	[ "$EXIT" != "save settings" ] && exit
+	pupx_keyboard   z
+	touch $HOME/.xset.sh
+	sed -i '/ c /d' $HOME/.xset.sh
+	echo "$XSET_KEYBOARD" >> $HOME/.xset.sh
+	chmod +x $HOME/.xset.sh
+fi
+
+
 #==============================================================
 #                      MAIN  INPUT WIZARD
 #==============================================================
 
-PUPX_MOUSE='pupx mouse'
-PUPX_KEYBOARD='pupx keyboard'
+PUPX_MOUSE="$0 mousex"
+PUPX_KEYBOARD="$0 keyboard"
 MOUSE_CONFIG="$0 mouse"
+LIBINPUT_MOUSE_CONFIG="$0 libinputmouse"
+
+
+if [ -z "$WAYLAND_DISPLAY" ] && [ "$(which psynclient)" != "" -o "$(which flsynclient)" != "" ]; then
+ TOUCHPAD_BUTTON='<hbox>
+        <text><label>'$(gettext 'Touchpad')'</label></text>
+        <button>
+          '"`/usr/lib/gtkdialog/xml_button-icon touchpad.svg big`"'
+          <action>touchpad_utils</action>
+        </button>
+      </hbox>'
+fi
+
+if [ -n "$WAYLAND_DISPLAY" ]; then
+ MOUSE_SETTINGS='<hbox>
+        <text><label>'$(gettext 'Pointer Properties')'</label></text>
+        <button>
+          '"`/usr/lib/gtkdialog/xml_button-icon touchpad.svg big`"'
+          <action>'${LIBINPUT_MOUSE_CONFIG}'</action>
+        </button>
+      </hbox>'
+elif grep -qm 1 "Using input driver 'libinput'" "/var/log/Xorg.${DISPLAY#:}.log"; then
+ MOUSE_SETTINGS='<hbox>
+        <text><label>'$(gettext 'Pointer Properties')'</label></text>
+        <button>
+          '"`/usr/lib/gtkdialog/xml_button-icon touchpad.svg big`"'
+          <action>'${LIBINPUT_MOUSE_CONFIG}'</action>
+        </button>
+      </hbox>'
+else
+ MOUSE_SETTINGS='<hbox>
+        <text><label>'$(gettext 'Mouse Properties')'</label></text>
+        <button>
+          '"`/usr/lib/gtkdialog/xml_button-icon mouse.svg big`"'
+          <action>'${MOUSE_CONFIG}'</action>
+        </button>
+      </hbox>
+      <hbox>
+        <text><label>'$(gettext 'Adjust mouse sensitivity')'</label></text>
+        <button>
+          '"`/usr/lib/gtkdialog/xml_button-icon mouse_sensitivity.svg big`"'
+          <action>'${PUPX_MOUSE}'</action>
+        </button>
+      </hbox>'
+fi
 
 export MouseKeyboardWizard='
-<window title="'$(gettext 'Input Wizard')'" icon-name="gtk-preferences">
+<window title="'$(gettext 'Input Wizard')'" icon-name="gtk-preferences" resizable="false">
 <vbox space-expand="true" space-fill="true">
   '"`/usr/lib/gtkdialog/xml_info fixed mouse_keyboard.svg 60 " " "$(gettext "Configure your input devices")"`"'
   <hbox space-expand="true" space-fill="true">
@@ -205,32 +672,11 @@ export MouseKeyboardWizard='
         <text space-expand="true" space-fill="true"><label>""</label></text>
       </hbox>
     </frame>
-
     <frame '$(gettext 'Pointer')'>
-      <hbox>
-        <text><label>'$(gettext 'Mouse Properties')'</label></text>
-        <button>
-          '"`/usr/lib/gtkdialog/xml_button-icon mouse.svg big`"'
-          <action>'${MOUSE_CONFIG}'</action>
-        </button>
-      </hbox>
-      <hbox>
-        <text><label>'$(gettext 'Adjust mouse sensitivity')'</label></text>
-        <button>
-          '"`/usr/lib/gtkdialog/xml_button-icon mouse_sensitivity.svg big`"'
-          <action>'${PUPX_MOUSE}'</action>
-        </button>
-      </hbox>
-      <hbox>
-        <text><label>'$(gettext 'Touchpad')'</label></text>
-        <button>
-          '"`/usr/lib/gtkdialog/xml_button-icon touchpad.svg big`"'
-          <action>'flsynclient'</action>
-        </button>
-      </hbox>
-    </frame>
+       '$MOUSE_SETTINGS'
+       '$TOUCHPAD_BUTTON'
+     </frame>
   </hbox>
-
   <hbox space-expand="false" space-fill="false">
     <button>
       '"`/usr/lib/gtkdialog/xml_button-icon quit`"'
@@ -241,6 +687,6 @@ export MouseKeyboardWizard='
 </window>'
 
 . /usr/lib/gtkdialog/xml_info gtk #build bg_pixmap for gtk-theme
-gtkdialog --center -p MouseKeyboardWizard
+gtkdialog --center -p MouseKeyboardWizard --styles=/tmp/gtkrc_xml_info.css
 
 ### END ###

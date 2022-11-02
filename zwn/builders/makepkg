@@ -1,0 +1,386 @@
+#!/bin/sh
+# Copyright 1994, 1998, 2008  Patrick Volkerding, Moorhead, Minnesota USA 
+# Copyright 2003  Slackware Linux, Inc.  Concord, CA USA
+# Copyright 2009  Patrick J. Volkerding, Sebeka, MN, USA
+# All rights reserved.
+#
+# Redistribution and use of this script, with or without modification, is
+# permitted provided that the following conditions are met:
+#
+# 1. Redistributions of this script must retain the above copyright
+#    notice, this list of conditions and the following disclaimer.
+#
+#  THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR IMPLIED
+#  WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+#  MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO
+#  EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+#  SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+#  PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+#  OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+#  WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
+#  OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
+#  ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#
+# Sun Apr  5 21:23:26 CDT 2009
+# Support .tgz, .tbz, .tlz, and .txz packages.  <volkerdi>
+#
+# Wed Mar 18 15:32:33 CST 1998
+# Patched to avoid possible symlink attacks in /tmp.
+# James 2013 patched to make it work with GNU tar 1.26
+# James 2015 patched to make it work with faster
+# James comment: I could have made it work with spaces but that willb
+#                break compatibility with Slackware, so I dropped it.
+
+CWD=$(pwd)
+
+# choose the best awk
+type busybox > /dev/null && AWK='busybox awk'
+type awk > /dev/null && AWK=awk
+type gawk > /dev/null && AWK=gawk
+type mawk > /dev/null && AWK=mawk
+
+TAR=tar-1.13
+umask 022
+$TAR --help 1> /dev/null 2> /dev/null
+if [ ! $? = 0 ]; then
+  TAR="tar --transform s,^./,, "
+fi
+<< "EOF"
+if [ ! "$(LC_MESSAGES=C $TAR --version)" = "tar (GNU tar) 1.13
+
+Copyright (C) 1988, 92,93,94,95,96,97,98, 1999 Free Software Foundation, Inc.
+This is free software; see the source for copying conditions.  There is NO
+warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+Written by John Gilmore and Jay Fenlason." ]; then
+  echo "WARNING: pkgtools are unstable with tar > 1.13."
+  echo "         You should provide a \"tar-1.13\" in your \$PATH."
+  sleep 5
+fi
+
+make_install_script() {
+  COUNT=1
+  LINE="$(sed -n "$COUNT p" $1)"
+  while [ ! "$LINE" = "" ]; do
+   LINKGOESIN="$(echo "$LINE" | cut -f 1 -d " ")" 
+   LINKGOESIN="$(dirname $LINKGOESIN)" 
+   LINKNAMEIS="$(echo "$LINE" | cut -f 1 -d ' ')"
+   LINKNAMEIS="$(basename "$LINKNAMEIS")"
+   LINKPOINTSTO="$(echo "$LINE" | cut -f 3 -d ' ')"
+   echo "( cd $LINKGOESIN ; rm -rf $LINKNAMEIS )"
+   echo "( cd $LINKGOESIN ; ln -sf $LINKPOINTSTO $LINKNAMEIS )"
+   COUNT=$(expr $COUNT + 1)
+   LINE="$(sed -n "$COUNT p" $1)"
+  done
+}
+EOF
+
+# $1-input file
+make_install_script() {
+	< "$1" $AWK '
+{
+	sub(/\.\//,""); 
+	cmd="readlink \"" $0 "\""
+	while ( cmd | getline link ) {
+		#print "|" $0 "->" link "|"
+		dir=$0
+		base=$0
+		sub(/^.*\//,"",base)
+		dir=substr(dir,1,length(dir)-length(base))
+		sub("/$","",dir)
+		if (!dir) dir="."
+		#print $0 " + " dir " - " base
+		printf("( cd %s ; rm -rf %s )\n",dir,base)
+		printf("( cd %s ; ln -sf %s %s )\n",dir,link,base)		
+		#space-resistant version
+		#printf("( cd \"%s\" ; rm -rf \"%s\" )\n",dir,base)
+		#printf("( cd \"%s\" ; ln -sf \"%s\" \"%s\" )\n",dir,link,base)
+	}
+	close(cmd)
+}
+' 
+}
+
+usage() {
+  cat << EOF
+
+Usage: makepkg package_name.tgz
+       (or: package_name.tbz, package_name.tlz, package_name.txz)
+
+Makes a Slackware compatible package containing the contents of the current
+and all subdirectories.  If symbolic links exist, they will be removed and
+an installation script will be made to recreate them later. This script will
+be called "install/doinst.sh". You may add any of your own ash-compatible
+shell scripts to this file and rebuild the package if you wish.
+
+options:  -l, --linkadd y|n (moves symlinks into doinst.sh: recommended)
+          -p, --prepend (prepend rather than append symlinks to an existing
+                         doinst.sh.  Useful to link libraries needed by
+                         programs in the doinst.sh script)
+          -c, --chown y|n (resets all permissions to root:root 755
+                           - not generally recommended)
+
+If these options are not set, makepkg will prompt as appropriate.
+EOF
+}
+
+TMP=/tmp # This can be a hole, but I'm going to be careful about file
+         # creation in there, so don't panic. :^)
+
+# Parse options
+while [ 0 ]; do
+  if [ "$1" = "--linkadd" -o "$1" = "-l" ]; then
+    if [ "$2" = "y" ]; then
+      LINKADD=y
+    elif [ "$2" = "n" ]; then
+      LINKADD=n
+    else
+      usage
+      exit 2
+    fi
+    shift 2
+  elif [ "$1" = "--chown" -o "$1" = "-c" ]; then
+    if [ "$2" = "y" ]; then
+      CHOWN=y
+    elif [ "$2" = "n" ]; then
+      CHOWN=n
+    else
+      usage
+      exit 2
+    fi
+    shift 2
+  elif [ "$1" = "-p" -o "$1" = "--prepend" ]; then
+    PREPEND=y
+    shift 1
+  elif [ "$1" = "-h" -o "$1" = "-H" -o "$1" = "--help" -o $# = 0 ]; then
+    usage
+    exit 0
+  else
+    break
+  fi
+done
+
+PACKAGE_NAME="$1"
+TARGET_NAME="$(dirname $PACKAGE_NAME)"
+PACKAGE_NAME="$(basename $PACKAGE_NAME)"
+
+# Identify package extension:
+if [ ! "$(basename $PACKAGE_NAME .tgz)" = "$PACKAGE_NAME" ]; then
+  EXTENSION="tgz"
+elif [ ! "$(basename $PACKAGE_NAME .tar.gz)" = "$PACKAGE_NAME" ]; then
+  # .tar.compression is also supported, although the resulting "packages" will
+  # not be installable by installpkg without the correct 3 letter extension
+  # instead.
+  EXTENSION="tar.gz"
+elif [ ! "$(basename $PACKAGE_NAME .tbz)" = "$PACKAGE_NAME" ]; then
+  EXTENSION="tbz"
+elif [ ! "$(basename $PACKAGE_NAME .tar.bz2)" = "$PACKAGE_NAME" ]; then
+  EXTENSION="tar.bz2"
+elif [ ! "$(basename $PACKAGE_NAME .tlz)" = "$PACKAGE_NAME" ]; then
+  EXTENSION="tlz"
+elif [ ! "$(basename $PACKAGE_NAME .tar.lzma)" = "$PACKAGE_NAME" ]; then
+  EXTENSION="tar.lzma"
+elif [ ! "$(basename $PACKAGE_NAME .txz)" = "$PACKAGE_NAME" ]; then
+  EXTENSION="txz"
+elif [ ! "$(basename $PACKAGE_NAME .tar.xz)" = "$PACKAGE_NAME" ]; then
+  EXTENSION="tar.xz"
+else
+  EXTENSION="$(echo $PACKAGE_NAME | rev | cut -f 1 -d . | rev)"
+  echo "ERROR:  Package extension .$EXTENSION is not supported."
+  exit 1
+fi
+
+TAR_NAME="$(basename $PACKAGE_NAME .$EXTENSION)"
+
+# Sanity check -- we can't make the package in the current directory:
+if [ "$CWD" = "$TARGET_NAME" -o "." = "$TARGET_NAME" ]; then
+  echo "ERROR: Can't make output package in current directory."
+  exit 2
+fi
+
+# Make sure external compression utility is available:
+case $EXTENSION in
+'tgz' | 'tar.gz' )
+  if ! which gzip 1> /dev/null 2> /dev/null ; then
+    echo "ERROR:  gzip compression utility not found in \$PATH."
+    exit 3
+  fi
+  ;;
+'tbz' | 'tar.bz2' )
+  if ! which bzip2 1> /dev/null 2> /dev/null ; then
+    echo "ERROR:  bzip2 compression utility not found in \$PATH."
+    exit 3
+  fi
+  ;;
+'tlz' | 'tar.lzma' )
+  if ! which lzma 1> /dev/null 2> /dev/null ; then
+    echo "ERROR:  lzma compression utility not found in \$PATH."
+    exit 3
+  fi
+  ;;
+'txz' | 'tar.xz' )
+  if ! which xz 1> /dev/null 2> /dev/null ; then
+    echo "ERROR:  xz compression utility not found in \$PATH."
+    exit 3
+  fi
+  ;;
+esac
+
+echo
+echo "Slackware package maker, version 3.14159."
+echo
+echo "Searching for symbolic links:"
+# Get rid of possible pre-existing trouble:
+INST=$(mktemp $TMP/makepkg.XXXXXX)
+# This requires the ls from coreutils-5.0 (or newer):
+#find . -type l -exec ls -l --time-style=long-iso {} \; | while read foo ; do echo $foo ; done | cut -f 8- -d ' ' | cut -b3- | tee $INST
+find . -type l > $INST
+if [ ! "$(cat $INST)" = "" ]; then
+  echo
+  echo "Making symbolic link creation script:"
+  make_install_script $INST | tee doinst.sh
+fi
+echo
+if [ ! "$(cat $INST)" = "" ]; then
+  if [ -r install/doinst.sh ]; then
+    echo "Unless your existing installation script already contains the code"
+    echo "to create these links, you should append these lines to your existing"
+    echo "install script. Now's your chance. :^)"
+    echo
+    echo "Would you like to add this stuff to the existing install script and"
+    echo -n "remove the symbolic links ([y]es, [n]o)? "
+  else
+    echo "It is recommended that you make these lines your new installation script."
+    echo
+    echo "Would you like to make this stuff the install script for this package"
+    echo -n "and remove the symbolic links ([y]es, [n]o)? "
+  fi
+  if [ ! "$LINKADD" ]; then
+    read LINKADD;
+    echo
+  else
+    echo $LINKADD
+    echo
+  fi
+  if [ "$LINKADD" = "y" ]; then
+    if [ -r install/doinst.sh ]; then
+      UPDATE="t"
+      if [ "$PREPEND" = "y" ]; then
+        touch install/doinst.sh
+        mv install/doinst.sh install/doinst.sh.shipped
+        cat doinst.sh > install/doinst.sh
+        echo "" >> install/doinst.sh
+        cat install/doinst.sh.shipped >> install/doinst.sh
+        rm -f install/doinst.sh.shipped
+      else
+        cat doinst.sh >> install/doinst.sh
+      fi
+    else
+      mkdir -p install
+      cat doinst.sh > install/doinst.sh
+    fi
+    echo
+    echo "Removing symbolic links:"
+    find . -type l -exec rm -v {} \;
+    echo
+    if [ "$UPDATE" = "t" ]; then
+      if [ "$PREPEND" = "y" ]; then
+        echo "Updating your ./install/doinst.sh (prepending symlinks)..."
+      else
+        echo "Updating your ./install/doinst.sh..."
+      fi
+    else
+      echo "Creating your new ./install/doinst.sh..."
+    fi
+  fi
+else
+  echo "No symbolic links were found, so we won't make an installation script."
+  echo "You can make your own later in ./install/doinst.sh and rebuild the"
+  echo "package if you like."
+fi
+rm -f doinst.sh $INST
+echo
+echo "This next step is optional - you can set the directories in your package"
+echo "to some sane permissions. If any of the directories in your package have"
+echo "special permissions, then DO NOT reset them here!"
+echo 
+echo "Would you like to reset all directory permissions to 755 (drwxr-xr-x) and"
+echo -n "directory ownerships to root.root ([y]es, [n]o)? "
+if [ ! "$CHOWN" ]; then
+  read CHOWN;
+  echo
+else
+  echo $CHOWN
+  echo
+fi
+if [ "$CHOWN" = "y" ]; then
+  find . -type d -exec chmod -v 755 {} \; 
+  find . -type d -exec chown -v root.root {} \;
+fi
+
+echo "Creating Slackware package:  ${TARGET_NAME}/${TAR_NAME}.${EXTENSION}"
+echo
+rm -f ${TARGET_NAME}/${TAR_NAME}.${EXTENSION}
+case $EXTENSION in
+'tgz' | 'tar.gz' )
+  $TAR -cvf - . | gzip -9c > ${TARGET_NAME}/${TAR_NAME}.${EXTENSION}
+  ERRCODE=$?
+  if [ ! $? = 0 ]; then
+    echo "ERROR:  gzip returned error code $? -- makepkg failed."
+  fi
+  ;;
+'tbz' | 'tar.bz2' )
+  $TAR -cvf - . | bzip2 -9c > ${TARGET_NAME}/${TAR_NAME}.${EXTENSION}
+  ERRCODE=$?
+  if [ ! $ERRCODE = 0 ]; then
+    echo "ERROR:  bzip2 returned error code $ERRCODE -- makepkg failed."
+  fi
+  ;;
+'tlz' | 'tar.lzma' )
+  $TAR -cvf - . | lzma -c > ${TARGET_NAME}/${TAR_NAME}.${EXTENSION}
+  ERRCODE=$?
+  if [ ! $ERRCODE = 0 ]; then
+    echo "ERROR:  lzma returned error code $ERRCODE -- makepkg failed."
+  fi
+  ;;
+'txz' | 'tar.xz' )
+  $TAR -cvf - . | xz -c > ${TARGET_NAME}/${TAR_NAME}.${EXTENSION}
+  ERRCODE=$?
+  if [ ! $ERRCODE = 0 ]; then
+    echo "ERROR:  xz returned error code $ERRCODE -- makepkg failed."
+  fi
+  ;;
+esac
+
+# Warn of zero-length files:
+find . -type f -size 0c | while read file ; do
+  echo "WARNING:  zero length file $(echo $file | cut -b3-)"
+done
+
+# Warn of corrupt or empty gzip files:
+find . -type f -name '*.gz' | while read file ; do
+  if ! gzip -t $file 1> /dev/null 2> /dev/null ; then
+    echo "WARNING:  gzip test failed on $(echo $file | cut -b3-)"
+  else
+    if [ "$(gzip -l $file | tail -n 1 | tr -s ' ' | cut -f 3 -d ' ')" -eq 0 ]; then
+      echo "WARNING:  $(echo $file | cut -b3-) is an empty gzipped file"
+    fi
+  fi
+done
+
+# Some more handy warnings:
+if [ -d usr/share/man ]; then
+  echo "WARNING:  /usr/share/man (with possibly not gzipped man pages) detected"
+fi
+
+if [ -d usr/share/info ]; then
+  echo "WARNING:  /usr/share/info (with possibly not gzipped info pages) detected"
+fi
+
+if find . | grep site_perl 1> /dev/null ; then
+  echo "WARNING:  site_perl directory detected (this is fine for a local package build)"
+fi
+
+echo
+echo "Slackware package ${TARGET_NAME}/${TAR_NAME}.${EXTENSION} created."
+echo

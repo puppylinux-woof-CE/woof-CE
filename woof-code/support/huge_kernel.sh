@@ -5,22 +5,23 @@
 # * we're in sandbox3
 
 . ../_00build.conf
+[ -f ../_00build_2.conf ] && . ../_00build_2.conf
 . ../DISTRO_SPECS
+
+if [ -L woof-code ] ; then # zwoof-next
+	HUGE_KERNEL_DIR=workdir/huge_kernel
+else
+	HUGE_KERNEL_DIR=../huge_kernel
+fi
 
 if [ ! -d ../../local-repositories/huge_kernels ] ; then
 	rm -f ../../local-repositories/huge_kernels
 fi
 
 mkdir -p ../../local-repositories/huge_kernels
-
-# precaution
 mkdir -p build
-[ -z $PUPPYSFS ] && PUPPYSFS="puppy_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION}.sfs"
 [ -z $ZDRVSFS ] && ZDRVSFS="zdrv_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION}.sfs"
 [ -z $FDRVSFS ] && FDRVSFS="fdrv_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION}.sfs"
-[ -z $ADRVSFS ] && ADRVSFS="adrv_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION}.sfs"
-[ -z $YDRVSFS ] && YDRVSFS="ydrv_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION}.sfs"
-[ -z $DEVXSFS ] && DEVXSFS="devx_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION}.sfs"
 
 #-----------------------------------------
 
@@ -30,7 +31,7 @@ sleep 1
 # see if there is one in kernel-kit
 if [ -d '../kernel-kit/output' ];then
 	KIT_KERNEL=`find ../kernel-kit/output -maxdepth 1 -type f -name 'huge*.tar*' |grep -v 'txt$' | head -n1`
-	[ -z "$KIT_KERNEL" ] || cp $KIT_KERNEL ../huge_kernel/
+	[ -z "$KIT_KERNEL" ] || cp $KIT_KERNEL ${HUGE_KERNEL_DIR}/
 	# while we are here, we'll copy in fdrive if it exists
 	FDRIVE=`find ../kernel-kit/sources -maxdepth 1 -type f -name 'fdrv*.sfs'`
 	if [ "$FDRIVE" ];then
@@ -62,7 +63,6 @@ if [ -d '../kernel-kit/output' ];then
 			mkdir -p fdrv #we're in sandbox3
 			echo "copying files..."
 			cp -a -u --remove-destination /mnt/fdrv/* fdrv/
-			sync
 			umount /mnt/fdrv
 			rm -rf /mnt/fdrv
 			losetup -a | grep -o -q "${FREEDEV##*/}" && losetup -d $FREEDEV
@@ -89,8 +89,8 @@ fi
 
 #----------
 
-mkdir -p ../huge_kernel
-IS_KERNEL=`ls ../huge_kernel/*.tar.* 2>/dev/null | wc -l`
+mkdir -p ${HUGE_KERNEL_DIR}
+IS_KERNEL=`ls ${HUGE_KERNEL_DIR}/*.tar.* 2>/dev/null | wc -l`
 
 #==========
 # functions
@@ -98,59 +98,17 @@ IS_KERNEL=`ls ../huge_kernel/*.tar.* 2>/dev/null | wc -l`
 
 download_kernel() {
 	local URL="$1" TARBALL="${1##*/}"
-	if [ -f ../../local-repositories/huge_kernels/${TARBALL} ] ; then
-		echo "Verifying ../../local-repositories/huge_kernels/${TARBALL}"
-		if tar -taf ../../local-repositories/huge_kernels/${TARBALL} &>/dev/null ; then
-			cp -fv ../../local-repositories/huge_kernels/${TARBALL} ../huge_kernel/
-			return
-		fi
-	elif [ -f ../huge_kernel/${TARBALL} ] ; then
-		echo "Verifying ../huge_kernel/${TARBALL}"
-		if tar -taf ../huge_kernel/${TARBALL} &>/dev/null ; then
-			cp -fv ../huge_kernel/${TARBALL} ../../local-repositories/huge_kernels/
-			return
+	if [ ! -f ../../local-repositories/huge_kernels/${TARBALL} ] ; then
+		if [ -f ${HUGE_KERNEL_DIR}/${TARBALL} ] ; then
+			cp ${HUGE_KERNEL_DIR}/${TARBALL} ../../local-repositories/huge_kernels/${TARBALL}
 		fi
 	fi
-	#---------------------------------
-	wget -t0 -c $URL -P ../huge_kernel
-	wget ${URL}.md5.txt -P ../huge_kernel
-	CHK=`md5sum ../huge_kernel/${TARBALL} | cut -d ' ' -f1`
-	# - md5.txt file might not be available: 404  not found
-	# -  e.g.: huge-3.14.79-tahr_noPAE.tar.bz2.md5
-	MD5=`cat ../huge_kernel/${TARBALL}.md5.txt| cut -d ' ' -f1`
-	# PROBLEM:
-	# most md5.txt files only have MD5 sums
-	#    da3c0c75d756926adaea56205c00715f  huge-3.4.94-slacko4G2-i686.tar.bz2
-	# but a few others have this format
-	#    # MD5
-	#    b9264da180c2a8a08924058c1f17e56d  huge-4.9.15-xenialpup64.tar.bz2
-	#    # SHA1
-	#    7150b153a5d184ba3e3a6d9400b5817c099af8f2  huge-4.9.15-xenialpup64.tar.bz2
-	#    # SHA256
-	#    059db29d5aa006ced51bda1013e42a4ccf97af31839a00ecf660f19d021d2630  huge-4.9.15-xenialpup64.tar.bz2
-	if [ ! -z "$MD5" ] ; then
-		if grep -q '# MD5' ../huge_kernel/${TARBALL}.md5.txt ; then
-			MD5=$(sed -n '2p' ../huge_kernel/${TARBALL}.md5.txt | cut -d ' ' -f1)
-		fi
+	../support/download_file.sh "$URL" ../../local-repositories/huge_kernels || \
+		../support/download_file.sh "$URL" ../../local-repositories/huge_kernels
+	[ $? -ne 0 ] && exit 1
+	if [ ! -f ${HUGE_KERNEL_DIR}/${TARBALL} ] ; then
+		cp ../../local-repositories/huge_kernels/${TARBALL} ${HUGE_KERNEL_DIR}/${TARBALL}
 	fi
-	echo "${TARBALL}         : $CHK"
-	echo "${TARBALL}.md5.txt : $MD5"
-	rm -f ../huge_kernel/${TARBALL}.md5.txt
-	if [ -z "$MD5" ] ; then
-		echo "*** WARNING: no checksum"
-		echo "Verifying tarball integrity..."
-		if ! tar -taf ../huge_kernel/${TARBALL} &>/dev/null ; then
-			echo "ERROR"
-			exit 1
-		fi
-	else
-		if [ "$CHK" != "$MD5" ] ; then
-			echo "checksum failed"
-			exit 1
-		fi
-		echo "Checksum passed"
-	fi
-	cp -f ../huge_kernel/${TARBALL} ../../local-repositories/huge_kernels/
 }
 
 choose_kernel_to_download() {
@@ -196,7 +154,7 @@ choose_kernel_to_download() {
 choose_kernel() {
 	TMP=/tmp/kernels3$$
 	x=1
-	for j in `ls -1 ../huge_kernel/*.tar.* 2>/dev/null |grep -v 'md5'`
+	for j in `ls -1 ${HUGE_KERNEL_DIR}/*.tar.* 2>/dev/null |grep -v 'md5'`
 	do
 		echo "$x $j" >> $TMP
 		x=$(($x + 1))
@@ -216,48 +174,46 @@ choose_kernel() {
 	rm $TMP
 }
 #==========
-
-if [ "$IS_KERNEL" = 0 ] ; then
-	#no kernel, get 1
-	if [ "$KERNEL_TARBALL_URL" != "" ] ; then
-		download_kernel ${KERNEL_TARBALL_URL} #build.conf
-	else
+if [ "$KERNEL_TARBALL_URL" != "" ] ; then # if specified get it
+	download_kernel ${KERNEL_TARBALL_URL} #build.conf
+	KERNEL_VERSION=${KERNEL_TARBALL_URL##*/}
+	KERNEL_VERSION=`echo ${KERNEL_VERSION#*\-}|sed 's/\.tar.*$//'`
+else
+	if [ "$IS_KERNEL" = 0 ] ; then
+		#no kernel, get 1
 		choose_kernel_to_download
 	fi
-fi
-
-IS_KERNEL2=`ls ../huge_kernel/*.tar.* 2>/dev/null | wc -l`
-
-if [ "$IS_KERNEL2" -gt 1 ] ; then
-	#too many, choose 1
-	choose_kernel
-elif [ "$IS_KERNEL2" == 1 ] ; then
-	# 1 kernel
-	# check if it was a failed/incomplete download
-	# as it keeps hitting the same error everytime you
-	# run 3builddistro
-	if [ "$IS_KERNEL" == 1 ] ; then
-		if [ "$KERNEL_TARBALL_URL" != "" ] ; then
-			download_kernel ${KERNEL_TARBALL_URL} #build.conf
-		else
-			KERNEL_VERSION=`ls ../huge_kernel/*.tar.* 2>/dev/null | grep -v 'md5'|cut -d '-' -f2-|rev|cut -d '.' -f3-|rev`
-			download_kernel "$KERNEL_REPO_URL/$(basename ../huge_kernel/huge-${KERNEL_VERSION}.tar.*)"
+	
+	IS_KERNEL2=`ls ${HUGE_KERNEL_DIR}/*.tar.* 2>/dev/null | wc -l`
+	
+	if [ "$IS_KERNEL2" -gt 1 ] ; then
+		#too many, choose 1
+		choose_kernel
+	elif [ "$IS_KERNEL2" == 1 ] ; then
+		# 1 kernel
+		# check if it was a failed/incomplete download
+		# as it keeps hitting the same error everytime you
+		# run 3builddistro
+		if [ "$IS_KERNEL" == 1 ] ; then
+			KERNEL_VERSION=`ls ${HUGE_KERNEL_DIR}/*.tar.* 2>/dev/null | grep -v 'md5'|cut -d '-' -f2-|rev|cut -d '.' -f3-|rev`
+			download_kernel "$KERNEL_REPO_URL/$(basename ${HUGE_KERNEL_DIR}/huge-${KERNEL_VERSION}.tar.*)"
 		fi
+		KERNEL_VERSION=`ls ${HUGE_KERNEL_DIR}/*.tar.* 2>/dev/null | grep -v 'md5'|cut -d '-' -f2-|rev|cut -d '.' -f3-|rev`
 	fi
-	KERNEL_VERSION=`ls ../huge_kernel/*.tar.* 2>/dev/null | grep -v 'md5'|cut -d '-' -f2-|rev|cut -d '.' -f3-|rev`
 fi
 
 echo "Kernel is $KERNEL_VERSION version"
 export KERNEL_VERSION
 
-cp -a ../huge_kernel/huge-${KERNEL_VERSION}.tar.* build/
+cp -a ${HUGE_KERNEL_DIR}/huge-${KERNEL_VERSION}.tar.* build/
 
 cd build
 tar -xvf huge-${KERNEL_VERSION}.tar.*
 [ "$?" = 0 ] || exit 1
 rm -f huge-${KERNEL_VERSION}.tar.* #remove pkg
-mv -f kernel-modules.sfs-$KERNEL_VERSION $ZDRVSFS
+mv -f kernel-modules*$KERNEL_VERSION* $ZDRVSFS
 mv -f vmlinuz-$KERNEL_VERSION vmlinuz
+mv -f fdrv* $FDRVSFS
 cd ..
 
 exit 0

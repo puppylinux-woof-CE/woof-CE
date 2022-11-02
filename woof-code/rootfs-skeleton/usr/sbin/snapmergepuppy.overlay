@@ -1,0 +1,239 @@
+#!/bin/sh
+#2007 Lesser GPL licence v2 (http://www.fsf.org/licensing/licenses/lgpl.html)
+#Barry Kauler www.puppylinux.com
+#called from savepuppyd and rc.shutdown, to save tmpfs layer to permanent flash storage.
+#updated 13 Sept 2007. copy-down only. flushing is done in petget.
+#updated 24 Sept 2007. removed '-u' option when copy-down files.
+#8 oct 2007: screen out /root/tmp when saving.
+#4 nov 2007: reintroduce '-u' copy option.
+#v4.01 19may2008 BK: now called from /sbin/pup_eventd daemon (savepuppyd now history).
+#v4.01 19may2008 BK: if called from pup_eventd then X running: graceful exit if X shutdown.
+#v409 BK: save /var dir. previously screened out to save space, but prevents crontab from running.
+#v412 /etc/DISTRO_SPECS, renamed pup_xxx.sfs, pup_save.2fs etc.
+#w000 pup files renamed to woofr555.sfs, woofsave.2fs.
+#w003 screened out some dirs in /dev that should not be saved.
+#v424 fix for more layers in unionfs/aufs.
+#100222 shinobar: possible timezone problem with BOOTCONFIG. more file exclusions.
+#100422 added ^root/ftpd exclusion.
+#100429 modify 'trash' exclusion.
+#100820 added /var/tmp exclusion (apparently filled by opera crashes).
+#101221 yaf-splash fix.
+#110206 Dougal: clean up some testing. speedup: LANG=C, also change to /bin/ash.
+#110212 Jemimah: files may disappear, more efficient calc of free space, fix i/o err.
+#110222 shinobar: remove all /dev, allow 'pup_ro10-19', exit code for no space
+#110224 BK: revert remove all /dev, for now. 110503 added dev/snd
+#110505 support sudo for non-root user.
+#111229 rerwin: fix jemimah code (110212).
+#120103 rerwin: screen out /.XLOADED when save.
+#140102 SFR: various fixes + gettext
+#140512 SFR: performance improvements
+
+remove_merge_lock() {
+ if [ $? -ne 255 ]; then
+  [ -e /tmp/snapmergepuppy.lock ] && rm -f /tmp/snapmergepuppy.lock
+ fi
+}
+
+trap remove_merge_lock EXIT
+trap remove_merge_lock SIGKILL
+trap remove_merge_lock SIGTERM
+
+[ -e /tmp/snapmergepuppy.lock ] && exit 255
+
+export TEXTDOMAIN=snapmergepuppy
+export OUTPUT_CHARSET=UTF-8
+
+OLDLANG="$LANG"
+export LANG=C
+
+#variables created at bootup by 'init' script in initramfs...
+. /etc/rc.d/PUPSTATE
+. /etc/DISTRO_SPECS
+
+[ "`whoami`" != "root" ] && exec sudo -A ${0} ${@}
+
+touch /tmp/snapmergepuppy.lock
+
+if [ $PUPMODE -ne 13 ] ; then
+	echo "$0: Wrong PUPMODE ($PUPMODE)"
+	exit 1
+fi
+
+SAVEPART="`echo -n "$PUPSAVE" | cut -f 1 -d ','`"
+
+SHUTDOWN="no"
+pidof rc.shutdown >/dev/null && SHUTDOWN="yes"
+XRUNNING="no"
+pidof -s X Xorg dwl-kiosk labwc >/dev/null 2>&1 && XRUNNING="yes"
+
+PATH="/bin:/sbin:/usr/bin:/usr/sbin:/usr/X11R7/bin"
+WD="`pwd`"
+
+ # all the action takes places inside $SNAP
+SNAP="/initrd/pup_rw"
+cd $SNAP || exit 1
+
+# files are copied from $SNAP/* to $BASE/
+BASE="/initrd/pup_ro1"
+BASEDEV="`grep -m1 /initrd/mnt/dev_save /proc/mounts | cut -f 1 -d ' '`"
+
+# Precautions
+[ "$BASEDEV" ] || { echo "$BASEDEV is not mounted!"; exit 1; }
+
+echo "Merging $SNAP onto $BASE..."
+
+# =============================================================================
+# WHITEOUTS
+# =============================================================================
+
+SFSPoints="`grep -m1 ^unionfs /proc/mounts | sed -E 's~.*lowerdir=([^,]+).*~\1~' | sed -e s~^~/initrd~ -e 's~:~\n/initrd~g' | grep -v '^/initrd/pup_ro1$' | tac`"
+
+find . -type c | sed -e 's/\.\///' |
+while read -r N
+do
+	DN="${N%/*}"
+	BN="${N##*/}"
+	[ "$DN" = "$N" ] || [ "$DN" = "" ] && DN="."
+	[ "$DN" = "." ] && continue
+
+	[ "`stat -c '%t,%T' "$N" 2>/dev/null`" != '0,0' ] && continue
+	if [ -c "$BASE/$N" ]; then
+		[ "`stat -c '%t,%T' "$BASE/$N"`" = '0,0' ] && continue
+	fi
+
+	rm -rf "$BASE/$N"
+ 
+	#if file exists on a lower layer, have to save the whiteout file...
+	#110206 Dougal: speedup and refine the search...
+	for P in $SFSPoints
+	do
+		if [ -e "$P/$N" ] || [ -L "$P/$N" ] ; then	# SFR: broken symlinks also deserve to be processed ( '-e' won't detect them, needs to be also '-L')
+			[ -d "${BASE}/${DN}" ] || mkdir -p "${BASE}/${DN}"
+			mknod "${BASE}/${N}" c 0 0
+			break
+		fi
+	done #110206 End Dougal.
+done
+
+# =============================================================================
+# DIRECTORIES
+# =============================================================================
+
+find . -mount -type d | tail +2 | sed -e 's/\.\///' | grep -v -E '^mnt|^media|^initrd|^proc|^sys|^tmp|^root/tmp|^dev|^var/tmp|^var/lock' |
+while read -r N
+do
+	#v4.01 graceful exit if shutdown X (see /usr/X11R7/bin/restartwm,wmreboot,wmpoweroff)...
+	[ "$XRUNNING" = "yes" ] && [ -f /tmp/wmexitmode.txt ] && exit
+	mkdir -p "$BASE/$N"
+	#i think nathan advised this, to handle non-root user (SFR: improved/simplified)
+	chmod "$BASE/$N" --reference="$N"
+	chown-FULL "$BASE/$N" --reference="$N"
+	touch "$BASE/$N" --reference="$N"
+done
+
+# =============================================================================
+# FILES
+# =============================================================================
+
+FREEBASE=`df -B 1 | grep -m1 "^$BASEDEV" | tr -s ' ' | cut -f 4 -d ' '` #110212 Jemimah #110222 shinobar # SFR: result in bytes (see 'find' below)
+
+rm -f /tmp/snapmergepuppy-nospace #110222 shinobar
+rm -f /tmp/snapmergepuppy-error   #140102 SFR
+
+#Copy Files... v409 remove '^var'. 100222 shinobar: more exclusions. 100422 added ^root/ftpd. 100429 modify 'trash' exclusion. 100820 added var/tmp 120103 rerwin: add .XLOADED # SFR: added dev/snd # SFR: added .crdownload
+# SFR: move as much as possible into 'find' itself
+# Limitation - files with newline (\n) in its name are processed wrong (but this is not a new issue)
+find . -mount \
+	   -not -path . \
+	   -not -type d \
+	   -not -type c \
+	   -not -type s \
+	   -not -type p \
+	   -regextype posix-extended \
+	   -not \( -regex '^./initrd.*|^./mnt.*|^./media.*|^./proc.*|^./sys.*|^./tmp.*|^./pup_.*|^./zdrv_.*|^./root/tmp.*|.*_zdrv_.*|^./dev.*|^./var/run.*|^./root/ftpd.*|^./var/tmp.*|^./var/lock.*|.*\.XLOADED$' \) \
+	   -not \( -regex '.*\.thumbnails.*|.*\.part$|.*\.crdownload$' \) \
+	   -printf "%C@ %s %P\n" | sort -rn |
+while read -r NCTIME NSIZE N
+do
+	#v4.01 graceful exit if shutdown X (see /usr/X11R7/bin/restartwm,wmreboot,wmpoweroff)...
+	[ "$XRUNNING" = "yes" ] && [ -f /tmp/wmexitmode.txt ] && exit
+
+	if [ ! -e "$N" ] && [ ! -L "$N" ] ; then
+		continue # SFR: skip non-existing files (btw, '-e' won't detect broken symlinks, so '-L' is necessary!)
+	fi
+
+	#stop saving if not enough room left in ${DISTRO_FILE_PREFIX}save file...
+	if [ $((NSIZE+204800)) -gt $FREEBASE ]; then	# 204800 = 200K slack space
+		FREEBASE=`df -B 1 | grep -m1 "^$BASEDEV" | tr -s ' ' | cut -f 4 -d ' '` #110212 Jemimah: this is very slow; try not to check every iteration #110222 shinobar: fix for pup_ro10 and more
+		if [ $((NSIZE+204800)) -gt $FREEBASE ]; then	#110212 Jemimah.
+			touch /tmp/snapmergepuppy-nospace  #110222 shinobar
+			break
+		fi
+	else
+		FREEBASE=$((FREEBASE-NSIZE)) #110212 Jemimah: keep track of the worst case
+	fi
+ 
+	if [ -L "$N" ];then
+		[ "`readlink "$BASE/$N" 2>/dev/null`" = "`readlink "$N"`" ] && continue
+		rm -rf "$BASE/$N"	# SFR: in case if folder has been replaced with a symlink (cp won't overwrite a dir with a symlink)
+		cp -af "$N" "$BASE/$N" 2>>/tmp/snapmergepuppy-error
+	else
+		if [ ! -e "$BASE/$N" ] ; then
+			cp -af "$N" "$BASE/$N" 2>>/tmp/snapmergepuppy-error
+		else
+			read CTIME SIZE < <(stat -c "%Z %s" "$BASE/$N")
+			if [ ${NCTIME%%.*} -gt $CTIME ] ; then
+				if [ $SIZE -eq $NSIZE ] ; then
+					cmp -s "$N" "$BASE/$N" || cp -af "$N" "$BASE/$N" 2>>/tmp/snapmergepuppy-error
+				else
+					cp -af "$N" "$BASE/$N" 2>>/tmp/snapmergepuppy-error
+				fi
+			fi
+		fi
+	fi
+done
+
+# save DISTRO_SPECS, initrd uses it to determine whether or not to upgrade the save
+mkdir -p "$BASE/initrd"
+cmp -s /initrd/DISTRO_SPECS "$BASE/initrd/DISTRO_SPECS" || cp -af /initrd/DISTRO_SPECS "$BASE/initrd/DISTRO_SPECS"
+
+# =============================================================================
+
+sync
+cd "$WD"
+
+# =============================================================================
+
+error_msg () {
+	if [ "$SHUTDOWN" = "no" -a "$XRUNNING" = "yes" ];then
+		export DISPLAY=':0'
+		/usr/lib/gtkdialog/box_splash -timeout 30 -close box -icon gtk-dialog-warning -bg red -text "$1"
+	else
+		echo "$1"
+	fi
+}
+
+export LANG="$OLDLANG"
+ERRSTATUS=0
+
+if [ -f /tmp/snapmergepuppy-nospace ]; then #110222 shinobar
+	ERRMSG="$(gettext 'WARNING!
+Unable to save all files. You need to delete some.')"
+	error_msg "$ERRMSG"
+	ERRSTATUS=1
+fi
+
+sed -i '/No such file or directory/d' /tmp/snapmergepuppy-error	# discard errors caused by bad timing
+
+if [ -s /tmp/snapmergepuppy-error ]; then	#140102 SFR
+	ERRMSG="$(gettext "WARNING!
+There were some errors detected.
+(see '/tmp/snapmergepuppy-error' for details)
+Filesystem check of the savefile (pfix=fsck) is highly recommended.")"
+	error_msg "$ERRMSG"
+	ERRSTATUS=1
+fi
+
+exit $ERRSTATUS
+
+# =============================================================================

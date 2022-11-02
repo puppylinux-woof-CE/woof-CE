@@ -40,18 +40,24 @@ if [ "$CURDIR" = "/root/.packages" ];then #110821
 	DS_DATE="`md5sum /etc/DISTRO_SPECS | cut -f 1 -d ' '`"
 	. ./DISTRO_PKGS_SPECS #has PKGS_SPECS_TABLE, FALLBACKS_COMPAT_VERSIONS
 	. ./DISTRO_COMPAT_REPOS #v431 has PKG_DOCS_DISTRO_COMPAT
+	#the files that have compatible-distro pkg docs (these were downloaded by 0setup)...
+	PKGLISTS_COMPAT="`echo "$PKG_DOCS_DISTRO_COMPAT" | tr ' ' '\n' | cut -f 3 -d '|' | tr '\n' ' '`" #see file DISTRO_PKGS_SPECS-ubuntu
+	#...format ex: 'Packages-ubuntu-intrepid-main Packages-ubuntu-intrepid-universe'
 	DPS_MODIFY_DATE="`md5sum ./DISTRO_PKGS_SPECS | cut -f 1 -d ' '`"
 else
 	. ./_00build.conf
 	. ./_00func
 	. ./DISTRO_SPECS #has DISTRO_BINARY_COMPAT, DISTRO_COMPAT_VERSION
 	[ ! "$DISTRO_DB_SUBNAME" ] && DISTRO_DB_SUBNAME="$DISTRO_COMPAT_VERSION" #121102 fallback if DISTRO_DB_SUBNAME not defined in file DISTRO_SPECS.
-	DS_DATE="`md5sum ./DISTRO_SPECS | cut -f 1 -d ' '`"
 	source_compat_repos  # ./DISTRO_COMPAT_REPOS-
+	PKGLISTS_COMPAT="`echo "$PKG_DOCS_DISTRO_COMPAT" | tr ' ' '\n' | cut -f 3 -d '|' | tr '\n' ' '`"
+	DS_DATE="`md5sum ./DISTRO_SPECS | cut -f 1 -d ' '`"
 	if [ -f ./DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} ];then
+		./support/resolvedeps.sh ./DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} "${PKGLISTS_COMPAT}" || exit 1
 		. ./DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} #has FALLBACKS_COMPAT_VERSIONS
 		DPS_MODIFY_DATE="`md5sum ./DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} | cut -f 1 -d ' '`"
 	else
+		./support/resolvedeps.sh ./DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT} "${PKGLISTS_COMPAT}" || exit 1
 		. ./DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT} #has FALLBACKS_COMPAT_VERSIONS
 		DPS_MODIFY_DATE="`md5sum ./DISTRO_PKGS_SPECS-${DISTRO_BINARY_COMPAT} | cut -f 1 -d ' '`"
 	fi
@@ -66,8 +72,6 @@ if [ "`echo -n "$FALLBACKS_COMPAT_VERSIONS" | grep "$DISTRO_COMPAT_VERSION"`" !=
 	FALLBACKS_COMPAT_VERSIONS="`echo -n "$FALLBACKS_COMPAT_VERSIONS" | grep -o "${DISTRO_COMPAT_VERSION}.*"`"
 	#ex: 'koala jaunty intrepid' gets reduced to 'jaunty intrepid' if DISTRO_COMPAT_VERSION=jaunty
 fi
-
-REPO_DEFAULT_SUBDIR="pet_packages-${DISTRO_DB_SUBNAME}" #121102
 
 #the files that have compatible-distro pkg docs (these were downloaded by 0setup)...
 PKGLISTS_COMPAT="`echo "$PKG_DOCS_DISTRO_COMPAT" | tr ' ' '\n' | cut -f 3 -d '|' | tr '\n' ' '`" #see file DISTRO_PKGS_SPECS-ubuntu
@@ -140,7 +144,7 @@ do
 	BADFLAG='no'
 	DELS="${ONECHK//[^|]}" # remove all chars but "|"
 	NUMDELS="${#DELS}"     # count chars / delimiters
-	[  $NUMDELS -lt 3 -o $NUMDELS -gt 5 ] && BADFLAG='yes'
+	[  $NUMDELS -lt 3 -o $NUMDELS -gt 6 ] && BADFLAG='yes'
 	# delim         yes  |cairo |cairo|exe,dev,doc,nls|
 	IFS="|" read -r YESNO GENPKG ETC <<< "$ONECHK"
 	case $YESNO in
@@ -165,38 +169,16 @@ echo -n "" > /tmp/findpkgs_tmp/compat_log1
 echo -n "" > /tmp/findpkgs_tmp/PREFERRED_PKGS
 echo -n "" > /tmp/findpkgs_tmp/FINAL_PKGS
 
-# * compiledPTNS is to select a pkg that most closely matches the 
-#   compile-environment of the compat-distro...
-# * ||| means architecture-independent pkg, needs high preference, 
-#   immediately after exact-compiled match...
-petcompiledPTNS="|${DISTRO_BINARY_COMPAT}|${DISTRO_COMPAT_VERSION}| |||" #ex: '|ubuntu|intrepid|'
-for ONECOMPATVERSION in $FALLBACKS_COMPAT_VERSIONS #sliding scale, ex: koala jaunty intrepid
-do
-	[ "$ONECOMPATVERSION" = "$DISTRO_COMPAT_VERSION" ] && continue
-	petcompiledPTNS="${petcompiledPTNS} |${DISTRO_BINARY_COMPAT}|${ONECOMPATVERSION}|"
-done
-
-petcompiledPTNS="${petcompiledPTNS} |${DISTRO_BINARY_COMPAT}| |" #increasingly desperate. 130312 add wary5.
+petcompiledPTNS="." #allow everything through.
 
 for ADBFILE in $PACKAGELISTS_PET_ORDER $PKGLISTS_COMPAT
 do
 	NEWSUM="`md5sum $ADBFILE | cut -f 1 -d ' '`"
 	OLDSUM="0"
-	[ -f ${STATUSDIR}/MODIFY_DATE_${ADBFILE} ] && OLDSUM="`cat ${STATUSDIR}/MODIFY_DATE_${ADBFILE}`"
+	if [ -f ${STATUSDIR}/MODIFY_DATE_${ADBFILE} ] ; then
+		OLDSUM="`cat ${STATUSDIR}/MODIFY_DATE_${ADBFILE}`"
+	fi
 	if [ "$NEWSUM" != "$OLDSUM" ];then
-		DB_compileddistro="`echo -n "$ADBFILE" | cut -f 2 -d '-'`" #ex: puppy
-		DB_compiledrelease="`echo -n "$ADBFILE" | cut -f 3 -d '-'`" #ex: 4
-		DB_repo="`echo -n "$ADBFILE" | cut -f 4 -d '-'`" #ex: official
-		#db fields: pkgname|nameonly|version|pkgrelease|category[;subcategory]|size|path|fullfilename|dependencies|description|compileddistro|compiledrelease|repo|
-		echo "Fixing compileddistro|compiledrelease| fields in $ADBFILE"
-		FIELD11PTN="s%VERTBARCHAR$%VERTBARCHAR${DB_compileddistro}VERTBARCHAR%"
-		FIELD12PTN="s%VERTBARCHAR$%VERTBARCHAR${DB_compiledrelease}VERTBARCHAR%"
-		sed -e 's%|%VERTBARCHAR%' -e 's%|%VERTBARCHAR%' -e 's%|%VERTBARCHAR%' -e 's%|%VERTBARCHAR%' -e 's%|%VERTBARCHAR%' -e 's%|%VERTBARCHAR%' -e 's%|%VERTBARCHAR%' -e 's%|%VERTBARCHAR%' -e 's%|%VERTBARCHAR%' -e 's%|%VERTBARCHAR%' -e "${FIELD11PTN}" -e "${FIELD12PTN}" -e 's%VERTBARCHAR$%VERTBARCHARVERTBARCHAR%' -e 's%\(VERTBARCHAR[^|]*|[^|]*|$\)%\1|%'  -e 's%VERTBARCHAR%|%g' ${ADBFILE} > /tmp/findpkgs_tmp/dbfilefixed
-		REALNEWSUM="`md5sum /tmp/findpkgs_tmp/dbfilefixed | cut -f 1 -d ' '`"
-		if [ "$REALNEWSUM" != "$NEWSUM" ];then
-			cp -f /tmp/findpkgs_tmp/dbfilefixed $ADBFILE
-			NEWSUM="$REALNEWSUM"
-		fi
 		echo -n "$NEWSUM" > ${STATUSDIR}/MODIFY_DATE_${ADBFILE}
 	fi
 done
@@ -212,7 +194,7 @@ fi
 ######################
 echo
 echo "First pass at finding packages to be used in the Puppy build..."
-echo > FINDPKGS-NOT-FOUND.log
+[ -n "$GITHUB_ACTIONS" ] || echo > FINDPKGS-NOT-FOUND.log
 
 search_func() {
 
@@ -256,11 +238,9 @@ search_func() {
 	if [ "$PKGLOC1" = "pet" ];then
 		PACKAGELISTS_ORDER="$PACKAGELISTS_PET_ORDER"
 		xPACKAGELISTS_ORDER="$PACKAGELISTS_PET_ORDER"
-		compiledPTNS="$petcompiledPTNS"
 	else
 		PACKAGELISTS_ORDER="$PKGLISTS_COMPAT"
 		xPACKAGELISTS_ORDER="$PKGLISTS_COMPAT"
-		compiledPTNS='.' #allow everything through.
 	fi
 
 	if [ "$PKGLOC2" ];then
@@ -298,7 +278,6 @@ search_func() {
 			echo
 			echo "$namePTN"
 			echo "$devnamePTN"
-			echo "$compiledPTNS"
 			echo "$excludePTNS"
 			echo "$xPACKAGELISTS_ORDER"
 		fi
@@ -306,43 +285,34 @@ search_func() {
 		FNDSPECS=""
 		xFNDSPECS=""
 
-		for acompiledPTN in $compiledPTNS
+		for PKGLIST in $xPACKAGELISTS_ORDER #ex: Packages-puppy-drake-official Packages-puppy-common-official Packages-puppy-4-official
 		do
-			for PKGLIST in $xPACKAGELISTS_ORDER #ex: Packages-puppy-drake-official Packages-puppy-common-official Packages-puppy-4-official
-			do
-				#2 3 8 9 11 12 is: nameonly version fullpkgname dependencies compileddistro compiledrelease
-				FNDSPECS="`grep "$namePTN" $STATUSDIR/$PKGLIST-cols | grep "$acompiledPTN"`"
+			#2 3 8 9 11 12 is: nameonly version fullpkgname dependencies compileddistro compiledrelease
+			FNDSPECS="`grep "$namePTN" $STATUSDIR/$PKGLIST-cols`"
+			if [ "$excludePTNS" ] && [ "$FNDSPECS" ] ; then
+				FNDSPECS="`echo "$FNDSPECS" | grep -v -f /tmp/findpkgs_tmp/excludePTNS`"
+			fi
+			if [ ! "$FNDSPECS" ] ; then
+				FNDSPECS="`grep "$devnamePTN" $STATUSDIR/$PKGLIST-cols`"
 				if [ "$excludePTNS" ] && [ "$FNDSPECS" ] ; then
 					FNDSPECS="`echo "$FNDSPECS" | grep -v -f /tmp/findpkgs_tmp/excludePTNS`"
 				fi
-				#in wary, i have many pkgs that are _DEV only, need to find these, a hack fix to find most...
-				if [ ! "$FNDSPECS" ] ; then
-					FNDSPECS="`grep "$devnamePTN" $STATUSDIR/$PKGLIST-cols | grep "$acompiledPTN"`"
-					if [ "$FNDSPECS" ] ; then # if devnamePTN was found,
-						# but namePTN exists with a different acompiledPTN
-						if grep -q "$namePTN" $STATUSDIR/$PKGLIST-cols ; then
-							FNDSPECS='' # do not include devnamePTN
-						fi
-					fi
-					if [ "$excludePTNS" ] && [ "$FNDSPECS" ] ; then
-						FNDSPECS="`echo "$FNDSPECS" | grep -v -f /tmp/findpkgs_tmp/excludePTNS`"
-					fi
-				fi
-				if [ "$FNDSPECS" ];then
-					xFNDSPECS=$(
-					for ONESPEC in $FNDSPECS ; do #maybe more than one find.
-						#ex: abiword|2.3.4|abiword-2.3.4.pet|+gtk+|puppy|wary5|Packages-puppy-wary5-official
-						echo "${ONESPEC}${PKGLIST}"
-						#echo "${ONESPEC}|${PKGLIST}"
-					done)
-					break 2 #pkg(s) found.
-				fi
-			done
+			fi
+			if [ "$FNDSPECS" ];then
+				xFNDSPECS=$(
+				for ONESPEC in $FNDSPECS ; do #maybe more than one find.
+					#ex: abiword|2.3.4|abiword-2.3.4.pet|+gtk+|puppy|wary5|Packages-puppy-wary5-official
+					echo "${ONESPEC}${PKGLIST}"
+					#echo "${ONESPEC}|${PKGLIST}"
+				done)
+				break #pkg(s) found.
+			fi
 		done
 
 		if [ ! "$FNDSPECS" ] ; then
 			echo
 			echo "WARNING: $APARTNAME pkg was not found!" | tee -a FINDPKGS-NOT-FOUND.log
+			[ -z "$GITHUB_ACTIONS" ] || exit 1
 			continue
 		fi
 
@@ -434,12 +404,11 @@ search_func() {
  done
 } #end search_func
 
-if [ "$USE_FINDPKGS_SEARCH_HELPER" = "yes" ] ; then
+if [ -f support/findpkgs-search-helper ] ; then
   support/findpkgs-search-helper 1 --packagelists-pet-order="$PACKAGELISTS_PET_ORDER" --pkglists-compat="$PKGLISTS_COMPAT" --pkgs-specs-table="$PKGS_SPECS_TABLE" --petcompiledPTNS="$petcompiledPTNS" --debug="$DEBUG" --verbose
 else
   search_func 1 #first search.
 fi
-sync
 
 #=====================================================================
 
@@ -449,87 +418,12 @@ sync
 echo -n "" > /tmp/findpkgs_tmp/fnd_ok_deps
 echo -n "" > /tmp/findpkgs_tmp/fnd_ok_apps
 
-#handle aliases...
-aliasesPTNS="`echo "$PKG_NAME_ALIASES" | tr ' ' '\n' | grep -v '^$' | sed -e 's%^%|%' -e 's%$%|%' -e 's%,%|,|%g' -e 's%\\*%.*%g'`"
-
-if [ "$CHECK_PKG_DEPENDENCIES" = "yes" ] ; then
+if [ "$CHECK_PKG_DEPENDENCIES" = "yes" -a -f support/findpkgs-dep-helper ] ; then
   echo -e "\nProcessing dependencies..."
-  if [ "$USE_FINDPKGS_DEP_HELPER" = "yes" ] ; then
-    if [ "$USE_PKG_NAME_ALIASES" = "yes" ] ; then
+  if [ "$USE_PKG_NAME_ALIASES" = "yes" ] ; then
       support/findpkgs-dep-helper --pkg-name-aliases="$PKG_NAME_ALIASES" /tmp/findpkgs_tmp/compat_log1 /tmp/findpkgs_tmp/pet_log1 --verbose
-    else
-      support/findpkgs-dep-helper /tmp/findpkgs_tmp/compat_log1 /tmp/findpkgs_tmp/pet_log1 --verbose
-    fi
   else
-   for ONESPEC in `cat /tmp/findpkgs_tmp/compat_log1 /tmp/findpkgs_tmp/pet_log1 | grep '&' | tr '\n' ' '`
-   do
-	#ex: ONESPEC=abiword|2.3.4|abiword-2.3.4-w5.pet|puppy|wary5|Packages-puppy-wary5-official|aiksaurus&gt5.6.7
-	appPTN="^`echo -n "$ONESPEC" | cut -f 1 -d '|'`|" #pattern of the application name ex: ^abiword|
-	appVER="`echo -n "$ONESPEC" | cut -f 2 -d '|'`" #ex: 2.3.4
-	DEPFLD="`echo -n "$ONESPEC" | cut -f 7 -d '|'`"
-	DEPNAME="`echo -n "$DEPFLD" | cut -f 1 -d '&'`"
-	DEPCONDS="`echo -n "$DEPFLD" | cut -f 2-9 -d '&' | tr '&' ' '`"
-	depnamePTN="|${DEPNAME}|"
-	echo -n "$DEPNAME "
-  
-	# This is currently broken... I think it relied on a bug in busybox grep
-	#ex: PKG_NAME_ALIASES has an entry cxxlibs,glibc*,libc-* the above creates |cxxlibs|,|glibc.*|,|libc\-.*|
-#	echo "$aliasesPTNS" > /tmp/findpkgs_tmp/aliasesPTNS
-#	singlePTNS="`echo "$aliasesPTNS" | tr ',' '\n'`"
-#	echo "$singlePTNS" > /tmp/findpkgs_tmp/singlePTNS
-#	FNDALIAS="`echo -n "$depnamePTN" | grep -f /tmp/findpkgs_tmp/singlePTNS | sed -e 's%\\.\\*%*%g' -e 's%\\\\-%-%g'`"  #translate .* \- back to * -
-#	if [ "$FNDALIAS" ];then
-#		aliasPTNS="`echo -n "$FNDALIAS" | grep -f /tmp/findpkgs_tmp/aliasesPTNS | tr ',' ' '`" #ex: |cxxlibs| |glibc.*| |libc\-.*|
-#	else
-		aliasPTNS="^${DEPNAME}|"
-#	fi
-
-	for namePTN in $aliasPTNS
-	do
-		for FNDPKG in `cat /tmp/findpkgs_tmp/compat_log1 /tmp/findpkgs_tmp/pet_log1 | grep "$namePTN" | tr '\n' ' '`
-		do
-			#found a dependency, now check its version is ok...
-			#FNDVER="`echo -n "$FNDPKG" | cut -f 2 -d '|'`"
-			IFS="|" read F1 FNDVER ETC <<< "$FNDPKG"
-
-			condFLG='good'
-			for ACOND in $DEPCONDS #ex: gt5.6.7 lt6.7.8
-			do
-				DEPOP=${ACOND:0:2} #"`echo -n "$ACOND" | cut -c 1,2`"
-				DEPVER=${ACOND:2} #"`echo -n "$ACOND" | cut -c 3-99`"
-				if ! vercmp ${FNDVER} ${DEPOP} ${DEPVER};then
-					condFLG='bad'
-				fi
-			done
-			[ "$condFLG" = "bad" ] && continue
-   
-			#version is ok.
-			#log dep info, make sure only latest version is logged...
-			depVERprev="`grep "$namePTN" /tmp/findpkgs_tmp/fnd_ok_deps | cut -f 2 -d '|'`"
-			if [ "$depVERprev" = "" ];then
-				echo "$FNDPKG" >> /tmp/findpkgs_tmp/fnd_ok_deps
-			else
-				if vercmp ${FNDVER} gt ${depVERprev};then
-					sed -i "/${namePTN}/d" /tmp/findpkgs_tmp/fnd_ok_deps
-					echo "$FNDPKG" >> /tmp/findpkgs_tmp/fnd_ok_deps
-				fi
-			fi
-
-			#log actual pkg info as well as deps, make sure latest version logged...
-			appVERprev="`grep "$appPTN" /tmp/findpkgs_tmp/fnd_ok_apps | cut -f 2 -d '|'`"
-			if [ "$appVERprev" = "" ];then
-				echo "$ONESPEC" >> /tmp/findpkgs_tmp/fnd_ok_apps
-			else
-				if vercmp ${appVER} gt ${appVERprev};then
-					grep -v "$appPTN" /tmp/findpkgs_tmp/fnd_ok_apps > /tmp/findpkgs_tmp/fnd_ok_apps2
-					mv -f /tmp/findpkgs_tmp/fnd_ok_apps2 /tmp/findpkgs_tmp/fnd_ok_apps
-					echo "$ONESPEC" >> /tmp/findpkgs_tmp/fnd_ok_apps
-				fi
-			fi
-		done
-	done
-
-   done
+      support/findpkgs-dep-helper /tmp/findpkgs_tmp/compat_log1 /tmp/findpkgs_tmp/pet_log1 --verbose
   fi
 fi
 
@@ -539,7 +433,6 @@ cat /tmp/findpkgs_tmp/fnd_ok_apps >> /tmp/findpkgs_tmp/PREFERRED_PKGS
 
 sort --key=3,3 --field-separator="|" -u /tmp/findpkgs_tmp/PREFERRED_PKGS > /tmp/findpkgs_tmp/PREFERRED_PKGS2
 cp -f /tmp/findpkgs_tmp/PREFERRED_PKGS ${STATUSDIR}/findpkgs_PREFERRED_PKGS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} #so retained between boots.
-sync
 
 [ -s /tmp/findpkgs_tmp/PREFERRED_PKGS ] && PREFERRED_PKGS=1 #second search
 
@@ -552,9 +445,9 @@ sync
 echo
 echo
 echo "Second pass at finding packages to be used in the Puppy build..."
-echo -e "\n-\nSECOND PASS\n-\n" >> FINDPKGS-NOT-FOUND.log
+[ -n "$GITHUB_ACTIONS" ] || echo -e "\n-\nSECOND PASS\n-\n" >> FINDPKGS-NOT-FOUND.log
 
-if [ "$USE_FINDPKGS_SEARCH_HELPER" = "yes" ] ; then
+if [ -f support/findpkgs-search-helper ] ; then
   support/findpkgs-search-helper 2 --packagelists-pet-order="$PACKAGELISTS_PET_ORDER" --pkglists-compat="$PKGLISTS_COMPAT" --pkgs-specs-table="$PKGS_SPECS_TABLE" --petcompiledPTNS="$petcompiledPTNS" --debug="$DEBUG" --verbose
 else
   search_func 2 #result will be in /tmp/findpkgs_tmp/FINAL_PKGS
@@ -569,10 +462,9 @@ fi
 grep '^:' /tmp/findpkgs_tmp/FINAL_PKGS > /tmp/findpkgs_tmp/FINAL_PKGSx
 mv -f /tmp/findpkgs_tmp/FINAL_PKGSx /tmp/findpkgs_tmp/FINAL_PKGS
 
-sync
 sort --key=4,4 --field-separator="|" /tmp/findpkgs_tmp/FINAL_PKGS > ${STATUSDIR}/findpkgs_FINAL_PKGS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} #so retained between boots.
-sync
 echo
+
 echo
 echo "Script finished. Result is in file"
 echo " status/findpkgs_FINAL_PKGS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}

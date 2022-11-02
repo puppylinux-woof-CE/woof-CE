@@ -17,11 +17,13 @@
  [ -f /tmp/petget_proc/install_quietly ] && set -x
  #; mkdir -p /tmp/petget_proc/PPM_LOGs ; NAME=$(basename "$0"); exec 1>> /tmp/petget_proc/PPM_LOGs/"$NAME".log 2>&1
 
+PPM_PACKAGE_DIR=/var/packages
+
 export TEXTDOMAIN=petget___check_deps.sh
 export OUTPUT_CHARSET=UTF-8
 
 . /etc/DISTRO_SPECS #has DISTRO_BINARY_COMPAT, DISTRO_COMPAT_VERSION
-. /root/.packages/DISTRO_PKGS_SPECS
+. $PPM_PACKAGE_DIR/DISTRO_PKGS_SPECS
 
 echo -n "" > /tmp/petget_proc/missinglibs.txt
 echo -n "" > /tmp/petget_proc/missinglibs_details.txt
@@ -30,26 +32,26 @@ echo -n "" > /tmp/petget_proc/missinglibs_cut.txt #100830
 echo -n "" > /tmp/petget_proc/missinglibs_hidden.txt #100830
 
 ###130511 also this copied from pkg_chooser.sh...
-if [ ! -f /root/.packages/layers-installed-packages ];then
+if [ ! -f $PPM_PACKAGE_DIR/layers-installed-packages ];then
  #need to include devx-only-installed-packages, if loaded...
  if which gcc;then
-  cp -f /root/.packages/woof-installed-packages /tmp/petget_proc/ppm-layers-installed-packages
-  cat /root/.packages/devx-only-installed-packages >> /tmp/petget_proc/ppm-layers-installed-packages
-  sort -u /tmp/petget_proc/ppm-layers-installed-packages > /root/.packages/layers-installed-packages
+  cp -f $PPM_PACKAGE_DIR/woof-installed-packages /tmp/petget_proc/ppm-layers-installed-packages
+  cat $PPM_PACKAGE_DIR/devx-only-installed-packages >> /tmp/petget_proc/ppm-layers-installed-packages
+  sort -u /tmp/petget_proc/ppm-layers-installed-packages > $PPM_PACKAGE_DIR/layers-installed-packages
  else
-  cp -f /root/.packages/woof-installed-packages /root/.packages/layers-installed-packages
+  cp -f $PPM_PACKAGE_DIR/woof-installed-packages $PPM_PACKAGE_DIR/layers-installed-packages
  fi
 fi
 
 #######100718 code block copied from /usr/local/petget/pkg_chooser.sh#######
-. /root/.packages/PKGS_MANAGEMENT #has PKG_REPOS_ENABLED, PKG_NAME_ALIASES
+. $PPM_PACKAGE_DIR/PKGS_MANAGEMENT #has PKG_REPOS_ENABLED, PKG_NAME_ALIASES
 
 #finds all user-installed pkgs and formats ready for display...
 /usr/local/petget/finduserinstalledpkgs.sh #writes to /tmp/petget_proc/installedpkgs.results
 
 #100711 moved from findmissingpkgs.sh...
 if [ ! -f /tmp/petget_proc/petget_installed_patterns_system ];then
- INSTALLED_PATTERNS_SYS="`cat /root/.packages/layers-installed-packages | cut -f 2 -d '|' | sed -e 's%^%|%' -e 's%$%|%' -e 's%\\-%\\\\-%g'`"
+ INSTALLED_PATTERNS_SYS="`cat $PPM_PACKAGE_DIR/layers-installed-packages | cut -f 2 -d '|' | sed -e 's%^%|%' -e 's%$%|%' -e 's%\\-%\\\\-%g'`"
  echo "$INSTALLED_PATTERNS_SYS" > /tmp/petget_proc/petget_installed_patterns_system
  #PKGS_SPECS_TABLE also has system-installed names, some of them are generic combinations of pkgs...
  INSTALLED_PATTERNS_GEN="`echo "$PKGS_SPECS_TABLE" | grep '^yes' | cut -f 2 -d '|' |  sed -e 's%^%|%' -e 's%$%|%' -e 's%\\-%\\\\-%g'`"
@@ -59,7 +61,7 @@ if [ ! -f /tmp/petget_proc/petget_installed_patterns_system ];then
 fi
 #100711 this code repeated in findmissingpkgs.sh...
 cp -f /tmp/petget_proc/petget_installed_patterns_system /tmp/petget_proc/petget_installed_patterns_all
-INSTALLED_PATTERNS_USER="`cat /root/.packages/user-installed-packages | cut -f 2 -d '|' | sed -e 's%^%|%' -e 's%$%|%' -e 's%\\-%\\\\-%g'`"
+INSTALLED_PATTERNS_USER="`cat $PPM_PACKAGE_DIR/user-installed-packages | cut -f 2 -d '|' | sed -e 's%^%|%' -e 's%$%|%' -e 's%\\-%\\\\-%g'`"
 echo "$INSTALLED_PATTERNS_USER" >> /tmp/petget_proc/petget_installed_patterns_all
 
 #process name aliases into patterns (used in filterpkgs.sh, findmissingpkgs.sh) ... 100126...
@@ -101,14 +103,14 @@ dependcheckfunc() {
  fi
  
 if [ "$RETPARAMS" -o "$(cat /var/local/petget/sd_category 2>/dev/null)" != "true" ]; then
- FNDFILES="`cat /root/.packages/$APKGNAME.files`"
+ FNDFILES="`cat $PPM_PACKAGE_DIR/$APKGNAME.files`"
  oldIFS=$IFS
  IFS='
 '
  for ONEFILE in $FNDFILES
  do
   ISANEXEC="`file --brief "${ONEFILE}"`"
-  case "$ISANEXEC" in *"LSB executable"*|*"shared object"*)
+  case "$ISANEXEC" in *"LSB"*"executable"*|*"shared object"*)
    MISSINGLIBS="`ldd "${ONEFILE}" | grep "not found"`"
    if [ ! "$MISSINGLIBS" = "" ];then
     MISSINGLIBS="`echo "$MISSINGLIBS" | cut -f 2 | cut -f 1 -d " " | tr "\n" " "`"
@@ -147,7 +149,7 @@ missingpkgsfunc() {
   /usr/lib/gtkdialog/box_splash -close never -text "$(gettext 'Checking all user-installed packages for any missing dependencies...')" &
   X2PID=$!
  fi
-  USER_DB_dependencies="`cat /root/.packages/user-installed-packages | cut -f 9 -d '|' | tr ',' '\n' | sort -u | tr '\n' ','`"
+  USER_DB_dependencies="`cat $PPM_PACKAGE_DIR/user-installed-packages | cut -f 9 -d '|' | tr ',' '\n' | sort -u | tr '\n' ','`"
   /usr/local/petget/findmissingpkgs.sh "$USER_DB_dependencies"
   #...returns /tmp/petget_proc/petget_installed_patterns_all, /tmp/petget_proc/petget_pkg_deps_patterns, /tmp/petget_proc/petget_missingpkgs_patterns
   MISSINGDEPS_PATTERNS="`cat /tmp/petget_proc/petget_missingpkgs_patterns`" #v431
@@ -157,56 +159,10 @@ missingpkgsfunc() {
 if [ $1 ];then
  for APKGNAME in `echo -n $1 | tr '|' ' '`
  do
-  [ -f /root/.packages/${APKGNAME}.files ] && dependcheckfunc
+  [ -f $PPM_PACKAGE_DIR/${APKGNAME}.files ] && dependcheckfunc
  done
 else
- #ask user what pkg to check...
- ACTIONBUTTON="<button>
-     <label>$(gettext 'Check dependencies')</label>
-     <action type=\"exit\">BUTTON_CHK_DEPS</action>
-    </button>"
- echo -n "" > /tmp/petget_proc/petget_depchk_buttons
- cat /root/.packages/user-installed-packages | cut -f 1,10 -d '|' |
- while read ONEPKGSPEC
- do
-  [ "$ONEPKGSPEC" = "" ] && continue
-  ONEPKG="`echo -n "$ONEPKGSPEC" | cut -f 1 -d '|'`"
-  ONEDESCR="`echo -n "$ONEPKGSPEC" | cut -f 2 -d '|'`"
-  #120222 npierce: replaced radiobuttons with list and items 
-  echo "<item>${ONEPKG} DESCRIPTION: ${ONEDESCR}</item>" >> /tmp/petget_proc/petget_depchk_buttons
- done
- RADBUTTONS="`cat /tmp/petget_proc/petget_depchk_buttons`"
- if [ "$RADBUTTONS" = "" ];then
-  ACTIONBUTTON=""
-  RADBUTTONS="<item>$(gettext "No packages installed by user, click 'Cancel' button")</item>"
- fi
- export DEPS_DIALOG="<window title=\"$(gettext 'Puppy Package Manager')\" icon-name=\"gtk-about\">
-  <vbox>
-   <text><label>$(gettext 'Please choose what package you would like to check the dependencies of:')</label></text>
-   <frame $(gettext 'User-installed packages')>
-    <list selection-mode=\"2\">
-     <variable>LIST</variable>
-     ${RADBUTTONS}
-    </list>
-   </frame>
-   <hbox>
-    ${ACTIONBUTTON}
-    <button cancel></button>
-   </hbox>
-  </vbox>
- </window>
-" 
- RETPARAMS="`gtkdialog3 --geometry=630x327 --program=DEPS_DIALOG`" #120222
- #ex returned:
- #LIST="audacious-1.5.1"
- #EXIT="BUTTON_CHK_DEPS"
-
- [ "`echo "$RETPARAMS" | grep 'BUTTON_CHK_DEPS'`" = "" ] && exit
- 
- #120222 npierce: Allow '_' in package name.  CAUTION: Names must not contain spaces. 
- APKGNAME="`echo "$RETPARAMS" | grep '^LIST=' | cut -f 1 -d ' ' | cut -f 2 -d '"'`" #'geanyfix
- dependcheckfunc
- 
+ exit 1 
 fi
 
 if [ -f /tmp/petget_proc/install_pets_quietly ]; then
@@ -216,50 +172,9 @@ else
  missingpkgsfunc
 fi
 
-#present results to user...
-MISSINGMSG1="<text use-markup=\"true\"><label>\"<b>$(gettext 'No missing shared libraries')</b>\"</label></text>"
-if [ -s /tmp/petget_proc/missinglibs.txt ];then
- MISSINGMSG1="<text><label>$(gettext 'These libraries are missing:')</label></text><text use-markup=\"true\"><label>\"<b>`cat /tmp/petget_proc/missinglibs.txt`</b>\"</label></text>"
-fi
-if [ -s /tmp/petget_proc/missinglibs_hidden.txt ];then #100830
- MISSINGMSG1="${MISSINGMSG1} <text><label>$(gettext 'These needed libraries exist but are not in the library search path (it is assumed that a startup script in the package makes these libraries loadable by the application):')</label></text><text use-markup=\"true\"><label>\"<b>`cat /tmp/petget_proc/missinglibs_hidden.txt`</b>\"</label></text>"
-fi
-MISSINGMSG2="<text use-markup=\"true\"><label>\"<b>$(gettext 'No missing dependent packages')</b>\"</label></text>"
-if [ "$MISSINGDEPS_PATTERNS" != "" ];then #[ -s /tmp/petget_proc/petget_missingpkgs ];then
- MISSINGPKGS="`echo "$MISSINGDEPS_PATTERNS" | sed -e 's%|%%g' | tr '\n' ' '`" #v431
- MISSINGMSG2="<text use-markup=\"true\"><label>\"<b>${MISSINGPKGS}</b>\"</label></text>"
-fi
-
-DETAILSBUTTON=""
-if [ -s /tmp/petget_proc/missinglibs.txt -o -s /tmp/petget_proc/missinglibs_hidden.txt ];then #100830 details button
- DETAILSBUTTON="<button><label>$(gettext 'View details')</label><action>defaulttextviewer /tmp/petget_proc/missinglibs_details.txt & </action></button>"
-fi
-
 PKGS="$APKGNAME"
 [ $1 ] && PKGS="`echo -n "${1}" | tr '|' ' '`"
 
-#120905 vertical scrollbars, fix window too high...
-if [ ! -f /tmp/petget_proc/install_quietly ]; then
-export DEPS_DIALOG="<window title=\"$(gettext 'Puppy Package Manager')\" icon-name=\"gtk-about\">
-  <vbox>
-   <text><label>$(gettext 'Puppy has searched for any missing shared libraries of these packages:')</label></text>
-   <vbox scrollable=\"true\" height=\"100\">
-    <text><label>${PKGS}</label></text>
-   </vbox>
-   <vbox scrollable=\"true\" height=\"100\">
-    ${MISSINGMSG1}
-   </vbox>
-   <text><label>$(gettext 'Puppy has examined all user-installed packages and found these missing dependencies:')</label></text>
-   ${MISSINGMSG2}
-   <hbox>
-    ${DETAILSBUTTON}
-    <button ok></button>
-   </hbox>
-  </vbox>
- </window>
-" 
- RETPARAMS="`gtkdialog4 --center --program=DEPS_DIALOG`"
-else
  RETPARAMS='EXIT="OK"'
  rm -f /tmp/petget_proc/petget_missing_dbentries-* 2>/dev/null
  cat /tmp/petget_proc/petget_missingpkgs_patterns_with_versioning >> \
@@ -268,5 +183,5 @@ else
  cat /tmp/petget_proc/missinglibs.txt >> /tmp/petget_proc/overall_missing_libs.txt
  cat /tmp/petget_proc/missinglibs_hidden.txt >> /tmp/petget_proc/overall_missing_libs_hidden.txt
  rm -f /tmp/petget_proc/missinglibs* 2>/dev/null
-fi
+
 ###END###

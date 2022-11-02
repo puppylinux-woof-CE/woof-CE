@@ -1,0 +1,104 @@
+#!/bin/dash
+# Simple out-of-band Debian binary package maker
+# Creates a simple binary package only, no md5sum no package signing
+#
+# Copyright (C) James Budiono, 2015
+# License: GNU GPL Version 3 or later.
+#
+# $CWD must contain the files to be packaged
+# $1-full package name incluing .deb and path, 
+# $2-section, $3-priority $4-depends (comma-separated), $5-desc, $6-maintainer
+#
+# source directory can contains ./debian directory, which contains the usual
+# debian packaging stuff including postinst/postrm scripts etc.
+# See: https://madebymany.com/blog/what-is-a-debian-package
+#      https://blogs.oracle.com/ksplice/entry/anatomy_of_a_debian_package
+#
+# debian/control file will be created if one does not exist.
+
+### run-time setup variables
+TMPDIR=/tmp/makedeb.$$
+SRCDIR=$(pwd)
+COMPRESSOR=${COMPRESSOR:-gzip}
+
+# cleanup
+trap 'cd /tmp; rm -rf $TMPDIR; exit' 0 hup term
+
+### helpers
+sanity_check() {
+	! type ar > /dev/null && echo "You need 'ar' command, perhaps from devx?" && exit 1
+	! type tar > /dev/null && echo "You need 'tar' command." && exit 1
+	! type ${COMPRESSOR%% *} >/dev/null && echo "${COMPRESSOR%% *} is missing" && exit 1
+}
+
+# $1-full pkg name, $2-section, $3-priority $4-depends (comma-separated)
+# $5-desc, $6-maintainer
+# output $PKGNAME, $PKGVER, $PKGARCH, $PKGSECTION, $PKGPRIO, $PKGDEP, $PKGDESC, $PKGMAINT
+get_pkg_params() {
+	local src="${1##*/}"
+	PKGNAME=${src%%_*}; src=${src#*_}
+	PKGVER=${src%%_*}; src=${src#*_}
+	PKGARCH=${src%.deb}
+	
+	PKGSECTION="$2"
+	PKGPRIO="$3"
+	PKGDEP="$4"
+	PKGDESC="$5"
+	PKGMAINT="$6"
+	
+	# check for mandatory fields
+	[ -z "$PKGARCH" ] && PKGARCH=all
+	[ -z "$PKGVER" ] && echo "You must define package version." && exit 1
+	[ -z "$PKGNAME" ] && echo "You must define package name." && exit 1
+	
+	# default for blank fields
+	[ -z "$PKGSECTION" ] && PKGSECTION=misc
+	[ -z "$PKGPRIO" ] && PKGPRIO=standard
+	[ -z "$PKGMAINT" ] && PKGMAINT=Unknown
+	[ -z "$PKGDEP" ] && PKGDEP=libc6
+	[ -z "$PKGDESC" ] && PKGDESC=$PKGNAME
+}
+
+# $COMPRESSOR
+# output: $EXT
+get_extension() {
+	case "$COMPRESSOR" in
+		gzip*)  EXT=tar.gz  ;;
+		xz*)    EXT=tar.xz  ;;
+		bzip2*) EXT=tar.bz2 ;;
+		cat*)   EXT=tar     ;;
+		*) echo "Unknown compressor, exiting"; exit 1 ;;
+	esac
+}
+
+# $PKGNAME, $PKGVER, $PKGARCH
+create_control() {
+	echo 2.0 > debian-binary
+	mkdir -p debian
+	! [ -e debian/control ] &&
+	cat > debian/control << EOF
+Package: $PKGNAME
+Version: $PKGVER
+Section: $PKGSECTION
+Priority: $PKGPRIO
+Architecture: $PKGARCH
+Depends: $PKGDEP
+Maintainer: $PKGMAINT
+Description: $PKGDESC
+EOF
+	(cd debian; tar -c . | gzip > ../control.tar.gz)
+}
+
+### main
+sanity_check
+get_pkg_params "$1" "$2" "$3" "$4" "$5" "$6"
+get_extension
+cp -a $SRCDIR $TMPDIR
+cd $TMPDIR
+tar --exclude=data.$EXT --exclude=./debian -c . | $COMPRESSOR > data.$EXT
+create_control
+ar r "$1" debian-binary control.tar.gz data.$EXT
+echo done
+
+
+

@@ -1,40 +1,32 @@
 #!/bin/bash
 #(c) Copyright Barry Kauler 2006 www.puppylinux.com
+#(c) Copyright 01micko, shinobar and others
 #2007 Lesser GPL licence v2 (/usr/share/doc/legal/lgpl-2.1.txt)
-#130216 partial support f2fs.
-#130526 npierce: fix for GPT partitions. ref: http://www.murga-linux.com/puppy/viewtopic.php?p=704919#704919
-#130613 /run is required by eudev. full-hd-install, always ask wipe partition, may need create /dev/console, /dev/null.
-#130722 new method to update desktop drive icons. see also /usr/sbin/gparted_shell
 #140705 major overhaul of guis and conditions.
+
+# to enable full install to hdd (before running this script):
+#   export ENABLE_FULLINSTALL=1 
 
 [ "`whoami`" != "root" ] && exec sudo -A ${0} ${@} #110505
 
 if [ -d /sys/firmware/efi ] ; then
-	/usr/lib/gtkdialog/box_yesno --ok-cancel --no-first --yes-label Continue --no-label Close --warning "Puppy Installer" "UEFI is not supported. This is only useful if you want to install to a drive that will not be booted on this machine.."
+	/usr/lib/gtkdialog/box_yesno --ok-cancel --no-first --yes-label Continue --no-label Close --warning "Puppy Installer" "This installer does not support UEFI. It's only useful if you want to install to a drive that will not be booted on this machine.."
 	[ $? -ne 0 ] && exit
 fi
 
 export TEXTDOMAIN=puppyinstaller
 export OUTPUT_CHARSET=UTF-8
 . gettext.sh
-export LANGORG="$(locale | grep '^LANG=' | cut -d '=' -f 2)" #121116
 
 export TMPDIR=/tmp/apps/puppyinstaller
 ! [ -d $TMPDIR ] && mkdir -p ${TMPDIR}
-
-Yes_lbl="$(gettext 'Yes')"
-No_lbl="$(gettext 'No')"
-
-BG="grey20" 
-FG="#FFF2A2"
-
-GTKDIALOGEXE="gtkdialog"
-KERNELVER="`uname -r`"
 
 . /etc/rc.d/PUPSTATE
 . /etc/DISTRO_SPECS
 [ -f /initrd/DISTRO_SPECS ] && . /initrd/DISTRO_SPECS
 NEWVER="$DISTRO_VERSION"
+L_PUPPY_INSTALLER=$(gettext 'Puppy Installer')
+CWD=`pwd`
 
 if [ "$PUPSFS" ] ; then #PUPSTATE
 	DISTRO_PUPPYSFS=${PUPSFS##*/}
@@ -44,20 +36,19 @@ if [ "$PUPSFS" ] ; then #PUPSTATE
 	DISTRO_YDRVSFS=${YDRV##*/}
 fi
 
-CWD=`pwd`
+#===================================================================
+#                           FUNCTIONS
+#===================================================================
 
-L_PUPPY_INSTALLER=$(gettext 'Puppy Installer')
-
-# deleted ispupfunc() ... didn't work at all, wasn't worth fixing. 140701
-# replaced with linux_func.. idea from shinobar #140703
-linux_func() { #two params: fstype partition
+# $1: fstype
+# $2: partition
+linux_func() {
 	#returns $DISTRO;windows, version of already-installed Puppy or other Linux if any.
 	#set -x ###debug
 	unset DISTRO
 	# check for Puppy frugal .. some wild guessing/assumptions
 	DISTRO=""
 	[ ! $2 ] && return 0
-	echo "${2}_button=true" >> ${TMPDIR}/buttonstate # for windows buttons
 	mkdir -p /mnt/$2
 	ISPUPMNTPT="`mount | grep "^/dev/$2" | tr -s " " | cut -f 3 -d " "|head -n1`"
 	if [ "$ISPUPMNTPT" = "" ];then
@@ -65,7 +56,7 @@ linux_func() { #two params: fstype partition
 		mount -t $1 /dev/$2 /mnt/$2
 		[ $? -ne 0 ] && return 0
 	fi
-	# find puppy. Should find most versions back to puppy 2. Forget puppy 1
+	# find puppy. Should find most versions back to puppy 2
 	# should handle: pup-4.2, pup_432, lupu-500, spup-052, puppy_slacko_5.9.3.x, puppy-214x
 	#echo "$ISPUPMNTPT" ###debug
 	ISFILE=`find "$ISPUPMNTPT" -maxdepth 2 -type f -name '*up*[0-9]*.sfs'`
@@ -79,15 +70,12 @@ linux_func() { #two params: fstype partition
 	[ "$NUMBER_FOUND" -ge 1 ] && echo "found $NUMBER_FOUND pups" || echo "no pups found"
 	[ "$NUMBER_FOUND" -gt 1 ] && DISTRO="Many frugal Puppies"
 	if [ "$NUMBER_FOUND" -eq 1 ];then #make a pretty name
-		# now some gymnastics to try and give it a pretty name
-		# first strip direcory
 		ISNAME=`grep 'sfs$' $TEMP`
 		echo "name is $ISNAME"
-		SFSNAME="${ISNAME##*/}"
+		SFSNAME="${ISNAME##*/}" # first strip direcory
 		# puppy_slacko_5.9.3.sfs = Puppy Slacko 5.9.3 or pup-431 = Pup 431 .. we care not about the DOTS!
 		DISTROX="`echo ${SFSNAME%.*}|tr '_' '\n'|tr '-' '\n'|sed 's%^\(.\)%\U\1%g'|tr '\n' ' '`"
-		# filesystem
-		case "$1" in
+		case "$1" in # filesystem
 			*fat|ntfs)echo "continuing search" ;;
 			*)DISTRO="${DISTROX}" ;;
 		esac
@@ -96,34 +84,16 @@ linux_func() { #two params: fstype partition
 		[ "$DISTRO" ] && echo "distro is $DISTRO" || echo "no distro"
 	fi
 	if [ ! "$DISTRO" ];then # look for full puppy or other linux
-		# check for Puppy full.. far more accurate.
-		PUPFULL=`find "$ISPUPMNTPT"/etc -maxdepth 1 -type f -name 'DISTRO_SPECS' 2>/dev/null`
-		# if found source the thing
-		if [ -f "$PUPFULL" ];then . "$PUPFULL"
+		if [ -f "$ISPUPMNTPT"/etc/DISTRO_SPECS ];then
+			. "$ISPUPMNTPT"/etc/DISTRO_SPECS
 			DISTRO="$DISTRO_NAME $DISTRO_VERSION full"
-		fi
-		#echo 2 ###debug
-		[ "$DISTRO" ] && echo "distro is $DISTRO" || echo "no distro"
-	fi
-	if [ ! "$DISTRO" ];then # look again ..older pup
-		# check for Puppy old (pre woof).. if found source the thing
-		if [ -f "$ISPUPMNTPT"/etc/puppyversion ];then 
-			VERSION=`cat $PUPFULL`
-			DISTRO="Puppy $VERSION full"
-		fi
-		#echo 3 ###debug
-		[ "$DISTRO" ] && echo "distro is $DISTRO" || echo "no distro"
-	fi
-	# other linux
-	if [ ! "$DISTRO" ];then # check for /etc/os-release, newish standard supported by all major distros
-		OLINUX=`find "$ISPUPMNTPT"/etc -maxdepth 1 -type f -name 'os-release' 2>/dev/null`
-		echo "OLINUX=$OLINUX"
-		if [ -f "$OLINUX" ];then
-			. "$OLINUX" # source it..
+		elif [ -f "$ISPUPMNTPT"/etc/puppyversion ];then  #pre woof
+			DISTRO="Puppy `cat "$ISPUPMNTPT"/etc/puppyversion` full"
+		elif [ -f "${ISPUPMNTPT}"/etc/os-release ];then # other linux
+			. "${ISPUPMNTPT}"/etc/os-release
 			DISTRO="$PRETTY_NAME"
 		fi
-		#echo 4 ###debug
-		[ "$DISTRO" ] && echo "distro is $DISTRO" || echo "no distro"
+		#echo 2 ###debug
 	fi
 	# last chance.. check for vmlinuz
 	if [ ! "$DISTRO" ];then
@@ -132,42 +102,35 @@ linux_func() { #two params: fstype partition
 		# could be a frugal pup though
 		FRUGPUP=`find "$ISPUPMNTPT" -maxdepth 2 -type f -name '*up*[0-9]*.sfs'`
 		[ "$FRUGPUP" ] && DISTRO=''
-		#echo 5 ###debug
+		#echo 3 ###debug
 		[ "$DISTRO" ] && echo "distro is $DISTRO" || echo "no distro"
 	fi
 	# finally check for windows
 	if [ ! "$DISTRO" ];then
 		case "$1" in *fat|ntfs)
 			echo $ISPUPMNTPT
-			DISTROW=''
+			MSW=""
 			WINSTALL=`find "$ISPUPMNTPT" -maxdepth 1 -type d -iname 'windows'`
 			ANCW=`find "$ISPUPMNTPT" -maxdepth 2 -type f -name AUTOEXEC.BAT`
 			OLDW=`find "$ISPUPMNTPT" -maxdepth 2 -type f -name boot.ini`
 			MEDW=`find "$ISPUPMNTPT" -maxdepth 2 -type f -name 'BCD'`
 			NEWW=`find "$ISPUPMNTPT" -maxdepth 3 -type d -name 'EFI'` # windows server 2008 is 3 deep
 			SIXTY4W=`find "$ISPUPMNTPT"/Windows -maxdepth 2 -type d -name 'SysWOW64' 2>/dev/null`
-			if [ "$WINSTALL" != "" ];then
-				if [ "$ANCW" != "" ];then DISTROW="Ancient Windows"
-					[ "$OLDW" != "" ] && DISTROW="Old Windows"
-				elif [ "$MEDW" != "" ] || [ "$NEWW" != "" ];then DISTROW="Older Windows"
-					[ "$NEWW" != "" ] && DISTROW="New Windows"
-					[ "$SIXTY4W" != "" ] && DISTROW="Windows 64 bit"
+			if [ "$WINSTALL" != "" ] ; then
+				if [ "$ANCW" -o "$OLDW" -o "$MEDW" -o "$MEDW" -o "$SIXTY4W" ];then
+					MSW="MS Windows"
 				fi
 			elif  [ "$MEDW" != "" ] || [ "$NEWW" != "" ];then
-				DISTROW="Windows boot"
-				[ "$NEWW" != "" ] && DISTROW="New Windows boot"
-			else
-				DISTROW=""
+				MSW="Windows boot"
+				[ "$NEWW" != "" ] && MSW="New Windows boot"
 			fi
-				echo "is windows? $DISTROW"
-			[ "$DISTROW" ] && echo "$DISTROW" >>${TMPDIR}/win 
-			if [ "$DISTROW" != "" ];then
-				sed -i "s%${2}_button\=true%${2}_button=false%" ${TMPDIR}/buttonstate # need '_' delimiter #140705
-				[ ! "$DISTROX" ] && DISTROX="none"
-				if [ "$DISTROX" != "none" ];then
-					DISTRO="$DISTROW and $DISTROX"
+			echo "is windows? $MSW"
+			if [ "$MSW" != "" ];then # Windows is installed
+				echo "$MSW" >>${TMPDIR}/win
+				if [ "$DISTROX" -a "$DISTROX" != "none" ];then
+					DISTRO="$MSW and $DISTROX"
 				else
-					DISTRO="$DISTROW"
+					DISTRO="$MSW"
 				fi
 			else
 				DISTRO="$DISTROX"
@@ -181,8 +144,9 @@ linux_func() { #two params: fstype partition
 	# done
 }
 
-# function to determine if there is substantial free space on a physical drive
+# $1: dev
 free_space_func() {
+	# function to determine if there is substantial free space on a physical drive
 	# check what is used
 	USED=`probepart -k "$1" | cut -d '|' -f3` #KB
 	t=0
@@ -201,40 +165,28 @@ gpartedfixfunc() { #params: $DRVSEL
 	GPDRV="$1"
 	gparted /dev/$GPDRV &
 	sleep 2
-	xmessage -bg '#EBADE2' -center -title "$L_PUPPY_INSTALLER" \
- "$(gettext 'GParted is a partition manager, available in Puppy, a very simple tool
-for deleting, creating and resizing partitions.')
+	gxmessage -bg '#EBADE2' -center -title "$L_PUPPY_INSTALLER" \
+ "$(gettext 'GParted is a partition manager, a tool for deleting,
+ creating and resizing partitions.')
 
-`eval_gettext \"Regarding 'ntfs' or 'vfat', of course do not change these to ext2 or ext3 if the
-partition has Windows or DOS installed on it! In the case of USB Flash drives,
-these normally come with a 'fat16' partition which is okay, but you will be
-restricted to saving to a '\\\${DISTRO_FILE_PREFIX}save' file. This is fine and most people opt for
-this, particularly as the drive can be used also to save and transfer files with
-Windows. However, a Flash drive can be changed to ext2/3 and still boots fine,
-with the advantage that the entire partition can be used to save to, rather than
-a '\\\${DISTRO_FILE_PREFIX}save' file. If in doubt, stay with 'vfat'.\"`
+$(gettext "Regarding 'ntfs' or 'vfat', of course do not change these to ext3
+if the partition has Windows installed on it! However,
+a Flash drive can be changed to ext3 and still boots fine.")
 
 $(gettext 'WARNING: changing the filesystem will wipe everything in the partition!')
 
-`gettext \"One more thing. When you run GParted, right-click on the partition and you will
-see a menu option to 'Manage flags'. Make sure the 'boot' flag is set -- don't
-forget that!\"`
+$(gettext "Right-click on the partition and you will see a menu
+option to 'Manage flags'. Make sure the 'boot' flag is set.")
 
-`gettext \"If you have a USB Flash 'key' drive that you have installed Puppy to but it will
-not boot, it may be that the partition(s) is confusing the PC's BIOS.
-Personally, I was able to fix such a USB drive by wiping the existing partition
-and then create it again using GParted.
-The steps to do this are very simple: when GParted is running,
+$(gettext "If you have a USB Flash drive that you have installed Puppy to but it will
+not boot... this may fix it:
  1. delete all partitions on the USB device. 
- 2. Create a new primary FAT16 partition, to fill the entire drive.
- 3. Click the 'Apply' button to write changes to the USB drive.
+ 2. Create a new primary ext3 partition
+ 3. Click the 'Apply' button to write changes
  4. Set the 'boot' configuration flag (right-click on partition, 
-    choose 'manage flags').\"`
+    choose 'manage flags').")
 
-$(gettext 'If GParted is installed, it is now running and you can do the above.
-Quiting GParted will return you to the Puppy Installer...')
-
-$(gettext 'One final note for USB: after exiting GParted, do a mouse-over the desktop drive
+$(gettext 'after exiting GParted, do a mouse-over the desktop drive
 icon(s) -- if it(they) has not updated, unplug then replug the USB drive.')" &
 	MSGID=$!
 	while [ 1 ];do
@@ -248,57 +200,6 @@ icon(s) -- if it(they) has not updated, unplug then replug the USB drive.')" &
 	echo change > /sys/block/${GPDRV}/uevent
 }
 
-fixusbfunc() { #params: $DESTPART $DESTFS
-	echo '#!/bin/sh
-DESTPART="$1" #partition being installed to
-DESTFS="$2"   #filesystem of destination partition
-echo "'$(gettext 'This little section of the Puppy Installer is currently only')'"
-echo "'$(gettext 'for fixing USB Flash or CF-card-in-IDE-adaptor, after you have gone thru')'"
-echo "'$(gettext 'all the steps but it still will not boot.')'"
-echo
-echo "'$(gettext 'You are trying to install to')' $DESTPART, '$(gettext 'but it is not booting...')'"
-echo "'$(gettext 'Well, I am assuming that the BIOS in your PC is able to boot from USB.')'"
-echo "'$(gettext '-- for CF-IDE the drive looks like an ordinary hard drive, so that should')'"
-echo "   '$(gettext 'be okay for any BIOS.')'"
-echo
-echo "'$(gettext 'This is the first release of this script, and it is a bit limited...')'"
-echo "'$(gettext 'and only handles a partition with a msdos/vfat filesystem.')'"
-if [ "$DESTFS" = "vfat" ];then
- echo "'$(gettext '...which is okay,')' $DESTPART '$(gettext 'does have a')' $DESTFS '$(gettext 'filesystem.')'"
- echo "   '$(gettext 'But, we will now wipe it and recreate it.')'"
-else
- echo "'$(gettext '...currently')' $DESTPART '$(gettext 'has a')' $DESTFS '$(gettext 'filesystem.')'"
- echo "   '$(gettext 'This script is not yet designed for that, so cannot continue.')'"
- echo
- echo -n "'$(gettext 'Press ENTER key to exit:')' "
- read nogo
- exit
-fi
-echo
-echo "'$(gettext 'Please be sure that you are wiping the right partition!!!')'"
-echo "'$(gettext 'Everything in')' $DESTPART '$(gettext 'is going to be wiped. If you do not want that,')'"
-echo "'$(gettext 'press any letter on the keyboard then ENTER key, or')'"
-echo -n "'$(gettext 'Press ENTER key only to continue script:')' "
-read querygo
-echo
-echo "'$(gettext 'Recreating msdos filesystem on')' $DESTPART..."
-mkdosfs /dev/$DESTPART
-sync
-echo "'$(gettext 'Fixing the Master Boot Record (MBR)...')'"
-DESTDRV="`echo -n "$DESTPART" | sed -e "s/[0-9]*$//" -e "s/p$//"`" #110126 mmcblk0p1 becomes mmcblk0
-dd bs=440 count=1 conv=notrunc if=/usr/share/syslinux/mbr.bin of=/dev/$DESTDRV
-sync
-echo "'$(gettext '...done')'"
-echo
-echo "'$(gettext 'Okay, we can now go back to the main part of the Puppy Installer')'"
-echo "'$(gettext 'Installer and install Puppy to the')' $DESTPART '$(gettext 'partition.')'"
-echo -n "'$(gettext 'Press ENTER key to continue:')' "
-read yesgo
-' > ${TMPDIR}/fixusb.sh
-	chmod 755 ${TMPDIR}/fixusb.sh
-	xterm -bg "$BG" -fg "$FG" -title "$L_PUPPY_INSTALLER" -geometry 80x25 -e ${TMPDIR}/fixusb.sh
-}
-
 unmountcdfunc() {
 	if [ "$CDDRIVE" -a "`mount | grep "^/dev/$CDDRIVE " | cut -f 3 -d ' '`" ];then
 		umount /dev/$CDDRIVE "`mount | grep "^/dev/$CDDRIVE " | cut -f 3 -d ' '`"
@@ -308,8 +209,7 @@ unmountcdfunc() {
 	fi
 }
 
-locate_puppy_src_files() {
-	#===============================
+locate_puppy_src_files() { # sets $SRCPATH $CDDRIVE
 	SRCPATH=""
 	CDDRIVE=""
 	ISO_MP=""
@@ -399,7 +299,64 @@ locate_puppy_src_files() {
  \nClick OK button to quit...\"`" 0 0
 		exit
 	fi
-} #end locate_puppy_src_files function.
+}
+
+# $1: directory
+# $2: distro
+# $3: pmedia
+copy_g4dos_cd() {
+	if [ ! -d "$1" ] ; then
+		return 1
+	fi
+
+	cp -fv /usr/share/g4dos/pcd/* "$1"/ # deleted dir - obsolete code - delete this
+	cp -fv /usr/share/boot-dialog/menu.lst "$1"/
+	cp -fv /usr/share/boot-dialog/menu_phelp.lst "$1"/
+	cp -fv /usr/share/boot-dialog/grldr "$1"/
+
+	if [ "$2" ] ; then #distro
+		if [ "$2" = "auto" ] ; then
+			. /etc/DISTRO_SPECS
+			sed -i "s%#distrodesc#%${DISTRO_NAME} ${DISTRO_VERSION}%" "$1"/menu.lst
+		else
+			sed -i "s%#distrodesc#%${2}%" "$1"/menu.lst
+		fi
+	fi
+	if [ "$3" ] ; then #pmedia
+		sed -i "s|pmedia=cd|pmedia=${3}|" "$1"/menu.lst
+	fi
+
+	# frugalpup
+	if [ -f /usr/local/frugalpup/grub4dos.tar.xz ] ; then
+		tar -C "$1"/ -xf /usr/local/frugalpup/grub4dos.tar.xz ./grldr
+	fi
+
+	if [ ! -f "$1"/grldr ] && [ -f /usr/lib/grub4dos/grldr ] ; then # grub4dosconfig
+		cp /usr/lib/grub4dos/grldr "$1"/
+	fi
+}
+
+# $1: drive
+write_wee_mbr() {
+	XDEV=${1##*/}
+	BLOCKDEV=$1
+	WEE_MBR='/usr/share/boot-dialog/wee.mbr'
+	[ -f /usr/share/g4dos/wee.mbr ] && WEE_MBR='/usr/share/g4dos/wee.mbr' # moved - delete this
+	if [ ! -f $WEE_MBR ] ; then
+		echo "file not found: $WEE_MBR"
+		exit 1
+	fi
+	cp ${WEE_MBR} /tmp/wee.mbr
+	## Read disk signature and partition table from MBR
+	## and write it to wee.mbr:
+	dd if=${BLOCKDEV} bs=1 skip=439 count=72 2>/dev/null | \
+		dd of=/tmp/wee.mbr bs=1 seek=439 conv=notrunc
+	## backup MBR
+	dd if=${BLOCKDEV} of=/tmp/${XDEV}.mbr bs=512 count=63
+	## Write wee MBR to $MBR_DEV
+	echo "Installing bootloader(Wee) on ${BLOCKDEV} ..."
+	dd if=/tmp/wee.mbr of=${BLOCKDEV}
+}
 
 grub4dos_func() {
 	#really need gtkdialog here.. add a "readme" button or something... all this says is "trust me" }:-)
@@ -424,17 +381,9 @@ fatal() {
 	exit 1
 }
 
-f2fs_func() {
-	which f2fs-usb-installer && exec f2fs-usb-installer
-	F2MSG="$(eval_gettext "You need the <b>f2fs-usb-installer</b> to install to an f2fs partition")"
-	F3MSG="$(gettext "You can decide to repartition the drive to another format using GParted")"
-	/usr/lib/gtkdialog/box_yesno --ok-cancel --yes-first --yes-label "Gparted" --yes-icon gtk-harddisk \
-	"F2fs Installer or repartition?" "$F2MSG" "$F3MSG"
-	case $? in
-		0) gpartedfixfunc $DRVSEL ; continue;;
-		*) exit ;;
-	esac
-}
+#===================================================================
+#                          MAIN DIALOG
+#===================================================================
 
 tmpsel=${TMPDIR}/selections
 
@@ -458,7 +407,7 @@ export PUI='
       </eventbox> 
       <vbox> 
         <hbox space-expand="true" space-fill="true"> 
-          <text xalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"<b>USB</b> '$(gettext 'Flash drive')'"</label></text> 
+          <text xalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"<b>USB</b> '$(gettext 'Flash drive / SD card')'"</label></text> 
           <vbox space-expand="false" space-fill="false"> 
             <button> 
               '"`/usr/lib/gtkdialog/xml_button-icon flashcard_usb.svg big`"' 
@@ -467,7 +416,7 @@ export PUI='
           </vbox> 
         </hbox> 
         <hbox space-expand="true" space-fill="true"> 
-          <text xalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"<b>USB</b> '$(gettext 'hard drive')'"</label></text> 
+          <text xalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"<b>USB</b> '$(gettext 'hard drive / SSD')'"</label></text> 
           <vbox space-expand="false" space-fill="false"> 
             <button> 
               '"`/usr/lib/gtkdialog/xml_button-icon harddisk_usb.svg big`"' 
@@ -479,30 +428,13 @@ export PUI='
     </hbox> 
 
     <hbox space-expand="true" space-fill="true"> 
-      <eventbox name="bg" above-child="false" visible-window="true" space-expand="false" space-fill="false"> 
-        <hbox space-expand="false" space-fill="false"> 
-          <vbox margin="5"> 
-            <text angle="90" wrap="false" use-markup="true" yalign="0.5" space-expand="true" space-fill="true"><label>"<big><big><span fgcolor='"'$SVG_BAR_COLOR_TEXT'"'><b>'$(gettext 'Internal')'</b></span></big></big>"</label></text> 
-          </vbox> 
-        </hbox> 
-      </eventbox> 
       <vbox> 
         <hbox space-expand="true" space-fill="true"> 
-          <text xalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"'$(gettext '<b>Internal</b> IDE/SATA/SCSI hard drive')'"</label></text> 
+          <text xalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"'$(gettext '<b>Internal</b> hard drive / SSD')'"</label></text> 
           <vbox space-expand="false" space-fill="false"> 
             <button> 
               '"`/usr/lib/gtkdialog/xml_button-icon harddisk.svg big`"' 
               <action type="exit">atahd</action> 
-            </button> 
-          </vbox> 
-        </hbox> 
-        <hbox space-expand="true" space-fill="true"> 
-          <text xalign="0" use-markup="true" space-expand="true" space-fill="true"><label>"'$(gettext '<b>Internal</b> IDE/SATA Flash drive 
-(ex: CF card, SD memory card)')'"</label></text> 
-          <vbox space-expand="false" space-fill="false"> 
-            <button> 
-              '"`/usr/lib/gtkdialog/xml_button-icon flashcard.svg big`"' 
-              <action type="exit">ataflash</action> 
             </button> 
           </vbox> 
         </hbox> 
@@ -512,11 +444,6 @@ export PUI='
   </frame> 
 
   <hbox space-expand="false" space-fill="false"> 
-    <button space-expand="false" space-fill="false">
-       '"`/usr/lib/gtkdialog/xml_button-icon cdrom.svg`"' 
-       <label>"'$(gettext 'Install to CD/DVD?')'"</label>
-       <action>EXIT:cd</action>
-    </button>
     <text space-expand="true" space-fill="false"><label>" "</label></text>
     <button> 
       '"`/usr/lib/gtkdialog/xml_button-icon quit.svg`"' 
@@ -533,9 +460,9 @@ widget "*bg*" style "bg"' > ${TMPDIR}/gtkrc_pui
 export GTK2_RC_FILES=${TMPDIR}/gtkrc_pui:/root/.gtkrc-2.0 
 
 . /usr/lib/gtkdialog/xml_info gtk #build bg_pixmap for gtk-theme 
-RETVAL="`gtkdialog -p PUI 2>/dev/null`" 
+RETVAL="`gtkdialog --center -p PUI --styles=/tmp/gtkrc_xml_info.css 2>/dev/null`" 
 eval "$RETVAL" 
-[ ! "`grep -E "usbflash|usbhd|ataflash|atahd|cd" <<< "$EXIT"`" ] && exit 
+[ ! "`grep -E "usbflash|usbhd|atahd|cd" <<< "$EXIT"`" ] && exit 
 PMEDIA=$EXIT
 
 # builds woofified gui for selected install type
@@ -550,11 +477,10 @@ gui_func() {
 	cat $tmpsel | \
 	while read d
 	do
-		s_icon=`echo "$d" | grep -E "usbflash|usbhd|ataflash|atahd"`
+		s_icon=`echo "$d" | grep -E "usbflash|usbhd|atahd"`
 		if [ "$s_icon" != "" ];then
 			case "$s_icon" in
 				usbflash)m_icon=flashcard_usb.svg;TYPE=USB ;;
-				ataflash)m_icon=flashcard_usb.svg;TYPE="Internal Flash" ;;
 				atahd)m_icon=harddisk.svg;TYPE="Hard Disk" ;;
 				usbhd)m_icon=harddisk_usb.svg;TYPE="USB Hard Drive" ;;
 			esac
@@ -610,14 +536,13 @@ gui_func() {
   </hbox> 
 </vbox> 
 </window>'
-
 	echo ' 
 style "bg" { bg [NORMAL] = "'$SVG_BAR_COLOR_TOTAL'" } 
-widget "*bg*" style "bg"' > ${TMPDIR}/gtkrc_sel 
-	export GTK2_RC_FILES=${TMPDIR}/gtkrc_sel:/root/.gtkrc-2.0 
-
+widget "*bg*" style "bg"' > ${TMPDIR}/gtkrc_pui 
+	export GTK2_RC_FILES=${TMPDIR}/gtkrc_pui:/root/.gtkrc-2.0 
+	#--
 	. /usr/lib/gtkdialog/xml_info gtk #build bg_pixmap for gtk-theme
-	RETVAL="`gtkdialog -p dlg1`" 
+	RETVAL="`gtkdialog -p dlg1 --styles=/tmp/gtkrc_xml_info.css`" 
 	eval "$RETVAL"
 	echo "$EXIT" > ${TMPDIR}/retval
 	case "$EXIT" in EXIT|abort) exit ;; esac
@@ -626,28 +551,19 @@ widget "*bg*" style "bg"' > ${TMPDIR}/gtkrc_sel
 echo "debug pmedia $PMEDIA"
 echo "$PMEDIA" > $tmpsel
 
-#=======================================================================
+#===================================================================
+#                          BIG LOOP
+#===================================================================
 
-############BIG LOOP###############
-while [ 1 ];do #BIG LOOP
+while [ 1 ]
+do
 
  PROBEDISK="`probedisk -extended-usb -type -model -size -hr`"
  case $PMEDIA in
-	usbflash) GREP_PTN='|usbflash|' ;;
+ 	usbflash) GREP_PTN='\|usbflash\||\|card\|' ; GREP_OPT='-E' ;;
 	usbhd)    GREP_PTN='|usbdrive|' ;;
-	atahd|ataflash) GREP_PTN='\|drive\||\|card\|' ; GREP_OPT='-E' ;;
-	cd)
-		/usr/lib/gtkdialog/box_yesno --ok-cancel --yes-first --yes-label "burniso2cd" --no-label "remasterpup2" --extra-button "Cancel" --yes-icon "" --no-icon "" --extra-icon "gtk-cancel" \
-   "$L_PUPPY_INSTALLER" "$(gettext "Installing to CD/DVD is not supported by this program. You might want to burn a Puppy ISO image.. then use burniso2cd.")" \
-   "$(gettext "You can also use the 'Simple CD Remaster' program to create a customized ISO image...")"
-		case $? in
-			0) exec burniso2cd ;;
-			1) exec remasterpup2 ;;
-			*) exit ;;
-		esac
-		;;
-	*)
-		/usr/lib/gtkdialog/box_ok "$(gettext 'Puppy installer')" error "$(gettext 'Not yet implemented')"
+	atahd)    GREP_PTN='|drive|'  ;;
+	*)  /usr/lib/gtkdialog/box_ok "$(gettext 'Puppy installer')" error "$(gettext 'Not yet implemented')"
 		exit
 		;;
  esac
@@ -707,17 +623,6 @@ while [ 1 ];do #BIG LOOP
 			echo "${XDEV#/dev/}: ${FSTYPE}, size ${PARTSIZE}${INST}" >> ${TMPDIR}/pidrvmsg.txt #${PUPINST}
 		fi
 	done
-	F2FSINST=`grep -o '2: f2fs' ${TMPDIR}/pidrvmsg.txt`
-	FIRSTPART=`grep -o -n MB ${TMPDIR}/pidrvmsg.txt` #first line is first partition
-	if [ "$F2FSINST" ] && [ "$FIRSTPART" = "1:MB" ];then #hack
-		FIRSTPARTSIZE=`grep "1:" ${TMPDIR}/pidrvmsg.txt | awk '{print $4}'` #should be safe as we filtered for MB
-		if [ "$FIRSTPARTSIZE" -lt 100 ];then #asumption that a small part is boot for f2fs
-			sed -i -e 's%Unknown Linux installed%Boot partition for f2fs%' \
-			-e 's%full%f2fs full%' ${TMPDIR}/pidrvmsg.txt
-			sed -i '1s%true%false%' ${TMPDIR}/buttonstate
-			echo '1' > ${TMPDIR}/is_f2fs
-		fi
-	fi
 	DRVMSG="`cat ${TMPDIR}/pidrvmsg.txt`"
  fi
 
@@ -749,10 +654,8 @@ while [ 1 ];do #BIG LOOP
  cnt=0
  for ONECHOICE in $CHOICES
  do
-	state=`grep ${ONECHOICE} ${TMPDIR}/buttonstate`
-	state=${state##*=}
+	state=true
 	ACTION=${ONECHOICE}
-	[ -f "${TMPDIR}/is_f2fs" ] && ACTION=f2fs_install
  	DLGTXT="$DLGTXT
    <hbox space-expand=\"false\" space-fill=\"false\">  
     <text space-expand=\"true\" space-fill=\"true\" xalign=\"0.2\"><label>$(gettext 'Install Puppy to') ${ONECHOICE}:</label></text>
@@ -775,34 +678,30 @@ while [ 1 ];do #BIG LOOP
 	*)h=240;; #max
  esac
 
- if [ "$PMEDIA" = "usbflash" ];then
-	MSGex1="<text><label>`gettext \"IMPORTANT: If you use GParted, after creating the partition be sure to set the 'boot' flag (right-click: Manage flags). Also, for a USB Flash drive choose fat16 filesystem as easier to boot from (than fat32) -- however a ext2 or ext3 partition will also work.\"`</label></text>
-<text><label>`gettext \"Extra note: Gparted may show invalid partitions on the drive, marked with a '!' icon -- delete it/them and recreate a partition (and make it bootable)\"`</label></text>"
+ if [ "$SUPERFS" != "" -a "$SUPERFS" != "none" ];then
+   WMSG="`gettext "<span fgcolor='"'darkred'"'><b>ERROR: 'Superfloppies' are not supported.
+* Please run GParted and 'Create a Partition Table' of type: msdos, and then a ext3 partition....</b></span>"`"
  else
-	MSGex1="<text><label>`gettext \"IMPORTANT: If you use GParted, after creating the partition be sure to set the 'boot' flag (right-click: Manage flags).\"`</label></text>
-<text><label>`gettext \"Extra note: Gparted may show invalid partitions on the drive, marked with a '!' icon -- delete it/them and recreate a partition (and make it bootable)\"`</label></text>"
+   WMSG="`eval_gettext "WARNING: Notice the filesystem in the intended destination, is that what you want? In particular, if the f.s. is 'vfat' or 'ntfs' you might want to replace these with a Linux ext3 f.s. if the partition can be taken over totally for Puppy's use. If you are installing to an internal drive of a PC, it is highly recommended that the f.s. be a Linux ext3. Puppy can install to vfat/ntfs but limited to "frugal" with "${DISTRO_FILE_PREFIX}save" only. Click the button to run GParted, which will enable you to examine and modify the partitions."`"
+ fi
+ if [ -s ${TMPDIR}/win ] ; then
+   WMSG="$(gettext "<span fgcolor='"'darkred'"'><b>DANGER: MS Windows has been detected. It's not advised to install in the same partition or even the same drive.
+
+But if you know what you're doing, be sure your Windows partition is defragmented and <u>not hibernated</u>!</b></span>")"
  fi
 
  if [ "$DLGTXT" = "" ];then
-	GPART_ICN=`find /usr/share/pixmaps /usr/share/icons -type f -name 'gparted.*' | head -n1`
-	[ -z "$GPART_ICN" ] && GPART_ICN=/usr/share/pixmaps/puppy/partition.svg
-	DLGTXT="<text><label>`eval_gettext \"No partitions on drive \\\${DRVSEL}! It is recommended that you run GParted now to create a partition:\"`</label></text>
-    <button>
-     <input file>$GPART_ICN</input>
-     <width>24</width>
-     <label>GParted</label>
-     <action>EXIT:RUNGPARTED</action>
-    </button>
-$MSGex1
-<text><label>\" \"</label></text>
-"
+	DLGTXT="<text><label>`eval_gettext \"No partitions on drive \\\${DRVSEL}! It is recommended that you run GParted now to create a partition\"`</label></text>"
+	#if [ "$PMEDIA" = "usbflash" ];then
+	WMSG="$(gettext "IMPORTANT: after creating the partition be sure to set the 'boot' flag (right-click: Manage flags). Also, for a USB Flash drive choose fat32 or ext4 filesystem.
+Extra note: Gparted may show invalid partitions on the drive, marked with a '!' icon -- delete it/them and recreate a partition (and make it bootable)")"
  fi
 
  DLGEXT=""
  DLGEXT1='
    <frame '$(gettext "Filesystem in partition")'>
     <hbox space-expand="true" space-fill="false">
-     <text space-expand="true" space-fill="true" xalign="0" width-chars="75"><label>"'"`eval_gettext "WARNING: Notice the filesystem in the intended destination, is that what you want? In particular, if the f.s. is 'vfat' or 'ntfs' you might want to replace these with a Linux ext2 or ext3 f.s. if the partition can be taken over totally for Puppy's use. If you are installing to an internal drive of a PC, it is highly recommended that the f.s. be a Linux ext2 or ext3. Puppy can install to vfat/ntfs but limited to "frugal" with "${DISTRO_FILE_PREFIX}save" only. FAT is particularly limited, slow and also has severe bootup options, so get rid of it if at all possible. Click the button to run GParted, which will enable you to examine and modify the partitions."`"'"</label></text>
+     <text space-expand="true" space-fill="true" use-markup="true"><label>"'"${WMSG}"'"</label></text>
      <vbox>
       <button image-position="Bottom" width-request="100" tooltip-text="GParted is a partition manager much like Partition Magic (TM)">
 		<label>'GParted'</label>
@@ -813,96 +712,18 @@ $MSGex1
      </vbox>
     </hbox>
    </frame>'
- if [ "`echo "$DRVMSG" | cut -f 1 -d ':' | grep "[a-zA-Z]$"`" = "" ];then
-	#ask if want superfloppy install...
-	DLGEXT='
-   <frame Superfloppy>
-   <hbox space-expand="true" space-fill="false">
-    <text space-expand="true" space-fill="true" xalign="0" width-chars="75"><label>"'"`eval_gettext "WARNING: NOT NORMALLY RECOMMENDED. Do you want to install Puppy in Superfloppy mode, that is, no MBR and no partitions? ...in that case, the drive will be accessed as /dev/$DRVSEL, without a partition number. This may be a good choice for booting USB Flash drive from PC with a quirky BIOS. Click button if yes:"`"'"</label></text>
-    <vbox>
-     <button image-position="Bottom" width-request="100" tooltip-text="SuperFloppy!">
-      <label>'SuperFloppy'</label>
-	  <input file>/usr/share/pixmaps/puppy/puppy_save.svg</input>
-      <width>48</width>
-      <action>EXIT:REFORMAT_${DRVSEL}</action>
-     </button>
-    </vbox>
-   </hbox>
-   </frame>
-'
- else #drive is a superfloppy.
-	DLGEXT="$DLGEXT
-   <frame Superfloppy on USB>
-   <hbox space-expand=\"true\" space-fill=\"false\">
-    <text space-expand=\"true\" space-fill=\"true\" xalign=\"0\" width-chars=\"75\"><label>`eval_gettext \"The drive is currently in Superfloppy mode and has no MBR and no partitions. It is accessed as /dev/\\\$DRVSEL, without a partition number (this may be a good choice for booting USB Flash drive from PC with a quirky BIOS). Do you want to partition the drive so that it has a /dev/\\\${DRVSEL}1 partition, in which Puppy can be installed? If so, click button:\"`</label></text>
-    <vbox>
-     <button image-position=\"Bottom\" width-request=\"100\" tooltip-text=\"SuperFloppy!\">
-      <label>\"SuperFloppy\"</label>
-	  <input file>/usr/share/pixmaps/puppy/puppy_save.svg</input>
-      <width>48</width>
-      <action>EXIT:REFORMAT_${DRVSEL}</action>
-     </button>
-    </vbox>
-   </hbox>
-   </frame>
-"
- fi
 
- case $PMEDIA in atahd|ataflash|usbhd) DLGEXT="" ;; esac
+ case $PMEDIA in atahd|usbhd) DLGEXT="" ;; esac
  kill -9 $SPID
-
- # maybe 2 windows installations.
- #140707 #dont break
- while read win;do
-	t=`echo $win | grep 'false'`
-	if [ "$t" ];then
-		part=${t%%_*}
-		action=''$action'
-    <action>if true enable:'${part}'btn</action>
-	<action>if false disable:'${part}'btn</action>'
-	fi
- done < ${TMPDIR}/buttonstate
-#echo "$action" ###debug
-
- if [ -f ${TMPDIR}/win ] ; then
-	DISTROZ=`grep -E "Older Windows|New Windows|Windows 64 bit|New Windows boot|Windows boot" ${TMPDIR}/win|head -n1` #doesn't matter which one
- fi
- if [ "$DISTROZ" ];then
-	case "$DISTROZ" in
-	"Older Windows"|"New Windows"|"Windows 64 bit"|"New Windows boot"|"Windows boot") #140711 added
-		WMSG=$(gettext "CAUTION: Be sure your Windows partition is defragmented and <u>not hibernated</u>!")
-		;;
-	*) WMSG=$(gettext "CAUTION: Be sure your Windows is defragmented!") ;;
-	esac
- fi
- DLGWIN=''``
- if grep -q 'false' ${TMPDIR}/buttonstate;then
-	if grep -q 'f2fs' ${TMPDIR}/pidrvmsg.txt;then
-		echo "f2fs install"
-	else
-		DLGWIN='<text use-markup="true" space-expand="true" space-fill="true" xalign="0" width-chars="80">
-      <label>"<span fgcolor='"'darkred'"'><b>'$WMSG'</b></span>"</label>
-    </text>
-    <checkbox>
-      <label>"'$(gettext "Check this box to enable the button to install to your Windows installation partition.")'"</label>
-      <default>false</default>
-	  <variable>cb0</variable>
-	  '$action'
-    </checkbox>'
-	fi
- fi
 
  DLG2="
 <window title=\"$L_PUPPY_INSTALLER\">
  <vbox>
-  
-  $DLGWIN
-  
-  <hbox height-request=\"$h\" width-request=\"780\">
+  <hbox height-request=\"$h\" width-request=\"750\">
    <vbox space-expand=\"true\" space-fill=\"true\">
     <hbox>
       <vbox scrollable=\"true\">
-      <text><label>$(gettext 'Here is what Puppy has found out about the chosen drive:')</label></text>
+      <text><label>$(gettext 'Info about the chosen drive:')</label></text>
       <text use-markup=\"true\"><label>\"<tt>${DRVMSG}</tt>\"</label></text>
       </vbox>
      </hbox>
@@ -928,15 +749,13 @@ $DLGEXT
  </vbox>
 </window>
 "
-
- RETTXT=$(echo "$DLG2" | ${GTKDIALOGEXE} --stdin -c)
+ RETTXT=$(echo "$DLG2" | gtkdialog --stdin -c --styles=/tmp/gtkrc_xml_info.css)
  eval "$RETTXT"
- rm ${TMPDIR}/{buttonstate,win,cnt,num*,ntfsmnterr*,is_f2fs} 2>/dev/null #cleanup
+ rm ${TMPDIR}/{buttonstate,win,cnt,num*,ntfsmnterr*} 2>/dev/null #cleanup
  #returns EXIT="Cancel" or EXIT="abort"...]
  case "$EXIT" in 
 	Cancel|abort) exit ;;
 	RUNGPARTED)gpartedfixfunc $DRVSEL ; continue ;; #BIG LOOP
-	f2fs_install)f2fs_func ; exit ;;
 	GOBACK)continue ;; #BIG LOOP
  esac
 
@@ -973,446 +792,101 @@ try to fix the\nproblem of the partition getting mounted...\"`" 0 0
 	[ ! $? -eq 0 ] && exit
  fi
 
- if [ "`echo "$RETTXT" | grep 'EXIT="REFORMAT'`" != "" ];then
-	#RETTXT will have EXIT="REFORMAT_sda" or EXIT="REFORMAT_sda1", depending whether
-	#we want to format in superfloppy mode or with a MBR and a partition...
-	DESTPART="`echo "$RETTXT" | grep '^EXIT' | grep 'REFORMAT' | cut -f 2 -d '"' | cut -f 2 -d '_'`" #'geany
-	if [ "`echo "$DESTPART" | grep "[0-9]$"`" = "" ];then
-		#want superfloppy...
-		/usr/lib/gtkdialog/box_yesno --ok-cancel --yes-first --yes-label "FORMAT_ext3" --no-label "FORMAT_vfat" --yes-icon "" --no-icon "" "$L_PUPPY_INSTALLER" \
-		"`eval_gettext \"You have chosen to format /dev/\\\${DESTPART} as a Superfloppy. You now need to choose whether to create a vfat or a ext3 filesystem on the drive. Ext3 is the most flexible (and recommended) choice, however if you need to be able to read the drive from Windows then choose vfat. Note, however, there are tools for accessing ext2/3 drives in Windows.\"`" \
-		"`eval_gettext \"A further clarification: if you choose ext3, then the entire drive will be immediately available for personal data storage, whereas if you choose vfat this installer will have to create a file with a ext3 filesystem inside it (\\\${DISTRO_FILE_PREFIX}save.3fs) -- that file will contain all your personal files. Press FORMAT_ext3 or FORMAT_vfat button to commence formatting...\"`"
-		case $? in
-			0) DESTFS=ext3 ;;
-			1) DESTFS=vfat ;;
-			*) exit ;;
-		esac
-		echo '#!/bin/sh' > ${TMPDIR}/formatsuper.sh
-		echo -e "echo -n \"$(gettext 'SANITY CHECK: formatting /dev/')${DRVSEL}, $(gettext 'ENTER to continue or CTRL-C to quit:') \""  >> ${TMPDIR}/formatsuper.sh  # $(gettext 'SANITY CHECK: formatting /dev/') $(gettext 'ENTER to continue or CTRL-C to quit:') for xgettext to detect lines
-		echo 'read mooo'  >> ${TMPDIR}/formatsuper.sh
-		echo "dd if=/dev/zero of=/dev/$DRVSEL bs=512 count=1" >> ${TMPDIR}/formatsuper.sh
-		echo 'sync'  >> ${TMPDIR}/formatsuper.sh
-		if [ "$DESTFS" = "ext3" ];then
-			echo 'echo "'$(gettext 'Creating an ext3 filesystem on the drive...')'"'   >> ${TMPDIR}/formatsuper.sh
-			echo -e "echo \"y\" | mke2fs -j -m 0 /dev/$DRVSEL"   >> ${TMPDIR}/formatsuper.sh
-		else #vfat
-			echo 'echo "'$(gettext 'Creating a vfat filesystem on the drive...')'"'   >> ${TMPDIR}/formatsuper.sh
-			echo "mkdosfs -I /dev/$DRVSEL" >> ${TMPDIR}/formatsuper.sh
-		fi
-		echo 'sync'  >> ${TMPDIR}/formatsuper.sh
-		echo 'echo -n "'$(gettext 'Press ENTER key to continue:')' "'   >> ${TMPDIR}/formatsuper.sh
-		echo 'read moo'   >> ${TMPDIR}/formatsuper.sh
-		chmod 755 ${TMPDIR}/formatsuper.sh
-		xterm -bg "$BG" -fg "$FG" -title "$L_PUPPY_INSTALLER" -geometry 80x10 -e ${TMPDIR}/formatsuper.sh
-		DESTSIZM="$DRVSIZM"
-		IDESTSIZM="$IDRVSIZM"
-		DESTVER="" #previous version, n.a.
-		sync
-		#now have a binary daemon, send this uevent to it, then /usr/local/pup_event/frontend_change will be called...
-		echo change > /sys/block/${DRVSEL}/uevent
-	else
-		#want to partition with partition 1...
-		/usr/lib/gtkdialog/box_yesno --ok-cancel --yes-label "GParted" --yes-icon "" "$L_PUPPY_INSTALLER" \
-			"`eval_gettext \"You have chosen to format /dev/\\\${DRVSEL} with a MBR and a partition. You now need to choose whether to create a vfat or a ext3 filesystem on the partition. Ext3 is the most flexible (and recommended) choice, however if you need to be able to read the drive from Windows then choose vfat. Note, however, there are tools for accessing ext2/3 drives in Windows.\"`" \
-			"`eval_gettext \"A further clarification: if you choose ext3, then the entire partition will be immediately available for personal data storage, whereas if you choose vfat then Puppy will have to create a file with a ext2 filesystem inside it (\\\${DISTRO_FILE_PREFIX}save.2fs) -- that file will contain all your personal files.\"`" \
-			"$(gettext 'USB Flash drives: it is most common to create a vfat (fat16) partition on these, for Windows interchangeability and some older BIOSes boot only if see a fat16 f.s.')" \
-			"$(gettext 'Click button to run GParted...')"
-		if [ $? -eq 0 ] ; then
-			#w015 if a superfloppy, first need to create a disk label, else gparted is upset...
-			if [ "`echo "$DRVMSG" | cut -f 1 -d ':' | grep "[a-zA-Z]$"`" != "" ];then
-				dd if=/dev/zero of=/dev/$DRVSEL bs=512 count=1
-				parted --script /dev/sdb mklabel msdos
-				sync
-			fi
-			gpartedfixfunc $DRVSEL #w015
-			continue #BIG LOOP
-		fi
-	fi
- else
-	DESTPART="`echo "$RETTXT" | grep '^EXIT' | cut -f 2 -d '"'`" #'geany
-	DESTFS="`echo "$DRVMSG" | grep "${DESTPART}:" | cut -f 1 -d ',' | tr -s " " | cut -f 2 -d " "`" #120310
-	DESTSIZE="`echo "$DRVMSG" | grep "${DESTPART}:" | tr -s " " | cut -f 4-5 -d " "`" #120310
-	DESTSIZM="`echo -n "$DESTSIZE" | cut -f 1 -d " "`"
-	if [ ! "`echo "$DESTSIZE" | grep "GB"`" = "" ];then
-		DESTSIZM="`LANG=C; dc $DESTSIZM 1000 \* p`" #LANG=C; rodin.s for i18n
-	fi
-	IDESTSIZM="`echo -n "$DESTSIZM" | cut -f 1 -d '.'`" #truncate to integer.
-	DESTVER="`echo "$DRVMSG" | grep "${DESTPART}:" | tr -s " " | grep "installed" | cut -f 8 -d " "`" #120310
+ DESTPART="`echo "$RETTXT" | grep '^EXIT' | cut -f 2 -d '"'`" #'geany
+ DESTFS="`echo "$DRVMSG" | grep "${DESTPART}:" | cut -f 1 -d ',' | tr -s " " | cut -f 2 -d " "`" #120310
+ DESTSIZE="`echo "$DRVMSG" | grep "${DESTPART}:" | tr -s " " | cut -f 4-5 -d " "`" #120310
+ DESTSIZM="`echo -n "$DESTSIZE" | cut -f 1 -d " "`"
+ if [ ! "`echo "$DESTSIZE" | grep "GB"`" = "" ];then
+	DESTSIZM="`LANG=C; dc -e "$DESTSIZM 1000 * p"`" #LANG=C; rodin.s for i18n
  fi
+ IDESTSIZM="`echo -n "$DESTSIZM" | cut -f 1 -d '.'`" #truncate to integer.
+ DESTVER="`echo "$DRVMSG" | grep "${DESTPART}:" | tr -s " " | grep "installed" | cut -f 8 -d " "`" #120310
 
  break
 done ###########END BIG LOOP###############
 
-#=======================================================================
-
-case $PMEDIA in usbflash|usbhd|ataflash) #removable media, install with syslinux/extlinux
-	# shinobar: check if extlinux supports ext4
-	EXTLINUX="extlinux"
-	if [ "$DESTFS" = "ext4" ]; then
-		EXTLINUX=""
-		for D in $(echo $PATH| tr ':' ' '); do
-			[ -x $D/extlinux ] || continue
-			[ "$($D/extlinux --version 2>&1 | cut -s -d' ' -f2 | cut -d'.' -f1)" = "4" ] && EXTLINUX="$D/extlinux" && break
-		done
-		if [ -z "$EXTLINUX" ]; then
-			MSG=$(gettext "You need 'Extlinux version 4.x' for frugal install on 'ext4' partitions.")
-			which frugalinstaller &>/dev/null && MSG=$(gettext "'Puppy Installer' cannot handle frugal install on 'ext4' partitions.
-Use 'Frugal Installer' instead.")
-			Xdialog --wmclass "gtkdialog2" --title "$(gettext 'Puppy Installer: ERROR')" --msgbox "$MSG" 0 0
-			exit 1
-		fi
-	fi
-esac
-
-if [ "`echo "$DESTPART" | grep "[0-9]$"`" = "" ];then
-	#superfloppy
-	/usr/lib/gtkdialog/box_yesno --ok-cancel "$L_PUPPY_INSTALLER" \
-	"$(gettext 'You have chosen to install Puppy to the entire drive, which is what we call Superfloppy mode, in which there is no MBR (Master Boot Record) and no partitions. This may be a good choice for Flash memory, especially USB Flash, that the PC BIOS has trouble booting from.')" \
-	"`eval_gettext \"The target drive is \\\${DESTPART}, which has a \\\${DESTFS}, of size \\\${DESTSIZM}M. Press OK button to install Puppy to the drive...\"`"
-else
-	/usr/lib/gtkdialog/box_yesno --ok-cancel "$L_PUPPY_INSTALLER" \
-	"`eval_gettext \"You have chosen to install Puppy to partition /dev/\\\${DESTPART}, which has a \\\${DESTFS} filesystem and the size is \\\${DESTSIZM}M.\"`" \
-	"$(gettext 'Press OK button to install Puppy (note, there will be one or two more dialog windows before you have to commit to the actual install)...')"
-fi
+/usr/lib/gtkdialog/box_yesno --ok-cancel "$L_PUPPY_INSTALLER" \
+"`eval_gettext \"You have chosen to install Puppy to partition /dev/\\\${DESTPART}, which has a \\\${DESTFS} filesystem and the size is \\\${DESTSIZM}M.\"`" \
+"$(gettext 'Press OK button to install Puppy (note, there will be one or two more dialog windows before you have to commit to the actual install)...')"
 [ ! $? -eq 0 ] && exit
 
-#get latest Puppy files....
-locate_puppy_src_files
+locate_puppy_src_files # sets $SRCPATH $CDDRIVE
 
-#==============================================================
-#now to do the actual install...
+#===================================================================
+#                 INSTALL TO REMOVABLE MEDIA
+#===================================================================
 
-case $PMEDIA in
+case $PMEDIA in usb*)
+	case $DESTFS in
+	vfat|ntfs|ext2|ext3|ext4)
 
-	#===============================
-	#removable media, install with syslinux/extlinux
-	usbflash|usbhd|ataflash) 
-	#===============================
-
-	if [ "`echo "$DESTPART" | grep '[0-9]$'`" != "" ];then #superfloppy mode has no mbr.
-		#DESTPART is a partition (not superfloppy).
-		DESTDRV="`echo -n "$DESTPART" | sed -e 's/[0-9]*$//' -e 's/p$//'`" #110126 mmcblk0p1 becomes mmcblk0
-		DESTNUM="`echo -n "$DESTPART" | cut -c 4-5`"
-		[ "`echo -n "$DESTPART" | grep 'mmc'`" != "" ] && DESTNUM="`echo -n "$DESTPART" | rev | cut -c 1 | rev`" #110126 mmcblk0p1 becomes 1 -- note, left off the p.
-		dd if=/dev/$DESTDRV of=${TMPDIR}/mbr446.bin bs=446 count=1
-		sync
-		#v3.95
-		ALPHADUMP="`hexdump -C ${TMPDIR}/mbr446.bin | cut -f 2 -d '|' | tr '\n' ' ' | tr -d ' '`"
-		#this will be =1 if mbr has 'GRUB' in it, else =0...
-		FLAGGRUB="`echo "$ALPHADUMP" | grep 'GRUB' | wc -l`"
-		#v3.97 have a case where normal bootable flash vfat pen drive has the
-		#string 'GRUB.Geom.HardDisk.Read.Error' in the mbr...
-		[ "$FLAGGRUB" = "1" ] && [ "`echo "$ALPHADUMP" | grep 'GRUB.Geom.HardDisk.Read.Error'`" != "" ] && FLAGGRUB="0"
-		#131213 shinobar: bootable mbr (space charactors removed before in ALPHADUMP)
-		echo "$ALPHADUMP" | grep -q 'operatingsystem' && BOOTABLE="y" || BOOTABLE=""
-		MBRCHOICE=mbr.bin
-		if [ "$BOOTABLE" ]; then
-			MBRCHOICE="`Xdialog --wmclass "gtkdialog2" --left --title "$L_PUPPY_INSTALLER" --no-cancel --stdout --menubox "$(eval_gettext \"The MBR (Master Boot Record) in the USB drive is probably okay as-is, so choose\nthe first option. However, if you cannot get the drive to boot, and you are\nsure that the BIOS settings are not to blame and the PC is capable of booting\nfrom USB, then try one of these alternative MBRs.\nNote, if you choose to change the MBR, the old first 446 bytes (the\nbootstrap loader part) of the MBR will be backed up to ${TMPDIR}/oldmbr.bin\nNote, you can install these MBRs directly, without running this\nInstaller program again: they are located in /usr/share/syslinux,\nand you can use the dd program to copy them.\nExample: dd if=spb2_mbr.bin of=/dev/\\\${DESTDRV}\nNote, personally I have had success with mbr.bin.\")" 0 0 5 default "$(gettext 'DO NOTHING, leave current MBR alone')" mbr.bin "$(gettext 'From the Syslinux package')" `"
+		if [ "`echo "$DESTPART" | grep '[0-9]$'`" != "" ];then
+			DESTDRV="`echo -n "$DESTPART" | sed -e 's/[0-9]*$//' -e 's/p$//'`" #110126 mmcblk0
+			if parted /dev/${DESTDRV} print | grep msdos ; then
+				/usr/lib/gtkdialog/box_yesno \
+					--yes-label "Install bootloader" --no-label "Don't install bootloader" \
+					"Install bootloader?" "Now a tough decision. If you have formatted the partition or drive, you might want to install a bootloader." \
+					"But if a working bootloader is already installed, you may want to keep it." \
+					"Keep in mind that this installer is meant to work with grub4dos"
+				if [ $? -eq 0 ] ; then
+					write_wee_mbr /dev/${DESTDRV}
+				fi
+				#check that partition has 'boot' flag set...
+				if ! [ "`fdisk -l /dev/$DESTDRV | grep "/dev/$DESTDRV" | grep '*'`" ] ; then
+					parted --script -- /dev/${DESTDRV} set 1 boot on
+				fi
+			else
+				/usr/lib/gtkdialog/box_yesno --error --yes-label Continue --no-label Exit --yes-first \
+				"$(gettext 'Installer')" "`eval_gettext \"\\\$DESTDRV does not have a supported partition table (msdos). This installer expects a msdos and is meant to work with grub4dos. I do not know much about the outcome, but if you know you are doing you may continue.\"`"
+				[ $? -ne 0 ] && exit
+			fi
 		fi
-		rm ${TMPDIR}/mbr446.bin
-		if [ "$MBRCHOICE" -a "$MBRCHOICE" != "default" ];then
-			[ -f /usr/share/syslinux/$MBRCHOICE ] && MBR=/usr/share/syslinux/$MBRCHOICE
-			[ -f /usr/lib/syslinux/$MBRCHOICE ] && MBR=/usr/lib/syslinux/$MBRCHOICE
-			dd if=/dev/$DESTDRV of=${TMPDIR}/oldmbr.bin bs=446 count=1
+
+		umount /dev/${DESTPART}
+		mkdir -p /mnt/data
+		mount -t $DESTFS /dev/${DESTPART} /mnt/data
+
+		/usr/lib/gtkdialog/box_yesno \
+			--yes-label "Wipe ${DESTPART}" --no-label "Don't wipe ${DESTPART}" \
+			"WIPE PARTITION" "Do you want to delete everything in ${DESTPART}?"
+		if [ $? -eq 0 ];then
+			yaf-splash -bg orange -text "'$(gettext 'Deleting everything in /mnt/data...')'" &
+			XPID=$!
+			rm -rf /mnt/data/*
 			sync
-			dd bs=440 count=1 conv=notrunc if=$MBR of=/dev/$DESTDRV
+			kill $XPID
+		fi
+		#--
+		if ! [ -f /mnt/data/menu.lst ] ; then
+			copy_g4dos_cd /mnt/data auto ${PMEDIA}
+		fi
+		#--
+		yaf-splash -bg orange -text "`eval_gettext \"Please wait, copying files to \\\$DESTPART ...\"`" &
+		XPID=$!
+		mkdir -p /mnt/data
+		for i in vmlinuz initrd.gz ${DISTRO_PUPPYSFS} ${DISTRO_ZDRVSFS} ${DISTRO_FDRVSFS} ${DISTRO_ADRVSFS} ${DISTRO_YDRVSFS}; do
+			[ -f "${SRCPATH}/${i}" ] && cp -f "${SRCPATH}/${i}" /mnt/data/
 			sync
-		fi
-   
-		#check that partition has 'boot' flag set...
-		QPATTERN="^Partition ${DESTNUM}:"
-		if [ "`disktype /dev/$DESTDRV | grep "$QPATTERN" | grep 'bootable'`" = "" ];then
-			Xdialog --wmclass "gtkdialog2" --left \
-			--title "$L_PUPPY_INSTALLER" --no-cancel --stdout \
-			--ok-label "GParted" --cancel-label "$(gettext 'bypass')" \
-			--yesno "`eval_gettext "Slight problem. It seems that partition \
-\\\${DESTPART} does not have it's 'boot'"`
-$(gettext 'flag set, which is required to make it bootable. Recommended to click the')
-$(gettext "'GParted' button now to run GParted, then right-click on the partition and")
-$(gettext "choose 'Manage flags' then set 'boot' flag.")
-$(gettext 'After exiting from GParted, this Puppy Installer will continue.')
-
-$(gettext "Click 'GParted' (recommended) to run GParted...")
-$(gettext "Click 'bypass' to bypass GParted...")" 0 0
-			[ $? -eq 0 ] && gparted /dev/$DESTDRV
-		fi
-	fi
-
-	case $DESTFS in vfat)
-		if [ ! "`echo "$DESTPART" | grep '[0-9]$'`" = "" ];then
-			PARTCHOICE="`Xdialog --wmclass "gtkdialog2" --left \
---title "$L_PUPPY_INSTALLER" --no-cancel --stdout \
---menubox "$(gettext \"Please just accept the default here, 'JUST KEEP GOING'.\
-\nPLEASE MAKE SURE TOP ENTRY HIGHLIGHTED THEN CLICK OK BUTTON\n\nHowever, \
-if you have tried this Puppy Installer\nbut Puppy will not boot, \
-you can try one of the other choices here.\n\nPersonally, I have had success \
-with using GParted to wipe and\nrecreate the partition...\")" 0 0 4 default \
-"$(gettext 'JUST KEEP GOING')" GParted "$(gettext 'Wipe and recreate \
-USB/IDE-CF partition using GParted')" syslinux "$(gettext 'Make USB or \
-IDE-CF msdos/vfat partition bootable')"`"
-			[ "$PARTCHOICE" = "syslinux" ] && fixusbfunc $DESTPART $DESTFS
-			[ "$PARTCHOICE" = "GParted" ] && gpartedfixfunc $DRVSEL
-		fi
-		#params passed in: $DESTPART "$SRCPATH" $PMEDIA
-		echo '#!/bin/sh
-DESTPART="$1"
-SRCPATH="$2"
-PMEDIA="$3"
-DISTRO_FILE_PREFIX="$4"
-DISTRO_PUPPYSFS="$5"
-DISTRO_ZDRVSFS="$6"
-DISTRO_FDRVSFS="$7"
-#DISTRO_DEVXSFS="$7"
-DISTRO_ADRVSFS="$8"
-DISTRO_YDRVSFS="$9"
-PREFIX1CHAR="`echo -n "$DISTRO_FILE_PREFIX" | cut -c 1`"
-echo "'$(gettext 'ABSOLUTE FINAL SANITY CHECK!')'"
-echo "'$(gettext 'You are about to install Puppy to /dev/')'$DESTPART, '$(gettext 'with boot parameter')'"
-echo "pmedia=$PMEDIA. '$(gettext 'The files vmlinuz, initrd.gz,')' ${DISTRO_PUPPYSFS}, syslinux.cfg"
-echo "('$(gettext 'and maybe the')' ${DISTRO_ZDRVSFS} '$(gettext 'if it exists.')' ${DISTRO_PUPPYSFS} '$(gettext 'may be inside')' initrd.gz)"
-echo "'$(gettext 'will be written to /dev/')'$DESTPART '$(gettext 'and Syslinux will be used to make it bootable.')'"
-echo
-echo -n "'$(gettext 'Press ENTER key to continue, CTRL-C to abort:')' "
-read goforit
-
-dosfsck -y /dev/$DESTPART
-mount -t vfat /dev/$DESTPART /mnt/data
-echo
-echo "'$(gettext 'Do you want to wipe all files in /dev/')'$DESTPART? '$(gettext 'This is currently mounted')'"
-echo "'$(gettext 'on /mnt/data so you can look at what is there before answering. You would')'"
-echo "'$(gettext 'normally answer no if upgrading Puppy, or yes for a fresh install and')'"
-echo "'$(gettext 'you want to get rid of old files that are just taking up space.')'"
-echo "'$(gettext 'Note, you can also manually prune files in /mnt/data then choose no here.')'"
-echo "'$(gettext 'Note, if you choose no here, this script will still do some basic deleting')'"
-echo "'$(gettext 'of any files of an earlier Puppy installation')' ('$(gettext 'not the')' ${DISTRO_FILE_PREFIX}save '$(gettext 'though!')')."
-echo
-echo "'$(gettext 'No, press ENTER only to not wipe all files, or')'"
-echo -n "'$(gettext 'Yes, press any alpha or numeric char then ENTER to wipe all files:')' "
-read WIPEALL
-if [ "$WIPEALL" != "" ];then
- echo
- echo "'$(gettext 'Deleting everything in /mnt/data...')'"
- rm -rf /mnt/data/*
-else
- #well, minimum to get rid of...
- rm -f /mnt/data/image.gz 2> /dev/null
- rm -f /mnt/data/usr_cram.fs 2> /dev/null #old name.
- rm -f /mnt/data/pup_[0-9]*.sfs 2>/dev/null #old name.
- rm -f /mnt/data/${DISTRO_FILE_PREFIX}-*.sfs 2>/dev/null
- rm -f /mnt/data/devx_*.sfs 2>/dev/null
- rm -f /mnt/data/${DISTRO_FILE_PREFIX}z*.sfs 2>/dev/null #old name.
- rm -f /mnt/data/z${PREFIX1CHAR}*.sfs 2>/dev/null
- rm -f /mnt/data/${DISTRO_PUPPYSFS} 2>/dev/null #100913
- rm -f /mnt/data/${DISTRO_ZDRVSFS} 2>/dev/null #100913
- rm -f /mnt/data/${DISTRO_FDRVSFS} 2>/dev/null
- rm -f /mnt/data/${DISTRO_ADRVSFS} 2>/dev/null #140630
- rm -f /mnt/data/${DISTRO_YDRVSFS} 2>/dev/null #140630
- #rm -f /mnt/data/${DISTRO_DEVXSFS} 2>/dev/null #100913
-fi
-sync
-
-echo
-echo "'$(gettext 'Making')' $DESTPART '$(gettext 'bootable...')'"
-#syslinux  /dev/$DESTPART #140701 extlinux writes to mount point no device!
-extlinux -i /mnt/data ###/dev/$DESTPART
-sync
-
-echo
-cp -fv $SRCPATH/vmlinuz /mnt/data/
-sync
-echo "'$(gettext 'Creating syslinux.cfg...')'"
-
-if [ ! -f $SRCPATH/boot.msg ];then #100321
-  echo "default vmlinuz initrd=initrd.gz pmedia=${PMEDIA}" > /mnt/data/syslinux.cfg
-else
- #100321 want a boot menu...
- echo "default puppy
-display boot.msg
-prompt 1
-timeout 50
-
-F1 boot.msg
-F2 help.msg
-F3 help2.msg
-
-label puppy
-kernel vmlinuz
-append initrd=initrd.gz pmedia=${PMEDIA}" > /mnt/data/syslinux.cfg
- cp -f $SRCPATH/boot.msg /mnt/data/
- cp -f $SRCPATH/help*.msg /mnt/data/
- cp -f $SRCPATH/logo.16 /mnt/data/
- sync
-fi
-
-sync
-cp -fv $SRCPATH/initrd.gz /mnt/data/
-echo "'$(gettext 'Copying .sfs files...')'"
-cp -fv $SRCPATH/${DISTRO_PUPPYSFS} /mnt/data/ 2>/dev/null
-sync
-for xdrv in ${DISTRO_ZDRVSFS} ${DISTRO_FDRVSFS} ${DISTRO_ADRVSFS} ${DISTRO_YDRVSFS};do
- [ -f $SRCPATH/"${xdrv}" ] && cp -fv $SRCPATH/${xdrv} /mnt/data/ 2>/dev/null
- sync
-done
-umount /mnt/data
-echo -n "'$(gettext 'Finished, press ENTER key to continue:')' "
-read moo
-' > ${TMPDIR}/installpup.sh
-		chmod 755 ${TMPDIR}/installpup.sh
-		xterm -bg "$BG" -fg "$FG" -title "$L_PUPPY_INSTALLER" \
-			-geometry 80x10 -e ${TMPDIR}/installpup.sh $DESTPART $SRCPATH $PMEDIA \
-			$DISTRO_FILE_PREFIX $DISTRO_PUPPYSFS $DISTRO_ZDRVSFS $DISTRO_FDRVSFS $DISTRO_ADRVSFS $DISTRO_YDRVSFS #$DISTRO_DEVXSFS
-		;;
-   ext2|ext3|ext4)
-		#params passed in: $DESTPART "$SRCPATH" $PMEDIA
-		echo '#!/bin/sh
-DESTPART="$1"
-SRCPATH="$2"
-PMEDIA="$3"
-DESTFS="$4"
-DISTRO_FILE_PREFIX="$5"
-DISTRO_PUPPYSFS="$6"
-DISTRO_ZDRVSFS="$7"
-DISTRO_FDRVSFS="$8"
-#DISTRO_DEVXSFS="$8"
-DISTRO_ADRVSFS="$9"
-DISTRO_YDRVSFS="$10"
-PREFIX1CHAR="`echo -n "$DISTRO_FILE_PREFIX" | cut -c 1`"
-echo "'$(gettext 'ABSOLUTE FINAL SANITY CHECK!')'"
-echo "'$(gettext 'You are about to install Puppy to /dev/')'$DESTPART, '$(gettext 'with boot parameter')'"
-echo "pmedia=$PMEDIA. '$(gettext 'The files vmlinuz, initrd.gz,')' ${DISTRO_PUPPYSFS}, extlinux.conf"
-echo "('$(gettext 'and maybe')' ${DISTRO_ZDRVSFS} '$(gettext 'if it exists.')' ${DISTRO_PUPPYSFS} '$(gettext 'may be inside initrd.gz')')"
-echo "'$(gettext 'will be written to /dev/')'$DESTPART '$(gettext 'and Extlinux will be used to make it bootable.')'"
-echo
-echo -n "'$(gettext 'Press ENTER key to continue, CTRL-C to abort:')' "
-read goforit
-mount -t $DESTFS /dev/$DESTPART /mnt/data
-if [ ! $? -eq 0 ];then #v3.95
- dpPATTERN="^/dev/$DESTPART "
- if [ "`mount | grep "$dpPATTERN"`" = "" ];then
-  echo
-  echo "/dev/$DESTPART '$(gettext 'failed to mount on /mnt/data ...nothing else mounted on')'"
-  echo "/mnt/data? '$(gettext 'One known case for this failure is when installing to the')'"
-  echo "'$(gettext 'internal Flash drive of a Intel Classmate laptop. Well, you can attempt')'"
-  echo "'$(gettext 'to fix this problem by creating a new')' $DESTFS '$(gettext 'filesystem in')' $DESTPART ('$(gettext 'which')'"
-  echo "'$(gettext 'will of course wipe anything previously there -- which will not matter')'"
-  echo "'$(gettext 'if you have already backed up the previous operating system')')."
-  echo "'$(gettext 'Press ENTER only to abort installation, or')'"
-  echo "'$(gettext 'press any char then ENTER to create a new f.s. then proceed with install:')' "
-  read NEWFS
-  [ "$NEWFS" = "" ] && exit
-  DFPARAM=""
-  [ "$DESTFS" = "ext3" ] && DFPARAM="-j"
-  echo "y" | mke2fs $DFPARAM -m 0 /dev/$DESTPART
-  sync
-  mount -t $DESTFS /dev/$DESTPART /mnt/data
-  if [ ! $? -eq 0 ];then
-   echo -n "'$(gettext 'Sorry, still cannot mount')' $DESTPART '$(gettext 'partition. Press ENTER to quit:')' "
-   read NOWQUIT
-   exit
-  fi
- fi
-fi
-echo
-echo "'$(gettext 'Do you want to wipe all files in /dev/')'$DESTPART? '$(gettext 'This is currently mounted')'"
-echo "'$(gettext 'on /mnt/data so you can look at what is there before answering. You would')'"
-echo "'$(gettext 'normally answer no if upgrading Puppy, or yes for a fresh install and')'"
-echo "'$(gettext 'you want to get rid of old files that are just taking up space.')'"
-echo "'$(gettext 'Note, you can also manually prune files in /mnt/data then choose no here.')'"
-echo "'$(gettext 'Note, if you choose no here, this script will still do some basic deleting')'"
-echo "'$(gettext 'of any files of an earlier Puppy installation')' ('$(gettext 'not the')' ${DISTRO_FILE_PREFIX}save '$(gettext 'though!')')."
-echo
-echo "'$(gettext 'No, press ENTER only to not wipe all files, or')'"
-echo -n "'$(gettext 'Yes, press any alpha or numeric char then ENTER to wipe all files:')' "
-read WIPEALL
-if [ "$WIPEALL" != "" ];then
- echo
- echo "'$(gettext 'Deleting everything in /mnt/data...')'"
- rm -rf /mnt/data/*
-else
- #well, minimum to get rid of...
- rm -f /mnt/data/image.gz 2> /dev/null
- rm -f /mnt/data/usr_cram.fs 2> /dev/null
- rm -f /mnt/data/pup_[0-9]*.sfs 2>/dev/null
- rm -f /mnt/data/${DISTRO_FILE_PREFIX}-*.sfs 2>/dev/null
- rm -f /mnt/data/devx_*.sfs 2>/dev/null
- rm -f /mnt/data/z${PREFIX1CHAR}*.sfs 2>/dev/null
- rm -f /mnt/data/${DISTRO_PUPPYSFS} 2>/dev/null #100913
- rm -f /mnt/data/${DISTRO_ZDRVSFS} 2>/dev/null #100913
- rm -f /mnt/data/${DISTRO_FDRVSFS} 2>/dev/null
- rm -f /mnt/data/${DISTRO_ADRVSFS} 2>/dev/null #140630
- rm -f /mnt/data/${DISTRO_YDRVSFS} 2>/dev/null #140630
- #rm -f /mnt/data/${DISTRO_DEVXSFS} 2>/dev/null #100913
-fi
-sync
-echo
-echo "'$(gettext 'Making')' $DESTPART '$(gettext 'bootable...')'"
-if [ ! "`echo "$DESTPART" | grep '[0-9]$'`" = "" ];then
- '$EXTLINUX' -i /mnt/data #i think only use -z for superfloppy.
-else
- '$EXTLINUX' -i -z /mnt/data
-fi
-sync
-echo "'$(gettext 'Copying vmlinuz...')'"
-cp -f $SRCPATH/vmlinuz /mnt/data/
-sync
-echo "'$(gettext 'Creating extlinux.conf...')'"
-
-if [ ! -f $SRCPATH/boot.msg ];then #100321
- echo "default vmlinuz initrd=initrd.gz pmedia=${PMEDIA}" > /mnt/data/extlinux.conf
-else
- #100321 want a boot menu...
- echo "default puppy
-display boot.msg
-prompt 1
-timeout 50
-
-F1 boot.msg
-F2 help.msg
-F3 help2.msg
-
-label puppy
-kernel vmlinuz
-append initrd=initrd.gz pmedia=${PMEDIA}" > /mnt/data/extlinux.conf
- cp -f $SRCPATH/boot.msg /mnt/data/
- cp -f $SRCPATH/help*.msg /mnt/data/
- cp -f $SRCPATH/logo.16 /mnt/data/
- sync
-fi
-
-echo "Copying initrd.gz..."
-cp -f $SRCPATH/initrd.gz /mnt/data/
-sync
-echo "Copying .sfs files..."
-cp -f $SRCPATH/${DISTRO_PUPPYSFS} /mnt/data/ 2>/dev/null
-sync
-for xdrv in ${DISTRO_ZDRVSFS} ${DISTRO_FDRVSFS} ${DISTRO_ADRVSFS} ${DISTRO_YDRVSFS};do
- [ -f $SRCPATH/"${xdrv}" ] && cp -f $SRCPATH/${xdrv} /mnt/data/ 2>/dev/null
- sync
-done
-sync
-#cp -f $SRCPATH/${DISTRO_DEVXSFS} /mnt/data/ 2>/dev/null
-#sync
-umount /mnt/data
-echo -n "'$(gettext 'Finished, press ENTER key to continue:')' "
-read moo
-' > ${TMPDIR}/installpup.sh
-		chmod 755 ${TMPDIR}/installpup.sh
-		xterm -bg "$BG" -fg "$FG" -title "$L_PUPPY_INSTALLER" \
-		-geometry 80x10 -e ${TMPDIR}/installpup.sh $DESTPART $SRCPATH $PMEDIA $DESTFS \
-		$DISTRO_FILE_PREFIX $DISTRO_PUPPYSFS $DISTRO_ZDRVSFS $DISTRO_FDRVSFS $DISTRO_ADRVSFS $DISTRO_YDRVSFS #$DISTRO_DEVXSFS
+		done
+		kill $XPID
+		umount /dev/$DESTPART
+		unmountcdfunc
 		;;
 	*)
-		/usr/lib/gtkdialog/box_ok "$(gettext 'Puppy installer')" error "`eval_gettext \"Your \\\$DESTPART has a \\\$DESTFS filesystem. Currently only install to external vfat (FAT16/32) or ext2/ext3 filesystems is supported.\"`" " " "$(gettext 'Click OK to quit...')"
+		/usr/lib/gtkdialog/box_ok "$(gettext 'Puppy installer')" error "`eval_gettext \"Your \\\$DESTPART has a \\\$DESTFS filesystem. Currently only install to external vfat/ntfs/ext3/ext4 filesystems are supported.\"`" " " "$(gettext 'Click OK to quit...')"
 		exit
 		;;
 	esac
 	;;
+esac
 
-	#===============================
-	atahd|satahd) #internal media, boot with boot-disk or grub. #v3.98
-	#===============================
+#===================================================================
+#               INSTALL TO INTERNAL HARD DRIVE
+#===================================================================
+
+case $PMEDIA in ata*)
 	#arrive here with DESTPART & DESTFS where installing to, PMEDIA boot param PMEDIA,
-	#SRCPATH where to get vmlinuz, initrd, ${DISTRO_PUPPYSFS}, PUPVEROLD is old puppy version in
+	#SRCPATH where to get vmlinuz, initrd, ${DISTRO_PUPPYSFS}
 	#format 200 (without dots) =0 if no prior installed puppy,
 	#NEWVER is new puppy version, DESTSIZM is size of dest partition in Mb (real number),
 	DESTMNTPT="`mount | grep "/dev/${DESTPART} " | tr -s " " | cut -f 3 -d " "`" #120310 
@@ -1421,71 +895,38 @@ read moo
 		mount -t $DESTFS /dev/$DESTPART /mnt/$DESTPART
 		DESTMNTPT="/mnt/$DESTPART"
 	fi
-	#choose option1 or option2 install...
-	#option1: files vmlinuz, initrd.gz, ${DISTRO_PUPPYSFS}, to dest partition.
-	#option2: file vmlinuz to partition, contents of ${DISTRO_PUPPYSFS} to partition.
-	# deleted PREVPUPMESSAGE, depends PUPVEROLD, also deleted 140701
+	#choose option1 frugal or option2 install...
 	INSTOPTION="1"
-	if [ "$DESTFS" != "vfat" -a "$DESTFS" != "ntfs" -a "$DESTFS" != "exfat" ];then
-		Xdialog --wmclass "gtkdialog2" --left --buttons-style text --title "$L_PUPPY_INSTALLER" --ok-label "$(gettext 'FRUGAL')" --cancel-label "$(gettext 'FULL')" --yesno "`eval_gettext \"You have chosen to install to /dev/\\\$DESTPART, which appears to be an internal
+	if [ "$ENABLE_FULLINSTALL" ] ; then
+		if [ "$DESTFS" != "vfat" -a "$DESTFS" != "ntfs" -a "$DESTFS" != "exfat" ];then
+			Xdialog --wmclass "gtkdialog2" --left --buttons-style text --title "$L_PUPPY_INSTALLER" --ok-label "$(gettext 'FRUGAL')" --cancel-label "$(gettext 'FULL')" --yesno "`eval_gettext \"You have chosen to install to /dev/\\\$DESTPART, which appears to be an internal
 hard drive\"` ($PMEDIA).
 
 $(gettext 'There are two ways to install Puppy to the partition:')
 
 $(gettext '1. FRUGAL (standard install)')
-`eval_gettext \"Copies the files vmlinuz, initrd.gz, \\\${DISTRO_PUPPYSFS} and \\\${DISTRO_ZDRVSFS} to the\"`
-`eval_gettext \"partition, saving your personal settings inside a \\\${DISTRO_FILE_PREFIX}save file or directory (like when\"`
-$(gettext 'running from CD) and leaving the previous contents of the partition')
-$(gettext 'untouched. PROS:')
-- $(gettext 'Can coexist with another distro installed to the same partition.')
-- $(gettext 'Can install to a non-Linux FAT or NTFS partition (former preferred).')
-- $(gettext 'Easier to upgrade: just download the new .iso file and replace the above')
-  $(gettext 'files with their newer versions (mount the .iso to access the files).')
-  $(gettext '(Note: A .iso can easily be mounted in puppy just by clicking on it)')
-- $(gettext 'Enables the use of .sfs addons (application combo-packs)').
-- $(gettext 'Can save to entire partition if Linux f.s. and no need to coexist.')
 
-$(gettext '2. FULL (only in extreme cases)')
-$(gettext 'Requires usage of the entire partition by Puppy. Use only if there is not enough RAM and the CPU is too slow..')
+$(gettext '2. FULL')
+$(gettext 'A "regular" linux install. It is not properly supported and not recommended,
+you lose all the interesting features.')
 
-$(gettext 'Click FRUGAL for coexist install (recommended)...')
-$(gettext 'Click FULL for conventional install...')
 $(gettext 'Click window close box to quit...')" 0 0
-		RET_VAL=$?
-		[ $RET_VAL -eq 255 ] && exit
-		[ $RET_VAL -eq 1 ] && INSTOPTION="2"
+			RET_VAL=$?
+			[ $RET_VAL -eq 255 ] && exit
+			[ $RET_VAL -eq 1 ] && INSTOPTION="2"
+		fi
 	fi
+
 	#info for creating a grub entry...
 	DESTPART_UUID=$(blkid /dev/${DESTPART} | grep -o ' UUID=".*' | cut -d '"' -f2)
-	if [ "$DESTPART_UUID" ] ; then
-		GRUBPART="#root (hd0,0) <-- GRUB legacy, ex: (hd1,0), etc..
+	GRUBPART="#root (hd0,0) <-- GRUB legacy, ex: (hd1,0), etc..
 find --set-root uuid () ${DESTPART_UUID}"
-	else
-		GRUBPART="root (hd0,0)"
-	fi
 
 	#INSTOPTION, install puppy to DESTPART...
 	if [ "$INSTOPTION" = "1" ];then #frugal.
-		case $DESTFS in #100719
-			ext2|ext3|ext4|reiserfs|minix|btrfs|f2fs) #130216 add f2fs.
-			Xdialog --stdout --wmclass "gtkdialog2" --left --title "$L_PUPPY_INSTALLER" --msgbox "$(gettext 'You have chosen a frugal installation. As you are installing Puppy to a')
-`eval_gettext \"partition with a Linux filesystem (\\\${DESTFS}), the first time that you run\"`
-$(gettext 'Puppy and shutdown you will be offered to save the session to either a single')
-$(gettext 'file or to the entire partition.')
-
-$(gettext 'A single file has convenience for backup and there can be multiple session')
-$(gettext 'files, both for this installation of Puppy and for other installations of')
-$(gettext 'Puppy. Saving the session to the entire partition has the advantage of all')
-$(gettext 'the space available in that partition, however this is a warning for the')
-$(gettext 'next dialog in this Puppy Installer...')
-
-$(gettext 'The next dialog will ask if you want to install Puppy into a sub-directory.')
-$(gettext 'If you intend to, or might want to, save the session to entire partition, do')
-$(gettext 'NOT install to a sub-directory, leave the folder field empty...')" 0 0
-			;;
-		esac
-		#101107 fix msg, puppy now searches 2-deep...
-		Xdialog --stdout --wmclass "gtkdialog2" --left --title "$L_PUPPY_INSTALLER" --fixed-font --no-cancel --inputbox "`eval_gettext \"Puppy is going to be installed to partition \\\${DESTPART}, which is currently\"`
+		Xdialog --stdout --wmclass "gtkdialog2" --left --title "$L_PUPPY_INSTALLER" \
+		--ok-label 'INSTALL' --fixed-font --no-cancel \
+		--inputbox "`eval_gettext \"Puppy is going to be installed to partition \\\${DESTPART}, which is currently\"`
 `eval_gettext \"mounted on path \\\${DESTMNTPT}. As this will be a frugal install, you can\"`
 $(gettext 'choose to place the Puppy files in a folder. This is very convenient if you')
 $(gettext 'want to have more than one installation of Puppy. Even if you only have one')
@@ -1493,11 +934,8 @@ $(gettext 'installation, it may be good to have all the Puppy files in their own
 $(gettext 'and so not causing any potential conflicts with other files at the top') '/'
 `gettext \"level (ex: a pre-existing full Linux install may have 'initrd.gz' at '/')\"`.
 
-$(gettext 'Enter a unique name for the folder. Note, Puppy will search 2-deep, so this')
-`eval_gettext \"(for example) 'puppyfiles/pup\\\${NEWVER}' is okay. Or, a folder at the top\"`
-`eval_gettext \"level, 'pup\\\${NEWVER}' is okay (of course, do not type the '). Type a string\"`
-`gettext \"without any spaces, or leave blank if you want to install Puppy at '/'.\"`
-`gettext \"The folders will be created if they don't exist...\"`" 0 0 "${DISTRO_FILE_PREFIX}${NEWVER}frugal" >${TMPDIR}/NEWPSUBDIR #111011
+$(gettext 'Enter a unique name for the folder. No spaces.')
+" 0 0 "${DISTRO_FILE_PREFIX}${NEWVER}frugal" >${TMPDIR}/NEWPSUBDIR #111011
 		[ $? -ne 0 ] && exit
 		NEWPSUBDIR="`cat ${TMPDIR}/NEWPSUBDIR | sed -e 's%^/%%' -e 's%/$%%' -e 's%[^/a-zA-Z0-9.]%%g'`" #101107 111011
 		NEWPSUBCNT=`echo -n "$NEWPSUBDIR" | sed -e 's%[^/]%%g' | wc -c` #101107
@@ -1509,12 +947,11 @@ $(gettext 'Enter a unique name for the folder. Note, Puppy will search 2-deep, s
 			[ -f "$SRCPATH"/"$pupfiles" ] && cp -f "$SRCPATH"/"$pupfiles" "$DESTMNTPT"/"$NEWPSUBDIR"/ || continue
 			sync
 		done #140630 made loop
-		FPCAPS="`echo -n "$PMEDIA" | tr [a-z] [A-Z]`"
 		sync
 		kill $XPID
 		umount /dev/$DESTPART
 		unmountcdfunc
-		which grub4dosconfig &>/dev/null && grub4dos_func #grub4dosconfig
+		which grub4dosconfig >/dev/null 2>&1 && grub4dos_func #grub4dosconfig
 		#=
 		xNEWPSUBDIR=""
 		OPTIONPSUBDIR=""
@@ -1607,7 +1044,7 @@ $(gettext 'your PC for all installations of Puppy and other operating systems)')
          '"$BTNS"'
         </vbox>
       </window>'
-		eval "$(gtkdialog -p maingui)"
+		eval "$(gtkdialog -p maingui --styles=/tmp/gtkrc_xml_info.css)"
 		case "$EXIT" in
 			abort|Cancel)
 				echo "bailing"
@@ -1628,7 +1065,7 @@ $(gettext 'your PC for all installations of Puppy and other operating systems)')
 				;;
 		esac
 		# remove some critical files
-		rm -f ${DESTMNTPT}/lib/modules/${KERNELVER}/modules.*
+		rm -f ${DESTMNTPT}/lib/modules/`uname -r`/modules.*
 		RC_STUFF="$(ls ${DESTMNTPT}/etc/rc.d/rc.* | grep -v "/rc.local$" | tr '\n' ' ')"
 		rm -fv ${RC_STUFF}
 		rm -fv ${DESTMNTPT}/etc/rc.d/funct*
@@ -1654,12 +1091,6 @@ $(gettext 'your PC for all installations of Puppy and other operating systems)')
 			kill $XPID
 			sleep 0.5
 		done
-		#w482 put these modules back into the normal places...
-		if [ -d /lib/modules/${KERNELVER}/initrd ];then
-			#note, important to not have 'initrd' folder in full hd installation, messes up rc.sysinit.
-			cp -af /lib/modules/${KERNELVER}/initrd/* ${DESTMNTPT}/lib/modules/${KERNELVER}/
-			depmod -b ${DESTMNTPT}
-		fi
 		sync
 
 		( 
@@ -1669,97 +1100,51 @@ $(gettext 'your PC for all installations of Puppy and other operating systems)')
 			ln -sf tmp run
 		)
 
-		# produce a minimal initrd...
-		[ -f ${SRCPATH}/initrd.gz ] && INITRD=${SRCPATH}/initrd.gz
-		[ -f ${SRCPATH}/initrd.xz ] && INITRD=${SRCPATH}/initrd.xz
-		rm -rf $HOME/initrd-expanded
-		TOHOME=1 edit-initramfs -x ${INITRD}
-		rm -fv $HOME/initrd-expanded/bin/cryptsetup
-		#rm -fv $HOME/initrd-expanded/bin/nano
-		rm -fv $HOME/initrd-expanded/bin/ntfs-3g
-		rm -fv $HOME/initrd-expanded/bin/mount.exfat-fuse
-		rm -fv $HOME/initrd-expanded/bin/fsck.fat
-		rm -fv $HOME/initrd-expanded/bin/losetup-222
-		rm -fv $HOME/initrd-expanded/bin/exfatfsck
-		rm -fv $HOME/initrd-expanded/bin/resize2fs
-		mv $HOME/initrd-expanded/init_full_install $HOME/initrd-expanded/init
-		find -L $HOME/initrd-expanded/bin -type l -delete
-		edit-initramfs -c $HOME/initrd-expanded
-		[ -f $HOME/initrd.gz ] && INITRD=$HOME/initrd.gz
-		[ -f $HOME/initrd.xz ] && INITRD=$HOME/initrd.xz
-
-		# static busybox and e2fsprogs required
-		# for ramdisk in full install without initrd.gz
-		cp -fv $HOME/initrd-expanded/bin/busybox ${DESTMNTPT}/bin/busybox_static
-		cp -fv $HOME/initrd-expanded/bin/e2fsck ${DESTMNTPT}/sbin/e2fsck_static
-
 		mkdir -p ${DESTMNTPT}/boot
 		cp -a --remove-destination ${SRCPATH}/vmlinuz $DESTMNTPT/boot/
-		cp -a --remove-destination ${INITRD} $DESTMNTPT/boot/
+		cp -a --remove-destination ${SRCPATH}/initrd.gz $DESTMNTPT/boot/
+		[ -e "${SRCPATH}/ucode.cpio" ] && cp -a --remove-destination ${SRCPATH}/ucode.cpio $DESTMNTPT/boot/
    
 		if [ $UPGRADE_INSTALL ] ; then
 			touch ${DESTMNTPT}/var/local/full_install_update_flag #full update
 			/usr/lib/gtkdialog/box_ok "$(gettext 'Puppy Installer')" info "$(gettext "Finished upgrading.")" "$(gettext "Hopefully everything went ok...")"
-			which grub4dosconfig &>/dev/null && grub4dos_func
+			which grub4dosconfig >/dev/null 2>&1 && grub4dos_func
 			exit
-		else
-			FULL_INSTALL_INITRD=no
-			if [ -f /initrd/tmp/not_a_huge_kernel -o -f /var/initrd/tmp/not_a_huge_kernel ] ; then
-				# non-huge kernel
-				FULL_INSTALL_INITRD=yes
-			else
-				# huge kernel
-				/usr/lib/gtkdialog/box_yesno --yes-first --yes-icon none --no-icon none "$L_PUPPY_INSTALLER" \
-				"Do you want to have a full install with a initial RAM disk (initrd.gz)?" \
-				"This adds, let's say, a layer of sanity providing more services and options than the regular full-install boot... (even more stability)."
-				[ $? -eq 0 ] && FULL_INSTALL_INITRD=yes
-			fi
 		fi
 		sync
 
-		if [ "$FULL_INSTALL_INITRD" = "yes" ] ; then
-			ROOTDEV="root=UUID=${DESTPART_UUID}"
-			ROOTDEV_ALT="
-#                                root=/dev/${DESTPART}"
-			GRUB_INITRD='initrd /boot/'$(basename $INITRD)
-		else
-			ROOTDEV="root=/dev/${DESTPART}"
-		fi
 		echo 'PUPMODE=2' > $DESTMNTPT/etc/rc.d/PUPSTATE
-
 		sync
 		sleep 1
 		umount ${DESTMNTPT}
 		unmountcdfunc
-		which grub4dosconfig &>/dev/null && grub4dos_func
+		which grub4dosconfig >/dev/null 2>&1 && grub4dos_func
 
 		#menu entry for grub4dos...
-		echo "`gettext \"If you have GRUB installed, find the 'menu.lst' file (usually in /boot
-in the partition in which GRUB is installed) and insert the text,
-or, if you have GRUB4DOS installed, find the 'menu.lst' file (usually
-in / in the partition in which GRUB4DOS is installed) and insert this:\"`
+		echo "`gettext \"If you have grub4dos installed, find the 'menu.lst' file (usually in /)
+in the partition in which grub4dos is installed) and insert this:\"`
 " > ${TMPDIR}/NEWGRUBTEXT
 		echo "title Puppy Linux - $DISTRO_NAME ${NEWVER} full install in ${DESTPART}
 ${GRUBPART}
-kernel /boot/vmlinuz fullinstall ${ROOTDEV} pmedia=${PMEDIA} ${ROOTDEV_ALT}
-${GRUB_INITRD}
+kernel /boot/vmlinuz fullinstall root=UUID=${DESTPART_UUID} pmedia=${PMEDIA}
+errorcheck off
+initrd /boot/initrd.gz
+initrd /boot/ucode.cpio /boot/initrd.gz
 
------
-For GRUB you must set root (hdX,X) to the correct values and comment/remove uuid. root (hdX,X) is also supported by grub4dos..
 " >> ${TMPDIR}/NEWGRUBTEXT
 
 		defaulttextviewer ${TMPDIR}/NEWGRUBTEXT &
 		sleep 3
 
-		Xdialog --wmclass "gtkdialog2" --left --buttons-style text --title "$L_PUPPY_INSTALLER" --ok-label "OK" --msgbox "$(gettext 'If all went well, Puppy has been installed to') $DESTPART.\n\
+		Xdialog --wmclass "gtkdialog2" --left --buttons-style text --title "$L_PUPPY_INSTALLER" --ok-label "OK" \
+		--msgbox "$(gettext 'If all went well, Puppy has been installed to') $DESTPART.\n\
 $(gettext 'The text-editor window shows text that you can insert into the menu.lst')
-$(gettext 'file if you have GRUB or GRUB4DOS inststalled.')
+$(gettext 'file if you have or GRUB4DOS installed.')
 
-$(gettext 'If your PC does not have GRUB, GRUB4DOS, LILO or any other boot manager')
+$(gettext 'If your PC does not have GRUB4DOS')
 $(gettext 'installed, or you want to do a reinstallation, just click the ')'OK'
 $(gettext 'button to finish the Installer, then go to the "System" menu')
-$(gettext 'and run the GRUB or GRUB4DOS installer -- this will probe your PC, so')
-$(gettext 'you probably wont need the contents of the text-editor...')" 0 0
+$(gettext 'and run the GRUB4DOS installer.')"  0 0
 	fi
 	;;
 esac

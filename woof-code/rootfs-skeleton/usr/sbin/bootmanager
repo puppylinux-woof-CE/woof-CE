@@ -1,6 +1,16 @@
-#!/bin/sh
+#!/bin/bash
 #BK 2007, original idea from sunburnt
 #Lesser GPL licence v2 (/usr/share/doc/legal). 2007 www.puppylinux.com
+#
+# The main bootmanager dialog is at the end of the script
+#
+# Param $1:
+#	sysdaemons		STARTUP - Choose which system services to run at startup
+#	blacklist		MODULES - 'Blacklist' module
+#	yeslist			MODULES - Add new module
+#	preflist		MODULES - Give preference to one module over another
+#	initlist		MODULES - Load  the specified module(s) early in the boot process
+#                   /usr/sbin/initmodules
 
 [ "`whoami`" != "root" ] && exec sudo -A ${0} ${@} #support sudo for non-root user.
 
@@ -13,142 +23,54 @@ CLPARAM1="$1" #$1='' then run the main window.
 MY_SELF="$0"
 CURRDIR="`pwd`"
 KERNVER="`uname -r`"
-. /etc/rc.d/PUPSTATE
+KARCH="`uname -m`"
+. /etc/rc.d/PUPSTATE # $DOIMODS
 . /etc/DISTRO_SPECS
 
-blacklist_func() {
- #blacklisting of modules at bootup.
- . /etc/rc.d/MODULESCONFIG
- MODLIST=""
- xSKIPLIST="`echo -n "$SKIPLIST" | tr ' ' '\n' | sort -u | tr '\n' ' ' | tr -s ' '`" #110305
- LOADEDMODULES="`lsmod | grep -v '^Module' | cut -f 1 -d ' ' | sort | tr '\n' ' '`" #110305
- for ONEMOD in $LOADEDMODULES ; do
-  MODLIST="$MODLIST $ONEMOD $ONEMOD off"
- done
- for ONEMOD in $xSKIPLIST ; do
-  MODLIST="$MODLIST $ONEMOD $ONEMOD on"
- done
- EXECME="Xdialog --wmclass \"module16\" --title \"$(gettext 'BootManager: Module blacklist manager')\" --left --stdout --separator \" \" --buildlist \"$(gettext 'On the left pane are modules that are currently loaded.\n
-On the right pane is the complete list of blacklisted modules.\n
-If you want to prevent a module from loading, move it to the right\n
-side, click OK, then reboot.\n
-Note, if you want to find out further information about any module,\n
-run PupScan (look in the System menu)\n
-Note, you need to reboot for any change to take effect.')\" 0 0 8 $MODLIST >/tmp/skiprettags.txt"
- eval $EXECME
- RETVAL=$?
- [ ! $RETVAL -eq 0 ] && return 1
- SKIPLIST=" `cat /tmp/skiprettags.txt | tr '\n' ' '`"
- #now update /etc/rc.d/MODULESCONFIG...
- sed -i -e "s%^SKIPLIST=.*%SKIPLIST='${SKIPLIST}'%" /etc/rc.d/MODULESCONFIG #110305
-} #end blacklist_func
+#======================================================================
+#      STARTUP - Choose which system services to run at startup
+#======================================================================
 
-#---------------------------------------------------------------
+if [ "$CLPARAM1" = "sysdaemons" ] ; then
+	#manage system services at bootup.
+	osdcnt=0
+	echo -n "" > /tmp/bootmanager_osd
+	for ONESYSDAEMON in `find /etc/init.d -maxdepth 1 -type f | grep -v -E 'txt|pcmcia|alsa'`
+	do
+		osdcnt=$(( $osdcnt + 1 ))
+		OSDNAME="`basename $ONESYSDAEMON`"
+		xOSDNAME="`echo -n "$OSDNAME" | sed -e 's%^[0-9]%%' -e 's%^[0-9]%%'`" #remove any leading number.
+		OSDDIR="`dirname $ONESYSDAEMON`"
+		OSDDEFAULT='false'
+		[ -x $ONESYSDAEMON ] && OSDDEFAULT='true'
+		OSDDESCR=''
+		case $xOSDNAME in
+			alsa) OSDDESCR='('$(gettext 'ALSA sound server, required to play audio')')' ;;
+			cups) OSDDESCR='('$(gettext 'CUPS printing, required to print')')' ;;
+			messagebus) OSDDESCR='('$(gettext 'DBUS interprocess messaging, required by some apps')')' ;;
+			rc.acpi) OSDDESCR='('$(gettext 'ACPI management, not essential')')' ;;
+			slmodem) OSDDESCR='('$(gettext 'Only needed for certain Internet dialup modems')')' ;;
+			sys_logger) OSDDESCR='('$(gettext 'Logs kernel & app. info. & error messages, not essential')')' ;;
+			rc.smbqmsvc) OSDDESCR='('$(gettext 'only needed for quick mounting Samba shares in lameSMBxplorer')')' ;;
+		esac
+		OSDBOXES="${OSDBOXES} <checkbox><label>${xOSDNAME} ${OSDDESCR}</label><default>${OSDDEFAULT}</default><variable>OSDCHK_${osdcnt}_</variable></checkbox>"
+		echo "OSDCHK_${osdcnt}_|${OSDDIR}|${OSDNAME}" >> /tmp/bootmanager_osd
+	done
+	if [ "`grep '/etc/rc.d/rc.firewall' /etc/rc.d/rc.local`" != "" ];then
+		osdcnt=$(( $osdcnt + 1 ))
+		OSDDEFAULT='false'
+		[ -x /etc/rc.d/rc.firewall ] && OSDDEFAULT='true'
+		OSDBOXES="${OSDBOXES} <checkbox><label>rc.firewall ($(gettext 'Firewall important security on Internet'))</label><default>${OSDDEFAULT}</default><variable>OSDCHK_${osdcnt}_</variable></checkbox>"
+		echo "OSDCHK_${osdcnt}_|/etc/rc.d|rc.firewall" >> /tmp/bootmanager_osd
+	fi
+	#also offer udev management...
+	osdcnt=$(( $osdcnt + 1 ))
+	OSDDEFAULT='false'
+	[ "`grep '^BACKENDON' /etc/eventmanager | grep 'true'`" != "" ] && OSDDEFAULT='true'
+	OSDBOXES="${OSDBOXES} <checkbox><label>udev (`gettext \"Hardware hotplug detection -- see 'Help'\"`)</label><default>${OSDDEFAULT}</default><variable>OSDCHK_${osdcnt}_</variable></checkbox>"
+	echo "OSDCHK_${osdcnt}_||udev" >> /tmp/bootmanager_osd
 
-yeslist_func() {
- #choose extra modules to load at bootup.
- /usr/lib/gtkdialog/box_splash -close never -text "$(gettext 'Please wait, processing...')" &
- X1PID=$!
- . /etc/rc.d/MODULESCONFIG
- MODLIST=""
- LOADEDMODULES=`cut -f1 -d' ' /proc/modules`
- ALLMODULES=`cut -f 1 -d ':' /lib/modules/$KERNVER/modules.dep | grep -o '[a-zA-Z0-9_-]*\.ko' | tr '\-' '_' | sed 's%\.k.*$%%' | sort`
- ALLMODULES=`echo "$ALLMODULES" | /bin/grep -vw "$LOADEDMODULES"`
- ADDLIST_MOD_ONLY=`echo "$ADDLIST" | tr ' ' '\n' | sed 's%:.*%%;/^$/d'`
- ALLMODULES=`echo "$ALLMODULES" | /bin/grep -vw "$ADDLIST_MOD_ONLY"`
- ALLMODULES=`echo "$ALLMODULES" | sed 's%\(.*\)%& & off%'`
- MODLIST=`echo "$ALLMODULES" | tr '\n' ' '`
- #echo "$MODLIST" >&2
- for ONEMOD in $ADDLIST
- do
-  NAMEONLY="$ONEMOD"
-  xONEMOD="$ONEMOD"
-  if [ `echo -n "$ONEMOD" | tr ':' ' ' | wc -w` -gt 1 ];then
-   MPARAMS="`echo -n "$ONEMOD" | cut -f 2-9 -d ':' | tr ':' ' '`"
-   NAMEONLY="`echo -n "$ONEMOD" | cut -f 1 -d ':'`"
-   xONEMOD="$NAMEONLY $MPARAMS"
-  fi
-  MODPATTERN=" $NAMEOLY "
-  #leave off list if already loaded...
-  [ "`echo "$LOADEDMODULES" | grep "$MODPATTERN"`" != "" ] && continue
-  MODLIST="$MODLIST $ONEMOD \"$xONEMOD\" on"
- done
- #echo >&2
- #echo "$MODLIST" >&2
- [ "$MODLIST" ] || : ##TODO something
- kill $X1PID 2>/dev/null
- EXECME="Xdialog --wmclass \"module16\" --title \"$(gettext 'BootManager: Module add-list manager')\" --left --stdout --separator \" \" --buildlist \"$(gettext 'On the left pane is the complete list of modules available to be\nused by Puppy (and not currently loaded).\nOn the right pane are modules that you have explicitly chosen to\nbe loaded at bootup (not auto-loaded by default).\nIf you want to force a module to load, move it to the right pane,\nclick OK button, then reboot Puppy.\nNote, if you want to find out further information about any module,\nrun PupScan (look in the System menu)')\" 0 0 8 $MODLIST >/tmp/yesrettags.txt"
- eval $EXECME
- RETVAL=$?
- [ ! $RETVAL -eq 0 ] && return 1
- cat /tmp/yesrettags.txt | tr ' ' '\n' | tr ':' ' ' > /tmp/modules_addlist_edit #v411
- Xdialog --backtitle "$(gettext "If you wish, add any required parameters to these modules\nExample: mmc_block major=179\nIf you don't know what this means, just click 'OK' button")"  --wmclass "module16" --title "$(gettext 'BootManager: Edit module addlist')" --left --stdout --no-cancel --editbox /tmp/modules_addlist_edit 0 0 > /tmp/modules_addlist_edit_out  #'geany
- [ $? -ne 0 ] && return 1
- ADDLIST="`cat /tmp/modules_addlist_edit_out`"
- ADDLIST=' '"`echo "$ADDLIST" | tr ' ' ':' | tr '\n' ' ' | tr -s ' '`"
- #now update /etc/rc.d/MODULESCONFIG...
- grep -v '^ADDLIST' /etc/rc.d/MODULESCONFIG > /tmp/MODULESCONFIG
- mv -f /tmp/MODULESCONFIG /etc/rc.d/MODULESCONFIG
- echo "ADDLIST='${ADDLIST}'" >> /etc/rc.d/MODULESCONFIG
-} #end yeslist_func
-
-#---------------------------------------------------------------
-
-preflist_func() {
- . /etc/rc.d/MODULESCONFIG
- xPREFLIST="`echo -n "$PREFLIST" | sed -e 's/^ //' | tr ' ' '\n'`"
- echo "$xPREFLIST" > /tmp/bootmanager_preflist
- xxPREFLIST="`Xdialog --backtitle \"$(gettext 'Sometimes two modules are eligible for the same hardware,\n
-and you need to choose one of them. Create a line here,\nof format module1:module2, where you want module2 to\nhave preference over module1.')\" --wmclass \"module16\" --title \"$(gettext 'BootManager: Module preference-list manager')\" --left --stdout --help \"$(gettext 'Sometimes two modules are eligible for the same hardware, and you need to choose\none of them. An example is the rt2500usb and rt73usb wireless networking modules\n-- with some hardware these are both eligible however our experience has been that\nthe rt73usb works better. For such a situation, create a line here, of format\nmodule1:module2, where you want module2 to have preference over module1.\nNote: an alternative approach is to blacklist the rt2500usb module (see main menu)\nhowever that is gross as it always prevents rt2500usb from loading.')\" --editbox /tmp/bootmanager_preflist 0 0`"
- if [ $? -eq 0 ];then
-  NEWPREFLIST="`echo "$xxPREFLIST" | tr '\n' ' ' | sed -e 's/^/ /' | tr -s ' '`"
-  grep -v '^PREFLIST' /etc/rc.d/MODULESCONFIG > /tmp/MODULESCONFIG
-  mv -f /tmp/MODULESCONFIG /etc/rc.d/MODULESCONFIG
-  echo "PREFLIST='${NEWPREFLIST}'" >> /etc/rc.d/MODULESCONFIG
- fi
-} #end preflist_func
-
-#---------------------------------------------------------------
-
-sysdaemons_func() { #manage system services at bootup.
- osdcnt=0
- echo -n "" > /tmp/bootmanager_osd
- for ONESYSDAEMON in `find /etc/init.d -maxdepth 1 -type f | grep -v -E 'txt|pcmcia|alsa'`
- do
-  osdcnt=`expr $osdcnt + 1`
-  OSDNAME="`basename $ONESYSDAEMON`"
-  xOSDNAME="`echo -n "$OSDNAME" | sed -e 's%^[0-9]%%' -e 's%^[0-9]%%'`" #remove any leading number.
-  OSDDIR="`dirname $ONESYSDAEMON`"
-  OSDDEFAULT='false'
-  [ -x $ONESYSDAEMON ] && OSDDEFAULT='true'
-  OSDDESCR=''
-  case $xOSDNAME in
-   alsa) OSDDESCR='('$(gettext 'ALSA sound server, required to play audio')')' ;;
-   cups) OSDDESCR='('$(gettext 'CUPS printing, required to print')')' ;;
-   messagebus) OSDDESCR='('$(gettext 'DBUS interprocess messaging, required by some apps')')' ;;
-   rc.acpi) OSDDESCR='('$(gettext 'ACPI management, not essential')')' ;;
-   slmodem) OSDDESCR='('$(gettext 'Only needed for certain Internet dialup modems')')' ;;
-   sys_logger) OSDDESCR='('$(gettext 'Logs kernel & app. info. & error messages, not essential')')' ;;
-   rc.smbqmsvc) OSDDESCR='('$(gettext 'only needed for quick mounting Samba shares in lameSMBxplorer')')' ;;
-  esac
-  OSDBOXES="${OSDBOXES} <checkbox><label>${xOSDNAME} ${OSDDESCR}</label><default>${OSDDEFAULT}</default><variable>OSDCHK_${osdcnt}_</variable></checkbox>"
-  echo "OSDCHK_${osdcnt}_|${OSDDIR}|${OSDNAME}" >> /tmp/bootmanager_osd
- done
- if [ "`grep '/etc/rc.d/rc.firewall' /etc/rc.d/rc.local`" != "" ];then
-  osdcnt=`expr $osdcnt + 1`
-  OSDDEFAULT='false'
-  [ -x /etc/rc.d/rc.firewall ] && OSDDEFAULT='true'
-  OSDBOXES="${OSDBOXES} <checkbox><label>rc.firewall ($(gettext 'Firewall important security on Internet'))</label><default>${OSDDEFAULT}</default><variable>OSDCHK_${osdcnt}_</variable></checkbox>"
-  echo "OSDCHK_${osdcnt}_|/etc/rc.d|rc.firewall" >> /tmp/bootmanager_osd
- fi
- #also offer udev management...
- osdcnt=`expr $osdcnt + 1`
- OSDDEFAULT='false'
- [ "`grep '^BACKENDON' /etc/eventmanager | grep 'true'`" != "" ] && OSDDEFAULT='true'
- OSDBOXES="${OSDBOXES} <checkbox><label>udev (`gettext \"Hardware hotplug detection -- see 'Help'\"`)</label><default>${OSDDEFAULT}</default><variable>OSDCHK_${osdcnt}_</variable></checkbox>"
- echo "OSDCHK_${osdcnt}_||udev" >> /tmp/bootmanager_osd
-
- export BootManager_Services='
+	export BootManager_Services='
 <window title="'$(gettext 'BootManager - System services')'" icon-name="gtk-execute" default-height="400">
 <vbox space-expand="true" space-fill="true">
   <frame '$(gettext 'System services')'>
@@ -180,80 +102,204 @@ sysdaemons_func() { #manage system services at bootup.
 </vbox>
 </window>'
 
- RETSTRING="`gtkdialog -p BootManager_Services`"
- [ "`echo "$RETSTRING" | grep 'EXIT' | grep 'OK'`" = "" ] && return
- while [ $osdcnt -gt 0 ];do
-  OSDVAR="OSDCHK_${osdcnt}_"
-  OSDDIR="`grep "$OSDVAR" /tmp/bootmanager_osd | cut -f 2 -d '|'`"
-  OSDNAME="`grep "$OSDVAR" /tmp/bootmanager_osd | cut -f 3 -d '|'`"
-  if [ "$OSDNAME" = "udev" ];then
-   if [ "`echo "$RETSTRING" | grep "$OSDVAR" | grep 'true'`" != "" ];then
-    if [ "`grep '^BACKENDON' /etc/eventmanager | grep 'false'`" != "" ];then
-     /usr/lib/gtkdialog/box_ok "$(gettext 'Boot manager')" info "`gettext \"The EventManager will now be run, so that you can enable 'udev'. You will need to tick the 'hotplug module/firmware loading' checkbox...\"`"
-     eventmanager &
-    fi
-   else
-    if [ "`grep '^BACKENDON' /etc/eventmanager | grep 'true'`" != "" ];then
-     /usr/lib/gtkdialog/box_ok "$(gettext 'Boot manager')" info "`gettext \"The EventManager will now be run, so that you can disable 'udev'. You will need to untick the 'hotplug module/firmware loading' checkbox...\"`"
-     eventmanager &
-    fi
-   fi
-  fi
-  if [ "$OSDDIR" = "/etc/init.d" -o "$OSDDIR" = "/etc/rc.d" ];then
-   if [ "`echo "$RETSTRING" | grep "$OSDVAR" | grep 'true'`" != "" ];then
-    chmod 755 ${OSDDIR}/${OSDNAME}
-   else
-    chmod 644 ${OSDDIR}/${OSDNAME}
-   fi
-  fi
-  osdcnt=`expr $osdcnt - 1`
- done
+	RETSTRING="`gtkdialog -p BootManager_Services --styles=/tmp/gtkrc_xml_info.css`"
+	[ "`echo "$RETSTRING" | grep 'EXIT' | grep 'OK'`" = "" ] && exit
+	while [ $osdcnt -gt 0 ];do
+		OSDVAR="OSDCHK_${osdcnt}_"
+		OSDDIR="`grep "$OSDVAR" /tmp/bootmanager_osd | cut -f 2 -d '|'`"
+		OSDNAME="`grep "$OSDVAR" /tmp/bootmanager_osd | cut -f 3 -d '|'`"
+		if [ "$OSDNAME" = "udev" ];then
+			if [ "`echo "$RETSTRING" | grep "$OSDVAR" | grep 'true'`" != "" ];then
+				if [ "`grep '^BACKENDON' /etc/eventmanager | grep 'false'`" != "" ];then
+					/usr/lib/gtkdialog/box_ok "$(gettext 'Boot manager')" info "`gettext \"The EventManager will now be run, so that you can enable 'udev'. You will need to tick the 'hotplug module/firmware loading' checkbox...\"`"
+					eventmanager &
+				fi
+			else
+				if [ "`grep '^BACKENDON' /etc/eventmanager | grep 'true'`" != "" ];then
+					/usr/lib/gtkdialog/box_ok "$(gettext 'Boot manager')" info "`gettext \"The EventManager will now be run, so that you can disable 'udev'. You will need to untick the 'hotplug module/firmware loading' checkbox...\"`"
+					eventmanager &
+				fi
+			fi
+		fi
+		if [ "$OSDDIR" = "/etc/init.d" -o "$OSDDIR" = "/etc/rc.d" ];then
+			if [ "`echo "$RETSTRING" | grep "$OSDVAR" | grep 'true'`" != "" ];then
+				chmod 755 ${OSDDIR}/${OSDNAME}
+			else
+				chmod 644 ${OSDDIR}/${OSDNAME}
+			fi
+		fi
+		osdcnt=$(( $osdcnt - 1 ))
+	done
+	exit
+fi
 
-} #end sysdaemons_func
+#======================================================================
+#                   MODULES - 'Blacklist' module
+#======================================================================
 
-#---------------------------------------------------------------
+if [ "$CLPARAM1" = "blacklist" ] ; then
+	#blacklisting of modules at bootup.
+	. /etc/rc.d/MODULESCONFIG
+	MODLIST=""
+	xSKIPLIST="`echo -n "$SKIPLIST" | tr ' ' '\n' | sort -u | tr '\n' ' ' | tr -s ' '`" #110305
+	LOADEDMODULES="`lsmod | grep -v '^Module' | cut -f 1 -d ' ' | sort | tr '\n' ' '`" #110305
+	for ONEMOD in $LOADEDMODULES ; do
+		MODLIST="$MODLIST $ONEMOD $ONEMOD off"
+	done
+	for ONEMOD in $xSKIPLIST ; do
+		MODLIST="$MODLIST $ONEMOD $ONEMOD on"
+	done
+	EXECME="Xdialog --wmclass \"module16\" --title \"$(gettext 'BootManager: Module blacklist manager')\" --left --stdout --separator \" \" --buildlist \"$(gettext 'On the left pane are modules that are currently loaded.\n
+On the right pane is the complete list of blacklisted modules.\n
+If you want to prevent a module from loading, move it to the right\n
+side, click OK, then reboot.\n
+Note, if you want to find out further information about any module,\n
+run PupScan (look in the System menu)\n
+Note, you need to reboot for any change to take effect.')\" 0 0 8 $MODLIST >/tmp/skiprettags.txt"
+	eval $EXECME
+	RETVAL=$?
+	[ ! $RETVAL -eq 0 ] && exit 1
+	SKIPLIST=" `cat /tmp/skiprettags.txt | tr '\n' ' '`"
+	#now update /etc/rc.d/MODULESCONFIG...
+	sed -i -e "s%^SKIPLIST=.*%SKIPLIST='${SKIPLIST}'%" /etc/rc.d/MODULESCONFIG #110305
+	exit
+fi
 
-initlist_func () {
-   /usr/lib/gtkdialog/box_ok "$(gettext 'Initmodules: Modules to load in init script')" info "`gettext \"Initmodules allows loading of specific modules early in the boot process, before the full OS is established. Is particularly useful if for example, you have a keyboard that does not work when you need to chose a save file during boot, but is fully functional latter when you get to the Desktop.\"`"
-    initmodules &
+#======================================================================
+#                   MODULES - Add new module
+#======================================================================
+
+if [ "$CLPARAM1" = "yeslist" ] ; then
+	#choose extra modules to load at bootup.
+	/usr/lib/gtkdialog/box_splash -close never -text "$(gettext 'Please wait, processing...')" &
+	X1PID=$!
+	. /etc/rc.d/MODULESCONFIG
+	MODLIST=""
+	LOADEDMODULES=`cut -f1 -d' ' /proc/modules`
+	ALLMODULES=`cut -f 1 -d ':' /lib/modules/$KERNVER/modules.dep | grep -o '[a-zA-Z0-9_-]*\.ko' | tr '\-' '_' | sed 's%\.k.*$%%' | sort`
+	ALLMODULES=`echo "$ALLMODULES" | /bin/grep -vw "$LOADEDMODULES"`
+	ADDLIST_MOD_ONLY=`echo "$ADDLIST" | tr ' ' '\n' | sed 's%:.*%%;/^$/d'`
+	ALLMODULES=`echo "$ALLMODULES" | /bin/grep -vw "$ADDLIST_MOD_ONLY"`
+	ALLMODULES=`echo "$ALLMODULES" | sed 's%\(.*\)%& & off%'`
+	MODLIST=`echo "$ALLMODULES" | tr '\n' ' '`
+	#echo "$MODLIST" >&2
+	for ONEMOD in $ADDLIST
+	do
+		NAMEONLY="$ONEMOD"
+		xONEMOD="$ONEMOD"
+		if [ `echo -n "$ONEMOD" | tr ':' ' ' | wc -w` -gt 1 ];then
+			MPARAMS="`echo -n "$ONEMOD" | cut -f 2-9 -d ':' | tr ':' ' '`"
+			NAMEONLY="`echo -n "$ONEMOD" | cut -f 1 -d ':'`"
+			xONEMOD="$NAMEONLY $MPARAMS"
+		fi
+		MODPATTERN=" $NAMEOLY "
+		#leave off list if already loaded...
+		[ "`echo "$LOADEDMODULES" | grep "$MODPATTERN"`" != "" ] && continue
+		MODLIST="$MODLIST $ONEMOD \"$xONEMOD\" on"
+	done
+	#echo >&2
+	#echo "$MODLIST" >&2
+	[ "$MODLIST" ] || : ##TODO something
+	kill $X1PID 2>/dev/null
+	EXECME="Xdialog --wmclass \"module16\" --title \"$(gettext 'BootManager: Module add-list manager')\" --left --stdout --separator \" \" --buildlist \"$(gettext 'On the left pane is the complete list of modules available to be\nused by Puppy (and not currently loaded).\nOn the right pane are modules that you have explicitly chosen to\nbe loaded at bootup (not auto-loaded by default).\nIf you want to force a module to load, move it to the right pane,\nclick OK button, then reboot Puppy.\nNote, if you want to find out further information about any module,\nrun PupScan (look in the System menu)')\" 0 0 8 $MODLIST >/tmp/yesrettags.txt"
+	eval $EXECME
+	RETVAL=$?
+	[ ! $RETVAL -eq 0 ] && exit 1
+	cat /tmp/yesrettags.txt | tr ' ' '\n' | tr ':' ' ' > /tmp/modules_addlist_edit #v411
+	Xdialog --backtitle "$(gettext "If you wish, add any required parameters to these modules\nExample: mmc_block major=179\nIf you don't know what this means, just click 'OK' button")"  --wmclass "module16" --title "$(gettext 'BootManager: Edit module addlist')" --left --stdout --no-cancel --editbox /tmp/modules_addlist_edit 0 0 > /tmp/modules_addlist_edit_out  #'geany
+	[ $? -ne 0 ] && exit 1
+	ADDLIST="`cat /tmp/modules_addlist_edit_out`"
+	ADDLIST=' '"`echo "$ADDLIST" | tr ' ' ':' | tr '\n' ' ' | tr -s ' '`"
+	#now update /etc/rc.d/MODULESCONFIG...
+	grep -v '^ADDLIST' /etc/rc.d/MODULESCONFIG > /tmp/MODULESCONFIG
+	mv -f /tmp/MODULESCONFIG /etc/rc.d/MODULESCONFIG
+	echo "ADDLIST='${ADDLIST}'" >> /etc/rc.d/MODULESCONFIG
+	exit
+fi
+
+
+#======================================================================
+#        MODULES - Give preference to one module over another
+#======================================================================
+
+if [ "$CLPARAM1" = "preflist" ] ; then
+	. /etc/rc.d/MODULESCONFIG
+	xPREFLIST="`echo -n "$PREFLIST" | sed -e 's/^ //' | tr ' ' '\n'`"
+	echo "$xPREFLIST" > /tmp/bootmanager_preflist
+	xxPREFLIST="`Xdialog --backtitle \"$(gettext 'Sometimes two modules are eligible for the same hardware,\n
+	and you need to choose one of them. Create a line here,\nof format module1:module2, where you want module2 to\nhave preference over module1.')\" --wmclass \"module16\" --title \"$(gettext 'BootManager: Module preference-list manager')\" --left --stdout --help \"$(gettext 'Sometimes two modules are eligible for the same hardware, and you need to choose\none of them. An example is the rt2500usb and rt73usb wireless networking modules\n-- with some hardware these are both eligible however our experience has been that\nthe rt73usb works better. For such a situation, create a line here, of format\nmodule1:module2, where you want module2 to have preference over module1.\nNote: an alternative approach is to blacklist the rt2500usb module (see main menu)\nhowever that is gross as it always prevents rt2500usb from loading.')\" --editbox /tmp/bootmanager_preflist 0 0`"
+	if [ $? -eq 0 ];then
+		NEWPREFLIST="`echo "$xxPREFLIST" | tr '\n' ' ' | sed -e 's/^/ /' | tr -s ' '`"
+		grep -v '^PREFLIST' /etc/rc.d/MODULESCONFIG > /tmp/MODULESCONFIG
+		mv -f /tmp/MODULESCONFIG /etc/rc.d/MODULESCONFIG
+		echo "PREFLIST='${NEWPREFLIST}'" >> /etc/rc.d/MODULESCONFIG
+	fi
+	exit
+fi
+
+
+#======================================================================
+#  MODULES - Load  the specified module(s) early in the boot process
+#======================================================================
+
+if [ "$CLPARAM1" = "initlist" ] ; then
+	/usr/lib/gtkdialog/box_ok "$(gettext 'Initmodules: Modules to load in init script')" info "`gettext \"Initmodules allows loading of specific modules early in the boot process, before the full OS is established. Is particularly useful if for example, you have a keyboard that does not work when you need to chose a save file during boot, but is fully functional latter when you get to the Desktop.\"`"
+	initmodules &
+	exit
+fi
+
+#======================================================================
+#                 MAIN BOOTMANAGER DIALOG
+#======================================================================
+
+enable_xerrs() {
+	rm -f /var/local/xwin_disable_xerrs_log_flag
 }
+disable_xerrs() {
+	echo -n > /var/local/xwin_disable_xerrs_log_flag
+}
+export -f enable_xerrs
+export -f disable_xerrs
+if [ -f /var/local/xwin_disable_xerrs_log_flag ] ; then
+	XERRS_ENABLED='false'
+else
+	XERRS_ENABLED='true'
+fi
+export xerrs_chkbox='
+          <checkbox>
+          <label>'$(gettext 'Log X errors to /tmp/xerrs.log')'</label>
+          <default>'${XERRS_ENABLED}'</default>
+          <variable>xerrs_ENABLED</variable>
+          <action>if true enable_xerrs</action>
+          <action>if false disable_xerrs</action>
+        </checkbox>
+'
 
-if [ "$DOIMODS" = "yes" -a "$(which initmodules)" ]; then
-   INITBUTTON='<hbox>
+INITBUTTON=""
+if [ "$DOIMODS" = "yes" ]; then
+	INITBUTTON='<hbox>
             <text><label>'$(gettext 'Load  the specified module(s) early in the boot process')'</label></text>
             <button>
               '"`/usr/lib/gtkdialog/xml_button-icon module_yes.svg big`"'
               <action>'"$MY_SELF"' initlist &</action>
             </button>
           </hbox>'
-else
-   INITBUTTON=""
 fi
 
+PREFLIST_BUTTON=''
 if [ -f /etc/rc.d/MODULESCONFIG-backend_modprobe ];then
-    PREFLIST_BUTTON='<hbox>
+	PREFLIST_BUTTON='<hbox>
        <text><label>'$(gettext 'Give preference to one module over another')'</label></text>
        <button>
          '"`/usr/lib/gtkdialog/xml_button-icon module.svg big`"'
          <action>'"$MY_SELF"' preflist &</action>
        </button>
      </hbox>'
-else
-    PREFLIST_BUTTON=''
 fi
 
-#----------------------------------------
-case "$CLPARAM1" in
-	blacklist)  blacklist_func  ; exit ;;
-	yeslist)    yeslist_func    ; exit ;;
-	preflist)   preflist_func   ; exit ;;
-	sysdaemons) sysdaemons_func ; exit ;;
-	initlist)   initlist_func   ; exit ;;
-esac
-#----------------------------------------
-
 generic_xml() {
-    echo '
+	echo '
+	<vbox margin="8">
     <frame '${XML_FRAME}'>
       <vbox space-expand="true" space-fill="true">
         '${XLM_INFO}'
@@ -269,23 +315,9 @@ generic_xml() {
           <text height-request="5"><label>""</label></text>
         </vbox>
       </vbox>
-    </frame>'
+    </frame>
+    </vbox>'
 }
-
-case $PUPMODE in 5|2) no_underdog=1 ;;
-*)
-	UD_1="$(gettext "The Underdog Distro")"
-	UD_2="$(gettext "At bootup Puppy will read underdog.lnx and will mount the partition as the bottom layer. If that partition happens to have a Linux distro installed in it, then the entire distro filesystem will 'show through' on the top layer of Puppy's unionfs.")"
-	UD_3="$(gettext "It will look like a normal Puppy, same desktop, but everything in the underlying distro is available to be executed. All the applications, compile environment, package manager, etc.")"
-	XML_FRAME=$(gettext 'Underdog')
-	XLM_INFO="`/usr/lib/gtkdialog/xml_info scale puppy.svg 60 "$UD_1" " " "$UD_2" "" "$UD_3"`"
-	XML_ICON=puppy.svg
-	XML_LABEL=$(gettext 'Run underdog gui')
-	XML_ACTION='underdog &'
-	UNDERDOG_XML="$(generic_xml)" #--
-	UNDERDOG_TAB='|'$(gettext 'Underdog')''
-	;;
-esac
 
 PUPSWAP_XML_1="$(gettext "As well as the swap partition, Linux also supports a swap file that you can create, prepare, and mount in a fashion similar to that of a swap partition. The advantage of swap files is that you don't need to find an empty partition or repartition a disk to add additional swap space.")"
 PUPSWAP_XML_2="$(gettext "It is possible to run a Linux system without a swap space, and the system will run well if you have a large amount of memory -- but if you run out of physical memory then the system will crash, as it has nothing else it can do, so it is advisable to have a swap space, especially since disk space is relatively cheap")"
@@ -296,30 +328,82 @@ XML_LABEL=$(gettext 'Run pupswap')
 XML_ACTION='pupswap &'
 SWAPFILE_XML="$(generic_xml)" #--
 
+MIC_LABEL=$(gettext 'Run Microcode Installer')
+MIC_ACTION='micro2pup.sh &'
+if [ $PUPMODE -eq 77 ];then #PUPMODE=77, save back to optical media
+    MICROCODE_XML='
+    <vbox margin="8">
+    <frame '$(gettext 'Download microcode fixes')'>
+      <vbox space-expand="true" space-fill="true">
+        '"`/usr/lib/gtkdialog/xml_info scale execute_inspect.svg 60 "$(gettext "NOTICE: As this is a CD or DVD installation of Puppy with a read only initrd, the early loading of microcode is not supported. You may still be able to use the <b>Late Loading</b> of microcode feature.")"`"'
+		<vbox space-expand="false" space-fill="false">
+          <text height-request="20"><label>""</label></text>
+          <hbox>
+            <text><label>'${MIC_LABEL}'</label></text>
+            <button>
+              '`/usr/lib/gtkdialog/xml_button-icon ${XML_ICON} big`'
+              <action>'"${MIC_ACTION}"'</action>
+            </button>
+          </hbox>
+          <text height-request="5"><label>""</label></text>
+        </vbox>     
+      </vbox>
+    </frame>
+    </vbox>'
+else
+    MICROCODE_XML='
+    <vbox margin="8">
+    <frame '$(gettext 'Download microcode fixes')'>
+      <vbox space-expand="true" space-fill="true">
+        '"`/usr/lib/gtkdialog/xml_info scale execute_inspect.svg 60 "$(gettext "Due to several CPU bugs across <b>AMD</b> and <b>Intel</b> processors it is possible to download and install to the initial ram filesysem special microcode that can mitigate these bugs. Special files are downloaded and processed then added to your boot sequence and will take effect on the next, and every subsequent reboot.")"`"'
+		<vbox space-expand="false" space-fill="false">
+          <text height-request="20"><label>""</label></text>
+          <hbox>
+            <text><label>'${MIC_LABEL}'</label></text>
+            <button>
+              '`/usr/lib/gtkdialog/xml_button-icon ${XML_ICON} big`'
+              <action>'"${MIC_ACTION}"'</action>
+            </button>
+          </hbox>
+          <text height-request="5"><label>""</label></text>
+        </vbox>     
+      </vbox>
+    </frame>
+    </vbox>'
+fi
+
 if [ $PUPMODE -eq 2 ];then #PUPMODE=2, full hd install, will not have this.
-    SFSLOAD_XML="$(gettext "SFS_Load application will enable you to install SFS files -- see the 'Setup' menu.")"
-    SFSFRAME_XML='
+	SFSLOAD_XML="$(gettext "SFS_Load application will enable you to install SFS files -- see the 'Setup' menu.")"
+	SFSFRAME_XML='
+    <vbox margin="8">
     <frame '$(gettext 'Load SFS files')'>
       <vbox space-expand="true" space-fill="true">
         '"`/usr/lib/gtkdialog/xml_info scale package_sfs.svg 60 "$(gettext "NOTICE: As this is a full installation of Puppy without an initrd, SFS files cannot be loaded/unloaded at bootup. However, they can be permanently installed.")" " " "${SFSLOAD_XML}"`"'
       </vbox>
-    </frame>'
+    </frame>
+    </vbox>'
 else
     SFSLOAD_XML="$(gettext "The SFS-Load application will load SFS files immediately. Loaded SFS files will continue to be loaded through subsequent reboots, until they are unloaded.")"
 	XML_FRAME=$(gettext 'Load SFS files')
-	XLM_INFO=`/usr/lib/gtkdialog/xml_info scale package_sfs.svg 60 "$(gettext "Puppy has a file named") ${DISTRO_PUPPYSFS} $(gettext "that is always loaded. However, extra SFS files can be loaded at bootup, for example 'kde.sfs' to provide KDE applications, and 'devx.sfs' to provide everything for compiling C/C++ source. These can be thought of as 'combo packs' of many packages in one file.")" " " "${SFSLOAD_XML}"`
+	XLM_INFO=`/usr/lib/gtkdialog/xml_info scale package_sfs.svg 60 "$(gettext "Puppy has a file named") ${DISTRO_PUPPYSFS} $(gettext "that is always loaded. However, extra SFS files can be loaded at bootup, for example 'devx.sfs' to provide everything for compiling C/C++ source. These can be thought of as 'combo packs' of many packages in one file.")" " " "${SFSLOAD_XML}"`
 	XML_ICON=package_sfs.svg
 	XML_LABEL=$(gettext 'Choose which extra SFS files to load')
 	XML_ACTION='sfs_load &'
 	SFSFRAME_XML="$(generic_xml)" #--
 fi
+case $KARCH in
+	x86_64|i?86)NOTELABEL='|'$(gettext 'Microcode fixes')'';;
+	*)NOTELABEL=''
+	 MICROCODE_XML='';;
+esac
 
-#######################################################
+#==================
 
 export BootManager='
-<window title="'$(gettext 'Startup  Manager')'" icon-name="gtk-execute">
+<window title="'$(gettext 'Startup  Manager')'" icon-name="gtk-execute" resizable="false">
 <vbox space-expand="true" space-fill="true">
-  <notebook labels="'$(gettext 'Startup')'|'$(gettext 'SFS-packages')'|'$(gettext 'Modules')'|'$(gettext 'Swapfile')${UNDERDOG_TAB}'">
+  <notebook labels="'$(gettext 'Startup')'|'$(gettext 'SFS-packages')'|'$(gettext 'Modules')'|'$(gettext 'Swapfile')''$NOTELABEL'">
+    <vbox margin="8">
     <frame '$(gettext 'Manage services and startup apps')'>
       <vbox space-expand="true" space-fill="true">
         '"`/usr/lib/gtkdialog/xml_info scale startup_app.svg 60 "$(gettext "Manage what apps are set to start when the graphical server (X) starts on your system. These apps include the notification icons in the system tray and some other hidden services that need the graphical server to be running.")"`"'
@@ -348,7 +432,9 @@ export BootManager='
         </vbox>
       </vbox>
     </frame>
+    </vbox>
     '${SFSFRAME_XML}'
+    <vbox margin="8">
     <frame '$(gettext 'Load kernel modules')'>
       <vbox space-expand="true" space-fill="true">
         '"`/usr/lib/gtkdialog/xml_info scale module.svg 60 "$(gettext "If a driver module did not get loaded, or the wrong one got loaded, or you want to 'blacklist' a module, this is the place. A common scenario is a driver got auto-loaded, for say your wireless network card, but you cannot or do not want to use it, and want some other module or want to use Ndiswrapper (to use the Windows driver).")"`"'
@@ -374,17 +460,20 @@ export BootManager='
         </vbox>
       </vbox>
     </frame>
+    </vbox>
     '${SWAPFILE_XML}'
-    '${UNDERDOG_XML}'
+    '${MICROCODE_XML}'
   </notebook>
 
   <hbox height-request="30" space-expand="false" space-fill="false">
+    '${xerrs_chkbox}'
+    <text space-expand="true" space-fill="true"><label>"   "</label></text>
     <button>'"`/usr/lib/gtkdialog/xml_button-icon quit`"'<label>'$(gettext 'Quit')'</label></button>
   </hbox>
 </vbox>
 </window>'
 
 . /usr/lib/gtkdialog/xml_info gtk #build bg_pixmap for gtk-theme
-RETSTRING="`gtkdialog -p BootManager`"
+RETSTRING="`gtkdialog -p BootManager --styles=/tmp/gtkrc_xml_info.css`"
 
 ### END ###

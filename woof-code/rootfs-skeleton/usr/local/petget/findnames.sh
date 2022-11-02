@@ -41,36 +41,6 @@ CURRENTREPO="`cat /tmp/petget_proc/petget/current-repo-triad`" #search here firs
 ALLACTIVEREPOS="`cat /tmp/petget_proc/petget_active_repo_list`"
 SEARCH_REPOS_FLAG=$1
 
-if [ "$(cat /var/local/petget/ui_choice 2>/dev/null)" = "Classic" ]; then
- #120504 ask which repos...
- export ASKREPO_DIALOG="<window title=\"$(gettext 'PPM: search')\" icon-name=\"gtk-about\">
- <vbox>
- <frame $(gettext 'Search only current repository')>
-  <hbox>
-   <text><label>\"${CURRENTREPO}\"</label></text>
-   <vbox>
-    <button><label>$(gettext 'Search')</label><action type=\"exit\">BUTTON_SEARCH_CURRENT</action></button>
-   </vbox>
-  </hbox>
- </frame>
- <frame $(gettext 'Search all repositories')>
-  <hbox>
-   <text><label>\"${ALLACTIVEREPOS}\"</label></text>
-   <vbox>
-    <button><label>$(gettext 'Search')</label><action type=\"exit\">BUTTON_SEARCH_ALL</action></button>
-   </vbox>
-  </hbox>
- </frame>
- </vbox>
- </window>
-"
- RETPARAMS="`gtkdialog --center --program=ASKREPO_DIALOG`"
- eval "$RETPARAMS"
- [ "$EXIT" != "BUTTON_SEARCH_CURRENT" -a "$EXIT" != "BUTTON_SEARCH_ALL" ] && exit
- SEARCH_REPOS_FLAG="current"
- [ "$EXIT" = "BUTTON_SEARCH_ALL" ] && SEARCH_REPOS_FLAG="all"
-fi
-
 if [ "$SEARCH_REPOS_FLAG" = "current" ];then #120504
  REPOLIST="$CURRENTREPO"
 else

@@ -18,8 +18,10 @@ if [ "$(pwd)" = "/" ];then
   chmod -f a-x  usr/bin/pgprs-connect
  fi
 
+ #Remove old gprs.conf, to use new one. 200607
+ rm -f etc/ppp/gprs.conf
+
  #Remove old state gprs.conf, to generate new one.
- rm -f etc/gprs.conf
  rm -f root/.config/gprs.conf
 
  #Remove replaced options file, if not used by frisbee.
@@ -43,3 +45,6 @@ if [ "$(pwd)" = "/" ];then
   sed -i '/pgprs\.svg/ s/svg/png/' usr/share/applications/pgprs-connect.desktop
  fi
 fi
+
+#v3.0 Replace placeholder with /usr/sbin/ link for moved pgprs script.
+ln -snf /usr/local/pgprs/pgprs usr/sbin/

@@ -16,7 +16,7 @@ verify_not_running() {
 				return 0
 				break
 			esac
-			if pidof "$name" &>/dev/null ; then
+			if pidof "$name" >/dev/null 2>&1 ; then
 				return 1
 				break
 			fi
@@ -26,18 +26,16 @@ verify_not_running() {
 	return 0
 }
 
-#=================================================
-
-for i in $HOME/.config/autostart/*.desktop
-do
-	if ! [ -f $i ] ; then
-		continue
-	fi
-	if ! verify_not_running $i ; then
-		continue
-	fi
-	xdg-open $i
-done
+run_desktop() {
+	while read j
+	do
+		case $j in "Exec="*)
+			sh -c "${j#Exec=}" &
+			break
+			;;
+		esac
+	done < "$1"
+}
 
 #=================================================
 
@@ -46,13 +44,26 @@ do
 	if ! [ -f $i ] ; then
 		continue
 	fi
-	if [ -f $HOME/.config/autostart/${i} ] ; then
+	if ! verify_not_running $i ; then
+		continue
+	fi
+	run_desktop $i
+done
+
+#=================================================
+
+for i in $HOME/.config/autostart/*.desktop
+do
+	if ! [ -f $i ] ; then
+		continue
+	fi
+	if [ -f /etc/xdg/autostart/${i} ] ; then
 		continue
 	fi
 	if ! verify_not_running $i ; then
 		continue
 	fi
-	xdg-open $i
+	run_desktop $i
 done
 
 ### END ###

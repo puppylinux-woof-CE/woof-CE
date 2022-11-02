@@ -29,7 +29,7 @@ export OUTPUT_CHARSET=UTF-8
 CHECKBOXES_REPOS=""
 #for ONEREPO in `ls -1 /root/.packages/Packages-*`
 #120510 bugfix with ui_Ziggy. add CHECKBOX_MAIN_REPO var to gui
-MAIN_REPO="`ls -1 /root/.packages/Packages-* | grep "puppy\-${DISTRO_DB_SUBNAME}\-" | head -n 1 | sed 's%^/root/.packages/%%'`" #121102 121129
+MAIN_REPO="`ls -1 /root/.packages/Packages-* | grep "puppy-${DISTRO_DB_SUBNAME}-" | head -n 1 | sed 's%^/root/.packages/%%'`" #121102 121129
 #120515 hmmm, in some cases, Packages-puppy-${DISTRO_FILE_PREFIX}-* may not exist (ex, Racy only has Packages-puppy-wary5-official)...
 #121102 ...now using DISTRO_DB_SUBNAME, should always exist.
 [ "$MAIN_REPO" = "" ] && MAIN_REPO="`echo "$PACKAGELISTS_PET_ORDER" | tr ' ' '\n' | head -n 1`" #PACKAGELISTS_PET_ORDER is in /root/.packages/DISTRO_PET_REPOS.
@@ -89,16 +89,7 @@ else
  DL_PATH=/root
 fi
 
-DBmethod="$(cat /var/local/petget/db_verbose)"
-if [ "$DBmethod" = "" ]; then
- echo true > /var/local/petget/db_verbose
- DBmethod=true
-fi
-if [ "$DBmethod" = "false" ]; then
- RXVT="rxvt -title \"$(gettext 'Updating Databases')\" -geometry 110x12+0+200 -bg gray -e "
-else
- RXVT="rxvt -bg yellow -title \"$(gettext 'Databases Update')\"  -e "
-fi
+RXVT="rxvt -bg yellow -title \"$(gettext 'Databases Update')\"  -e "
 
 update_db_more_info() {
 	/usr/lib/gtkdialog/box_ok "$(gettext 'Package Manager')" info \
@@ -109,11 +100,10 @@ export -f update_db_more_info
 
 export SETUPCALLEDFROM='ppm'
 
-S='<window title="'$(gettext 'Package Manager - Configure')'" icon-name="gtk-about" default-height="350">
+S='<window title="'$(gettext 'Package Manager - Configure')'" icon-name="gtk-about" default-height="330">
 <vbox space-expand="true" space-fill="true">
 <notebook tab-pos="2" labels="'$(gettext 'Choose repositories')'|'$(gettext 'Update database')'|'$(gettext 'Options')'" space-expand="true" space-fill="true">
-  <vbox space-expand="true" space-fill="true">
-    <frame '$(gettext 'Choose repositories')'>
+  <vbox space-expand="true" space-fill="true" margin="8">
       <vbox space-expand="false" space-fill="false">
         <hbox space-expand="true" space-fill="true">
           <text xalign="0" space-expand="true" space-fill="true"><label>"'$(gettext "Choose what repositories you would like to have appear in the main GUI window.")'"</label></text>
@@ -130,11 +120,9 @@ S='<window title="'$(gettext 'Package Manager - Configure')'" icon-name="gtk-abo
           '${CHECKBOX_MAIN_REPO}'
         </vbox>
       </vbox>
-    </frame>
   </vbox>
 
-  <vbox space-expand="true" space-fill="true">
-    <frame '$(gettext 'Update database')'>
+  <vbox space-expand="true" space-fill="true" margin="8">
      <vbox space-expand="false" space-fill="false">
 
       <hbox space-expand="true" space-fill="true">
@@ -157,22 +145,14 @@ S='<window title="'$(gettext 'Package Manager - Configure')'" icon-name="gtk-abo
         </button>
       </hbox>
      </vbox>
-    </frame>
   </vbox>
 
-  <vbox space-expand="true" space-fill="true">
-    <frame '$(gettext 'Options')'>
+  <vbox space-expand="true" space-fill="true" margin="8">
       <checkbox>
         <label>'$(gettext "Show info with configuration changes as startup")'</label>
         <variable>CATEGORY_SI</variable>'
         [ "$(</var/local/petget/si_category)" = "true" ] && S=$S'<default>true</default>'
       S=$S'</checkbox>
-      <checkbox>
-        <label>'$(gettext "Use traditional, non-auto, user interface")'</label>'
-        [ "$(</var/local/petget/ui_choice)" = "Classic" ] && S=$S'<default>true</default>'
-        S=$S'<action>if true echo Classic > /var/local/petget/ui_choice</action>
-        <action>if false echo Ziggy > /var/local/petget/ui_choice</action>
-      </checkbox>
       '${SIZEBOX}'
       <checkbox>
         <label>'$(gettext "Do not show the terminal with PPM actions")'</label>
@@ -195,16 +175,6 @@ S='<window title="'$(gettext 'Package Manager - Configure')'" icon-name="gtk-abo
         <variable>CATEGORY_SD</variable>'
         [ "$(</var/local/petget/sd_category)" = "true" ] && S=$S'<default>true</default>'
       S=$S'</checkbox>
-      <checkbox tooltip-text="'$(gettext "Verbose method = the user indicates the package databases to update.
-+Silent method = all package databases are automatically updated.")'">
-        <label>'$(gettext "Use verbose method during update of the package databases")'</label>
-        <default>'$DBmethod'</default>
-		<variable>DBmethod</variable>
-		<action>if true echo true > /var/local/petget/db_verbose</action>
-        <action>if false echo false > /var/local/petget/db_verbose</action>
-		<action>/usr/local/petget/configure.sh &</action>
-		<action>exit:QUIT</action>
-      </checkbox>
       <hbox>
         <text width-request="100"><label>'$(gettext "Save PKGs in:")'</label></text>
         <entry accept="folder" width-request="200" tooltip-text="'$(gettext "To change, type a path to a folder or use the button to select a folder. Delete the present path to default back to /root")'"><default>'${DL_PATH}'</default><variable>SAVEPATH</variable></entry>
@@ -213,7 +183,6 @@ S='<window title="'$(gettext 'Package Manager - Configure')'" icon-name="gtk-abo
          <action type="fileselect">SAVEPATH</action>
         </button>
 	  </hbox>
-     </frame>
   </vbox>
 </notebook>
 

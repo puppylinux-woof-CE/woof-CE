@@ -2,58 +2,64 @@
 #110505 support sudo for non-root user.
 #140622 shinobar avoid freeze on a virtual terminal
 
+# continue running if the parent process is the login shell and we must
+# kill it to unmount a file system
+trap "" HUP
+
+script=""
+
 for i in $@ ; do
 	case $i in
 		debug) echo > /tmp/debugshutdown ; shift ;;
 		shell) echo > /tmp/shutdownshell ; shift ;;
+		-r)
+		  if [ "${0##*/}" == "shutdown" ] && [ "$script" == "" ]; then
+		   script="reboot"
+		  fi
+		shift ;;
 	esac
 done
 
-script=${0##*/}
+if [ "$script" == "" ]; then
+ script=${0##*/}
+fi
+
+if [ -d /proc/acpi ] || [ -f /proc/apm ]; then
+ can_shutdown=1
+else
+ can_shutdown=0
+fi
 
 . /etc/rc.d/PUPSTATE
+
 if [ "$PUPMODE" = "5" ] && [ $PPID -eq 1 ] ; then
 	touch /tmp/shutdownconfig_results ; sync  #skip shutdownconfig
 fi
 
 [ "`whoami`" != "root" ] && exec sudo -A ${0} ${@} #110505
 
-if [ "$DISPLAY" ] ; then
+if [ -n "$DISPLAY" -o -n "$WAYLAND_DISPLAY" ] ; then
 	case $script in
 		poweroff)  exec wmpoweroff ;; #avoid freeze on a virtual terminal
 		reboot) exec wmreboot ;;
 	esac
 fi
 
-if [ "$script" = "reboot" ] ; then
-	touch /tmp/is_reboot # this is read by rc.cleanup
-fi
-
-#============================================================
-#                handle inittab
-#============================================================
-
-INITTAB=/etc/inittab
-PIVOT_INITRD=
-
-if [ "$(mount | grep ' /initrd/files ')" ] ; then
-	PIVOT_INITRD=pivot_initrd
-fi
-
-if [ "$PUNIONFS" = "" ] ; then
-	PIVOT_INITRD=
-fi
-
-if [ "$PIVOT_INITRD" ] ; then
-	echo -n > /tmp/shutdown_pivot_initrd
-fi
-
-#=======================================
-
 /etc/rc.d/rc.shutdown
 
 case $script in
-	poweroff) /bin/busybox poweroff ;;
+	poweroff) 
+	
+	 if [ $can_shutdown -eq 1 ]; then
+	  /bin/busybox poweroff
+	 else
+	  clear > /dev/console
+	  dialog --ok-label "Restart" --msgbox "IT'S NOW SAFE TO TURN OFF YOUR COMPUTER" 5 43
+	  /bin/busybox reboot
+	 fi
+	
+	;;
+	
 	reboot) /bin/busybox reboot ;;
 esac
 

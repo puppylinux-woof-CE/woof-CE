@@ -23,7 +23,7 @@
 [ -n "$BASH_VERSION" ] && shopt -s extglob
 
 if [ ! "$ASCII_GUI" ] ; then
-	if [ $DISPLAY ] ; then
+	if [ -n "$DISPLAY" -o -n "$WAYLAND_DISPLAY" ] ; then
 		export ASCII_GUI=1
 		export COLUMNS=4
 		exec gtk_text_info $0 $@

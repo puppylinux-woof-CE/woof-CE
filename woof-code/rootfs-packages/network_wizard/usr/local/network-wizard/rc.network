@@ -61,6 +61,9 @@
 #180923 v2.0: move network wizard to its package directory.
 #190209 v2.0.1: make connectwizardrc usage conditional on presence of connectwizard_exec, for use outside of woofCE pups.
 #190217 v2.1: Correct wait for all ethernet hardware to be detected, preserving 31may12 but respecting predictable interface names; filter iwlist output to reduce file size; remove unused ethtool 'progress' ticks.
+#200412 v2.1.2: Increase wait for ethtool link detected, to 15 secs.
+#210415 v2.2: Correct wait for initialized interfaces, to retry /sys/class/net/*/address; simplify link detection; try 'selected device' first; correct test for X active.
+#220704 v2.2.1 Pause before running dhcpcd after interface test, to improve chances of obtaining a valid IP address; clear dhcpcd.log, to log only current run; replace temporary file with "here string" for write-then-read reliability.
 
 ######### TODO ###########
 #- need to find out about static ip... can we check somehow (arp)? maybe use
@@ -99,7 +102,7 @@ fi
 #  Dougal: want to use functions from wag-profiles (cleanUpInterface...)
 #+ so source it 
 . /usr/local/network-wizard/wag-profiles.sh #180923
-
+#set -x; exec >&2 #DEBUG
 # A function to stop everything (at shutdown, for example)
 # Enable accepting a param to pass to ifconfig (i.e. -a)
 stop_all(){
@@ -140,23 +143,15 @@ failure_message(){
 }
 
 # cutdown version of this function (can't just source net-setup.sh...)
-testInterface()
+testInterface() # Interface to test is $INTERFACE.
 {
-  #INTERFACE="$1"
-  echo -n "checking if interface $INTERFACE is alive..."
-	LINK_DETECTED=no
-	for i in 1 2 3 4 5 ; do
-		if ethtool "$INTERFACE" | grep -Fq 'Link detected: yes' ; then
-			LINK_DETECTED="yes"
-			break
-		fi
-		[ $i -lt 5 ] && sleep 1.3 #190217
+	echo -n "checking if interface $INTERFACE is alive..."
+	TIMEOUT=15 #200412
+	until ethtool "$INTERFACE" | grep -Fq 'Link detected: yes' ; do #210415
+		[ $((--TIMEOUT)) -le 0 ] && return 1 #210415
+		sleep 1 #190217 200412 #210415
 	done
-	if [ "$LINK_DETECTED" = "no" ] ; then
-		return 1
-	else
-		return 0
-	fi
+	return 0
 } # end of testInterface
 
 # cutdown version of this function (can't just source net-setup.sh...)
@@ -276,6 +271,7 @@ try_and_connect(){
 	    RETURN=0
 	  fi
     else
+      sleep 2 #220704
       setupDHCP #|| killDhcpcd "$INTERFACE" # 25feb10 
       RETURN=$?
 	fi
@@ -308,9 +304,11 @@ rewrite_mac_address () {
   done #190217
 }
 
+SELECTED_HWADDR="$(readlink $NETWORK_INTERFACES_DIR/selected_conf 2>/dev/null | sed 's/.conf//')" #210415
+rm -f /tmp/dhcpcd.log #220704
 # Dougal: when running after boot, we don't need this
 if [ "$ACTION" = "restart" ] ; then # connect
-  pidof X >/dev/null && HAVEX="yes"
+  [ -n "$DISPLAY" -o -n "$WAYLAND_DISPLAY" ] && HAVEX="yes" #210415
   exec 1>/tmp/network-connect.log 2>&1
 else # below only done at boot
   if which connectwizard_exec >/dev/null; then #190209
@@ -353,20 +351,24 @@ else # below only done at boot
   # a list of all the interface config files
   # 31may12: wait eth0 (to be auto configured) ready
   echo -n "Waiting for interfaces to initialize..."
-  INSTALLED=$(cat /sys/class/net/*/address) #190217
-  CONFIGURED=$(cd $NETWORK_INTERFACES_DIR ; \
-    ls -1 *.conf 2>/dev/null |cut -d '.' -f1 | grep -iF "$INSTALLED") #190217
-  ETHINTERFACES="$(ls -1 /sys/class/net 2>/dev/null | grep '^e')" #190217
+  CONFIGURED="$(cd $NETWORK_INTERFACES_DIR ; ls -1 *.conf 2>/dev/null |cut -d '.' -f1)"
   for I in $(seq 1 $MAXWAIT) ; do
-    EXIST=$(ifconfig -a | grep 'Link encap:' | grep 'HWaddr') #190217
-    for ONE in $CONFIGURED $ETHINTERFACES ; do #190217
-      # see if it is detected
-      if ! echo "$EXIST" | grep -qw "$ONE" ; then #190217...
-        sleep 1 ; echo -n '.' ; continue 2 # go to the next I
-      fi
-    done
-    # we only get here if all the configured interfaces are found...
-    break
+    ETHINTERFACES="$(ls -1 /sys/class/net 2>/dev/null | grep '^e')" #190217 #210415
+    INSTALLED="$(cat /sys/class/net/*/address)" #190217 #210415
+    if [ -z "$SELECTED_HWADDR" ] \
+     || echo "$INSTALLED" | grep -iq "$SELECTED_HWADDR" \
+     || [ "$I" -gt 5 ] ; then #210415
+      EXIST="$(ifconfig -a | grep 'Link encap:' | grep 'HWaddr')" #190217
+      for ONE in $ETHINTERFACES $CONFIGURED ; do #190217 #210415
+        # see if it is detected
+        if ! echo "$EXIST" | grep -qw "$ONE" ; then #190217...
+          sleep 1 ; echo -n '.' ; continue 2 # go to the next I
+        fi
+      done
+      # we only get here if all the configured interfaces are found...
+      break
+    fi #210415
+    sleep 1 ; echo -n '.' #210415
   done
   # "close" the line started before the loop
   echo
@@ -388,14 +390,13 @@ rewrite_mac_address  # 20feb10 moved here
 stop_all -a >/dev/null 2>&1
 
 #190217 Try selected interface first...
-SELECTED_HWADDR="$(readlink $NETWORK_INTERFACES_DIR/selected_conf 2>/dev/null | sed 's/.conf//')"
-FIRST_CONFIG="$(ifconfig -a | grep -F 'Link encap:' | tee /tmp/ifconfig.tmp | head -n 1)"
-if [ -n "$SELECTED_HWADDR" ] ; then
-  SELECTED_CONFIG="$(grep "$SELECTED_HWADDR" /tmp/ifconfig.tmp)"
-  if [ -n "$SELECTED_CONFIG" -a "$SELECTED_CONFIG" != "$FIRST_CONFIG" ] ; then
+CONFIG="$(ifconfig -a | grep -F 'Link encap:' | grep 'HWaddr')" #210415 220704
+if [ -n "$SELECTED_HWADDR" ] && [ $(wc -l <<< "$CONFIG") -gt 1 ] ; then #220704
+  SELECTED_CONFIG="$(grep "$SELECTED_HWADDR" <<< "$CONFIG")" #220704
+  if [ -n "$SELECTED_CONFIG" ] ; then #220704
     SEDSCRIPT1="/$SELECTED_HWADDR/d"
     SEDSCRIPT2="1s/^./$SELECTED_CONFIG\n&/"
-    sed -i -e "$SEDSCRIPT1" -e "$SEDSCRIPT2" /tmp/ifconfig.tmp
+    CONFIG="$(sed -e "$SEDSCRIPT1" -e "$SEDSCRIPT2" <<< "$CONFIG")" #220704
   fi
 fi
   
@@ -699,7 +700,7 @@ do
   # clean up (kills dhcpcd etc)
   cleanUpInterface "$INTERFACE"
   ifconfig "$INTERFACE" down
-done < /tmp/ifconfig.tmp #190217
+done <<< "$CONFIG" #190217 220704
 rm -f /tmp/ifconfig.tmp #190217
 
 #  if we got here and have x, it means we're running with the "connect"

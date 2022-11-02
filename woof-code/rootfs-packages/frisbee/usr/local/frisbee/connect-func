@@ -1,0 +1,117 @@
+#!/bin/bash
+# shellcheck disable=SC1091,SC2005,SC2162 # Skip sourced checks; useless echos add newline; allow read without -r.
+#Shebang above triggers geany color highlighting.
+#200829 (v2.0) Moved functions from func; resolve shellcheck warnings.
+
+function connect {
+	prof=$(wpa_cli -i "$INTERFACE" list_networks|tail -n 1|cut -d " " -f 1)
+	if [[ $prof == "network" ]] ; then
+	    return 1
+	fi
+	if wpa_cli -i "$INTERFACE" status|grep -q COMPLETED ; then
+	    #dhcpcd -n 
+	    dhcpcd -n "$INTERFACE" #180210
+	    return 0
+	fi
+	ip link set "$INTERFACE" up #200829
+	if ! ps -C wpa_supplicant >/dev/null; then #200829
+	    start_wpa
+	fi
+	if ! pgrep -x dhcpcd >/dev/null; then #200829
+	    start_dhcp
+	else #180210
+	    dhcpcd -n "$INTERFACE" #180210
+	fi
+	wpa_cli -i "$INTERFACE" reconnect 
+	#dhcpcd -n 
+	
+	sleep 2
+	return 0
+}
+export -f connect
+
+#############################################
+
+
+function disconnect {
+	[ "$INTERFACE" = "none" ] && return
+	wpa_cli -i "$INTERFACE" disconnect 2>/dev/null
+	sleep 1 
+	wpa_cli -i "$INTERFACE" disconnect 2>/dev/null
+	pgrep -x wait_disconnect >/dev/null && killall wait_disconnect #140607 200829
+	dhcpcd -k "$INTERFACE"
+}
+export -f disconnect
+
+#############################################
+
+function wait_disconnect {
+# shellcheck disable=SC2034 # parameter intentionally not used.
+	for i in 1 2 3 ; do
+	    sleep 10
+	    wpa_cli -i "$INTERFACE" status | grep DISCONNECTED && return #140607
+	done
+
+	dhcpcd -k "$INTERFACE" 
+}
+export -f wait_disconnect
+
+#############################################
+
+function get_ifs_wireless { #140819...
+	#returns true/0 if interfaces present
+	WIFACES=$(iw dev 2>&1 | grep -o 'Interface [^ ]*' | cut -f 2 -d ' ')
+	echo "$WIFACES"
+	[ "$WIFACES" ]
+	return $?
+}
+export -f get_ifs_wireless
+
+#############################################
+
+function start_wpa {
+	rfkill unblock wlan 2>/dev/null #140221
+	ip link set "$INTERFACE" up #200829
+	if grep -q '^wireless_autostart=1' /etc/frisbee/frisbee.conf ; then
+	    WPACFGFILE="/etc/frisbee/wpa_supplicant.conf"
+	    rm -f /tmp/wpa_supplicant.conf
+	else
+	    WPACFGFILE="/tmp/wpa_supplicant.conf"
+	    [ -f $WPACFGFILE ] \
+	      || sed -e '/^network=/,/}/d' /etc/frisbee/wpa_supplicant.conf > $WPACFGFILE
+	fi
+	if grep -q '^wpa_log_mode=1' /etc/frisbee/frisbee.conf ; then
+	    setsid wpa_supplicant -B -d -Dnl80211,wext -i"$INTERFACE" -c"$WPACFGFILE" > /tmp/wpa_supplicant.log #200829
+	else
+	    setsid wpa_supplicant -B -Dnl80211,wext -i"$INTERFACE" -c"$WPACFGFILE" > /tmp/wpa_supplicant.log #200829
+	fi
+	wpa_cli -i "$INTERFACE" scan >/dev/null
+}
+export -f start_wpa
+
+#############################################
+
+function start_dhcp {
+	ZOPTION="" #140824...
+	WIFI_IF="$(cat /etc/frisbee/interface 2> /dev/null)"
+	if [ "$WIFI_IF" ];then
+	    OTHERWIFI="$(get_ifs_wireless | grep -vw "$WIFI_IF" | tr '\n' , | sed 's/,$//')"
+	    [ "$OTHERWIFI" ] && ZOPTION="-Z $OTHERWIFI"
+	fi
+# shellcheck disable=SC2086 # ZOPTION may be null; quotes result in '' inserted.
+	setsid dhcpcd -b -d $ZOPTION -f /etc/frisbee/dhcpcd.conf #140824 end
+	sleep 2
+}
+export -f start_dhcp
+
+#############################################
+
+function reset_dhcp {
+	dhcpcd -k
+	killall -9 dhcpcd
+	killall wpa_cli 2>/dev/null
+	start_dhcp
+}
+export -f reset_dhcp
+
+#############################################

@@ -1,11 +1,99 @@
 #!/bin/bash
-#y = builtin
-#m = module
 
-function pause() {
-	echo -n "Press enter to continue..."
-	read zzz
+function git_aufs_util_branch() {
+	# aufs-util branch - must keep this updated - git://git.code.sf.net/p/aufs/aufs-util.git
+	for i in 6.0 5.8 5.0 4.19 4.14 4.9 4.4 4.1 4.0 3.18 3.14 3.9 3.2
+	do
+		if vercmp ${kernel_version} ge ${i} ; then
+			aufs_util_branch=${i}
+			break
+		fi
+	done
 }
+
+# sets $aufsv
+function git_aufs_branch() {
+ #  aufs_git_4="git://github.com/sfjro/aufs4-standalone.git"
+ #  aufs_git_5="git://github.com/sfjro/aufs5-standalone.git"
+ #---
+ # $kernel_version       is set by build.sh
+ # $kernel_major_version is set by build.sh
+ case ${kernel_major_version} in
+	3.*) aufsv=${kernel_major_version} ;; # 3.14, 3.18      etc
+	4.*) aufsv=${kernel_major_version} ;; # 4.1,  4.4, 4.14 etc
+ esac
+
+ case ${kernel_major_version} in
+	#### k3.x #####
+	3.2)  aufsv=3.2                #unknown actual value
+		vercmp ${kernel_version} ge 3.2.30 && aufsv='3.2.x'
+		;;
+	3.10) aufsv=3.10
+		vercmp ${kernel_version} ge 3.10.26 && aufsv='3.10.x'
+		;;
+	3.12) aufsv=3.12
+		vercmp ${kernel_version} ge 3.12.7 && aufsv='3.12.x'
+		vercmp ${kernel_version} ge 3.12.31 && aufsv='3.12.31+'
+		;;
+	3.14) aufsv=3.14
+		vercmp ${kernel_version} ge 3.14.21 && aufsv='3.14.21+'
+		vercmp ${kernel_version} ge 3.14.40 && aufsv='3.14.40+'
+		;;
+	3.18) aufsv=3.18
+		vercmp ${kernel_version} ge 3.18.1 && aufsv='3.18.1+'
+		vercmp ${kernel_version} ge 3.18.25 && aufsv='3.18.25+'
+		;;
+
+	#### k4.x #####
+	4.1)  aufsv=4.1
+		vercmp ${kernel_version} ge 4.1.13 && aufsv='4.1.13+'
+		;;
+	4.9)  aufsv=4.9
+		vercmp ${kernel_version} ge 4.9.9 && aufsv='4.9.9+'
+		vercmp ${kernel_version} ge 4.9.94 && aufsv='4.9.94+'
+		;;
+	4.11) aufsv=4.11.0-untested
+		vercmp ${kernel_version} ge 4.11.7 && aufsv='4.11.7+'
+		;;
+	4.14) aufsv=4.14
+		vercmp ${kernel_version} ge 4.14.56 && aufsv='4.14.56+'
+		vercmp ${kernel_version} ge 4.14.73 && aufsv='4.14.73+'
+		;;
+	4.18) aufsv=4.18
+		vercmp ${kernel_version} ge 4.18.11 && aufsv='4.18.11+'
+		;;
+	4.19) aufsv=4.19
+		vercmp ${kernel_version} ge 4.19.17 && aufsv='4.19.17+'
+		vercmp ${kernel_version} ge 4.19.63 && aufsv='4.19.63+'
+		;;
+	4.20) aufsv=4.20
+		vercmp ${kernel_version} ge 4.20.4 && aufsv='4.20.4+'
+		;;
+
+	#### k5.x #####
+	5.2)  aufsv=5.2
+		vercmp ${kernel_version} ge 5.2.5 && aufsv='5.2.5+'
+		;;
+	5.4)  aufsv=5.4 
+		vercmp ${kernel_version} ge 5.4.3 && aufsv='5.4.3'
+		;;
+	5.10)  aufsv=5.10
+		vercmp ${kernel_version} ge 5.10.82 && aufsv='5.10.82'
+		vercmp ${kernel_version} ge 5.10.117 && aufsv='5.10.117'
+		vercmp ${kernel_version} ge 5.10.140 && aufsv='5.10.140'
+		;;
+	5.15)  aufsv=5.15
+		vercmp ${kernel_version} ge 5.15.5 && aufsv='5.15.5'
+		vercmp ${kernel_version} ge 5.15.36 && aufsv='5.15.36'
+		vercmp ${kernel_version} ge 5.15.41 && aufsv='5.15.41'
+		;;
+	5.17)  aufsv=5.17
+		vercmp ${kernel_version} ge 5.17.3 && aufsv='5.17.3'
+		;;
+	*)     aufsv=${kernel_major_version} ;;
+esac
+}
+#======================================================================
 
 function log_ver() {
 	touch ${BUILD_LOG}
@@ -21,7 +109,34 @@ function log_ver() {
 	) | tee -a ${BUILD_LOG}
 }
 
+function get_latest_kernels() {
+	TMP=/tmp/kernels.txt
+	rm -f $TMP
+	x=0
+	s=
+	curl -s https://www.kernel.org | while read a ; do
+		if [ $x = 1 ]; then
+			echo $a | grep -q 'EOL' && x=0 && continue
+			e=${a#*\>}
+			e=${e#*\>}
+			e=${e%%\<*}
+			echo "$e ($s)" >> $TMP
+			x=0
+		fi
+		if echo "$a" | grep -qE 'longterm:|stable:' ;then
+			x=$(($x + 1))
+			echo "$a" | grep -q 'stable:' && s=stable || s=longterm
+		else
+			continue
+		fi
+	done	
+	cat $TMP
+}
+
 #======================================================================
+
+#y = builtin
+#m = module
 
 function config_is_set() {
 	[ ! "$1" -o ! "$2" ] && return
@@ -101,74 +216,27 @@ function fix_config() {
 ## EXAMPLES ##
 ##############
 
-# $1: kernel config file
-function set_pae() {
-	#http://askubuntu.com/questions/395771/in-32-bit-ubuntu-12-04-how-can-i-find-out-if-pae-has-been-enabled
-	config_set builtin CONFIG_X86_PAE $1
-	config_set builtin CONFIG_HIGHMEM64G $1
-	config_unset CONFIG_HIGHMEM4G $1
-}
-
-# $1: kernel config file
-function unset_pae() {
-	config_delete CONFIG_X86_PAE $1
-	config_unset CONFIG_HIGHMEM64G $1
-	config_set builtin CONFIG_HIGHMEM4G $1
-}
-
-# $1: kernel config file
-function set_i486() {
-	config_set builtin CONFIG_M486 $1
-	for i in CONFIG_M386 CONFIG_M686 CONFIG_M586 CONFIG_M586TSC CONFIG_M586MMX CONFIG_MPENTIUMII CONFIG_MPENTIUMIII CONFIG_MPENTIUMM CONFIG_MPENTIUM4 CONFIG_MK6 CONFIG_MK7 CONFIG_MK8 CONFIG_MCRUSOE CONFIG_MEFFICEON CONFIG_MWINCHIPC6 CONFIG_MWINCHIP3D CONFIG_MELAN CONFIG_MGEODEGX1 CONFIG_MGEODE_LX CONFIG_MCYRIXIII CONFIG_MVIAC3_2 CONFIG_MVIAC7 CONFIG_MCORE2 CONFIG_MATOM
-	do
-		config_unset $i $1
-	done
-}
-
-# $1: kernel config file
-function set_i686() {
-	config_set builtin CONFIG_M686 $1
-	for i in CONFIG_M386 CONFIG_M486 CONFIG_M586 CONFIG_M586TSC CONFIG_M586MMX CONFIG_MPENTIUMII CONFIG_MPENTIUMIII CONFIG_MPENTIUMM CONFIG_MPENTIUM4 CONFIG_MK6 CONFIG_MK7 CONFIG_MK8 CONFIG_MCRUSOE CONFIG_MEFFICEON CONFIG_MWINCHIPC6 CONFIG_MWINCHIP3D CONFIG_MELAN CONFIG_MGEODEGX1 CONFIG_MGEODE_LX CONFIG_MCYRIXIII CONFIG_MVIAC3_2 CONFIG_MVIAC7 CONFIG_MCORE2 CONFIG_MATOM
-	do
-		config_unset $i $1
-	done
-}
-
 # $HOST_ARCH and $x86_* are set in build.conf and/or build.sh
 # edits .config in current dir
-# part of build.sh ...
 function i386_specific_stuff() {
 	if [ "$HOST_ARCH" = "x86" ] ; then
 		if [ "$x86_disable_pae" = "yes" ] ; then
 			if grep 'CONFIG_X86_PAE=y' .config ; then #CONFIG_HIGHMEM64G=y
 				log_msg "Disabling PAE..."
 				MAKEOLDCONFIG=1
-				unset_pae .config
+				config_delete CONFIG_X86_PAE .config
+				config_unset CONFIG_HIGHMEM64G .config
+				config_set builtin CONFIG_HIGHMEM4G .config
 			fi
 		fi
 		if [ "$x86_enable_pae" = "yes" ] ; then
 			if ! grep 'CONFIG_X86_PAE=y' .config ; then
 				log_msg "Enabling PAE..."
 				MAKEOLDCONFIG=1
-				set_pae .config
-			fi
-		fi
-		if [ "$x86_set_i486" = "yes" ] ; then
-			if grep -q 'CONFIG_OUTPUT_FORMAT="elf32-i386"' .config ; then
-				if ! grep -q 'CONFIG_M486=y' .config ; then
-					log_msg "Forcing i486..."
-					MAKEOLDCONFIG=1
-					set_i486 .config
-				fi
-			fi
-		fi
-		if [ "$x86_set_i686" = "yes" ] ; then
-			if grep -q 'CONFIG_OUTPUT_FORMAT="elf32-i386"' .config ; then
-				if ! grep -q 'CONFIG_M686=y' .config ; then
-					log_msg "Forcing i686..."
-					MAKEOLDCONFIG=1
-					set_i686 .config
-				fi
+				#http://askubuntu.com/questions/395771/in-32-bit-ubuntu-12-04-how-can-i-find-out-if-pae-has-been-enabled
+				config_set builtin CONFIG_X86_PAE .config
+				config_set builtin CONFIG_HIGHMEM64G .config
+				config_unset CONFIG_HIGHMEM4G .config
 			fi
 		fi
 		[ "$MAKEOLDCONFIG" != "" ] && make silentoldconfig
@@ -188,7 +256,9 @@ function get_git_kernel() {
 
 	[ "$USE_GIT_KERNEL" == '' ] && exit_error "Error: USE_GIT_KERNEL must be specified before calling get_git_kernel()"
 
+	log_msg "building latest"
 	if [ ! -f /tmp/${kernel_git_dir}_done -o ! -d sources/${kernel_git_dir}/.git ] ; then
+		mkdir -p sources/kernels
 		cd sources
 		if [ ! -d ${kernel_git_dir}/.git ] ; then
 			git clone --depth=1 ${USE_GIT_KERNEL} ${kernel_git_dir}
@@ -197,23 +267,42 @@ function get_git_kernel() {
 		else
 			cd ${kernel_git_dir}
 			echo "Updating ${kernel_git_dir}"
+			git checkout master
+			git checkout rpi-4.19.y
 			git fetch --depth=1 origin
 			if [ $? -ne 0 ] ; then
 				log_msg "WARNING: 'git fetch --depth=1 origin' command failed" && sleep 5
 			else
-				git checkout origin &>/dev/null
+				git checkout origin >/dev/null 2>&1
 				[ $? -ne 0 ] && exit_error "Error: unable to checkout ${kernel_git_dir}"
 
 				touch /tmp/${kernel_git_dir}_done
 			fi
 		fi
 		cd $MWD
+
 	fi
 
 }
 
+function get_stable_kernel() {
+	
+	[ "$USE_STABLE_KERNEL" == '' ] && exit_error "Error: USE_STABLE_KERNEL must be specified before calling get_stable_kernel()"
+	log_msg "building stable"
+	GITHUB=$USE_STABLE_KERNEL
+	STABLE_URL=`curl ${GITHUB}/raspberrypi/linux/releases | grep 'tar\.gz' | head -n3 | grep -o 'raspberrypi\/.*gz' | grep -v 'arm64' | head -n1`
+	STABLE_KERNEL_PKG=${STABLE_URL##*/}
+	STABLE_KERNEL_DIR=linux-${STABLE_KERNEL_PKG/\.tar.*/}
+	mkdir -p sources/kernels
+	cd sources
+	[ -e "$STABLE_KERNEL_PKG" ] || wget ${GITHUB}/${STABLE_URL}
+	[ -e "$STABLE_KERNEL_DIR" ] || tar xf $STABLE_KERNEL_PKG
+	cd $MWD
+}
+
 function print_git_kernel_version() {
 
+	[ -n "$1" ] && kernel_git_dir="$1" # hack
 	cd sources/${kernel_git_dir}
 
 	makefile_version="`grep '^VERSION = ' Makefile`"
@@ -234,6 +323,7 @@ function configure_git_kernel() {
 # arch/arm/configs/bcmrpi_defconfig and
 # arch/arm/configs/bcm2709_defconfig
 
+	[ -n "$1" ] && kernel_git_dir="$1" # hack
 	[ "$USE_GIT_KERNEL_CONFIG" == '' ] && exit_error "Error: USE_GIT_KERNEL_CONFIG must be specified before calling configure_git_kernel()"
 
 	echo "Using USE_GIT_KERNEL_CONFIG"
@@ -272,7 +362,7 @@ function get_git_cross_compiler() {
 			if [ $? -ne 0 ] ; then
 				log_msg "WARNING: 'git fetch --depth=1 origin' command failed" && sleep 5
 			else
-				git checkout origin &>/dev/null
+				git checkout origin >/dev/null 2>&1
 				[ $? -ne 0 ] && exit_error "Error: unable to checkout ${tools_git_dir}"
 
 				touch /tmp/${tools_git_dir}_done

@@ -4,6 +4,10 @@
 # have to edit /etc/asound.conf only
 # rcnsr1 reported that ~/.asoundrc is for other special customizations...
 
+if [ "$(which pulseaudio)" == "" ]; then
+ exec pulseaudio --start &
+fi
+
 [ "`whoami`" != "root" ] && exec sudo -A ${0} ${@}
 
 [ ! -d /var/local/mscw ] && mkdir -p /var/local/mscw
@@ -257,7 +261,7 @@ function MSCW_REPORT() {
 	echo '=========================================='
 	cat /etc/modprobe.d/alsa-base.conf
 	) > /tmp/mscw.report.txt
-	if [ "$DISPLAY" ] ; then
+	if [ -n "$DISPLAY" -o -n "$WAYLAND_DISPLAY" ] ; then
 		defaulttextviewer /tmp/mscw.report.txt &
 	else
 		echo "Your report is in /tmp/mscw.report.txt"
@@ -287,7 +291,7 @@ function FIX() {
 export TEXTDOMAIN=mscw
 export OUTPUT_CHARSET=UTF-8
 
-if [ "$DISPLAY" ] ; then
+if [ -n "$DISPLAY" -o -n "$WAYLAND_DISPLAY" ] ; then
 	MSCW_GUI=1
 else
 	MSCW_CLI=1
@@ -329,10 +333,41 @@ if [ "$(grep -v pcspeaker /proc/asound/pcm)" = "" ] ; then
 fi
 
 if [ ! -f /etc/asound.conf ] ; then
-	write_asound_card 0 0 0
+    if [ "$(which pulseaudio)" == "" ]; then
+	 write_asound_card 0 0 0
+	else
+	 echo "pcm.pulse {
+			type pulse
+		}
+
+		ctl.pulse {
+			type pulse
+		}
+		
+		pcm.default pulse
+		ctl.default pulse
+		" > /etc/asound.conf
+	fi
 else
-	check_asound_card
+    if [ "$(which pulseaudio)" == "" ]; then
+	 check_asound_card
+	else
+	  if [ "$(cat /etc/asound.conf | grep "ctl.pulse")" == "" ]; then
+	    echo "pcm.pulse {
+			type pulse
+		}
+
+		ctl.pulse {
+			type pulse
+		}
+		
+		pcm.default pulse
+		ctl.default pulse
+		" > /etc/asound.conf
+	  fi
+	fi
 fi
+
 DEVICES="`LANG=C aplay -l | grep card | grep -v pcspeaker`"
 read ACTIVE_CARD ACTIVE_DEVICE A_CMIXER <<< "$(get_asound_card)"
 ACTIVEN=`echo "$DEVICES" | grep -n -w "card $ACTIVE_CARD" | grep -w "device $ACTIVE_DEVICE"`
@@ -347,7 +382,7 @@ function test_sound() {
 	fi
 	local cd=$(get_card_device "$@")
 	cd=${cd// /,} #ex: 0,1
-	if which speaker-test &>/dev/null ; then
+	if which speaker-test >/dev/null 2>&1 ; then
 		xterm -e speaker-test -c 2 -r 48000 -l 1 -D hw:${cd}
 	fi
 	aplay -D plughw:${cd} /usr/share/audio/2barks.au
@@ -366,6 +401,11 @@ function ALSA_MIXER() {
 export -f ALSA_MIXER
 
 if [ "$MSCW_GUI" ] ; then
+
+	if [ "$(pidof pulseaudio)" != "" ]; then
+     	 /usr/lib/gtkdialog/box_ok "NOTICE" info "PulseAudio was running." "ALSA streams are redirect to PulseAudio" 
+     	 exit
+    	fi
 
 	ITEMS="$(echo "$DEVICES" | sed 's|^|<item>|g' | sed 's|$|</item>|g')"
 	ITEMCOUNT=$(echo "$ITEMS" | wc -l)
@@ -429,11 +469,17 @@ if [ "$MSCW_GUI" ] ; then
 	###
 	. /usr/lib/gtkdialog/xml_info gtk #build bg_pixmap for gtk-theme
 	#echo "$MSCW_DIALOG" > /tmp/mscw.gui #debug
-	res="$(gtkdialog --center --program MSCW_DIALOG 2>/dev/null)"
+	res="$(gtkdialog --center --program MSCW_DIALOG --styles=/tmp/gtkrc_xml_info.css 2>/dev/null)"
 	res="$(echo "$res" | grep '="')"
 	eval "$res"
 
 else ##### CLI #####
+
+	if [ "$(pidof pulseaudio)" != "" ]; then
+	 echo "PulseAudio was running. ALSA streams are redirect to PulseAudio"
+	 exit
+	fi
+
 	ITEMCOUNT=$(echo "$DEVICES" | wc -l)
 	EXIT=Cancel
 	x=1
@@ -495,7 +541,7 @@ fi
 
 write_asound_card $Card $Device $Card #-- write --#
 
-check_for_new_hardware &>/dev/null
+check_for_new_hardware >/dev/null 2>&1
 
 if [ ${Card} -eq ${ACTIVE_CARD} -a ${Device} -eq ${ACTIVE_DEVICE} ] ; then
 	retrovol_restart -hide

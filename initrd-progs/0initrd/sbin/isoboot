@@ -1,0 +1,136 @@
+#!/bin/ash
+#
+# sourced by init  -- sets ISO_LOOP
+#
+# - sets P_BP_ID
+# - sets SAVE_BP_ID
+#
+# requires: wait_for_dev() get_part_info() check_status()
+#           decode_id()
+#           ensure_mounted()
+#
+# loopback.cfg
+# - https://askubuntu.com/questions/644400/is-there-documentation-for-iso-scan-filename
+# - https://packages.ubuntu.com/disco/lupin-casper
+#
+# find_iso = iso-scan/filename
+
+# A proper shutdown is achieved if:
+# - sfs's are copied to ram
+# - a savefolder is used
+
+#===================
+#    grub4dos  
+#===================
+#title Start pup.iso
+#  find --set-root --ignore-floppies /ISO/pup.iso
+#  map /ISO/pup.iso (0xff)
+#  map --hook
+#  root (0xff)
+#  kernel (0xff)/vmlinuz find_iso=/ISO/pup.iso iso_dev=Work
+#  initrd (0xff)/initrd.gz
+
+#===================
+#      grub2
+#===================
+#menuentry "Start pup.iso" {
+#    set isofile="/ISO/pup.iso"
+#    loopback loop $isofile
+#    set root=(loop)
+#    linux    (loop)/vmlinuz find_iso=$isofile iso_dev=sda6
+#    initrd   (loop)/initrd.gz
+#}
+
+#==================================================
+
+check_for_iso() {
+  if [ -f "$ONE_MP/${iso_path#/}" ] ; then
+    ISO_PSAVE=${ONE_PART}
+    FOUND_ISO=$ONE_MP/${iso_path#/}
+  else
+    umount $ONE_MP
+  fi
+}
+
+#==================================================
+
+iso_path=
+
+if [ "$isofrom" ] ; then
+  iso_path="$isofrom"
+fi
+
+if [ "$img_loop" ] ; then
+  iso_path="$img_loop"
+fi
+
+if [ "$isoloop" ] ; then
+  iso_path="$isoloop"
+fi
+
+if [ "$findiso" ] ; then
+  iso_path="$findiso"
+fi
+
+if [ "$find_iso" ] ; then
+  iso_path="$find_iso"
+fi
+
+if ! [ "$iso_path" ] ; then
+  for x in $(cat /proc/cmdline); do
+    case ${x} in
+      iso-scan/filename=*) iso_path=${x#iso-scan/filename=} ;;
+    esac
+  done
+fi
+
+#==================================================
+
+if [ "$iso_path" ] ; then
+
+  FOUND_ISO=
+
+  [ "$iso_dev" ] && img_dev="$iso_dev"
+  if [ "$img_dev" ] ; then
+    img_dev="${img_dev##*/}"
+    decode_id "$img_dev"
+    if [ "$ONE_PART" ] ; then
+      ensure_mounted "$ONE_PART" "/mnt/idrv"
+      [ "$ONE_MP" ] && check_for_iso
+    fi
+  else
+    wait_for_dev
+    for ONETRY in $HAVE_PARTS
+    do
+      ONE_PART="$(echo -n "$ONETRY" | cut -f 1 -d '|')"
+      ensure_mounted "$ONE_PART" "/mnt/idrv"
+      [ "$ONE_MP" ] && check_for_iso
+      [ "$FOUND_ISO" ] && break
+    done
+  fi
+
+  if ! [ "$FOUND_ISO" ] ; then
+    echo -en "\n Could not find the ISO $iso_path \n "
+    exec /bin/sh >/dev/console 2>&1
+  fi
+
+  ISO_LOOP=$(losetup -f)
+  if losetup $ISO_LOOP "$FOUND_ISO" ; then
+    echo "Using ${ISO_PSAVE}:${iso_path}"
+    P_BP_ID=${ISO_LOOP#/dev/}
+    SAVE_BP_ID=$ISO_PSAVE
+    if [ -e "${ONE_MP}${iso_path%/*}/SAVESPEC" ] ; then
+      echo "Using ${ISO_PSAVE}:${iso_path%/*}/SAVESPEC"
+      tr -d '\r' < "${ONE_MP}${iso_path%/*}/SAVESPEC" > /tmp/SAVESPEC
+      PMEDIA='atahd'
+    else
+      SAVE_BP_DIR="${iso_path%/*}/"
+      SAVE_BP_FN="$SAVE_BP_DIR"
+      PMEDIA='iso'
+    fi
+  else
+    echo -en "\n Error mounting ISO $iso_path \n "
+    exec /bin/sh >/dev/console 2>&1
+  fi
+
+fi

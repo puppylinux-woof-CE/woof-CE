@@ -5,6 +5,8 @@
 #130212 removed glipper code, see latest glipper pet.
 #130525 old pc celeron 2ghz cpu, 256mb ram, CPUSPEED=1999, 1st bootup rox failed to start. try experiment.
 
+export XDG_SESSION_TYPE=x11
+
 [ -f /etc/desktop_app ] && read -r desktop < /etc/desktop_app
 [ "$desktop" = "" ] && desktop=rox
 
@@ -15,14 +17,6 @@ echo '' > /var/local/pup_event_icon_change_flag
 /sbin/clean_desk_icons #v4.02 tidy up drive icons first.
 #/sbin/pup_event_frontend_d &
 #130525 ...start this further down.
-
-#w482 reshape background image if widescreen...
-#120708 need to reshape for PUPMODE=2 also...
-#[ $PUPMODE -eq 5 ] && /usr/sbin/background_reshape
-NEEDRESHAPE='yes'
-[ -f /usr/share/backgrounds_original/ORIGINAL-default.jpg ] && NEEDRESHAPE='no'
-[ -f /usr/share/backgrounds_original/ORIGINAL-default.png ] && NEEDRESHAPE='no'
-[ "$NEEDRESHAPE" = "yes" ] && /usr/sbin/background_reshape
 
 userresources=$HOME/.Xresources
 usermodmap=$HOME/.Xmodmap
@@ -45,6 +39,36 @@ fi
 
 if [ -f $usermodmap ]; then
     xmodmap $usermodmap
+fi
+
+xhost +local: 2>/dev/null
+
+# start a D-Bus session bus for both root and spot, for PulseAudio and applications that don't work without it
+eval `dbus-launch --exit-with-x11 --sh-syntax`
+run-as-spot dbus-launch --exit-with-x11 > /tmp/.spot-session-bus
+
+# start PipeWire/PulseAudio over the session bus and use it for both root and spot, so they see the same output devices
+if [ -e /usr/bin/wireplumber ] || [ -e /usr/bin/pipewire-media-session ]; then
+    rm -f /tmp/runtime-spot/pipewire-0
+    run-as-spot pipewire &
+    (
+        while [ ! -e /tmp/runtime-spot/pipewire-0 ]; do sleep 0.1; done
+	
+        run-as-spot pipewire-pulse &
+	
+	if [ -e /usr/bin/wireplumber ]; then
+         run-as-spot wireplumber &
+	else
+	 run-as-spot pipewire-media-session &
+	fi
+    
+    ) &
+    export PULSE_SERVER=unix:/tmp/runtime-spot/pulse/native
+    export PULSE_COOKIE=/home/spot/.config/pulse/cookie
+elif [ -e /usr/bin/pulseaudio ]; then
+    run-as-spot sh -c "pulseaudio --kill > /dev/null 2>&1; pulseaudio --start --log-target=syslog"
+    export PULSE_SERVER=unix:/tmp/runtime-spot/pulse/native
+    export PULSE_COOKIE=/home/spot/.config/pulse/cookie
 fi
 
 CURRENTWM="`cat /etc/windowmanager`"
@@ -75,6 +99,8 @@ fi
 
 [ -f /usr/local/bin/agenda_chk ] && agenda_chk &
 
+
+
 #v1.0.7 set by xrandrshell, part of xorg wizard... v3.99...
 if [ -f /etc/xrandrindex ];then
   #v3.99 workround for dual monitors, 'head -n 1'....
@@ -100,15 +126,6 @@ fi
 if [ -f /root/.xset.sh ];then
  #this is created by /usr/bin/pupx...
  eval "/root/.xset.sh"
-else
- ##Xorg has it's own fontpath settings in /etc/X11/xorg.conf...
- #if [ "`readlink /usr/bin/X`" != "Xorg" ];then
- # #xset fp+ /usr/lib/X11/fonts/Type1/
- # #xset fp+ /usr/lib/X11/fonts/TTF/
- # xset fp+ /usr/share/fonts/default/Type1/
- # xset fp+ /usr/share/fonts/default/TTF/
- #fi
- xset s 600 600 s blank
 fi
 
 #v1.0.7 also see /etc/rc.d/rc.local0

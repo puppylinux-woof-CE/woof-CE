@@ -1,0 +1,164 @@
+#!/bin/bash
+#plugin for pMusic
+#NAME: Export most played
+#INFO: Define size of total export, and filter tracks by rating.
+
+#Copyright 2015 - GPL
+#Sigmund Berglund - Valåmoen, Norway.
+
+#Version 0.1 - Jul 2015
+
+export TEXTDOMAIN=pmusic
+export WORKDIR=$HOME/.pmusic/tmp
+export APPDIR=/usr/local/pmusic
+
+export_most (){
+	echo "$(gettext 'Export most played')" > $WORKDIR/splashtext
+	$APPDIR/box_splash progress &
+	$APPDIR/func_rating -buildlist 1 "$STORAGE_DIR/index_mymusic" 0 > $WORKDIR/tmp_export_most_played
+	grep -vF '|0|' $WORKDIR/tmp_export_most_played | sort -rnst'|' -k9,9 | head -n 10000 > $WORKDIR/tmp_export_most_played_1
+
+	TOTAL_KB="$(echo "$SIZE * 1024 * 1024" | bc | cut -d. -f1)"
+	EXPORT_KB=0
+
+	#NORMALIZE
+	#we calculate nomalizing values first. this because of issues with ffmpeg when ruuning it inside the big loop below
+	echo '#!/bin/sh' > $WORKDIR/exec_export_most_played
+	echo -n > $WORKDIR/tmp_export_normalize
+	echo "$(gettext 'Building exec file (Normalize)')..." > $WORKDIR/progresstext #echo nothing will delete existing splash
+	while read I; do
+		TRACK="`cut -d'|' -f14 <<< "$I"`"
+		[ ! -f "$TRACK" ] && continue
+		TRACK_KB="`du "$TRACK" | awk '{print $1}'`"
+		EXPORT_KB=$(($EXPORT_KB+$TRACK_KB))
+		[ -f "$EXPORTDIR/$(basename "$TRACK")" ] && continue #if it already exist, skip it
+		[ $EXPORT_KB -gt $TOTAL_KB ] && break #check if we have reached the size-limit
+		echo "echo \"$(($EXPORT_KB*98/$TOTAL_KB))\" > $WORKDIR/splash" >> $WORKDIR/exec_export_most_played
+		echo -n "echo \"$(gettext 'Normalize'): " >> $WORKDIR/exec_export_most_played
+		echo -n "$(basename "$TRACK")" | sed -e 's/`/\\\`/g' -e 's/"/\\\"/g' >> $WORKDIR/exec_export_most_played
+		echo "\" > $WORKDIR/progresstext" >> $WORKDIR/exec_export_most_played
+		#Check if sound filters is activated in sound processing filters or plugins
+		if [ $NORMALIZE = true ]; then
+			echo -n "ffmpeg -i \"" >> $WORKDIR/exec_export_most_played
+			echo -n "$TRACK" | sed -e 's/`/\\\`/g' -e 's/"/\\\"/g' >> $WORKDIR/exec_export_most_played #allow ` and " in filename 
+			echo '" -af volumedetect -f null - 2> '$WORKDIR'/ffmpeg_volumedetect_export' >> $WORKDIR/exec_export_most_played #find possible gain increase
+
+			echo 'TMP="`grep -F max_volume '$WORKDIR'/ffmpeg_volumedetect_export | cut -d: -f2 | cut -d" " -f2 | cut -d"-" -f2`"' >> $WORKDIR/exec_export_most_played
+
+			echo -n 'echo "' >> $WORKDIR/exec_export_most_played
+			echo -n "$TRACK" | sed -e 's/`/\\\`/g' -e 's/"/\\\"/g' >> $WORKDIR/exec_export_most_played #allow ` and " in filename 
+			echo '|volume=${TMP}dB" >> '$WORKDIR'/tmp_export_normalize' >> $WORKDIR/exec_export_most_played
+		fi
+	done < $WORKDIR/tmp_export_most_played_1
+	chmod 722 $WORKDIR/exec_export_most_played
+	$WORKDIR/exec_export_most_played
+	#---
+
+
+	EXPORT_KB=0
+	echo '#!/bin/sh' > $WORKDIR/exec_export_most_played
+	echo 0 > $WORKDIR/splash
+	echo "$(gettext 'Building exec file (Copying)')..." > $WORKDIR/progresstext
+	while read I; do
+		TRACK="`cut -d'|' -f14 <<< "$I"`"
+		[ ! -f "$TRACK" ] && continue
+		
+		TRACK_KB="`du "$TRACK" | awk '{print $1}'`"
+		EXPORT_KB=$(($EXPORT_KB+$TRACK_KB))
+		[ -f "$EXPORTDIR/$(basename "$TRACK")" ] && continue #if it already exist, skip it
+		[ $EXPORT_KB -gt $TOTAL_KB ] && break #check if we have reached the size-limit
+		echo "echo \"$(($EXPORT_KB*100/$TOTAL_KB))\" > $WORKDIR/splash" >> $WORKDIR/exec_export_most_played
+		echo -n "echo \"$(gettext 'Copy'): " >> $WORKDIR/exec_export_most_played
+		echo -n "$(basename "$TRACK")" | sed -e 's/`/\\\`/g' -e 's/"/\\\"/g' >> $WORKDIR/exec_export_most_played
+		echo "\" > $WORKDIR/progresstext" >> $WORKDIR/exec_export_most_played
+		#copy or normalize
+		if [ $NORMALIZE = true ]; then
+			grep "$TRACK" $WORKDIR/tmp_export_normalize | cut -d'|' -f2 > $WORKDIR/ffmpeg_filter_NORMALIZE #normalize values are calculated in loop above
+			FILTER="-af $(grep "$TRACK" $WORKDIR/tmp_export_normalize | cut -d'|' -f2)"
+			if [ "`grep -F '0.0dB' <<< "$FILTER"`" ]; then
+				echo -n "cp \"" >> $WORKDIR/exec_export_most_played
+				echo -n "$TRACK" | sed -e 's/`/\\\`/g' -e 's/"/\\\"/g' >> $WORKDIR/exec_export_most_played
+				echo -n "\" \"" >> $WORKDIR/exec_export_most_played
+				echo -n "$EXPORTDIR" | sed -e 's/`/\\\`/g' -e 's/"/\\\"/g' >> $WORKDIR/exec_export_most_played
+				echo "\"" >> $WORKDIR/exec_export_most_played
+			else 
+				echo -n "ffmpeg -i \"" >> $WORKDIR/exec_export_most_played
+				echo -n "$TRACK" | sed -e 's/`/\\\`/g' -e 's/"/\\\"/g' >> $WORKDIR/exec_export_most_played #allow ` and " in filename 
+				echo -n "\" $FILTER -y \"" >> $WORKDIR/exec_export_most_played
+				echo -n "$EXPORTDIR/$(basename "$TRACK")" | sed -e 's/`/\\\`/g' -e 's/"/\\\"/g' >> $WORKDIR/exec_export_most_played #allow ` and " in filename 
+				echo "\"" >> $WORKDIR/exec_export_most_played
+			fi
+		else
+			echo -n "cp \"" >> $WORKDIR/exec_export_most_played
+			echo -n "$TRACK" | sed -e 's/`/\\\`/g' -e 's/"/\\\"/g' >> $WORKDIR/exec_export_most_played
+			echo -n "\" \"" >> $WORKDIR/exec_export_most_played
+			echo -n "$EXPORTDIR" | sed -e 's/`/\\\`/g' -e 's/"/\\\"/g' >> $WORKDIR/exec_export_most_played
+			echo "\"" >> $WORKDIR/exec_export_most_played
+		fi
+	done < $WORKDIR/tmp_export_most_played_1
+
+	$WORKDIR/exec_export_most_played
+
+	echo 100 > $WORKDIR/splash #reset progress bar
+}
+export -f export_most
+
+$APPDIR/func_svg -heading "$(gettext 'Export most played')"
+
+echo '
+<window icon-name="pmusic" title="pMusic - '$(gettext 'Export most played')'">
+ <vbox space-expand="true" space-fill="true">
+  <vbox space-expand="false" space-fill="false">
+   <hbox spacing="0" height="80" scrollable="true" space-expand="true" space-fill="true" vscrollbar-policy="3" hscrollbar-policy="3">
+    <eventbox name="svgheading">
+     <hbox space-expand="true" space-fill="true">
+      <text width-request="20" space-expand="false" space-fill="false"><label>""</label></text>
+      <text ypad="55" use-markup="true" space-expand="false" space-fill="false"><label>"<i>'$(gettext 'Sort tracks by most played before export')'</i>"</label></text>
+      <text space-expand="true" space-fill="true"><label>""</label></text>
+     </hbox>
+    </eventbox>
+   </hbox>
+  </vbox>
+ <vbox space-expand="true" space-fill="true">
+  <frame>
+   <hbox>
+    <text><label>'$(gettext 'Export path')'</label></text>
+    <entry accept="directory">
+     <variable>EXPORTDIR</variable>
+     <input>echo $EXPORTDIR</input>
+    </entry>
+    <button>
+     <input file stock="gtk-open"></input>
+     <action type="fileselect">EXPORTDIR</action>
+    </button>
+   </hbox>
+   <hbox>
+    <text><label>"'$(gettext 'How many Gb should be exported')'"</label></text>
+    <spinbutton range-max="100" range-min="0" range-step="0.1" width-request="47" space-expand="false" space-fill="false">
+     <variable>SIZE</variable>
+     <default>0.1</default>
+    </spinbutton>
+   </hbox>
+   <text><label>""</label></text>
+   <checkbox space-expand="false" space-fill="false">
+    <label>'$(gettext 'Normalize (Unify volume of all audio tracks)')'</label>
+    <variable>NORMALIZE</variable>
+   </checkbox>
+  </frame>
+  <vbox space-expand="false" space-fill="false">
+  <hbox>
+   <button>
+    <input file stock="gtk-cancel"></input>
+    <label>'$(gettext 'Cancel')'</label>
+   </button>
+   <button>
+    <input file stock="gtk-save-as"></input>
+    <label>'$(gettext 'Export')'</label>
+    <action>export_most</action>
+   </button>
+  </hbox>
+  </vbox>
+  </vbox>
+ </vbox>
+</window>
+' | LANG=C gtkdialog -s #LANG=C because spinbutton fails when decimals in range-values are defined by , instead of .

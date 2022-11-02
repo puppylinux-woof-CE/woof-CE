@@ -34,7 +34,7 @@ install_index (){
 	LC_ALL=C wget --tries=1 --user $MY_USER --password $MY_PASSWORD --output-document="$STORAGE_DIR/index_podcast.gz" "$MY_SERVER/pmusic_index_podcast.gz"
 	gunzip -f "$STORAGE_DIR/index_podcast.gz"
 	#add favorite mark
-	[ ! "`grep -F "$(gettext 'Podcast channels')" "$STORAGE_DIR"/favorites`" ] && echo 'pmusic_podcast_show|'$(gettext 'Podcast channels')'|||||||||||||gtk-podcast_channel' >> "$STORAGE_DIR"/favorites
+	[ ! "`grep -F "$(gettext 'Podcast channels')" "$STORAGE_DIR"/favorites`" ] && echo 'pmusic_podcast_show|'$(gettext 'Podcast channels')'|||||||||||||podcast_channel' >> "$STORAGE_DIR"/favorites
 	#---
 	$APPDIR/func_podcast -show_podcast
 	echo true > $WORKDIR/UPDATE_SOURCELIST
@@ -43,7 +43,7 @@ install_index (){
 
 save_podcast (){
 	grep -vF $PODCAST_URL "$STORAGE_DIR"/podcast_channels > $WORKDIR/tmp_podcast_channels
-	echo "pmusicbrowse_podcast:$PODCAST_URL|$PODCAST_NAME||||||||||||$PODCAST_URL|gtk-podcast_channel|" >> $WORKDIR/tmp_podcast_channels
+	echo "pmusicbrowse_podcast:$PODCAST_URL|$PODCAST_NAME||||||||||||$PODCAST_URL|podcast_channel|" >> $WORKDIR/tmp_podcast_channels
 	sort -t'|' -k2,2 --output="$STORAGE_DIR"/podcast_channels $WORKDIR/tmp_podcast_channels
 }
 
@@ -83,6 +83,28 @@ case $1 in
 	[ "`grep "$(gettext 'M Y   P O D C A S T S')" $WORKDIR/sourcelist`" ] && echo true > $WORKDIR/UPDATE_SOURCELIST
 	;;
 -opml2pmd)
+	#build sed files for locale convertion
+	echo -n > $WORKDIR/tmp_locale-nn_NN
+	echo -n > $WORKDIR/tmp_locale-nn-NN
+	echo -n > $WORKDIR/tmp_locale-nn
+	echo -n > $WORKDIR/tmp_locale-NN
+	while read I; do
+		TERRITORY="`grep -FA20 LC_IDENTIFICATION /usr/share/i18n/locales/${I} | grep ^territory | cut -d'"' -f2`"
+		LANGUA="`grep -FA20 'LC_IDENTIFICATION' /usr/share/i18n/locales/${I} | grep ^language | cut -d'"' -f2`"
+		LANGznn_NN="`echo "$I"  | sed -e 's/\(.*\)/\L\1/'`" #only small chars
+		LANGznn="`echo "$LANGznn_NN" | cut -d'_' -f1`"
+		LANGzNN="`echo "$LANGznn_NN" | cut -d'_' -f2`"
+		LANGznnzNN="${LANGznn}-${LANGzNN}"
+		echo -n 's|zzz'${LANGznn_NN}'zzz| '${LANGUA}, ${TERRITORY}'| ; ' >> $WORKDIR/tmp_locale-nn_NN
+		echo -n 's|zzz'${LANGznnzNN}'zzz| '${LANGUA}, ${TERRITORY}'| ; ' >> $WORKDIR/tmp_locale-nn-NN
+		[ ! "$(grep -F '|'${LANGznn}'|' $WORKDIR/tmp_locale-nn)" ] && echo -n 's|zzz'${LANGznn}'zzz| '${LANGUA}, '| ; ' >> $WORKDIR/tmp_locale-nn
+		[ ! "$(grep -F '|'${LANGzNN}'|' $WORKDIR/tmp_locale-NN)" ] && echo -n 's|zzz'${LANGzNN}'zzz| '${LANGUA}, ${TERRITORY}'| ; ' >> $WORKDIR/tmp_locale-NN
+		echo $I:::$LANGUA:::$TERRITORY
+	done <<< $(ls /usr/share/i18n/locales)
+
+	#read raw data - line by line
+	A=0
+	TOTAL=$(grep -Fc 'url=' $WORKDIR/tmp_podcast_opml)
 	echo -n > $WORKDIR/tmp_opml2pmd
 	while read I; do
 		case $I in
@@ -90,12 +112,37 @@ case $1 in
 				ADR=${I##*url=\"}; ADR=${ADR%%\"*}
 				NAME=${I##*text=\"}; NAME=${NAME%%\"*}
 				#write to index if url is alive
-				LC_ALL=C wget --spider --tries 3 -T 3 $ADR 2> $WORKDIR/tmp_podcast
-				if [ ! "`LC_ALL=C grep 'connected' $WORKDIR/tmp_podcast`" ]; then
-					echo OK : $NAME
-					echo "pmusicbrowse_podcast:$ADR|$NAME|||||$GENRE|||||||$ADR|gtk-podcast_channel|" >> $WORKDIR/tmp_opml2pmd
+				LC_ALL=C wget --tries 3 -T 3 -q $ADR -O - | tr '>' '\n' | tr \' \"  > $WORKDIR/tmp_podcast
+				if [ "`grep -F '</rss' $WORKDIR/tmp_podcast`" ]; then #valid rss
+					A=$(($A+1))
+					#Get filelist from RSS feed
+					while read I; do
+						case $I in
+							*.jpg*) ALBUMART=${I##*href=\"}; ALBUMART=${ALBUMART%%\"*}; ALBUMART=${ALBUMART%%\<*} ;;
+							*\<\/language*)
+								LANGUA=${I%%<*}
+								#convert locale (en-US) to language based on one of the following definition files
+								if [ "$(grep -i "|zzz${LANGUA}zzz|" $WORKDIR/tmp_locale-nn_NN)" ]; then
+									LANGUA="$(echo "zzz${LANGUA}zzz" | sed -e 's/\(.*\)/\L\1/' | sed -f $WORKDIR/tmp_locale-nn_NN)"
+								elif [ "$(grep -i "|zzz${LANGUA}zzz|" $WORKDIR/tmp_locale-nn-NN)" ]; then
+									LANGUA="$(echo "zzz${LANGUA}zzz" | sed -e 's/\(.*\)/\L\1/' | sed -f $WORKDIR/tmp_locale-nn-NN)"
+								elif [ "$(grep -i "|zzz${LANGUA}zzz|" $WORKDIR/tmp_locale-nn)" ]; then
+									LANGUA="$(echo "zzz${LANGUA}zzz" | sed -e 's/\(.*\)/\L\1/' | sed -f $WORKDIR/tmp_locale-nn)"
+								elif [ "$(grep -i "|zzz${LANGUA}zzz|" $WORKDIR/tmp_locale-NN)" ]; then
+									LANGUA="$(echo "zzz${LANGUA}zzz" | sed -e 's/\(.*\)/\L\1/' | sed -f $WORKDIR/tmp_locale-NN)"
+								fi
+								;;
+							*\<\/itunes:author*) AUTHOR=${I%%<*} ;;
+							*\<\/itunes:keywords*) TAGS=${I%%<*} | TAGS=${TAGS::150} ;; #Crop to max 150 chars
+							*\<\/item*) #we have reached next item --> echo what we got
+								echo OK : ${A}/${TOTAL} : $NAME
+								echo "pmusicbrowse_podcast:$ADR|$NAME|||||$GENRE|${AUTHOR}, ${TAGS}||||||$ADR|podcast_channel||||$ALBUMART|$LANGUA|" >> $WORKDIR/tmp_opml2pmd
+								break
+								;;
+						esac
+					done < $WORKDIR/tmp_podcast
 				else
-					echo NO : $NAME
+					echo NO : ${A}/${TOTAL} : $NAME
 				fi
 				;;
 			*text=*\>) #category
@@ -104,34 +151,40 @@ case $1 in
 		esac
 	done < $WORKDIR/tmp_podcast_opml
 	sed -f $APPDIR/sed_html2txt -i $WORKDIR/tmp_opml2pmd
+	awk '!a[$0]++'  $WORKDIR/tmp_opml2pmd >  "$STORAGE_DIR"/index_podcast #remove duplicate lines
 	;;
 
 -build_index)
+	gettext 'Downloading podcast data' > $WORKDIR/splashtext
+	$APPDIR/box_splash &
 	wget http://api.digitalpodcast.com/opml/digitalpodcast.opml -O - | tr '<' '\n' > $WORKDIR/tmp_podcast_opml
+	echo 100 > $WORKDIR/splash
 	rxvt -e $APPDIR/func_podcast -opml2pmd
-	mv -f $WORKDIR/tmp_opml2pmd "$STORAGE_DIR"/index_podcast
 	;;
 
 -show_podcast)
-	echo "pmusic_podcast_setup|__  $(gettext 'T I M E S T A M P S')  __" > $WORKDIR/sourcelist
+	echo "pmusic_favorites|__  $(gettext 'T I M E S T A M P S')  __" > $WORKDIR/sourcelist
 	#grep podcasts in Favorites that has got a timestamp
 	echo -n > $WORKDIR/tmp_podcast
 	while read I; do
-		[[ ${I} = *?:??]* ]] && [[ "${I}" = *http:* ]] && echo "$I" >> $WORKDIR/tmp_podcast
+		[[ ${I} = *?:??]* ]] && [[ "${I}" = @(*http:*|*https:*) ]] && echo "$I" >> $WORKDIR/tmp_podcast
 	done < "$STORAGE_DIR"/favorites
 	if [ ! -s $WORKDIR/tmp_podcast ]; then #no podcasts
-		echo "|$(gettext 'Add timestamp to podcast')|||||||||||||gtk-info" >> $WORKDIR/tmp_podcast
+		echo "|$(gettext 'Add timestamp to podcast')|||||||||||||dialog-information" >> $WORKDIR/tmp_podcast
 		[[ "$PMUSIC_FRONTEND" != *".Podcast" ]] && echo "|$(gettext 'from the Playback menu')" >> $WORKDIR/tmp_podcast #.Podcast has no menu
 	fi
 	cat $WORKDIR/tmp_podcast >> $WORKDIR/sourcelist
+	echo -n "pmusic_favorites_end|" >> $WORKDIR/sourcelist
 	#---
 	echo -e "\npmusic_podcast_setup|__  $(gettext 'M Y   C H A N N E L S')  __" >> $WORKDIR/sourcelist
 	cat "$STORAGE_DIR"/podcast_channels >> $WORKDIR/sourcelist
 	echo -e "\npmusic_podcast|__  $(gettext 'C A T E G O R I E S')  __" >> $WORKDIR/sourcelist
 	if [ ! -s "$STORAGE_DIR"/index_podcast ]; then
-		echo -e "pmusic_podcast|$(gettext 'Missing index')|||||||||||||gtk-info\npmusic_podcast|$(gettext 'Doubleclick here to setup')" >> $WORKDIR/sourcelist
+		echo -e "pmusic_podcast|$(gettext 'Missing index')|||||||||||||dialog-information\npmusic_podcast|$(gettext 'Doubleclick here to setup')" >> $WORKDIR/sourcelist
 	else
-		cat $APPDIR/pmd_podcast_genre  | sed 's%$%|||||||||||||gtk-bullet%g' >> $WORKDIR/sourcelist
+		cat $APPDIR/pmd_podcast_genre  | sed 's%$%|||||||||||||blank%g' >> $WORKDIR/sourcelist
+		echo -e "\npmusic_podcast|__  $(gettext 'L A N G U A G E S')  __" >> $WORKDIR/sourcelist
+		cat $APPDIR/pmd_podcast_language  | sed 's%$%|||||||||||||blank%g' >> $WORKDIR/sourcelist
 		$APPDIR/func -add_to_history "pMusic: Podcasts" & #update history
 	fi
 	;;
@@ -139,7 +192,7 @@ case $1 in
 -expand_channel) #both expand and collapse
 	ADR="$2"
 	#expand
-	if [ ! "`grep -FA1 "|$ADR|" $WORKDIR/sourcelist | grep -vF "|$ADR|" | grep -E "gtk-podcast_available|gtk-podcast_played"`" ]; then #expand if next item on list is a channel or if this is the last item
+	if [ ! "`grep -FA1 "|$ADR|" $WORKDIR/sourcelist | grep -vF "|$ADR|" | grep -E "podcast_available|podcast_played|podcast_dead"`" ]; then #expand if next item on list is a channel or if this is the last item
 		grep -B 10000 "|$ADR|" $WORKDIR/sourcelist > $WORKDIR/tmp_pod2
 		grep -A 10000 "|$ADR|" $WORKDIR/sourcelist | grep -v "|$ADR|" > $WORKDIR/tmp_pod3
 		#show msg
@@ -154,7 +207,7 @@ case $1 in
 		cp $WORKDIR/tmp_pod2 $WORKDIR/tmp_pod3 #pod2 is the one acting on. pod3 is for reading and has to be complete
 		#remove expanded items
 		while read I; do
-			if [[ "$I" = @(*gtk-podcast_available*|*gtk-podcast_played*) ]]; then
+			if [[ "$I" = @(*podcast_available*|*podcast_played*|*podcast_dead*) ]]; then
 				grep -v "$I" $WORKDIR/tmp_pod2 > $WORKDIR/tmp_pod4
 				mv -f $WORKDIR/tmp_pod4 $WORKDIR/tmp_pod2
 			else #no more podcasts
@@ -170,11 +223,43 @@ case $1 in
 	IFS='|' read COMMAND ARTIST TITLE ALBUM NR YEAR GENRE COMMENT RATING FORMAT BITRATE LENGTH C13 ADR ICON C <<< "$(grep -m1 "$2" $WORKDIR/sourcelist)"
 	#check content of channel
 	mv -f $WORKDIR/tmp_pod2 $WORKDIR/sourcelist2
-	#check internet connection
-	LC_ALL=C wget --spider --tries 3 -T 3 $PING_SERVER 2> $WORKDIR/tmp_podcast
-	if [ ! "`LC_ALL=C grep 'connected' $WORKDIR/tmp_podcast`" ]; then
+
+	#Get filelist from RSS feed
+	LC_ALL=C wget --tries 3 -T 3 -q $ADR -O - | tr '>' '\n' | tr \' \"  > $WORKDIR/tmp_podcast
+	if [ "`grep -F '<rss ' $WORKDIR/tmp_podcast`" ]; then #valid rss
+		while read I; do
+			case $I in
+				*audio*url=*|*url=*audio*|*video*url=*|*url=*video*) URL=${I#*url=\"}; URL=${URL%%\"*} ;;
+				*\<\/pubDate*) DATO=${I%%<*} ;;
+				*\<\/title*) TITLE=${I%%<*} ;;
+				*duration=*|*/itunes:duration*)
+					[[ "$I" = */itunes:duration* ]] && LENGTH=${I%%<*} || LENGTH=${I#*duration=\"}; LENGTH=${LENGTH%%\"*}
+					;;
+				*\<\/item*) #we have reached next item --> echo what we got
+					if [ "$LENGTH" ]; then
+						#in case length is defined in seconds
+						[[ $LENGTH = *:* ]] || LENGTH=`$APPDIR/func_C -sec2time $LENGTH`
+						#in case Hours is defined --> convert to minutes 
+						if [[ "$LENGTH" = *:*:* ]]; then
+							IFS=: read H M S <<< "$LENGTH"
+							M=$(((10#$H * 60) + 10#$M))
+							LENGTH=$(printf "%02d" $M):$(printf "%02d" $S)
+						fi
+					else
+					LENGTH='??:??'
+					fi
+					if  [ "$URL" ]; then
+						[[ "$(grep -F "$URL" $WORKDIR/podcasts_played)" ]] && ICON='podcast_played' || ICON='podcast_available'
+					else
+						ICON='podcast_dead'
+					fi
+					echo "$URL|$ARTIST|$TITLE|||$DATO|$GENRE|||||$LENGTH||$URL|$ICON|" >> $WORKDIR/sourcelist2
+					;;
+			esac
+		done < $WORKDIR/tmp_podcast
+	else #no internet connection
 		sleep 0.2
-		TXT1="<b>$(gettext 'Not able to connect to internet')</b>"
+		TXT1="<b>$(gettext 'Not able to connect to podcast channel')</b>"
 		. $APPDIR/box_ok
 		echo 100 > $WORKDIR/splash #reset progress bar
 		grep -v "$(gettext 'Searching podcasts')" $WORKDIR/sourcelist > $WORKDIR/tmp_sourcelist
@@ -182,33 +267,9 @@ case $1 in
 		echo true > $WORKDIR/UPDATE_SOURCELIST
 		exit
 	fi
-	#Get filelist from RSS feed
-	while read I; do
-		case $I in
-			*url=*)			URL=${I#*url=\"}; URL=${URL%%\"*}	;;
-			*\<\/pubDate*)	DATO=${I%%<*}						;;
-			*\<\/title*)	TITLE=${I%%<*}						;;
-			*duration=*|*:duration*)
-				[[ "$I" = *:duration* ]] && LENGTH=${I%%<*} || LENGTH=${I#*duration=\"}; LENGTH=${LENGTH%%\"*} 
-				if [ "$LENGTH" ]; then
-					#in case length is defined in seconds
-					[[ $LENGTH = *:* ]] || LENGTH=`$APPDIR/func_C -sec2time $LENGTH`
-					#in case Hours is defined --> convert to minutes 
-					if [[ "$LENGTH" = *:*:* ]]; then
-						IFS=: read H M S <<< "$LENGTH"
-						M=$(((10#$H * 60) + 10#$M))
-						LENGTH=$(printf "%02d" $M):$(printf "%02d" $S)
-					fi
-				fi
-				;;
-			*\<\/item*) #we have reached next item --> echo what we got
-				[[ "$(grep -F "$URL" $WORKDIR/podcasts_played)" ]] && ICON='gtk-podcast_played' || ICON='gtk-podcast_available'
-				echo "$URL|$ARTIST|$TITLE|||$DATO|$GENRE|||||$LENGTH||$URL|$ICON|" >> $WORKDIR/sourcelist2
-				;;
-		esac
-	done <<< "$(wget -q $ADR -O - | tr '>' '\n' | tr \' \" )"
 	cat $WORKDIR/tmp_pod3 >> $WORKDIR/sourcelist2
 	mv -f $WORKDIR/sourcelist2 $WORKDIR/sourcelist
+	sed -f $APPDIR/sed_html2txt -i $WORKDIR/sourcelist
 	rm $WORKDIR/tmp_pod*
 	echo true > $WORKDIR/UPDATE_SOURCELIST
 	;;
@@ -225,7 +286,7 @@ case $1 in
 	<window title="pMusic" icon-name="pmusic" window_position="2" allow-grow="false">
 	 <vbox>
 	  <frame '$(gettext 'Delete preset')'>
-	   <pixmap icon_size="6"><input file stock="gtk-dialog-question"></input></pixmap>
+	   <pixmap icon_size="6"><input file icon="dialog-question"></input></pixmap>
 	   <text use-markup="true"><label>"'$(gettext 'Do you want to delete the preset')': '$PODCAST_NAME'?"</label></text>
 	   <checkbox>
 	    <label>"'$(gettext 'Delete already downloaded podcasts')'"</label>
@@ -235,7 +296,7 @@ case $1 in
 	  <hbox>
 	   <button cancel></button>
 	   <button has-focus="true">
-	    <input file icon="gtk-delete"></input>
+	    <input file icon="clear"></input>
 	    <label>'$(gettext 'Delete')'</label>
 	    <action type="exit">delete</action>
 	   </button>
@@ -243,7 +304,7 @@ case $1 in
 	 </vbox>
 	</window>'
 	I=$IFS; IFS=""
-	for STATEMENTS in  $($GTKDIALOG -p gui_delete_channel --center); do
+	for STATEMENTS in  $(XDG_DATA_DIRS=$WORKDIR:$XDG_DATA_DIRS $GTKDIALOG -p gui_delete_channel --center --styles=$APPDIR/themes/$THEME/gtk-3.0/gtk.css); do
 		eval $STATEMENTS
 	done
 	IFS=$I
@@ -266,16 +327,16 @@ case $1 in
 	<window title="pMusic - '$(gettext 'Podcast Manager')'" icon-name="pmusic">
 	<vbox>
 	 <vbox '$SF'>
-	  <hbox spacing="0" height="80" scrollable="true" '$ST' vscrollbar-policy="2" hscrollbar-policy="2">
+	  <hbox spacing="0" height="80" scrollable="true" '$ST' vscrollbar-policy="3" hscrollbar-policy="3">
 	   <eventbox name="svgheading">
 	    <hbox '$ST'>
 	     <text width-request="20" '$SF'><label>""</label></text>
-	     <text ypad="40" use-markup="true" '$SF'><label>"<i>'$(gettext 'Keep track of your favorite podcast channels')'</i>"</label></text>
+	     <text ypad="45" wrap="false" use-markup="true" '$SF'><label>"<i>'$(gettext 'Keep track of your favorite podcast channels')'</i>"</label></text>
 	     <text '$ST'><label>""</label></text>
 	     <hbox spacing="0" '$SF'>
 	      <vbox '$SF'>
 	       <button relief="2" can-focus="false" '$SF'>
-	        <input file stock="gtk-help"></input>
+	        <input file icon="help"></input>
 	        <action>help</action>
 	       </button>
 	       <text '$ST'><label>""</label></text>
@@ -310,13 +371,13 @@ case $1 in
 	     <text '$ST'><label>""</label></text>
 	     <button tooltip-text="'$(gettext 'Delete Podcast preset')'">
 	      <label>"'$(gettext 'Delete preset')'"</label>
-	      <input file stock="gtk-delete"></input>
+	      <input file icon="clear"></input>
 	      <action>delete_podcast</action>
 	      <action>refresh:PODCASTLIST</action>
 	     </button>
 	     <button tooltip-text="'$(gettext 'Add new Podcast to list')'">
 	      <label>"'$(gettext 'Save preset')'"</label>
-	      <input file stock="gtk-save"></input>
+	      <input file icon="save"></input>
 	      <action>save_podcast</action>
 	      <action>refresh:PODCASTLIST</action>
 	     </button>
@@ -329,7 +390,7 @@ case $1 in
 	    <label>"||||||||||||||||||"</label>
 	    <variable>PODCASTLIST</variable>
 	    <height>200</height><width>450</width>
-	    <input file stock-column="14">'"$STORAGE_DIR"'/podcast_channels</input>
+	    <input file icon-column="14">'"$STORAGE_DIR"'/podcast_channels</input>
 	    <action signal="button-release-event">'$APPDIR'/func_podcast -edit_preset "$PODCASTLIST"</action>
 	    <action signal="button-release-event">refresh:PODCAST_NAME</action>
 	    <action signal="button-release-event">refresh:PODCAST_URL</action>
@@ -340,12 +401,12 @@ case $1 in
 	 <vbox>
 	  <text height-request="120"><label>"'$(gettext 'This is a one-click download and install of the podcast index.
 
-The index file will be 4Mb+ when installed, and give you access to thousands of podcast channels.')'"</label></text>
+The index file will be 16Mb+ when installed, and give you access to thousands of podcast channels in many languages and categories.')'"</label></text>
 	  <hbox homogeneous="true">
 	   <hbox>
 	    <button name="highlight">
 	     <variable>BUTTON_INSTALL</variable>
-	     <input file stock="gtk-apply"></input>
+	     <input file icon="apply"></input>
 	     <label>'$(gettext 'Install')'</label>
 	     <action>install_index</action>
 	     <action>EXIT:exit</action>
@@ -361,7 +422,7 @@ The index file will be 4Mb+ when installed, and give you access to thousands of 
 	   <hbox '$SF'>
 	    <button '$SF'>
 	     <label>"'$(gettext 'Build Podcast index')'"</label>
-	     <input file stock="gtk-execute"></input>
+	     <input file icon="execute"></input>
 	     <action>'$APPDIR'/func_podcast -build_index</action>
 	    </button>
 	   </hbox>
@@ -371,15 +432,12 @@ The index file will be 4Mb+ when installed, and give you access to thousands of 
 	
 	<vbox '$SF'>
 	 <hbox '$ST'>
-	  <button '$SF'><input file stock="gtk-quit"></input></button>
+	  <button '$SF'><input file icon="quit"></input></button>
 	  <text '$ST'><label>""</label></text>
 	  <text use-markup="true"><label>"<b>'$(gettext 'Last indexing')':</b>"</label></text>
 	  <text><input>find "'$STORAGE_DIR'/index_podcast" -printf "%Td.%Tb %TY   (%TH:%TM)"</input></text>
 	  <text use-markup="true"><label>"  <b>'$(gettext 'Channels')':</b>"</label></text>
 	  <text><input>echo -n "$(grep -c ^ "'$STORAGE_DIR'/index_podcast")"</input></text> ###echo -n corrects vertical alignment
-	  <hbox '$SF'>
-	   <statusbar width-request="22"></statusbar>
-	  </hbox>
 	 </hbox>
 	</vbox>
 
@@ -388,6 +446,6 @@ The index file will be 4Mb+ when installed, and give you access to thousands of 
 	[ $TOOLTIPS = false ] && S="`echo "$S" | sed 's%tooltip-%tooltipXXX%g'`" #deactivate tooltips
 	export pmusicbrowse_podcast="`echo "$S" | sed 's/##.*//'`" #I use double hash (##) for comments. --> as #FF0000
 
-	$GTKDIALOG -p pmusicbrowse_podcast
+	XDG_DATA_DIRS=$WORKDIR:$XDG_DATA_DIRS $GTKDIALOG -p pmusicbrowse_podcast --styles=$APPDIR/themes/$THEME/gtk-3.0/gtk.css
 	;;
 esac

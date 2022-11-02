@@ -7,7 +7,7 @@
 # To disable automatic starting, remove execute permissions of
 # /root/Startup/redshiftgui_tray.
 
-if which redshiftgui &>/dev/null; then
+if which redshiftgui >/dev/null 2>&1; then
 	if [ "$1" = '--help' -o "$1" = '-h' ];then
 		export TEXTDOMAIN=redshiftgui.sh
 		export OUTPUT_CHARSET=UTF-8

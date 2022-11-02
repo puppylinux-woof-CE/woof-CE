@@ -109,6 +109,8 @@
 #170509 rerwin: replace gtkdialog3 with gtkdialog.
 #170622 display networks in order of signal quality (except prism2); remove cell number from display.
 #190217 v2.1: avoid logging progress updates when X not running; correct use of argument in kill functions.
+#210415 v2.2: Set 'selected device' softlink when "Use This Profile" button selected & remove it if target profile deleted; correct iwconfig check to test for associated AP address; prevent multiple psk= lines in wpa profile; correct PID test; add interface name to dhcpcd progress dialog; for wpa_supplicant progress, delay start of first input to avoid piping errors & pause between initial updates.
+#220704 v2.2.1: Recognize essid '\x00...' as hidden network; pause before running dhcpcd after interface test; collect all dhcpcd runs in dhcpcd.log; remove setting of 'selected device' softlink when "Use This Profile" button selected.
 
 #
 # Paul Siu
@@ -218,7 +220,7 @@ setupDHCP()
   <text><label>\"$(eval echo $L_TEXT_Dhcpcd_Progress)\"</label></text>
   <frame $L_FRAME_Progress>
       <progressbar>
-      <label>Connecting</label>
+      <label>Connecting ${INTERFACE}</label>
       <input>while read bla ; do case \$bla in [0-9]*) ;; *) echo \"\$bla\" >>$DEBUG_OUTPUT ;; esac ; case \$bla in Debug*) continue ;; esac ; echo \"\$bla\" ; done</input>
       <action type=\"exit\">Ready</action>
     </progressbar>
@@ -252,7 +254,7 @@ setupDHCP()
 				sleep 1
 				# see if user aborted 
 				if [ "$HAVEX" = "yes" ]; then
-					pidof gtkdialog 2>&1 |grep -q "$1" || return
+					pidof gtkdialog 2>&1 |grep -qw "$1" || return #210415
 					# exit the function
 				else
 					if [ -f "$TmpMarker" ] ; then
@@ -272,7 +274,7 @@ setupDHCP()
 		# Run dhcpcd. The output goes to the text in the progressbar...
 		DHCPCDLOG="$(dhcpcd -d -I '' "$INTERFACE" 2>&1)"
 		HAS_ERROR=$?
-		echo "$DHCPCDLOG" | tee /tmp/dhcpcd.log
+		echo "$DHCPCDLOG" | tee -a /tmp/dhcpcd.log #220704
 		echo "$DHCPCDLOG" | grep -q 'Error' && HAS_ERROR=1 #121117
 		# we're in a subshell, so variables set here will not be seen outside...
 		echo "$HAS_ERROR" > /tmp/net-setup_HAS_ERROR.txt
@@ -627,10 +629,10 @@ buildProfilesWindow()
 			<text>
 				<label>\"$L_TEXT_Select_Profile\"</label>
 			</text>
-			<combobox>
+			<comboboxtext>
 				<variable>PROFILE_COMBO</variable>
 				${PROFILE_BUTTONS}
-			</combobox>
+			</comboboxtext>
 			<button>
 				<label>$L_BUTTON_Load</label>
 				<input file stock=\"gtk-apply\"></input>
@@ -975,7 +977,7 @@ assignProfileData(){
 	PROFILE_FREQ="$FREQ"
 	PROFILE_CHANNEL="$CHANNEL"
 	PROFILE_AP_MAC="$AP_MAC"
-	[ "$PROFILE_ESSID" = "<hidden>" ] && PROFILE_ESSID=""
+	[ "$PROFILE_ESSID" = "<hidden>" ] || [ "${PROFILE_ESSID:0:4}" = '\x00' ] && PROFILE_ESSID="" #220704
 
 	if [ "$PROFILE_KEY" = "" ] ; then
 		PROFILE_ENCRYPTION="Open"
@@ -1081,6 +1083,10 @@ deleteProfile(){
 	# skip the templates...
 	case $PROFILE_TITLE in autoconnect|template) return ;; esac 
 	if [ -s "${PROFILES_DIR}/${PROFILE_AP_MAC}.${PROFILE_ENCRYPTION}.conf" ] ; then
+		if [ "$(readlink "${PROFILES_DIR}/selected_conf")" = \
+		"${PROFILES_DIR}/${PROFILE_AP_MAC}.${PROFILE_ENCRYPTION}.conf" ] ; then #210415...
+			rm "${PROFILES_DIR}/selected_conf"
+		fi
 		rm "${PROFILES_DIR}/${PROFILE_AP_MAC}.${PROFILE_ENCRYPTION}.conf"
 	fi
 } # end deleteProfile
@@ -1121,7 +1127,7 @@ saveWpaProfile(){
 	# need to change ap_scan, ssid and psk
 	sed -i "s/ap_scan=.*/ap_scan=$PROFILE_WPA_AP_SCAN/" "$WPA_CONF"
 	sed -i "s/\Wssid=.*/	ssid=\"$PROFILE_ESSID\"/" "$WPA_CONF"
-	sed -i "s/\Wpsk=.*/	#psk=\"$ESCAPED_PHRASE\"\n	psk=$PSK/" "$WPA_CONF"
+	sed -i -e '/#psk=/d' -e "s/\Wpsk=.*/	#psk=\"$ESCAPED_PHRASE\"\n	psk=$PSK/" "$WPA_CONF" #210415
 	#sed -i "s/	psk=.*/	psk=\"$PSK\"/" "$WPA_CONF"
 	return 0
 }
@@ -1341,8 +1347,7 @@ useIwconfig ()
 
 	if [ "$PROFILE_ESSID" ] ; then
 	   sleep $WAIT
-	   IWCONFIG=$(iwconfig "$INTERFACE")
-	   echo $IWCONFIG | grep -q "ESSID:.$PROFILE_ESSID.[ ]"  || STATUS=1
+	   iwconfig "$INTERFACE" | grep -cE "ESSID:.$PROFILE_ESSID.[ ]|Access Point: ..:" | grep -qw '2'  || STATUS=1 #210415
 	fi
 	[ $STATUS -eq 0 ] && break
 	WAIT=$(expr $WAIT + $WAIT)
@@ -1529,26 +1534,32 @@ $L_MESSAGE_No_Wpaconfig_p2"
 	#+ freeze the progress bar when it ends)
 	####################################################################
 	(
+		sleep 0.5 # Wait for progress dialog to initialize. #210415
 		echo "$L_ECHO_Starting"
 		# Dougal: add increasing of rate for ath5k
 		case $INTMODULE in ath5k*) iwconfig "$INTERFACE" rate 11M >> $DEBUG_OUTPUT 2>&1;; esac 	
+		sleep 0.5 #210415
 		echo "$L_ECHO_Initializing_Wpa"
 		wpa_supplicant -i "$INTERFACE" -D "$PROFILE_WPA_DRV" -c "$WPA_CONF" -B >> $DEBUG_OUTPUT 2>&1
 
 		echo "Waiting for connection... " >> $DEBUG_OUTPUT 2>&1
 
+		sleep 0.5 #210415
 		echo "trying to connect"
 		# Dougal: use function based on wicd code
 		# (note that it echoes the X's for the progress dialog)
 		# have different return values:
 		validateWpaAuthentication "$INTERFACE" "$XPID"
+		sleep 0.5 #210415
 		case $? in
 		 0) # success  
 		   #WPA_STATUS="COMPLETED"
 		   echo "COMPLETED" >/tmp/wpa_status.txt
 		   echo "completed" >> $DEBUG_OUTPUT
+		   sleep 1 #210415
 		   # end the progress bar
 		   echo end
+		   sleep 1 #210415
 		   ;;
 		 1) # timeout
 		   echo "timeout" >> $DEBUG_OUTPUT
@@ -1570,7 +1581,7 @@ $L_MESSAGE_No_Wpaconfig_p2"
 		echo  >> $DEBUG_OUTPUT 2>&1
 		#echo -n "$WPA_STATUS" > /tmp/wpa_status.txt
 		#echo "---" >> ${TMPLOG} 2>&1
-	) >>$PROGRESS_OUTPUT
+	) >> $PROGRESS_OUTPUT
 	####################################################################
   #| Xdialog --title "Puppy Ethernet Wizard" --progress "Acquiring WPA connection\n\nThere may be a delay up to 60 seconds." 0 0 20
 	if [ "$XPID" ] ;then
@@ -1810,7 +1821,7 @@ buildScanWindow()
 			for CELL in $(echo "$CELL_LIST" | cut -f 1 -d '@') ; do #170622
 				#getCellParameters $CELL
 				Get_Cell_Parameters $CELL
-				[ -z "$CELL_ESSID" ] && CELL_ESSID="(hidden ESSID)"
+				[ -z "$CELL_ESSID" ] || [ "${CELL_ESSID:0:4}" = '\x00' ] && CELL_ESSID="(hidden ESSID)" #220704
 				SCANWINDOW_BUTTONS="$SCANWINDOW_BUTTONS \"$CELL\" \"$CELL_ESSID (${CELL_MODE}; ${L_SCANWINDOW_Encryption}$CELL_ENC_TYPE)\" off \"${L_SCANWINDOW_Channel}${CELL_CHANNEL}; ${L_SCANWINDOW_Frequency}${CELL_FREQ}; ${L_SCANWINDOW_AP_MAC}${CELL_AP_MAC};
 ${L_SCANWINDOW_Strength}${CELL_QUALITY}\"" 
 			done
@@ -2066,7 +2077,7 @@ getCellParameters()
 	fi
 	SCAN_CELL=$(echo "$SCAN_LIST" | sed -n "${START},${END}p")
 	CELL_ESSID=$(echo "$SCAN_CELL" | grep -E -o 'ESSID:".+"' | grep -E -o '".+"' | grep -E -o '[^"]+')
-	[ "$CELL_ESSID" = "<hidden>" ] && CELL_ESSID=""
+	[ "$CELL_ESSID" = "<hidden>" ] || [ "${CELL_ESSID:0:4}" = '\x00' ] && CELL_ESSID="" #220704
 	CELL_FREQ=$(echo "$SCAN_CELL" | grep "Frequency" | grep -Eo '[0-9]+\.[0-9]+ +G' | sed -e 's/ G/G/') 
 	CELL_CHANNEL=$(echo "$SCAN_CELL" | grep "Frequency" | grep -Eo 'Channel [0-9]+' | cut -f2 -d" ")
 	[ ! "$CELL_CHANNEL" ] && CELL_CHANNEL=$(echo "$SCAN_CELL" | grep -F 'Channel:' | grep -Eo [0-9]+)
@@ -2101,7 +2112,7 @@ Get_Cell_Parameters(){
 	fi
 	SCAN_CELL=$(sed -n "${START},${END}p" $ScanListFile)
 	CELL_ESSID=$(echo "$SCAN_CELL" | grep -E -o 'ESSID:".+"' | grep -E -o '".+"' | grep -E -o '[^"]+')
-	[ "$CELL_ESSID" = "<hidden>" ] && CELL_ESSID=""
+	[ "$CELL_ESSID" = "<hidden>" ] || [ "${CELL_ESSID:0:4}" = '\x00' ] && CELL_ESSID="" #220704
 	CELL_FREQ=$(echo "$SCAN_CELL" | grep "Frequency" | grep -Eo '[0-9]+\.[0-9]+ +G' | sed -e 's/ G/G/') 
 	CELL_CHANNEL=$(echo "$SCAN_CELL" | grep "Frequency" | grep -Eo 'Channel [0-9]+' | cut -f2 -d" ")
 	[ -z "$CELL_CHANNEL" ] && CELL_CHANNEL=$(echo "$SCAN_CELL" | grep -F 'Channel:' | grep -Eo [0-9]+)

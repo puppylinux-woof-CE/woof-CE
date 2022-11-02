@@ -1,6 +1,6 @@
 #!/bin/sh
 #Remove dynamically created files...
-if ! which pgprs &>/dev/null;then
+if ! which pgprs >/dev/null 2>&1;then
  rm -f /etc/ppp/chatscripts/gprs-*_command
  rm -f /etc/ppp/peers/gprs-generated
  rm -f /etc/ppp/peers/gprs-auth
