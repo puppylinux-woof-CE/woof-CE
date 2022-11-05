@@ -138,6 +138,59 @@ About 500MB drive space is required, but this may vary enormously depending on t
 
 This gets built in a directory named `sandbox3` and as well as the live-CD ISO file you will also find the individual built files and the `devx` file.
 
+# Branding and Artwork
+
+The human-readable distro name (DISTRO_NAME), version (DISTRO_VERSION) and file name prefix (DISTRO_FILE_PREFIX) are specified in `DISTRO_SPECS`.
+
+3builddistro takes the distro logo that appears in documentation and first-run dialogs from `woof-code/rootfs-skeleton/usr/share/doc/puplogos`. It looks for `${DISTRO_FILE_PREFIX}.svg` or `${DISTRO_BINARY_COMPAT}.svg`, then falls back to a generic Puppy logo.
+
+The artwork (window manager theme, GTK+ theme, icon theme, wallpaper and cursor theme) to use by default is specified in `_00build.conf`. Themes are not downloaded automatically by woof-CE and must be added to the build as binary packages or built from source during the build.
+
+# Adding Binary Packages
+
+The list of binary packages to include in the distro is specified in `DISTRO_PKGS_SPECS-*`. See `woof-code/README.pkgs_specs` for more details.
+
+# Building Packages from Source
+
+woof-CE implements a "petbuilds" mechanism in `woof-code/support/petbuilds.sh`. It builds packages from source inside a chroot environment of the built Puppy distro (with its `devx`), so the built packages are reproducible, guaranteed to be compatible with the built Puppy and customizable.
+
+This mechanism is useful when:
+
+1. A package must be customized to work in Puppy: for example, some applications refuse to run as root.
+
+2. A package is not available in the compat distro repos: for example, many Puppy tools rely on gtkdialog, but it's a Puppy-specific tool not available in other distros.
+
+3. An application is available in the compat distro repos, but it's too old for use in Puppy: for example, some Puppy JWM themes won't work if JWM is too old.
+
+4. An application is available in the compat distro repos, but the compat distro enables optional features that add unwanted dependencies, making the compat distro package bigger and heavier than a much smaller but slightly less full-featured package built from source.
+
+5. Maintaining a .pet package repository containing prebuilt packages is not an option.
+
+To build a package from source during 3builddistro and include it in the build:
+
+1. Add a directory for your package under `woof-code/rootfs-petbuilds`.
+
+2. Add a `petbuild` file under the directory: this is a shell script that defines two functions, `download()` and `build()`. The former downloads files needed to build the package, like a source code tarball. The latter builds the package and installs it to /.
+
+3. If needed, add extra sources files that cannot be downloaded, like Puppy-specific patches.
+
+4. If needed, add extra files and directories that will be included in the package, like configuration files.
+
+5. Add a `pet.specs` file under the directory: this file is needed so PPM recognizes this package as a pre-installed one.
+
+6. Add a `sha256.sum` file under the directory: this file specifies the SHA256 checksum of all files downloaded by `download()`. If this file is missing, no verification of downloaded files is performed and this can lead to broken packages. Files not listed in `sha256.sum` are not verified.
+
+For example, if the `download()` function of the busybox package downloads files named `busybox-1.35.0.tar.bz2` and `busybox-guess_fstype.patch`, the `sha256.sum` file for busybox can be generated using:
+
+       cd woof-code/rootfs-petbuilds/busybox
+       . ./petbuild
+       download
+       sha256sum busybox-1.35.0.tar.bz2 busybox-guess_fstype.patch > sha256.sum
+
+7. If needed, add a `pinstall.sh` post-installation script.
+
+8. Add the package name to PETBUILDS, under `_00build.conf`.
+
 # TECHNICAL NOTES
 
 ## History
