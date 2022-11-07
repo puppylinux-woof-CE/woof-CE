@@ -165,6 +165,15 @@ do
 	done
 	rm -f /tmp/modstrings
 	;;
+	*/ralink/rt*/rt*.ko) # rt2800pci doesn't list rt3290.bin
+	strings -a $m > /tmp/modstrings
+	for F in $SRC_FW_DIR/rt*.bin;do
+		grep -Fqlm1 ${F##*/} /tmp/modstrings || continue
+		cp -L -n $F $FIRMWARE_RESULT_DIR
+		fw_msg ${F##*/} $fw_tmp_list # log to zdrv
+	done
+	rm -f /tmp/modstrings
+	;;
 	esac
 done
 # extra firmware from other sources
