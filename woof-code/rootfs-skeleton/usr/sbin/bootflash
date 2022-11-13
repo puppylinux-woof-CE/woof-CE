@@ -137,6 +137,35 @@ copy_grub2_uefi_boot() {
 	fi
 }
 
+# extlinux - make bootable
+# $1: targetdir 
+# $2: pdrv
+# $3: pmedia
+create_extlinux_conf() {
+	local HOMEDIR="$1"
+	local PDRV="$2"
+	local PMEDIA="$3"
+
+	INITRD="initrd.gz"
+	[ -f ${SRCPATH}/ucode.cpio ] && INITRD="ucode.cpio,${INITRD}"
+
+	APPEND="pfix=fsck pmedia=${PMEDIA}"
+	UUID=$(blkid -o export ${PDRV} | grep ^UUID= | cut -f 2 -d =)
+	[ "$UUID" ] && APPEND="${APPEND} pupsfs=${UUID} psave=${UUID}"
+
+	extlinux -i ${HOMEDIR}
+	cat << EOF > ${HOMEDIR}/extlinux.conf
+DEFAULT puppy
+
+LABEL puppy
+	LINUX vmlinuz
+	INITRD ${INITRD}
+	APPEND ${APPEND}
+EOF
+
+	sync
+}
+
 # $1: directory
 # $2: distro
 # $3: pmedia
@@ -198,7 +227,7 @@ write_wee_mbr() {
 # $1 = drv
 # $2 = XFSTYPE (vfat, ntfs, ext3, ext4)
 # $3 = XFSTYPE2 (f2fs)  (optional - $2 becomes vfat)
-create_grub4dos_bootable_drv() {
+create_bios_bootable_drv() {
 	local XDEV=${1##*/}
 	local XFSTYPE=$2
 	local XFSTYPE2=$3
@@ -256,8 +285,6 @@ create_grub4dos_bootable_drv() {
 	echo 'Wait 4 seconds for block device nodes to populate...'
 	sleep 4
 	sync
-
-	write_wee_mbr /dev/${XDEV} #install wee.mbr
 }
 
 #--
@@ -391,13 +418,21 @@ if [ "$(ls /usr/share/grub2-efi/grub*.efi* 2>/dev/null)" ] ; then
 	)
 fi
 
+if command -v extlinux > /dev/null && [ -f /usr/lib/EXTLINUX/mbr.bin ] ; then
+	EXTLINUX_USB_INSTALLER=$(
+		create_dlg_item "$(gettext '<b>Create extlinux USB (MBR - BIOS)</b>')" \
+			"$(gettext 'Does not support UEFI. Installs the running system. For computers booting with BIOS.')" \
+			install_options.svg 6
+	)
+fi
+
 export ASKDIALOG='
 <window title="'"Bootflash $USBDRV"'" icon-name="gtk-preferences">
 <vbox>
   <frame Bootflash '$USBDRV'>
     '"`/usr/lib/gtkdialog/xml_info 0 flashcard_usb.svg 48 "$(gettext "This tool allows to quickly create a bootable usb drive ready to use. Be aware that ALL DATA ON THE USB DRIVE WILL BE LOST")"`"'
 
-    '${UEFI_USB_INSTALLER}'
+    '${UEFI_USB_INSTALLER}${EXTLINUX_USB_INSTALLER}'
 
      '$(create_dlg_item "$(gettext '<b>Create grub4dos USB (MBR - BIOS)</b>')" \
 		"$(gettext 'Does not support UEFI. Installs the running system. For computers booting with BIOS.')" \
@@ -614,6 +649,52 @@ fi
 		exit
 		;;
 
+	6)
+		#========================
+		#    EXTLINUX
+		#========================
+		BOOTLOADER=extlinux
+		export EXTLINUX_DIALOG='<window title="'"BootFlash: $USBDRV"'" icon-name="gtk-preferences">
+<vbox>
+    '$(/usr/lib/gtkdialog/xml_info fixed execute_yes.svg 30 "$(gettext 'The intention of BootFlash is to make a USB memory stick (Flash drive) bootable.. then to install Puppy on it')")'
+
+    '$(create_dlg_item "$(gettext '<b>EXT4 partition + extlinux</b>')" \
+		"$(gettext 'Create ext4 partition and install extlinux')" \
+		install_options.svg 13
+		)'
+
+    '$(create_dlg_item "$(gettext '<b>EXT2 partition + extlinux</b>')" \
+		"$(gettext 'Create ext2 partition and install extlinux')" \
+		install_options.svg 16
+		)'
+
+    <hbox homogeneous="true" space-expand="true" space-fill="true">
+       <text use-markup="true" space-expand="true" space-fill="true">
+         <label>"<span fgcolor='"'#821811'"'><b>'$(gettext "THIS WILL DESTROY ALL DATA ON ${USBDRV}")'</b></span>"</label>
+       </text>
+    </hbox>
+    <hseparator></hseparator>
+
+    <hbox space-expand="false" space-fill="false">
+     <button>
+       '"`/usr/lib/gtkdialog/xml_button-icon quit`"'
+       <label>'$(gettext 'Quit')'</label>
+       <action type="exit">EXIT</action>
+     </button>
+    </hbox>
+
+  </vbox>
+</window>'
+		. /usr/lib/gtkdialog/xml_info gtk
+		RETPARAMS="`gtkdialog --center --program=EXTLINUX_DIALOG`"
+		eval "$RETPARAMS"
+		case $EXIT in
+			13) FSTYPE='ext4' ;;
+			16) FSTYPE='ext2' ;;
+			*) exit ;;
+		esac
+		;;
+
 	*)
 		exit ;;
 esac
@@ -648,7 +729,11 @@ done
 X1PID=$!
 
 if [ "$BOOTLOADER" = "grub4dos" ] ; then
-	create_grub4dos_bootable_drv ${USBDRV} ${FSTYPE} ${FSTYPE2}
+	create_bios_bootable_drv ${USBDRV} ${FSTYPE} ${FSTYPE2}
+	write_wee_mbr /dev/${USBDRV##*/} #install wee.mbr
+elif [ "$BOOTLOADER" = "extlinux" ] ; then
+	create_bios_bootable_drv ${USBDRV} ${FSTYPE}
+	dd if=/usr/lib/EXTLINUX/mbr.bin of=/dev/${USBDRV##*/}
 elif [ "$BOOTLOADER" = "grub2" ] ; then
 	create_gpt_drv ${USBDRV} ${FSTYPE2}
 else
@@ -687,17 +772,25 @@ fi
 
 if [ "$BOOTLOADER" = "grub4dos" ] ; then
 	copy_g4dos_cd /mnt/${PBOOTPART} auto ${PMEDIA}
+elif [ "$BOOTLOADER" = "extlinux" ] ; then
+	create_extlinux_conf /mnt/${PBOOTPART} /dev/${PBOOTPART} ${PMEDIA}
 elif [ "$BOOTLOADER" = "grub2" ] ; then
 	copy_grub2_uefi_boot /mnt/${PBOOTPART} ${PMEDIA}
 fi
 
 FILES2COPY="vmlinuz
 initrd.gz
+ucode.cpio
 ${DISTRO_PUPPYSFS}
 ${DISTRO_ZDRVSFS}
 ${DISTRO_FDRVSFS}
 ${DISTRO_ADRVSFS}
-${DISTRO_YDRVSFS}"
+${DISTRO_YDRVSFS}
+${DISTRO_BDRVSFS}
+kbuild-`uname -r`.sfs
+devx_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION}.sfs
+docx_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION}.sfs
+nlsx_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION}.sfs"
 
 #-------------------------
 if [ "${FSTYPE2}" ] ; then # fat32 + f2fs
@@ -711,6 +804,7 @@ if [ "${FSTYPE2}" ] ; then # fat32 + f2fs
 	#-
 	cp -fv ${SRCPATH}/vmlinuz /mnt/${USBDRV}1/
 	cp -fv ${SRCPATH}/initrd.gz /mnt/${USBDRV}1/
+	[ -f ${SRCPATH}/ucode.cpio ] && cp -fv ${SRCPATH}/ucode.cpio /mnt/${USBDRV}1/
 	#- get partition UUID
 	UUID=$(busybox blkid /dev/${USBDRV}2 | grep -o ' UUID=".*' | cut -f2 -d '"')
 	if [ "$UUID" ] ; then
