@@ -79,7 +79,9 @@ esac
 cat << EOF > bdrv/etc/apt/apt.conf.d/00puppy
 APT::Install-Recommends "false";
 APT::Install-Suggests "false";
-Dir::Cache::archives "";
+# https://github.com/debuerreotype/debuerreotype/blob/6952be0a084e834bd25aa623c94f6ad342899b55/scripts/debuerreotype-minimizing-config#L88
+DPkg::Post-Invoke { "rm -f /var/cache/apt/archives/*.deb /var/cache/apt/archives/partial/*.deb || true"; };
+APT::Update::Post-Invoke { "rm -f /var/cache/apt/archives/*.deb /var/cache/apt/archives/partial/*.deb || true"; };
 EOF
 chroot bdrv apt-get update
 chroot bdrv apt-get upgrade -y
