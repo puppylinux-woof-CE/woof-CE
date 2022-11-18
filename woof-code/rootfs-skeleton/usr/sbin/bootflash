@@ -137,6 +137,32 @@ copy_grub2_uefi_boot() {
 	fi
 }
 
+# efilinux - make bootable
+# $1: targetdir 
+# $2: pdrv
+# $3: pmedia
+copy_efilinux_uefi_boot() {
+	local HOMEDIR="$1"
+	local PDRV="$2"
+	local PMEDIA="$3"
+
+	mkdir -p ${HOMEDIR}/EFI/boot
+	cp -f /usr/lib/efilinux/efilinux.efi ${HOMEDIR}/EFI/boot/bootx64.efi
+
+	INITRD="initrd=\initrd.gz"
+	[ -f ${SRCPATH}/ucode.cpio ] && INITRD="initrd=\ucode.cpio ${INITRD}"
+
+	APPEND="pfix=fsck pmedia=${PMEDIA}"
+	if [ ! "$FSTYPE2" ] ; then
+		UUID=$(blkid -o export ${PDRV} | grep ^UUID= | cut -f 2 -d =)
+		[ "$UUID" ] && APPEND="${APPEND} pupsfs=${UUID} psave=${UUID}"
+	fi
+
+	echo "-f \vmlinuz ${INITRD} ${APPEND}" > ${HOMEDIR}/EFI/boot/efilinux.cfg
+
+	sync
+}
+
 # $1: directory
 # $2: distro
 # $3: pmedia
@@ -421,6 +447,14 @@ if [ "$(ls /usr/share/grub2-efi/grub*.efi* 2>/dev/null)" ] ; then
 	)
 fi
 
+if [ -f /usr/lib/efilinux/efilinux.efi ] ; then
+	EFILINUX_USB_INSTALLER=$(
+		create_dlg_item "$(gettext '<b>Create UEFI USB (GPT / efilinux)</b>')" \
+			"$(gettext 'For UEFI-enabled machines booting in UEFI mode. Installs the running system. Not compatible with old BIOS')" \
+			install_options.svg 5
+	)
+fi
+
 if command -v syslinux > /dev/null && [ -f /usr/lib/SYSLINUX/mbr.bin ] ; then
 	SYSLINUX_USB_INSTALLER=$(
 		create_dlg_item "$(gettext '<b>Create syslinux USB (MBR - BIOS)</b>')" \
@@ -436,6 +470,8 @@ export ASKDIALOG='
     '"`/usr/lib/gtkdialog/xml_info 0 flashcard_usb.svg 48 "$(gettext "This tool allows to quickly create a bootable usb drive ready to use. Be aware that ALL DATA ON THE USB DRIVE WILL BE LOST")"`"'
 
     '${UEFI_USB_INSTALLER}'
+
+    '${EFILINUX_USB_INSTALLER}'
 
      '$(create_dlg_item "$(gettext '<b>Create grub4dos USB (MBR - BIOS)</b>')" \
 		"$(gettext 'Does not support UEFI. Installs the running system. For computers booting with BIOS.')" \
@@ -497,6 +533,50 @@ case $EXIT in
 		)'
 
 	'${F2FS_DLG}'
+
+    <hbox homogeneous="true" space-expand="true" space-fill="true">
+       <text use-markup="true" space-expand="true" space-fill="true">
+         <label>"<span fgcolor='"'#821811'"'><b>'$(gettext "THIS WILL DESTROY ALL DATA ON ${USBDRV}")'</b></span>"</label>
+       </text>
+    </hbox>
+    <hseparator></hseparator>
+
+    <hbox space-expand="false" space-fill="false">
+     <button>
+       '"`/usr/lib/gtkdialog/xml_button-icon quit`"'
+       <label>'$(gettext 'Quit')'</label>
+       <action type="exit">EXIT</action>
+     </button>
+    </hbox>
+
+  </vbox>
+</window>'
+		. /usr/lib/gtkdialog/xml_info gtk
+		#echo "$UEFI_DIALOG" > /tmp/bootflash.uefi.xml #debug
+		RETPARAMS="`gtkdialog --center --program=UEFI_DIALOG`"
+		eval "$RETPARAMS"
+		case $EXIT in
+			11) FSTYPE='vfat' ;;
+			15) FSTYPE='vfat' ; FSTYPE2='f2fs' ;;
+			*) exit ;;
+		esac
+		;;
+
+	5)
+		#========================
+		#    UEFI - efilinux
+		#========================
+		BOOTLOADER=efilinux
+		export UEFI_DIALOG='<window title="'"BootFlash: $USBDRV"'" icon-name="gtk-preferences">
+<vbox>
+    '$(/usr/lib/gtkdialog/xml_info fixed execute_yes.svg 30 "$(gettext 'The intention of BootFlash is to make a USB memory stick (Flash drive) bootable.. then to install Puppy on it')")'
+
+	'${F2FS_DLG}'
+
+	'$(create_dlg_item "$(gettext '<b>FAT32 GPT UEFI</b>')" \
+		"$(gettext 'Create FAT32 partition and install efilinux')" \
+		install_options.svg 11
+		)'
 
     <hbox homogeneous="true" space-expand="true" space-fill="true">
        <text use-markup="true" space-expand="true" space-fill="true">
@@ -736,7 +816,7 @@ if [ "$BOOTLOADER" = "grub4dos" ] ; then
 elif [ "$BOOTLOADER" = "syslinux" ] ; then
 	create_bios_bootable_drv ${USBDRV} ${FSTYPE} ${FSTYPE2}
 	dd if=/usr/lib/SYSLINUX/mbr.bin of=/dev/${USBDRV##*/}
-elif [ "$BOOTLOADER" = "grub2" ] ; then
+elif [ "$BOOTLOADER" = "grub2" -o "$BOOTLOADER" = "efilinux" ] ; then
 	create_gpt_drv ${USBDRV} ${FSTYPE2}
 else
 	exit 1
@@ -779,6 +859,8 @@ elif [ "$BOOTLOADER" = "syslinux" ] ; then
 	create_syslinux_conf /mnt/${PBOOTPART} /dev/${PBOOTPART} ${PMEDIA} ${FSTYPE2}
 elif [ "$BOOTLOADER" = "grub2" ] ; then
 	copy_grub2_uefi_boot /mnt/${PBOOTPART} ${PMEDIA}
+elif [ "$BOOTLOADER" = "efilinux" ] ; then
+	copy_efilinux_uefi_boot /mnt/${PBOOTPART} /dev/${PBOOTPART} ${PMEDIA}
 fi
 
 FILES2COPY="vmlinuz
@@ -817,6 +899,9 @@ if [ "${FSTYPE2}" ] ; then # fat32 + f2fs
 		fi
 		if [ -f /mnt/${USBDRV}1/grub.cfg ] ; then
 			SEDFILES="$SEDFILES /mnt/${USBDRV}1/grub.cfg"
+		fi
+		if [ -f /mnt/${USBDRV}1/EFI/boot/efilinux.cfg ] ; then
+			SEDFILES="$SEDFILES /mnt/${USBDRV}1/EFI/boot/efilinux.cfg"
 		fi
 		if [ -f /mnt/${USBDRV}1/syslinux.cfg ] ; then
 			SEDFILES="$SEDFILES /mnt/${USBDRV}1/syslinux.cfg"
