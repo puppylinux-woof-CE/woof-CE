@@ -40,8 +40,8 @@ cat rootfs-complete/etc/group > bdrv/etc/group
 cat rootfs-complete/etc/passwd > bdrv/etc/passwd
 cat rootfs-complete/etc/shadow > bdrv/etc/shadow
 
-mount --bind /etc/resolv.conf bdrv/etc/resolv.conf
-trap "umount -l bdrv/etc/resolv.conf" INT ERR
+rm -f bdrv/etc/resolv.conf
+cat /etc/resolv.conf > bdrv/etc/resolv.conf
 
 # configure the package manager
 case "$DISTRO_BINARY_COMPAT" in
@@ -105,7 +105,7 @@ chroot bdrv apt-get install -y command-not-found synaptic gdebi
 sed -e 's/^Categories=.*/Categories=X-Setup-puppy/' -i bdrv/usr/share/applications/synaptic.desktop
 echo "NoDisplay=true" >> bdrv/usr/share/applications/gdebi.desktop
 
-umount -l bdrv/etc/resolv.conf
+rm -f bdrv/etc/resolv.conf
 
 # remove any unneeded packages
 chroot bdrv apt-get autoremove -y --purge
