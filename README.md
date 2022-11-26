@@ -192,7 +192,11 @@ For example, if the `download()` function of the busybox package downloads files
 8. Add the package name to PETBUILDS, under `_00build.conf`.
 
 # Getting documentation from a specified URL
-You can set `DOCS_URL` in `_00build.conf` to specifiy the URL to the personal documentation you would like to overwrite the woof-CE docs with. Note that the specified URL **should be able to download a .zip file**. `.zip` itself **should contain a doc directory** under it. The contents of the `.zip` file would be extracted as is at `/usr/share/` (or when building, `sandbox3/rootfs-complete/usr/share/`). Most probably, if the developer doesn't want to destroy woof-CE documentation, he/she should copy the woof-CE documentation and modify it to his/her needs. He/she shall then upload it on the internet as a `.zip` file and then later on include it in the build by setting `DOCS_URL`.
+You can set `DOCS_URL` in `_00build.conf` to specifiy the URL to the personal documentation you would like to overwrite the woof-CE docs with.
+
+Note that the specified URL **should be able to download a .zip file**. `.zip` itself **should contain a doc directory** under it. The contents of the `.zip` file would be extracted as is at `/usr/share/` (or when building, `sandbox3/rootfs-complete/usr/share/`).
+
+Most probably, if the developer doesn't want to destroy woof-CE documentation, he/she should copy the woof-CE documentation and modify it to his/her needs. He/she shall then upload it on the internet as a `.zip` file and then later on include it in the build by setting `DOCS_URL`.
 
 # TECHNICAL NOTES
 
