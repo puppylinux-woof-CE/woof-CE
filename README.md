@@ -198,6 +198,8 @@ Note that the specified URL **should be able to download a .zip file**. `.zip` i
 
 Most probably, if the developer doesn't want to destroy woof-CE documentation, he/she should copy the woof-CE documentation and modify it to his/her needs. He/she shall then upload it on the internet as a `.zip` file and then later on include it in the build by setting `DOCS_URL`.
 
+**NOTE:** By default these docs are not cached so that same URL could be used for further modfications in the docs. But, if you want that the docs be cached, then set `CACHE_PERSONAL_DOCS=y`.
+
 # TECHNICAL NOTES
 
 ## History
