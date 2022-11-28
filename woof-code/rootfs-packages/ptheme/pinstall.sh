@@ -27,6 +27,7 @@ if [ "$PTHEME" != "" ] ; then
 	theme="$PTHEME"
 fi
 
+[ "$theme" = "" ] && rm -rf usr/sbin/ptheme usr/share/ptheme usr/share/applications/ptheme.desktop || (
 if [ ! -f usr/share/ptheme/globals/"${theme}" ];then
 	echo "Invalid theme: $theme - defaulting to Original Pup"
 	theme="Original Pup"
@@ -275,3 +276,4 @@ sync
 echo "done"
 echo
 echo
+)
