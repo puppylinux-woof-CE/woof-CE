@@ -144,7 +144,25 @@ The human-readable distro name (DISTRO_NAME), version (DISTRO_VERSION) and file 
 
 3builddistro takes the distro logo that appears in documentation and first-run dialogs from `woof-code/rootfs-skeleton/usr/share/doc/puplogos`. It looks for `${DISTRO_FILE_PREFIX}.svg` or `${DISTRO_BINARY_COMPAT}.svg`, then falls back to a generic Puppy logo.
 
-The artwork (window manager theme, GTK+ theme, icon theme, wallpaper and cursor theme) to use by default is specified in `_00build.conf`. Themes are not downloaded automatically by woof-CE and must be added to the build as binary packages or built from source during the build.
+There are two ways to specify the artwork (window manager theme, GTK+ theme, icon theme, wallpaper and cursor theme) to use by default, both via `_00build.conf`:
+
+1. Using pTheme: choose one of the global themes under `/usr/share/ptheme/globals`.
+
+       PTHEME="Original Pup"
+
+2. Using `support/choose_themes`: specify default themes individually.
+
+       THEME_WALLPAPER="Blue.svg"
+       THEME_GTK2="Flat-grey-rounded"
+       THEME_JWM="Flat-grey"
+       THEME_JWM_BUTTONS="Buntu"
+       THEME_GTK_ICONS="Puppy Standard"
+       THEME_DESK_ICONS="StandardSvg"
+       THEME_MOUSE="DMZ-Black"
+
+See `support/choose_themes` for a list of theme directories.
+
+Themes are not downloaded automatically by woof-CE and must be added to the build as binary packages or built from source during the build.
 
 # Adding Binary Packages
 
