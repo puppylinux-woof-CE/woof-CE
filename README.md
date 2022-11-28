@@ -192,11 +192,24 @@ For example, if the `download()` function of the busybox package downloads files
 8. Add the package name to PETBUILDS, under `_00build.conf`.
 
 # Getting documentation from a specified URL
-You can set `DOCS_URL` in `_00build.conf` to specifiy the URL to the personal documentation you would like to overwrite the woof-CE docs with.
+You can set `DOCS_URL` in `_00build.conf` to specifiy the URL to the personal documentation you would like to use to overwrite few parts of the woof-CE docs with.
 
-Note that the specified URL **should be able to download a .zip file**. `.zip` itself **should contain a doc directory** under it. The contents of the `.zip` file would be extracted as is at `/usr/share/` (or when building, `sandbox3/rootfs-complete/usr/share/`).
+Note that the specified URL **should be able to download a .zip file**. To create the `zip` file, follow these steps:-
+1. Go to your local copy of woof-CE.
+2. Go to the directory `woof-code/rootfs-skeleton/usr/share/doc`.
+3. Copy all the files of the directory to a seperate directory (outside of woof-CE repo) and modify the files you would like to.
+4. To specify that a documentation file should be deleted, you can add a file like this:-
+```
+.wh.filename
+```
+or to delete a directory:-
+```
+.whd.directoryname
+```
+5. Pack all the modified/added files as a `.zip` archive.
+6. Upload the file somewhere on internet (you may also add the file as a **Release** in your woof-CE remote repo.
 
-Most probably, if the developer doesn't want to destroy woof-CE documentation, he/she should copy the woof-CE documentation and modify it to his/her needs. He/she shall then upload it on the internet as a `.zip` file and then later on include it in the build by setting `DOCS_URL`.
+The URL for the uploaded file could be gotten and added as `DOCS_URL=URL` in `_00build.conf`.
 
 **NOTE:** By default these docs are cached so as to keep the downloads as minimum as possible. But, if you want that the docs not be cached, so that you may use the same URL again and again, then set `CACHE_PERSONAL_DOCS=n` in `_00build.conf`.
 
