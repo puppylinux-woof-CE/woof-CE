@@ -225,7 +225,7 @@ or to delete a directory:-
 .whd.directoryname
 ```
 5. Pack all the modified/added files as a `.zip` archive.
-6. Upload the file somewhere on internet (you may also add the file as a **Release** in your woof-CE remote repo.
+6. Upload the `.zip` file somewhere on internet (you may also add the file as a **Release** in your woof-CE remote repo).
 
 The URL for the uploaded file could be gotten and added as `DOCS_URL=URL` in `_00build.conf`.
 
