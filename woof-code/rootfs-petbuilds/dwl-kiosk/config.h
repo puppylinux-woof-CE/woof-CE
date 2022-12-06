@@ -1,12 +1,12 @@
 /* appearance */
-static const int sloppyfocus        = 0;  /* focus follows mouse */
-static unsigned int borderpx  = 1;  /* border pixel of windows */
-static const int lockfullscreen     = 1;  /* 1 will force focus on the fullscreen window */
-static float rootcolor[]      = {0.0, 0.0, 0.0, 1.0};
-static float bordercolor[]    = {0.266667, 0.266667, 0.266667, 1.0};
-static float focuscolor[]     = {0.0, 0.333333, 0.466667, 1.0};
+static const int sloppyfocus               = 0;  /* focus follows mouse */
+static const int bypass_surface_visibility = 0;  /* 1 means idle inhibitors will disable idle tracking even if it's surface isn't visible  */
+static unsigned int borderpx         = 1;  /* border pixel of windows */
+static float rootcolor[]             = {0.0, 0.0, 0.0, 1.0};
+static float bordercolor[]           = {0.266667, 0.266667, 0.266667, 1.0};
+static float focuscolor[]            = {0.0, 0.333333, 0.466667, 1.0};
 /* To conform the xdg-protocol, set the alpha to zero to restore the old behavior */
-static const float fullscreen_bg[]  = {0.1, 0.1, 0.1, 1.0};
+static const float fullscreen_bg[]         = {0.1, 0.1, 0.1, 1.0};
 
 /* tagging */
 static const char *tags[] = { "1", "2", "3", "4", "5", "6", "7", "8", "9" };
