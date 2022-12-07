@@ -80,6 +80,8 @@ for NAME in $PETBUILDS; do
 
             cp -f /etc/resolv.conf petbuild-rootfs-complete/etc/
             cp -f ../packages-templates/ca-certificates/pinstall.sh petbuild-rootfs-complete/
+            # required for void
+            chroot petbuild-rootfs-complete ldconfig
             chroot petbuild-rootfs-complete sh /pinstall.sh
             rm -f petbuild-rootfs-complete/pinstall.sh
 
