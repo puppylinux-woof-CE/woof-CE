@@ -20,3 +20,5 @@ DWL_FOCUS_COLOR=#00FF00
 DWL_ROOT_COLOR=#112211
 EOF
 fi
+
+[ -f root/.jwm/jwmrc-personal ] && sed -i 's~^<Key key="Print">exec:defaultscreenshot</Key>$~&\n<Key mask="S" key="Print">exec:slurp-screenshot</Key>~' root/.jwm/jwmrc-personal
