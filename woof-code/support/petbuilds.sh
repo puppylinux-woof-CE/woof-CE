@@ -281,33 +281,15 @@ for NAME in $PETBUILDS; do
             strip --strip-all -R .note -R .comment ${ELF} 2>/dev/null
         done
 
-        for EXTRAFILE in ../rootfs-petbuilds/${NAME}/*; do
-            case "${EXTRAFILE##*/}" in
-            petbuild|*.patch|sha256.sum|*-*|DOTconfig|*.c|*.h) ;;
-            *) cp -a $EXTRAFILE ../petbuild-output/${NAME}-${HASH}/
-            esac
-        done
-
         find ../petbuild-output/${NAME}-${HASH} -name '.git*' -delete
     fi
 
     rm -f ../petbuild-output/${NAME}-latest
     ln -s ${NAME}-${HASH} ../petbuild-output/${NAME}-latest
 
-    PKGS="$PKGS $NAME"
-done
-
-[ $HAVE_ROOTFS -eq 1 ] && rm -rf petbuild-rootfs-complete
-
-echo "Copying petbuilds to rootfs-complete"
-
-MAINPKGS=
-
-for NAME in $PKGS; do
     rm -rf ../packages-${DISTRO_FILE_PREFIX}/${NAME} ../packages-${DISTRO_FILE_PREFIX}/${NAME}_NLS ../packages-${DISTRO_FILE_PREFIX}/${NAME}_DOC
 
-    mkdir ../packages-${DISTRO_FILE_PREFIX}/${NAME}
-    cp -a ../petbuild-output/${NAME}-latest/* ../packages-${DISTRO_FILE_PREFIX}/${NAME}/
+    cp -a ../petbuild-output/${NAME}-${HASH} ../packages-${DISTRO_FILE_PREFIX}/${NAME}
 
     if [ -d ../packages-${DISTRO_FILE_PREFIX}/${NAME}/usr/share/locale ]; then
         mkdir -p ../packages-${DISTRO_FILE_PREFIX}/${NAME}_NLS/usr/share
@@ -325,9 +307,26 @@ for NAME in $PKGS; do
         sed -e "s/^${NAME}/${NAME}${SUFFIX}/" -e "s/|${NAME}/|${NAME}${SUFFIX}/g" ../packages-${DISTRO_FILE_PREFIX}/${NAME}/pet.specs > ../packages-${DISTRO_FILE_PREFIX}/${NAME}${SUFFIX}/pet.specs
     done
 
+    for EXTRAFILE in ../rootfs-petbuilds/${NAME}/*; do
+        case "${EXTRAFILE##*/}" in
+        petbuild|*.patch|sha256.sum|*-*|DOTconfig|*.c|*.h) ;;
+        *) cp -a $EXTRAFILE ../petbuild-output/${NAME}/
+        esac
+    done
+
     rmdir ../packages-${DISTRO_FILE_PREFIX}/${NAME}/usr/share 2>/dev/null
     rmdir ../packages-${DISTRO_FILE_PREFIX}/${NAME}/usr 2>/dev/null
 
+    PKGS="$PKGS $NAME"
+done
+
+[ $HAVE_ROOTFS -eq 1 ] && rm -rf petbuild-rootfs-complete
+
+echo "Copying petbuilds to rootfs-complete"
+
+MAINPKGS=
+
+for NAME in $PKGS; do
     cat ../packages-${DISTRO_FILE_PREFIX}/${NAME}/pet.specs >> /tmp/petbuild-output.specs
 
     # redirect packages with menu entries to adrv, with exceptions
