@@ -221,7 +221,7 @@ if [ -f "$PPM_SRC_LOCATION" ]; then
 	cat > $PPM_TARGET_LOCATION <<< $(echo -n "$PPM_FIRST_LINES"'
 
 # Support for apt is built. Explain the user to use apt instead of PPM (PPM is outdated).
-. /usr/lib/gtkdialog/box_ok "APT FOUND!" info "Note that apt is found on this system. So to install any program, use apt instead."
+. /usr/lib/gtkdialog/box_ok "APT FOUND!" info "Note that apt is found on this system. So to install any program, except for puppy specific programs, use apt instead."
 #----------------------------------------------------------------------------------------
 ' && tail -n+5 $PPM_SRC_LOCATION)
 
