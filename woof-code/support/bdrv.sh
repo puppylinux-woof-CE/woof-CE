@@ -208,3 +208,24 @@ if [ -d bdrv/usr/share/gnome/help ]; then
 	mv bdrv/usr/share/gnome/help bdrv_DOC/usr/share/gnome/
 	rmdir bdrv/usr/share/gnome 2>/dev/null
 fi
+
+#----------------------------------------------------------------------------------------
+# configure PPM to show a message at its startup about apt's presence
+PPM_SRC_LOCATION="rootfs-complete/usr/local/petget/pkg_chooser.sh"
+
+if [ -f "$PPM_SRC_LOCATION" ]; then
+	PPM_TARGET_LOCATION="bdrv/usr/local/petget/pkg_chooser.sh"
+
+	PPM_FIRST_LINES=`head -n5 $PPM_SRC_LOCATION` # to preserve 'comments + #!/...' before adding this doc.
+
+	cat > $PPM_TARGET_LOCATION <<< $(echo -n "$PPM_FIRST_LINES"'
+
+# Support for apt is built. Explain the user to use apt instead of PPM (PPM is outdated).
+. /usr/lib/gtkdialog/box_ok "APT FOUND!" info "Note that apt is found on this system. So to install any program, use apt instead."
+#----------------------------------------------------------------------------------------
+' && tail -n+5 $PPM_SRC_LOCATION)
+
+	chmod +x $PPM_TARGET_LOCATION
+fi
+# complete configuring PPM
+#----------------------------------------------------------------------------------------
