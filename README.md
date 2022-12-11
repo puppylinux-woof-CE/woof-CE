@@ -218,11 +218,11 @@ Note that the specified URL **should be able to download a .tar.gz/.tar.xz/.tar.
 3. Copy all the files of the directory to a seperate directory (outside of woof-CE repo) and modify the files you would like to.
 4. To specify that a documentation file should be deleted, you can add a file like this:-
 ```
-.wh.filename
+.rm.filename
 ```
 or to delete a directory:-
 ```
-.whd.directoryname
+.rmd.directoryname
 ```
 5. Pack all the modified/added files as a `.tar.gz` or `.tar.xz` or `.tar.bz2` archive.
 6. Upload the created archive file somewhere on internet. You may even upload the file as a **Release** in your woof-CE remote repo!
