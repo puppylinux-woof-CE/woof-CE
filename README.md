@@ -212,7 +212,7 @@ For example, if the `download()` function of the busybox package downloads files
 # Getting documentation from a specified URL
 You can set `DOCS_URL` in `_00build.conf` to specifiy the URL to the personal documentation you would like to use to overwrite few parts of the woof-CE docs with.
 
-Note that the specified URL **should be able to download a .zip file**. To create the `zip` file, follow these steps:-
+Note that the specified URL **should be able to download a .tar.gz/.tar.xz/.tar.bz2 file**. To create the file, follow these steps:-
 1. Go to your local copy of woof-CE.
 2. Go to the directory `woof-code/rootfs-skeleton/usr/share/doc`.
 3. Copy all the files of the directory to a seperate directory (outside of woof-CE repo) and modify the files you would like to.
@@ -224,8 +224,8 @@ or to delete a directory:-
 ```
 .whd.directoryname
 ```
-5. Pack all the modified/added files as a `.zip` archive.
-6. Upload the `.zip` file somewhere on internet. You may even upload the file as a **Release** in your woof-CE remote repo!
+5. Pack all the modified/added files as a `.tar.gz` or `.tar.xz` or `.tar.bz2` archive.
+6. Upload the created archive file somewhere on internet. You may even upload the file as a **Release** in your woof-CE remote repo!
 
 The URL for the uploaded file could be gotten and added as `DOCS_URL=URL` in `_00build.conf`.
 
