@@ -210,7 +210,7 @@ For example, if the `download()` function of the busybox package downloads files
 8. Add the package name to PETBUILDS, under `_00build.conf`.
 
 # Getting documentation from a specified URL
-You can set `DOCS_URL` in `_00build.conf` to specifiy the URL to the personal documentation you would like to use to overwrite few parts of the woof-CE docs with.
+You can set `DOCS_URL` in `_00build.conf` (found in `woof-distro/...`) to specifiy the URL to the personal documentation you would like to use to overwrite few parts of the woof-CE docs with.
 
 Note that the specified URL **should be able to download a .tar.gz/.tar.xz/.tar.bz2 file**. To create the file, follow these steps:-
 1. Go to your local copy of woof-CE.
@@ -224,10 +224,10 @@ or to delete a directory:-
 ```
 .rmd.directoryname
 ```
-5. Pack all the modified/added files as a `.tar.gz` or `.tar.xz` or `.tar.bz2` archive.
+5. Pack all the modified/added files/directories as a `.tar.gz` or `.tar.xz` or `.tar.bz2` archive.
 6. Upload the created archive file somewhere on internet. You may even upload the file as a **Release** in your woof-CE remote repo!
 
-The URL for the uploaded file could be gotten and added as `DOCS_URL=URL` in `_00build.conf`.
+The URL for the uploaded file could be gotten and added as `DOCS_URL="URL"` in `_00build.conf`.
 
 **NOTE:** By default these docs are cached so as to keep the downloads as minimum as possible. But, if you want that the docs not be cached, so that you may use the same URL again and again, then set `CACHE_PERSONAL_DOCS=n` in `_00build.conf`.
 
