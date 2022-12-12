@@ -4,8 +4,8 @@ Currently supported:
 
 | Distro        | Version       | Architecture | Status   |
 | ------------- | ------------- | -------------| -------- |
-| Slackware     | 15.0          | x86_64       | [![slackware64-15.0](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/slackware64-15.0.yml/badge.svg)](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/slackware64-15.0.yml) |
-| Slackware     | 15.0          | x86          | [![slackware-15.0](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/slackware-15.0.yml/badge.svg)](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/slackware-15.0.yml) |
+| Slackware     | 15.0          | x86_64       | [![slackware64-s15pup64](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/slackware64-s15pup64.yml/badge.svg)](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/slackware64-s15pup64.yml) |
+| Slackware     | 15.0          | x86          | [![slackware-s15pup32](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/slackware-s15pup32.yml/badge.svg)](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/slackware-s15pup32.yml) |
 | Slackware     | 14.2          | x86_64       | [![slackware64-14.2](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/slackware64-14.2.yml/badge.svg)](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/slackware64-14.2.yml) |
 | Slackware     | 14.2          | x86          | [![slackware-14.2](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/slackware-14.2.yml/badge.svg)](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/slackware-14.2.yml) |
 | Ubuntu        | 22.04         | x86_64       | [![ubuntu-jammy64](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/ubuntu-jammy64.yml/badge.svg)](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/ubuntu-jammy64.yml) |
