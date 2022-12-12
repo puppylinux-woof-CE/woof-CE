@@ -867,7 +867,11 @@ else
 	export MAKE_TARGETS="bzImage modules"
 fi
 echo "$MAKE ${JOBS} ${MAKE_TARGETS}
-$MAKE INSTALL_MOD_PATH=${linux_kernel_dir} INSTALL_MOD_STRIP=1 modules_install" > compile ## debug
+if [ "$STRIP_KMODULES" = "debug" ] ; then
+	$MAKE INSTALL_MOD_PATH=${linux_kernel_dir} INSTALL_MOD_STRIP=1 modules_install" > compile ## debug
+else
+	$MAKE INSTALL_MOD_PATH=${linux_kernel_dir} modules_install" > compile ## debug
+fi
 
 log_msg "Compiling the kernel"
 $MAKE ${JOBS} ${MAKE_TARGETS} >> ${BUILD_LOG} 2>&1
