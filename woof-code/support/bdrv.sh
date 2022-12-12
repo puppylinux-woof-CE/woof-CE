@@ -208,3 +208,17 @@ if [ -d bdrv/usr/share/gnome/help ]; then
 	mv bdrv/usr/share/gnome/help bdrv_DOC/usr/share/gnome/
 	rmdir bdrv/usr/share/gnome 2>/dev/null
 fi
+
+#-----------------------------------------------------------------------
+# configure usr/local/bin/missingdefaultapp to point the user for using Synaptic instead of PPM
+if [ -f rootfs-complete/usr/local/bin/missingdefaultapp ]; then
+	cp rootfs-complete/usr/local/bin/missingdefaultapp ./
+	patch -N < bdrv_support/missingdefaultapp.patch
+	if [ $? -ne 0 ]; then
+		echo "ERROR: Unable to patch missingdefaultapp. Read above lines to get the error."
+		exit 1
+	fi
+	mkdir -p bdrv/usr/local/bin # ensure that the directory is present
+	mv missingdefaultapp bdrv/usr/local/bin/missingdefaultapp
+fi
+#-----------------------------------------------------------------------
