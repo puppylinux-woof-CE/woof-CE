@@ -72,6 +72,24 @@ elif [ -e /usr/bin/pulseaudio ]; then
 fi
 
 CURRENTWM="`cat /etc/windowmanager`"
+
+case $CURRENTWM in
+*xfce*) DE2=XFCE; DE=xfce ;;
+*lxde*) DE2=LXDE; DE=lxde ;;
+*gnome*) DE2=GNOME; DE=gnome ;;
+*lxqt*) DE2=LXQT; DE=lxqt ;;
+*kde*) DE2=KDE; DE=kde ;;
+*mate*) DE2=MATE; DE=mate ;;
+*cinnamon*) DE2=Cinnamon; DE=cinnamon ;;
+*deepin*) DE2=deepin; DE=deepin ;;
+*) DE2="X-Generic"; DE=generic ;;
+esac
+
+export XDG_CURRENT_DESKTOP="$DE2"
+export DE
+export DESKTOP_SESSION="$DE"
+
+
 if [ "$CURRENTWM" = "startkde" ];then
  /sbin/pup_event_frontend_d & #130525
  exec startkde
