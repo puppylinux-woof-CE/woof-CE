@@ -313,16 +313,16 @@ for NAME in $PKGS; do
         mv ../packages-${DISTRO_FILE_PREFIX}/${NAME}/usr/share/${DOCDIR} ../packages-${DISTRO_FILE_PREFIX}/${NAME}_DOC/usr/share/
     done
 
-    for SUFFIX in _DOC _NLS; do
-        [ ! -d ../packages-${DISTRO_FILE_PREFIX}/${NAME}${SUFFIX} ] && continue
-        sed -e "s/^${NAME}/${NAME}${SUFFIX}/" -e "s/|${NAME}/|${NAME}${SUFFIX}/g" ../packages-${DISTRO_FILE_PREFIX}/${NAME}/pet.specs > ../packages-${DISTRO_FILE_PREFIX}/${NAME}${SUFFIX}/pet.specs
-    done
-
     for EXTRAFILE in ../rootfs-petbuilds/${NAME}/*; do
         case "${EXTRAFILE##*/}" in
         petbuild|*.patch|sha256.sum|*-*|DOTconfig|*.c|*.h) ;;
         *) cp -a $EXTRAFILE ../packages-${DISTRO_FILE_PREFIX}/${NAME}/
         esac
+    done
+
+    for SUFFIX in _DOC _NLS; do
+        [ ! -d ../packages-${DISTRO_FILE_PREFIX}/${NAME}${SUFFIX} ] && continue
+        sed -e "s/^${NAME}/${NAME}${SUFFIX}/" -e "s/|${NAME}/|${NAME}${SUFFIX}/g" ../packages-${DISTRO_FILE_PREFIX}/${NAME}/pet.specs > ../packages-${DISTRO_FILE_PREFIX}/${NAME}${SUFFIX}/pet.specs
     done
 
     rmdir ../packages-${DISTRO_FILE_PREFIX}/${NAME}/usr/share 2>/dev/null
