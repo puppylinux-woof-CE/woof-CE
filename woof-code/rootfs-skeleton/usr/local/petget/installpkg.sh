@@ -623,7 +623,7 @@ do
  #https://specifications.freedesktop.org/desktop-entry-spec/latest/ar01s07.html
  sed -i 's| %u|| ; s| %U|| ; s| %f|| ; s| %F||' $ONEDOT
  
- if [ "$(cat "$ONEDOT" | grep -m 1 "Categories" | grep -m 1 '=' | grep -m 1 -E 'GTK|Qt|QT|LX|GNOME|KDE|XFCE|Settings|System')" == "" ]; then
+ if [ "$(cat "$ONEDOT" | grep -m 1 "Categories" | grep -m 1 '=' | grep -m 1 -E 'GTK|Qt|QT|LX|GNOME|KDE|XFCE|Settings|System|MATE|Cinnamon')" == "" ]; then
  
 	 #w478 find if category is already valid (see also 2createpackages)..
 	 if [ "$CATDONE" = "no" ];then #121119
