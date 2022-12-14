@@ -619,39 +619,45 @@ fi
 
 for ONEDOT in `grep 'share/applications/.*\.desktop$' /var/packages/${DLPKG_NAME}.files | tr '\n' ' '` #121119 exclude other strange .desktop files.
 do
+
  #https://specifications.freedesktop.org/desktop-entry-spec/latest/ar01s07.html
  sed -i 's| %u|| ; s| %U|| ; s| %f|| ; s| %F||' $ONEDOT
  
- #w478 find if category is already valid (see also 2createpackages)..
- if [ "$CATDONE" = "no" ];then #121119
-  CATFOUND="no"
-  for ONEORIGCAT in `cat $ONEDOT | grep '^Categories=' | head -n 1 | cut -f 2 -d '=' | tr ';' ' ' | rev` #search in reverse order.
-  do
-   ONEORIGCAT="`echo -n "$ONEORIGCAT" | rev`" #restore rev of one word.
-   oocPATTERN=' '"$ONEORIGCAT"' '
-   [ "`echo "$PUPHIERARCHY" | tr -s ' ' | grep "$tPATTERN" | cut -f 3 -d ' ' | tr ',' ' ' | sed -e 's%^% %' -e 's%$% %' | grep "$oocPATTERN"`" != "" ] && CATFOUND="yes"
-   #got a problem with sylpheed, "Categories=GTK;Network;Email;News;" this displays in both Network and Internet menus...
-   if [ "$CATFOUND" = "yes" ];then
-    cPATTERN="s%^Categories=.*%Categories=${ONEORIGCAT}%"
-    break
-   fi
-  done
-  #121109 above may fail, as DB_category field may not match that in .desktop file, so leave out that $tPATTERN match in $PUPHIERARCHY...
-  if [ "$CATFOUND" = "no" ];then
-   for ONEORIGCAT in `cat $ONEDOT | grep '^Categories=' | head -n 1 | cut -f 2 -d '=' | tr ';' ' ' | rev` #search in reverse order.
-   do
-    ONEORIGCAT="`echo -n "$ONEORIGCAT" | rev`" #restore rev of one word.
-    oocPATTERN=' '"$ONEORIGCAT"' '
-    [ "`echo "$PUPHIERARCHY" | tr -s ' ' | cut -f 3 -d ' ' | tr ',' ' ' | sed -e 's%^% %' -e 's%$% %' | grep "$oocPATTERN"`" != "" ] && CATFOUND="yes"
-    #got a problem with sylpheed, "Categories=GTK;Network;Email;News;" this displays in both Network and Internet menus...
-    if [ "$CATFOUND" = "yes" ];then
-     cPATTERN="s%^Categories=.*%Categories=${ONEORIGCAT}%"
-     break
-    fi
-   done
-  fi
+ if [ "$(cat "$ONEDOT" | grep -m 1 "Categories" | grep -m 1 '=' | grep -m 1 -E 'GTK|Qt|QT|LX|GNOME|KDE|XFCE|Settings|System')" == "" ]; then
+ 
+	 #w478 find if category is already valid (see also 2createpackages)..
+	 if [ "$CATDONE" = "no" ];then #121119
+	  CATFOUND="no"
+	  for ONEORIGCAT in `cat $ONEDOT | grep '^Categories=' | head -n 1 | cut -f 2 -d '=' | tr ';' ' ' | rev` #search in reverse order.
+	  do
+	   ONEORIGCAT="`echo -n "$ONEORIGCAT" | rev`" #restore rev of one word.
+	   oocPATTERN=' '"$ONEORIGCAT"' '
+	   [ "`echo "$PUPHIERARCHY" | tr -s ' ' | grep "$tPATTERN" | cut -f 3 -d ' ' | tr ',' ' ' | sed -e 's%^% %' -e 's%$% %' | grep "$oocPATTERN"`" != "" ] && CATFOUND="yes"
+	   #got a problem with sylpheed, "Categories=GTK;Network;Email;News;" this displays in both Network and Internet menus...
+	   if [ "$CATFOUND" = "yes" ];then
+	    cPATTERN="s%^Categories=.*%Categories=${ONEORIGCAT}%"
+	    break
+	   fi
+	  done
+	  #121109 above may fail, as DB_category field may not match that in .desktop file, so leave out that $tPATTERN match in $PUPHIERARCHY...
+	  if [ "$CATFOUND" = "no" ];then
+	   for ONEORIGCAT in `cat $ONEDOT | grep '^Categories=' | head -n 1 | cut -f 2 -d '=' | tr ';' ' ' | rev` #search in reverse order.
+	   do
+	    ONEORIGCAT="`echo -n "$ONEORIGCAT" | rev`" #restore rev of one word.
+	    oocPATTERN=' '"$ONEORIGCAT"' '
+	    [ "`echo "$PUPHIERARCHY" | tr -s ' ' | cut -f 3 -d ' ' | tr ',' ' ' | sed -e 's%^% %' -e 's%$% %' | grep "$oocPATTERN"`" != "" ] && CATFOUND="yes"
+	    #got a problem with sylpheed, "Categories=GTK;Network;Email;News;" this displays in both Network and Internet menus...
+	    if [ "$CATFOUND" = "yes" ];then
+	     cPATTERN="s%^Categories=.*%Categories=${ONEORIGCAT}%"
+	     break
+	    fi
+	   done
+	  fi
+	 fi
+	 
+	 sed -i -e "$cPATTERN" $ONEDOT #fix Categories= entry.
+ 
  fi
- sed -i -e "$cPATTERN" $ONEDOT #fix Categories= entry.
 
  #w019 does the icon exist?...
  ICON="`grep '^Icon=' $ONEDOT | cut -f 2 -d '='`"
