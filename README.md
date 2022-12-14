@@ -16,6 +16,7 @@ Currently supported:
 | Debian        | Testing       | x86          | [![debian-bookworm](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/debian-bookworm.yml/badge.svg)](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/debian-bookworm.yml) |
 | Debian        | 11            | x86_64       | [![debian-bullseye64](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/debian-bullseye64.yml/badge.svg)](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/debian-bullseye64.yml) |
 | Debian        | 11            | x86          | [![debian-bullseye](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/debian-bullseye.yml/badge.svg)](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/debian-bullseye.yml) |
+| Devuan        | 4.0           | x86_64       | [![devuan-chimaera64](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/devuan-chimaera64.yml/badge.svg)](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/devuan-chimaera64.yml) |
 
 # Building a Puppy: using GitHub Actions
 

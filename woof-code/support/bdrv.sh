@@ -21,6 +21,7 @@ esac
 
 case "$DISTRO_BINARY_COMPAT" in
 debian) MIRROR=http://deb.debian.org/debian ;;
+devuan) MIRROR=http://deb.devuan.org/merged ;;
 ubuntu) MIRROR=http://archive.ubuntu.com/ubuntu ;;
 *) exit 1 ;;
 esac
@@ -56,6 +57,17 @@ EOF
 	fi
 	;;
 
+devuan)
+	echo "deb ${MIRROR} ${DISTRO_COMPAT_VERSION} main contrib non-free" > bdrv/etc/apt/sources.list
+
+	if [ "$DISTRO_COMPAT_VERSION" != "ceres" ]; then
+		cat << EOF >> bdrv/etc/apt/sources.list
+deb ${MIRROR} ${DISTRO_COMPAT_VERSION}-updates main contrib non-free
+deb ${MIRROR} ${DISTRO_COMPAT_VERSION}-security main contrib non-free
+EOF
+	fi
+	;;
+
 ubuntu)
 	echo "deb ${MIRROR} ${DISTRO_COMPAT_VERSION} main universe multiverse restricted" > bdrv/etc/apt/sources.list
 
@@ -85,7 +97,7 @@ chroot bdrv apt-mark hold busybox
 chroot bdrv apt-mark hold busybox-static
 
 # snap is broken without systemd
-chroot bdrv apt-mark hold snapd
+[ "$DISTRO_BINARY_COMPAT" = "devuan" ] || chroot bdrv apt-mark hold snapd
 
 # install all packages that didn't get fully redirected to devx
 PKGS=`cat ../status/findpkgs_FINAL_PKGS-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION} | cut -f 1,2,5 -d \| |
@@ -116,7 +128,7 @@ chroot bdrv apt-mark hold `chroot bdrv dpkg-query -f '${binary:Package}\n' -W | 
 # remove unneeded files
 chroot bdrv apt-get clean
 rm -f bdrv/var/lib/apt/lists/* 2>/dev/null || :
-rm -rf bdrv/home bdrv/root bdrv/dev bdrv/run bdrv/var/log bdrv/var/cache/man bdrv/var/cache/fontconfig bdrv/var/cache/ldconfig bdrv/etc/ssl bdrv/lib/udev bdrv/lib/modprobe.d bdrv/lib/firmware bdrv/usr/share/mime bdrv/etc/ld.so.cache bdrv/usr/bin/systemctl bdrv/usr/bin/systemd-analyze bdrv/usr/bin/systemctl bdrv/usr/lib/systemd/systemd-networkd bdrv/usr/lib/systemd/systemd bdrv/usr/lib/systemd/systemd-journald bdrv/usr/share/fonts bdrv/etc/fonts
+rm -rf bdrv/home bdrv/root bdrv/dev bdrv/run bdrv/var/log bdrv/var/cache/man bdrv/var/cache/fontconfig bdrv/var/cache/ldconfig bdrv/etc/ssl bdrv/lib/udev bdrv/lib/modprobe.d bdrv/lib/firmware bdrv/usr/share/mime bdrv/etc/ld.so.cache bdrv/usr/bin/systemctl bdrv/usr/bin/systemd-analyze bdrv/usr/bin/systemctl bdrv/usr/lib/systemd/systemd-networkd bdrv/usr/lib/systemd/systemd bdrv/usr/lib/systemd/systemd-journald bdrv/usr/share/fonts bdrv/etc/fonts bdrv/etc/init.d bdrv/etc/rc*.d
 rm -rf `find bdrv -name __pycache__`
 for ICONDIR in bdrv/usr/share/icons/*; do
 	[ "$ICONDIR" != "bdrv/usr/share/icons/hicolor" ] || continue
