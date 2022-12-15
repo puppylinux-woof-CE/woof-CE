@@ -29,11 +29,22 @@ esac
 export LD_LIBRARY_PATH=
 export DEBIAN_FRONTEND=noninteractive
 
+TARBALL_DIR=`pwd`/../../local-repositories/bdrv
+mkdir -p "$TARBALL_DIR"
+TARBALL="${TARBALL_DIR}/debootstrap-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}.tar.gz"
+[ "$USR_SYMLINKS" != "yes" ] || TARBALL="${TARBALL_DIR}/debootstrap-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}-usrmerge.tar.gz"
+
+if [ "$USR_SYMLINKS" = "yes" -a ! -e ${TARBALL} ]; then
+	$debootstrap --arch=$ARCH --variant=minbase --make-tarball=${TARBALL} ${DISTRO_COMPAT_VERSION} bdrv ${MIRROR}
+elif [ ! -e ${TARBALL} ]; then
+	$debootstrap --no-merged-usr --arch=$ARCH --variant=minbase --make-tarball=${TARBALL} ${DISTRO_COMPAT_VERSION} bdrv ${MIRROR}
+fi
+
 # create a tiny installation of the compatible distro
 if [ "$USR_SYMLINKS" = "yes" ]; then
-	$debootstrap --arch=$ARCH --variant=minbase ${DISTRO_COMPAT_VERSION} bdrv ${MIRROR}
+	$debootstrap --arch=$ARCH --variant=minbase --unpack-tarball=${TARBALL} ${DISTRO_COMPAT_VERSION} bdrv ${MIRROR}
 else
-	$debootstrap --no-merged-usr --arch=$ARCH --variant=minbase ${DISTRO_COMPAT_VERSION} bdrv ${MIRROR}
+	$debootstrap --no-merged-usr --arch=$ARCH --variant=minbase --unpack-tarball=${TARBALL} ${DISTRO_COMPAT_VERSION} bdrv ${MIRROR}
 fi
 
 # make sure UIDs and GIDs are consistent with Puppy
