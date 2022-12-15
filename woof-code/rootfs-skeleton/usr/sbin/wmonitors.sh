@@ -242,3 +242,7 @@ done
 cp -af $TEMPDIR/command $CFGDIR/wmon_cmd || exit_error failure
 # execute
 . $CFGDIR/wmon_cmd
+if pidof -s ROX-Filer > /dev/null; then
+	fixPuppyPin
+	roxfiler -p ~/Choices/ROX-Filer/PuppyPin
+fi
