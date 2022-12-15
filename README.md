@@ -17,6 +17,8 @@ Currently supported:
 | Debian        | 11            | x86_64       | [![debian-bullseye64](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/debian-bullseye64.yml/badge.svg)](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/debian-bullseye64.yml) |
 | Debian        | 11            | x86          | [![debian-bullseye](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/debian-bullseye.yml/badge.svg)](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/debian-bullseye.yml) |
 | Devuan        | 4.0           | x86_64       | [![devuan-chimaera64](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/devuan-chimaera64.yml/badge.svg)](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/devuan-chimaera64.yml) |
+| Void          | -             | x86_64       | [![void-voidpup64](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/void-voidpup64.yml/badge.svg)](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/void-voidpup64.yml) |
+| Void          | -             | x86          | [![void-voidpup32](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/void-voidpup32.yml/badge.svg)](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/void-voidpup32.yml) |
 
 # Building a Puppy: using GitHub Actions
 
