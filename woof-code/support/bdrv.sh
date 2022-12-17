@@ -55,6 +55,8 @@ cat rootfs-complete/etc/shadow > bdrv/etc/shadow
 rm -f bdrv/etc/resolv.conf
 cat /etc/resolv.conf > bdrv/etc/resolv.conf
 
+[ ! -e ../../local-repositories/bdrv/archives-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}.tar.gz ] || tar -C bdrv -xzf  ../../local-repositories/bdrv/archives-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}.tar.gz
+
 # configure the package manager
 case "$DISTRO_BINARY_COMPAT" in
 debian)
@@ -96,9 +98,6 @@ esac
 cat << EOF > bdrv/etc/apt/apt.conf.d/00puppy
 APT::Install-Recommends "false";
 APT::Install-Suggests "false";
-# https://github.com/debuerreotype/debuerreotype/blob/6952be0a084e834bd25aa623c94f6ad342899b55/scripts/debuerreotype-minimizing-config#L88
-DPkg::Post-Invoke { "rm -f /var/cache/apt/archives/*.deb /var/cache/apt/archives/partial/*.deb || true"; };
-APT::Update::Post-Invoke { "rm -f /var/cache/apt/archives/*.deb /var/cache/apt/archives/partial/*.deb || true"; };
 EOF
 chroot bdrv apt-get update
 chroot bdrv apt-get upgrade -y
@@ -129,6 +128,13 @@ sed -e 's/^Categories=.*/Categories=X-Setup-puppy/' -i bdrv/usr/share/applicatio
 echo "NoDisplay=true" >> bdrv/usr/share/applications/gdebi.desktop
 
 rm -f bdrv/etc/resolv.conf
+
+cat << EOF >> bdrv/etc/apt/apt.conf.d/00puppy
+# https://github.com/debuerreotype/debuerreotype/blob/6952be0a084e834bd25aa623c94f6ad342899b55/scripts/debuerreotype-minimizing-config#L88
+DPkg::Post-Invoke { "rm -f /var/cache/apt/archives/*.deb /var/cache/apt/archives/partial/*.deb || true"; };
+APT::Update::Post-Invoke { "rm -f /var/cache/apt/archives/*.deb /var/cache/apt/archives/partial/*.deb || true"; };
+EOF
+tar -C bdrv -c var/cache/apt/archives | gzip -1 > ../../local-repositories/bdrv/archives-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}.tar.gz
 
 # remove any unneeded packages
 chroot bdrv apt-get autoremove -y --purge
