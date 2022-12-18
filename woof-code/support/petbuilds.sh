@@ -309,7 +309,7 @@ for NAME in $PKGS; do
         mv ../packages-${DISTRO_FILE_PREFIX}/${NAME}/usr/share/locale ../packages-${DISTRO_FILE_PREFIX}/${NAME}_NLS/usr/share/
     fi
 
-    for DOCDIR in doc man info; do
+    for DOCDIR in doc man info help; do
         [ ! -d ../packages-${DISTRO_FILE_PREFIX}/${NAME}/usr/share/${DOCDIR} ] && continue
         mkdir -p ../packages-${DISTRO_FILE_PREFIX}/${NAME}_DOC/usr/share
         mv ../packages-${DISTRO_FILE_PREFIX}/${NAME}/usr/share/${DOCDIR} ../packages-${DISTRO_FILE_PREFIX}/${NAME}_DOC/usr/share/
