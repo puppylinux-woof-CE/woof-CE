@@ -29,10 +29,10 @@ esac
 export LD_LIBRARY_PATH=
 export DEBIAN_FRONTEND=noninteractive
 
-TARBALL_DIR=`pwd`/../../local-repositories/bdrv
-mkdir -p "$TARBALL_DIR"
-TARBALL="${TARBALL_DIR}/debootstrap-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}.tar.gz"
-[ "$USR_SYMLINKS" != "yes" ] || TARBALL="${TARBALL_DIR}/debootstrap-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}-usrmerge.tar.gz"
+CACHE_DIR=`pwd`/../../local-repositories/bdrv/${DISTRO_TARGETARCH}
+mkdir -p "$CACHE_DIR"
+TARBALL="${CACHE_DIR}/debootstrap-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}.tar.gz"
+[ "$USR_SYMLINKS" != "yes" ] || TARBALL="${CACHE_DIR}/debootstrap-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}-usrmerge.tar.gz"
 
 if [ "$USR_SYMLINKS" = "yes" -a ! -e ${TARBALL} ]; then
 	$debootstrap --arch=$ARCH --variant=minbase --make-tarball=${TARBALL} ${DISTRO_COMPAT_VERSION} bdrv ${MIRROR}
@@ -55,7 +55,7 @@ cat rootfs-complete/etc/shadow > bdrv/etc/shadow
 rm -f bdrv/etc/resolv.conf
 cat /etc/resolv.conf > bdrv/etc/resolv.conf
 
-[ ! -e ../../local-repositories/bdrv/archives-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}.tar.gz ] || tar -C bdrv -xzf  ../../local-repositories/bdrv/archives-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}.tar.gz
+[ ! -e ${CACHE_DIR}/archives-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}.tar.gz ] || tar -C bdrv -xzf ${CACHE_DIR}/archives-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}.tar.gz
 
 # configure the package manager
 case "$DISTRO_BINARY_COMPAT" in
@@ -134,7 +134,7 @@ cat << EOF >> bdrv/etc/apt/apt.conf.d/00puppy
 DPkg::Post-Invoke { "rm -f /var/cache/apt/archives/*.deb /var/cache/apt/archives/partial/*.deb || true"; };
 APT::Update::Post-Invoke { "rm -f /var/cache/apt/archives/*.deb /var/cache/apt/archives/partial/*.deb || true"; };
 EOF
-tar -C bdrv -c var/cache/apt/archives | gzip -1 > ../../local-repositories/bdrv/archives-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}.tar.gz
+tar -C bdrv -c var/cache/apt/archives | gzip -1 > ${CACHE_DIR}/archives-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}.tar.gz
 
 # remove any unneeded packages
 chroot bdrv apt-get autoremove -y --purge
