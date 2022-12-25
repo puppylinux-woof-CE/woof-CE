@@ -54,13 +54,8 @@ ${ONEPKGSPEC}"
                 [ "$DISTRO_BINARY_COMPAT" = "devuan" -a "$DEP" = "libsystemd0" ] && DEP="libelogind0"
 
                 # hack: portaudio19-dev depends on libjack-dev|libjack-jackd2-dev but libjack0 and libjack-jackd2-0 conflict
-                if [ "$DEP" = "libjack-dev" ]; then
-                    for PKG in $INSTALLED_PKGS $MISSING; do
-                        [ "$PKG" != "libjack-jackd2-0" ] && continue
-                        DEP="libjack-jackd2-dev"
-                        break
-                    done
-                fi
+                [ "$DEP" = "libjack-jackd2-0" ] && DEP="libjack0"
+                [ "$DEP" = "libjack-jackd2-dev" ] && DEP="libjack-dev"
 
                 FOUND=0
                 for PKG in $INSTALLED_PKGS $MISSING; do
