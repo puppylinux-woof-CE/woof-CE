@@ -37,9 +37,9 @@ Notes:
 
 			PREV_ISO_or_IMG=1 # previous was -iso or -img
 			;;
-        -img)
+	        -img)
 			shift
-			
+
 			[ ! $1 ] && echo "Please specify the path to a 'IMG' disk image." && exit 1
 			[ ! -f $1 ] && echo "Disk image '$1' not found. Please refer https://qemu-project.gitlab.io/qemu/system/images.html for tutorial on creating one." && exit 1
 
