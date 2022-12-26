@@ -1,6 +1,7 @@
 #!/bin/sh
 
 PREV_ISO_or_IMG=0
+IMG_PATH_PROVIDED=0
 for cli_flag in $@; do
 	case $cli_flag in
 		--help|-h)
@@ -36,20 +37,22 @@ Notes:
 
 			PREV_ISO_or_IMG=1 # previous was -iso or -img
 			;;
-                -img)
-                        shift
-
-                        [ ! $1 ] && echo "Please specify the path to a 'IMG' disk image." && exit 1
+        -img)
+			shift
+			
+			[ ! $1 ] && echo "Please specify the path to a 'IMG' disk image." && exit 1
 			[ ! -f $1 ] && echo "Disk image '$1' not found. Please refer https://qemu-project.gitlab.io/qemu/system/images.html for tutorial on creating one." && exit 1
 
-                        IMG_PATH=$1
+			IMG_PATH=$1
 
-                        shift
+			shift
 
 			PREV_ISO_or_IMG=1
-                        ;;
+			IMG_PATH_PROVIDED=1
+			;;
 		*)
 			if [ $PREV_ISO_or_IMG -eq 1 ]; then
+				PREV_ISO_or_IMG=0
 				continue
 			fi
 
@@ -72,7 +75,7 @@ QEMU=qemu-system-x86_64
 
 EXTRA_CLI_FLAGS="-cdrom $ISO_PATH"
 
-[ -z {$IMG_PATH} ] && EXTRA_CLI_FLAGS="-boot d -cdrom $ISO_PATH -hda $IMG_PATH"
+[ $IMG_PATH_PROVIDED -eq 1 ] && EXTRA_CLI_FLAGS="-boot d -cdrom $ISO_PATH -hda $IMG_PATH"
 
 [ "$REDIR" ] && REDIR="-redir tcp:$REDIR_PORT::22"
 $QEMU -sdl -vga $VGA_TYPE -enable-kvm -m $MEM $REDIR $EXTRA_CLI_FLAGS
