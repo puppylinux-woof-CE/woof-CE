@@ -91,4 +91,8 @@ exec '${DEFBROWSER}' "$@"
 	fi
 fi
 
+# set spot password
+chroot ./ /usr/bin/passwd spot << "woofwoof
+woofwoof" # passwd asks for entering password twice
+
 ### END ###
