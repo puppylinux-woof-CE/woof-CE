@@ -265,3 +265,7 @@ if [ -d bdrv/usr/share/gnome/help ]; then
 	mv bdrv/usr/share/gnome/help bdrv_DOC/usr/share/gnome/
 	rmdir bdrv/usr/share/gnome 2>/dev/null
 fi
+
+# copy bdrv docs
+cp support/doc/bdrv/* rootfs-complete/usr/share/doc/
+# TODO: changes in index.html
