@@ -55,6 +55,7 @@ Notes:
 			;;
 		--no-sound)
 			SOUND_CMD=""
+			shift
 			;;
 		*)
 			if [ $CONTINUE_WO_ERROR -eq 1 ]; then
