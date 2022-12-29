@@ -1,6 +1,8 @@
 #!/bin/sh
 
-PREV_ISO_or_IMG=0
+SOUND_CMD="-soundhw all"
+
+CONTINUE_WO_ERROR=0 # continue without spelling out error? Useful when the previous was such a flag which accepts its next cli option as well
 IMG_PATH_PROVIDED=0
 for cli_flag in $@; do
 	case $cli_flag in
@@ -12,6 +14,7 @@ Usage: runqemu_woof.sh [OPTIONS] -iso [ISO FILE]
 
 Option			Meaning
  -h, --help		 Show this help.
+ --no-sound		 Disable sound in opened VM.
  -img			 Use this as '-img [Disk Image '.img' File]'.
 
 Notes:
@@ -35,7 +38,7 @@ Notes:
 
 			shift
 
-			PREV_ISO_or_IMG=1 # previous was -iso or -img
+			CONTINUE_WO_ERROR=1
 			;;
 	        -img)
 			shift
@@ -47,12 +50,15 @@ Notes:
 
 			shift
 
-			PREV_ISO_or_IMG=1
+			CONTINUE_WO_ERROR=1
 			IMG_PATH_PROVIDED=1
 			;;
+		--no-sound)
+			SOUND_CMD=""
+			;;
 		*)
-			if [ $PREV_ISO_or_IMG -eq 1 ]; then
-				PREV_ISO_or_IMG=0
+			if [ $CONTINUE_WO_ERROR -eq 1 ]; then
+				CONTINUE_WO_ERROR=0
 				continue
 			fi
 
@@ -78,4 +84,4 @@ EXTRA_CLI_FLAGS="-cdrom $ISO_PATH"
 [ $IMG_PATH_PROVIDED -eq 1 ] && EXTRA_CLI_FLAGS="-boot d -cdrom $ISO_PATH -hda $IMG_PATH"
 
 [ "$REDIR" ] && REDIR="-redir tcp:$REDIR_PORT::22"
-$QEMU -sdl -vga $VGA_TYPE -enable-kvm -m $MEM $REDIR $EXTRA_CLI_FLAGS
+$QEMU -sdl -vga $VGA_TYPE -enable-kvm -m $MEM $REDIR $EXTRA_CLI_FLAGS $SOUND_CMD
