@@ -231,7 +231,7 @@ pfix=<ram, nox, nocopy, fsck, fsckp, rdsh, <number>>
    ram:      run in ram only (do not load ${DISTRO_FILE_PREFIX}save).
    nox:      do not start X.
    copy:     copy .sfs files into ram
-   nocopy:   do not copy .sfs files into ram (default is copy if ram <= 1024 MB).
+   nocopy:   do not copy .sfs files into ram (default is copy if ram > 1024 MB, while free ramdisk space is >= 64 MB).
    fsck:     do fsck of ${DISTRO_FILE_PREFIX}save.?fs file.
    fsckp:    do fsck before first mount of supported partitions.
    rdsh:     exit to shell in initial ramdisk.
