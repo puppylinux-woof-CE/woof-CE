@@ -18,20 +18,24 @@ Option			Meaning
  -h, --help		 Show this help.
  --no-sound		 Disable sound in opened VM.
  -img			 Use this as '-img [Disk Image '.img' File]'.
- -flash			 Use this as '-flash /dev/[BLOCK DEVICE NAME]'.
+ -ext			 Use this as '-ext /dev/[BLOCK DEVICE NAME]'.
 
 Notes:
   1. QEMU is required to run this application.
-  2. [ISO FILE] is the path to the generated '.iso' file. This is necessary
+  2. [ISO FILE] is the  path to the  generated '.iso' file. This is  necessary
      field.
-  3. Disk Image file with '.img' file format is a file which can be used as a
-     'virtual storage drive (hard drive)'. Using this is optional, but can be
-     used if you want to save some of your work in the qemu session. Please
+  3. Disk Image file with  '.img' file format is a file which can be used as a
+     'virtual storage drive (hard drive)'.  Using this is optional, but can be
+     used if you  want to save  some of your  work in the qemu session. Please
      refer https://qemu-project.gitlab.io/qemu/system/images.html for tutorial
      on creating one.
-  4. '-flash' can be used to allow QEMU to use external flash storage device.
-     You can use 'lsblk' to determine the [BLOCK DEVICE NAME] assigned by the
-     kernel to your flash device."
+  4. '-ext' can be used to allow QEMU to use external storage device which has
+     a  block name  assigned  to it. You  can use  'lsblk'  to  determine  the
+     [BLOCK DEVICE NAME]  assigned  by  the  kernel  to your  storage  device.
+     NOTE+ADVICE: This  option can be  used with  internal storage  devices as
+     well, but if the VM has been run from PuppyLinux itself, the Puppy ran in
+     VM may start using the same save file/folder which host is running on and
+     might corrupt it."
 			exit
 			;;
 		-iso)
@@ -60,10 +64,10 @@ Notes:
 			CONTINUE_WO_ERROR=1
 			IMG_PATH_PROVIDED=1
 			;;
-		-flash)
+		-ext)
 			shift
 
-			[ ! $1 ] && echo "Please specify block device name for flash drive to be used." && exit 1
+			[ ! $1 ] && echo "Please specify block device name to be used." && exit 1
                         if ! test -b $1; then
 				echo "'$1' is not a block device."
 				exit 1
