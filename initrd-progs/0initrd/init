@@ -32,7 +32,7 @@ L_ADDING_SAVE_LAYER_FAILED="adding %s to aufs stack failed." #printf
 L_WAITING_FOR_DEV='Waiting %s seconds for slow storage devices.' #printf
 L_WAITING_FOR_PART='Waiting for partition [%s]' #printf
 L_LOADING_KEYBOARD_LAYOUT="Loading '%s' keyboard layout..." #printf
-L_COPY_MESSAGE="copying to ram"
+L_COPY_MESSAGE="Copying '%s' to ram..." #printf
 L_LOAD_MESSAGE="main"
 L_PRE_MESSAGE="Loading puppy main sfs file."
 L_ERR_PDRV_INCOMPLETE="%s information is incomplete." #printf
@@ -354,7 +354,7 @@ find_onepupdrv() {
  [ "$ONE_FN" = "" -a "${2}" ] && echo "$ONE_PART, $ONE_TRY_FN file not found."
 }
 
-setup_onepupdrv() {
+stack_onepupdrv() {
 # "$1" - sfs spec - ex: sdb2,ext4,/pup/mydrv-1.2.3.sfs
 # "$2" - suffix for "pup_" branch directory - ex: a
 # "$3" - prepend after rw layer indicator - ex: p
@@ -367,7 +367,6 @@ setup_onepupdrv() {
  ONE_PREP="${3}"
  if [ "$ONE_PART" = "rootfs" ];then #humongous initrd.
   ONE_MP="" #actually it's '/'.
-  COPY2RAM='yes' #actually it is already in ram, but load_sfs_file code puts it in a tmpfs.
  else
   ONE_MP="$(mount | grep -m1 "/dev/$ONE_PART " | cut -f 3 -d ' ')"
   [ "$ONE_MP" ] || return 2
@@ -379,45 +378,13 @@ setup_onepupdrv() {
  fi
  # ======= load_sfs_file()
  echo -n "$(printf "${L_LOADING_FILE}" "$ONE_BASENAME" "$LOADMSG")" > /dev/console
- #- handle pfix=copy pfix=ram pfix=nocopy
- if [ "$PCOPY" = "yes" -o "$PRAMONLY" = "yes" ] ; then
-   COPY2RAM="yes"
- elif [ "$PNOCOPY" = "yes" ] ; then
-   COPY2RAM="no"
- fi
  #-
- if [ "$COPY2RAM" = "" ];then
-  COPY2RAM="no"
-  #if there's heaps of ram, copy puppy.sfs to a tmpfs...
-  SIZESFSK=$(du -k $ONE_FN | cut -f 1)
-  SIZESFSK=$(($SIZESFSK + 1000)) #some slack.
-  MINRAM2CPY=$(($SIZESFSK * 2)) #100222 technosaurus: in case of very big puppies.
-  #decide whether to copy .sfs's to ram
-  if [ $RAMSIZE -gt 1048576 ] ; then
-   [ $RAMSIZE -gt $MINRAM2CPY ] && COPY2RAM="yes"
-  fi
- fi
  ONE_LOOP="$(losetup -f)"
- if [ "$COPY2RAM" = "yes" ];then
-  SIZEZK=$(du -k $ONE_FN | cut -f 1)
-  TFREEK=$(df | grep -m1 ' /mnt/tmpfs' | tr -s ' ' | cut -f 4 -d ' ')
-  if [ $TFREEK -gt $SIZEZK ];then
-   if [ "$ONE_MP" = "" ];then #101101 humongous initrd.
-    mv -f $ONE_FN /mnt/tmpfs/
-   else
-    echo -en " \\033[1;35m${L_COPY_MESSAGE}\\033[0;39m" > /dev/console #purple.
-    TOTAL_SIZEK_SFS_RAM=$(($TOTAL_SIZEK_SFS_RAM + $SIZEZK))
-    cp -af $ONE_FN /mnt/tmpfs/
-   fi
-   sync
+ if [ -f /mnt/tmpfs/$ONE_BASENAME ] ; then
    losetup -r $ONE_LOOP /mnt/tmpfs/$ONE_BASENAME
-  else
+ else
    losetup -r $ONE_LOOP $ONE_FN
    [ "$ONE_PART" != "rootfs" ] && KEEPMOUNTED="${KEEPMOUNTED}${ONE_PART} "
-  fi
- else
-  losetup -r $ONE_LOOP $ONE_FN
-  [ "$ONE_PART" != "rootfs" ] && KEEPMOUNTED="${KEEPMOUNTED}${ONE_PART} "
  fi
  SFS_MP="/pup_${ONE_SFX}"
  [ "$ONE_SFX" = "p" ] && SFS_MP="/pup_ro2"
@@ -456,6 +423,47 @@ setup_onepupdrv() {
  fi
  NEWUNIONRECORD="${NEWUNIONRECORD}${ONE_BASENAME} "
  return 0
+}
+
+copy_onepupdrv() {
+# "$1" - sfs spec - ex: sdb2,ext4,/pup/mydrv-1.2.3.sfs
+ [ $RAMSIZE -le 1048576 ] && return 0
+ ONE_PART="$(echo "${1}" | cut -f 1 -d ',')"
+ [ "$ONE_PART" ] || return 1
+ [ "$COPY2RAM" = "no" -a "$ONE_PART" != "rootfs" ] && return 0
+ ONE_REL_FN="$(echo "${1}" | cut -f 3 -d ',')"
+ [ "$ONE_REL_FN" ] || return 1
+ ONE_FN="${ONE_MP}${ONE_REL_FN}"
+ ONE_BASENAME="$(basename $ONE_REL_FN)"
+ [ -s "$ONE_FN" ] || return 3 #sfs not Ok - empty file
+ SIZEZK=$(du -k $ONE_FN | cut -f 1)
+ TNEEDK=$SIZEZK
+ [ "$COPY2RAM" = "" ] && TNEEDK=$(($TNEEDK + 65535)) #some slack.
+ TFREEK=$(df | grep -m1 ' /mnt/tmpfs' | tr -s ' ' | cut -f 4 -d ' ')
+ if [ $TFREEK -le $TNEEDK ];then
+  COPY2RAM="no" # stop copying when running out of ram
+  return 0
+ fi
+ if [ "$ONE_MP" = "" ];then #101101 humongous initrd, actually it is already in ram, but load_sfs_file code puts it in a tmpfs.
+  mv -f $ONE_FN /mnt/tmpfs/
+ else
+  echo -en "\\033[1;35m$(printf "${L_COPY_MESSAGE}" "$ONE_BASENAME")\\033[0;39m" > /dev/console
+  TOTAL_SIZEK_SFS_RAM=$(($TOTAL_SIZEK_SFS_RAM + $SIZEZK))
+  cp -af $ONE_FN /mnt/tmpfs/
+  STATUS=$? ; check_status $STATUS
+ fi
+ sync
+ return 0
+}
+
+setup_onepupdrv() {
+# "$1" - sfs spec - ex: sdb2,ext4,/pup/mydrv-1.2.3.sfs
+# "$2" - suffix for "pup_" branch directory - ex: a
+# "$3" - prepend after rw layer indicator - ex: p
+ copy_onepupdrv "$1"
+ STATUS=$?
+ [ $STATUS -gt 0 ] && return $STATUS
+ stack_onepupdrv "$1" "$2" "$3"
 }
 
 setup_psave(){ # setup savefile or savefolder
@@ -1003,6 +1011,12 @@ mount -t tmpfs tmpfs /mnt/tmpfs
 
 NEWUNIONRECORD=""
 COPY2RAM=""
+#- handle pfix=copy pfix=ram pfix=nocopy
+if [ "$PCOPY" = "yes" -o "$PRAMONLY" = "yes" ] ; then
+ COPY2RAM="yes"
+elif [ "$PNOCOPY" = "yes" ] ; then
+ COPY2RAM="no"
+fi
 
 LOADMSG="${L_LOAD_MESSAGE}"
 setup_onepupdrv "$PDRV" "p"
@@ -1030,41 +1044,54 @@ PUP_LAYER="$SFS_MP"
 #have basic system, now try to add optional stuff
 find_onepupdrv "$F_PART" "$F_BP_FN" "$F_DEF_FN" "f" ""
 [ "$ONE_FN" ] && FDRV="$ONE_PART,$ONE_FS,$ONE_FN"
-[ "$FDRV" ] && { LOADMSG="fdrv"; setup_onepupdrv "$FDRV" "f"; }
 
 find_onepupdrv "$Z_PART" "$Z_BP_FN" "$Z_DEF_FN" "z" ""
 [ "$ONE_FN" ] && ZDRV="$ONE_PART,$ONE_FS,$ONE_FN"
-[ "$ZDRV" ] && { LOADMSG="zdrv"; setup_onepupdrv "$ZDRV" "z"; }
 
 find_onepupdrv "$Y_PART" "$Y_BP_FN" "$Y_DEF_FN" "y" ""
 [ "$ONE_FN" ] && YDRV="$ONE_PART,$ONE_FS,$ONE_FN"
-[ "$YDRV" ] && { LOADMSG="ydrv"; setup_onepupdrv "$YDRV" "y" "p"; }
 
 find_onepupdrv "$B_PART" "$B_BP_FN" "$B_DEF_FN" "b" ""
 [ "$ONE_FN" ] && BDRV="$ONE_PART,$ONE_FS,$ONE_FN"
-[ "$BDRV" ] && { LOADMSG="bdrv"; setup_onepupdrv "$BDRV" "b" "p"; }
 
 find_onepupdrv "$A_PART" "$A_BP_FN" "$A_DEF_FN" "a" ""
 [ "$ONE_FN" ] && ADRV="$ONE_PART,$ONE_FS,$ONE_FN"
-[ "$ADRV" ] && { LOADMSG="adrv"; setup_onepupdrv "$ADRV" "a" "p"; }
 
 find_onepupdrv "" "" "$KBUILD_DEF_FN" "k" ""
 [ "$ONE_FN" ] && KBUILD="$ONE_PART,$ONE_FS,$ONE_FN"
-[ "$KBUILD" ] && { LOADMSG="kbuild"; setup_onepupdrv "$KBUILD" "k" "p"; }
 
 if [ "$UNIONFS" = 'overlay' ]; then
  find_onepupdrv "" "" "$DEVX_DEF_FN" "k" ""
  [ "$ONE_FN" ] && DEVX="$ONE_PART,$ONE_FS,$ONE_FN"
- [ "$DEVX" ] && { LOADMSG="devx"; setup_onepupdrv "$DEVX" "dev" "p"; }
 
  find_onepupdrv "" "" "$DOCX_DEF_FN" "k" ""
  [ "$ONE_FN" ] && DOCX="$ONE_PART,$ONE_FS,$ONE_FN"
- [ "$DOCX" ] && { LOADMSG="docx"; setup_onepupdrv "$DOCX" "doc" "p"; }
 
  find_onepupdrv "" "" "$NLSX_DEF_FN" "k" ""
  [ "$ONE_FN" ] && NLSX="$ONE_PART,$ONE_FS,$ONE_FN"
- [ "$NLSX" ] && { LOADMSG="nlsx"; setup_onepupdrv "$NLSX" "nls" "p"; }
 fi
+
+#if possible, copy SFSs to RAM and prioritize frequently-accessed ones
+[ "$ADRV" ] && copy_onepupdrv "$ADRV"
+[ "$YDRV" ] && copy_onepupdrv "$YDRV"
+[ "$BDRV" ] && copy_onepupdrv "$BDRV"
+[ "$DEVX" ] && copy_onepupdrv "$DEVX"
+[ "$NLSX" ] && copy_onepupdrv "$NLSX"
+[ "$DOCX" ] && copy_onepupdrv "$DOCX"
+[ "$ZDRV" ] && copy_onepupdrv "$ZDRV"
+[ "$FDRV" ] && copy_onepupdrv "$FDRV"
+[ "$KBUILD" ] && copy_onepupdrv "$KBUILD"
+
+#stack the SFSs on top of pdrv
+[ "$FDRV" ] && { LOADMSG="fdrv"; stack_onepupdrv "$FDRV" "f"; }
+[ "$ZDRV" ] && { LOADMSG="zdrv"; stack_onepupdrv "$ZDRV" "z"; }
+[ "$YDRV" ] && { LOADMSG="ydrv"; stack_onepupdrv "$YDRV" "y" "p"; }
+[ "$BDRV" ] && { LOADMSG="bdrv"; stack_onepupdrv "$BDRV" "b" "p"; }
+[ "$ADRV" ] && { LOADMSG="adrv"; stack_onepupdrv "$ADRV" "a" "p"; }
+[ "$KBUILD" ] && { LOADMSG="kbuild"; stack_onepupdrv "$KBUILD" "k" "p"; }
+[ "$DEVX" ] && { LOADMSG="devx"; stack_onepupdrv "$DEVX" "dev" "p"; }
+[ "$DOCX" ] && { LOADMSG="docx"; stack_onepupdrv "$DOCX" "doc" "p"; }
+[ "$NLSX" ] && { LOADMSG="nlsx"; stack_onepupdrv "$NLSX" "nls" "p"; }
 
 #process SAVESPEC - takes precedence - written by shutdownconfig
 if [ -f "${P_MP}${PSUBDIR}/SAVESPEC" ];then
