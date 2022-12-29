@@ -2,10 +2,10 @@
 
 SOUND_CMD="-soundhw all"
 FLASH_CMD=""
+IMG_CMD=""
 
 CONTINUE_WO_ERROR=0 # continue without spelling out error? Useful when the previous was such a flag which accepts its next cli option as well
 ISO_PATH_PROVIDED=0
-IMG_PATH_PROVIDED=0
 for cli_flag in $@; do
 	case $cli_flag in
 		--help|-h)
@@ -57,12 +57,10 @@ Notes:
 			[ ! $1 ] && echo "Please specify the path to a 'IMG' disk image." && exit 1
 			[ ! -f $1 ] && echo "Disk image '$1' not found. Please refer https://qemu-project.gitlab.io/qemu/system/images.html for tutorial on creating one." && exit 1
 
-			IMG_PATH=$1
-
+			IMG_CMD="$IMG_CMD -drive file=$1"
 			shift
 
 			CONTINUE_WO_ERROR=1
-			IMG_PATH_PROVIDED=1
 			;;
 		-ext)
 			shift
@@ -106,9 +104,7 @@ QEMU=qemu-system-x86_64
 
 [ $ISO_PATH_PROVIDED -eq 0 ] && echo "Please specify the path to a valid bootable ISO image." && exit 1
 
-EXTRA_CLI_FLAGS="-boot d -cdrom $ISO_PATH"
-
-[ $IMG_PATH_PROVIDED -eq 1 ] && EXTRA_CLI_FLAGS="$EXTRA_CLI_FLAGS -hda $IMG_PATH"
+ISO_CMD="-boot d -cdrom $ISO_PATH"
 
 [ "$REDIR" ] && REDIR="-redir tcp:$REDIR_PORT::22"
-$QEMU -sdl -vga $VGA_TYPE -enable-kvm -m $MEM $REDIR $EXTRA_CLI_FLAGS $SOUND_CMD $FLASH_CMD
+$QEMU -sdl -vga $VGA_TYPE -enable-kvm -m $MEM $REDIR $ISO_CMD $SOUND_CMD $IMG_CMD $FLASH_CMD
