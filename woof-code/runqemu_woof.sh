@@ -12,7 +12,7 @@ for cli_flag in $@; do
 			echo \
 "Run your self built Puppy in qemu!
 
-Usage: runqemu_woof.sh [OPTIONS] -iso [ISO FILE]
+Usage: $0 [OPTIONS] -iso [ISO FILE]
 
 Option			Meaning
  -h, --help		 Show this help.
