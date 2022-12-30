@@ -36,6 +36,7 @@ if [ "$BUILD_DOCX" = "yes" ] ; then
 	fi
 	echo
 	rm -f docx/pet.specs
+	find docx/usr/share/doc -iname 'changelog*.gz' -delete
 	[ "$USR_SYMLINKS" = "yes" ] && usrmerge docx 0
 	echo "Creating $DOCXSFS..."
 	[ -d docx/root ] && busybox chmod 700 docx/root
