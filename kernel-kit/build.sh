@@ -992,7 +992,7 @@ if [ "$CREATE_SOURCES_SFS" != "no" ]; then
 
 	if [ "$CREATE_KBUILD_SFS" = "yes" ]; then
 		mkdir -p ${KBUILD_DIR}/usr/src/${KBUILD_DIR}
-		./kbuild.sh ${KERNEL_SOURCES_DIR}/usr/src/linux ${KBUILD_DIR}/usr/src/${KBUILD_DIR} || exit 1
+		./kbuild.sh ${KERNEL_SOURCES_DIR}/usr/src/linux ${KBUILD_DIR}/usr/src/${KBUILD_DIR} ${karch} || exit 1
 		if [ "$remove_sublevel" = "yes" ]; then
 			mkdir -p ${KBUILD_DIR}/lib/modules/${kernel_major_version}.0
 			ln -s ../../../usr/src/${KBUILD_DIR} ${KBUILD_DIR}/lib/modules/${kernel_major_version}.0/build
