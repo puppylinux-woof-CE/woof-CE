@@ -129,10 +129,30 @@ echo "NoDisplay=true" >> bdrv/usr/share/applications/gdebi.desktop
 
 rm -f bdrv/etc/resolv.conf
 
+mkdir -p bdrv/usr/sbin
+cat << EOF > bdrv/usr/sbin/auto-setup-spot
+#!/bin/ash
+
+# this script is a best-effort attempt to configure problematic applications to run as spot
+
+PROGS=""
+while read PROG; do
+	PROG=\${PROG##*/}
+	echo "Auto-configuring \$PROG to run as spot ..."
+	PROGS="\$PROGS \$PROG=true"
+done < <(grep -hE '^/usr/bin/(firefox|firefox-[a-z]+|google-chrome-[a-z]+|chromium|chromium-browser|vivaldi-[a-z]+|brave-browser|microsoft-edge-[a-z]+|transmission-gtk|transmission-cli|transmission-daemon|seamonkey|sylpheed|claws-mail|thunderbird|vlc|steam|code|librewolf|hexchat)$' /var/lib/dpkg/info/*.list)
+
+[ -n "\$PROGS" ] && setup-spot \$PROGS
+
+exit 0
+EOF
+chmod 755 bdrv/usr/sbin/auto-setup-spot
+
 cat << EOF >> bdrv/etc/apt/apt.conf.d/00puppy
 # https://github.com/debuerreotype/debuerreotype/blob/6952be0a084e834bd25aa623c94f6ad342899b55/scripts/debuerreotype-minimizing-config#L88
 DPkg::Post-Invoke { "rm -f /var/cache/apt/archives/*.deb /var/cache/apt/archives/partial/*.deb || true"; };
 APT::Update::Post-Invoke { "rm -f /var/cache/apt/archives/*.deb /var/cache/apt/archives/partial/*.deb || true"; };
+DPkg::Post-Invoke { "/usr/sbin/auto-setup-spot"; };
 EOF
 tar -C bdrv -c var/cache/apt/archives | gzip -1 > ${CACHE_DIR}/archives-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}.tar.gz
 
