@@ -53,6 +53,7 @@ gboolean Firestate(gpointer ptr) {    /* This is the constantly updated routine 
 	return TRUE;
 
 relax:
+	g_source_remove(id);
 	g_timeout_add(long_interval, Firestate, NULL);
 	id = 0;
 	return FALSE;
