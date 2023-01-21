@@ -215,6 +215,14 @@ sed "s/^ID=.*/ID=${DISTRO_BINARY_COMPAT}/" rootfs-complete/usr/lib/os-release > 
 echo "VERSION_CODENAME=${DISTRO_COMPAT_VERSION}" >> bdrv/usr/lib/os-release
 chmod 644 bdrv/usr/lib/os-release
 
+# add-shell needs these
+if [ "$USR_SYMLINKS" = "yes" ]; then
+	ln -s chown-FULL bdrv/usr/bin/chown
+else
+	ln -s chown-FULL bdrv/bin/chown
+fi
+ln -s realpath-FULL bdrv/usr/bin/realpath
+
 # open .deb files with gdebi
 if [ -e rootfs-complete/usr/local/bin/rox ]; then
 	mkdir -p bdrv/etc/xdg/rox.sourceforge.net/MIME-types
