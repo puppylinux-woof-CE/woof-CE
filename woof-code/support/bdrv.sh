@@ -267,5 +267,12 @@ if [ -d bdrv/usr/share/gnome/help ]; then
 fi
 
 # copy bdrv docs
-cp support/doc/bdrv/* rootfs-complete/usr/share/doc/
-# TODO: changes in index.html
+mkdir -p bdrv/usr/share/doc/
+cp support/bdrv_doc/* bdrv/usr/share/doc/
+if [ -f rootfs-complete/usr/share/doc/index.html ]; then
+	INDEX_PATH="bdrv/usr/share/doc/index.html"
+	TO_CHANGE='href="..\/..\/local\/petget\/help.htm">HOWTO use the Puppy Package Manager'
+	CHANGED='href="bdrv.html">About BDRV: apt support in Puppy'
+	cp rootfs-complete/usr/share/doc/index.html $INDEX_PATH
+	sed -i "s/$TO_CHANGE/$CHANGED/g" $INDEX_PATH
+fi
