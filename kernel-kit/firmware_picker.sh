@@ -174,6 +174,17 @@ do
 	done
 	rm -f /tmp/modstrings
 	;;
+	*/amdgpu.ko|*/radeon.ko) # some paths are formatted at runtime and don't appear in modinfo, i.e. radeon/%s_mec2.bin
+	for F in $SRC_FW_DIR/`basename "$m" .ko`/*_*.bin;do
+		fw_subdir=${F#$SRC_FW_DIR/}
+		fw_subdir=${fw_subdir%/*}
+		fw_basename=${F##*/}
+		[ -e ${FIRMWARE_RESULT_DIR}/${fw_subdir}/${fw_basename} ] && continue
+		[ -z "`ls ${FIRMWARE_RESULT_DIR}/${fw_subdir}/${fw_basename%%_*}_*.bin 2>/dev/null`" ] && continue
+		cp -L -n $F ${FIRMWARE_RESULT_DIR}/${fw_subdir}
+		fw_msg ${fw_subdir}/${fw_basename} $fw_tmp_list # log to zdrv
+	done
+	;;
 	esac
 done
 # extra firmware from other sources
