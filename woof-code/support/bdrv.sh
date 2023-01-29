@@ -268,7 +268,7 @@ fi
 
 # copy bdrv docs
 mkdir -p bdrv/usr/share/doc/
-cp support/bdrv_doc/* bdrv/usr/share/doc/
+cp $MWD/support/bdrv_doc/* bdrv/usr/share/doc/ # $MWD set in 3builddistro
 if [ -f rootfs-complete/usr/share/doc/index.html ]; then
 	INDEX_PATH="bdrv/usr/share/doc/index.html"
 	TO_CHANGE='href="..\/..\/local\/petget\/help.htm">HOWTO use the Puppy Package Manager'
