@@ -1,7 +1,49 @@
 #!/bin/sh
 
+. /etc/rc.d/PUPSTATE
+
 export TEXTDOMAIN=xwin
 export OUTPUT_CHARSET=UTF-8
+
+cleanup() {
+	. /tmp/.spot-session-bus
+	kill $DBUS_SESSION_BUS_PID 2>/dev/null
+}
+trap cleanup EXIT
+
+(
+	read DBUS_SESSION_BUS_ADDRESS
+	read DBUS_SESSION_BUS_PID
+	echo "DBUS_SESSION_BUS_PID=$DBUS_SESSION_BUS_PID
+DBUS_SESSION_BUS_ADDRESS=$DBUS_SESSION_BUS_ADDRESS" > /tmp/.spot-session-bus
+) < <(run-as-spot dbus-daemon --fork --print-address 1 --print-pid 1 --session)
+
+if [ -e /usr/bin/wireplumber ]; then
+    # TODO: check why they don't terminate after the session bus is terminated
+    killall pipewire pipewire-pulse wireplumber 2>/dev/null
+    rm -f /tmp/runtime-spot/pipewire-0 /run/pipewire/pipewire-0
+    mkdir -p /run/pipewire
+    ln -s /tmp/runtime-spot/pipewire-0 /run/pipewire/pipewire-0
+    run-as-spot pipewire > /dev/null 2>&1 &
+    (
+        while [ ! -e /tmp/runtime-spot/pipewire-0 ]; do sleep 0.1; done
+        run-as-spot pipewire-pulse > /dev/null 2>&1 &
+        run-as-spot wireplumber > /dev/null 2>&1 &
+    ) &
+elif [ -e /usr/bin/pulseaudio ]; then
+    run-as-spot sh -c "pulseaudio --kill > /dev/null 2>&1; pulseaudio --start --log-target=syslog"
+fi
+export PULSE_SERVER=unix:/tmp/runtime-spot/pulse/native
+export PULSE_COOKIE=/home/spot/.config/pulse/cookie
+
+export WLR_XWAYLAND=/usr/bin/Xwayland-spot
+
+# hack for virtual machines (see https://github.com/swaywm/sway/issues/5834, https://github.com/swaywm/sway/issues/3814, etc') and hardware that needs third-party drivers
+systemd-detect-virt -qv 2>/dev/null
+if [ $? -eq 0 -o $PUPMODE -eq 5 ]; then
+	export WLR_RENDERER_ALLOW_SOFTWARE=1
+	export WLR_NO_HARDWARE_CURSORS=1
+fi
 
 while :
 do
@@ -19,9 +61,9 @@ do
 	[ -n "$XKB_DEFAULT_VARIANT" ] && export XKB_DEFAULT_VARIANT
 
 	if [ -f /var/local/xwin_disable_xerrs_log_flag ]; then
-		WLR_RENDERER_ALLOW_SOFTWARE=1 dbus-run-session labwc > /dev/null 2>&1
+		dbus-run-session labwc > /dev/null 2>&1
 	else
-		WLR_RENDERER_ALLOW_SOFTWARE=1 dbus-run-session labwc > /tmp/xerrs.log 2>&1
+		dbus-run-session labwc > /tmp/xerrs.log 2>&1
 	fi
 
 	echo '--------'
