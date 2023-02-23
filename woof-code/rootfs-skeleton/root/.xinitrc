@@ -49,7 +49,9 @@ run-as-spot dbus-launch --exit-with-x11 > /tmp/.spot-session-bus
 
 # start PipeWire/PulseAudio over the session bus and use it for both root and spot, so they see the same output devices
 if [ -e /usr/bin/wireplumber ] || [ -e /usr/bin/pipewire-media-session ]; then
-    rm -f /tmp/runtime-spot/pipewire-0
+    rm -f /tmp/runtime-spot/pipewire-0 /run/pipewire/pipewire-0
+    mkdir -p /run/pipewire
+    ln -s /tmp/runtime-spot/pipewire-0 /run/pipewire/pipewire-0
     run-as-spot pipewire &
     (
         while [ ! -e /tmp/runtime-spot/pipewire-0 ]; do sleep 0.1; done
