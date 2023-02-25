@@ -6,8 +6,9 @@
 
 debootstrap=`command -v debootstrap || :`
 if [ -z "$debootstrap" ]; then
-	echo "WARNING: debootstrap is missing"
+	echo -n "WARNING: debootstrap is missing. Press ENTER to continue build without apt support or CTRL-C to abort the build: "
 	[ -z "$GITHUB_ACTIONS" ] || exit 1
+	read isitbad
 	exit 0
 fi
 
