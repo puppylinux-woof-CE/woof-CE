@@ -1,16 +1,20 @@
-#include <unistd.h>
+#include <sched.h>
+#include <pthread.h>
 #include <malloc.h>
 #include <limits.h>
 
 __attribute__((constructor))
 static void init(void)
 {
-    long ncpus;
+    cpu_set_t cpus;
+    int ncpus;
 
-    ncpus = sysconf(_SC_NPROCESSORS_CONF);
-
-    if ((ncpus > 0) && (ncpus <= INT_MAX))
-        mallopt(M_ARENA_MAX, (int)ncpus);
+    CPU_ZERO(&cpus);
+    if (pthread_getaffinity_np(pthread_self(), sizeof(cpus), &cpus) == 0) {
+        ncpus = CPU_COUNT(&cpus);
+        if (ncpus > 0)
+            mallopt(M_ARENA_MAX, ncpus);
+    }
 
     mallopt(M_MMAP_THRESHOLD, 64 * 1024);
     mallopt(M_MXFAST, 32);
