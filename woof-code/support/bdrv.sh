@@ -63,23 +63,41 @@ case "$DISTRO_BINARY_COMPAT" in
 debian)
 	echo "deb ${MIRROR} ${DISTRO_COMPAT_VERSION} main contrib non-free" > bdrv/etc/apt/sources.list
 
-	if [ "$DISTRO_COMPAT_VERSION" != "sid" ]; then
+	case "$DISTRO_COMPAT_VERSION" in
+	sid) ;;
+	stretch|buster|bullseye)
 		cat << EOF >> bdrv/etc/apt/sources.list
 deb ${MIRROR} ${DISTRO_COMPAT_VERSION}-updates main contrib non-free
 deb ${MIRROR}-security ${DISTRO_COMPAT_VERSION}-security main contrib non-free
 EOF
-	fi
+		;;
+	*)
+		cat << EOF >> bdrv/etc/apt/sources.list
+deb ${MIRROR} ${DISTRO_COMPAT_VERSION}-updates main contrib non-free non-free-firmware
+deb ${MIRROR}-security ${DISTRO_COMPAT_VERSION}-security main contrib non-free non-free-firmware
+EOF
+		;;
+	esac
 	;;
 
 devuan)
 	echo "deb ${MIRROR} ${DISTRO_COMPAT_VERSION} main contrib non-free" > bdrv/etc/apt/sources.list
 
-	if [ "$DISTRO_COMPAT_VERSION" != "ceres" ]; then
+	case "$DISTRO_COMPAT_VERSION" in
+	ceres) ;;
+	ascii|beowulf|chimaera)
 		cat << EOF >> bdrv/etc/apt/sources.list
 deb ${MIRROR} ${DISTRO_COMPAT_VERSION}-updates main contrib non-free
 deb ${MIRROR} ${DISTRO_COMPAT_VERSION}-security main contrib non-free
 EOF
-	fi
+		;;
+	*)
+		cat << EOF >> bdrv/etc/apt/sources.list
+deb ${MIRROR} ${DISTRO_COMPAT_VERSION}-updates main contrib non-free non-free-firmware
+deb ${MIRROR} ${DISTRO_COMPAT_VERSION}-security main contrib non-free non-free-firmware
+EOF
+		;;
+	esac
 	;;
 
 ubuntu)
