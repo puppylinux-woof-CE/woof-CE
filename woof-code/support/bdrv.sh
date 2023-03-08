@@ -61,18 +61,22 @@ cat /etc/resolv.conf > bdrv/etc/resolv.conf
 # configure the package manager
 case "$DISTRO_BINARY_COMPAT" in
 debian)
-	echo "deb ${MIRROR} ${DISTRO_COMPAT_VERSION} main contrib non-free" > bdrv/etc/apt/sources.list
-
 	case "$DISTRO_COMPAT_VERSION" in
-	sid) ;;
+	sid)
+		cat << EOF > bdrv/etc/apt/sources.list
+deb ${MIRROR} ${DISTRO_COMPAT_VERSION} main contrib non-free non-free-firmware
+EOF
+		;;
 	stretch|buster|bullseye)
-		cat << EOF >> bdrv/etc/apt/sources.list
+		cat << EOF > bdrv/etc/apt/sources.list
+deb ${MIRROR} ${DISTRO_COMPAT_VERSION} main contrib non-free
 deb ${MIRROR} ${DISTRO_COMPAT_VERSION}-updates main contrib non-free
 deb ${MIRROR}-security ${DISTRO_COMPAT_VERSION}-security main contrib non-free
 EOF
 		;;
 	*)
-		cat << EOF >> bdrv/etc/apt/sources.list
+		cat << EOF > bdrv/etc/apt/sources.list
+deb ${MIRROR} ${DISTRO_COMPAT_VERSION} main contrib non-free non-free-firmware
 deb ${MIRROR} ${DISTRO_COMPAT_VERSION}-updates main contrib non-free non-free-firmware
 deb ${MIRROR}-security ${DISTRO_COMPAT_VERSION}-security main contrib non-free non-free-firmware
 EOF
@@ -81,18 +85,22 @@ EOF
 	;;
 
 devuan)
-	echo "deb ${MIRROR} ${DISTRO_COMPAT_VERSION} main contrib non-free" > bdrv/etc/apt/sources.list
-
 	case "$DISTRO_COMPAT_VERSION" in
-	ceres) ;;
+	ceres)
+		cat << EOF > bdrv/etc/apt/sources.list
+deb ${MIRROR} ${DISTRO_COMPAT_VERSION} main contrib non-free non-free-firmware
+EOF
+		;;
 	ascii|beowulf|chimaera)
-		cat << EOF >> bdrv/etc/apt/sources.list
+		cat << EOF > bdrv/etc/apt/sources.list
+deb ${MIRROR} ${DISTRO_COMPAT_VERSION} main contrib non-free
 deb ${MIRROR} ${DISTRO_COMPAT_VERSION}-updates main contrib non-free
 deb ${MIRROR} ${DISTRO_COMPAT_VERSION}-security main contrib non-free
 EOF
 		;;
 	*)
-		cat << EOF >> bdrv/etc/apt/sources.list
+		cat << EOF > bdrv/etc/apt/sources.list
+deb ${MIRROR} ${DISTRO_COMPAT_VERSION} main contrib non-free non-free-firmware
 deb ${MIRROR} ${DISTRO_COMPAT_VERSION}-updates main contrib non-free non-free-firmware
 deb ${MIRROR} ${DISTRO_COMPAT_VERSION}-security main contrib non-free non-free-firmware
 EOF
