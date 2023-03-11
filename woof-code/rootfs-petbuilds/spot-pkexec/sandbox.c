@@ -59,6 +59,8 @@ int main(int argc, char *argv[])
 		"dev",
 		"proc",
 		"tmp",
+		"mnt",
+		"initrd/mnt/dev_save",
 	};
 	static const char *skip_dirs[] = {
 		".",
@@ -68,6 +70,8 @@ int main(int argc, char *argv[])
 		"dev",
 		"proc",
 		"tmp",
+		"mnt",
+		"initrd",
 	};
 	struct landlock_ruleset_attr ruleset_attr = {
 		.handled_access_fs =
