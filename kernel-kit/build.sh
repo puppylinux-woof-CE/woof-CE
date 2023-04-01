@@ -108,8 +108,7 @@ fi
 
 ## determine number of jobs for make
 if [ ! "$JOBS" ] ; then
-	JOBS=$(grep "^processor" /proc/cpuinfo | wc -l)
-	[ $JOBS -ge 1 ] && JOBS="-j${JOBS}" || JOBS=""
+	JOBS="-j$(nproc)"
 fi
 [ "$JOBS" ] && log_msg "Jobs for make: ${JOBS#-j}" && echo
 
