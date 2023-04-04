@@ -329,7 +329,7 @@ mk_efi_img() {
 		cp $gcer /tmp/efi_img/EFI/boot/ || return 5
 	fi
 	rm -f /tmp/efi_img/EFI/boot/grub.cfg
-	cp -r /tmp/efi_img/EFI $root/ || return 6
+	cp -r /tmp/efi_img/EFI $root/ || return 6 # required for UEFI support in UNetbootin
 	echo "unmounting /tmp/efi_img"
 	umount /tmp/efi_img || return 7
 	losetup -a | grep -o -q "${FREE_DEV##*/}" && losetup -d $FREE_DEV
