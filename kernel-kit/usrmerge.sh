@@ -1,6 +1,7 @@
 #!/bin/bash -e
 
 . ../woof-code/_00func
+. ./build.conf
 cd output
 
 TAR=`ls huge-*.tar.bz2`
@@ -15,12 +16,14 @@ usrmerge zdrv 0
 mksquashfs zdrv $ZDRV $COMP
 rm -rf zdrv
 
-FDRV=`ls fdrv-*.sfs`
-unsquashfs -d fdrv $FDRV
-rm -f $FDRV
-usrmerge fdrv 0
-mksquashfs fdrv $FDRV $COMP
-rm -rf fdrv
+if [ "$fware" != "n" ]; then
+	FDRV=`ls fdrv-*.sfs`
+	unsquashfs -d fdrv $FDRV
+	rm -f $FDRV
+	usrmerge fdrv 0
+	mksquashfs fdrv $FDRV $COMP
+	rm -rf fdrv
+fi
 
 tar -cjf $TAR vmlinuz-* $ZDRV $FDRV
 md5sum $TAR > $TAR.md5.txt
