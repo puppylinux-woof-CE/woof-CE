@@ -12,4 +12,6 @@ if [ ! -e usr/local/apps/ROX-Filer/AppRun ]; then
 		chroot . xdg-mime default geany.desktop $T
 		chroot . run-as-spot xdg-mime default geany.desktop $T
 	done
+	chroot . xdg-mime default geany.desktop "application/xhtml+xml"
+	chroot . run-as-spot xdg-mime default geany.desktop "application/xhtml+xml"
 fi
