@@ -56,12 +56,12 @@ update_padding() {
 	sed -i "s/padding: ${1}px;/padding: ${2}px;/g" $HOME/.config/sfwbar/sfwbar.config
 	# set icon size and exclusive zone
 	case $2 in
-		0|1)PX=22;EZ=30;FntS=10pt;;
-		2|3)PX=24;EZ=32;FntS=10pt;;
-		4|5)PX=26;EZ=36;FntS=11pt;;
-		6|7)PX=28;EZ=40;FntS=12pt;;
-		8|9)PX=30;EZ=43;FntS=13pt;;
-		 10)PX=32;EZ=46;FntS=13pt;;
+		0|1)PX=24;EZ=30;FntS=10pt;;
+		2|3)PX=30;EZ=32;FntS=10pt;;
+		4|5)PX=32;EZ=36;FntS=11pt;;
+		6|7)PX=36;EZ=40;FntS=12pt;;
+		8|9)PX=40;EZ=43;FntS=13pt;;
+		 10)PX=42;EZ=46;FntS=13pt;;
 	esac
 	EZLINE=$(grep -n 'SetExclusiveZone "panel"' $HOME/.config/sfwbar/sfwbar.config)
 	EZNO=${EZLINE%\:*}
@@ -71,8 +71,8 @@ update_padding() {
 	THLN=$(($IMGNO + 3))
 	sed -i -e "${EZNO}s/[0-9][0-9]/$EZ/" \
 		   -e "s/font: \([0-9][0-9]\)pt Sans/font: ${FntS} Sans/" \
-		   -e "${TWLN}s/\([0-9][0-9]\)px/${PX}px/" \
-		   -e "${THLN}s/\([0-9][0-9]\)px/${PX}px/" \
+		   -e "${TWLN}s/\([0-9][0-9]\)px/$((${PX}*2/3))px/" \
+		   -e "${THLN}s/\([0-9][0-9]\)px/$((${PX}*2/3))px/" \
 		$HOME/.config/sfwbar/sfwbar.config
 	for widget in $(ls $HOME/.config/sfwbar/|grep 'widget$'); do
 		SZ=$(grep -m1 -o 'min.*width' $HOME/.config/sfwbar/$widget|grep -o '[0-9][0-9].*px')

@@ -1,4 +1,5 @@
 #!/bin/sh
+. /etc/rc.d/PUPSTATE
 fw() {
 	if [ `iptables -L -n |wc -l` -gt 10 ]; then
 	  OPT=stop
@@ -31,7 +32,20 @@ menu("net_opts") {
 EOF
 }
 
+pup() {
+	if [ "$PUPMODE" = '13' ] ; then
+		ITEM="item(\"Save session\", Exec \"save2flash\");"
+	fi
+	cat <<EOF
+menu("pup_opts") {
+	item("Increase personal storage", Exec "resizepfile.sh");
+	$ITEM
+}
+EOF
+}
+
 case $1 in
 	f)fw;;
 	n)net;;
+	p)pup;;
 esac
