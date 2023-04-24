@@ -45,6 +45,7 @@
 static void show_help();
 static void process_directory(GMenuTreeDirectory *directory);
 static void process_entry(GMenuTreeEntry *entry);
+static void process_separator(GMenuTreeSeparator *entry);
 
 /*=============================================================================
  * Main Function
@@ -90,6 +91,7 @@ void show_help()
  */
 void process_directory(GMenuTreeDirectory *directory)
 {
+    int hasSeparator = 0; int first = 1; int hadSeparator = 0;
     GSList *entryList = gmenu_tree_directory_get_contents (directory);
     GSList *l;
 
@@ -125,16 +127,41 @@ start:
         switch (entryType)
         {
             case GMENU_TREE_ITEM_DIRECTORY:
+				if (hasSeparator)
+				{
+					if (!first && !hadSeparator)
+					{
+						process_separator(GMENU_TREE_SEPARATOR(item));
+						hadSeparator = 1;
+					}
+ 				hasSeparator = 0;
+ 
+				}
+				process_directory(GMENU_TREE_DIRECTORY(item));
+				first = 0;
+				hadSeparator = 0;
                 break;
             case GMENU_TREE_ITEM_ENTRY:
+				if (hasSeparator)
+					if (!first && !hadSeparator)
+	 				{
+	 					process_separator(GMENU_TREE_SEPARATOR(item));
+						hadSeparator = 1;
+	 				}
+					hasSeparator = 0;
                 entry = GMENU_TREE_ENTRY(item);
                 path = gmenu_tree_entry_get_desktop_file_path(entry);
                 if (!g_hash_table_lookup(history, path))
                 {
                     process_entry(entry);
                     g_hash_table_insert(history, g_strdup(path), (gpointer)1);
-                }
+					first = 0;
+					hadSeparator = 0;
+               }
                 break;
+			case GMENU_TREE_ITEM_SEPARATOR:
+				hasSeparator = 1;
+				break;
         }
 
         gmenu_tree_item_unref (item);
@@ -189,5 +216,14 @@ void process_entry(GMenuTreeEntry *entry)
     }
 }
 
+/*=============================================================================
+ * This function adds a separator
+ */
+void
+process_separator(GMenuTreeSeparator *entry)
+{
+
+  g_printf(" <separator/> \n");
+}
 /*=============================================================================
  */
