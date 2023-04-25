@@ -28,16 +28,13 @@ restart_sfwbar() {
 }
 
 disable_launch() {
-	if grep -q 'layout "launcher"' $HOME/.config/sfwbar/sfwbar.config ;then
-		sed -i 's/^layout \"launcher\"/\#layout \"launcher\"/' $HOME/.config/sfwbar/sfwbar.config
-		gtkdialog-splash -bg pink -placement top -timeout 2 -text "$(gettext "Disabling launcher.")" &
-	fi
+	sed -i '2s/true/false/' $HOME/.config/sfwbar/launcher.widget
+	gtkdialog-splash -bg pink -placement top -timeout 2 -text "$(gettext "Disabling launcher.")" &
 }
 
 enable_launch() {
-	if grep -q '#layout "launcher"' $HOME/.config/sfwbar/sfwbar.config ;then
-		sed -i 's/^\#layout \"launcher\"/layout \"launcher\"/' $HOME/.config/sfwbar/sfwbar.config
-	fi
+	sed -i '2s/false/true/' $HOME/.config/sfwbar/launcher.widget
+	gtkdialog-splash -bg green -placement top -timeout 2 -text "$(gettext "Enabling launcher.")" &
 }
 
 orient_bar() {
@@ -51,17 +48,13 @@ update_radii() {
 	sed -i "s/border-radius.*$/border-radius: ${2}px;/g" $HOME/.config/sfwbar/launcher.css
 }
 
-update_padding() {
-	# $1 = old radius, $2 = new radius
-	sed -i "s/padding: ${1}px;/padding: ${2}px;/g" $HOME/.config/sfwbar/sfwbar.config
+update_size() {
 	# set icon size and exclusive zone
-	case $2 in
-		0|1)PX=24;EZ=30;FntS=10pt;;
-		2|3)PX=30;EZ=32;FntS=10pt;;
-		4|5)PX=32;EZ=36;FntS=11pt;;
-		6|7)PX=36;EZ=40;FntS=12pt;;
-		8|9)PX=40;EZ=43;FntS=13pt;;
-		 10)PX=42;EZ=46;FntS=13pt;;
+	case $1 in
+		24)PX=24;EZ=28;MB=18;FntS=10;;
+		30)PX=30;EZ=34;MB=24;FntS=11;;
+		36)PX=36;EZ=42;MB=30;FntS=12;;
+		42)PX=42;EZ=48;MB=36;FntS=13;;
 	esac
 	EZLINE=$(grep -n 'SetExclusiveZone "panel"' $HOME/.config/sfwbar/sfwbar.config)
 	EZNO=${EZLINE%\:*}
@@ -69,24 +62,30 @@ update_padding() {
 	IMGNO=${IMGLN%\:button*}
 	TWLN=$(($IMGNO + 2))
 	THLN=$(($IMGNO + 3))
-	sed -i -e "${EZNO}s/[0-9][0-9]/$EZ/" \
-		   -e "s/font: \([0-9][0-9]\)pt Sans/font: ${FntS} Sans/" \
+	sed -i -e "${EZNO}s/\([0-9][0-9]\)/$EZ/" \
+		   -e "s/font: \([0-9][0-9]\)pt Sans/font: ${FntS}pt Sans/" \
 		   -e "${TWLN}s/\([0-9][0-9]\)px/$((${PX}*2/3))px/" \
 		   -e "${THLN}s/\([0-9][0-9]\)px/$((${PX}*2/3))px/" \
 		$HOME/.config/sfwbar/sfwbar.config
 	for widget in $(ls $HOME/.config/sfwbar/|grep 'widget$'); do
 		SZ=$(grep -m1 -o 'min.*width' $HOME/.config/sfwbar/$widget|grep -o '[0-9][0-9].*px')
 		case $widget in
-			clock*)sed -i "s/\([0-9][0-9]\)pt/${FntS}/g" $HOME/.config/sfwbar/$widget ;;
+			clock*)sed -i "s/\([0-9][0-9]\)pt/${FntS}pt/g" $HOME/.config/sfwbar/$widget ;;
 			cpu*|load*|memory*|swap*|disk*)
 				sed -i "s/min-height: \([0-9][0-9]\)px\;/min-height: $((${PX} - 2))px\;/" $HOME/.config/sfwbar/$widget ;;
 			'launcher.widget');;
-			*)[ -n "$SZ" ] && sed -i "s/$SZ/${PX}px/g" $HOME/.config/sfwbar/$widget ;;
+			'buttonmenu.widget')
+				sed -i -e "s/min-height: \([0-9][0-9]\)px/min-height: ${MB}px/"\
+					-e "s/min-width: \([0-9][0-9]\)px/min-width: $((${MB} * 4 / 3))px/"\
+					$HOME/.config/sfwbar/buttonmenu.widget
+					;;
+			*)sed -i "s/\([0-9][0-9]\)px/${PX}px/g" $HOME/.config/sfwbar/$widget ;;
 		esac
 	done
+
 }
 
-export -f parse_line move restart_sfwbar disable_launch enable_launch orient_bar update_radii update_padding
+export -f parse_line move restart_sfwbar disable_launch enable_launch orient_bar update_radii update_size
 
 #-------------------------------- main --------------------------------#
 FULL=true # full gui
@@ -143,9 +142,9 @@ fi
 
 DEFRAD_NR=$(grep -n 'button {' ~/.config/sfwbar/sfwbar.config)
 read -d ';' j DEFRAD <<<$(sed -n $((${DEFRAD_NR%%\:*} + 3))p $HOME/.config/sfwbar/sfwbar.config)
-read -d ';' j DEFPAD <<<$(sed -n $((${DEFRAD_NR%%\:*} + 1))p $HOME/.config/sfwbar/sfwbar.config)
+DEFSIZE=$(grep -o 'min-width.*;' $HOME/.config/sfwbar/logout.widget|grep -o '[0-9][0-9]px')
 DEFRAD=${DEFRAD/px/}
-DEFPAD=${DEFPAD/px/}
+DEFSIZE=${DEFSIZE/px/}
 
 if [ "$FULL" = 'true' ]; then
 	gtkdialog-splash -bg green -close never -placement top -text "$(gettext "Please wait a moment.")" &
@@ -239,9 +238,16 @@ else
 	STOCKP=''
 	IN='true'
 fi
-export GUI='<window title="SFW Bar and Launcher Configuration" icon-name="sfwconfig">
+if grep -qm1 'false' $HOME/.config/sfwbar/launcher.widget ; then
+	STATE=true
+else
+	STATE=false
+fi
+CSIZE=$(grep 'SIZE' $CONF|grep -o '[0-9][0-9]')
+
+export GUI='<window title="SFW Bar and Launcher Configuration" icon-name="sfwbar">
   <vbox space-expand="true" space-fill="true">
-  '"`/usr/lib/gtkdialog/xml_info fixed "desktop_tray_config.svg" 60 "$(gettext 'Here you can change the properties of the task bar and launcher.')"`"' 
+  '"`/usr/lib/gtkdialog/xml_info fixed "desktop_tray_config.svg" 60 "$(gettext 'Here you can change the properties of the task bar and launcher. To keep your current launcher apps check Keep Current Launcher.')"`"' 
     <hbox space-expand="true" space-fill="true">
     <hbox space-expand="true" space-fill="false">
       <frame '$(gettext "Position")'>
@@ -257,20 +263,13 @@ export GUI='<window title="SFW Bar and Launcher Configuration" icon-name="sfwcon
         <hseparator></hseparator>
         <hbox space-expand="true" space-fill="false">
         <text xalign="0"><label>'$(gettext "Task bar size")'</label></text>
-	        <comboboxtext tooltip-text="'$(gettext "0 is small, 10 is big")'">
-	          <default>'$DEFPAD'</default>
-	          <item>0</item>
-	          <item>1</item>
-	          <item>2</item>
-	          <item>3</item>
-	          <item>4</item>
-	          <item>5</item>
-	          <item>6</item>
-	          <item>7</item>
-	          <item>8</item>
-	          <item>9</item>
-	          <item>10</item>
-	          <variable>PAD</variable>
+	        <comboboxtext tooltip-text="'$(gettext "This adjusts icon size")'">
+	          <default>'$DEFSIZE'</default>
+	          <item>24</item>
+	          <item>30</item>
+	          <item>36</item>
+	          <item>42</item>
+	          <variable>NEWSIZE</variable>
 	        </comboboxtext>
 	    </hbox>
         <hseparator></hseparator>
@@ -281,9 +280,10 @@ export GUI='<window title="SFW Bar and Launcher Configuration" icon-name="sfwcon
 	          <variable>POS</variable>
 	        </comboboxtext>
 	        <comboboxtext>
-	          <item>36</item>
+	          <item>'$CSIZE'</item>
 	          <item>24</item>
 	          <item>32</item>
+	          <item>36</item>
 	          <item>42</item>
 	          <item>48</item>
 	          <item>56</item>
@@ -298,10 +298,10 @@ export GUI='<window title="SFW Bar and Launcher Configuration" icon-name="sfwcon
     <hbox space-expand="true" space-fill="false">
       <frame '$(gettext "Options")'>
         '$STOCKP'
-        <text xalign="0"><label>'$(gettext "Check this box to disable the launcher")'</label></text>
+        <text xalign="0"><label>'$(gettext "Check/uncheck this box to disable/enable the launcher")'</label></text>
         <checkbox>
           <label>'$(gettext "Disable Launcher")'</label>
-          <input>echo false</input>
+          <input>echo '$STATE'</input>
           <variable>DISABLE</variable>
           <action>if true disable:CHOOSEPUP</action>
           <action>if true disable:CHOOSE</action>
@@ -358,8 +358,8 @@ if [ "$DEFRAD" != "$RAD" ]; then
 	fi
 	update_radii $DEFRAD $RAD
 fi
-if [ "$DEFPAD" != "$PAD" ]; then
-	update_padding $DEFPAD $PAD
+if [ "$DEFSIZE" != "$NEWSIZE" ]; then
+	update_size $NEWSIZE
 fi
 # bar
 [ "$POS" = "$BARPOS" ] && \
@@ -371,86 +371,86 @@ fi
 if ! grep -q "$BAR_MON" $HOME/.config/sfwbar/sfwbar.config ; then
 	sed -i -e "s/#SetMonitor \"panel\".*$/SetMonitor \"panel\", \"$MON0\"/" -e "s/SetMonitor \"panel\".*$/SetMonitor \"panel\", \"$MON0\"/" $HOME/.config/sfwbar/sfwbar.config
 fi
-# keep
-if [ "$KEEP" = 'false' ];then
-	# launcher
-	echo "POS=$POS" > /tmp/sfwlaunchCONF.lst
-	echo "SIZE=$SIZE" >> /tmp/sfwlaunchCONF.lst
-	[ -n "$MON1" ] && echo "MON1=$MON1" >> /tmp/sfwlaunchCONF.lst
-	rm -f /tmp/sfwlaunchSEL.lst
-	
-	if [ -z "$SELECTIONS" -a "$CHECK" = 'false' ]; then
-		gtkdialog-splash -bg pink -close box -text "$(gettext "Error: No apps chosen.")" && exit
-	elif [ -z "$SELECTIONSPUP" -a "$CHECK" = 'true' ]; then
-		gtkdialog-splash -bg pink -close box -text "$(gettext "Error: No Puppy apps chosen.")" && exit
-	fi
-	
-	# count the entries
-	NR=0
-	if [ "$CHECK" = 'true' ]; then
-		# count the entries
-		echo $SELECTIONSPUP | tr ',' '\n' | while read LINE ; do
-			NR=$(($NR + 1))
-			echo $NR > /tmp/NR
-			echo "$LINE" >> /tmp/sfwlaunchSEL.lst
-		done
-	else
-		echo $SELECTIONS | tr ',' '\n' | while read LINE ; do
-			NR=$(($NR + 1))
-			echo $NR > /tmp/NR
-			echo "$LINE" >> /tmp/sfwlaunchSEL.lst
-		done
-	fi
-	NR=$((`cat /tmp/NR` - 1))
-	([ $NR -gt 10 ] || [ $NR -lt 2 ]) && gtkdialog-splash -bg pink -close box -text "$(gettext "Error: $NR entries. Please choose 2 or more or 10 or less.")" && exec $0
-	
-	# confirm and re-order gui
-	export CONFIRM='<window title="'$(gettext 'Confirm?')'" icon-name="sfwconfig">
-	  <vbox>
-	    <frame '$(gettext "Position")'>
-	      <text><label>'$POS'</label></text>
-	    </frame>
-	    <frame '$(gettext "Apps")'>
-		  <text><label>'$(gettext "You can re-order your apps here.")'</label></text>
-		  <tree headers-clickable="false" rules_hint="true" hover-selection="true" tooltip-text="'$(gettext "Drag and drop items to move them in list")'">
-	        <label>'$(gettext "Re-order the launcher Apps")'</label>
-	        <input>cat /tmp/sfwlaunchSEL.lst</input>
-	        <variable>TREE</variable>
-	        <height>300</height><width>200</width>
-	        <action signal="button-press-event">echo $TREE > /tmp/sfwlaunchPRESS_EVENT</action>
-	        <action signal="button-release-event">move</action>
-	        <action signal="button-release-event">refresh:TREE</action>
-	      </tree>
-	    </frame>
-		<hbox><button cancel></button><button ok></button></hbox>
-	  </vbox>
-	</window>'
-	eval $(gtkdialog -p CONFIRM)
-	
-	case $EXIT in
-		OK);;
-		*)exit;;
-	esac
-	
-	# write config
-	while read PROG ; do
-		[ -n "$PROG" ] && parse_line "$PROG"
-	done < /tmp/sfwlaunchSEL.lst
-	cat /tmp/sfwlaunchCONF.lst > $CONF
-	sfwlauncher
-else
-	sed -i "s/POS=.*$/POS=$POS/" $CONF
-	sed -i "s/MON1=.*$/MON1=$MON1/" $CONF
-	sed -i "s/SetMonitor \"panel\".*$/SetMonitor \"panel\", \"$MON0\"/" $HOME/.config/sfwbar/sfwbar.config
-	if echo $TGT_STR | grep -qv "$BARPOS"; then
-		orient_bar ${TGT_LN} $DEF_BARPOS $BARPOS #change orientation
-	fi 
-	sfwlauncher
-fi
+
 if [ "$DISABLE" = 'true' ]; then
 	exec $0 -fr
 elif [ "$DISABLE" = 'false' ]; then
+	if [ "$KEEP" = 'false' ];then
+		# launcher
+		echo "POS=$POS" > /tmp/sfwlaunchCONF.lst
+		echo "SIZE=$SIZE" >> /tmp/sfwlaunchCONF.lst
+		[ -n "$MON1" ] && echo "MON1=$MON1" >> /tmp/sfwlaunchCONF.lst
+		rm -f /tmp/sfwlaunchSEL.lst
+		
+		if [ -z "$SELECTIONS" -a "$CHECK" = 'false' ]; then
+			gtkdialog-splash -bg pink -close box -text "$(gettext "Error: No apps chosen. Check 'Keep current launcher' to restore the previous configuration.")" && exec $0
+		elif [ -z "$SELECTIONSPUP" -a "$CHECK" = 'true' ]; then
+			gtkdialog-splash -bg pink -close box -text "$(gettext "Error: No Puppy apps chosen. Check 'Keep current launcher' to restore the previous configuration.")" exec $0
+		fi
+		
+		# count the entries
+		NR=0
+		if [ "$CHECK" = 'true' ]; then
+			# count the entries
+			echo $SELECTIONSPUP | tr ',' '\n' | while read LINE ; do
+				NR=$(($NR + 1))
+				echo $NR > /tmp/NR
+				echo "$LINE" >> /tmp/sfwlaunchSEL.lst
+			done
+		else
+			echo $SELECTIONS | tr ',' '\n' | while read LINE ; do
+				NR=$(($NR + 1))
+				echo $NR > /tmp/NR
+				echo "$LINE" >> /tmp/sfwlaunchSEL.lst
+			done
+		fi
+		NR=$((`cat /tmp/NR` - 1))
+		([ $NR -gt 10 ] || [ $NR -lt 2 ]) && gtkdialog-splash -bg pink -close box -text "$(gettext "Error: $NR entries. Please choose 2 or more or 10 or less.")" && exec $0
+		
+		# confirm and re-order gui
+		export CONFIRM='<window title="'$(gettext 'Confirm?')'" icon-name="sfwconfig">
+		  <vbox>
+		    <frame '$(gettext "Position")'>
+		      <text><label>'$POS'</label></text>
+		    </frame>
+		    <frame '$(gettext "Apps")'>
+			  <text><label>'$(gettext "You can re-order your apps here.")'</label></text>
+			  <tree headers-clickable="false" rules_hint="true" hover-selection="true" tooltip-text="'$(gettext "Drag and drop items to move them in list")'">
+		        <label>'$(gettext "Re-order the launcher Apps")'</label>
+		        <input>cat /tmp/sfwlaunchSEL.lst</input>
+		        <variable>TREE</variable>
+		        <height>300</height><width>200</width>
+		        <action signal="button-press-event">echo $TREE > /tmp/sfwlaunchPRESS_EVENT</action>
+		        <action signal="button-release-event">move</action>
+		        <action signal="button-release-event">refresh:TREE</action>
+		      </tree>
+		    </frame>
+			<hbox><button cancel></button><button ok></button></hbox>
+		  </vbox>
+		</window>'
+		eval $(gtkdialog -p CONFIRM)
+		
+		case $EXIT in
+			OK);;
+			*)exit;;
+		esac
+		
+		# write config
+		while read PROG ; do
+			[ -n "$PROG" ] && parse_line "$PROG"
+		done < /tmp/sfwlaunchSEL.lst
+		cat /tmp/sfwlaunchCONF.lst > $CONF
+		sfwlauncher
+	else
+		sed -i "s/POS=.*$/POS=$POS/" $CONF
+		sed -i "s/MON1=.*$/MON1=$MON1/" $CONF
+		sed -i "s/SIZE=.*$/SIZE=$SIZE/" $CONF
+		sed -i "s/SetMonitor \"panel\".*$/SetMonitor \"panel\", \"$MON0\"/" $HOME/.config/sfwbar/sfwbar.config
+		if echo $TGT_STR | grep -qv "$BARPOS"; then
+			orient_bar ${TGT_LN} $DEF_BARPOS $BARPOS #change orientation
+		fi 
+		sfwlauncher
+	fi	
+	
 	exec $0 -er
 fi
-
-restart_sfwbar
