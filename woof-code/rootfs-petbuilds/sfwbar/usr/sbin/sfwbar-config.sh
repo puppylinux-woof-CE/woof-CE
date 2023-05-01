@@ -51,10 +51,11 @@ update_radii() {
 update_size() {
 	# set icon size and exclusive zone
 	case $1 in
-		24)PX=24;EZ=28;MB=18;FntS=10;;
-		30)PX=30;EZ=34;MB=24;FntS=11;;
-		36)PX=36;EZ=42;MB=30;FntS=12;;
-		42)PX=42;EZ=48;MB=36;FntS=13;;
+		24)PX=24;EZ=29;MB=18;FntS=10;;
+		28)PX=28;EZ=33;MB=22;FntS=10;;
+		30)PX=30;EZ=35;MB=24;FntS=11;;
+		36)PX=36;EZ=41;MB=30;FntS=12;;
+		42)PX=42;EZ=47;MB=36;FntS=13;;
 	esac
 	EZLINE=$(grep -n 'SetExclusiveZone "panel"' $HOME/.config/sfwbar/sfwbar.config)
 	EZNO=${EZLINE%\:*}
@@ -266,6 +267,7 @@ export GUI='<window title="SFW Bar and Launcher Configuration" icon-name="sfwbar
 	        <comboboxtext tooltip-text="'$(gettext "This adjusts icon size")'">
 	          <default>'$DEFSIZE'</default>
 	          <item>24</item>
+	          <item>28</item>
 	          <item>30</item>
 	          <item>36</item>
 	          <item>42</item>
