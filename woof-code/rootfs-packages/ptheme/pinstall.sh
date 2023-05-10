@@ -17,11 +17,6 @@ for dtop in switch2 GTK-Chtheme icon_switcher Desktop-drive-icons; do
     fi
 done
 
-if [ "$PTHEME" = "" ] ; then
-        sed -i 's%NoDisplay=.*%NoDisplay=false%' usr/share/applications/ptheme_gtk.desktop
-        sed -i 's%NoDisplay=.*%NoDisplay=false%' usr/share/applications/pcur.desktop
-fi
-
 # poor man's pTheme!
 # choose a global theme
 ############################################################################
