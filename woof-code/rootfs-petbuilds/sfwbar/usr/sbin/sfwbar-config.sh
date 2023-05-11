@@ -23,8 +23,12 @@ move() { # https://wikka.puppylinux.com/gtkdialogDocTips9.7 - thanks ziggy!
 }
 
 restart_sfwbar() {
-	killall sfwbar
-	sfwbar &
+	SFWBAR_PID=$(pidof -s sfwbar)
+	if [ -n "$SFWBAR_PID" ]; then
+		kill -HUP $SFWBAR_PID
+	else
+		sfwbar &
+	fi
 }
 
 disable_launch() {
