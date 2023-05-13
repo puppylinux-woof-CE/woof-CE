@@ -55,19 +55,17 @@ update_radii() {
 update_size() {
 	# set icon size and exclusive zone
 	case $1 in
-		24)PX=24;EZ=26;MB=18;FntS=10;;
-		28)PX=28;EZ=30;MB=22;FntS=10;;
-		30)PX=30;EZ=32;MB=24;FntS=11;;
-		36)PX=36;EZ=38;MB=30;FntS=12;;
-		42)PX=42;EZ=44;MB=36;FntS=13;;
+		24)PX=24;MB=18;FntS=10;;
+		28)PX=28;MB=22;FntS=10;;
+		30)PX=30;MB=24;FntS=11;;
+		36)PX=36;MB=30;FntS=12;;
+		42)PX=42;MB=36;FntS=13;;
 	esac
-	EZLINE=$(grep -n 'SetExclusiveZone "panel"' $HOME/.config/sfwbar/sfwbar.config)
-	EZNO=${EZLINE%\:*}
 	IMGLN=$(grep -n 'button#taskbar_normal image' $HOME/.config/sfwbar/sfwbar.config)
 	IMGNO=${IMGLN%\:button*}
 	TWLN=$(($IMGNO + 2))
 	THLN=$(($IMGNO + 3))
-	sed -i -e "${EZNO}s/\([0-9][0-9]\)/$EZ/" \
+	sed -i \
 		   -e "s/font: \([0-9][0-9]\)pt Sans/font: ${FntS}pt Sans/" \
 		   -e "${TWLN}s/\([0-9][0-9]\)px/$((${PX}*2/3))px/" \
 		   -e "${THLN}s/\([0-9][0-9]\)px/$((${PX}*2/3))px/" \
