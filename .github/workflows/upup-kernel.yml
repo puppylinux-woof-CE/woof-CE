@@ -1,0 +1,57 @@
+name: upup-kernel
+
+on:
+  schedule:
+    - cron: '0 0 1 * *'
+  workflow_dispatch:
+
+jobs:
+  build:
+    if: github.event_name != 'schedule' || (github.repository == 'puppylinux-woof-CE/woof-CE' && github.ref == 'refs/heads/testing')
+    runs-on: ubuntu-20.04
+    container:
+      image: ubuntu:${{ matrix.release }}
+    strategy:
+      matrix:
+        release: [jammy]
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install dependencies
+        run: |
+          apt-get update -qq
+          apt-get upgrade -y
+          apt-get install -y --no-install-recommends curl wget ca-certificates git file squashfs-tools xz-utils diffutils patch make flex bison python3 bc bzip2 kmod rsync libelf-dev libssl-dev dwarves gcc jq
+          apt-get install -y linux-image-generic linux-source
+          curl https://raw.githubusercontent.com/puppylinux-woof-CE/initrd_progs/master/pkg/w_apps_static/w_apps/vercmp.c | gcc -x c -o /usr/local/bin/vercmp -
+          echo "dash dash/sh boolean false" | debconf-set-selections
+          DEBIAN_FRONTEND=noninteractive dpkg-reconfigure dash
+      - name: Build kernel
+        run: |
+          cd kernel-kit
+          tar -xjf /usr/src/linux-source-*.tar.bz2
+          ver=`grep -E '^(VERSION|PATCHLEVEL|SUBLEVEL) =' linux-source-*/Makefile | awk '{print $3}' | tr '\n' . | sed 's/\.$//'`
+          mv -f linux-source-* linux-$ver
+          mkdir -p sources/kernels
+          tar -c linux-$ver | xz -1 > sources/kernels/linux-$ver.tar.xz
+          cd linux-$ver
+          ./scripts/kconfig/merge_config.sh /boot/config-*-generic ../ubuntu-diffconfigs/${{ matrix.release }}
+          mv -f .config ../configs_x86_64/DOTconfig-$ver-x86_64
+          cd ..
+          rm -rf linux-$ver
+          md5sum sources/kernels/linux-$ver.tar.xz | sed s~sources/kernels/~~ > sources/kernels/linux-$ver.tar.xz.md5.txt
+          echo "DOTconfig_file=configs_x86_64/DOTconfig-$ver-x86_64" >> build.conf
+          echo "kernel_ver=$ver" >> build.conf
+          echo "package_name_suffix=kernel-kit" >> build.conf
+          echo "COMP=\"-comp zstd -Xcompression-level 19 -b 256K -no-exports -no-xattrs\"" >> build.conf
+          echo "AUTO=yes" >> build.conf
+          echo "AUFS=no" >> build.conf
+          CREATE_KBUILD_SFS=yes ./build.sh
+          ./usrmerge.sh
+          mkdir small-output
+          mv `ls output/kernel_sources-*.sfs* output/kbuild-*.sfs* output/*.tar* 2>/dev/null` small-output
+      - name: Upload kernel
+        uses: actions/upload-artifact@v3
+        with:
+          name: kernel-kit-output-usrmerge-ubuntu-${{ matrix.release }}-x86_64
+          path: kernel-kit/small-output
+          retention-days: 31

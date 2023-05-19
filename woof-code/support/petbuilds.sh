@@ -75,8 +75,18 @@ for NAME in $PETBUILDS; do
             rm -rf petbuild-rootfs-complete
             cp -a rootfs-complete petbuild-rootfs-complete
 
-            rm -f sh petbuild-rootfs-complete/bin/sh
+            rm -f petbuild-rootfs-complete/bin/sh
             ln -s bash petbuild-rootfs-complete/bin/sh
+
+            # these can be skipped, rc.update generates this cache
+            for PROG in update-mime-database gtk-update-icon-cache glib-compile-schemas; do
+                rm -f petbuild-rootfs-complete/usr/bin/$PROG
+                cat << EOF > petbuild-rootfs-complete/usr/bin/$PROG
+#!/bin/sh
+echo "Skipping $PROG"
+EOF
+                chmod 755 petbuild-rootfs-complete/usr/bin/$PROG
+            done
 
             cp -f /etc/resolv.conf petbuild-rootfs-complete/etc/
             cp -f ../packages-templates/ca-certificates/pinstall.sh petbuild-rootfs-complete/

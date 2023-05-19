@@ -60,7 +60,11 @@ mkdir -p sandbox3
 #now build rootfs-complete, the main filesystem...
 echo
 echo "Now building sandbox3/rootfs-complete, with the complete filesystem..."
-echo '#!/bin/sh' > sandbox3/pinstall.sh
+if [ -n "$GITHUB_ACTIONS" ]; then
+	echo '#!/bin/sh -x' > sandbox3/pinstall.sh
+else
+	echo '#!/bin/sh' > sandbox3/pinstall.sh
+fi
 rm -rf sandbox3/rootfs-complete
 rm -rf sandbox3/devx
 rm -rf sandbox3/docx ${DOCXSFS}
@@ -367,14 +371,22 @@ if [ -n "$ADRV_INCLUDE" -o -n "$FDRV_INCLUDE" -o -n "$YDRV_INCLUDE" ];then
 		echo "Now building sandbox3/${_DRV} with apps redirected to ${_DRV}_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION}.sfs"
 		case ${_DRV} in
 		adrv)
-			echo '#!/bin/sh' > sandbox3/apinstall.sh
+			if [ -n "$GITHUB_ACTIONS" ]; then
+				echo '#!/bin/sh -x' > sandbox3/apinstall.sh
+			else
+				echo '#!/bin/sh' > sandbox3/apinstall.sh
+			fi
 			mkdir -p sandbox3/adrv/usr/local/bin
 			copy_pkgs_to_build "${ADRV_INC}" adrv
 			[ "$USR_SYMLINKS" = "yes" ] && usrmerge sandbox3/adrv 0
 			chmod 755 sandbox3/apinstall.sh
 			echo;;
 		fdrv)
-			echo '#!/bin/sh' > sandbox3/fpinstall.sh
+			if [ -n "$GITHUB_ACTIONS" ]; then
+				echo '#!/bin/sh -x' > sandbox3/fpinstall.sh
+			else
+				echo '#!/bin/sh' > sandbox3/fpinstall.sh
+			fi
 			mkdir -p sandbox3/fdrv/
 			copy_pkgs_to_build "${FDRV_INC}" fdrv
 			[ "$USR_SYMLINKS" = "yes" ] && usrmerge sandbox3/fdrv 0
@@ -382,7 +394,11 @@ if [ -n "$ADRV_INCLUDE" -o -n "$FDRV_INCLUDE" -o -n "$YDRV_INCLUDE" ];then
 			echo
 			CONF_DIR=no;;
 		ydrv)
-			echo '#!/bin/sh' > sandbox3/ypinstall.sh
+			if [ -n "$GITHUB_ACTIONS" ]; then
+				echo '#!/bin/sh -x' > sandbox3/ypinstall.sh
+			else
+				echo '#!/bin/sh' > sandbox3/ypinstall.sh
+			fi
 			mkdir -p sandbox3/ydrv/usr/local/bin
 			copy_pkgs_to_build "${YDRV_INC}" ydrv
 			[ "$USR_SYMLINKS" = "yes" ] && usrmerge sandbox3/ydrv 0
@@ -486,7 +502,7 @@ chmod 755 sandbox3/pinstall.sh
 #pemasu start 131207
 echo "Removing extra documentation"
 for i in $(ls sandbox3/rootfs-complete/usr/share/doc); do
-	case $i in legal|pmusic|pburn|pbackup|mtpaint|help|wvdial|ffconvert|cups|nls|puplogos|notecase|didiwiki|xarchive|frugalpup)
+	case $i in legal|pmusic|pburn|pbackup|mtpaint|help|wvdial|ffconvert|cups|nls|puplogos|notecase|didiwiki|xarchive|frugalpup|network_imgs)
 		continue
 	esac
 	if [ -d sandbox3/rootfs-complete/usr/share/doc/$i ] ; then
@@ -527,6 +543,7 @@ $WKGDIR/sandbox3/pinstall.sh
 if [ -f /tmp/3builddistro_end_of_pinstall ] ; then
 	echo "pinstall.sh finished OK"
 else
+	[ -n "$GITHUB_ACTIONS" ] && exit 1
 	echo -n "pinstall.sh aborted before completion. Press ENTER or CTRL-C: "
 	read isitbad
 fi
@@ -642,6 +659,34 @@ case $WOOF_TARGETARCH in x86*)
 		$UCODE_EXEC || exit 1
 		rm -f build/ucode.cpio
 		[ -e /tmp/ucode.cpio ] && cp /tmp/ucode.cpio build/ || exit 1
+	else
+		FIRMWARE_DIR="fdrv/lib/firmware"
+		[ "$USR_SYMLINKS" = "yes" ] && FIRMWARE_DIR="fdrv/usr/lib/firmware"
+
+		if [ -d ${FIRMWARE_DIR}/intel-ucode -o -d ${FIRMWARE_DIR}/amd-ucode ]; then
+			rm -rf build/ucode
+			mkdir -p build/ucode/kernel/x86/microcode
+
+			if [ -d ${FIRMWARE_DIR}/intel-ucode ];then
+				echo "Building GenuineIntel.bin"
+				cat ${FIRMWARE_DIR}/intel-ucode/* > build/ucode/kernel/x86/microcode/GenuineIntel.bin
+				rm -f ${FIRMWARE_DIR}/intel-ucode/*
+			fi
+
+			if [ -d ${FIRMWARE_DIR}/amd-ucode ];then
+				echo "Building AuthenticAMD.bin"
+				cat ${FIRMWARE_DIR}/amd-ucode/* > build/ucode/kernel/x86/microcode/AuthenticAMD.bin
+				rm -f ${FIRMWARE_DIR}/amd-ucode/*
+			fi
+
+			(
+				cd build/ucode
+				find . | cpio -o -H newc > ../ucode.cpio
+			)
+			rm -rf build/ucode
+		else
+			echo "Building without early microcode loading"
+		fi
 	fi
 	;;
 esac
@@ -766,6 +811,13 @@ if [ ! -e rootfs-complete/usr/sbin/cupsd -a ! -e rootfs-complete/usr/bin/cupsd ]
     rm -f rootfs-complete/usr/share/applications/printer-wizard.desktop rootfs-complete/usr/share/applications/cups.desktop
 fi
 
+# drop gcolor2 if wl_colpick is supported
+if [ -e rootfs-complete/usr/bin/grim -a -e rootfs-complete/usr/bin/slurp -a -e rootfs-complete/usr/bin/ppmtoxpm ]; then
+    rm -f rootfs-complete/usr/bin/gcolor2 rootfs-complete/usr/share/applications/gcolor2.desktop
+else
+    rm -f rootfs-complete/usr/bin/wl_colpick rootfs-complete/usr/share/applications/wl_colpick.desktop
+fi
+
 #130326 script to adjust fonts to suit 96 dpi (puppy used to have 78 dpi)...
 [ ! -d rootfs-complete/usr/share/ptheme ] && rootfs-complete/usr/sbin/hackfontsize #don't execute if we have ptheme
 
@@ -774,6 +826,12 @@ if [ "$XERRS_FLG" = 'yes' ];then
 	[ -e rootfs-complete/var/local/xwin_disable_xerrs_log_flag ] && \
 	rm rootfs-complete/var/local/xwin_disable_xerrs_log_flag && \
 	echo "Enabling X error log. User can change this later."
+fi
+
+# xwin_run_as_spot_flag
+if [ "$XSPOT_FLG" = 'yes' ];then
+	touch rootfs-complete/var/local/xwin_run_as_spot_flag && \
+	echo "Enabling X as spot."
 fi
 
 #shared library loading...
@@ -924,6 +982,7 @@ if grep -q '^spot:' rootfs-complete/etc/passwd ; then
 fi
 (
 	cd rootfs-complete
+	[ -n "$GITHUB_ACTIONS" ] && set -x
 	echo "$EXTRA_COMMANDS" | while read i ; do eval $i ; done
 )
 
@@ -961,6 +1020,7 @@ if [ -e rootfs-complete/usr/local/apps/ROX-Filer/AppRun ]; then
 exec missingdefaultapp $app
 EOF
 	done
+	rm -f rootfs-complete/usr/bin/xdg-open.real
 	echo
 else
 	echo "Setting up default apps via xdgdefaultapp ..."
@@ -981,12 +1041,12 @@ else
 	            defaulthtmleditor=text/plain \
 	            defaulthtmlviewer=text/html \
 	            defaultimageeditor=image/bmp \
-	            defaultimageviewer=image/bmp \
+	            defaultimageviewer=image/png \
 	            defaultmediaplayer=video/mp4 \
 	            defaultpaint=image/bmp \
 	            defaultpdfviewer=application/pdf \
 	            defaultspreadsheet=application/vnd.oasis.opendocument.spreadsheet \
-	            defaulttexteditor=text/plain \
+	            defaulttexteditor=text/x-c \
 	            defaulttextviewer=text/plain \
 	            defaulttorrent=application/x-bittorrent \
 	            defaultwordprocessor=application/vnd.oasis.opendocument.text; do
@@ -995,6 +1055,9 @@ else
 exec xdgdefaultapp "${PAIR#*=}" "\$@"
 EOF
 	done
+
+	# drop Puppy's xdg-open and use the "real" one from xdg-utils
+	[ -e rootfs-complete/usr/bin/xdg-open.real ] && mv -f rootfs-complete/usr/bin/xdg-open.real rootfs-complete/usr/local/bin/xdg-open
 fi
 
 [ -n "$QEMU" ] && rm -f rootfs-complete/${QEMU}
@@ -1059,7 +1122,6 @@ if [ "$BUILD_SFS" = 'yes' ]; then
 			[ -d ${SYS_SFS}/root ] && busybox chmod 700 ${SYS_SFS}/root
 			[ -d ${SYS_SFS}/home/spot ] && busybox chmod 700 ${SYS_SFS}/home/spot
 			mksquashfs $SYS_SFS build/${TYPE_SYS_SFS} ${SFSCOMP} #170330
-			[ -n "$GITHUB_ACTIONS" ] && rm -rf $SYS_SFS
 		done
 	fi
 	#############

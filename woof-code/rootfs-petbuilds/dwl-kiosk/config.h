@@ -8,8 +8,8 @@ static float focuscolor[]            = {0.0, 0.333333, 0.466667, 1.0};
 /* To conform the xdg-protocol, set the alpha to zero to restore the old behavior */
 static const float fullscreen_bg[]         = {0.1, 0.1, 0.1, 1.0};
 
-/* tagging */
-static const char *tags[] = { "1", "2", "3", "4", "5", "6", "7", "8", "9" };
+/* tagging - tagcount must be no greater than 31 */
+static const int tagcount = 9;
 
 static const Rule rules[0] = {
 	/* app_id     title       tags mask     isfloating   monitor */
@@ -30,12 +30,12 @@ static const Layout layouts[] = {
 
 /* monitors */
 static const MonitorRule monrules[] = {
-	/* name       mfact nmaster scale layout       rotate/reflect */
+	/* name       mfact nmaster scale layout       rotate/reflect                x    y */
 	/* example of a HiDPI laptop monitor:
-	{ "eDP-1",    0.5,  1,      2,    &layouts[0], WL_OUTPUT_TRANSFORM_NORMAL },
+	{ "eDP-1",    0.5,  1,      2,    &layouts[0], WL_OUTPUT_TRANSFORM_NORMAL,   -1,  -1 },
 	*/
 	/* defaults */
-	{ NULL,       0.64, 1,     -1,    &layouts[3], WL_OUTPUT_TRANSFORM_NORMAL },
+	{ NULL,       0.64, 1,     -1,    &layouts[3], WL_OUTPUT_TRANSFORM_NORMAL,   -1,  -1 },
 };
 
 /* keyboard */
