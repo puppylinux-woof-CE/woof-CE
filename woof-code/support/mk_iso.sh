@@ -296,6 +296,7 @@ mk_efi_img() {
 	TGT=$1
 	gfp=$2
 	gcer=$3
+	root=$4
 	if [ -n "$UEFI_32" ] ; then
 		xFEILD='*'
 	else
@@ -328,6 +329,7 @@ mk_efi_img() {
 		cp $gcer /tmp/efi_img/EFI/boot/ || return 5
 	fi
 	rm -f /tmp/efi_img/EFI/boot/grub.cfg
+	cp -r /tmp/efi_img/EFI $root/ || return 6 # required for UEFI support in UNetbootin
 	echo "unmounting /tmp/efi_img"
 	umount /tmp/efi_img || return 7
 	losetup -a | grep -o -q "${FREE_DEV##*/}" && losetup -d $FREE_DEV
@@ -493,7 +495,7 @@ cp -fv ${PX}/usr/share/boot-dialog/splash.jpg ${BUILD}/boot/
 
 # build efi image
 if [ -n "$UEFI_ISO" ] ; then
-	mk_efi_img $BUILD/boot $FPBOOT "$CER" || exit $?
+	mk_efi_img $BUILD/boot $FPBOOT "$CER" $BUILD || exit $?
 	rm -rf /tmp/grub2 # cleanup
 fi
 
