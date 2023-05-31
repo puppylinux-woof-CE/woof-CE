@@ -22,3 +22,5 @@ EOF
 fi
 
 [ -f root/.jwm/jwmrc-personal ] && sed -i 's~^<Key key="Print">exec:defaultscreenshot</Key>$~&\n<Key mask="S" key="Print">exec:slurp-screenshot</Key>~' root/.jwm/jwmrc-personal
+
+echo dwl > etc/windowmanager
