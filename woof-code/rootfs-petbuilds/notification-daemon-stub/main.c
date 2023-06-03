@@ -9,6 +9,16 @@
 
 
 static gboolean
+on_get_server_information (OrgFreedesktopNotifications *object,
+                           GDBusMethodInvocation       *invocation,
+                           gpointer                    user_data)
+{
+  org_freedesktop_notifications_complete_get_server_information (object, invocation, "Notification Daemon Stub", "Nobody", "0.1", "1.2");
+  return G_DBUS_METHOD_INVOCATION_HANDLED;
+}
+
+
+static gboolean
 on_get_capabilities (OrgFreedesktopNotifications *object,
                      GDBusMethodInvocation       *invocation,
                      gpointer                    user_data)
@@ -47,6 +57,10 @@ on_bus_acquired (GDBusConnection *connection,
 
   object = org_freedesktop_notifications_skeleton_new();
 
+  g_signal_connect (object,
+                    "handle-get-server-information",
+                    G_CALLBACK (on_get_server_information),
+                    NULL);
   g_signal_connect (object,
                     "handle-get-capabilities",
                     G_CALLBACK (on_get_capabilities),
