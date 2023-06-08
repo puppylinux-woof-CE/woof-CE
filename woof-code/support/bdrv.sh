@@ -35,10 +35,13 @@ mkdir -p "$CACHE_DIR"
 TARBALL="${CACHE_DIR}/debootstrap-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}.tar.gz"
 [ "$USR_SYMLINKS" != "yes" ] || TARBALL="${CACHE_DIR}/debootstrap-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}-usrmerge.tar.gz"
 
+DEBOOTSTRAP_OPTS=
+[ "$DISTRO_BINARY_COMPAT" != "debian" ] || DEBOOTSTRAP_OPTS="--include=sysvinit-core"
+
 if [ "$USR_SYMLINKS" = "yes" -a ! -e ${TARBALL} ]; then
-	$debootstrap --arch=$ARCH --variant=minbase --make-tarball=${TARBALL} ${DISTRO_COMPAT_VERSION} bdrv ${MIRROR}
+	$debootstrap --arch=$ARCH --variant=minbase ${DEBOOTSTRAP_OPTS} --make-tarball=${TARBALL} ${DISTRO_COMPAT_VERSION} bdrv ${MIRROR}
 elif [ ! -e ${TARBALL} ]; then
-	$debootstrap --no-merged-usr --arch=$ARCH --variant=minbase --make-tarball=${TARBALL} ${DISTRO_COMPAT_VERSION} bdrv ${MIRROR}
+	$debootstrap --no-merged-usr --arch=$ARCH --variant=minbase ${DEBOOTSTRAP_OPTS} --make-tarball=${TARBALL} ${DISTRO_COMPAT_VERSION} bdrv ${MIRROR}
 fi
 
 # create a tiny installation of the compatible distro
@@ -132,6 +135,9 @@ chroot bdrv apt-get upgrade -y
 # blacklist packages that may conflict with packages in the main SFS
 chroot bdrv apt-mark hold busybox
 chroot bdrv apt-mark hold busybox-static
+
+# prevent systemd from being installed
+[ "$DISTRO_BINARY_COMPAT" != "debian" ] || chroot bdrv apt-mark hold systemd
 
 # snap is broken without systemd
 [ "$DISTRO_BINARY_COMPAT" = "devuan" ] || chroot bdrv apt-mark hold snapd
