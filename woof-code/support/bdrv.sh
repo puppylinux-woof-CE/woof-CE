@@ -35,10 +35,13 @@ mkdir -p "$CACHE_DIR"
 TARBALL="${CACHE_DIR}/debootstrap-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}.tar.gz"
 [ "$USR_SYMLINKS" != "yes" ] || TARBALL="${CACHE_DIR}/debootstrap-${DISTRO_BINARY_COMPAT}-${DISTRO_COMPAT_VERSION}-usrmerge.tar.gz"
 
+DEBOOTSTRAP_OPTS=
+[ "$DISTRO_BINARY_COMPAT" != "debian" ] || DEBOOTSTRAP_OPTS="--include=sysvinit-core"
+
 if [ "$USR_SYMLINKS" = "yes" -a ! -e ${TARBALL} ]; then
-	$debootstrap --arch=$ARCH --variant=minbase --make-tarball=${TARBALL} ${DISTRO_COMPAT_VERSION} bdrv ${MIRROR}
+	$debootstrap --arch=$ARCH --variant=minbase ${DEBOOTSTRAP_OPTS} --make-tarball=${TARBALL} ${DISTRO_COMPAT_VERSION} bdrv ${MIRROR}
 elif [ ! -e ${TARBALL} ]; then
-	$debootstrap --no-merged-usr --arch=$ARCH --variant=minbase --make-tarball=${TARBALL} ${DISTRO_COMPAT_VERSION} bdrv ${MIRROR}
+	$debootstrap --no-merged-usr --arch=$ARCH --variant=minbase ${DEBOOTSTRAP_OPTS} --make-tarball=${TARBALL} ${DISTRO_COMPAT_VERSION} bdrv ${MIRROR}
 fi
 
 # create a tiny installation of the compatible distro
@@ -133,6 +136,9 @@ chroot bdrv apt-get upgrade -y
 chroot bdrv apt-mark hold busybox
 chroot bdrv apt-mark hold busybox-static
 
+# prevent systemd from being installed
+[ "$DISTRO_BINARY_COMPAT" != "debian" ] || chroot bdrv apt-mark hold systemd
+
 # snap is broken without systemd
 [ "$DISTRO_BINARY_COMPAT" = "devuan" ] || chroot bdrv apt-mark hold snapd
 
@@ -192,7 +198,7 @@ chroot bdrv apt-mark hold `chroot bdrv dpkg-query -f '${binary:Package}\n' -W | 
 # remove unneeded files
 chroot bdrv apt-get clean
 rm -f bdrv/var/lib/apt/lists/* 2>/dev/null || :
-rm -rf bdrv/home bdrv/root bdrv/dev bdrv/run bdrv/var/log bdrv/var/cache/man bdrv/var/cache/fontconfig bdrv/var/cache/ldconfig bdrv/etc/ssl bdrv/lib/udev bdrv/lib/modprobe.d bdrv/lib/firmware bdrv/usr/share/mime bdrv/etc/ld.so.cache bdrv/usr/bin/systemctl bdrv/usr/bin/systemd-analyze bdrv/usr/bin/systemctl bdrv/usr/lib/systemd/systemd-networkd bdrv/usr/lib/systemd/systemd bdrv/usr/lib/systemd/systemd-journald bdrv/usr/share/fonts bdrv/etc/fonts bdrv/etc/init.d bdrv/etc/rc*.d
+rm -rf bdrv/home bdrv/root bdrv/dev bdrv/run bdrv/var/log bdrv/var/cache/man bdrv/var/cache/fontconfig bdrv/var/cache/ldconfig bdrv/etc/ssl bdrv/lib/udev bdrv/lib/modprobe.d bdrv/lib/firmware bdrv/usr/share/mime bdrv/etc/ld.so.cache bdrv/usr/bin/systemctl bdrv/usr/bin/systemd-analyze bdrv/usr/bin/systemctl bdrv/usr/lib/systemd/systemd-networkd bdrv/usr/lib/systemd/systemd bdrv/usr/lib/systemd/systemd-journald bdrv/usr/share/fonts bdrv/etc/fonts bdrv/etc/init.d bdrv/etc/rc*.d bdrv/etc/rc.* bdrv/usr/lib/*/security/pam_elogind.so
 rm -rf `find bdrv -name __pycache__`
 for ICONDIR in bdrv/usr/share/icons/*; do
 	[ "$ICONDIR" != "bdrv/usr/share/icons/hicolor" ] || continue
