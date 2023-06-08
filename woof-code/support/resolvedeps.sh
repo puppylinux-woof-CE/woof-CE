@@ -51,7 +51,12 @@ ${ONEPKGSPEC}"
         for DEP in $DEPS; do
             if [ $DEPTH -ne 0 ]; then
                 # hack: debdb2pupdb doesn't understand dependency on libsystemd0|liblogind0 and takes the first option
-                [ "$DISTRO_BINARY_COMPAT" = "debian" -o "$DISTRO_BINARY_COMPAT" = "devuan" ] && [ "$DEP" = "libsystemd0" ] && DEP="libelogind0"
+                if [ "$DISTRO_BINARY_COMPAT" = "debian" -o "$DISTRO_BINARY_COMPAT" = "devuan" ]; then
+                    case "$DEP" in
+                    libsystemd0) DEP="libelogind0" ;;
+                    dbus-user-session) DEP="dbus-x11" ;;
+                    esac
+                fi
 
                 # hack: portaudio19-dev depends on libjack-dev|libjack-jackd2-dev but libjack0 and libjack-jackd2-0 conflict
                 [ "$DEP" = "libjack-jackd2-0" ] && DEP="libjack0"
