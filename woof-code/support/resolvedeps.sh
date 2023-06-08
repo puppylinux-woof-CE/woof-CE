@@ -55,6 +55,7 @@ ${ONEPKGSPEC}"
                     case "$DEP" in
                     libsystemd0) DEP="libelogind0" ;;
                     dbus-user-session) DEP="dbus-x11" ;;
+                    logind) DEP="libpam-elogind" ;;
                     esac
                 fi
 
