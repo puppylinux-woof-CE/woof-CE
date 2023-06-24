@@ -344,13 +344,15 @@ mk_iso() {
 	tmp_isoroot=$1 	# input
 	OUTPUT=$2 		# output
 	BOOT_CAT="-c boot/boot.catalog"
+	MKISOFS="mkisofs"
+	command -v mkisofs > /dev/null || MKISOFS="xorriso -as mkisofs"
 	if [ "$UEFI_ISO" ] ; then
-		mkisofs -iso-level 4 -D -R -o $OUTPUT -b isolinux.bin -no-emul-boot -boot-load-size 4 -boot-info-table ${BOOT_CAT} \
+		${MKISOFS} -iso-level 4 -D -R -o $OUTPUT -b isolinux.bin -no-emul-boot -boot-load-size 4 -boot-info-table ${BOOT_CAT} \
 			-eltorito-alt-boot -eltorito-platform efi -b boot/efi.img -no-emul-boot "$tmp_isoroot" || exit 100
 		[ $? -ne 0 ] && exit 1
 		UEFI_OPT=-u
 	else
-		mkisofs -iso-level 4 -D -R -o $OUTPUT -b isolinux.bin -no-emul-boot -boot-load-size 4 -boot-info-table ${BOOT_CAT} "$tmp_isoroot" || exit 101
+		${MKISOFS} -iso-level 4 -D -R -o $OUTPUT -b isolinux.bin -no-emul-boot -boot-load-size 4 -boot-info-table ${BOOT_CAT} "$tmp_isoroot" || exit 101
 		[ $? -ne 0 ] && exit 1
 		UEFI_OPT=''
 	fi
