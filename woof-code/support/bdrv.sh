@@ -173,7 +173,7 @@ while read PROG; do
 	PROG=\${PROG##*/}
 	echo "Auto-configuring \$PROG to run as spot ..."
 	PROGS="\$PROGS \$PROG=true"
-done < <(grep -hE '^/usr/bin/(firefox|firefox-[a-z]+|google-chrome-[a-z]+|chromium|chromium-browser|vivaldi-[a-z]+|brave-browser|microsoft-edge-[a-z]+|transmission-gtk|transmission-cli|transmission-daemon|seamonkey|sylpheed|claws-mail|thunderbird|vlc|steam|code|librewolf|hexchat)$' /var/lib/dpkg/info/*.list)
+done < <(grep -hE '^/usr/bin/(firefox|firefox-[a-z]+|google-chrome-[a-z]+|chromium|chromium-browser|vivaldi-[a-z]+|brave-browser|microsoft-edge-[a-z]+|transmission-gtk|transmission-cli|transmission-daemon|seamonkey|sylpheed|claws-mail|thunderbird|vlc|steam|code|librewolf|hexchat|zoom)$' /var/lib/dpkg/info/*.list)
 
 [ -n "\$PROGS" ] && setup-spot \$PROGS
 
