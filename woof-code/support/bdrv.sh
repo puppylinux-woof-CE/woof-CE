@@ -173,7 +173,7 @@ while read PROG; do
 	PROG=\${PROG##*/}
 	echo "Auto-configuring \$PROG to run as spot ..."
 	PROGS="\$PROGS \$PROG=true"
-done < <(grep -hE '^/usr/bin/(firefox|firefox-[a-z]+|google-chrome-[a-z]+|chromium|chromium-browser|vivaldi-[a-z]+|brave-browser|microsoft-edge-[a-z]+|transmission-gtk|transmission-cli|transmission-daemon|seamonkey|sylpheed|claws-mail|thunderbird|vlc|steam|code|librewolf|hexchat)$' /var/lib/dpkg/info/*.list)
+done < <(grep -hE '^/usr/bin/(firefox|firefox-[a-z]+|google-chrome-[a-z]+|chromium|chromium-browser|vivaldi-[a-z]+|brave-browser|microsoft-edge-[a-z]+|transmission-gtk|transmission-cli|transmission-daemon|seamonkey|sylpheed|claws-mail|thunderbird|vlc|steam|code|librewolf|hexchat|zoom)$' /var/lib/dpkg/info/*.list)
 
 [ -n "\$PROGS" ] && setup-spot \$PROGS
 
@@ -198,7 +198,7 @@ chroot bdrv apt-mark hold `chroot bdrv dpkg-query -f '${binary:Package}\n' -W | 
 # remove unneeded files
 chroot bdrv apt-get clean
 rm -f bdrv/var/lib/apt/lists/* 2>/dev/null || :
-rm -rf bdrv/home bdrv/root bdrv/dev bdrv/run bdrv/var/log bdrv/var/cache/man bdrv/var/cache/fontconfig bdrv/var/cache/ldconfig bdrv/etc/ssl bdrv/lib/udev bdrv/lib/modprobe.d bdrv/lib/firmware bdrv/usr/share/mime bdrv/etc/ld.so.cache bdrv/usr/bin/systemctl bdrv/usr/bin/systemd-analyze bdrv/usr/bin/systemctl bdrv/usr/lib/systemd/systemd-networkd bdrv/usr/lib/systemd/systemd bdrv/usr/lib/systemd/systemd-journald bdrv/usr/share/fonts bdrv/etc/fonts bdrv/etc/init.d bdrv/etc/rc*.d bdrv/etc/rc.* bdrv/usr/lib/*/security/pam_elogind.so
+rm -rf bdrv/home bdrv/root bdrv/dev bdrv/run bdrv/var/log bdrv/var/cache/man bdrv/var/cache/fontconfig bdrv/var/cache/ldconfig bdrv/etc/ssl bdrv/lib/udev bdrv/lib/modprobe.d bdrv/lib/firmware bdrv/usr/share/mime bdrv/etc/ld.so.cache bdrv/usr/bin/systemctl bdrv/usr/bin/systemd-analyze bdrv/usr/bin/systemctl bdrv/usr/lib/systemd/systemd-networkd bdrv/usr/lib/systemd/systemd bdrv/usr/lib/systemd/systemd-journald bdrv/usr/share/fonts bdrv/etc/fonts bdrv/etc/init.d bdrv/etc/rc*.d bdrv/etc/rc.* bdrv/usr/lib/*/security/pam_elogind.so bdrv/usr/share/dbus-1/system-services/org.freedesktop.login1.service
 rm -rf `find bdrv -name __pycache__`
 for ICONDIR in bdrv/usr/share/icons/*; do
 	[ "$ICONDIR" != "bdrv/usr/share/icons/hicolor" ] || continue
