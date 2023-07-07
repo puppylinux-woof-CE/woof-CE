@@ -1,0 +1,1 @@
+echo labwc > etc/windowmanager
