@@ -1,1 +1,1 @@
-echo jwm > etc/windowmanager
+
