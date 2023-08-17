@@ -29,15 +29,53 @@ EOF
 	mv -f /etc/rc.d/BOOTCONFIG.tmp /etc/rc.d/BOOTCONFIG
 }
 
+QUIET=0
+CLI=0
+while [ -n "$1" ]
+do
+	case "$1" in
+		-q|--quiet) QUIET=1 ;;
+		-c|--cli) CLI=1 ;;
+		-qc|-cq)
+			CLI=1
+			QUIET=1
+			;;
+		-*.sfs) break ;;
+		-*)
+			echo "Usage: $0 [-q|--quiet] [-c|--cli] [+sfs|-sfs|sfs]..." 1>&2
+			exit 1
+			;;
+		*) break ;;
+	esac
+
+	shift
+done
+
 if [ $# -ne 0 ]; then
 	for SFS in "$@"; do
+		ACTION=toggle
+		case "$SFS" in
+		+*)
+			SFS=${SFS:1}
+			ACTION=load
+			;;
+		-*)
+			SFS=${SFS:1}
+			ACTION=unload
+			;;
+		esac
+
 		ASKMOUNT=1
 		# assumption: if we have a loop device associated with this SFS, it's mounted or loaded
 		LOOPDEV="`losetup -n -j "$SFS" | head -n 1 | cut -f 1 -d :`"
 
 		# TODO: add PUPMODE 12 support, without leaving broken symlinks behind after reboot
-		if [ $PUPMODE -eq 5 -o $PUPMODE -eq 13 ] && [ -z "$LOOPDEV" ]; then
-			yad --title sfs_load --window-icon=dialog-question --image=dialog-question --text "$(gettext "Do you want to load") ${SFS}?" --form --button="gtk-yes:0" --button="gtk-no:1"
+		if [ $ACTION != unload ] && [ $PUPMODE -eq 5 -o $PUPMODE -eq 13 ] && [ -z "$LOOPDEV" ]; then
+			if [ $QUIET -eq 1 ]; then
+				:
+			else
+				yad --title sfs_load --window-icon=dialog-question --image=dialog-question --text "$(gettext "Do you want to load") ${SFS}?" --form --button="gtk-yes:0" --button="gtk-no:1"
+			fi
 			if [ $? -eq 0 ]; then
 				FOUND=0
 				for i in `seq 3 99`
@@ -57,21 +95,31 @@ if [ $# -ne 0 ]; then
 				fi
 				ASKMOUNT=0
 
-				yaf-splash -bg orange -placement top -close never -text "$(gettext Loading) ${SFS##*/}" &
-				PID=$!
+				if [ $CLI -eq 0 ]; then
+					yaf-splash -bg orange -placement top -close never -text "$(gettext Loading) ${SFS##*/}" &
+					PID=$!
+				fi
 
 				cp -asn "$MNT"/* /
 				/etc/rc.d/rc.update w
 				pidof -s jwm > /dev/null && jwm -reload
-				kill $PID
+				[ $CLI -eq 0 ] && kill $PID
 			fi
-		elif [ -n "$LOOPDEV" ]; then
-			yad --title sfs_load --window-icon=dialog-question --image=dialog-question --text "$(gettext "Do you want to unload") ${SFS}?" --form --button="gtk-yes:0" --button="gtk-no:1"
+		elif [ $ACTION != load -a -n "$LOOPDEV" ]; then
+			if [ $QUIET -eq 1 ]; then
+				:
+			else
+				yad --title sfs_load --window-icon=dialog-question --image=dialog-question --text "$(gettext "Do you want to unload") ${SFS}?" --form --button="gtk-yes:0" --button="gtk-no:1"
+			fi
 			if [ $? -eq 0 ]; then
 				MNT="`grep "^$LOOPDEV " /proc/mounts 2>/dev/null | head -n 1 | cut -f 2 -d ' '`"
-				if [ -n "$MNT" ]; then
-					yaf-splash -bg orange -placement top -close never -text "$(gettext Unloading) ${SFS##*/}" &
-					PID=$!
+				case "$MNT" in
+				/initrd/pup_ro1|/initrd/pup_ro2) ;;
+				/initrd/pup_ro[1-9]*)
+					if [ $CLI -eq 0 ]; then
+						yaf-splash -bg orange -placement top -close never -text "$(gettext Unloading) ${SFS##*/}" &
+						PID=$!
+					fi
 					while read ABSPATH; do
 						rm -f "${ABSPATH#/initrd/pup_rw}"
 					done < <(find /initrd/pup_rw/ -lname "$MNT/*")
@@ -79,14 +127,17 @@ if [ $# -ne 0 ]; then
 					rmdir "$MNT"
 					/etc/rc.d/rc.update w
 					pidof -s jwm > /dev/null && jwm -reload
-					kill $PID
-				else
-					losetup -d "$LOOPDEV"
-				fi
+					[ $CLI -eq 0 ] && kill $PID
+					;;
+				"")
+					losetup -d "$LOOPDEV" ;;
+				esac
 			fi
 
 			ASKMOUNT=0
 		fi
+
+		[ $QUIET -eq 1 ] && continue
 
 		BASE="${SFS##*/}"
 
@@ -134,6 +185,8 @@ if [ $# -ne 0 ]; then
 
 	exit 0
 fi
+
+[ $QUIET -eq 1 ] && exit 0
 
 export -f queue unqueue
 
