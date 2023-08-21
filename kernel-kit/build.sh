@@ -600,10 +600,9 @@ if [ "$AUFS" != "no" ] ; then
 		patch -N -p1 < ${patchfile} &>> ${BUILD_LOG}
 		if [ $? -ne 0 ] ; then
 			log_msg "WARNING: failed to add some Aufs patches to the kernel sources."
-# temporary ignore patch failures 230816 due aufs Issue 30 - revert when fixed
-#			[ -n "$GITHUB_ACTIONS" ] && exit 1
-#			log_msg "Check it manually and either CRTL+C to bail or hit enter to go on"
-#			read goon
+			[ -n "$GITHUB_ACTIONS" ] && exit 1
+			log_msg "Check it manually and either CRTL+C to bail or hit enter to go on"
+			read goon
 		fi
 	done
 	cp -r ../aufs_sources/{fs,Documentation} .
