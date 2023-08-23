@@ -31,6 +31,8 @@ EOF
 
 QUIET=0
 CLI=0
+START=0
+STOP=0
 while [ -n "$1" ]
 do
 	case "$1" in
@@ -40,9 +42,11 @@ do
 			CLI=1
 			QUIET=1
 			;;
+		start) START=1 ;;
+		stop) STOP=1 ;;
 		-*.sfs) break ;;
 		-*)
-			echo "Usage: $0 [-q|--quiet] [-c|--cli] [+sfs|-sfs|sfs]..." 1>&2
+			echo "Usage: $0 [-q|--quiet] [-c|--cli] [start|stop] [+sfs|-sfs|sfs]..." 1>&2
 			exit 1
 			;;
 		*) break ;;
@@ -50,6 +54,40 @@ do
 
 	shift
 done
+
+# loading of SFSs in EXTRASFSLIST is handled by initrd, see initrd-progs/0initrd/init
+if [ $START -eq 1 -o $STOP -eq 1 ]; then
+	[ $PUPMODE -eq 5 ] && exit 0
+
+	SYNC=0
+	# the directory may exist if a user moves away from PUMODE 12, so we still need to do this under 13
+	for LIST in `ls /var/lib/sfs_load.overlay/* 2>/dev/null`; do
+		MNT="/initrd/${LIST#/var/lib/sfs_load.overlay/}"
+
+		OK=1
+		# delete all symlinks to files under the SFS mount point
+		while read RELPATH; do
+			ABSPATH="/${RELPATH}"
+			[ -L "$ABSPATH" ] || continue
+			DST=`readlink "$ABSPATH"`
+			case "$DST" in
+			${MNT}/*)
+				rm -f "$ABSPATH" || OK=0
+				;;
+			esac
+		done < "$LIST"
+
+		# delete the list only if all symlinks are deleted, to allow retry
+		if [ $OK -eq 1 ]; then
+			rm -f "$LIST"
+			SYNC=1
+		fi
+	done
+
+	[ $SYNC -eq 1 ] && sync
+
+	exit 0
+fi
 
 if [ -z "$PUP_HOME" ]; then
 	SFS_DIRS="/initrd/mnt/pdrv"
@@ -86,8 +124,7 @@ if [ $# -ne 0 ]; then
 		# assumption: if we have a loop device associated with this SFS, it's mounted or loaded
 		LOOPDEV="`losetup -n -j "$SFS" | head -n 1 | cut -f 1 -d :`"
 
-		# TODO: add PUPMODE 12 support, without leaving broken symlinks behind after reboot
-		if [ $ACTION != unload ] && [ $PUPMODE -eq 5 -o $PUPMODE -eq 13 ] && [ -z "$LOOPDEV" ]; then
+		if [ $ACTION != unload ] && [ -z "$LOOPDEV" ]; then
 			if [ $QUIET -eq 1 ]; then
 				:
 			else
@@ -117,6 +154,14 @@ if [ $# -ne 0 ]; then
 					PID=$!
 				fi
 
+				# create a list of files and flush it to disk before we create the symlinks, so we can delete them after power loss
+				if [ $PUPMODE -eq 12 ]; then
+					mkdir -p /var/lib/sfs_load.overlay
+					LIST="/var/lib/sfs_load.overlay/${MNT#/initrd/}"
+					find "$MNT" | cut -f 4- -d / > "$LIST"
+					sync "$LIST"
+				fi
+
 				cp -asn "$MNT"/* /
 				/etc/rc.d/rc.update w
 				pidof -s jwm > /dev/null && jwm -reload
@@ -137,13 +182,27 @@ if [ $# -ne 0 ]; then
 						yaf-splash -bg orange -placement top -close never -text "$(gettext Unloading) ${SFS##*/}" &
 						PID=$!
 					fi
-					while read ABSPATH; do
-						rm -f "${ABSPATH#/initrd/pup_rw}"
-					done < <(find /initrd/pup_rw/ -lname "$MNT/*")
+					LIST="/var/lib/sfs_load.overlay/${MNT#/initrd/}"
+					if [ $PUPMODE -eq 12 -a -f "$LIST" ]; then
+						while read RELPATH; do
+							ABSPATH="/${RELPATH}"
+							[ -L "$ABSPATH" ] || continue
+							DST=`readlink "$ABSPATH"`
+							case "$DST" in
+							${MNT}/*) rm -f "$ABSPATH" ;;
+							esac
+						done < "$LIST"
+					else
+						while read ABSPATH; do
+							rm -f "${ABSPATH#/initrd/pup_rw}"
+						done < <(find /initrd/pup_rw/ -lname "$MNT/*")
+					fi
 					umount -l "$LOOPDEV"
 					rmdir "$MNT"
+					rm -f "$LIST" # always remove the file list, to allow change from PUPMODE 12 to something else
 					/etc/rc.d/rc.update w
 					pidof -s jwm > /dev/null && jwm -reload
+					[ $PUPMODE -eq 12 ] && sync
 					[ $CLI -eq 0 ] && kill $PID
 				fi
 				;;
