@@ -29,21 +29,128 @@ EOF
 	mv -f /etc/rc.d/BOOTCONFIG.tmp /etc/rc.d/BOOTCONFIG
 }
 
+QUIET=0
+CLI=0
+START=0
+STOP=0
+while [ -n "$1" ]
+do
+	case "$1" in
+		-q|--quiet) QUIET=1 ;;
+		-c|--cli) CLI=1 ;;
+		-qc|-cq)
+			CLI=1
+			QUIET=1
+			;;
+		start) START=1 ;;
+		stop) STOP=1 ;;
+		-*.sfs) break ;;
+		-*)
+			echo "Usage: $0 [-q|--quiet] [-c|--cli] [start|stop] [+sfs|-sfs|sfs]..." 1>&2
+			exit 1
+			;;
+		*) break ;;
+	esac
+
+	shift
+done
+
+# loading of SFSs in EXTRASFSLIST is handled by initrd, see initrd-progs/0initrd/init
+if [ $START -eq 1 -o $STOP -eq 1 ]; then
+	[ $PUPMODE -eq 5 ] && exit 0
+
+	DIRTY=0
+	CHANGED=0
+	# the directory may exist if a user moves away from PUMODE 12, so we still need to do this under 13
+	for LIST in `ls /var/lib/sfs_load.overlay/* 2>/dev/null`; do
+		MNT="/initrd/${LIST#/var/lib/sfs_load.overlay/}"
+
+		OK=1
+		# delete all symlinks to files under the SFS mount point
+		while read RELPATH; do
+			ABSPATH="/${RELPATH}"
+			if [ -L "$ABSPATH" ]; then
+				DST=`readlink "$ABSPATH"`
+				case "$DST" in
+				${MNT}/*)
+					rm "$ABSPATH" && CHANGED=1 || OK=0
+					;;
+				esac
+			elif [ -d "$ABSPATH" ]; then
+				rmdir "$ABSPATH" 2>/dev/null
+			fi
+		done < "$LIST"
+
+		if [ $OK -eq 1 -a -d "$MNT" ]; then
+			umount -l "$MNT" 2>/dev/null
+			rmdir "$MNT" 2>/dev/null
+		fi
+
+		# delete the list only if all symlinks are deleted, to allow retry
+		[ $OK -eq 1 ] && DIRTY=1
+	done
+
+	# update cache and delete the list if all symlinks are deleted
+	if [ $DIRTY -eq 1 ]; then
+		/etc/rc.d/rc.update w
+		rm -f /var/lib/sfs_load.overlay/*
+		sync
+	# otherwise, if we made any change, update cache but keep the lists to allow retry
+	elif [ $CHANGED -eq 1 ]; then
+		/etc/rc.d/rc.update w
+	fi
+
+	exit 0
+fi
+
+if [ -z "$PUP_HOME" ]; then
+	SFS_DIRS="/initrd/mnt/pdrv"
+else
+	SFS_DIRS="/initrd${PUP_HOME}"
+	[ -n "$PSUBDIR" ] && SFS_DIRS="/initrd${PUP_HOME}${PSUBDIR} $SFS_DIRS"
+fi
+
 if [ $# -ne 0 ]; then
 	for SFS in "$@"; do
+		ACTION=toggle
+		case "$SFS" in
+		+*)
+			SFS=${SFS:1}
+			ACTION=load
+			;;
+		-*)
+			SFS=${SFS:1}
+			ACTION=unload
+			;;
+		esac
+
+		case "$SFS" in
+		*/*.sfs) ;;
+		*.sfs)
+			for SFS_DIR in $SFS_DIRS; do
+				[ -s "${SFS_DIR}/${SFS}" ] || continue
+				SFS="${SFS_DIR}/${SFS}"
+				break
+			done
+			;;
+		esac
+
 		ASKMOUNT=1
 		# assumption: if we have a loop device associated with this SFS, it's mounted or loaded
 		LOOPDEV="`losetup -n -j "$SFS" | head -n 1 | cut -f 1 -d :`"
 
-		# TODO: add PUPMODE 12 support, without leaving broken symlinks behind after reboot
-		if [ $PUPMODE -eq 5 -o $PUPMODE -eq 13 ] && [ -z "$LOOPDEV" ]; then
-			yad --title sfs_load --window-icon=dialog-question --image=dialog-question --text "$(gettext "Do you want to load") ${SFS}?" --form --button="gtk-yes:0" --button="gtk-no:1"
+		if [ $ACTION != unload ] && [ -z "$LOOPDEV" ]; then
+			if [ $QUIET -eq 1 ]; then
+				:
+			else
+				yad --title sfs_load --window-icon=dialog-question --image=dialog-question --text "$(gettext "Do you want to load") ${SFS}?" --form --button="gtk-yes:0" --button="gtk-no:1"
+			fi
 			if [ $? -eq 0 ]; then
 				FOUND=0
 				for i in `seq 3 99`
 				do
 					MNT="/initrd/pup_ro$i"
-					mountpoint -q "$MNT" && continue
+					[ -e "$MNT" ] && continue
 					FOUND=1
 					break
 				done
@@ -57,36 +164,72 @@ if [ $# -ne 0 ]; then
 				fi
 				ASKMOUNT=0
 
-				yaf-splash -bg orange -placement top -close never -text "$(gettext Loading) ${SFS##*/}" &
-				PID=$!
+				if [ $CLI -eq 0 ]; then
+					yaf-splash -bg orange -placement top -close never -text "$(gettext Loading) ${SFS##*/}" &
+					PID=$!
+				fi
+
+				# create a list of files and flush it to disk before we create the symlinks, so we can delete them after power loss
+				if [ $PUPMODE -eq 12 ]; then
+					mkdir -p /var/lib/sfs_load.overlay
+					LIST="/var/lib/sfs_load.overlay/${MNT#/initrd/}"
+					find "$MNT" -mindepth 1 | cut -f 4- -d / | sort -r > "$LIST"
+					sync "$LIST"
+				fi
 
 				cp -asn "$MNT"/* /
 				/etc/rc.d/rc.update w
 				pidof -s jwm > /dev/null && jwm -reload
-				kill $PID
+				[ $CLI -eq 0 ] && kill $PID
 			fi
-		elif [ -n "$LOOPDEV" ]; then
-			yad --title sfs_load --window-icon=dialog-question --image=dialog-question --text "$(gettext "Do you want to unload") ${SFS}?" --form --button="gtk-yes:0" --button="gtk-no:1"
-			if [ $? -eq 0 ]; then
-				MNT="`grep "^$LOOPDEV " /proc/mounts 2>/dev/null | head -n 1 | cut -f 2 -d ' '`"
-				if [ -n "$MNT" ]; then
-					yaf-splash -bg orange -placement top -close never -text "$(gettext Unloading) ${SFS##*/}" &
-					PID=$!
-					while read ABSPATH; do
-						rm -f "${ABSPATH#/initrd/pup_rw}"
-					done < <(find /initrd/pup_rw/ -lname "$MNT/*")
-					umount -l "$LOOPDEV"
+		elif [ $ACTION != load -a -n "$LOOPDEV" ]; then
+			MNT="`grep "^$LOOPDEV " /proc/mounts 2>/dev/null | head -n 1 | cut -f 2 -d ' '`"
+			case "$MNT" in
+			/initrd/pup_ro1|/initrd/pup_ro2) ;;
+			/initrd/pup_ro[1-9]*)
+				if [ $QUIET -eq 1 ]; then
+					:
+				else
+					yad --title sfs_load --window-icon=dialog-question --image=dialog-question --text "$(gettext "Do you want to unload") ${SFS}?" --form --button="gtk-yes:0" --button="gtk-no:1"
+				fi
+				if [ $? -eq 0 ]; then
+					if [ $CLI -eq 0 ]; then
+						yaf-splash -bg orange -placement top -close never -text "$(gettext Unloading) ${SFS##*/}" &
+						PID=$!
+					fi
+					LIST="/var/lib/sfs_load.overlay/${MNT#/initrd/}"
+					if [ $PUPMODE -eq 12 -a -f "$LIST" ]; then
+						while read RELPATH; do
+							ABSPATH="/${RELPATH}"
+							if [ -L "$ABSPATH" ]; then
+								DST=`readlink "$ABSPATH"`
+								case "$DST" in
+								${MNT}/*) rm -f "$ABSPATH" ;;
+								esac
+							elif [ -d "$ABSPATH" ]; then
+								rmdir "$ABSPATH" 2>/dev/null
+							fi
+						done < "$LIST"
+					else
+						while read ABSPATH; do
+							rm -f "${ABSPATH#/initrd/pup_rw}"
+						done < <(find /initrd/pup_rw/ -lname "$MNT/*")
+					fi
+					umount -l "$MNT"
 					rmdir "$MNT"
+					rm -f "$LIST" # always remove the file list, to allow change from PUPMODE 12 to something else
 					/etc/rc.d/rc.update w
 					pidof -s jwm > /dev/null && jwm -reload
-					kill $PID
-				else
-					losetup -d "$LOOPDEV"
+					[ $PUPMODE -eq 12 ] && sync
+					[ $CLI -eq 0 ] && kill $PID
 				fi
-			fi
+				;;
+			esac
 
 			ASKMOUNT=0
 		fi
+
+		[ $QUIET -eq 1 ] && continue
 
 		BASE="${SFS##*/}"
 
@@ -135,14 +278,9 @@ if [ $# -ne 0 ]; then
 	exit 0
 fi
 
-export -f queue unqueue
+[ $QUIET -eq 1 -o $CLI -eq 1 ] && exit 0
 
-if [ -z "$PUP_HOME" ]; then
-	SFS_DIRS="/initrd/mnt/pdrv"
-else
-	SFS_DIRS="/initrd${PUP_HOME}"
-	[ -n "$PSUBDIR" ] && SFS_DIRS="$SFS_DIRS /initrd${PUP_HOME}${PSUBDIR}"
-fi
+export -f queue unqueue
 
 BUTTONS=""
 KBUILDSFS="kbuild-`uname -r`.sfs"
