@@ -16,6 +16,10 @@
 
 #ifdef HAVE_LANDLOCK
 
+#	ifndef LANDLOCK_ACCESS_FS_TRUNCATE
+#		define LANDLOCK_ACCESS_FS_TRUNCATE 0
+#	endif
+
 #	ifndef LANDLOCK_ACCESS_FS_REFER
 #		define LANDLOCK_ACCESS_FS_REFER 0
 #	endif
@@ -88,7 +92,8 @@ int main(int argc, char *argv[])
 			LANDLOCK_ACCESS_FS_MAKE_FIFO |
 			LANDLOCK_ACCESS_FS_MAKE_BLOCK |
 			LANDLOCK_ACCESS_FS_MAKE_SYM |
-			LANDLOCK_ACCESS_FS_REFER
+			LANDLOCK_ACCESS_FS_REFER |
+			LANDLOCK_ACCESS_FS_TRUNCATE
 	};
 	struct landlock_path_beneath_attr ro_attr = {
 		.allowed_access =
@@ -111,10 +116,12 @@ int main(int argc, char *argv[])
 			LANDLOCK_ACCESS_FS_MAKE_FIFO |
 			LANDLOCK_ACCESS_FS_MAKE_BLOCK |
 			LANDLOCK_ACCESS_FS_MAKE_SYM |
-			LANDLOCK_ACCESS_FS_REFER
+			LANDLOCK_ACCESS_FS_REFER |
+			LANDLOCK_ACCESS_FS_TRUNCATE
 	};
 	DIR *dir = NULL;
 	struct dirent *ent;
+	long abi;
 	int i, root_fd = -1, ruleset_fd = -1;
 #endif
 	struct passwd *spot;
@@ -124,8 +131,17 @@ int main(int argc, char *argv[])
 	if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) < 0) goto exec;
 
 #ifdef HAVE_LANDLOCK
+	abi = landlock_create_ruleset(NULL, 0, LANDLOCK_CREATE_RULESET_VERSION);
+
+#	if LANDLOCK_ACCESS_FS_TRUNCATE != 0
+	if (abi < 3) {
+		ruleset_attr.handled_access_fs &= ~LANDLOCK_ACCESS_FS_TRUNCATE;
+		rw_attr.allowed_access &= ~LANDLOCK_ACCESS_FS_TRUNCATE;
+	}
+#	endif
+
 #	if LANDLOCK_ACCESS_FS_REFER != 0
-	if (landlock_create_ruleset(NULL, 0, LANDLOCK_CREATE_RULESET_VERSION) < 2) {
+	if (abi < 2) {
 		ruleset_attr.handled_access_fs &= ~LANDLOCK_ACCESS_FS_REFER;
 		rw_attr.allowed_access &= ~LANDLOCK_ACCESS_FS_REFER;
 	}
