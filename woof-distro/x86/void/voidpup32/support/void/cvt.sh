@@ -37,6 +37,10 @@ BEGIN {
 	pkgver_key="pkgver"
 	sourcerev_key="source-revisions"
 	rundep_key="run_depends"
+	#inkscape has this, causes lib to be in deps list...
+	shlibprov_key="shlib-provides"
+	#previously these shared libs were getting included in deps list...
+	shlibreq_key="shlib-requires"
 	desc_key="short_desc"
 	
 	int_key="/plist/dict/dict/integer"
@@ -63,6 +67,12 @@ $2 ~ rundep_key {
 	nextfield="rundep"
 	pkgdep=""
 }
+$2 ~ shlibprov_key {
+	nextfield="shlibsprov"
+}
+$2 ~ shlibreq_key {
+	nextfield="shlibsreq"
+}
 $2 ~ desc_key {
 	nextfield="desc"
 }
@@ -86,7 +96,14 @@ $1 ~ string_key {
 	} else if (nextfield == "pkgver") {
 		pkgver=$2
 		pkgvver=$2
+		#ex: pkgver=SDL_ttf-2.0.11_7 then pkgvver=2.0.11_7
 		gsub("^" pkgname "-","",pkgvver)
+		#ex: pkgvver=2.0.11_7 then pkgveronly=2.0.11
+		pkgveronly=pkgvver
+		gsub("_[0-9]*$","",pkgveronly)
+		#ex: pkgvver=2.0.11_7 then pkgrelease=7
+		pkgrelease=pkgvver
+		gsub(".*_","",pkgrelease)
 		nextfield=""
 	} else if (nextfield == "desc") {
 		pkgdesc=$2
@@ -103,12 +120,12 @@ $1 ~ arraystr_key {
 }
 
 # output final result
-#acl-2.2.52|acl|2.2.52|1|BuildingBlock|430K|slackware/a|acl-2.2.52-i486-1.txz|+attr|tools for using POSIX Access Control Lists|slackware|current||
+#acl-2.2.52|acl|2.2.52|1|BuildingBlock|430K|slackware/a|acl-2.2.52-i486-1.txz|+attr|tools for using POSIX Access Control Lists|void|current||
 {
 	if (endpkg) {
 		if (pkgdep) gsub(/^,/,"",pkgdep)
 		pkgfn = pkgver "." arch ".xbps"
-		print pkgver "|" pkgname "|" pkgvver "|1|Uncategorized|" pkgsize "|current|" pkgfn "|" pkgdep "|" pkgdesc "||||" 
+		print pkgver "|" pkgname "|" pkgveronly "|" pkgrelease "|Uncategorized|" pkgsize "|current|" pkgfn "|" pkgdep "|" pkgdesc "|void|current||" 
 		endpkg=0
 	}
 }
