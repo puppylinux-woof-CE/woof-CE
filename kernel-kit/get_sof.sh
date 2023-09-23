@@ -1,6 +1,6 @@
 #!/bin/bash -xe
 
-read TAG URL < <(curl -H "Accept: application/vnd.github+json" https://api.github.com/repos/thesofproject/sof-bin/releases | jq -r '.[0].tag_name + " " + .[0].assets[0].browser_download_url')
+read TAG URL < <(curl -H "Accept: application/vnd.github+json" https://api.github.com/repos/thesofproject/sof-bin/releases | jq -r '[.[] | select(.prerelease == false and .draft == false)] | .[0].tag_name + " " + .[0].assets[0].browser_download_url')
 test -n "$TAG"
 test "$TAG" != null
 test -n "$URL"
