@@ -12,9 +12,9 @@ rm -rf "$DIR"
 tar -xf "$BASE"
 cd "$DIR"
 mkdir -p "$1/lib/firmware/intel"
-cp -r sof-$TAG "$1/lib/firmware/intel/sof-$TAG"
-ln -s sof-$TAG "$1/lib/firmware/intel/sof"
-cp -r sof-tplg-$TAG "$1/lib/firmware/intel/sof-tplg-$TAG"
-ln -s sof-tplg-$TAG "$1/lib/firmware/intel/sof-tplg"
+for DIR in sof sof-tplg sof-ipc4 sof-ace-tplg; do
+	cp -r $DIR "$1/lib/firmware/intel/"
+	ln -s $DIR "$1/lib/firmware/intel/$DIR-$TAG"
+done
 mkdir -p "$1/usr/share/doc/sof-bin"
 cp -f LICENCE.* Notice.* "$1/usr/share/doc/sof-bin/"
