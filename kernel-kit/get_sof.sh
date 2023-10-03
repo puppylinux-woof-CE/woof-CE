@@ -10,6 +10,7 @@ BASE=${URL##*/}
 DIR=${BASE%*.tar.*}
 rm -rf "$DIR"
 tar -xf "$BASE"
+[ -n "$GITHUB_ACTIONS" ] && rm -f "$BASE"
 cd "$DIR"
 mkdir -p "$1/lib/firmware/intel"
 for DIR in sof sof-tplg sof-ipc4 sof-ace-tplg; do
@@ -18,3 +19,5 @@ for DIR in sof sof-tplg sof-ipc4 sof-ace-tplg; do
 done
 mkdir -p "$1/usr/share/doc/sof-bin"
 cp -f LICENCE.* Notice.* "$1/usr/share/doc/sof-bin/"
+cd ..
+[ -n "$GITHUB_ACTIONS" ] && rm -rf "$DIR"
