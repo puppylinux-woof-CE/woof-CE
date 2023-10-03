@@ -1001,9 +1001,12 @@ if [ "$CREATE_SOURCES_SFS" != "no" ]; then
 			ln -s ../../../usr/src/${KBUILD_DIR} ${KBUILD_DIR}/lib/modules/${kernel_version}${custom_suffix}/build
 			ln -s ../../../usr/src/${KBUILD_DIR} ${KBUILD_DIR}/lib/modules/${kernel_version}${custom_suffix}/source
 		fi
+		[ -n "$GITHUB_ACTIONS" ] && rm -rf ${KERNEL_SOURCES_DIR}
 		mksquashfs ${KBUILD_DIR} output/${KBUILD_DIR}.sfs $COMP
 		md5sum output/${KBUILD_DIR}.sfs > output/${KBUILD_DIR}.sfs.md5.txt
 		sha256sum output/${KBUILD_DIR}.sfs > output/${KBUILD_DIR}.sfs.sha256.txt
+	elif [ -n "$GITHUB_ACTIONS" ]; then
+		rm -rf ${KERNEL_SOURCES_DIR}
 	fi
 fi
 
