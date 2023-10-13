@@ -13,8 +13,8 @@ function git_aufs_util_branch() {
 
 # sets $aufsv
 function git_aufs_branch() {
- #  aufs_git_4="git://github.com/sfjro/aufs4-standalone.git"
- #  aufs_git_5="git://github.com/sfjro/aufs5-standalone.git"
+ #  aufs_git_4="https://github.com/sfjro/aufs4-standalone.git"
+ #  aufs_git_5="https://github.com/sfjro/aufs5-standalone.git"
  #---
  # $kernel_version       is set by build.sh
  # $kernel_major_version is set by build.sh
