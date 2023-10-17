@@ -279,7 +279,7 @@ I have named this the 'huge' type kernel, for want of a better term. The rationa
 
 "kernel-kit", part of woof-CE, has the ability to produce one of these 'huge' style kernel packages. Please read the relevant  README and the comments in "build.conf" inside the kernel-kit directory.
 
-If you have built a "huge" style kernel with kernel-kit then place the package in the "huge_kernel" directory at the root of your woof installation. If not, one will be downloaded for you after you invoke 3builddistro from the CLI. You do get a choice of which version you want. Be sure you choose the correct architecure. All 32 bit builds are suffixed with either  i486, i686 or x86. All 64 bit builds are suffixed x86_64. At the end you will end up with an ISO image, devx and checksums as usual.
+If you have built a "huge" style kernel with kernel-kit then place the package in the "huge_kernel" directory at the root of your woof installation. If not, one will be downloaded for you after you invoke 3builddistro from the CLI. You do get a choice of which version you want. Be sure you choose the correct architecture. All 32 bit builds are suffixed with either  i486, i686 or x86. All 64 bit builds are suffixed x86_64. At the end you will end up with an ISO image, devx and checksums as usual.
 
 Regards,
 Barry Kauler
