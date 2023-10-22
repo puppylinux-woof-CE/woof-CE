@@ -55,6 +55,10 @@ do
 	shift
 done
 
+# wait until other instances are done, otherwise we can't list files added by each SFS
+exec 9<>/run/sfs_load.lock
+flock 9
+
 # loading of SFSs in EXTRASFSLIST is handled by initrd, see initrd-progs/0initrd/init
 if [ $START -eq 1 -o $STOP -eq 1 ]; then
 	[ $PUPMODE -eq 5 ] && exit 0
@@ -169,13 +173,14 @@ if [ $# -ne 0 ]; then
 					PID=$!
 				fi
 
-				# create a list of files and flush it to disk before we create the symlinks, so we can delete them after power loss
-				if [ $PUPMODE -eq 12 ]; then
-					mkdir -p /var/lib/sfs_load.overlay
-					LIST="/var/lib/sfs_load.overlay/${MNT#/initrd/}"
-					find "$MNT" -mindepth 1 | cut -f 4- -d / | sort -r > "$LIST"
-					sync "$LIST"
-				fi
+				# create a list of new files and flush it to disk before we create the symlinks
+				mkdir -p /var/lib/sfs_load.overlay
+				LIST="/var/lib/sfs_load.overlay/${MNT#/initrd/}"
+				while read RELPATH; do
+					ABSPATH="/${RELPATH}"
+					[ -e "$ABSPATH" -o -L "$ABSPATH" ] || echo "$RELPATH" >> "$LIST"
+				done < <(find "$MNT" -mindepth 1 | cut -f 4- -d / | sort -r)
+				[ $PUPMODE -eq 12 ] && sync "$LIST"
 
 				cp -asn "$MNT"/* /
 				/etc/rc.d/rc.update w
@@ -198,26 +203,20 @@ if [ $# -ne 0 ]; then
 						PID=$!
 					fi
 					LIST="/var/lib/sfs_load.overlay/${MNT#/initrd/}"
-					if [ $PUPMODE -eq 12 -a -f "$LIST" ]; then
-						while read RELPATH; do
-							ABSPATH="/${RELPATH}"
-							if [ -L "$ABSPATH" ]; then
-								DST=`readlink "$ABSPATH"`
-								case "$DST" in
-								${MNT}/*) rm -f "$ABSPATH" ;;
-								esac
-							elif [ -d "$ABSPATH" ]; then
-								rmdir "$ABSPATH" 2>/dev/null
-							fi
-						done < "$LIST"
-					else
-						while read ABSPATH; do
-							rm -f "${ABSPATH#/initrd/pup_rw}"
-						done < <(find /initrd/pup_rw/ -lname "$MNT/*")
-					fi
+					while read RELPATH; do
+						ABSPATH="/${RELPATH}"
+						if [ -L "$ABSPATH" ]; then
+							DST=`readlink "$ABSPATH"`
+							case "$DST" in
+							${MNT}/*) rm -f "$ABSPATH" ;;
+							esac
+						elif [ -d "$ABSPATH" ]; then
+							rmdir "$ABSPATH" 2>/dev/null
+						fi
+					done < "$LIST"
 					umount -l "$MNT"
 					rmdir "$MNT"
-					rm -f "$LIST" # always remove the file list, to allow change from PUPMODE 12 to something else
+					rm -f "$LIST"
 					/etc/rc.d/rc.update w
 					pidof -s jwm > /dev/null && jwm -reload
 					[ $PUPMODE -eq 12 ] && sync
