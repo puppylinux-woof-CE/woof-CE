@@ -38,12 +38,6 @@ To modify woof-CE and push the changes to GitHub without having to set up a loca
 
 Not all of woof-CE can run [without root access](https://github.com/gitpod-io/gitpod/issues/39), but most of woof-CE works on Gitpod and it's possible to [boot Puppy inside QEMU and control it over VNC](https://www.gitpod.io/blog/native-ui-with-vnc/), all through the browser.
 
-To work on woof-CE in a fork, through Gitpod:
-
-1. Fork woof-CE.
-
-2. Browse to `https://gitpod.io/#https://github.com/your-github-username/woof-CE`.
-
 # Directory Structure
 
 Woof-CE has five directories:
