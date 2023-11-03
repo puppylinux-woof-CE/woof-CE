@@ -5,9 +5,7 @@ Currently supported:
 | Distro        | Version       | Architecture | Status   |
 | ------------- | ------------- | -------------| -------- |
 | Slackware     | 15.0          | x86_64, x86  | [![slackware-s15pup](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/slackware-s15pup.yml/badge.svg)](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/slackware-s15pup.yml) |
-| Slackware     | 14.2          | x86_64, x86  | [![slackware-14.2](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/slackware-14.2.yml/badge.svg)](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/slackware-14.2.yml) |
 | Ubuntu        | 22.04         | x86_64       | [![ubuntu-jammy64](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/ubuntu-jammy64.yml/badge.svg)](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/ubuntu-jammy64.yml) |
-| Ubuntu        | 20.04         | x86_64       | [![ubuntu-focal64](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/ubuntu-focal64.yml/badge.svg)](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/ubuntu-focal64.yml) |
 | Debian        | Unstable      | x86_64       | [![debian-sid64](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/debian-sid64.yml/badge.svg)](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/debian-sid64.yml) |
 | Debian        | Testing       | x86_64       | [![debian-trixie](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/debian-trixie.yml/badge.svg)](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/debian-trixie.yml) |
 | Debian        | 12            | x86_64, x86  | [![debian-bookworm](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/debian-bookworm.yml/badge.svg)](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/debian-bookworm.yml) |
@@ -15,6 +13,8 @@ Currently supported:
 | Devuan        | 5.0           | x86_64       | [![devuan-daedalus64](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/devuan-daedalus64.yml/badge.svg)](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/devuan-daedalus64.yml) |
 | Devuan        | 4.0           | x86_64       | [![devuan-chimaera64](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/devuan-chimaera64.yml/badge.svg)](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/devuan-chimaera64.yml) |
 | Void          | -             | x86_64, x86  | [![void-voidpup](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/void-voidpup.yml/badge.svg)](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/void-voidpup.yml) |
+
+(Other build configurations might work but they are not built periodically)
 
 # Building a Puppy: using GitHub Actions
 
