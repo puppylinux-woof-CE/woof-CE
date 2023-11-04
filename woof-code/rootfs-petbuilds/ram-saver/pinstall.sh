@@ -1,1 +1,1 @@
-patchelf --add-needed libramsaver.so.1 ./`chroot . ldd /bin/bash | grep libc.so.6 | cut -f 3 -d ' '` || exit 1
+echo "GLIBC_TUNABLES=glibc.malloc.mmap_threshold=65536:glibc.malloc.mxfast=32:glibc.malloc.top_pad=65536:glibc.malloc.trim_threshold=65536:glibc.malloc.arena_max=4" >> etc/environment

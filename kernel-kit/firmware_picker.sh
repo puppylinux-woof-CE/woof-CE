@@ -205,7 +205,12 @@ do
 done
 # extra firmware from other sources
 if [ -n "`find $module_dir -name 'snd-sof*.ko' | head -n 1`" ];then
-	./get_sof.sh `pwd`/zfirmware_workdir || exit 1
+	if command -v jq > /dev/null;then
+		./get_sof.sh `pwd`/zfirmware_workdir || exit 1
+	else
+		log_msg "jq is missing, skipping get_sof.sh"
+		[ -n "$GITHUB_ACTIONS" ] && exit 1
+	fi
 fi
 if [ "$EXTRA_FW" = 'yes' ];then
 	./firmware_extra.sh

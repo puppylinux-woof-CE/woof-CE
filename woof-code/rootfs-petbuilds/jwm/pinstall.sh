@@ -1,1 +1,0 @@
-echo jwm > etc/windowmanager

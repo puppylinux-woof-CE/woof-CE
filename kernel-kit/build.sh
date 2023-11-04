@@ -1001,9 +1001,12 @@ if [ "$CREATE_SOURCES_SFS" != "no" ]; then
 			ln -s ../../../usr/src/${KBUILD_DIR} ${KBUILD_DIR}/lib/modules/${kernel_version}${custom_suffix}/build
 			ln -s ../../../usr/src/${KBUILD_DIR} ${KBUILD_DIR}/lib/modules/${kernel_version}${custom_suffix}/source
 		fi
+		[ -n "$GITHUB_ACTIONS" ] && rm -rf ${KERNEL_SOURCES_DIR}
 		mksquashfs ${KBUILD_DIR} output/${KBUILD_DIR}.sfs $COMP
 		md5sum output/${KBUILD_DIR}.sfs > output/${KBUILD_DIR}.sfs.md5.txt
 		sha256sum output/${KBUILD_DIR}.sfs > output/${KBUILD_DIR}.sfs.sha256.txt
+	elif [ -n "$GITHUB_ACTIONS" ]; then
+		rm -rf ${KERNEL_SOURCES_DIR}
 	fi
 fi
 
@@ -1057,6 +1060,7 @@ fi
 
 mksquashfs output/${linux_kernel_dir} output/${KERNEL_MODULES_SFS_NAME} $COMP
 [ $? = 0 ] || exit 1
+[ -n "$GITHUB_ACTIONS" ] && rm -rf output/${linux_kernel_dir}
 
 cd output/
 if [ "$kit_kernel" = "yes" ]; then
@@ -1081,10 +1085,12 @@ else
 		tar -cjvf huge-${OUTPUT_VERSION}.tar.bz2 \
 		vmlinuz-${OUTPUT_VERSION} ${FDRV} \
 		${KERNEL_MODULES_SFS_NAME} || exit 1
+		[ -n "$GITHUB_ACTIONS" ] && rm -f vmlinuz-${OUTPUT_VERSION} ${FDRV} ${KERNEL_MODULES_SFS_NAME}
 	else
 		tar -cjvf huge-${OUTPUT_VERSION}.tar.bz2 \
 		vmlinuz-${OUTPUT_VERSION} \
 		${KERNEL_MODULES_SFS_NAME} || exit 1	
+		[ -n "$GITHUB_ACTIONS" ] && rm -f vmlinuz-${OUTPUT_VERSION} ${KERNEL_MODULES_SFS_NAME}
 	fi
 	echo "huge-${OUTPUT_VERSION}.tar.bz2 is in output"
 	md5sum huge-${OUTPUT_VERSION}.tar.bz2 > huge-${OUTPUT_VERSION}.tar.bz2.md5.txt
