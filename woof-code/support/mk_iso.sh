@@ -61,6 +61,12 @@ color_normal=cyan/black
 menu_color_highlight=yellow/red
 menu_color_normal=light-gray/black
 
+if [ -e /ucode.cpio ]; then
+  ucode_parm="/ucode.cpio"
+else
+  ucode_parm=
+fi
+
 EOF
 }
 
@@ -75,6 +81,27 @@ color_normal=cyan/black
 #menu_color_highlight=black/light-gray
 menu_color_highlight=yellow/red
 menu_color_normal=light-gray/black
+
+if [ -z "\$rootuuid" ]; then
+  if search --file --set=iso_part --no-floppy \$iso_path; then
+    probe --set=rootuuid --fs-uuid \$iso_part
+  fi
+fi
+if [ -z "\$rootuuid" ]; then
+  dev_parm=
+else
+  dev_parm="img_dev=\${rootuuid}"
+fi
+if [ -e /ucode.cpio ]; then
+  ucode_parm="/ucode.cpio"
+else
+  ucode_parm=
+fi
+if [ -e /local-initrd.gz ]; then
+  local_parm="/local-initrd.gz"
+else
+  local_parm=
+fi
 
 EOF
 }
@@ -104,21 +131,19 @@ build_grub2_cfg() {
 	outfile="$1" # /path/to/grub.cfg or /path/to/loopback.cfg
 	distrodesc="$2" # "Slacko Puppy $ver Fossa Puppy $ver etc 
 	bootopts="$3" # pfix=fsck pmedia=cd etc
-	micro="$4" # bool - add option to load ucode.cpio
 	loopback=''
-	echo $outfile | grep -q 'loopback' && loopback='find_iso=${iso_path}'
-	if [ "$micro" = 'true' ] ; then
-		INITRDG='if [ -e /ucode.cpio ]; then
-      initrd /ucode.cpio /initrd.gz
-    else
-      initrd /initrd.gz
-    fi'
+	echo $outfile | grep -q 'loopback' && loopback='${dev_parm} img_loop=${iso_path}'
+	if [ "$loopback" ]; then
+		INITRDMSG='echo "Loading ${ucode_parm} /initrd.gz ${local_parm}"'
+		INITRDG='initrd ${ucode_parm} /initrd.gz ${local_parm}'
 	else
-		INITRDG='initrd /initrd.gz'
+		INITRDMSG='echo "Loading ${ucode_parm} /initrd.gz"'
+		INITRDG='initrd ${ucode_parm} /initrd.gz'
 	fi
 	cat >> $outfile <<EOF # append
 menuentry "${distrodesc}" {
     linux /vmlinuz pmedia=cd $bootopts $loopback
+    $INITRDMSG
     $INITRDG
 }
 
@@ -444,8 +469,8 @@ for e in "$NAME" \
 			*"- RAM only"*)opt='pfix=ram,fsck' ;;
 			*"- Ram Disk"*)opt='pfix=rdsh' ;;
 		esac
-		[ "$gandl" = 'no' ] || build_grub2_cfg $BUILD/grub.cfg "$e" "$opt" true
-		[ "$gandl" = 'no' ] || build_grub2_cfg $BUILD/boot/grub/loopback.cfg "$e" "$opt" true
+		[ "$gandl" = 'no' ] || build_grub2_cfg $BUILD/grub.cfg "$e" "$opt"
+		[ "$gandl" = 'no' ] || build_grub2_cfg $BUILD/boot/grub/loopback.cfg "$e" "$opt"
 		build_menu_lst $BUILD/boot/grub/menu.lst "$e" "$opt" true
 		gandl=''
 done
