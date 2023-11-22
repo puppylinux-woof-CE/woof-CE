@@ -459,15 +459,15 @@ for e in "$NAME" \
 		"$NAME - RAM only - no pupsave" \
 		"$NAME - Ram Disk Shell" ; do
 		case "$e" in
-			"$NAME")opt='pfix=fsck' ;;
-			*"- Copy"*)opt='pfix=fsck,copy' ;;
-			*"- Don't copy"*)opt='pfix=fsck,nocopy' ;;
-			*"- Force xorgwizard"*)opt='pfix=xorgwizard,fsck'; gandl=no ;;
-			*"- No X"*)opt='pfix=nox,fsck' ;;
-			*"- No Kernel Mode"*)opt='nomodeset pfix=fsck'; gandl=no ;;
-			*"- Safe mode"*)opt='pfix=ram,nox,fsck' ;;
-			*"- RAM only"*)opt='pfix=ram,fsck' ;;
-			*"- Ram Disk"*)opt='pfix=rdsh' ;;
+			"$NAME")opt='pfix=fsck,fsckp' ;;
+			*"- Copy"*)opt='pfix=fsck,fsckp,copy' ;;
+			*"- Don't copy"*)opt='pfix=fsck,fsckp,nocopy' ;;
+			*"- Force xorgwizard"*)opt='pfix=fsck,fsckp,xorgwizard'; gandl=no ;;
+			*"- No X"*)opt='pfix=fsck,fsckp,nox' ;;
+			*"- No Kernel Mode"*)opt='nomodeset pfix=fsck,fsckp'; gandl=no ;;
+			*"- Safe mode"*)opt='pfix=fsck,fsckp,ram,nox' ;;
+			*"- RAM only"*)opt='pfix=fsck,fsckp,ram' ;;
+			*"- Ram Disk"*)opt='pfix=fsck,fsckp,rdsh' ;;
 		esac
 		[ "$gandl" = 'no' ] || build_grub2_cfg $BUILD/grub.cfg "$e" "$opt"
 		[ "$gandl" = 'no' ] || build_grub2_cfg $BUILD/boot/grub/loopback.cfg "$e" "$opt"
