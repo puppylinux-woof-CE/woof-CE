@@ -51,7 +51,7 @@ ${ONEPKGSPEC}"
         for DEP in $DEPS; do
             if [ $DEPTH -ne 0 ]; then
                 # hack: debdb2pupdb doesn't understand dependency on libsystemd0|liblogind0 and takes the first option
-                if [ "$DISTRO_BINARY_COMPAT" = "debian" -o "$DISTRO_BINARY_COMPAT" = "devuan" ]; then
+                if [ "$DISTRO_BINARY_COMPAT" = "debian" -a "$DISTRO_COMPAT_VERSION" = "bullseye" ] || [ "$DISTRO_BINARY_COMPAT" = "debian" -a "$DISTRO_COMPAT_VERSION" = "bookworm" ] || [ "$DISTRO_BINARY_COMPAT" = "devuan" ]; then
                     case "$DEP" in
                     libsystemd0) DEP="libelogind0" ;;
                     dbus-user-session) DEP="dbus-x11" ;;
