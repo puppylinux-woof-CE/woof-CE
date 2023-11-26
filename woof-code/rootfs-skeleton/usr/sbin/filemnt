@@ -77,6 +77,7 @@ imgFile="$1"
 [ ! -f "$imgFile" ] && echo "No regular file: $imgFile" && exit 1
 imgFileBASE=${imgFile##*/} ## imgFileBASE="`basename "$imgFile"`" #BK
 [ "$(dirname "$imgFile")" = "." ] && imgFile=$(pwd)/${imgFileBASE}
+imgDir="$(dirname $imgFile)"
 
 [ ! -e /media ] && mkdir /media
 
@@ -103,21 +104,42 @@ if [ "$MNTEDLOOP" = "" ];then #not mounted on $MOUNTPOINT
       2fs) Type='ext2' ;;
       3fs) Type='ext3' ;;
       4fs) Type='ext4' ;;
-      sfs|lzm|xzm|sb|squashfs) Type='squashfs' ;;
+      sfs|lzm|xzm|sb|squashfs|filesystem) Type='squashfs' ;;
       iso) Type='iso'  ;;
       wim) Type='wim'  ;;
+      swm) Type='swm'  ;;
+      img) Type='img' ;;
+      vfd) Type='vfd' ;;
+      vhd) Type='vhd' ;;
+      vdi) Type='vdi' ;;
+      vmdk) Type='vmdk' ;;
+      hfv) Type='hfv' ;;
     esac
   fi
   if [ "$Type" = "" ] ; then
     echo "Unrecognized format"
     exit 1
   fi
-  if [ "$Type" = "wim" ] ; then
-    if ! which wimmountrw ; then
+
+  case $Type in
+    wim|swm)
+     if ! which wimmount ; then
       echo "You must install wimlib - https://wimlib.net/"
       exit 1
-    fi
-  fi
+     fi   
+    ;;
+    vhd|vdi|vmdk)
+      if ! which vdfuse ; then
+      echo "You must install vdfuse and virtualbox
+      https://pkgs.org/search/?q=vdfuse
+      https://forums.virtualbox.org/viewtopic.php?f=26&t=33355
+      https://virtualbox.org/
+      "
+      exit 1
+     fi    
+    ;;
+  esac
+  
   echo -e "\nType=${Type}\n"
 
   if [ "$Type" = "squashfs" ];then
@@ -195,14 +217,65 @@ if [ "$MNTEDLOOP" = "" ];then #not mounted on $MOUNTPOINT
       crypto_LUKS) # /sbin/mount.crypto_LUKS
          mount.crypto_LUKS file "$imgFile" "$MOUNTPOINT" ;;
       ntfs)
+
          losetup $DEVLOOP "$imgFile"
-         mount -t ntfs $DEVLOOP "$MOUNTPOINT"
+         
+         if [ $(grep "ntfs3" /proc/filesystems) !="" ]; then
+           NTFS_TYPE="ntfs3"
+	 else
+           NTFS_TYPE="ntfs"
+	 fi
+         mount -t $NTFS_TYPE $DEVLOOP "$MOUNTPOINT"
          ;;
-      wim)
-         wimmountrw "$imgFile" "$MOUNTPOINT" || \
-           wimmount "$imgFile" "$MOUNTPOINT"
+     wim) 
+      
+           WIM_LIST=$(list_wim "$imgFile" | awk -F '|' '{ print $1" \""$2"\"" }' | tr '\n' ' ')
+           
+           echo '#/bin/sh
+           Xdialog --stdout --title "Filemnt: WIM file detected" --menu "Select index to mount" 20 70 0 '$WIM_LIST'; exit $?' > /tmp/filemnt-wim-index-chooser 
+             
+           chmod +x /tmp/filemnt-wim-index-chooser
+           
+           SELECTED_INDEX="$(/tmp/filemnt-wim-index-chooser)"   
+           
+           rm -f /tmp/filemnt-wim-index-chooser
+           
+           if [ "$SELECTED_INDEX" == "" ]; then
+            /usr/lib/gtkdialog/box_ok "Filemnt" error "Mounting cancelled: No index selected for $imgFileBASE"
+            exit
+           fi
+           
+           wimmount "$imgFile" $SELECTED_INDEX "$MOUNTPOINT"
+           
+           Err=$?
          ;;
-      *) 
+      swm) 
+          
+           imgname="$(basename $imgFileBASE .swm)"
+		
+	   other_split="$(find $imgDir -type f -name "${imgname}*.swm" -maxdepth 1 | grep -v "$imgFileBASE")" 		
+           
+           if [ "$other_split" == "" ]; then
+            /usr/lib/gtkdialog/box_ok "Filemnt" error "Unable to mount $imgFileBASE: Other associated swm files are missing"
+            exit
+           else
+            /usr/lib/gtkdialog/box_ok "Filemnt" info "NOTICE: Only first index will be mounted for wim split file"             
+           fi
+           
+           wimmount "$imgFile" 1 "$MOUNTPOINT" --ref="${imgname}*.swm"
+           
+           Err=$?
+           
+         ;;
+     vhd|vdi|vmdk)
+        vdfuse -w -f "$imgFile" "$MntPt"
+        Err=$?
+        ;;                 
+     img|hfv|vfd)
+        mount -o loop "$imgFile" "$MntPt"
+        Err=$?
+        ;;
+       *) 
          mount -t ${Type} -o loop,rw "$imgFile" "$MOUNTPOINT"
          ;;
     esac
