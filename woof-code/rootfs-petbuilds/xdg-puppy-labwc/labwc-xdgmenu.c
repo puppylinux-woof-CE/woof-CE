@@ -142,22 +142,25 @@ start:
 				hadSeparator = 0;
                 break;
             case GMENU_TREE_ITEM_ENTRY:
+                entry = GMENU_TREE_ENTRY(item);
+                path = gmenu_tree_entry_get_desktop_file_path(entry);
+                if (g_hash_table_lookup(history, path))
+                {
+                    continue;
+                }
 				if (hasSeparator)
+				{
 					if (!first && !hadSeparator)
 	 				{
 	 					process_separator(GMENU_TREE_SEPARATOR(item));
 						hadSeparator = 1;
 	 				}
 					hasSeparator = 0;
-                entry = GMENU_TREE_ENTRY(item);
-                path = gmenu_tree_entry_get_desktop_file_path(entry);
-                if (!g_hash_table_lookup(history, path))
-                {
-                    process_entry(entry);
-                    g_hash_table_insert(history, g_strdup(path), (gpointer)1);
-					first = 0;
-					hadSeparator = 0;
-               }
+				}
+                process_entry(entry);
+                g_hash_table_insert(history, g_strdup(path), (gpointer)1);
+				first = 0;
+				hadSeparator = 0;
                 break;
 			case GMENU_TREE_ITEM_SEPARATOR:
 				hasSeparator = 1;
