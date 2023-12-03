@@ -34,7 +34,7 @@
 #include <string.h>
 #include <glib.h>
 #include <glib/gprintf.h>
-#include <gnome-menus/gmenu-tree.h>
+#include <gnome-menus-3.0/gmenu-tree.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -43,9 +43,8 @@
  * Declarations
  */
 static void show_help();
-static void process_directory(GMenuTreeDirectory *directory);
+static void process_directory(GMenuTreeDirectory *directory, int root);
 static void process_entry(GMenuTreeEntry *entry);
-static void process_separator(GMenuTreeSeparator *entry);
 
 /*=============================================================================
  * Main Function
@@ -61,11 +60,18 @@ int main (int argc, char **argv)
     return (1);
   }
 
-    GMenuTree *menuTree = gmenu_tree_lookup (argv[1],  GMENU_TREE_FLAGS_NONE );
+    GMenuTree *menuTree = gmenu_tree_new_for_path (argv[1],  GMENU_TREE_FLAGS_SHOW_ALL_SEPARATORS );
+    GError *error = NULL;
+    if (!gmenu_tree_load_sync (menuTree, &error))
+    {
+      g_error ("%s\n", error->message);
+      g_error_free (error);
+      return (1);
+    }
 
     GMenuTreeDirectory *rootDirectory = gmenu_tree_get_root_directory(menuTree);
 
-    process_directory(rootDirectory);
+    process_directory(rootDirectory, 1);
 
     gmenu_tree_item_unref (rootDirectory);
 
@@ -89,42 +95,44 @@ void show_help()
 /*=============================================================================
  * This function processes a directory entry and all it's child nodes
  */
-void process_directory(GMenuTreeDirectory *directory)
+void process_directory(GMenuTreeDirectory *directory, int root)
 {
     int hasSeparator = 0; int first = 1; int hadSeparator = 0;
-    GSList *entryList = gmenu_tree_directory_get_contents (directory);
-    GSList *l;
+    GMenuTreeIter *entryList = gmenu_tree_directory_iter(directory);
+    gchar *icon;
+    GMenuTreeItemType entryType;
 
-    for (l = entryList; l; l = l->next)
+    while ((entryType = gmenu_tree_iter_next (entryList)) != GMENU_TREE_ITEM_INVALID)
     {
-        GMenuTreeItem *item = l->data;
-
-        if (gmenu_tree_item_get_type (GMENU_TREE_ITEM(item)) == GMENU_TREE_ITEM_ENTRY)
+        if (entryType == GMENU_TREE_ITEM_ENTRY)
         {
+            gmenu_tree_iter_unref (entryList);
             goto start;
         }
     }
 
+    gmenu_tree_iter_unref (entryList);
     return;
 
 start:
-   g_printf(
-		  "\tsubmenu(\" %s%%/usr/local/lib/X11/pixmaps/%s\",\"%s\") {\n",
-		  gmenu_tree_directory_get_name(directory),
-		  gmenu_tree_directory_get_icon(directory),
-		  gmenu_tree_directory_get_name(directory));
+   if (root)
+   {
+      icon = g_icon_to_string(gmenu_tree_directory_get_icon(directory));
+      g_printf(
+   		  "\tsubmenu(\" %s%%/usr/local/lib/X11/pixmaps/%s\",\"%s\") {\n",
+   		  gmenu_tree_directory_get_name(directory),
+   		  icon,
+   		  gmenu_tree_directory_get_name(directory));
+      g_free(icon);
+   }
 
-    GMenuTreeItemType entryType;
     GMenuTreeEntry *entry;
     const char *path;
     GHashTable *history = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
 
-     for (l = entryList; l; l = l->next)
+     entryList = gmenu_tree_directory_iter(directory);
+     while ((entryType = gmenu_tree_iter_next(entryList)) != GMENU_TREE_ITEM_INVALID)
     {
-        GMenuTreeItem *item = l->data;
-
-        entryType = gmenu_tree_item_get_type (GMENU_TREE_ITEM(item));
-
         switch (entryType)
         {
             case GMENU_TREE_ITEM_DIRECTORY:
@@ -132,28 +140,29 @@ start:
 				{
 					if (!first && !hadSeparator)
 					{
-						process_separator(GMENU_TREE_SEPARATOR(item));
+						g_printf("\t\tseparator\n");
 						hadSeparator = 1;
 					}
  				hasSeparator = 0;
  
 				}
-				process_directory(GMENU_TREE_DIRECTORY(item));
+				process_directory(gmenu_tree_iter_get_directory(entryList), 0);
 				first = 0;
 				hadSeparator = 0;
                 break;
             case GMENU_TREE_ITEM_ENTRY:
-                entry = GMENU_TREE_ENTRY(item);
+                entry = gmenu_tree_iter_get_entry(entryList);
                 path = gmenu_tree_entry_get_desktop_file_path(entry);
                 if (g_hash_table_lookup(history, path))
                 {
+                    gmenu_tree_item_unref(entry);
                     continue;
                 }
 				if (hasSeparator)
 				{
 					if (!first && !hadSeparator)
 	 				{
-	 					process_separator(GMENU_TREE_SEPARATOR(item));
+						g_printf("\t\tseparator\n");
 						hadSeparator = 1;
 	 				}
 					hasSeparator = 0;
@@ -167,13 +176,14 @@ start:
 				hasSeparator = 1;
 				break;
         }
-
-        gmenu_tree_item_unref (item);
     }
 
     g_hash_table_destroy(history);
-    g_printf("\t}\n");
-    g_slist_free (entryList);
+    if (root)
+    {
+        g_printf("\t}\n");
+    }
+    gmenu_tree_iter_unref (entryList);
 }
 
 /*=============================================================================
@@ -181,9 +191,10 @@ start:
  */
 void process_entry(GMenuTreeEntry *entry)
 {
-    char *name = g_strdup (gmenu_tree_entry_get_name(entry));
-    char *exec = g_strdup (gmenu_tree_entry_get_exec(entry));
-    char *icon = g_strdup (gmenu_tree_entry_get_icon(entry));
+    GDesktopAppInfo *app = gmenu_tree_entry_get_app_info(entry);
+    char *name = g_strdup (g_app_info_get_name(G_APP_INFO(app)));
+    char *exec = g_strdup (g_app_info_get_executable(G_APP_INFO(app)));
+    char *icon = g_icon_to_string(g_app_info_get_icon(G_APP_INFO(app)));
     char *cmd = exec;
     char *iconmod = icon;
     int i;
@@ -206,7 +217,7 @@ void process_entry(GMenuTreeEntry *entry)
         }
     }
 
-    if (gmenu_tree_entry_get_launch_in_terminal(entry))
+    if (g_desktop_app_info_get_boolean(app, "Terminal"))
     {
         cmd = g_strdup_printf("defaultterminal -e sh -c '%s'", exec);
     }
@@ -223,6 +234,7 @@ void process_entry(GMenuTreeEntry *entry)
 
     g_free(name);
     g_free(exec);
+    g_free(icon);
     if (cmd != exec)
     {
         free(cmd);
@@ -231,16 +243,8 @@ void process_entry(GMenuTreeEntry *entry)
     {
         free(iconmod);
     }
+    gmenu_tree_item_unref(entry);
 }
 
-/*=============================================================================
- * This function adds a separator
- */
-void
-process_separator(GMenuTreeSeparator *entry)
-{
-
-  g_printf("\t\tseparator\n");
-}
 /*=============================================================================
  */
