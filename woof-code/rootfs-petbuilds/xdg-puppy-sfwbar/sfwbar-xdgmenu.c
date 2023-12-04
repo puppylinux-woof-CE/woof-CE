@@ -217,7 +217,7 @@ void process_entry(GMenuTreeEntry *entry)
         }
     }
 
-    if (g_desktop_app_info_get_boolean(app, "Terminal"))
+    if (g_desktop_app_info_get_boolean(app, G_KEY_FILE_DESKTOP_KEY_TERMINAL))
     {
         cmd = g_strdup_printf("defaultterminal -e sh -c '%s'", exec);
     }
