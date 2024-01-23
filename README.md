@@ -261,13 +261,13 @@ I have put this comment into /etc/DISTRO_SPECS:
     #Note, the .sfs files below are what the `init` script in initrd.gz searches for,
     #for the partition, path and actual files loaded, see `PUPSFS` and `ZDRV` in /etc/rc.d/PUPSTATE
 
-# by 01micko
+# kernel
 
-Woof-CE, a fork of woof2 can build the same as woof2 however a new feature has been added as of today. It now has the ability to build a distro with out modules in the initrd.gz, a feature which had been pioneered by Fatdog  developers kirk and jamesbond. This has a number of advantages over the  legacy kernel builds.
+Woof-CE, a fork of woof2 can build the same as woof2 however a new feature has been added. It now has the ability to build a distro with out modules in the initrd.gz, a feature which had been pioneered by Fatdog  developers kirk and jamesbond. This has a number of advantages over the  legacy kernel builds.
 1. No messy copying kernel modules from the initial ram disk to the root system.
 2. Ease of changing kernels.
 
-I have named this the 'huge' type kernel, for want of a better term. The rationale for this is that Slackware developers name their default kernel `huge-$some_suffix`. The reason is that the vmlinuz kernel image contains all the necessary filesystem and hardware drivers to get the system to boot and hand over to the real running system. Once that occurs, kernel modules are loaded to bring up the rest of the hardware and extra filesystems if necessary.
+It's named 'huge' type kernel, for want of a better term. The rationale for this is that Slackware developers name their default kernel `huge-$some_suffix`. The reason is that the vmlinuz kernel image contains all the necessary filesystem and hardware drivers to get the system to boot and hand over to the real running system. Once that occurs, kernel modules are loaded to bring up the rest of the hardware and extra filesystems if necessary.
 
 "kernel-kit", part of woof-CE, has the ability to produce one of these 'huge' style kernel packages. Please read the relevant  README and the comments in "build.conf" inside the kernel-kit directory.
 
