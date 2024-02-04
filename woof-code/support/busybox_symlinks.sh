@@ -28,6 +28,8 @@ if [ "$lst" ] ; then
 	echo "$lst" > /tmp/busybox.lst
 elif [ -f ./bin/busybox.lst ] ; then
 	cp -f ./bin/busybox.lst /tmp/busybox.lst
+elif [ -f ./usr/bin/busybox.lst ] ; then
+	cp -f ./usr/bin/busybox.lst /tmp/busybox.lst
 else
 	echo "ERROR: could not get applet list"
 	exit 1
