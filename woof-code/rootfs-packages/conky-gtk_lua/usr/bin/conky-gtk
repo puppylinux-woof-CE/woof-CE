@@ -1,0 +1,293 @@
+#!/bin/bash
+# use bash since we need to export functions (not supported in simple sh)
+
+## THIS IS UPDATED VERSION OF conky-gtk (VERSION conky-gtk_lua1-alpha).
+## THIS SUPPORTS THE NEW LUA FORMAT OF conkyrc ONLY, AND HAS NO BACKWARD COMPATIBILITY.
+
+
+#----------------------- SETUP REQUIRED FILES/VARIABLES ---------------------------
+CONKYRC=$HOME/.config/conky-gtk/conkyrc
+CONKYRC_BAK=$HOME/.config/conky-gtk/conkyrc.bak
+CONKYRC_SYMLINK=$HOME/.conkyrc # this will be symlink of $CONKYRC
+CONKY_STARTUP_SCRIPT=$HOME/Startup/conkystart
+WEATHER_SAVED_LOCATION=$HOME/.config/conky-gtk/saved_weather
+WEATHER_FORMAT=$HOME/.config/conky-gtk/weather_format
+
+if [ ! -f "$CONKYRC_SYMLINK" ]; then
+    echo "$CONKYRC's symlink at $CONKYRC_SYMLINK not found.. generating one.."
+    if [ ! -f "$CONKYRC" ]; then
+        echo "$CONKYRC not found.. restoring from backup - $CONKYRC_BAK"
+        if [ ! -f "$CONKYRC_BAK" ]; then
+            echo "$CONKYRC_BAK not found.. please re-install conky-gtk."; echo "script failed.. exiting."
+            exit 1
+        fi
+        cp "$CONKYRC_BAK" "$CONKYRC"
+    fi
+    ln -s "$CONKYRC" "$CONKYRC_SYMLINK"
+    echo "success!"
+fi
+
+if [ ! -f "$WEATHER_FORMAT" ]; then
+    echo "$WEATHER_FORMAT not found.. please re-install conky-gtk."; echo "script failed.. exiting."
+    exit 1
+fi
+
+touch "$WEATHER_SAVED_LOCATION"
+mkdir -p "$HOME"/Startup
+
+[ ! -f /usr/share/icons/hicolor/48x48/apps/conky.png ] && \
+ln -sf /usr/share/icons/conky.png /usr/share/icons/hicolor/48x48/apps && \
+gtk-update-icon-cache -f -i /usr/share/icons/hicolor 2>/dev/null
+
+export CONKYRC # required exporting since these variables are required inside GTKDIALOG
+export CONKYRC_BAK
+export CONKY_STARTUP_SCRIPT
+export WEATHER_SAVED_LOCATION
+export WEATHER_FORMAT
+#----------------------------------------------------------------------------------
+
+#----------------------- GENERATE fonts_gtkdialog_options -------------------------
+FONTS_TEMP_1=$(mktemp)
+FONTS_TEMP_2=$(mktemp)
+FONTS_TEMP_3=$(mktemp)
+FONTS_TEMP_4=$(mktemp)
+
+fc-list : family | cut -d',' -f1 | sort -u | awk '{print "<item>"$1" "$2" "$3" "$4"</item>"}' | sed -e 's/ //g;s/\\//g' > "$FONTS_TEMP_1"
+awk 'BEGIN{print ""}1' "$FONTS_TEMP_1" > "$FONTS_TEMP_3"
+sed '1r '"$FONTS_TEMP_2" < "$FONTS_TEMP_3" | sed '1d' > "$FONTS_TEMP_4"
+
+fonts_gtkdialog_options=$(awk '!a[$0]++' < "$FONTS_TEMP_4")
+
+rm -f "$FONTS_TEMP_1" "$FONTS_TEMP_2" "$FONTS_TEMP_3" "$FONTS_TEMP_4"
+#----------------------------------------------------------------------------------
+
+#--------------------------- GET DEFAULT CONFIGS ----------------------------------
+default_color1=$(grep -r -E "color1\s*=" "$CONKYRC" | cut -d '=' -f2 | cut -d "'" -f2 | cut -d '"' -f2 | awk '{$1=$1};1')
+default_color2=$(grep -r -E "color2\s*=" "$CONKYRC" | cut -d '=' -f2 | cut -d "'" -f2 | cut -d '"' -f2 | awk '{$1=$1};1')
+default_width=$(grep -r -E "minimum_width\s*=" "$CONKYRC" | cut -d '=' -f2 | cut -d ',' -f1 | awk '{$1=$1};1')
+default_fontsize=$(grep -r -E "font\s*=" "$CONKYRC" | cut -d "'" -f2 | cut -d '"' -f2 | cut -d '=' -f2 | awk '{$1=$1};1')
+default_fontname=$(grep -r -E "font\s*=" "$CONKYRC" | cut -d "'" -f2 | cut -d '"' -f2 | cut -d ':' -f1 | awk '{$1=$1};1')
+saved_weather=$(cat "$WEATHER_SAVED_LOCATION")
+#----------------------------------------------------------------------------------
+
+export TEXTDOMAIN=conky-gtk
+export OUTPUT_CHARSET=UTF-8
+. gettext.sh
+
+GTKDIALOG=gtkdialog
+
+#------------------------------ HELPER FUNCTIONS ----------------------------------
+restart_conky() {
+    if [ -n "$(pidof conky 2>/dev/null)" ]; then
+        killall conky &
+    fi
+    sleep 1
+    wallp=$(cat "$HOME"/.config/wallpaper/bg_img)
+    conky -c "$CONKYRC" 2>/dev/null &
+    sleep 2
+    set_bg "$wallp" &
+}
+export -f restart_conky
+
+gen_autostart_conky_script() {
+    echo '#!/bin/sh
+wallp=$(cat $HOME/.config/wallpaper/bg_img)
+sleep 1
+conky -c '"$CONKYRC"' 2>/dev/null &
+sleep 5
+set_bg "$wallp" &' > "$CONKY_STARTUP_SCRIPT"
+    chmod a+x "$CONKY_STARTUP_SCRIPT"
+}
+export -f gen_autostart_conky_script
+
+conkyrc_apply_color1() {
+    sed -i 's/color1\s*=.*/color1 = '"'${COLOUR1//#}'"', -- heading color/g' "$CONKYRC"
+    restart_conky &
+}
+export -f conkyrc_apply_color1
+
+conkyrc_apply_color2() {
+    sed -i 's/color2\s*=.*/color2 = '"'${COLOUR2//#}'"', -- normal text color/g' "$CONKYRC"
+    restart_conky &
+}
+export -f conkyrc_apply_color2
+
+conkyrc_apply_width() {
+    sed -i 's/minimum_width\s*=.*/minimum_width = '"${WIDTHX//#}"',/g' "$CONKYRC"
+    restart_conky &
+}
+export -f conkyrc_apply_width
+
+conkyrc_apply_font() {
+    sed -i 's/font\s*=.*/font = '"'${FONTSEL//#}"':size='"${FONTSZ//#}'"', -- [font name]:size=[font size]/g' "$CONKYRC"
+    restart_conky &
+}
+export -f conkyrc_apply_font
+
+conkyrc_enable_weather() {
+    WEATHER_TMP_FNAME=$(mktemp)
+    sed -i '$d' "$CONKYRC"; sed -i '$d' "$CONKYRC"; sed -i '$d' "$CONKYRC"
+    cp -r "$WEATHER_FORMAT" "$WEATHER_TMP_FNAME"
+    sed -i 's/@conky-gtk-location@/'"$LOCATION"'/g' "$WEATHER_TMP_FNAME"
+    cat "$WEATHER_TMP_FNAME" - >> "$CONKYRC" <<< ']]'
+    rm -f "$WEATHER_TMP_FNAME"
+    restart_conky &
+}
+export -f conkyrc_enable_weather
+
+conkyrc_disable_weather() {
+    sed -i '$d' "$CONKYRC"; sed -i '$d' "$CONKYRC"; sed -i '$d' "$CONKYRC"
+    printf '#\n#\n]]' >> "$CONKYRC"
+    restart_conky &
+}
+export -f conkyrc_disable_weather
+
+conkyrc_restore_from_backup() {
+    cp -r "$CONKYRC_BAK" "$CONKYRC"
+    restart_conky &
+}
+export -f conkyrc_restore_from_backup
+#----------------------------------------------------------------------------------
+
+#-------------------------------- GTKDIALOG GUI -----------------------------------
+MAIN_DIALOG='
+<window title="Conky" icon-name="conky" window-position="1">
+    <vbox>
+    <frame Color>
+        <hbox space-expand="true" space-fill="true">
+        <vbox space-expand="false" space-fill="false">
+            <pixmap>
+            <height>60</height>
+            <width>60</width>
+            <input file icon="conky"></input>
+            </pixmap>
+        </vbox>
+        <vbox>
+            <text><label>Bar Color</label></text>
+            <colorbutton tooltip-text=" '"$(gettext "Select Color Of Bars")"' ">
+            <default>#'$default_color1'</default>
+            <variable>COLOUR1</variable>
+            <action>conkyrc_apply_color1 &</action>
+            </colorbutton>
+        </vbox>
+        <vbox>
+            <text><label>Text Color</label></text>
+            <colorbutton tooltip-text=" '"$(gettext "Select Color Of Text")"' ">
+            <default>#'$default_color2'</default>
+            <variable>COLOUR2</variable>
+            <action>conkyrc_apply_color2 &</action>
+            </colorbutton>
+        </vbox>
+        </hbox>
+    </frame>
+
+    <frame Size and Font>
+        <hbox space-expand="true" space-fill="true">
+            <text space-expand="false" space-fill="false"><label>Window Width</label></text>
+            <spinbutton space-expand="true" space-fill="true" range-min="25" range-max="750">
+            <variable>WIDTHX</variable>
+            <default>'$default_width'</default>
+            <action signal="button-release-event">conkyrc_apply_width &</action>
+            </spinbutton>
+            <text space-expand="false" space-fill="false"><label>Font Size</label></text>
+            <spinbutton space-expand="true" space-fill="true" range-min="4" range-max="25">
+            <variable>FONTSZ</variable>
+            <default>'$default_fontsize'</default>
+            <action signal="button-release-event">conkyrc_apply_font &</action>
+            </spinbutton>
+        </hbox>
+        <vbox space-expand="true" space-fill="true">
+            <comboboxtext space-expand="false" space-fill="false">
+            <variable>FONTSEL</variable>
+            <default>'$default_fontname'</default>
+            '$fonts_gtkdialog_options'
+            <action>conkyrc_apply_font &</action>
+            </comboboxtext>
+        </vbox>
+    </frame>
+
+    <frame Weather:  Use + For Spaces>
+        <hbox space-expand="true" space-fill="false">
+            <button space-expand="true" space-fill="true" tooltip-text=" '"$(gettext "Start/refresh Weather")"' ">
+            <label>"'"$(gettext "Start")"'"</label>
+            <action>conkyrc_enable_weather &</action>
+            </button>
+            <button space-expand="true" space-fill="true" tooltip-text=" '"$(gettext "Remove Weather")"' ">
+            <label>"'"$(gettext "Stop")"'"</label>
+            <action>conkyrc_disable_weather &</action>
+            </button>
+        </hbox>
+        <hbox space-expand="true" space-fill="true">
+            <entry primary-icon-stock="gtk-clear" activates-default="true">
+            <variable>LOCATION</variable>
+            <default>'$(if [ -z "$saved_weather" ]; then echo "Enter town or postcode or zipcode"; else echo "$saved_weather"; fi)'</default>
+            <action>echo "$LOCATION" > '"$WEATHER_SAVED_LOCATION"' &</action>
+            <action signal="button-release-event">refresh:CURLOCATION</action>
+            <action signal="primary-icon-release">clear:LOCATION</action>
+            </entry>
+        </hbox>
+    </frame>
+
+    <frame Functions>
+    <hbox homogeneous="true">
+        <vbox space-expand="true" space-fill="true">
+            <button tooltip-text=" '"$(gettext "Restart Conky")"' ">
+            <label>"'"$(gettext "Restart")"'"</label>
+            <action>restart_conky &</action>
+            </button>
+            <button tooltip-text=" '"$(gettext "Stop Conky")"' ">
+            <label>"'"$(gettext "Stop")"'"</label>
+            <action>killall conky &</action>
+            </button>
+            <button tooltip-text=" '"$(gettext "Restore original config")"' ">
+            <label>"'"$(gettext "Restore")"'"</label>
+            <action>conkyrc_restore_from_backup &</action>
+            </button>
+        </vbox>
+        <vbox space-expand="true" space-fill="true">
+            <button tooltip-text=" '"$(gettext "Start conky at boot up")"' ">
+            <label>"'"$(gettext "Autostart On")"'"</label>
+            <action>gen_autostart_conky_script &</action>
+            </button>
+            <button tooltip-text=" '"$(gettext "Remove start at boot")"' ">
+            <label>"'"$(gettext "Autostart Off")"'"</label>
+            <action>rm -f '"$CONKY_STARTUP_SCRIPT"' &</action>
+            </button>
+            <button tooltip-text=" '"$(gettext "Manually edit conkyrc")"' ">
+            <label>"'"$(gettext "Edit conkyrc")"'"</label>
+            <action>defaulttexteditor '"$CONKYRC_SYMLINK"' 2>/dev/null &</action>
+            </button>
+        </vbox>
+    </hbox>
+    </frame>
+
+    <hbox>
+        <button>
+            <label>'$(gettext 'Help')'</label>
+            <input file>/usr/share/icons/PMaterial/scalable/actions/help.svg</input><height>18</height><width>18</width>
+            <action>defaultbrowser https://wiki.archlinux.org/title/Conky &</action>
+        </button>
+        <button>
+            <label>'$(gettext 'Quit')'</label>
+            <input file>/usr/share/icons/PMaterial/scalable/actions/quit.svg</input><height>18</height><width>18</width>
+            <action>exit:quit_now</action>
+        </button>
+    </hbox>
+    </vbox>
+</window>'
+export MAIN_DIALOG
+
+case $1 in
+    -d | --dump) echo "$MAIN_DIALOG" ;;
+    --enable-autostart) gen_autostart_conky_script ;;
+    *) $GTKDIALOG --program=MAIN_DIALOG ;;
+esac
+#----------------------------------------------------------------------------------
+
+#------------------------------- SCRIPT CLEANUP -----------------------------------
+unset CONKYRC
+unset CONKYRC_BAK
+unset CONKY_STARTUP_SCRIPT
+unset WEATHER_SAVED_LOCATION
+unset WEATHER_FORMAT
+#----------------------------------------------------------------------------------
