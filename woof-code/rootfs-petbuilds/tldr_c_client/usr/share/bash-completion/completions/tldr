@@ -6,14 +6,14 @@
 
 # usage: _tldr_get_files [architecture] [semi-completed word to search]
 _tldr_get_files() {
-    find "$HOME"/.tldrc/tldr/pages/"$1" -name "$2"'*.md' -exec basename {} .md \;
+    find "$HOME"/.tldrc/tldr/pages/"$1" -name "$2"'*.md' -exec basename -s .md {} +
 }
 
 _tldr_complete() {
     COMPREPLY=()
     local word="${COMP_WORDS[COMP_CWORD]}"
     local cmpl=""
-    if [[ "$word" == "--"* ]] || [ -z "$word" ]; then
+    if [[ "$word" == "--"* ]]; then
         cmpl=$'--help\n--color\n--platform\n--render\n--update\n--version\n--clear-cache\n--verbose\n--list'
     elif [[ "$word" == "-"* ]]; then
         cmpl=$'-h\n-C\n-p\n-r\n-u\n-v\n-c\n-V\n-l'
