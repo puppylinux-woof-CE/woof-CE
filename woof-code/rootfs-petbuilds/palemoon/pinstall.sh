@@ -16,4 +16,4 @@ exec /usr/bin/palemoon "$@"
 esac
 
 chmod 755 usr/local/bin/defaultbrowser
-cp usr/local/bin/defaultbrowser usr/local/bin/defaulthtmlviewer
+cp -p usr/local/bin/defaultbrowser usr/local/bin/defaulthtmlviewer
