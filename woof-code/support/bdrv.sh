@@ -127,6 +127,7 @@ esac
 cat << EOF > bdrv/etc/apt/apt.conf.d/00puppy
 APT::Install-Recommends "false";
 APT::Install-Suggests "false";
+APT::Autoremove::SuggestsImportant "false";
 EOF
 chroot bdrv apt-get update
 chroot bdrv apt-get upgrade -y
