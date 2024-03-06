@@ -209,7 +209,7 @@ if [ -f ${SR}/usr/bin/normalize-audio ] && [ ! -f ${SR}/usr/bin/normalize ] ; th
 fi
 
 # -pup scripts replace binaries which become -FULL apps ..
-find ${SR}/bin ${SR}/sbin -name '*-pup' 2>/dev/null | \
+find -L ${SR}/bin ${SR}/sbin -name '*-pup' 2>/dev/null | \
 while read i ; do
 	app=${i%-pup} #remove -pup suffix
 	if [ -f $app ] ; then
