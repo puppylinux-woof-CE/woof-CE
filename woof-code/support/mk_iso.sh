@@ -402,10 +402,14 @@ OUT=${WOOF_OUTPUT}/${ISO_BASENAME}.iso
 ISOLINUX=`find $PX/usr -maxdepth 3 -type f -name 'isolinux.bin'`
 CHAIN32=`find $PX/usr -maxdepth 5 -type f -name 'chain.c32' | grep -v efi`
 #FIXUSB=`find $PX/usr -maxdepth 2 -type f -name 'fix-usb.sh'`
-if [ -f "devx/usr/lib/shim/shimx64.efi.signed" -a -f "devx/usr/lib/grub/x86_64-efi-signed/gcdx64.efi.signed" -a -f "devx/usr/share/grub/unicode.pf2" ] && [ -f "devx/usr/lib/shim/mmx64.efi.signed" -o -f "devx/usr/lib/shim/mmx64.efi" ] ; then
+if [ -f "devx/usr/lib/shim/shimx64.efi.signed" -o -f "devx/usr/lib/shim/shimx64.efi.signed.latest" ] && [ -f "devx/usr/lib/grub/x86_64-efi-signed/gcdx64.efi.signed" -a -f "devx/usr/share/grub/unicode.pf2" ] && [ -f "devx/usr/lib/shim/mmx64.efi.signed" -o -f "devx/usr/lib/shim/mmx64.efi" ] ; then
 	(
 		mkdir -p /tmp/grub2/EFI/boot
-		cp -f devx/usr/lib/shim/shimx64.efi.signed /tmp/grub2/EFI/boot/bootx64.efi
+		if [ -f devx/usr/lib/shim/shimx64.efi.signed.latest ]; then
+			cp -f devx/usr/lib/shim/shimx64.efi.signed.latest /tmp/grub2/EFI/boot/bootx64.efi
+		else
+			cp -f devx/usr/lib/shim/shimx64.efi.signed /tmp/grub2/EFI/boot/bootx64.efi
+		fi
 		if [ -f devx/usr/lib/shim/mmx64.efi.signed ]; then
 			cp -f devx/usr/lib/shim/mmx64.efi.signed /tmp/grub2/EFI/boot/mmx64.efi
 		else
