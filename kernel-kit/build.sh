@@ -663,6 +663,7 @@ log_msg "Cleaning the kernel sources"
 make clean
 make mrproper
 find . \( -name '*.orig' -o -name '*.rej' -o -name '*~' \) -delete
+rm -f tools/bpf/bpftool/vmlinux
 
 if [ -f ../DOTconfig ] ; then
 	cp ../DOTconfig .config
