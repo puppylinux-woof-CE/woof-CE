@@ -7,7 +7,7 @@
 
 sed -i "s/Puppy Linux/${DISTRO_NAME}/g" usr/share/backgrounds/*.svg
 # take some pixels off for better alignment for 431.svg
-for WALL in usr/share/backgrounds/431*svg usr/share/backgrounds/buntoo.svg ; do
+for WALL in usr/share/backgrounds/431*svg usr/share/backgrounds/buntoo.svg usr/share/backgrounds/Emerald.svg ; do
 	if [ -e "$WALL" ];then
 		XVAL=872.666
 		P="Puppy Linux"

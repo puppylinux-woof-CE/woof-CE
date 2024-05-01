@@ -429,7 +429,7 @@ WIDTH="$UO_1"
 
 [ -z "$PPM_CATEGORIES" ] && PPM_CATEGORIES="ALL Desktop System Setup Utility Filesystem Graphic Document Business Personal Network Internet Multimedia Fun"
 PPM_CATEGORIES_PRINT="$(echo "$PPM_CATEGORIES" | tr "[:space:]" "\n" |  sed -n -E '/^[[:space:]]*$/! {s%(.*)%<item>\1</item>%;p}')"
-S='<window title="'$(gettext 'Package Manager v')''${VERSION}'" width-request="'${WIDTH}'" icon-name="gtk-about" default_height="440">
+S='<window title="'$(gettext 'Package Manager v')''${VERSION}'" width-request="'${WIDTH}'" icon-name="gtk-about" default_height="540">
 <vbox space-expand="true" space-fill="true">
   <vbox space-expand="true" space-fill="true">
     <vbox space-expand="false" space-fill="false">
@@ -443,12 +443,13 @@ S='<window title="'$(gettext 'Package Manager v')''${VERSION}'" width-request="'
           <action>defaulthtmlviewer file://'${HELPFILE}' & </action>
         </button>
 	
-	<button tooltip-text="'$(gettext 'Update package database')'" space-expand="false" space-fill="false">
+        <button tooltip-text="'$(gettext 'Update package database')'" space-expand="false" space-fill="false">
           '"`/usr/lib/gtkdialog/xml_button-icon refresh`"'
           <action>'${RXVT}' /usr/local/petget/0setup</action>
+          <action>sleep 1</action>
           <action>restart_ppm</action>
         </button>
-	
+
         <button tooltip-text="'$(gettext 'Configure package manager')'" space-expand="false" space-fill="false">
           '"`/usr/lib/gtkdialog/xml_button-icon preferences`"'
           <action>/usr/local/petget/configure.sh</action>
@@ -536,6 +537,7 @@ S='<window title="'$(gettext 'Package Manager v')''${VERSION}'" width-request="'
                       <action>disable:VBOX_MAIN</action>
                       <action>echo "$TREE2" > /tmp/petget_proc/pkgs_to_remove; /usr/local/petget/removemodes.sh "$REMOVE_MODE"</action>
                       <action>enable:VBOX_MAIN</action>
+                      <action>refresh:TREE2</action>
                     </button>
                   </vbox>
                 </notebook>
@@ -563,6 +565,10 @@ S='<window title="'$(gettext 'Package Manager v')''${VERSION}'" width-request="'
           <frame '$(gettext 'Repositories')'>
             <vbox scrollable="true" shadow-type="0" hscrollbar-policy="2" space-expand="true" space-fill="true">
               '${REPOS_RADIO}'
+              <text><label>" "</label></text>
+              <text><label>"Warning !"</label></text>
+              <text><label>"Some noarch packages"</label></text>
+              <text><label>"are old or unsupported."</label></text>
               <text height-request="1" space-expand="true" space-fill="true"><label>""</label></text>
               <height>128</height>
               <width>50</width>

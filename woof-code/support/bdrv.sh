@@ -281,6 +281,8 @@ for DESKTOP in gpkgdialog.desktop Xpkgdialog.desktop pkgdialog.desktop petget.de
 		done < rootfs-complete/usr/share/applications/$DESKTOP
 	) > bdrv/usr/share/applications/$DESKTOP
 done
+sed 's/^Name=.*/& (Legacy)/' ../rootfs-skeleton/usr/share/applications/Puppy-package-manager.desktop > bdrv/usr/share/applications/Puppy-package-manager.desktop
+sed -i -e 's/^Name=.*/Name=Puppy Package Installer/' -e 's~^MimeType=.*~MimeType=application/pet;~' bdrv/usr/share/applications/petget.desktop
 if [ -e rootfs-complete/usr/share/applications/mimeapps.list ]; then
 	(
 		while read LINE; do

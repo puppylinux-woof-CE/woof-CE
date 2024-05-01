@@ -1,5 +1,7 @@
 #!/bin/bash
 
+#240114 Avoid error message if file absent.
+
 #set -x ; mkdir -p /root/LOGs; NAME=$(basename "$0"); exec 1>> /root/LOGs/"$NAME".log 2>&1
 
 export TEXTDOMAIN=petget___pkg_chooser.sh
@@ -24,16 +26,18 @@ report_window () {
  rm -f /tmp/petget_proc/pgks_failed_to_remove 2>/dev/null
  for LINE in $(cat /tmp/petget_proc/pkgs_to_remove_done) 
  do 
-  REALLY=$(grep $LINE /tmp/petget_proc/petget/installedpkgs.results) 
+  REALLY=$(grep "$LINE" /tmp/petget_proc/petget/installedpkgs.results) 
   if [ "$REALLY" = "" ]; then
-   echo $LINE >> /tmp/petget_proc/pgks_really_removed
+   echo "$LINE" >> /tmp/petget_proc/pgks_really_removed
   else
-   echo $LINE >> /tmp/petget_proc/pgks_failed_to_remove
+   echo "$LINE" >> /tmp/petget_proc/pgks_failed_to_remove
   fi
  done
  
- REMOVED_PGKS="$(</tmp/petget_proc/pgks_really_removed)"
- FAILED_TO_REMOVE="$(</tmp/petget_proc/pgks_failed_to_remove)"
+ #REMOVED_PGKS="$(</tmp/petget_proc/pgks_really_removed)"
+ REMOVED_PGKS="$(cat /tmp/petget_proc/pgks_really_removed 2>/dev/null)" #240114
+ #FAILED_TO_REMOVE="$(</tmp/petget_proc/pgks_failed_to_remove)"
+ FAILED_TO_REMOVE="$(cat /tmp/petget_proc/pgks_failed_to_remove 2>/dev/null)" #240114
  
  if [ -s /tmp/petget_proc/overall_petget-deps-maybe-rem ];then
   MAYBEREM="`cat /tmp/petget_proc/overall_petget-deps-maybe-rem | cut -f 1 -d ' ' | tr '\n' ' '`"
