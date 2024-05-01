@@ -19,6 +19,7 @@
 #120116 rev. 514 introduced icon rendering method which broke -reload at 547. fixed at rev. 574.
 #120203 BK: internationalized.
 #120323 replace 'xmessage' with 'pupmessage'.
+#240114 Fix cut delimiter argument; restore original files for overlay file system.  In an overlay file system, deleted files are represented in the top layer by zero-length files with no permissions.
 
 [ "$(cat /var/local/petget/nt_category 2>/dev/null)" != "true" ] && \
  [ -f /tmp/petget_proc/remove_pets_quietly ] && set -x
@@ -73,13 +74,25 @@ if [ -f /var/packages/${DB_pkgname}.files ];then
   cat /var/packages/${DB_pkgname}.files | sort -r |
   while read ONESPEC
   do
-     if [ -f "$ONESPEC" ] || [ -L "$ONESPEC" ]; then
-        #Check if is layered fs.
-        if [ "$ISLAYEREDFS" != "" -a "$PUNIONFS" != "overlay" ];then
-         
-	 #Delete at pup_rw layer
+    if [ -f "$ONESPEC" ] || [ -L "$ONESPEC" ]; then
+      #Check if is layered fs.
+      #if [ "$ISLAYEREDFS" != "" -a "$PUNIONFS" != "overlay" ];then
+      if [ "$ISLAYEREDFS" != "" ];then #240114...
+        if [ "$PUNIONFS" = "overlay" ];then
+          if [ -L "/initrd/pup_rw${ONESPEC}" ] \
+           || [ -e "/initrd/pup_rw${ONESPEC}" ]; then
+            if [ -L "/initrd/pup_ro2${ONESPEC}" ] \
+             || [ -e "/initrd/pup_ro2${ONESPEC}" ]; then
+              cp -a -f --remove-destination "/initrd/pup_ro2${ONESPEC}" "${ONESPEC}"
+            else
+              rm -f "${ONESPEC}"
+            fi
+          fi
+
+        else #aufs #240114 end
+         #Delete at pup_rw layer
          [ -e "/initrd/pup_rw${ONESPEC}" ] && rm -f "/initrd/pup_rw${ONESPEC}"
-  	 [ -L "/initrd/pup_rw${ONESPEC}" ] && rm -f "/initrd/pup_rw${ONESPEC}"
+         [ -L "/initrd/pup_rw${ONESPEC}" ] && rm -f "/initrd/pup_rw${ONESPEC}"
   
          #Delete file at save layer 
          [ -e "/initrd${SAVE_LAYER}${ONESPEC}" ] && rm -f "/initrd${SAVE_LAYER}${ONESPEC}" #normally /pup_ro1
@@ -90,20 +103,40 @@ if [ -f /var/packages/${DB_pkgname}.files ];then
          
          #The file might be builtin just show the builtin files on top layer
          [ -f "/initrd${SAVE_LAYER}${DN}/.wh.${BN}" ] && rm -f "/initrd${SAVE_LAYER}${DN}/.wh.${BN}"
+        fi
         
-        else
+      else
          #Not layered fs. delete the file anyway
          if [ -f "$ONESPEC" ] || [ -L "$ONESPEC" ]; then
           rm -f "$ONESPEC"
          fi
-        fi
       fi
+    fi
   done
   
- #Restore builtin files
- PKGNAMEONLY="$(grep -m 1 "^${DB_pkgname}|" /var/packages/user-installed-packages | cut -f 2 '|')"
- if [ "$ISLAYEREDFS" != "" -a "$PUNIONFS" != "overlay" ] && [ "$PKGNAMEONLY" != "" ] && [ -f "/var/packages/builtin_files/${PKGNAMEONLY}" ];then
- 
+ #Restore any builtin files that were deleted
+ #PKGNAMEONLY="$(grep -m 1 "^${DB_pkgname}|" /var/packages/user-installed-packages | cut -f 2 '|')"
+ PKGNAMEONLY="$(grep -m 1 "^${DB_pkgname}|" /var/packages/user-installed-packages | cut -f 2 -d '|')" #240114...
+ #if [ "$ISLAYEREDFS" != "" -a "$PUNIONFS" != "overlay" ] && [ "$PKGNAMEONLY" != "" ] && [ -f "/var/packages/builtin_files/${PKGNAMEONLY}" ];then
+ if [ "$PKGNAMEONLY" != "" ] \
+  && [ -f "/var/packages/builtin_files/${PKGNAMEONLY}" ] \
+  && [ "$ISLAYEREDFS" != "" ];then
+   if [ "$PUNIONFS" = "overlay" ];then
+     while IFS= read -r line
+     do 
+       if [ -L "/initrd/pup_ro2${line%/}" ] \
+        || [ -e "/initrd/pup_ro2${line%/}" ]; then
+         if [ ! -e "${line%/}" ]; then
+           if [ -d "/initrd/pup_ro2${line%/}" ]; then
+             cp -a -f --remove-destination "/initrd/pup_ro2${line%/}" "$(dirname ${line})/" 2>/dev/null
+           else
+             cp -a -f --remove-destination "/initrd/pup_ro2${line}" "${line}" 2>/dev/null
+           fi
+         fi
+       fi
+     done < "/var/packages/builtin_files/${PKGNAMEONLY}"
+
+   else #aufs #240114 end
      while IFS= read -r line
      do 
        bname="$(basename $line)"
@@ -111,6 +144,7 @@ if [ -f /var/packages/${DB_pkgname}.files ];then
        [ -e "/initrd/pup_rw${dname}/.wh.${bname}" ] && rm -f "/initrd/pup_rw${dname}/.wh.${bname}" 2>/dev/null
        [ -e "/initrd${SAVE_LAYER}${dname}/.wh.${bname}" ] && rm -f "/initrd${SAVE_LAYER}${dname}/.wh.${bname}" 2>/dev/null        
      done < "/var/packages/builtin_files/${PKGNAMEONLY}"
+   fi #240114
  
  fi
  
@@ -120,12 +154,13 @@ if [ -f /var/packages/${DB_pkgname}.files ];then
     DELLEVELS=$(echo -n "$LINE" | sed -e 's/[^/]//g' | wc -c | sed -e 's/ //g')
     if [ $DELLEVELS -gt 2 ]; then      
       if [ "$(ls -1 "$LINE")" == "" ]; then
-       if [ "$ISLAYEREDFS" != "" -a "$PUNIONFS" = "overlay" ]; then
-        [ -d "$LINE" ] && rmdir "$LINE" 2>/dev/null
-       else
-        [ -d "/initrd/pup_rw$LINE" ] && rmdir "/initrd/pup_rw$LINE" 2>/dev/null
-        [ -d "/initrd${SAVE_LAYER}$LINE" ] && rmdir "/initrd${SAVE_LAYER}$LINE" 2>/dev/null
-      fi
+        #if [ "$ISLAYEREDFS" != "" -a "$PUNIONFS" = "overlay" ]; then
+        if [ "$ISLAYEREDFS" = "" ] || [ "$PUNIONFS" = "overlay" ]; then #240114
+          [ -d "$LINE" ] && rmdir "$LINE" 2>/dev/null
+        else
+          [ -d "/initrd/pup_rw$LINE" ] && rmdir "/initrd/pup_rw$LINE" 2>/dev/null
+          [ -d "/initrd${SAVE_LAYER}$LINE" ] && rmdir "/initrd${SAVE_LAYER}$LINE" 2>/dev/null
+        fi
       fi
     fi
   done

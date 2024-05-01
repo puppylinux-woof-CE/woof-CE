@@ -517,6 +517,15 @@ case ${DISTRO_FILE_PREFIX} in
 	[Tt]ahr*)   pic='tahr.png'   ;;
 	[Ss]lacko*) pic='slacko.png' ;;
 	[Xx]enial*) pic='xenial.png' ;;
+	*)
+		if [ -f ${PX}/usr/share/boot-dialog/${DISTRO_FILE_PREFIX}.svg ] ; then
+			sed -i "s/Puppy Linux/${DISTRO_NAME}/" ${PX}/usr/share/boot-dialog/${DISTRO_FILE_PREFIX}.svg
+			if chroot ${PX} rsvg-convert -w 800 -h 600 -o /usr/share/boot-dialog/${DISTRO_FILE_PREFIX}.png /usr/share/boot-dialog/${DISTRO_FILE_PREFIX}.svg ; then
+				pic="${DISTRO_FILE_PREFIX}.png"
+				chroot ${PX} sh -c "pngtopnm /usr/share/boot-dialog/${DISTRO_FILE_PREFIX}.png | pnmtojpeg > /usr/share/boot-dialog/splash.jpg.new" && mv -vf ${PX}/usr/share/boot-dialog/splash.jpg{.new,} || rm -vf ${PX}/usr/share/boot-dialog/splash.jpg.new
+			fi
+		fi
+		;;
 esac
 echo $pic
 if [ -f ${PX}/usr/share/boot-dialog/${pic} ] ; then

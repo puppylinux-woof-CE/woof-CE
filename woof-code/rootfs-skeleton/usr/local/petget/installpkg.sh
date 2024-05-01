@@ -45,11 +45,55 @@
 #130305 rerwin: ensure tmp directory has all permissions after package expansion.
 #130314 install arch linux pkgs. run arch linux pkg post-install script.
 #131122 support xz compressed pets (see dir2pet, pet2tgz), changed file test
+#230305 jrb and Marv: support both debian style symlinks and traditional builds
+#230308 jrb: version D7-silent
+#240114 Restore update of links and preservation of file modification date & time; avoid grep warning messages.
+
+#Functions:  #230305 #jrb ->
+
+Adjust_Directories () {
+ if [ -L /bin ]; then	#Test for presence of /bin symlink #230305 #Marv
+   mkdir ${WKDIR}/usr > /dev/null 2>&1  #Make sure /usr is present for directory transfer
+   if [ -d ${WKDIR}/bin ] ; then cp -fr ${WKDIR}/bin  ${WKDIR}/usr; rm -fr ${WKDIR}/bin; fi
+   if [ -d ${WKDIR}/lib ] ; then cp -fr ${WKDIR}/lib  ${WKDIR}/usr; rm -fr ${WKDIR}/lib; fi
+   if [ -d ${WKDIR}/lib32 ] ; then cp -fr ${WKDIR}/lib32  ${WKDIR}/usr; rm -fr ${WKDIR}/lib32; fi
+   if [ -d ${WKDIR}/lib64 ] ; then cp -fr ${WKDIR}/lib64  ${WKDIR}/usr; rm -fr ${WKDIR}/lib64; fi
+   if [ -d ${WKDIR}/sbin ] ; then cp -fr ${WKDIR}/sbin ${WKDIR}/usr; rm -fr ${WKDIR}/sbin; fi
+ fi 
+}
+
+Pfiles () {
+	cd ${WKDIR}
+    PFILES=`find ./* | cut -b 2-`
+    echo "$PFILES" > /var/packages/${DLPKG_NAME}.files
+}
+
+Clear_wkdir () {
+    #cp -fr ${WKDIR}/* /
+    cp -ar --remove-destination ${WKDIR}/* / #240114
+    rm -fr ${WKDIR}/*  
+}
+#Marv ->
+wkdir_memcheck () { 
+  USE=`df --output='pcent'  /tmp/petget_proc/wkdir | grep -o '[0-9]*'`
+  echo $USE
+  if [ "$USE" -ge "90" ]; then    #or so, Marv
+    . /usr/lib/gtkdialog/box_splash -timeout 2 -fontsize large -text "Temporary memory full, aborting install, consider setting up a swap" > /dev/null 2>&1 &
+    exit
+  fi
+} 
+#<-Marv
+#End Functions  # <-jrb
+
+#Make directory to extract pkgs to  #jrb
+mkdir /tmp/petget_proc/wkdir > /dev/null 2>&1  #230305 #jrb
+WKDIR=/tmp/petget_proc/wkdir > /dev/null 2>&1  #230305 #jrb
+wkdir_memcheck
 
 [ "$(cat /var/local/petget/nt_category 2>/dev/null)" != "true" ] && \
  [ -f /tmp/petget_proc/install_quietly ] && set -x
  #; mkdir -p /tmp/petget_proc/PPM_LOGs ; NAME=$(basename "$0"); exec 1>> /tmp/petget_proc/PPM_LOGs/"$NAME".log 2>&1
-
+ 
 export TEXTDOMAIN=petget___installpkg.sh
 export OUTPUT_CHARSET=UTF-8
 
@@ -116,7 +160,7 @@ install_path_check() {
 
 # 22sep10 shinobar clean up probable old files for precaution
  rm -f /pet.specs /pinstall.sh /puninstall.sh /install/doinst.sh
-
+ 
 #get the pkg name ex: scite-1.77 ...
 dbPATTERN='|'"$DLPKG_BASE"'|'
 
@@ -143,10 +187,11 @@ if [ "$DLPKG_NAME" == "" ]; then
 
 fi
 
-
 #131222 do not allow duplicate installs...
 PTN1='^'"$DLPKG_NAME"'|'
-if [ "`grep "$PTN1" /var/packages/user-installed-packages`" != "" ];then
+#if [ "`grep "$PTN1" /var/packages/user-installed-packages`" != "" ];then
+if [ -s /var/packages/user-installed-packages ] \
+ && [ "`grep "$PTN1" /var/packages/user-installed-packages`" != "" ];then #240114
  if [ -z "$DISPLAY" -a -z "$WAYLAND_DISPLAY" ];then
   [ -f /tmp/petget_proc/install_quietly ] && DISPTIME1="--timeout 3" || DISPTIME1=''
   LANG=$LANG_USER
@@ -277,24 +322,37 @@ case $DLPKG_BASE in
    pPATTERN="s%^\\./${DLPKG_NAME}%%"
    echo "$PETFILES" | sed -e "$pPATTERN" -e "s#^\.\/#\/#g" -e "s#^#\/#g" -e "s#^\/\/#\/#g" -e 's#^\/$##g' -e 's#^\/\.$##g' > /var/packages/${DLPKG_NAME}.files
    install_path_check
-   tar -x --force-local --strip=2 --directory=${DIRECTSAVEPATH}/ -f ${tarball} #120102. 120107 remove --unlink-first
+   #tar -x --force-local --strip=2 --directory=${DIRECTSAVEPATH}/ -f ${tarball} #120102. 120107 remove --unlink-first  #230305 #jrb
+   tar -x --force-local --strip=2 --directory=${WKDIR}/ -f ${tarball} #120102. 120107 remove --unlink-first  #230305 #jrb   
+   Adjust_Directories
+   Pfiles   
+   Clear_wkdir
   else
    #new2dir and tgz2pet creates them this way...
    pPATTERN="s%^${DLPKG_NAME}%%"
    echo "$PETFILES" | sed -e "$pPATTERN" -e "s#^\.\/#\/#g" -e "s#^#\/#g" -e "s#^\/\/#\/#g" -e 's#^\/$##g' -e 's#^\/\.$##g' > /var/packages/${DLPKG_NAME}.files
    install_path_check
-   tar -x --force-local --strip=1 --directory=${DIRECTSAVEPATH}/ -f ${tarball} #120102. 120107. 131122
+   #tar -x --force-local --strip=1 --directory=${DIRECTSAVEPATH}/ -f ${tarball} #120102. 120107. 131122  #230305 #jrb
+   tar -x --force-local --strip=1 --directory=${WKDIR}/ -f ${tarball} #120102. 120107. 131122  #230305 #jrb
+   Adjust_Directories
+   Pfiles   
+   Clear_wkdir
   fi
   rm -f "${tarball}"
+  rm -f /root/*.tar.*
   [ $? -ne 0 ] && clean_and_die
  ;;
  *.deb)
   DLPKG_MAIN="`basename $DLPKG_BASE .deb`"
-  PFILES="`dpkg-deb --contents $DLPKG_BASE | tr -s ' ' | cut -f 6 -d ' '`"
+  #PFILES="`dpkg-deb --contents $DLPKG_BASE | tr -s ' ' | cut -f 6 -d ' '`"  #230305 #jrb
   [ $? -ne 0 ] && exit 1
-  echo "$PFILES" | sed -e "s#^\.\/#\/#g" -e "s#^#\/#g" -e "s#^\/\/#\/#g" -e 's#^\/$##g' -e 's#^\/\.$##g' > /var/packages/${DLPKG_NAME}.files
+  #echo "$PFILES" | sed -e "s#^\.\/#\/#g" -e "s#^#\/#g" -e "s#^\/\/#\/#g" -e 's#^\/$##g' -e 's#^\/\.$##g' > /var/packages/${DLPKG_NAME}.files  #230305 #jrb
   install_path_check
-  dpkg-deb -x $DLPKG_BASE ${DIRECTSAVEPATH}/
+  #dpkg-deb -x $DLPKG_BASE ${DIRECTSAVEPATH}/  #230305 #jrb
+  dpkg-deb -x $DLPKG_BASE ${WKDIR}  #230305 #jrb
+  Adjust_Directories
+  Pfiles  
+  Clear_wkdir
   [ $? -ne 0 ] && clean_and_die
   [ -d /DEBIAN ] && rm -rf /DEBIAN #130112 precaution.
   dpkg-deb -e $DLPKG_BASE /DEBIAN #130112 extracts deb control files to dir /DEBIAN. may have a post-install script, see below.
@@ -304,36 +362,47 @@ case $DLPKG_BASE in
   DLPKG_MAIN=${DLPKG_MAIN%*.tar.*}    #remove .tar.xx extension
   DLPKG_MAIN=${DLPKG_MAIN%.t[gx]z}    #remove .t[gx]z extension
   DLPKG_MAIN=${DLPKG_MAIN%.tzst}    #remove .tzst extension
-  PFILES="`tar --force-local --list -a -f $DLPKG_BASE`" || exit 1
-  echo "$PFILES" | sed -e "s#^\.\/#\/#g" -e "s#^#\/#g" -e "s#^\/\/#\/#g" -e 's#^\/$##g' -e 's#^\/\.$##g' > /var/packages/${DLPKG_NAME}.files
+  #PFILES="`tar --force-local --list -a -f $DLPKG_BASE`" || exit 1
+  #echo "$PFILES" | sed -e "s#^\.\/#\/#g" -e "s#^#\/#g" -e "s#^\/\/#\/#g" -e 's#^\/$##g' -e 's#^\/\.$##g' > /var/packages/${DLPKG_NAME}.files
   install_path_check
-  tar -x --force-local --directory=${DIRECTSAVEPATH}/ -f $DLPKG_BASE #120102. 120107
+  #tar -x --force-local --directory=${DIRECTSAVEPATH}/ -f $DLPKG_BASE #120102. 120107  #230305 #jrb
+  tar -x --force-local --directory=${WKDIR}/ -f $DLPKG_BASE  #230305 #jrb   
+   Adjust_Directories
+   Pfiles
+   Clear_wkdir
   [ $? -ne 0 ] && clean_and_die
  ;;
  *.rpm) #110523
   DLPKG_MAIN="`basename $DLPKG_BASE .rpm`"
   busybox rpm -qp $DLPKG_BASE > /dev/null 2>&1
   [ $? -ne 0 ] && exit 1
-  PFILES="`busybox rpm -qpl $DLPKG_BASE`"
-  [ $? -ne 0 ] && exit 1
-  echo "$PFILES" | sed -e "s#^\.\/#\/#g" -e "s#^#\/#g" -e "s#^\/\/#\/#g" -e 's#^\/$##g' -e 's#^\/\.$##g' > /var/packages/${DLPKG_NAME}.files
-  install_path_check
+  #PFILES="`busybox rpm -qpl $DLPKG_BASE`"  #230305 #jrb
+  #[ $? -ne 0 ] && exit 1
+  #echo "$PFILES" | sed -e "s#^\.\/#\/#g" -e "s#^#\/#g" -e "s#^\/\/#\/#g" -e 's#^\/$##g' -e 's#^\/\.$##g' > /var/packages/${DLPKG_NAME}.files  #230305 #jrb
+  #install_path_check
   #110705 rpm -i does not work for mageia pkgs...
-  
+
   if [ "$(cpio --help | grep "\--directory")" != "" ];  then
-   rpm2cpio $DLPKG_BASE | cpio -idmu -D ${DIRECTSAVEPATH}/
+   #rpm2cpio $DLPKG_BASE | cpio -idmu -D ${DIRECTSAVEPATH}/  #230305 #jrb
+   echo 1st  #230305 #jrb
+   rpm2cpio $DLPKG_BASE | cpio -idmu -D ${WKDIR}/  #230305 #jrb
   else
    lastpath=$(pwd)
-   cd ${DIRECTSAVEPATH}/
+   #cd ${DIRECTSAVEPATH}/  #230305 #jrb
+   echo 2nd  #230305 #jrb
+   cd ${WKDIR}/  #230305 #jrb
    rpm2cpio $DLPKG_BASE | cpio -idmu
-  fi
-  
-  [ $? -ne 0 ] && clean_and_die
-  
-  [ "$lastpath" != "" ] && cd $lastpath
-  
+  fi       
+   Adjust_Directories
+   Pfiles
+   [ $? -ne 0 ] && exit 1
+   install_path_check   
+   Clear_wkdir  
+  [ $? -ne 0 ] && clean_and_die  
+  [ "$lastpath" != "" ] && cd $lastpath  
  ;;
 esac
+echo either system run , difference in Adjust_Directories function  #230305 #Marv
 
 if [ "$PUPMODE" = "2" ]; then #from BK's quirky6.1
 	mkdir /audit/${DLPKG_NAME}DEPOSED
@@ -474,7 +543,8 @@ fi
 rm -rf /tmp/slink-append.txt 2>/dev/null
 
 #List all the library files in the package
-grep -E '*\.so$|*\.so\.*' /var/packages/${DLPKG_NAME}.files > /tmp/libfiles2.txt
+#grep -E '*\.so$|*\.so\.*' /var/packages/${DLPKG_NAME}.files > /tmp/libfiles2.txt
+grep -E '.*\.so$|.*\.so\.*' /var/packages/${DLPKG_NAME}.files > /tmp/libfiles2.txt #240114
 
 #Evaluate the library files
 while IFS= read -r line
@@ -730,7 +800,8 @@ fi
 
 
 xpkgname="$(echo "$DB_ENTRY" | cut -f 2 -d '|')"
-installed_pkg="$(grep -m 1 "|$xpkgname|" /var/packages/user-installed-packages)"
+#installed_pkg="$(grep -m 1 "|$xpkgname|" /var/packages/user-installed-packages)"
+installed_pkg="$([ -s /var/packages/user-installed-packages ] && grep -m 1 "|$xpkgname|" /var/packages/user-installed-packages)" #230114
 
 PKGDEP="$(echo "$DB_ENTRY" | cut -f 9 -d '|')"
 PKGDESC="$(echo "$DB_ENTRY" | cut -f 10 -d '|')"
@@ -887,5 +958,7 @@ PKGFILES=/var/packages/${DLPKG_NAME}.files
 /usr/local/petget/z_update_system_cache.sh "$PKGFILES"
 
 rm -f $HOME/nohup.out
+sleep 0.2
+[ "`pidof conky 2>/dev/null`" ] && conky-restart &
 
-###END###
+###End
