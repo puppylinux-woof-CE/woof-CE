@@ -5,3 +5,177 @@ cat << EOF > usr/bin/apulse
 exec "\$@"
 EOF
 chmod 755 usr/bin/apulse
+
+#Add pipewire socket file
+cat << EOF > ./etc/pipewire/pipewire-pulse.conf
+# PulseAudio config file for PipeWire version "0.3.77" #
+#
+# Copy and edit this file in /etc/pipewire for system-wide changes
+# or in ~/.config/pipewire for local changes.
+#
+# It is also possible to place a file with an updated section in
+# /etc/pipewire/pipewire-pulse.conf.d/ for system-wide changes or in
+# ~/.config/pipewire/pipewire-pulse.conf.d/ for local changes.
+#
+
+context.properties = {
+    ## Configure properties in the system.
+    #mem.warn-mlock  = false
+    #mem.allow-mlock = true
+    #mem.mlock-all   = false
+    #log.level       = 2
+
+    #default.clock.quantum-limit = 8192
+}
+
+context.spa-libs = {
+    audio.convert.* = audioconvert/libspa-audioconvert
+    support.*       = support/libspa-support
+}
+
+context.modules = [
+    { name = libpipewire-module-rt
+        args = {
+            nice.level   = -11
+            #rt.prio      = 88
+            #rt.time.soft = -1
+            #rt.time.hard = -1
+        }
+        flags = [ ifexists nofail ]
+    }
+    { name = libpipewire-module-protocol-native }
+    { name = libpipewire-module-client-node }
+    { name = libpipewire-module-adapter }
+    { name = libpipewire-module-metadata }
+
+    { name = libpipewire-module-protocol-pulse
+        args = {
+	    # contents of pulse.properties can also be placed here
+	    # to have config per server.
+        }
+    }
+]
+
+# Extra scripts can be started here. Setup in default.pa can be moved in
+# a script or in pulse.cmd below
+context.exec = [
+    { path = "pactl"        args = "load-module module-native-protocol-tcp" }
+    #{ path = "pactl"        args = "load-module module-always-sink" }
+    #{ path = "pactl"        args = "upload-sample my-sample.wav my-sample" }
+    #{ path = "/usr/bin/sh"  args = "~/.config/pipewire/default.pw" }
+]
+
+# Extra commands can be executed here.
+#   load-module : loads a module with args and flags
+#      args = "<module-name> <module-args>"
+#      ( flags = [ nofail ] )
+pulse.cmd = [
+    { cmd = "load-module" args = "module-always-sink" flags = [ ] }
+    { cmd = "load-module" args = "module-switch-on-connect" }
+    { cmd = "load-module" args = "module-switch-on-port-available" }
+    #{ cmd = "load-module" args = "module-gsettings" flags = [ nofail ] }
+]
+
+stream.properties = {
+    #node.latency          = 1024/48000
+    #node.autoconnect      = true
+    #resample.quality      = 4
+    #channelmix.normalize  = false
+    #channelmix.mix-lfe    = true
+    #channelmix.upmix      = true
+    #channelmix.upmix-method = psd  # none, simple
+    #channelmix.lfe-cutoff = 150
+    #channelmix.fc-cutoff  = 12000
+    #channelmix.rear-delay = 12.0
+    #channelmix.stereo-widen = 0.0
+    #channelmix.hilbert-taps = 0
+    #dither.noise = 0
+}
+
+pulse.properties = {
+    # the addresses this server listens on
+    server.address = [
+        "unix:native"
+        "unix:/run/pipewire.socket"              # absolute paths may be used
+        #"tcp:4713"                         # IPv4 and IPv6 on all addresses
+        #"tcp:[::]:9999"                    # IPv6 on all addresses
+        #"tcp:127.0.0.1:4713"               # IPv4 on a single address
+        #
+        #{ address = "tcp:9999"             # address
+        #  max-clients = 64                 # maximum number of clients
+        #  listen-backlog = 32              # backlog in the server listen queue
+        #  client.access = "restricted"     # permissions for clients
+        #}
+    ]
+    #server.dbus-name       = "org.pulseaudio.Server"
+    #pulse.min.req          = 128/48000     # 2.7ms
+    #pulse.default.req      = 960/48000     # 20 milliseconds
+    #pulse.min.frag         = 128/48000     # 2.7ms
+    #pulse.default.frag     = 96000/48000   # 2 seconds
+    #pulse.default.tlength  = 96000/48000   # 2 seconds
+    #pulse.min.quantum      = 128/48000     # 2.7ms
+    #pulse.idle.timeout     = 0             # don't pause after underruns
+    #pulse.default.format   = F32
+    #pulse.default.position = [ FL FR ]
+    # These overrides are only applied when running in a vm.
+    vm.overrides = {
+        pulse.min.quantum = 1024/48000      # 22ms
+    }
+}
+
+# client/stream specific properties
+pulse.rules = [
+    {
+        matches = [
+            {
+                # all keys must match the value. ~ starts regex.
+                #client.name                = "Firefox"
+                #application.process.binary = "teams"
+                #application.name           = "~speech-dispatcher.*"
+            }
+        ]
+        actions = {
+            update-props = {
+                #node.latency = 512/48000
+            }
+            # Possible quirks:"
+            #    force-s16-info                 forces sink and source info as S16 format
+            #    remove-capture-dont-move       removes the capture DONT_MOVE flag
+            #    block-source-volume            blocks updates to source volume
+            #    block-sink-volume              blocks updates to sink volume
+            #quirks = [ ]
+        }
+    }
+    {
+        # skype does not want to use devices that don't have an S16 sample format.
+        matches = [
+             { application.process.binary = "teams" }
+             { application.process.binary = "teams-insiders" }
+             { application.process.binary = "skypeforlinux" }
+        ]
+        actions = { quirks = [ force-s16-info ] }
+    }
+    {
+        # firefox marks the capture streams as don't move and then they
+        # can't be moved with pavucontrol or other tools.
+        matches = [ { application.process.binary = "firefox" } ]
+        actions = { quirks = [ remove-capture-dont-move ] }
+    }
+    {
+        # speech dispatcher asks for too small latency and then underruns.
+        matches = [ { application.name = "~speech-dispatcher.*" } ]
+        actions = {
+            update-props = {
+                pulse.min.req          = 512/48000      # 10.6ms
+                pulse.min.quantum      = 512/48000      # 10.6ms
+                pulse.idle.timeout     = 5              # pause after 5 seconds of underrun
+            }
+        }
+    }
+    #{
+    #    matches = [ { application.process.binary = "Discord" } ]
+    #    actions = { quirks = [ block-source-volume ] }
+    #}
+]
+
+EOF
