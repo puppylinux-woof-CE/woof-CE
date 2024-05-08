@@ -12,6 +12,7 @@
 #110822 versioning operators can be chained, ex: +linux_kernel&ge2.6.32&lt2.6.33
 #120822 in precise puppy have a pet 'cups' instead of the ubuntu debs. the latter are various pkgs, including 'libcups2'. we don't want libcups2 showing up as a missing dependency, so have to screen these alternative names out. see also pkg_chooser.sh
 #120904 bugfix, was very slow.
+#240114 Prevent file-missing messages here and in dependencies.sh.
 
 DB_dependencies="$1" #in standard format of the package database, field 9.
 
@@ -129,6 +130,8 @@ DB_nameonly="$(echo $PTN1 | cut -f 2 -d '|')"
 
 if [ "$(cat /var/packages/package-deps-ignore.list 2>/dev/null | grep "$DB_nameonly")" == "" ]; then
  echo "$PTN1" >> /tmp/petget_proc/petget_missingpkgs_patterns #can be read by dependencies.sh, find_deps.sh.
+else #240114
+ echo -n "" > /tmp/petget_proc/petget_missingpkgs_patterns #240114
 fi
 
 done
@@ -149,8 +152,9 @@ done
 #  ...notice the '-' are backslashed.
 
 #110722
-MISSINGDEPS_PATTERNS_WITHVER="`grep --file=/tmp/petget_proc/petget_missingpkgs_patterns /tmp/petget_proc/petget_pkg_deps_patterns_with_versioning | grep -v '^$'`"
-echo "$MISSINGDEPS_PATTERNS_WITHVER" > /tmp/petget_proc/petget_missingpkgs_patterns_with_versioning #can be read by dependencies.sh, find_deps.sh.
+#MISSINGDEPS_PATTERNS_WITHVER="`grep --file=/tmp/petget_proc/petget_missingpkgs_patterns /tmp/petget_proc/petget_pkg_deps_patterns_with_versioning | grep -v '^$'`"
+MISSINGDEPS_PATTERNS_WITHVER="`[ -s /tmp/petget_proc/petget_missingpkgs_patterns ] && grep --file=/tmp/petget_proc/petget_missingpkgs_patterns /tmp/petget_proc/petget_pkg_deps_patterns_with_versioning | grep -v '^$'`" #240114
+echo "$MISSINGDEPS_PATTERNS_WITHVER" > /tmp/petget_proc/petget_missingpkgs_patterns_with_versioning #can be read by dependencies.sh, check_deps.sh.
 #...ex each line: |kdebase|ge2.3.6|
 # ex with chained operators: |kdebase|ge2.3.6|lt2.4.5|
 #note, dependencies.sh currently not using this file.

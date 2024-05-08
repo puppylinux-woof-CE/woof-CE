@@ -103,7 +103,7 @@ export SETUPCALLEDFROM='ppm'
 S='<window title="'$(gettext 'Package Manager - Configure')'" icon-name="gtk-about" default-height="330">
 <vbox space-expand="true" space-fill="true">
 <notebook tab-pos="2" labels="'$(gettext 'Choose repositories')'|'$(gettext 'Update database')'|'$(gettext 'Options')'" space-expand="true" space-fill="true">
-  <vbox space-expand="true" space-fill="true" margin="8">
+  <vbox visible="false" space-expand="true" space-fill="true" margin="8">
       <vbox space-expand="false" space-fill="false">
         <hbox space-expand="true" space-fill="true">
           <text xalign="0" space-expand="true" space-fill="true"><label>"'$(gettext "Choose what repositories you would like to have appear in the main GUI window.")'"</label></text>
@@ -122,7 +122,7 @@ S='<window title="'$(gettext 'Package Manager - Configure')'" icon-name="gtk-abo
       </vbox>
   </vbox>
 
-  <vbox space-expand="true" space-fill="true" margin="8">
+  <vbox visible="false" space-expand="true" space-fill="true" margin="8">
      <vbox space-expand="false" space-fill="false">
 
       <hbox space-expand="true" space-fill="true">
