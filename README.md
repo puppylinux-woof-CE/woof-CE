@@ -12,6 +12,7 @@ Currently supported:
 | Debian        | 12            | x86_64, x86  | [![debian-bookworm](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/debian-bookworm.yml/badge.svg)](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/debian-bookworm.yml) |
 | Debian        | 11            | x86_64, x86  | [![debian-bullseye](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/debian-bullseye.yml/badge.svg)](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/debian-bullseye.yml) |
 | Devuan        | 5.0           | x86_64       | [![devuan-daedalus64](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/devuan-daedalus64.yml/badge.svg)](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/devuan-daedalus64.yml) |
+| openSUSE      | Tumbleweed    | x86_64       | [![opensuse-tumbleweed64](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/opensuse-tumbleweed64.yml/badge.svg)](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/opensuse-tumbleweed64.yml) |
 | Void          | -             | x86_64, x86  | [![void-voidpup](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/void-voidpup.yml/badge.svg)](https://github.com/puppylinux-woof-CE/woof-CE/actions/workflows/void-voidpup.yml) |
 
 (Other build configurations might work but they are not built periodically)
