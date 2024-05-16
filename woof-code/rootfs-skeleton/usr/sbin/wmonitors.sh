@@ -26,7 +26,7 @@ rnr_gui() { # $1 next iter, $2 is the monitor gui, $3 is the next delim until EO
 			echo "$z" | grep -q "$2" && x=0
 		fi
 		case "$z" in
-			"$2"*|Physical*|Enabled*|Modes*)
+			"$2"*|Make*|Model*|Serial*|Physical*|Enabled*|Modes*|Adaptive*)
 				continue;;
 			Position*) echo "$z"  > $TEMPDIR/${2}.pos
 				continue;;
@@ -66,7 +66,7 @@ rnr_gui() { # $1 next iter, $2 is the monitor gui, $3 is the next delim until EO
 				cnt=$(($cnt + $x))
 			fi
 		fi
-	done <$TEMPDIR/wrandr
+	done < <(wlr-randr)
 	[ "$1" = 'x' ] && sed -i "1,${cnt}d" $TEMPDIR/${2}.xml
 }
 
@@ -185,7 +185,7 @@ trap _trap_exit EXIT
 
 #wlr-randr > $TEMPDIR/wrandr
 
-mons $TEMPDIR/wrandr  || exit_error "error"
+mons || exit_error "error"
 i=0
 read a b c d e f <<<$MONITORS
 while [ 1 ]; do
