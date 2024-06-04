@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 #(c) Copyright Barry Kauler 2009, puppylinux.com
 #2009 Lesser GPL licence v2 (http://www.fsf.org/licensing/licenses/lgpl.html).
 #called from /usr/local/petget/pkg_chooser.sh
@@ -11,6 +11,7 @@
 #120811 category field now supports sub-category |category;subcategory|, use as icon in ppm main window. -- always enabled.
 #121102 Packages-puppy-${DISTRO_FILE_PREFIX}- (or Packages-puppy-${DISTRO_COMPAT_VERSION}-) is now Packages-puppy-${DISTRO_DB_SUBNAME}-. refer /etc/DISTRO_SPECS.
 #121129 Update: d/l Packages-puppy-squeeze-official, which wasn't there before, upset this script.
+#240129 v2.5 Changes regarding debian apt and synaptic installers.
 
 export TEXTDOMAIN=petget___configure.sh
 export OUTPUT_CHARSET=UTF-8
@@ -100,10 +101,14 @@ export -f update_db_more_info
 
 export SETUPCALLEDFROM='ppm'
 
+which apt >/dev/null || which synaptic >/dev/null \
+ && VISIBILITY='visible="false"' \
+ || VISIBILITY='' #240129
+
 S='<window title="'$(gettext 'Package Manager - Configure')'" icon-name="gtk-about" default-height="330">
 <vbox space-expand="true" space-fill="true">
 <notebook tab-pos="2" labels="'$(gettext 'Choose repositories')'|'$(gettext 'Update database')'|'$(gettext 'Options')'" space-expand="true" space-fill="true">
-  <vbox visible="false" space-expand="true" space-fill="true" margin="8">
+  <vbox '${VISIBILITY}' space-expand="true" space-fill="true" margin="8">
       <vbox space-expand="false" space-fill="false">
         <hbox space-expand="true" space-fill="true">
           <text xalign="0" space-expand="true" space-fill="true"><label>"'$(gettext "Choose what repositories you would like to have appear in the main GUI window.")'"</label></text>
@@ -122,7 +127,7 @@ S='<window title="'$(gettext 'Package Manager - Configure')'" icon-name="gtk-abo
       </vbox>
   </vbox>
 
-  <vbox visible="false" space-expand="true" space-fill="true" margin="8">
+  <vbox '${VISIBILITY}' space-expand="true" space-fill="true" margin="8">
      <vbox space-expand="false" space-fill="false">
 
       <hbox space-expand="true" space-fill="true">

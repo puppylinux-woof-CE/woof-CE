@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 #(c) Copyright Barry Kauler 2009, puppylinux.com
 #2009 Lesser GPL licence v2 (http://www.fsf.org/licensing/licenses/lgpl.html).
 #called from pkg_chooser.sh and petget.
@@ -19,7 +19,8 @@
 #120116 rev. 514 introduced icon rendering method which broke -reload at 547. fixed at rev. 574.
 #120203 BK: internationalized.
 #120323 replace 'xmessage' with 'pupmessage'.
-#240114 Fix cut delimiter argument; restore original files for overlay file system.  In an overlay file system, deleted files are represented in the top layer by zero-length files with no permissions.
+#240114 v2.5 Fix cut delimiter argument; restore original files for overlay file system.  In an overlay file system, deleted files are represented in the top layer by zero-length files with no permissions.
+#240528 v2.5 Suppress gtkdialog log output.
 
 [ "$(cat /var/local/petget/nt_category 2>/dev/null)" != "true" ] && \
  [ -f /tmp/petget_proc/remove_pets_quietly ] && set -x
@@ -41,7 +42,7 @@ ISLAYEREDFS="$(mount | grep "on / type" | grep "unionfs")"
 DB_pkgname="$TREE2"
 
 #v424 info box, nothing yet installed...
-if [ "$DB_pkgname" = "" -a "`cat /var/packages/user-installed-packages`" = "" ];then #fix for ziggi
+if [ "$DB_pkgname" = "" ] && [ "`cat /var/packages/user-installed-packages`" = "" ];then #fix for ziggi
  /usr/lib/gtkdialog/box_ok "$(gettext 'Puppy Package Manager')" error "$(gettext 'There are no user-installed packages yet, so nothing to uninstall!')"
  exit 0
 fi
@@ -49,15 +50,16 @@ fi
 #exit 0                         #clicking an empty line in the gui would have
 #fi                             #thrown the above REM_DIALOG even if pkgs are installed
 
-if [ ! -f /tmp/petget_proc/remove_pets_quietly ] && [ -n "$DISPLAY" -o -n "$WAYLAND_DISPLAY" ]; then
+if [ ! -f /tmp/petget_proc/remove_pets_quietly ] \
+  && ( [ -n "$DISPLAY" ] || [ -n "$WAYLAND_DISPLAY" ] ); then
  . /usr/lib/gtkdialog/box_yesno "$(gettext 'Puppy Package Manager')" "$(gettext "Do you want to uninstall package")" "<b>${DB_pkgname}</b>"
  [ "$EXIT" != "yes" ] && exit 0
-elif [ -z "$DISPLAY" -a -z "$WAYLAND_DISPLAY" ]; then
+elif [ -z "$DISPLAY" ] && [ -z "$WAYLAND_DISPLAY" ]; then
  dialog --yesno "$(gettext 'Do you want to uninstall package ')${DB_pkgname}" 0 0
  [ $? -ne 0 ] && exit 0
 fi
 
-if [ "$ISLAYEREDFS" != "" -a "$PUNIONFS" != "overlay" ];then
+if [ "$ISLAYEREDFS" != "" ] && [ "$PUNIONFS" != "overlay" ];then
  busybox mount -t aufs -o remount,udba=notify unionfs /
 fi
 
@@ -115,9 +117,7 @@ if [ -f /var/packages/${DB_pkgname}.files ];then
   done
   
  #Restore any builtin files that were deleted
- #PKGNAMEONLY="$(grep -m 1 "^${DB_pkgname}|" /var/packages/user-installed-packages | cut -f 2 '|')"
  PKGNAMEONLY="$(grep -m 1 "^${DB_pkgname}|" /var/packages/user-installed-packages | cut -f 2 -d '|')" #240114...
- #if [ "$ISLAYEREDFS" != "" -a "$PUNIONFS" != "overlay" ] && [ "$PKGNAMEONLY" != "" ] && [ -f "/var/packages/builtin_files/${PKGNAMEONLY}" ];then
  if [ "$PKGNAMEONLY" != "" ] \
   && [ -f "/var/packages/builtin_files/${PKGNAMEONLY}" ] \
   && [ "$ISLAYEREDFS" != "" ];then
@@ -154,7 +154,6 @@ if [ -f /var/packages/${DB_pkgname}.files ];then
     DELLEVELS=$(echo -n "$LINE" | sed -e 's/[^/]//g' | wc -c | sed -e 's/ //g')
     if [ $DELLEVELS -gt 2 ]; then      
       if [ "$(ls -1 "$LINE")" == "" ]; then
-        #if [ "$ISLAYEREDFS" != "" -a "$PUNIONFS" = "overlay" ]; then
         if [ "$ISLAYEREDFS" = "" ] || [ "$PUNIONFS" = "overlay" ]; then #240114
           [ -d "$LINE" ] && rmdir "$LINE" 2>/dev/null
         else
@@ -180,7 +179,7 @@ else
 $(gettext 'The first 5 are')
 $possible5"
  fi
- if [ -n "$DISPLAY" -o -n "$WAYLAND_DISPLAY" ];then
+ if [ -n "$DISPLAY" ] || [ -n "$WAYLAND_DISPLAY" ];then
   /usr/lib/gtkdialog/box_ok "$(gettext 'Puppy package manager')" warning "<b>$(gettext 'No file named') ${DB_pkgname}.files $(gettext 'found in') /var/packages/ $(gettext 'folder.')</b>" "$0 $(gettext 'refusing cowardly to remove the package.')" " " "<b>$(gettext 'Possible suggestions:')</b> $WARNMSG" "<b>$(gettext 'Possible solution:')</b> $(gettext 'Edit') <i>/var/packages/user-installed-packages</i> $(gettext 'to match the pkgname') $(gettext 'and start again.')"
   rox /var/packages
   geany /var/packages/user-installed-packages
@@ -286,14 +285,14 @@ if [ -f /audit/${DB_pkgname}DEPOSED.sfs ];then
  while [ -s /tmp/petget_proc/petget/install-cp-errlog ];do
   echo -n "" > /tmp/petget_proc/petget/install-cp-errlog2
   echo -n "" > /tmp/petget_proc/petget/install-cp-errlog3
-  busybox cat /tmp/petget_proc/petget/install-cp-errlog | busybox grep 'cannot overwrite non-directory' | busybox tr '[`‘’]' "'" | busybox cut -f 2 -d "'" |
+  busybox cat /tmp/petget_proc/petget/install-cp-errlog | busybox grep 'cannot overwrite non-directory' | busybox tr '`‘’' "'" | busybox cut -f 2 -d "'" |
   while read ONEDIRSYMLINK #ex: /usr/share/mplayer/skins
   do
    #adding that extra trailing / does the trick... 131230 full cp...
    cp -a -f --remove-destination ${DIRECTSAVEPATH}"${ONEDIRSYMLINK}"/* "${ONEDIRSYMLINK}"/ 2> /tmp/petget_proc/petget/install-cp-errlog2
   done
   #secondly, which is our mplayer example, source is a symlink, target is a folder...
-  busybox cat /tmp/petget_proc/petget/install-cp-errlog | busybox grep 'cannot overwrite directory' | busybox grep 'with non-directory' | busybox tr '[`‘’]' "'" | busybox cut -f 2 -d "'" |
+  busybox cat /tmp/petget_proc/petget/install-cp-errlog | busybox grep 'cannot overwrite directory' | busybox grep 'with non-directory' | busybox tr '`‘’' "'" | busybox cut -f 2 -d "'" |
   while read ONEDIRSYMLINK #ex: /usr/share/mplayer/skins
   do
    busybox mv -f "${ONEDIRSYMLINK}" "${ONEDIRSYMLINK}"TEMP
@@ -327,14 +326,14 @@ if [ -s /tmp/petget_proc/petget/CLASHPKGS ];then
  while [ -s /tmp/petget_proc/petget/install-cp-errlog ];do
   echo -n "" > /tmp/petget_proc/petget/install-cp-errlog2
   echo -n "" > /tmp/petget_proc/petget/install-cp-errlog3
-  busybox cat /tmp/petget_proc/petget/install-cp-errlog | busybox grep 'cannot overwrite non-directory' | busybox tr '[`‘’]' "'" | busybox cut -f 2 -d "'" |
+  busybox cat /tmp/petget_proc/petget/install-cp-errlog | busybox grep 'cannot overwrite non-directory' | busybox tr '`‘’' "'" | busybox cut -f 2 -d "'" |
   while read ONEDIRSYMLINK #ex: /usr/share/mplayer/skins
   do
    #adding that extra trailing / does the trick...
    cp -a -f --remove-destination ${DIRECTSAVEPATH}"${ONEDIRSYMLINK}"/* "${ONEDIRSYMLINK}"/ 2> /tmp/petget_proc/petget/install-cp-errlog2
   done
   #secondly, which is our mplayer example, source is a symlink, target is a folder...
-  busybox cat /tmp/petget_proc/petget/install-cp-errlog | busybox grep 'cannot overwrite directory' | busybox grep 'with non-directory' | busybox tr '[`‘’]' "'" | busybox cut -f 2 -d "'" |
+  busybox cat /tmp/petget_proc/petget/install-cp-errlog | busybox grep 'cannot overwrite directory' | busybox grep 'with non-directory' | busybox tr '`‘’' "'" | busybox cut -f 2 -d "'" |
   while read ONEDIRSYMLINK #ex: /usr/share/mplayer/skins
   do
    busybox mv -f "${ONEDIRSYMLINK}" "${ONEDIRSYMLINK}"TEMP
@@ -358,7 +357,7 @@ export LANG="$ORIGLANG"
 
 fi
 
-if [ "$ISLAYEREDFS" != "" -a "$PUNIONFS" != "overlay" ];then
+if [ "$ISLAYEREDFS" != "" ] && [ "$PUNIONFS" != "overlay" ];then
  #now re-evaluate all the layers...
 	busybox mount -t aufs -o remount,udba=reval unionfs / #remount with faster evaluation mode.
 fi
@@ -434,7 +433,7 @@ fi
 
 #announce success...
 if [ ! -f /tmp/petget_proc/remove_pets_quietly ]; then
- export REM_DIALOG="<window title=\"$(gettext 'Puppy Package Manager')\" icon-name=\"gtk-about\">
+ REM_DIALOG="<window title=\"$(gettext 'Puppy Package Manager')\" icon-name=\"gtk-about\">
   <vbox>
   <pixmap>
   <width>48</width>
@@ -448,9 +447,11 @@ if [ ! -f /tmp/petget_proc/remove_pets_quietly ]; then
   </vbox>
  </window>
  "
- if [ -n "$DISPLAY" -o -n "$WAYLAND_DISPLAY" ];then
+ export REM_DIALOG
+ if [ -n "$DISPLAY" ] || [ -n "$WAYLAND_DISPLAY" ];then
   if [ "$EXTRAMSG" != "" ]; then
-   gtkdialog -p REM_DIALOG
+#   gtkdialog -p REM_DIALOG #Debug
+   gtkdialog -p REM_DIALOG >/dev/null #240528
   else
    /usr/lib/gtkdialog/box_ok "$(gettext 'Puppy Package Manager')" info "$(gettext 'Package') $(gettext 'has been removed.')" "$DB_pkgname"
   fi

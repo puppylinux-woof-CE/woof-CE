@@ -2,6 +2,9 @@
 #(c) Copyright Barry Kauler 2009, puppylinux.com
 #2009 Lesser GPL licence v2 (/usr/share/doc/legal/lgpl-2.1.txt).
 #The Puppy Package Manager main GUI window.
+#230305 v2.5 jrb and Marv: adapt installation for "usrmerge" (debian style) distros, using a temporary installation directory.
+#240526 v2.5 Use gtk+ 2 version of gtkdialog, if installed.
+#240528 v2.5 Invoke PPM advice dialog, when available.
 
 . /etc/rc.d/functions_x
 
@@ -9,6 +12,11 @@ VERSION="2.5"
 
 export TEXTDOMAIN=petget___pkg_chooser.sh
 export OUTPUT_CHARSET=UTF-8
+
+#Issue PPM advice pop-up if installed. #240528...
+if [ -x /usr/local/petget/ppm_advice.sh ]; then
+  /usr/local/petget/ppm_advice.sh
+fi
 
 # Do not allow another instance
 wait
@@ -249,7 +257,7 @@ DEF_CHK_NLS='false'
 
 #130511 need to include devx-only-installed-packages, if loaded...
 #note, this code block also in check_deps.sh.
-if which gcc;then
+if which gcc >/dev/null;then
  cp -f /root/.packages/woof-installed-packages /tmp/petget_proc/ppm-layers-installed-packages
  cat /root/.packages/devx-only-installed-packages >> /tmp/petget_proc/ppm-layers-installed-packages
  sort -u /tmp/petget_proc/ppm-layers-installed-packages > /root/.packages/layers-installed-packages
@@ -264,11 +272,11 @@ if [ ! -f /tmp/petget_proc/petget_installed_patterns_system ];then
  echo "$INSTALLED_PATTERNS_SYS" > /tmp/petget_proc/petget_installed_patterns_system
  #PKGS_SPECS_TABLE also has system-installed names, some of them are generic combinations of pkgs...
  . /etc/rc.d/BOOTCONFIG
- if [ "$(echo $EXTRASFSLIST | grep devx_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION} )" = "" -a \
-   "$(echo $LASTUNIONRECORD | grep devx_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION} )" = "" ]; then
-  INSTALLED_PATTERNS_GEN="`echo "$PKGS_SPECS_TABLE" | grep '^yes' | grep -v 'exe>dev' | cut -f 2 -d '|' |  sed -e 's%^%|%' -e 's%$%|%' -e 's%\\-%\\\\-%g'`"
+ if [ "$(echo $EXTRASFSLIST | grep devx_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION} )" = "" ] \
+   && [ "$(echo $LASTUNIONRECORD | grep devx_${DISTRO_FILE_PREFIX}_${DISTRO_VERSION} )" = "" ]; then
+  INSTALLED_PATTERNS_GEN="`grep '^yes' <<< "$PKGS_SPECS_TABLE" | grep -v 'exe>dev' | cut -f 2 -d '|' |  sed -e 's%^%|%' -e 's%$%|%' -e 's%\\-%\\\\-%g'`"
  else
-  INSTALLED_PATTERNS_GEN="`echo "$PKGS_SPECS_TABLE" | grep '^yes' | cut -f 2 -d '|' |  sed -e 's%^%|%' -e 's%$%|%' -e 's%\\-%\\\\-%g'`"
+  INSTALLED_PATTERNS_GEN="`grep '^yes' <<< "$PKGS_SPECS_TABLE" | cut -f 2 -d '|' |  sed -e 's%^%|%' -e 's%$%|%' -e 's%\\-%\\\\-%g'`"
  fi
  echo "$INSTALLED_PATTERNS_GEN" >> /tmp/petget_proc/petget_installed_patterns_system
  
@@ -374,9 +382,19 @@ do
  #[ $repocnt -ge 5 ] && break	# SFR: no limit
 done
 
-FILTER_CATEG="Desktop"
+REPOS_NOARCH_WARNING=""
+if which apt >/dev/null || which synaptic >/dev/null; then
+  REPOS_NOARCH_WARNING="<text><label>\" \"</label></text>
+<text><label>\"Warning !\"</label></text>
+<text><label>\"Some noarch packages\"</label></text>
+<text><label>\"are old or unsupported.\"</label></text>"
+  FILTER_CATEG="ALL" #230305...
+else
+  FILTER_CATEG="Desktop"
+fi
+
 #note, cannot initialise radio buttons in gtkdialog...
-echo "Desktop" > /tmp/petget_proc/petget_filtercategory #must start with Desktop.
+echo "$FILTER_CATEG" > /tmp/petget_proc/petget_filtercategory #must start with Desktop. #230305
 echo "$FIRST_DB" > /tmp/petget_proc/petget/current-repo-triad #ex: slackware-12.2-official
 
 #130330 GUI filtering. see also filterpkgs.sh ...
@@ -427,7 +445,7 @@ UO_6="</vbox>"
 WIDTH="$UO_1"
 [ "$SCRN_X" -le 1000 ] && WIDTH="$((SCRN_X-5))"
 
-[ -z "$PPM_CATEGORIES" ] && PPM_CATEGORIES="ALL Desktop System Setup Utility Filesystem Graphic Document Business Personal Network Internet Multimedia Fun"
+[ -z "$PPM_CATEGORIES" ] && PPM_CATEGORIES="$FILTER_CATEG $(sed "s/$FILTER_CATEG *//" <<< "Desktop System Setup Utility Filesystem Graphic Document Business Personal Network Internet Multimedia Fun ALL")" #230305
 PPM_CATEGORIES_PRINT="$(echo "$PPM_CATEGORIES" | tr "[:space:]" "\n" |  sed -n -E '/^[[:space:]]*$/! {s%(.*)%<item>\1</item>%;p}')"
 S='<window title="'$(gettext 'Package Manager v')''${VERSION}'" width-request="'${WIDTH}'" icon-name="gtk-about" default_height="540">
 <vbox space-expand="true" space-fill="true">
@@ -565,10 +583,7 @@ S='<window title="'$(gettext 'Package Manager v')''${VERSION}'" width-request="'
           <frame '$(gettext 'Repositories')'>
             <vbox scrollable="true" shadow-type="0" hscrollbar-policy="2" space-expand="true" space-fill="true">
               '${REPOS_RADIO}'
-              <text><label>" "</label></text>
-              <text><label>"Warning !"</label></text>
-              <text><label>"Some noarch packages"</label></text>
-              <text><label>"are old or unsupported."</label></text>
+              '${REPOS_NOARCH_WARNING}'
               <text height-request="1" space-expand="true" space-fill="true"><label>""</label></text>
               <height>128</height>
               <width>50</width>
@@ -698,7 +713,10 @@ class "GtkText*" style "specialmono"' > /tmp/petget_proc/petget/gtkrc_ppm
 export GTK2_RC_FILES=/root/.gtkrc-2.0:/tmp/petget_proc/petget/gtkrc_ppm
 . /usr/lib/gtkdialog/xml_info gtk #build bg_pixmap for gtk-theme
 
-gtkdialog -p PPM_GUI --styles=/tmp/gtkrc_xml_info.css
+GTKDIALOG='gtkdialog' #240526...
+which gtk2dialog >/dev/null \
+  && GTKDIALOG='gtk2dialog' && GTKDIALOG_BUILD=GTK2 #force gtk2 theming
+"$GTKDIALOG" -p PPM_GUI --styles=/tmp/gtkrc_xml_info.css >/dev/null
 
 #and clean up
 clean_flags
