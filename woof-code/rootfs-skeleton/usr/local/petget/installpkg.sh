@@ -70,15 +70,16 @@ Pfiles () {
 }
 
 Clear_wkdir () {
-    cp -far --remove-destination ${WKDIR}/* /
+    cp -far --remove-destination ${WKDIR}/* ${DIRECTSAVEPATH}/
     local RC="$?"
     rm -fr ${WKDIR}/*
     cd "$DLPKG_PATH"
     return "$RC"
 }
+
 #Marv ->
 wkdir_memcheck () { 
-  USE=`df --output='pcent'  /tmp/petget_proc/wkdir | grep -o '[0-9]*'`
+  USE=`df --output='pcent'  ${DIRECTSAVEPATH}/wkdir | grep -o '[0-9]*'`
   if [ "$USE" -ge "90" ]; then #or so, Marv
     . /usr/lib/gtkdialog/box_splash -timeout 2 -fontsize large -text "$(gettext 'Temporary memory full - aborting install. Consider setting up a swap file or partition.')" > /dev/null 2>&1 &
     exit
@@ -87,35 +88,6 @@ wkdir_memcheck () {
 #<-Marv
 #End Functions  # <-jrb
 
-#Make directory to extract pkgs to  #jrb
-mkdir /tmp/petget_proc/wkdir > /dev/null 2>&1 #230305 #jrb
-WKDIR=/tmp/petget_proc/wkdir #230305 #jrb
-wkdir_memcheck
-
-[ "$(cat /var/local/petget/nt_category 2>/dev/null)" != "true" ] && \
- [ -f /tmp/petget_proc/install_quietly ] && set -x
- #; mkdir -p /tmp/petget_proc/PPM_LOGs ; NAME=$(basename "$0"); exec 1>> /tmp/petget_proc/PPM_LOGs/"$NAME".log 2>&1
- 
-export TEXTDOMAIN=petget___installpkg.sh
-export OUTPUT_CHARSET=UTF-8
-
-APPDIR=$(dirname $0)
-[ -f "$APPDIR/i18n_head" ] && source "$APPDIR/i18n_head"
-LANG_USER=$LANG
-export LANG=C
-[ -e /etc/rc.d/PUPSTATE ] && . /etc/rc.d/PUPSTATE #this has PUPMODE and SAVE_LAYER.
-. /etc/DISTRO_SPECS #has DISTRO_BINARY_COMPAT, DISTRO_COMPAT_VERSION
-
-. /etc/xdg/menus/hierarchy #w478 has PUPHIERARCHY variable.
-
-[ "$PUPMODE" == "" ] && PUPMODE=2
-
-[ "$PUPMODE" = "2" ] && [ ! -d /audit ] && mkdir -p /audit
-
-DLPKG="$1"
-DLPKG_BASE="`basename "$DLPKG"`" #ex: scite-1.77-i686-2as.tgz
-DLPKG_PATH="`dirname "$DLPKG"`"  #ex: /root
-DL_SAVE_FLAG=$(cat /var/local/petget/nd_category 2>/dev/null)
 
 clean_and_die () {
   rm -f /var/packages/${DLPKG_NAME}.files
@@ -159,6 +131,34 @@ install_path_check() {
   rm -f "$FILELIST" 
   exit 1
 }
+
+
+
+[ "$(cat /var/local/petget/nt_category 2>/dev/null)" != "true" ] && \
+ [ -f /tmp/petget_proc/install_quietly ] && set -x
+ #; mkdir -p /tmp/petget_proc/PPM_LOGs ; NAME=$(basename "$0"); exec 1>> /tmp/petget_proc/PPM_LOGs/"$NAME".log 2>&1
+ 
+export TEXTDOMAIN=petget___installpkg.sh
+export OUTPUT_CHARSET=UTF-8
+
+APPDIR=$(dirname $0)
+[ -f "$APPDIR/i18n_head" ] && source "$APPDIR/i18n_head"
+LANG_USER=$LANG
+export LANG=C
+[ -e /etc/rc.d/PUPSTATE ] && . /etc/rc.d/PUPSTATE #this has PUPMODE and SAVE_LAYER.
+. /etc/DISTRO_SPECS #has DISTRO_BINARY_COMPAT, DISTRO_COMPAT_VERSION
+
+. /etc/xdg/menus/hierarchy #w478 has PUPHIERARCHY variable.
+
+[ "$PUPMODE" == "" ] && PUPMODE=2
+
+[ "$PUPMODE" = "2" ] && [ ! -d /audit ] && mkdir -p /audit
+
+DLPKG="$1"
+DLPKG_BASE="`basename "$DLPKG"`" #ex: scite-1.77-i686-2as.tgz
+DLPKG_PATH="`dirname "$DLPKG"`"  #ex: /root
+DL_SAVE_FLAG=$(cat /var/local/petget/nd_category 2>/dev/null)
+
 
 # 22sep10 shinobar clean up probable old files for precaution
  rm -f /pet.specs /pinstall.sh /puninstall.sh /install/doinst.sh
@@ -289,6 +289,11 @@ elif [ $PUPMODE -eq 13 ] && [ "$PUNIONFS" != "overlay" ];then
 	 fi
 	fi
 fi
+
+#Make directory to extract pkgs to  #jrb
+mkdir -p ${DIRECTSAVEPATH}/wkdir > /dev/null 2>&1 #230305 #jrb
+WKDIR=${DIRECTSAVEPATH}/wkdir #230305 #jrb
+wkdir_memcheck
 
 if [ -n "$DISPLAY" ] || [ -n "$WAYLAND_DISPLAY" ] && [ ! -f /tmp/petget_proc/install_quietly ];then #131222
  LANG=$LANG_USER
