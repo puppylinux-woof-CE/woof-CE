@@ -1,48 +1,52 @@
 #!/bin/bash
-# Add a file to directory udevmodulelist for each module being loaded.
-# The file contains the name of the module expected to be loaded, for rc.network to await.
+# buildudevmodulelist - possible argument: MODULE
+# Accepts MODALIAS if already set.
+# Adds a file to directory udevmodulelist for each module being loaded.
+# The file contains the name of the driver expected to be loaded if not built into kernel, for rc.snsnetwork to await.
 # The name may be different from the file name if a networking device is aliased to multiple driver modules or if a driver is blacklisted. 
-# Invoked by udev rule file 51-simple_network_setup.rules
+# Invoked by udev rule file 91-simple_network_setup.rules
 #201017 v2.4: Rewritten to save module names expected to be loaded, accessed by connection driver name (from /sys/class/net/*/device/driver link). 
 #210703 v3.1 Accept modalias as argument, to avoid depending on MODALIAS environment variable.
 #211215 v3.3 Simplify udev rule; revert 210703 because udev-rule %s{modalias} argument unreliable for ssb subsystem; test for connections, etc., because udev-rule test command location inconsistent across kernel versions.
+#230928 v3.4 Accept driver argument, for new rule that avoids using modprobe; simplify preferences to avoid using modprobe; support both (net...,pci...) rules.
 
-[ -n "$MODALIAS" ] \
-  && [ -s /etc/simple_network_setup/connections ] \
-  && [ -x /sbin/pup_event_backend_modprobe ] \
-  || exit #211215
-usleep 1000 #precaution for multiple cores
-MODULE="$(/sbin/modprobe -i --config /dev/null \
-  --show-depends "$MODALIAS" 2>/dev/null | \
-  grep -E '/kernel/drivers/(net|staging)' | \
-  grep -o '[^/]*\.ko' | cut -f 1 -d '.' | tail -n 1)"
-if [ -n "$MODULE" ]; then
-    LOAD_MODULE="${MODULE//-/_}"
-    PREFLIST=''
-    if [ -f /etc/rc.d/MODULESCONFIG-backend_modprobe ]; then
-# shellcheck disable=SC1091
-        . /etc/rc.d/MODULESCONFIG-backend_modprobe #get PREFLIST
-    elif [ -f /etc/rc.d/MODULESCONFIG ]; then
-# shellcheck disable=SC1091
-        . /etc/rc.d/MODULESCONFIG #get PREFLIST
+if [ -d /etc/simple_network_setup ]; then
+    MODULE="$1"
+    if [ -n "$MODALIAS" ]; then
+        usleep 1000 #precaution for multiple cores
+        MODULE="$(/sbin/modprobe -i --use-blacklist \
+          --show-depends "$MODALIAS" 2>/dev/null | \
+          grep -E '/kernel/drivers/(net|staging)' | \
+          grep -o '[^/]*\.ko' | cut -f 1 -d '.' | tail -n 1)"
+    elif [ -n "$MODULE" ]; then
+        MODULE="${MODULE%-pci-bridge}" #For Broadcom B43 & bcma drivers
+    else
+        mkdir -p /tmp/simple_network_setup
+        echo -e "Network driver(s) not specified by SNS udev rule.\n  File /etc/udev/rules.d/??-simple_network_setup.rules\n  may need a higher number for the '??',\n  or its line: #GOTO=\"sns_modprobe_rule\"\n  can be uncommented ('#' removed) to use its alternate rule.\n" >/tmp/simple_network_setup/buildudevmodulelist_SNS_rule_failure_message
     fi
-    if [ -n "$PREFLIST" ]; then
-        PREFHIT="$(echo -n "$PREFLIST" | tr ' ' '\n' | grep "^${MODULE}:" | head -n 1)"
-        if [ -n "$PREFHIT" ]; then
-            grep -hso '^blacklist  *[^ ]*' /etc/modprobe.d/* | tr -s ' ' > /tmp/sns_blacklist.conf
-            PREFMODS="$(echo -n "$PREFHIT" | cut -f 2-9 -d ':' | tr ':' ' ')"
-            for PREFMOD in $PREFMODS; do #format can have multiple ':', ex: 8139cp:8139too:8139xx (last is most preferred).
-                echo "blacklist $MODULE" >> /tmp/sns_blacklist.conf
-                xMODULE="$(/sbin/modprobe -i --config /tmp/sns_blacklist.conf \
-                  --show-depends "$MODALIAS" 2>/dev/null | \
-                  grep -E '/kernel/drivers/(net|staging)' | \
-                  tail -n 1 | grep -o '[^/]*\.ko' | cut -f 1 -d '.')"
-                [ "$xMODULE" = "$PREFMOD" ] && LOAD_MODULE="${xMODULE//-/_}"
-            done
-            rm -f /tmp/sns_blacklist.conf
+    if [ -n "$MODULE" ] && [ ! -f /tmp/simple_network_setup/udevmodulelist/"$MODULE" ]; then #181023
+        WAIT_MODULES="${MODULE//-/_}"
+        PREFLIST=''
+        if [ -f /etc/rc.d/MODULESCONFIG-backend_modprobe ]; then
+# shellcheck disable=SC1091
+            . /etc/rc.d/MODULESCONFIG-backend_modprobe #get PREFLIST
+        elif [ -f /etc/rc.d/MODULESCONFIG ]; then
+# shellcheck disable=SC1091
+            . /etc/rc.d/MODULESCONFIG #get PREFLIST
         fi
+        if [ -n "$PREFLIST" ]; then
+            PREFHIT="$(echo -n "$PREFLIST" | tr ' ' '\n' | grep -m 1 "^${MODULE}:")" \
+              && WAIT_MODULES="$(echo "$PREFHIT" | tr ':' '\n')" #Add newline to last module name
+            SKIPLIST=''
+            if [ -f /etc/rc.d/MODULESCONFIG ]; then
+# shellcheck disable=SC1091
+                . /etc/rc.d/MODULESCONFIG #get SKIPLIST
+                SKIP_MODULES="$(grep -woF "$WAIT_MODULES" <<< "$SKIPLIST")" \
+                  && WAIT_MODULES="$(grep -vF "$SKIP_MODULES" <<< "$WAIT_MODULES")"
+            fi
+        fi
+        mkdir -p /tmp/simple_network_setup/udevmodulelist
+        ! grep -qswF "$WAIT_MODULES" /tmp/simple_network_setup/udevmodulelist/"$MODULE" \
+          && echo "$WAIT_MODULES" > /tmp/simple_network_setup/udevmodulelist/"$MODULE"
     fi
-    mkdir -p /tmp/simple_network_setup/udevmodulelist
-    ! grep -qsw "$LOAD_MODULE" /tmp/simple_network_setup/udevmodulelist/"$MODULE" \
-      && echo "$LOAD_MODULE" >> /tmp/simple_network_setup/udevmodulelist/"$MODULE"
 fi

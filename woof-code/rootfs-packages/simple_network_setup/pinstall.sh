@@ -14,11 +14,14 @@ if [ "$(pwd)" = '/' ]; then
     fi
 
     #v3.3 Remove connections if in old format...
-    grep '^..[^:]' etc/simple_network_setup/connections \
+    grep -qs '^..[^:]' etc/simple_network_setup/connections \
       && rm -f etc/simple_network_setup/connections
 
     if ! which iw >/dev/null 2>&1; then
         BACK_TITLE="This version of simple-network-setup cannot manage wireless connections, due to the absence of the 'iw' command in this installation, but can control wired ethernet connections."
         Xdialog --wmclass pgitprep --title "SNS - Barry's Simple Network Setup" --backtitle "$BACK_TITLE" --left --wrap --msgbox "If you need wireless support, either install 'iw' if available or uninstall this package and install or use a 2.4.x version of simple-network-setup." 0 70
     fi
+
+    #v3.4 Remove old udev rule file due to its being renamed.
+    rm -f etc/udev/rules.d/51-simple_network_setup.rules
 fi
