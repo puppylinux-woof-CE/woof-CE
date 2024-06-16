@@ -14,22 +14,21 @@
 #181209 add argument, adapt network stats reset moved from rc.sysinit.
 #200817 if no profiles present, ensure connectwizard is 'current'.
 #200910 resolve shellcheck warnings.
+#231212 Add connman support.
+#240309 Remove clearing of resolv.conf (revert 180104, because SNS 3.4.1 ignores).
+#240311 Update peasywifi support for version 4.8.1+
 
 #choose default network tool...
 if [ -f /root/.connectwizardrc ];then #170309... #170724...
 # shellcheck disable=SC1091
     . /root/.connectwizardrc #sets CURRENT_EXEC
-else
-    CURRENT_EXEC='connectwizard' #for this script only, not saved
+else #231212... #240311...
+    CURRENT_EXEC='connectwizard'
+    [ -x /etc/init.d/rc.network-start ] && CURRENT_EXEC='peasywifi'
+    [ -x /etc/init.d/connman ] && CURRENT_EXEC='connman-gtk'
+    echo "CURRENT_EXEC=$CURRENT_EXEC" > /root/.connectwizardrc
+    sync #for read by connetwizardwrapper
 fi #170724 end
-
-case "$CURRENT_EXEC" in
-    connman-*)
-        connmanctl enable wifi
-        connmanctl enable ethernet
-        exit
-        ;;
-esac
 
 if [ "$1" = '--sysinit' ]; then #181209...
     ETHERNETDIR=network_ethernet
@@ -44,69 +43,72 @@ if [ "$1" = '--sysinit' ]; then #181209...
     if [ "$UPDATE_MONTH" != "$CURRENT_MONTH" ];then
         echo "$UPDATE_MONTH" > /var/local/$ETHERNETDIR/current_month
         for ONECOUNT in $ETHERNETDIR pupdial/isp1 pupdial/isp2; do
-            if [ -d /var/local/$ONECOUNT ];then
-                echo -n 0 > /var/local/$ONECOUNT/rx_bytes_month
-                echo -n 0 > /var/local/$ONECOUNT/tx_bytes_month
+            if [ -d /var/local/"$ONECOUNT" ];then
+                echo -n 0 > /var/local/"$ONECOUNT"/rx_bytes_month
+                echo -n 0 > /var/local/"$ONECOUNT"/tx_bytes_month
             fi
         done
     fi
     unset ETHERNETDIR
 
-    #adjust for possible installation of peasywifi
-    which peasywifi >/dev/null 2>&1 && connectwizard_wrapper peasywifi #180919
+    # Adjust for possible installation of additional network managers.
+    connectwizard_wrapper #231212
 fi
 
 NETCHOICE='connectwizard' #180112
 case "$CURRENT_EXEC" in #170309 end
+    connman-*) #231212...
+        NETCHOICE='connman-gtk'
+        ;;
     sns) #180112...
         which sns >/dev/null 2>&1 \
           && [ -s /etc/simple_network_setup/connections ] \
           && NETCHOICE='sns'
         ;;
-    peasywifi) #180919...
+    peasywifi) #Must be before net-setup) in case pinstall.sh appends peasywifi to it. #180919...
         which peasywifi >/dev/null 2>&1 \
-          && { [ "$(ls -1 /etc/pwf/wifi 2>/dev/null)" ] \
-              || [ "$(ls -1 /etc/pwf/ethernet 2>/dev/null)" ]; } \
+          && { [ -n "$(ls -1 /etc/pwf/wifi 2>/dev/null)" ] \
+              || [ -n "$(ls -1 /etc/pwf/ethernet 2>/dev/null)" ]; } \
           && NETCHOICE='peasywifi'
         ;;
     net-setup.sh)
         which net-setup.sh >/dev/null 2>&1 \
-          && [ "$(ls -1 /etc/network-wizard/network/interfaces 2>/dev/null)" ] \
+          && [ -n "$(ls -1 /etc/network-wizard/network/interfaces 2>/dev/null)" ] \
           && NETCHOICE='net-setup.sh'
         ;; #180112 end
     connectwizard|frisbee) #try determine which tool was used to setup networking... 101007 160609...
         if which frisbee >/dev/null 2>&1 && frisbee --test_active; then #130104
             NETCHOICE='frisbee' #130104
         elif which peasywifi >/dev/null 2>&1 \
-          && { [ "$(ls -1 /etc/pwf/wifi 2>/dev/null)" ] \
-              || [ "$(ls -1 /etc/pwf/ethernet 2>/dev/null)" ]; };then #180919...
+          && { [ -n "$(ls -1 /etc/pwf/wifi 2>/dev/null)" ] \
+              || [ -n "$(ls -1 /etc/pwf/ethernet 2>/dev/null)" ]; };then #180919...
             NETCHOICE='peasywifi'
             connectwizard_wrapper peasywifi
         elif which sns >/dev/null 2>&1 \
           && [ -s /etc/simple_network_setup/connections ];then #100306 ...160609 170515
             NETCHOICE='sns'
         elif which net-setup.sh >/dev/null 2>&1 \
-          && [ "$(ls -1 /etc/network-wizard/network/interfaces 2>/dev/null)" ];then #170515
+          && [ -n "$(ls -1 /etc/network-wizard/network/interfaces 2>/dev/null)" ];then #170515
             NETCHOICE='net-setup.sh'
         fi
         ;;
 esac
 
-if [ ! -f /tmp/.initial_resolv.conf_cleared ];then #180104...
-    echo -n '' > /etc/resolv.conf
-    touch /tmp/.initial_resolv.conf_cleared
-fi
-
 case $NETCHOICE in
-    peasywifi) #180919
-        /usr/local/peasywifi/rc.network & #180919
+    connman-gtk) #231212...
+        chmod a+x /etc/init.d/connman #Precaution, starts as service
+        ;;
+    peasywifi) #Must be before net-setup) in case pinstall.sh appends peasywifi to it. #180919...
+        #rc.network_peasywifi run by init script rc.network-start.
+        chmod a+x /etc/init.d/rc.network-start #Precaution, starts as service
+        chmod a+x /etc/init.d/rc.network-stop
         ;;
     net-setup.sh)
-        /usr/local/network-wizard/rc.network & #180923
+        /usr/local/network-wizard/rc.wiznetwork & #180923
         ;;
     sns) #100306
         /etc/rc.d/rc.network_basic #this only sets up interface 'lo'.
-        /usr/local/simple_network_setup/rc.network &
+        /usr/local/simple_network_setup/rc.snsnetwork &
         ;;
     connectwizard) #101007 shinobar
         connectwizard_exec connectwizard #200817

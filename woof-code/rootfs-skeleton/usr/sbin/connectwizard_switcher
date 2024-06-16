@@ -1,0 +1,152 @@
+#!/bin/bash
+# connectwizard_switcher - kill leftover processes and switch setups
+#  between connman and legacy puppy network managers
+# Executed only by connectwizard_exec, when a network manager is changed.
+# Inherited from connectwizard_exec: CURRENT_EXEC, NEWEXEC, to avoid
+#  using exec names as arguments.
+# Determines connman state by the setting of the execution permissions
+#  of /etc/init.d/connman.
+# Kills dhcpcd when connman made active, udhcpd when connman deactivated.
+# Sets and switches to appropriate network monitor.
+# Supports Peasywifi versions 4.8.1+ only.
+
+kill_any_remaining_processes() {
+case "$CURRENT_EXEC" in
+    sns)
+        EXECPIDS="$(pgrep -fd ' ' 'gtk2?dialog --program=SNS_') \
+        $(pgrep -fd ' ' 'Xdialog .*wmclass sns') \
+        $(pgrep -xd ' ' 'sns')"
+        ;;
+    net-setup.sh)
+        killall dhcpcd 2>/dev/null
+        EXECPIDS="$(pgrep -fd ' ' 'gtk2?dialog --program=NETWIZ_') \
+        $(pgrep -fd ' ' 'Xdialog .*wmclass netwiz') \
+        $(pgrep -xd ' ' 'net-setup.sh')"
+        ;;
+    frisbee)
+        which frisbee >/dev/null 2>&1 && frisbee --test_active \
+          && frisbee --deactivate
+        EXECPIDS="$(pgrep -fd ' ' 'gtk2?dialog --program=FRISBEE_') \
+        $(pgrep -fd ' ' 'Xdialog .*wmclass frisbee') \
+        $(pgrep -xd ' ' 'frisbee') \
+        $(pgrep -xd ' ' 'frisbee-main')"
+        ;;
+    pupdial)
+        EXECPIDS="$(pgrep -fd ' ' 'gtk2?dialog --program=PupDial') \
+        $(pgrep -fd ' ' 'gtk2?dialog --program=HOTDIALOG') \
+        $(pgrep -fd ' ' 'Xdialog .*wmclass pupdial') \
+        $(pgrep -fd ' ' 'pupdial_') \
+        $(pgrep -xd ' ' 'pupdial')" #pupdial, pupdial_init_hotpluggable, pupdial_wizard_helper
+        ;;
+    pgprs)
+        EXECPIDS="$(pgrep -fd ' ' 'gtk2?dialog --program=PGPRS_') \
+        $(pgrep -fd ' ' 'Xdialog .*wmclass pgprs') \
+        $(pgrep -fd ' ' 'pgprs-') \
+        $(pgrep -xd ' ' 'pgprs')" #pgprs, pgprs-connect, pgprs-setup
+        ;;
+    connman-gtk) #231212...
+        EXECPIDS="$(pgrep -fd ' ' 'connman-gtk\.') \
+        $(pgrep -fd ' ' 'Xdialog .*wmclass connman') \
+        $(pgrep -xd ' ' 'connman-gtk')" #connman-gtk, connman-gtk.bin, connman-gtk.sh
+        ;;
+    peasywifi)
+        EXECPIDS="$(pgrep -fd ' ' 'gtk2?dialog3? -p DIALOG -G +') \
+        $(pgrep -fd ' ' 'Xdialog .*wmclass peasywifi') \
+        $(pgrep -fd ' ' 'Xdialog .*title   --') \
+        $(pgrep -fd ' ' '/etc/pwf/pwf.conf') \
+        $(pgrep -fd ' ' '/root/Startup/peasywifi_auto') \
+        $(pgrep -fd ' ' '/etc/pwf/interfaces') \
+        $(pgrep -xd ' ' 'peasywifi')"
+        ;;
+    *) EXECPIDS='' ;;
+esac
+# shellcheck disable=SC2086 #no quotes intended
+[ -n "$(tr -d ' ' <<< "$EXECPIDS")" ] && kill $EXECPIDS 2>/dev/null #unquoted
+}
+ 
+deactivate_connman() {
+    killall -q udhcpd
+    killall -q connman-ui-gtk connman-ui-gtk.bin
+    rfkill list wlan | grep -q 'Soft blocked: yes' \
+      && rfkill unblock wlan
+    chmod a-x /etc/init.d/connman
+    [ -L /etc/resolv.conf ] && rm -f /etc/resolv.conf
+} 
+
+activate_connman() {
+    chmod a+x /etc/init.d/connman
+    /usr/local/apps/Connect/AppRun --connect
+    ln -snf netmons/connman-ui-gtk.desktop /etc/xdg/autostart/netmon.desktop
+    pgrep -x 'connman-ui-gtk' >/dev/null \
+      || connman-ui-gtk &
+}
+
+deactivate_peasywifi() {
+    killall -q udhcpd
+    killall -q peasywifi_tray
+    chmod a-x /etc/init.d/rc.network-start
+    chmod a-x /etc/init.d/rc.network-stop
+    [ -f /root/Startup/peasywifi_auto ] \
+      && chmod a-x /root/Startup/peasywifi_auto
+    chmod a-x /root/Startup/peasywifi_tray
+} 
+
+activate_peasywifi() {
+    chmod a+x /etc/init.d/rc.network-start
+    chmod a+x /etc/init.d/rc.network-stop
+    [ -f /root/Startup/peasywifi_auto ] \
+      && chmod a+x /root/Startup/peasywifi_auto
+    ln -snf netmons/peasywifi_tray.desktop /etc/xdg/autostart/netmon.desktop
+    chmod a+x /root/Startup/peasywifi_tray
+    pgrep -x 'peasywifi_tray' >/dev/null \
+      || /root/Startup/peasywifi_tray &
+}
+
+
+### Main ###
+ip link show | grep -B 1 'link/ether' | grep -qw 'UP[80]*' \
+  && /usr/local/apps/Connect/AppRun --disconnect
+
+kill_any_remaining_processes
+
+# Make the switch official.
+echo "$CURRENT_EXEC" > /tmp/.connectwizard_previous_exec
+echo "CURRENT_EXEC=$NEWEXEC" > /root/.connectwizardrc
+sync
+
+if which connman-gtk >/dev/null \
+  || which peasywifi >/dev/null \
+  && [ -f /etc/xdg/autostart/netmons/netmon_wce.desktop ]; then
+
+    case "$CURRENT_EXEC" in
+        connman-gtk)
+            deactivate_connman
+            ;;
+        peasywifi)
+            deactivate_peasywifi
+            ;;
+        *) #legacy tools
+            if grep -qE 'connman-gtk|peasywifi' <<< "$NEWEXEC"; then
+                killall -q dhcpcd
+                killall -q netmon_wce
+            fi
+            ;;
+    esac
+
+    case "$NEWEXEC" in
+        connman-gtk)
+            activate_connman
+            ;;
+        peasywifi)
+            activate_peasywifi
+            ;;
+        *) #legacy tools
+            if grep -qE 'connman-gtk|peasywifi' <<< "$CURRENT_EXEC"; then
+                ln -snf netmons/netmon_wce.desktop /etc/xdg/autostart/netmon.desktop
+                pgrep -x 'netmon_wce' >/dev/null \
+                  || netmon_wce &
+            fi
+            ;;
+    esac
+fi
+exit
