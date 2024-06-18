@@ -1,0 +1,504 @@
+#!/bin/bash
+# shellcheck disable=SC1091,2089,2090
+#(c) Copyright Barry Kauler 2010, bkhome.org
+#2010 Lesser GPL licence v2 (file:///usr/share/doc/legal/lgpl-2.1.txt)
+#/etc/simple_network_setup/connections is created by SNS, /usr/local/simple_network_setup/sns
+#100308 first version of script, open and wep networks only.
+#100309 supports wpa. "version 1" released.
+#100314 support ndiswrapper.
+#100320 fix if essid has spaces. Add DHCPCDFIX parameter.
+#100325 added 'stop' commandline option. added DHCPCDFIX for wired.
+#100513 more delay, repeat scan attempt.
+#100703 fix disconnect/reconnect.
+#100804 while testing for module loaded, also test for valid macaddress.
+#101122 wait for module to load.
+#101216 more logging, to /tmp/simple_network_setup.
+#110203 improve scanning.
+#120204 BK: internationalized.
+#130411 skip dhcpcd if in frisbee mode
+#160922 misplaced code. fix channels for wireless scan. 160926
+#161008 do not wait for a module to load if it is built-in (ex: ethernet smsc95xx in raspberry pi2).
+#170301 correct logging of ifconfig return code; revert unnecessary frisbee tests (130411).
+#170309 ensure current exec name set
+#170330 restore module loading wait loop by reverting 101122 check to "avoid re-waiting on same module" - duplicates eliminated by 'sort -u'.
+#170402 change check for dhcpcd success, to rely on dhcpcd exit code.
+#170505 cancel possible connect splash message before exiting.
+#170522 /tmp/sns_interface_success file written by 'sns' and 'rc.network', but in case not.
+#170612 verify wifi country of regulation matches user specified country.
+#170924 test if wireless interfaces exist; add sleep after dhcpcd.
+#171222 move check for connections, to always allow stop; increase wait loop time.
+#180108 wait longer for modules to load, needed for kernels 4+.
+#180115 move test for builtin driver; log module loading/readiness wait time.
+#180125 unblock wlan softblock.
+#180706 v2.0: Accommodate large network list, by omitting unneeded iwlist lines and limiting search for 'Scan completed'.
+#181109 v2.1: Replace module-loading & MAC-address loop logic with greps of lists; speed up scan result processing & sort by strength.
+#190209 v2.1.1: Increase wait for ethtool link detected, to 6 secs total).
+#190210 v2.2: Avoid wait after link timeout.
+#190525 v2.3: Allow for udev list updates; correct module loading & connection checks; add/restore wait for interfaces to configure.
+#200412 v2.3.1: Increase wait for ethtool link detected, to 15 secs.
+#201017 v2.4: Change module detection to handle multiple aliases for a device and driver preferences; ignore driver names when gathering connection MAC addresses; remove use of devpaths, which are no longer created; wait for link up 1 second as well as 3 & 5. 
+#210201 Reorganized code into segments.
+#210202 Replace deprecated ifconfig and route with busybox-compatable subset of ip (assuming nonfunctional -oneline); replace iwconfig with iw; replace pidof with 'ps -C'; replace iwlist scan with iw scan.
+#210205 Shorten delays after bringing link up and initially.
+#210207 Change WEP support to use wpa_supplicant.
+#210209 If already running, ignore extra starts/stops; ensure wpa_supplicant killed.
+#210211 Try another interface if wpa_supplicant fails.
+#210212 BK: /tmp/sns_interface_success no longer used (derived from easyos 190215); extend wait before testing resolv.conf (derived from easyos 180924).
+#210226 Resolve shellcheck issues.
+#210623 v3.0 (not annotated) Support hidden networks; use 'read' to extract fields from one-line entries; retry dhcpcd (once) if it fails to set nameserver (gets IP 254.169...); replace temp files with redirected string variables (<<<); check for already running; add 'Attempting to reconnect' splash message.
+#210703 v3.1 Accommodate EasyOS which does not use pup_event_backend_modprobe for module loading; change yaf-splash to gtkdialog-splash.
+#210915 Retry wired dhcpcd if nameserver not set; skip country regulation check for wired networks; change wired log to /tmp/simple_network_setup/rc_network_wired_connection_log, supporting multiple attempts.
+#211002 v3.2 Try interfaces in connection (list) order, but only once per interface.
+#211215 v3.3 Accommodate spoofed gadget (USB-tethered smartphone) MAC addresses; add spoofing if macchanger installed; override default dhcpcd response timeout if not already in conf file, to compensate for router possibly slowing due to MAC spoofing; improved some variable names; stop waiting for all connections if top-profile connection detected.
+#211231 v3.3 Replace ethtool with ip-show test for LOWER_UP; refine dhcpcd success check; refine module loading check; refine interface trials (re 211002), using grouped connection profiles; skip waiting for module loading and wired connection if not during boot-up.
+#220704 v3.3.1 Increase sleep before dhcpcd, to reduce chance of dhcpcd not receiving valid IP address; add wired dhcpcd messages to bootsysinit.log.
+#230918 BK: fixes.
+#230919 BK: /usr/local/simple_network_setup/rc.network renamed to rc.snsnetwork; log names changed to match; simplified already-running check.
+#230919 v3.3.2 BK: ongoing wpa_supplicant log, for EasyOS only.
+#230930 v3.4 Refine ensure_driver_modules_loaded and elsewhere; always wait for wired connection (revert from 211231); running check improved.  
+#231224 Add checks for wayland graphical environment.
+#240217 v3.5 Refine wpa_supplicant test to confine instances to those for SNS.
+#240418 v3.5.1: Replace unreliable pidof with pgrep.
+
+#If version is changed, ensure that new VERSION is set in the sns script. #190525
+
+export TEXTDOMAIN=simple_network_setup
+export OUTPUT_CHARSET=UTF-8
+. gettext.sh
+LANGORIG=$LANG
+
+#Running?... #230930...
+WAITCNT=20
+while pgrep -x 'rc.snsnetwork' | grep -qwv "$$"; do #240418
+    [ $((WAITCNT--)) -le 0 ] && exit 1
+    sleep 0.5
+done
+
+. /usr/local/simple_network_setup/macaddress_spoofing_functions #211215
+
+#each line of /etc/simple_network_setup/connections has everything needed about a connection:
+#(please ignore spaces, put here for readability only)
+
+#        1                 2          3         4       5                                       6         7          8                 9        10                         11
+#format: MACADDRESS       |IF_INTTYPE|IF_DRIVER|IF_BUS |IF_INFO                                |DHCPCDFIX|CELL_ESSID|CELL_ADDRESS     |SEC_MGMT|SEC_KEY                   |WPA_DRIVER|
+#ex:     00:17:36:84:E5:1A|Wired     |sky2     |pci    |Marvell Yukon 2 Gigabit Ethernet driver|         |belkin54g |00:17:3F:68:33:7E|WPA-PSK |000102030405060708090a0b0c|nl80211   |
+MACADDRESS_FIELD=1
+IF_DRIVER_FIELD=3
+DHCPCDFIX_FIELD=6
+CELL_ESSID_FIELD=7
+CELL_ADDRESS_FIELD=8
+
+cancel_splash_and_exit() { #170505...
+    if [ -f /tmp/sns_splash_pid ]; then
+        local SPLASHPID
+        SPLASHPID="$(cat /tmp/sns_splash_pid)"
+        rm -f /tmp/sns_splash_pid
+# shellcheck disable=SC2009
+        [ -n "$SPLASHPID" ] \
+          && ps -C gtkdialog-splash -C yaf-splash | grep -wq "^ *$SPLASHPID" \
+          && kill "$SPLASHPID" 2>/dev/null
+    fi
+    touch /tmp/simple_network_setup/initialization_completed #211231
+    exit 0
+} #170505 end
+
+stop_interface() {
+    INTERFACES="$(ip link show | grep -B 1 'link/ether' | grep '^[0-9]' | cut -f 2 -d ':' | tr -d '\n')" #210202
+    for INTERFACE in $INTERFACES; do
+        pgrep -f "wpa_supplicant [^ ]* -i${INTERFACE}" >/dev/null 2>&1 \
+          && wpa_cli -i"${INTERFACE}" terminate >/dev/null #210209 #240217
+# shellcheck disable=SC2009
+        if ps -fC dhcpcd | grep -qw "$INTERFACE" \
+          || ip link show "$INTERFACE" | grep -qw 'UP' \
+          || iw dev "$INTERFACE" info 2>/dev/null | grep -qw 'ssid'; then #slacko puts : after command
+            iw dev "$INTERFACE" info 2>/dev/null | grep -qw 'ssid' \
+              && iw dev "$INTERFACE" disconnect #210202
+            ip link set "$INTERFACE" down #210202
+# shellcheck disable=SC2009
+            ps -fC dhcpcd | grep -qw "$INTERFACE" \
+              && dhcpcd --release "$INTERFACE" 2>/dev/null
+            ip route flush dev "$INTERFACE" #100703
+            #in situation bring down interface from desktop icon...
+            [ -n "$DISPLAY" ] || [ -n "$WAYLAND_DISPLAY" ] \
+              && LANG=$LANGORIG gtkdialog-splash -placement bottom -bg pink -timeout 5 -text "$(eval_gettext "Network interface '\$INTERFACE' has been disabled")" >/dev/null & #231224
+        fi
+    done
+    exit
+} #stop_interface
+
+ensure_driver_modules_loaded() {
+    #Returns 0 unless no drivers in connection profiles are found.
+    #181109 Collect driver names from saved connection profiles & make grep patterns...
+    #Determine the modules to wait for to load... #211231...
+    local CONNECTION_DRIVER_LIST CONNECTION_DRIVER_PATTERNS CONNECTION_BUILTIN_DRIVER_LIST
+    local EXPECTED_BUILTIN_DRIVER_LIST='' CONNECTION_MODULE_LIST=''
+    CONNECTION_DRIVER_LIST="$(cut -f "$IF_DRIVER_FIELD" -d '|' <<< "$ALL_CONNECTION_PROFILES" | sort -u)"
+# shellcheck disable=SC2001
+    CONNECTION_DRIVER_PATTERNS="$(sed 's%.*%/&.ko%' <<< "$CONNECTION_DRIVER_LIST")"
+    #Determine any built-in drivers to be used...
+    CONNECTION_BUILTIN_DRIVER_LIST="$(grep -soF "${CONNECTION_DRIVER_PATTERNS}" /lib/modules/"$(uname -r)"/modules.builtin | sed 's%.*/\([^/]*\)\.ko%\1%')" #global #201017...
+    if [ -n "$CONNECTION_BUILTIN_DRIVER_LIST" ];then
+        EXPECTED_BUILTIN_DRIVER_LIST="$(grep -F "$CONNECTION_BUILTIN_DRIVER_LIST" <<< "$CONNECTION_DRIVER_LIST" )"
+        CONNECTION_MODULE_LIST="$(grep -vF "$CONNECTION_BUILTIN_DRIVER_LIST" <<< "$CONNECTION_DRIVER_LIST" )"
+    else   
+        CONNECTION_MODULE_LIST="$CONNECTION_DRIVER_LIST"
+    fi
+    mkdir -p /tmp/simple_network_setup/udevmodulelist
+    local EXPECTED_MODULE_LIST EXPECTED_MODULE_COUNT
+    WAITCNT=0 ; WAITMAX=12 ; local WAITDRVRS=8 #180108 190525
+    #At startup, wait until all drivers in profiles are detected.
+    while true; do #Wait until drivers identified by udev rules
+# shellcheck disable=SC2010
+        EXPECTED_MODULE_LIST="$(ls -1 /tmp/simple_network_setup/udevmodulelist | grep -Fx "$CONNECTION_MODULE_LIST")" #global
+        { [ "$EXPECTED_MODULE_LIST" = "$CONNECTION_MODULE_LIST" ] \
+          || [ "$WAITCNT" -ge "$WAITDRVRS" ]; } && break
+        sleep 1
+        ((++WAITCNT))
+    done
+    EXPECTED_MODULE_COUNT="$(wc -l <<< "$EXPECTED_MODULE_LIST")" #190525
+    local ONEMODULE ACCEPTABLE_MODULE_LIST LOADED_MODULE_COUNT
+    ACCEPTABLE_MODULE_LIST="$(cat /tmp/simple_network_setup/udevmodulelist/*)"
+    if [ -n "$ACCEPTABLE_MODULE_LIST" ]; then #201017
+        #Wait until all expected modules are loaded...
+        while true; do #190525
+            LOADED_MODULE_LIST="$(lsmod | cut -f 1 -d ' ' | \
+              grep -Fx "${ACCEPTABLE_MODULE_LIST}")"
+            LOADED_MODULE_COUNT=0
+            for ONEMODULE in $EXPECTED_MODULE_LIST; do
+                grep -qFx "$LOADED_MODULE_LIST" /tmp/simple_network_setup/udevmodulelist/"$ONEMODULE" \
+                  && ((++LOADED_MODULE_COUNT))
+            done
+            [ "$LOADED_MODULE_COUNT" -eq "$EXPECTED_MODULE_COUNT" ] && break
+            [ "$WAITCNT" -ge "$WAITDRVRS" ] && break #all modules may not be loaded.
+            sleep 1
+            ((++WAITCNT))
+        done
+    EXPECTED_DRIVER_LIST="$EXPECTED_MODULE_LIST$EXPECTED_BUILTIN_DRIVER_LIST" #global
+    elif [ -z "$CONNECTION_BUILTIN_DRIVER_LIST" ]; then return 1
+    fi
+    return 0
+} #ensure_driver_modules_loaded #211231 end
+
+find_available_interfaces() {
+    #Returns status 0 only if interface(s) found.
+    AVAILABLE_CONNECTIONS='' #global #190525...
+    local PREFERRED_MACADDR EXPECTED_DRIVER_PATTERNS CONNECTION_MACADDRESS_COUNT
+    PREFERRED_MACADDR="$(head -n 1 <<< "$ALL_CONNECTION_PROFILES" | cut -f "$MACADDRESS_FIELD" -d '|')" #190525... #211215
+# shellcheck disable=SC2001 #${variable//search/replace} not applicable for multiple lines
+    EXPECTED_DRIVER_PATTERNS="$(sed 's%^.*%|&|%' <<< "$EXPECTED_DRIVER_LIST")" #211215
+    CONNECTION_MACADDRESS_COUNT="$(grep -F "$EXPECTED_DRIVER_PATTERNS" <<< "$ALL_CONNECTION_PROFILES" | cut -f "$MACADDRESS_FIELD" -d '|' | sort -u | wc -l)" #211215
+    local ACTIVE_REAL_MACADDRESSES ACTIVE_MACADDRESS_PATTERNS
+    local AVAILABLE_CONNECTION_COUNT
+    while true; do
+        set_active_interface_macaddresses #211215...
+        if [ -n "$ACTIVE_INTERFACE_MACADDRESSES" ]; then
+            ACTIVE_REAL_MACADDRESSES="$(cut -f 3 -d _ <<< "$ACTIVE_INTERFACE_MACADDRESSES")"
+# shellcheck disable=SC2001 #${variable//search/replace} not applicable for appending a character
+            ACTIVE_MACADDRESS_PATTERNS="$(sed 's%^.*%&|%' <<< "$ACTIVE_REAL_MACADDRESSES")"
+            AVAILABLE_CONNECTIONS="$(grep -iF "${ACTIVE_MACADDRESS_PATTERNS}" <<< "$ALL_CONNECTION_PROFILES")" #210202 201017.
+            grep -q "$PREFERRED_MACADDR" <<< "$AVAILABLE_CONNECTIONS" && break #211215 end
+            AVAILABLE_CONNECTION_COUNT="$(wc -l <<< "$AVAILABLE_CONNECTIONS")"
+            [ "$AVAILABLE_CONNECTION_COUNT" -ge "$CONNECTION_MACADDRESS_COUNT" ] && break
+        fi
+        [ "$WAITCNT" -ge "$WAITMAX" ] && break 
+        sleep 1
+        ((++WAITCNT))
+    done
+    [ "$WAITCNT" -gt 0 ] && echo "rc.snsnetwork: waited for ethernet interfaces ${WAITCNT} seconds" >&2 #180115
+    [ -z "$AVAILABLE_CONNECTIONS" ] && cancel_splash_and_exit #181109 end
+    local AVAILABLE_CONNECTION_MACADDRESSES ONEMACADDR MACINTERFACE
+    AVAILABLE_CONNECTION_MACADDRESSES="$(cut -f "$MACADDRESS_FIELD" -d '|' <<< "$AVAILABLE_CONNECTIONS")"
+    PRIORITIZED_INTERFACES='' #global #211002...
+    for ONEMACADDR in $AVAILABLE_CONNECTION_MACADDRESSES; do
+        MACINTERFACE="$(grep "$ONEMACADDR" <<< "$ACTIVE_INTERFACE_MACADDRESSES" | cut -f 1 -d _)"
+        grep -qw "$MACINTERFACE" <<< "$PRIORITIZED_INTERFACES" \
+          || PRIORITIZED_INTERFACES="${PRIORITIZED_INTERFACES}$MACINTERFACE " #190525 end 210205 #211215
+    done
+    [ -n "$AVAILABLE_CONNECTION_MACADDRESSES" ] #True/0 = 'available interfaces found'.
+} #find_available_interfaces
+
+initiate_wireless_connection() { #Exits from start_wireless_connection if successful; returns if unsuccessful
+    [ -x /usr/sbin/connectwizard_crd ] \
+      && connectwizard_crd >> /tmp/simple_network_setup/rc_snsnetwork_wireless_connection_log #170612 #210915
+    # For each interface beginning with that in the first profile, search for a network in profile order.
+    EBSSIDS_WANT="$(grep '|Wireless|' <<< "$ALL_CONNECTION_PROFILES" | \
+      cut -f "$CELL_ESSID_FIELD,$CELL_ADDRESS_FIELD" -d '|')" #211215
+    EBSSID_PATTERNS="$(sed -e 's/^[^|]*/SSID: &/' -e 's/[^|]*$/BSS &/' -e 's/|/\n/' <<< "$EBSSIDS_WANT")" #210202
+    which iw >/dev/null 2>&1 || return 1 #skip wireless if 'iw' not installed #####
+    rfkill unblock wlan #180125
+    MACADDRESS="$(grep "^${INTERFACE}_" <<< "$ACTIVE_INTERFACE_MACADDRESSES" | cut -f 2 -d _)" #211215
+    REALMACADDRESS="$(grep "^${INTERFACE}_" <<< "$ACTIVE_INTERFACE_MACADDRESSES" | cut -f 3 -d _)" #211215
+    find_available_networks
+    echo " EXECUTING: ip link set $INTERFACE down" >> /tmp/simple_network_setup/rc_snsnetwork_wireless_connection_log #110203 210202
+    ip link set "$INTERFACE" down #210202
+    [ -z "$SCANRESULT" ] && return 1 #210202
+    #convert each found network into a single line... 110203
+    SRLINES="$(tr '|' ' ' <<< "$SCANRESULT" | \
+      tr '\n' '|' | tr -d '\t' | \
+      sed -e 's%BSS \([0-9a-f:]\+\)[^\|]*%\n\1%g' \
+        -e 's%freq: \([0-9]\+\)[^\|]*%\1%g' \
+        -e 's%signal: \([/0-9-]\+\)[^\|]*%\1%g' \
+        -e 's%SSID: \([^\|]*\|\)%\1%g' | \
+      sort -g -r -t '|' -k 3)" #170619 210202
+    TRIED_WANTS=''  #211215
+    echo "$EBSSIDS_WANT" > /tmp/simple_network_setup/EBSSIDS_WANT #BK 230918
+    while read -r ONEWANT <&4 ; do #211215 #BK 230918
+        grep -wq "${ONEWANT}" <<< "${TRIED_WANTS}" && continue #211215
+        IFS='|' read -r WANTSSID WANTBSS <<< "$ONEWANT" #211215
+        while IFS='|' read -r CELL_ADDRESS CELL_FREQUENCY _ CELL_ESSID _; do
+            [ -z "$CELL_ESSID" ] && CELL_ESSID="$WANTSSID"
+            if [ "$CELL_ADDRESS" = "$WANTBSS" ] \
+              && [ "$CELL_ESSID" = "$WANTSSID" ]; then
+                find_connection_profile_and_extract_content || continue #210201
+                RUNWPASUPP='no'
+                case "${SEC_MGMT:0:3}" in #210207...
+                  WPA) RUNWPASUPP='yes' ;;
+                  NON) [ -n "$SEC_KEY" ] && RUNWPASUPP='yes' ;; #WEP
+                esac
+                spoof_macaddress '   EXECUTING: ' >> /tmp/simple_network_setup/rc_snsnetwork_wireless_connection_log #If using real MAC, spoof it #211215
+                ip link set "$INTERFACE" up #210202
+                local RC=$? #170301
+                echo "     RESULT=$RC FOR: ip link set $INTERFACE up" >> /tmp/simple_network_setup/rc_snsnetwork_wireless_connection_log #170301 210202
+                if [ $RC -eq 0 ]; then #170301
+                    sleep "${SECS}".1 #210205
+                    local wCNT=0
+                    if [ "$RUNWPASUPP" = "yes" ]; then
+                        run_wpa_supplicant || continue 2 #210211
+                    elif [ -z "$SEC_MGMT" ]; then
+                        iw dev "$INTERFACE" connect "${CELL_ESSID}" "$CELL_FREQUENCY" "$CELL_ADDRESS" #210202
+                    fi
+                    start_wireless_connection #exits if connection successful
+                    reset_macaddress >> /tmp/simple_network_setup/rc_snsnetwork_wireless_connection_log #Unsuccessful, so undo spoofing #211215
+                fi 
+            fi 
+        done <<< "$SRLINES"
+        TRIED_WANTS="${TRIED_WANTS}${ONEWANT} " #211215
+    done 4</tmp/simple_network_setup/EBSSIDS_WANT #BK 230918
+} #initiate_wireless_connection
+
+find_available_networks() {
+    # Input: INTERFACE, EBSSID_PATTERNS Output: SCANRESULT
+    echo -e "\n ${INTERFACE}" >> /tmp/simple_network_setup/rc_snsnetwork_wireless_connection_log
+    ip link set "$INTERFACE" up || return 1 #continue #210202 210201
+    echo " SUCCESS: ip link set ${INTERFACE} up" >> /tmp/simple_network_setup/rc_snsnetwork_wireless_connection_log #210202
+    sleep 0.1 #210205
+    SECS=0 #210205
+    echo " EXECUTING SCAN: iw dev ${INTERFACE} scan | grep -E (detail labels)" >> /tmp/simple_network_setup/rc_snsnetwork_wireless_connection_log #180706 210202
+    for I in 1 2 3 4 5; do #210205
+        SCANRESULT="$(iw dev "$INTERFACE" scan | \
+          grep -E '^BSS |freq:|signal:|SSID:' | \
+          grep -F -C 3 --no-group-separator "${EBSSID_PATTERNS}" | \
+          grep -A 3 --no-group-separator '^BSS' | \
+          grep -B 3 --no-group-separator 'SSID:' | \
+          sed '/SSID:/ s/\\x00//g')" ###SCANNING### 110203 180706 210202 210205
+        echo " SCANRESULT=${SCANRESULT}" >> /tmp/simple_network_setup/rc_snsnetwork_wireless_connection_log
+        #note, possible to get: 'wlan0     No scan results' so delay then try again...
+        { [ -n "$SCANRESULT" ] || [ $I -ge 5 ]; } && break #210205
+        sleep 1 #210205 #230930
+        ((++SECS))  #210205
+        echo " EXECUTING SCAN AGAIN: iw dev ${INTERFACE} scan | grep -E (messages & labels)" >> /tmp/simple_network_setup/rc_snsnetwork_wireless_connection_log #180706 210202
+    done
+    return 0 #210201
+} #find_available_networks
+
+find_connection_profile_and_extract_content() {
+    [ -z "$CELL_ADDRESS" ] && return 1 #210201
+    #Get profile that matches interface MAC address, SSID & AP address.
+    local essidPATTERN
+    essidPATTERN='|'"${CELL_ESSID}"'|' #null or \x00... = hidden SSID
+    local maPATTERN
+    REALMACADDRESS="$(grep "^${INTERFACE}_" <<< "$ACTIVE_INTERFACE_MACADDRESSES" | cut -f 3 -d _)" #211215
+    maPATTERN="^$REALMACADDRESS.*|$CELL_ADDRESS|" #interface & AP MAC addresses
+    local CONNECTDATA
+    CONNECTDATA="$(grep -i "$maPATTERN" <<< "$AVAILABLE_CONNECTIONS" | grep "$essidPATTERN")" #211002
+    if [ -n "$CONNECTDATA" ]; then
+        echo "   MACADDRESS=$MACADDRESS CONNECTDATA=$CONNECTDATA" >> /tmp/simple_network_setup/rc_snsnetwork_wireless_connection_log
+# shellcheck disable=SC2034
+        IFS='|' read -r _ _ _ _ _ DHCPCDFIX _ _ SEC_MGMT SEC_KEY WPA_DRIVER _ <<< "$CONNECTDATA"
+            #SEC_MGMT - ex: NONE, WPA-PSK
+            #SEC_KEY - to distinguish WEP from open
+            #WPA_DRIVER - ex: nl80211,wext, hostap, ralink
+            #DHCPCDFIX - ex: -I ''
+    else
+        return 1 #connection not found 210201
+    fi
+    return 0 #210201
+} #find_connection_profile_and_extract_content
+
+run_wpa_supplicant() {
+    local WPACONF
+    REALMACADDRESS="$(grep "^${INTERFACE}_" <<< "$ACTIVE_INTERFACE_MACADDRESSES" | cut -f 3 -d _)" #211215
+    WPACONF="/etc/simple_network_setup/wpa_supplicant.conf-${CELL_ESSID}-${REALMACADDRESS}" #211215
+    [ -f "$WPACONF" ] || return 1 #210211
+    if grep -qs "WOOF_VARIANT='easy'" /etc/rc.d/WOOFMERGEVARS; then #230919...
+        # For EasyOS, want ongoing debug log. Does not support "-f" with -B so have to run in foreground...
+        wpa_supplicant -D"${WPA_DRIVER}" -i"${INTERFACE}" -c"$WPACONF" > /tmp/simple_network_setup/wpa-daemon.log &
+        local RC=$?
+        echo "       RESULT=$RC FOR: wpa_supplicant -D${WPA_DRIVER} -i${INTERFACE} -c\"$WPACONF\"" >> /tmp/simple_network_setup/rc_snsnetwork_wireless_connection_log
+    else #230919 end
+        wpa_supplicant -B -D"${WPA_DRIVER}" -i"${INTERFACE}" -c"$WPACONF"
+        local RC=$? #210211
+        echo "       RESULT=$RC FOR: wpa_supplicant -B -D${WPA_DRIVER} -i${INTERFACE} -c\"$WPACONF\"" >> /tmp/simple_network_setup/rc_snsnetwork_wireless_connection_log
+    fi #230919
+    [ "$RC" -eq 0 ] || return 1 #210211
+    while [ $((++wCNT)) -le 20 ]; do #100314 wait until wpa_supplicant has "connected".
+        sleep 1
+        {
+          echo "        TEST: wpa_cli -i $INTERFACE status"
+          wpa_cli -i "$INTERFACE" status
+          echo "        RESULT=$? wCNT=$wCNT"
+        } >> /tmp/simple_network_setup/rc_snsnetwork_wireless_connection_log
+        wpa_cli -i "$INTERFACE" status | grep -q '^bssid=[0-9a-f]' && return 0
+    done
+    wpa_cli terminate >/dev/null #kill
+    return 1 #210211
+} #run_wpa_supplicant
+
+start_wireless_connection() {
+    if [ "$wCNT" -le 20 ]; then #170402
+        echo -n '' > /etc/resolv.conf #211231
+        sleep 2 #timing precaution #220704
+        for ATTEMPT in 1 2 ; do
+            echo "        EXECUTING: dhcpcd ${DHCPCD_TIMEOUT} ${DHCPCDFIX} ${INTERFACE}" >> /tmp/simple_network_setup/rc_snsnetwork_wireless_connection_log #170924 #211215
+# shellcheck disable=SC2086 #word-split $DHCPCD_TIMEOUT & $DHCPCDFIX
+            dhcpcd $DHCPCD_TIMEOUT $DHCPCDFIX "$INTERFACE" 2>&1 | tee -a /tmp/simple_network_setup/rc_snsnetwork_wireless_connection_log #211231 #211215
+            local RC=$? #170402
+            echo "        dhcpcd return value: ${RC}" >> /tmp/simple_network_setup/rc_snsnetwork_wireless_connection_log #170924
+            #need to wait awhile #210212...
+            if [ $RC -eq 0 ]; then
+                for ONESLEEP in 0.2 1 2; do
+                    sleep $ONESLEEP
+                    grep -q '^nameserver' /etc/resolv.conf && break
+                done
+            fi
+            if [ $RC -eq 0 ] \
+              && grep -q '^nameserver' /etc/resolv.conf \
+              && grep -qw "Generated.* $INTERFACE" /etc/resolv.conf; then #210212 end #211231
+                break #211231
+            else #211231
+                echo "     FAIL" >> /tmp/simple_network_setup/rc_snsnetwork_wireless_connection_log
+                GENDFROM="$(grep 'Generated by dhcpcd.' /etc/resolv.conf)" #211231
+                dhcpcd --release "$INTERFACE" 2>/dev/null
+                [ -n "$GENDFROM" ] && [ "${GENDFROM##* }" != "$INTERFACE" ] && break #211231
+                [ "$ATTEMPT" -eq 1 ] && sleep 8 #211231
+            fi #170402
+        done
+        if grep -q '^nameserver' /etc/resolv.conf \
+          && grep -qw "Generated.* $INTERFACE" /etc/resolv.conf; then #210212 end #211231
+            echo "     SUCCESS" >> /tmp/simple_network_setup/rc_snsnetwork_wireless_connection_log
+            #in situation bring up interface from desktop icon...
+            [ -n "$DISPLAY" ] || [ -n "$WAYLAND_DISPLAY" ] \
+              &&  gtkdialog-splash -placement bottom -bg lightgreen -timeout 5 -text "$(eval_gettext "Network interface '\${INTERFACE}' has been activated")" >/dev/null & #231224
+            cancel_splash_and_exit #one internet connection is enough! #170505
+        else
+            ps -C wpa_supplicant >/dev/null 2>&1 && wpa_cli terminate >/dev/null #kill wpa_supplicant.     #210202
+            ip link set "$INTERFACE" down #210202
+            iw dev "$INTERFACE" info 2>/dev/null | grep -qw 'ssid' && iw dev "$INTERFACE" disconnect #210202
+            ip route flush dev "$INTERFACE" #100703
+        fi #170402
+    fi
+} #start_wireless_connection
+
+initiate_wired_connection() { #Exits if successful; returns if unsuccessful
+    spoof_macaddress >> /tmp/simple_network_setup/rc_snsnetwork_wired_connection_log #If using real MAC, spoof it #211215
+    if ip link set "$INTERFACE" up >> /tmp/simple_network_setup/rc_snsnetwork_wired_connection_log 2>&1; then #210202
+        if ! ip link show "$INTERFACE" | grep -q 'LOWER_UP'; then #211231
+            TIMEOUT=15 #200412
+            while [ $TIMEOUT -ge 0 ]; do #200412
+                ip link show "$INTERFACE" | grep -q 'LOWER_UP' && break #211231
+                [ $((--TIMEOUT)) -ge 0 ] && sleep 1 #190209 190212 200412
+            done
+            if [ $TIMEOUT -lt 0 ]; then #211231 #230930
+                ip link set "$INTERFACE" down #210202
+                return 1 #no network
+            fi
+        fi #211231
+        REALMACADDRESS="$(grep "^${INTERFACE}_" <<< "$ACTIVE_INTERFACE_MACADDRESSES" | cut -f 3 -d _)" #211215
+        maPATTERN='|'"$REALMACADDRESS"'|' #211215
+        DHCPCDFIX="$(grep -i "$maPATTERN" <<< "$AVAILABLE_CONNECTIONS" | \
+          head -n 1 | cut -f "$DHCPCDFIX_FIELD" -d '|')" #100325 ex: -I '' #210202 #211002
+
+        echo -n '' > /etc/resolv.conf #211231
+        sleep 2 #timing precaution #210915 #220704
+        for ATTEMPT in 1 2 ; do #210915
+            echo "EXECUTING: dhcpcd ${DHCPCD_TIMEOUT} ${DHCPCDFIX} ${INTERFACE}" >> /tmp/simple_network_setup/rc_snsnetwork_wired_connection_log #170924 #211215
+# shellcheck disable=SC2086 #word-split $DHCPCD_TIMEOUT & $DHCPCDFIX
+            dhcpcd $DHCPCD_TIMEOUT $DHCPCDFIX "$INTERFACE" 2>&1 | tee -a /tmp/simple_network_setup/rc_snsnetwork_wired_connection_log #211215 #220704
+            local RC=$? #170402
+            echo "dhcpcd return value: ${RC}" >> /tmp/simple_network_setup/rc_snsnetwork_wired_connection_log #170924
+            #need to wait awhile #210212...
+            if [ $RC -eq 0 ]; then
+                for ONESLEEP in 0.2 1 2; do
+                    sleep $ONESLEEP
+                    grep -q '^nameserver' /etc/resolv.conf && break
+                done
+            fi
+            if [ $RC -eq 0 ] \
+              && grep -q '^nameserver' /etc/resolv.conf \
+              && grep -qw "Generated.* $INTERFACE" /etc/resolv.conf; then #210212 end #211231
+                break #211231
+            else
+                GENDFROM="$(grep 'Generated by dhcpcd.' /etc/resolv.conf)" #211231
+                ip link set "$INTERFACE" down #210202
+                dhcpcd --release "$INTERFACE" 2>/dev/null
+                ip route flush dev "$INTERFACE" #100703
+                [ -n "$GENDFROM" ] && [ "${GENDFROM##* }" != "$INTERFACE" ] && break #211231
+                [ "$ATTEMPT" -eq 1 ] && sleep 8 #210915 #211231
+            fi
+        done #210915
+        if grep -q '^nameserver' /etc/resolv.conf \
+          && grep -qw "Generated.* $INTERFACE" /etc/resolv.conf; then #210212 end #211231
+            [ -n "$DISPLAY" ] || [ -n "$WAYLAND_DISPLAY" ] \
+              &&  gtkdialog-splash -placement bottom -bg lightgreen -timeout 5 -text "$(eval_gettext "Network interface '\${INTERFACE}' has been activated")" >/dev/null & #231224
+            cancel_splash_and_exit #success. #170505
+        fi
+    fi
+    reset_macaddress >> /tmp/simple_network_setup/rc_snsnetwork_wired_connection_log #Unsuccessful, so undo spoofing #211215
+} #initiate_wired_connection
+
+
+################# MAIN ####################
+
+export LANG='C'
+#Argument: 'stop', 'start' from sns, null from network_default_connect or Connect/AppRun
+case "$1" in
+  stop) stop_interface ;; #100325
+  start) true ;;
+  ?*) exit ;;
+esac
+[ ! -s /etc/simple_network_setup/connections ] && cancel_splash_and_exit #170505 171222
+
+if [ -z "$1" ] && { [ -n "$DISPLAY" ] || [ -n "$WAYLAND_DISPLAY" ]; }; then
+    gtkdialog-splash -bg orange -close never -fontsize large -text "$(gettext 'Attempting to reconnect to a network...')" >/dev/null & #231224
+    echo $! >/tmp/sns_splash_pid
+fi
+
+[ -f /root/.connectwizardrc ] \
+  || echo 'CURRENT_EXEC=sns' > /root/.connectwizardrc #170309
+
+if grep -q '|ndiswrapper|' /etc/simple_network_setup/connections; then #100314...
+    modprobe ndiswrapper \
+      && touch /tmp/simple_network_setup/udevmodulelist/ndiswrapper
+fi
+
+mkdir -p /tmp/simple_network_setup
+set_dhcpcd_timeout #211215
+ALL_CONNECTION_PROFILES="$(grep -s '^..:' /etc/simple_network_setup/connections 2>/dev/null)" #211215
+ensure_driver_modules_loaded || cancel_splash_and_exit #201017
+
+if find_available_interfaces; then #230930
+    echo -n "" > /tmp/simple_network_setup/rc_snsnetwork_wireless_connection_log
+    echo -n "" > /tmp/simple_network_setup/rc_snsnetwork_wired_connection_log #210915
+
+    for INTERFACE in $PRIORITIZED_INTERFACES; do #exs: wlan0 eth0 #211002
+        if [ -d "/sys/class/net/${INTERFACE}/wireless" ] \
+          || grep -q "${INTERFACE}:" /proc/net/wireless; then
+            initiate_wireless_connection #exits if successful #170924
+        else
+            initiate_wired_connection #exits if successful #170924
+        fi
+    done
+fi #230930
+cancel_splash_and_exit #170505
+
+###END###

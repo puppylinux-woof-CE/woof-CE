@@ -66,8 +66,23 @@
 #211215 v3.3 Accommodate spoofed gadget (USB-tethered smartphone) MAC addresses; add spoofing if macchanger installed; group same-MAC connections, so list shows connection priority; correct driver & interface searches and selection; override default dhcpcd response timeout if not already in conf file, to compensate for router possibly slowing due to MAC spoofing.
 #211231 v3.3 Replace ethtool with ip-show test for LOWER_UP.
 #220123 v3.3 Add iw-missing message to wireless configure dialog; remove unnecessary iw splash message (211002) and avoid iw-missing error messages, for clean support of wired interfaces when 'iw' is missing.
+#220704 v3.3.1 rc.network updated. 
+#230919 BK: /usr/local/simple_network_setup/rc.network renamed to rc.snsnetwork; simplified already-running check.
+#230919 BK: For EasyOS compatability, removed "Barry's ..." from window title; removed "Puppy" from messages.
+#230920 BK: chmod 600 /etc/simple_network_setup/connections so non-root apps cannot see it.
+#230924 v3.3.2 BK: Fix for tainted module, for which modinfo doesn't work.
+#230930 v3.4 For gtkdialog '-p SNS_' argumemt, use long option for connectwizard_exec to find; running check improved; use profile security key if none entered; rc.snsnetwork updated; build_modulelist updated.
+#231106 Use gtk+ 2 version of gtkdialog, to work around gtk+ 3 sizing issue.
+#240216 Add frisbee to check for dhcpcd running.
+#240305 Remove tests of /etc/resolv.conf, dhcpcd, udhcpc in find_usable_interfaces.
+#240307 Reset resolv.conf before dhcpcd.
+#240309 Add message if active connection by another network manager.
+#240403 v3.5 Reimplement registering change to sns upon connect/disconnect
+# to accommodate switching from connman or peasywifi, which starts netmon_wce.
+#240418 v3.5.1 Improve already-running response to avoid subsequent connectwizard prompt and to kill possible remaining xdialog.
+#240605 v3.5.2 Add use of gtk2dialog by all dialogs; add GTKDIALOG_BUILD to utilize gtk2 theming.
 
-export VERSION='3.3.1'  #UPDATE this with each release!
+export VERSION='3.5.2'  #UPDATE this with each release!
 
 export TEXTDOMAIN=simple_network_setup
 export OUTPUT_CHARSET=UTF-8
@@ -75,15 +90,21 @@ export OUTPUT_CHARSET=UTF-8
 
 [ "$(whoami)" != "root" ] && exec sudo -A "${0}" "${@}" #110505
 
-# shellcheck disable=SC2009
-if ps --no-headers -C sns | grep -qwv "^ *$$"; then #170514... 190216
-    sleep 1 #190525
-# shellcheck disable=SC2009
-    if ps --no-headers -C sns | grep -qwv "^ *$$"; then #190525
+#Running? #170514... #190216 #190525
+XDLGPID="$(pgrep -fd ' ' '\--wmclass sns')" #240418
+[ -n "$XDLGPID" ] && kill "$XDLGPID" #240418
+WAITCNT=4
+while pgrep -x 'sns' | grep -qwv "$$"; do #240418
+    if [ $((WAITCNT--)) -le 0 ]; then
         Xdialog --left --wmclass "sns" --title "$(gettext 'Simple Network Setup')"  --backtitle "\n$(gettext 'Simple Network Setup cannot start now because it is already active.')" --icon /usr/local/lib/X11/pixmaps/error.xpm --msgbox "\n$(gettext 'Please use the active SNS session or\nterminate it and start SNS again.')\n" 0 70
-        exit 1
-    fi #190525
-fi #170514 end
+        RC="$?"; [ "$RC" -le 2 ] && RC=3; exit "$RC" #Avoid connectwizard prompt #240418
+    fi
+    sleep 0.5
+done
+
+GTKDIALOG='gtkdialog' #231106...
+which gtk2dialog >/dev/null \
+  && GTKDIALOG='gtk2dialog' && GTKDIALOG_BUILD=GTK2 #force gtk2 theming #240605
 
 . /usr/local/simple_network_setup/macaddress_spoofing_functions #211215
 
@@ -92,15 +113,19 @@ fi #170514 end
 #        1                 2          3         4       5                                       6         7          8                 9        10                         11
 #format: MACADDRESS       |IF_INTTYPE|IF_DRIVER|IF_BUS |IF_INFO                                |DHCPCDFIX|CELL_ESSID|CELL_ADDRESS     |SEC_MGMT|SEC_KEY                   |WPA_DRIVER|
 #ex:     00:17:36:84:E5:1A|Wired     |sky2     |pci    |Marvell Yukon 2 Gigabit Ethernet driver|         |belkin54g |00:17:3F:68:33:7E|WPA-PSK |000102030405060708090a0b0c|nl80211   |
+SEC_KEY_FIELD=10 #230930
 
 find_interface_driver() {
     FINDTYPE="$(readlink "/sys/class/net/$INTERFACE/device/driver")"
     IF_DRIVER=${FINDTYPE##*/} #basename - ex: ath5k
     IF_BUS="$(grep -o '/bus/[^/]*' <<< "$FINDTYPE" | cut -f 3 -d /)" #210210
     IF_INFO="$(sed -n 's%^description: *%%p' <<< "$(modinfo "$IF_DRIVER" 2>/dev/null)")" #210210
-    if [ "$IF_DRIVER" = "ndiswrapper" ]; then
+    if [ -z "$IF_INFO" ];then #20230924 fix for tainted module, modinfo doesn't work.
+     IF_INFO="$(gettext 'No description available')"
+    elif [ "$IF_DRIVER" = "ndiswrapper" ]; then
+# shellcheck disable=SC2034
         WINDRVR="$(ndiswrapper -l | grep '^[a-zA-Z0-9]' | cut -f 1 -d ' ')"
-        IF_INFO="MS Windows driver '${WINDRVR}'"
+        IF_INFO="$(eval_gettext "MS Windows driver '\$WINDRVR'")"
     fi
     if [ ! -e "/tmp/simple_network_setup/udevmodulelist/$IF_DRIVER" ]; then #210206...
         mkdir -p /tmp/simple_network_setup/udevmodulelist
@@ -111,8 +136,7 @@ find_interface_driver() {
 collect_interface_data() {
     #want to manipulate the info string for display purposes...
     local CNTLINE=-1; local CLEANINFO #210210...
-# shellcheck disable=SC2021
-    CLEANINFO="$(tr '[&|"<>]' ' ' <<< "$IF_INFO" | tr -s ' ')" #filter out chars that mess up xml.
+    CLEANINFO="$(tr '&|"<>[]' ' ' <<< "$IF_INFO" | tr -s ' ')" #filter out chars that mess up xml.
     for ONEWORD in $CLEANINFO; do
         CNTLINE="$((CNTLINE + 1 + ${#ONEWORD}))"
         [ "$CNTLINE" -gt 60 ] && break
@@ -166,16 +190,11 @@ find_usable_interfaces() {
     #test if connected to internet...
     FLAGINTERNETSTATUS='no'
     WORKINGIF=''
-    if grep -qv '^#' /etc/resolv.conf; then
-        for ONEIF in $(ip link show | grep -B 1 'link/ether' | grep -w 'UP' | cut -f 2 -d : | tr -d '\n'); do #210202
-# shellcheck disable=SC2009
-            if ps -fC dhcpcd,udhcpc | grep -w "$ONEIF" >/dev/null 2>&1; then #201110 210202 210204
-                WORKINGIF="${WORKINGIF}${ONEIF} "
-                FLAGINTERNETSTATUS='yes'
-            fi
-        done
-        WORKINGIF="${WORKINGIF% }"
-    fi
+    for ONEIF in $(ip link show | grep -B 1 'link/ether' | grep -w 'UP' | cut -f 2 -d : | tr -d '\n'); do #210202
+        WORKINGIF="${WORKINGIF}${ONEIF} "
+        FLAGINTERNETSTATUS='yes'
+    done
+    WORKINGIF="${WORKINGIF% }"
     if [ "$FLAGINTERNETSTATUS" = "yes" ]; then
 # shellcheck disable=SC2034 # Missed, but MSGWIF used in eval_gettext.
         MSGWIF="<b>$WORKINGIF</b>"
@@ -193,26 +212,32 @@ find_usable_interfaces() {
         fi
         COLOR_BG='#80CE7F'; COLOR_FG='#235123'
     else
-        MSGSTATUS="$(gettext 'Currently no Internet connection')"
+        MSGSTATUS="$(gettext 'Currently no SNS-controlled Internet connection')"
         COLOR_BG='#CE837F'; COLOR_FG='#512323'
     fi
 
-    CLICKMSG="$(/usr/lib/gtkdialog/xml_info fixed "internet_connect.svg" 60 "$(gettext 'Puppy has identified these network interfaces on your computer. Click a button to configure the interface for use.')")"
+    grep -qswv 'sns' /root/.connectwizardrc \
+      && [ "$FLAGINTERNETSTATUS" = "yes" ] \
+      && OTHERMGRMSG="  $(gettext '<b>Note:</b> The current connection(s) was/were started by another network tool and will be disconnected if an interface button is clicked.')" \
+      || OTHERMGRMSG='' #240309
+    CLICKMSG="$(/usr/lib/gtkdialog/xml_info fixed "internet_connect.svg" 60 "$(gettext 'These network interfaces have been identified on your computer. Click a button to configure the interface for use.')${OTHERMGRMSG}")" #240309
     #100313 add a button for loading a Windows driver...
     if ! grep -q 'ndiswrapper' <<< "$ALL_IF_DRIVER" \
       && modprobe -n ndiswrapper 2>/dev/null; then
-        CLICKMSG="$(/usr/lib/gtkdialog/xml_info fixed "internet_connect.svg" 60 "$(gettext "Puppy has identified these network interfaces on your computer. Click a button to configure the interface for use, or click 'Windows' button if you want to install and use a MS Windows driver.")")"
+        CLICKMSG="$(/usr/lib/gtkdialog/xml_info fixed "internet_connect.svg" 60 "$(gettext "These network interfaces have been identified on your computer. Click a button to configure the interface for use, or click 'Windows' button if you want to install and use a MS Windows driver.")${OTHERMGRMSG}")" #240309
         INTERFACEBUTTONS="${INTERFACEBUTTONS} 
   <button><label>Windows</label><action type=\"exit\">Interface_Windows</action></button>"
     elif [ -z "$ALL_IF_DRIVER" ]; then #210209...
-        CLICKMSG="$(/usr/lib/gtkdialog/xml_info fixed "internet_connect.svg" 60 "$(gettext 'Puppy has not identified any network interfaces on your computer.')")"
+        CLICKMSG="$(/usr/lib/gtkdialog/xml_info fixed "internet_connect.svg" 60 "$(gettext 'No network interfaces have been identified on your computer.')")"
         INTERFACEDESCR=''
         INTERFACEBUTTONS='<text width-request="5"><label>""</label></text>'
     fi
 } #find_usable_interfaces
 
 connect_button_splash() { #170505...
+# shellcheck disable=SC2317 #connect_button_splash called by gtkdialog program
     gtkdialog-splash -bg orange -close never -fontsize large -text "$(gettext 'Please wait...')" >/dev/null &
+# shellcheck disable=SC2317
     echo $! >/tmp/sns_splash_pid
 }
 export -f connect_button_splash #170505 end
@@ -281,19 +306,17 @@ build_connection_display_list() {
 } #build_connection_display_list
 
 build_display_connect_button() {
-    CONNECTWIZEXEC_XML='' #190223
-    which connectwizard_exec >/dev/null 2>&1 \
-      && CONNECTWIZEXEC_XML="<action>$(which connectwizard_exec) sns</action>" #190223
     if [ "$FLAGINTERNETSTATUS" = "yes" ]; then
-        DISCONNECT_EXIT='EXITNOW' #190223
+        DISCONNECT_EXIT='DISCONNECTEXITNOW' #190223...
         grep -qswv 'sns' /root/.connectwizardrc \
-          && DISCONNECT_EXIT='EXITRESTART' #190223
-        CONNECTBTN_XML="<button>$(/usr/lib/gtkdialog/xml_button-icon internet_connect_no.svg)<label>$(gettext 'Disconnect Now')</label>$CONNECTWIZEXEC_XML<action>/usr/sbin/networkdisconnect</action><action type=\"exit\">${DISCONNECT_EXIT}</action></button>" #190223 201110
+          && DISCONNECT_EXIT='DISCONNECTRESTART' #240403
+        CONNECTBTN_XML="<button>$(/usr/lib/gtkdialog/xml_button-icon internet_connect_no.svg)<label>$(gettext 'Disconnect Now')</label><action type=\"exit\">${DISCONNECT_EXIT}</action></button>" #201110 #240403
     else
-        CONNECTBTN_XML="<button>$(/usr/lib/gtkdialog/xml_button-icon internet_connect_yes.svg)<label>$(gettext 'Connect Now')</label>$CONNECTWIZEXEC_XML<action>/usr/sbin/networkdisconnect</action><action>/usr/local/simple_network_setup/rc.network start & </action><action>connect_button_splash</action><action type=\"exit\">EXITNOW</action></button>" #170505 190223 201110
+        CONNECTBTN_XML="<button>$(/usr/lib/gtkdialog/xml_button-icon internet_connect_yes.svg)<label>$(gettext 'Connect Now')</label><action>connect_button_splash</action><action>/usr/local/simple_network_setup/rc.snsnetwork start & </action><action type=\"exit\">CONNECTEXITNOW</action></button>" #170505 190223 201110 #240403
     fi
     DISCONNECT_XML='' #190223
     grep -qswv 'sns' /root/.connectwizardrc \
+      && [ "$FLAGINTERNETSTATUS" = "yes" ] \
       && DISCONNECT_XML="$(gettext '<b>Note:</b> The current connection was started by another network tool.  To control it with SNS, disconnect now, then re-connect or choose an interface.')" #190223
     SPOOFING_XML=''  #211215...
     macaddress_spoofing_enabled \
@@ -314,7 +337,7 @@ build_and_display_main_window() {
 
     #bring up the main window...
     SNS_main='
-<window title="SNS '$VERSION' - '$(gettext "Barry's Simple Network Setup")'" icon-name="gtk-network">
+<window title="SNS '$VERSION' - '$(gettext "Simple Network Setup")'" icon-name="gtk-network">
 <vbox spacing="0" space-expand="true" space-fill="true">
   <eventbox name="status" space-expand="false" space-fill="false">
     <text name="status_text" wrap="false" height-request="20" use-markup="true" space-expand="true" space-fill="true"><label>"'${MSGSTATUS}'"</label></text>
@@ -365,7 +388,7 @@ build_and_display_main_window() {
 widget "*status*" style "status"' > /tmp/gtkrc_sns
     export GTK2_RC_FILES=/tmp/gtkrc_sns:/root/.gtkrc-2.0
     . /usr/lib/gtkdialog/xml_info gtk #build bg_pixmap for gtk-theme
-    RETSTRING="$(gtkdialog -p SNS_main)" ###main window### #170505
+    RETSTRING="$("$GTKDIALOG" --program=SNS_main)" ###main window### #170505 #231106
 } #build_and_display_main_window
 
 load_windows_driver() {
@@ -566,8 +589,8 @@ scan_for_wireless_networks() {
 } #scan_for_wireless_networks
 
 build_display_network_list() {
-    echo -n '' > /tmp/sns_netname_default
-    echo -n 'false' > /tmp/sns_show_netname_box
+    echo -n '' > /tmp/sns_profile_ssid
+    echo -n 'false' > /tmp/sns_show_hidden_ssid_box
     echo -n 'true' > /tmp/sns_show_passphrase_box
     #convert each found network into a single line... 110203
     SRLINES="$(tr '|' ' ' <<< "$SCANRESULT" | tr '\n' '|' | tr -d '\t' | \
@@ -618,24 +641,24 @@ build_display_network_list() {
         # If signal not in dBm, convert fractional format to pseudo dBm. #210202...
         [ "${CELL_SIGNAL: -4}" = '/100' ] \
           && CELL_SIGNAL=$(( -(100 - ${CELL_SIGNAL%/100}) ))
-        if   [ $CELL_SIGNAL -gt -50 ]; then IMG_QUALITY=quality_5 #Excellent single strength (Next to Router)
-        elif [ $CELL_SIGNAL -gt -67 ]; then IMG_QUALITY=quality_4 #Good signal strength for Web browsing, voice/video calls.
-        elif [ $CELL_SIGNAL -gt -70 ]; then IMG_QUALITY=quality_3 #Best effort for Web browsing for reliable packet delivery.
-        elif [ $CELL_SIGNAL -gt -80 ]; then IMG_QUALITY=quality_2 #Experience bad connectivity, Packet delivery may be unreliable.
-        elif [ $CELL_SIGNAL -gt -90 ] ; then IMG_QUALITY=quality_1 #Probably unusable.
+        if   [ "$CELL_SIGNAL" -gt -50 ]; then IMG_QUALITY=quality_5 #Excellent single strength (Next to Router)
+        elif [ "$CELL_SIGNAL" -gt -67 ]; then IMG_QUALITY=quality_4 #Good signal strength for Web browsing, voice/video calls.
+        elif [ "$CELL_SIGNAL" -gt -70 ]; then IMG_QUALITY=quality_3 #Best effort for Web browsing for reliable packet delivery.
+        elif [ "$CELL_SIGNAL" -gt -80 ]; then IMG_QUALITY=quality_2 #Experience bad connectivity, Packet delivery may be unreliable.
+        elif [ "$CELL_SIGNAL" -gt -90 ] ; then IMG_QUALITY=quality_1 #Probably unusable.
         else IMG_QUALITY=quality_0 #Unusable.
         fi #210202 end
         CELL_ESSID_XLATED="$CELL_ESSID"
         [ "$CELL_ESSID" = '(hidden)' ] && CELL_ESSID_XLATED="$(gettext '(hidden)')"
         # For hidden networks, let user provide actual name...
         HIDNETBOXVIS='hide'
-        DEFAULTSSID=''
+        PROFILESSID=''
         if [ "$CELL_ESSID" = '(hidden)' ]; then
             HIDNETBOXVIS='show'
-            DEFAULTSSID="$(grep -sm 1 "^..:.*|$CELL_ADDRESS|" /etc/simple_network_setup/connections | cut -f 7 -d '|')"
+            PROFILESSID="$(grep -sm 1 "^..:.*|$CELL_ADDRESS|" /etc/simple_network_setup/connections | cut -f 7 -d '|')"
             if [ "$CELL_NUMBER" -eq 1 ]; then
-                echo -n "$DEFAULTSSID" > /tmp/sns_netname_default
-                echo 'true' > /tmp/sns_show_netname_box
+                echo -n "$PROFILESSID" > /tmp/sns_profile_ssid
+                echo 'true' > /tmp/sns_show_hidden_ssid_box
             fi
         fi
         # Build network column entries...
@@ -644,7 +667,8 @@ build_display_network_list() {
        <label>'${CELL_ESSID_XLATED}'</label>
        <variable>RADIO_'${CELL_NUMBER}'</variable>
        <action>'${HIDNETBOXVIS}':HIDNETBOX</action>
-       <action>echo -n '${DEFAULTSSID}' > /tmp/sns_netname_default</action>
+       <action>echo -n '${PROFILESSID}' > /tmp/sns_profile_ssid</action>
+       <action>clear:HIDDEN_NAME</action>
        <action>refresh:HIDDEN_NAME</action>
        <action>'${PASSBOXVIS}':PASSBOX</action>
      </radiobutton>' >> /tmp/sns_scan_radiobuttons #190216
@@ -729,7 +753,7 @@ build_display_radio_buttons() {
              <entry space-expand="true" space-fill="true" caps-lock-warning="true" 
               tooltip-markup="'$(gettext 'Enter network name of selected hidden network')'">
                <variable>HIDDEN_NAME</variable>
-               <input>cat /tmp/sns_netname_default</input>
+               <input>cat /tmp/sns_profile_ssid</input>
              </entry>
        </hbox>
      <variable>HIDNETBOX</variable>
@@ -745,7 +769,7 @@ build_display_radio_buttons() {
                  <notebook show-tabs="false" show-border="false" visible="false">
                    <vbox>
                      <entry space-expand="true" space-fill="true" caps-lock-warning="true" 
-                     tooltip-markup="'$(gettext 'Enter your network passphrase')'" visibility="false">
+                     tooltip-markup="'$(gettext "Enter selected network's passphrase, unless the network is already in a connection profile and its passphrase has not changed")'" visibility="false">
                        <variable>PASS_SHOWN</variable>
                        <input>echo "$PASS_HIDDEN"</input>
                        <action>refresh:PASS_HIDDEN</action>
@@ -753,7 +777,7 @@ build_display_radio_buttons() {
                    </vbox>
                    <vbox>
                      <entry space-expand="true" space-fill="true" caps-lock-warning="true" 
-                     tooltip-markup="'$(gettext 'Enter your network passphrase')'" visibility="true">
+                     tooltip-markup="'$(gettext "Enter selected network's passphrase, unless the network is already in a connection profile and its passphrase has not changed")'" visibility="true">
                        <variable>PASS_HIDDEN</variable>
                        <input>echo "$PASS_SHOWN"</input>
                        <action>refresh:PASS_SHOWN</action>
@@ -814,7 +838,7 @@ build_and_display_wireless_setup_window() {
 
   <action signal="map-event">show:SWITCH</action>
   <action signal="map-event">grabfocus:PASS_HIDDEN</action>
-  <action signal="show" condition="file_is_false(/tmp/sns_show_netname_box) ">hide:HIDNETBOX</action>
+  <action signal="show" condition="file_is_false(/tmp/sns_show_hidden_ssid_box) ">hide:HIDNETBOX</action>
   <action signal="show" condition="file_is_false(/tmp/sns_show_passphrase_box) ">hide:PASSBOX</action>
 </window>'
     export SNS_setup
@@ -828,9 +852,9 @@ build_and_display_wireless_setup_window() {
   widget "*bg*" style "bg"' > /tmp/gtkrc_mono
     export GTK2_RC_FILES=/tmp/gtkrc_mono:/root/.gtkrc-2.0
     #---
-  
+
     . /usr/lib/gtkdialog/xml_info gtk #build bg_pixmap for gtk-theme
-    RETSTRING="$(gtkdialog -p SNS_setup)"
+    RETSTRING="$("$GTKDIALOG" --program=SNS_setup)" #231106
 } #build_and_display_wireless_setup_window
 
 extract_data_for_selected_network() {
@@ -849,6 +873,9 @@ extract_data_for_selected_network() {
     if [ -z "$CELL_ESSID" ]; then
         FLAGERR=8
     elif [ "$CELL_ENCRYPTIONKEY" = "on" ]; then
+        if [ -z "$SEC_KEY" ]; then #230930...
+            SEC_KEY="$(grep "|$CELL_ESSID|$CELL_ADDRESS|" </etc/simple_network_setup/connections | cut -d '|' -f $SEC_KEY_FIELD)"
+        fi
         if [ -z "$SEC_KEY" ]; then
             FLAGERR=2 #no security key
         else
@@ -958,7 +985,7 @@ show_wait_splash() { #Argument: fuCNT. Always returns 0.
     case "$1" in
       4) gtkdialog-splash -placement center -bg orange -text "$(eval_gettext "Please wait, attempting to connect to '\${CELL_ESSID}'...")" >/dev/null & #210207
         ;;
-      *) gtkdialog-splash -placement center -bg $BGCOLOR -text "$(gettext 'Please keep waiting, retrying encrypted connection...')" >/dev/null &
+      *) gtkdialog-splash -placement center -bg "$BGCOLOR" -text "$(gettext 'Please keep waiting, retrying encrypted connection...')" >/dev/null &
         ;;
     esac
     PIDX=$! #210207?
@@ -995,6 +1022,7 @@ run_dhcpcd() {
     for iterDHCPCD in a b; do #100320
         [ "$iterDHCPCD" = "a" ] && DHCPCDFIX=""
         [ "$iterDHCPCD" = "b" ] && DHCPCDFIX="-I ''" #some dhcp servers require empty Client ID (default is macaddress).
+        echo -n > /etc/resolv.conf #240307
         echo "STEP6${iterDHCPCD}: dhcpcd $DHCPCD_TIMEOUT $DHCPCDFIX $INTERFACE" >> /tmp/sns_wireless_log
 # shellcheck disable=SC2086 #word-split $DHCPCD_TIMEOUT & $DHCPCDFIX
         dhcpcd $DHCPCD_TIMEOUT $DHCPCDFIX "$INTERFACE" >> /tmp/sns_wireless_log 2>&1 ####DHCP CLIENT#### 121117 #211215
@@ -1009,7 +1037,7 @@ run_dhcpcd() {
         sleep 1
         [ "$iterDHCPCD" != "b" ] && dhcpcd --release "$INTERFACE"
     done
-    [ $RC -eq 0 ] \
+    [ "$RC" -eq 0 ] \
       && grep -q '^nameserver' /etc/resolv.conf || FLAGERR=6 #170402 #210212
 } #run_dhcpcd
 
@@ -1029,6 +1057,7 @@ add_wireless_connection_profile_and_conf() { #211002
     [ "$SEC_MGMT" != 'open' ] && SEC_MGMT="$WPA_SEC_MGMT"
     unspoof_macaddress #Set MACADDRESS to permanent MAC address #211215
     touch /etc/simple_network_setup/connections
+    chmod 600 /etc/simple_network_setup/connections #230920
     ( #210207,210208,211215...
         echo "${MACADDRESS}|${IF_INTTYPE}|${IF_DRIVER}|${IF_BUS}|${IF_INFO}|${DHCPCDFIX}|\
 ${CELL_ESSID}|${CELL_ADDRESS}|${SEC_MGMT}|${SEC_KEY}|${WPA_DRIVER}|"
@@ -1043,7 +1072,7 @@ build_and_display_wireless_success_window() {
     XML_FIREWALL=""
     if [ ! -x /etc/rc.d/rc.firewall ] && [ ! -x /etc/init.d/rc.firewall ]; then
         XML_FIREWALL='
-         <text><label>"'$(gettext "However, there is one item of recommended housekeeping: you really should be running a firewall. Puppy is inherently secure, however a firewall will give you that extra protection while online. Recommend that you tick the 'Start firewall' checkbox (the firewall will install and will automatically run at all future boots)...")'"</label></text>
+         <text><label>"'$(gettext "However, there is one item of recommended housekeeping: you really should be running a firewall. The operating system is inherently secure, however a firewall will give you that extra protection while online. Recommend that you tick the 'Start firewall' checkbox (the firewall will install and will automatically run at all future boots)...")'"</label></text>
          <checkbox>
            <label>'$(gettext 'Start firewall')'</label>
            <default>true</default>
@@ -1051,7 +1080,7 @@ build_and_display_wireless_success_window() {
          </checkbox>
          <hseparator></hseparator>'
     fi
-    kill $PIDX 2>/dev/null
+    kill "$PIDX" 2>/dev/null
     SNS_complete='
         <window title="'$(gettext 'SNS: Simple Network Setup')'" icon-name="gtk-network">
         <vbox>
@@ -1079,12 +1108,12 @@ build_and_display_wireless_success_window() {
         </vbox>
         </window>' #190216
     export SNS_complete
-    RETSTR3="$(gtkdialog -p SNS_complete --center)"
+    RETSTR3="$("$GTKDIALOG" --program=SNS_complete --center)" #231106
 } #build_and_display_wireless_success_window
 
 build_and_display_wireless_error_window() {
     [ "$PIDXMSG" ] && kill "$PIDXMSG" 2>/dev/null
-    [ $PIDX ] && kill $PIDX 2>/dev/null
+    [ "$PIDX" ] && kill "$PIDX" 2>/dev/null
     case $SEC_MGMT in
       WPA*) ERR_EXTRA1="$(gettext 'Note: the network card and/or Linux driver might not support WPA2, in which case you will need to set the wireless router to WPA. Or, WPA might not be supported at all, in which case you will have to set the router and network card to use WEP.')" ;;
       *)    ERR_EXTRA1="" ;;
@@ -1132,7 +1161,7 @@ build_and_display_wireless_error_window() {
   </vbox>
   </window>'
     export SNS_error
-    RETSTRING="$(gtkdialog -p SNS_error --center)"
+    RETSTRING="$("$GTKDIALOG" --program=SNS_error --center)" #240605
 } #build_and_display_wireless_error_window
     
 perform_wired_setup() {
@@ -1172,6 +1201,7 @@ check_and_connect_wired_link() {
         exec sns
         exit
     fi
+    echo -n > /etc/resolv.conf #240307
     DHCPCDFIX=""
 # shellcheck disable=SC2086 #word-split $DHCPCD_TIMEOUT
     dhcpcd $DHCPCD_TIMEOUT "$INTERFACE" >> /tmp/sns_wired_log 2>&1 #211215
@@ -1185,6 +1215,7 @@ check_and_connect_wired_link() {
     fi
     if ! grep -q '^nameserver' /etc/resolv.conf; then #170402 end #210212 end
         #fail, try again.
+        echo -n > /etc/resolv.conf #240307
         DHCPCDFIX="-I ''"
         dhcpcd --release "$INTERFACE"
         sleep 0.1
@@ -1228,7 +1259,7 @@ build_and_display_wired_success_window() {
   </vbox>
   </window>' #190216
     export SNS_complete
-    RETSTR5="$(gtkdialog -p SNS_complete --center)"
+    RETSTR5="$("$GTKDIALOG" --program=SNS_complete --center)" #240605
     if grep '^CHK_SNSDEF' <<< "$RETSTR5" | grep -q 'true'; then
         echo -e '#!/bin/sh\nexec sns' > /usr/local/bin/defaultconnect
     else
@@ -1241,6 +1272,7 @@ add_wired_connection_profile() { #211002...
     unspoof_macaddress #Set MACADDRESS to permanent MAC address #211215
     aPATTERN="^$MACADDRESS.*|Wired|"
     touch /etc/simple_network_setup/connections
+    chmod 600 /etc/simple_network_setup/connections #230920
     echo -e "${MACADDRESS}|${IF_INTTYPE}|${IF_DRIVER}|${IF_BUS}|${IF_INFO}|${DHCPCDFIX}|\n$(grep -i -v "$aPATTERN" /etc/simple_network_setup/connections)" > /tmp/sns_connections.tmp #211002
     mv  /tmp/sns_connections.tmp /etc/simple_network_setup/connections #211002
 } #add_wired_connection_profile
@@ -1277,7 +1309,7 @@ build_and_display_wired_error_window() {
   </vbox>
   </window>' #200521
     export SNS_error
-    RETSTRING="$(gtkdialog -p SNS_error --center)"
+    RETSTRING="$("$GTKDIALOG" --program=SNS_error --center)" #240605
 } #build_and_display_wired_error_window
 
 
@@ -1307,20 +1339,23 @@ if [ -n "$ALL_CONNECTION_PROFILES" ]; then #211215
     build_connection_display_list
     build_display_connect_button
 fi
-build_and_display_main_window #sets RETSTRING
-#echo "$RETSTRING"
-EXIT="$(grep '^EXIT' <<< "$RETSTRING" | cut -f2 -d'"')" #'geany
-grep -q 'EXITRESTART' <<< "$EXIT" && exec sns ###restarting sns###
-grep -q 'Interface' <<< "$EXIT" || exit
- 
-INTERFACE="$(grep 'Interface' <<< "$EXIT" | cut -f2 -d '_')" #ex: wlan1
 
+build_and_display_main_window #sets RETSTRING
+EXIT="$(grep '^EXIT' <<< "$RETSTRING" | cut -f2 -d'"')" #'geany
+if grep -qE 'CONNECTEXITNOW|DISCONNECTEXITNOW|DISCONNECTRESTART|Interface' <<< "$EXIT"; then
+    which connectwizard_exec >/dev/null 2>&1 \
+      && connectwizard_exec sns #Update current exec name. 170329 190223 #240403
+    grep -qE 'DISCONNECTEXITNOW|DISCONNECTRESTART|Interface' <<< "$EXIT" \
+      && networkdisconnect
+fi
+grep -qE 'EXITRESTART|DISCONNECTRESTART' <<< "$EXIT" \
+  && exec sns ###restarting sns###  #240403
+grep -qv 'Interface' <<< "$EXIT" && exit
+
+INTERFACE="$(grep 'Interface' <<< "$EXIT" | cut -f2 -d '_')" #ex: wlan1
 if [ "$INTERFACE" = "Windows" ]; then #100313
     load_windows_driver
 fi
-
-which connectwizard_exec >/dev/null 2>&1 \
-  && connectwizard_exec sns #Update current exec name. 170329 190223
 
 ensure_interface_is_down
 extract_interface_data
