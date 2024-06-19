@@ -79,7 +79,7 @@ Clear_wkdir () {
 
 #Marv ->
 wkdir_memcheck () { 
-  USE=`df --output='pcent'  ${DIRECTSAVEPATH}/wkdir | grep -o '[0-9]*'`
+  USE=`df --output='pcent' ${WKDIR} | grep -o '[0-9]*'`
   if [ "$USE" -ge "90" ]; then #or so, Marv
     . /usr/lib/gtkdialog/box_splash -timeout 2 -fontsize large -text "$(gettext 'Temporary memory full - aborting install. Consider setting up a swap file or partition.')" > /dev/null 2>&1 &
     exit
