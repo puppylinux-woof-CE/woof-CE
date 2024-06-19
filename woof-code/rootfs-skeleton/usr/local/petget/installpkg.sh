@@ -291,9 +291,21 @@ elif [ $PUPMODE -eq 13 ] && [ "$PUNIONFS" != "overlay" ];then
 fi
 
 #Make directory to extract pkgs to  #jrb
-mkdir -p ${DIRECTSAVEPATH}/wkdir > /dev/null 2>&1 #230305 #jrb
-WKDIR=${DIRECTSAVEPATH}/wkdir #230305 #jrb
+
+TMPFREE=$(df -k /tmp | awk 'NR==2 {print $4}')
+DSAVEFREE=$(df -k /${DIRECTSAVEPATH} | awk 'NR==2 {print $4}')
+
+if [ $DSAVEFREE -ge $TMPFREE ]; then
+ WKDIR=${DIRECTSAVEPATH}/wkdir #230305 #jrb
+else
+ WKDIR=/tmp/petget_proc/wkdir #230305 #jrb
+fi
+
+mkdir -p ${WKDIR} > /dev/null 2>&1 #230305 #jrb
+
 wkdir_memcheck
+
+
 
 if [ -n "$DISPLAY" ] || [ -n "$WAYLAND_DISPLAY" ] && [ ! -f /tmp/petget_proc/install_quietly ];then #131222
  LANG=$LANG_USER
