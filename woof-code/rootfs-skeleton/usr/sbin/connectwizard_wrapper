@@ -1,38 +1,124 @@
 #!/bin/sh
 # Execute connectwizard_exec for network managers that do not include it.
-# Set symlink for a /usr/local/bin program named in argument 1.
-# Entered by symlink of the name of the manager program.
-#200910 resolve shellcheck warnings.
+# Called by network_default_connect (and pinstall.sh) as connectwizard_wrapper.
+# For each extra network manager, renames it and creates a replacement
+#  symlink to this script (connectwizard_wrapper), which eventually
+#  transfers to the renamed manager.
+# Uses CURRENT_EXEC to select the appropriate network monitor. 
 
-if which connectwizard_exec >/dev/null 2>&1; then
-    case $(basename "$0") in
-        connectwizard_wrapper)
-            if [ -L /usr/local/bin/"$1" ] \
-              && [ "$(basename "$(readlink /usr/local/bin/"$1")")" != 'connectwizard_wrapper' ]; then
-                case $1 in
-                    peasywifi)
-                        ln -snf /usr/sbin/connectwizard_wrapper /usr/local/bin/peasywifi
-                        [ ! -e /usr/local/peasywifi/rc.network ] \
-                          && ln -sn /etc/pwf/rc.network /usr/local/peasywifi/rc.network
-                        [ -f /etc/init.d/frisbee.sh ] \
-                          && [ ! -x /etc/init.d/frisbee.sh ] \
-                          && chmod +x /etc/init.d/frisbee.sh
-                        [ -x /root/Startup/peasywifi_tray ] \
-                          && chmod -x /root/Startup/peasywifi_tray
-                        ;;
-                esac
-            fi
-            ;;
-        peasywifi)
-            if [ -z "$1" ]; then
-                connectwizard_exec peasywifi
-                exec /usr/local/peasywifi/peasywifi
-            else #auto start
-                if grep -qs 'peasywifi' /root/.connectwizardrc; then
-                    chmod +x /root/Startup/peasywifi_tray
-                    exec /usr/local/peasywifi/peasywifi "$@"
+#200910 resolve shellcheck warnings.
+#240311 Update peasywifi support for version 4.8.1+
+#240326 Add connman support.
+
+export TEXTDOMAIN=connectwizard
+export OUTPUT_CHARSET=UTF-8
+
+initialize_connman() { #240311...
+    if [ -f "$MANAGERFILE" ] \
+      && ! grep -qs 'connectwizard_exec' "$MANAGERFILE"; then
+        mv -f "$MANAGERFILE" "${MANAGERFILE}.sh"
+        ln -sn /usr/sbin/connectwizard_wrapper "$MANAGERFILE"
+    fi
+    if [ "$CURRENT_EXEC" = 'connman-gtk' ]; then
+        chmod a+x /etc/init.d/connman
+    else
+        chmod a-x /etc/init.d/connman
+    fi
+}
+
+initialize_peasywifi() {
+    if [ -f "$MANAGERFILE" ] \
+      && ! grep -qs 'connectwizard_exec' "$MANAGERFILE"; then
+        ln -snf /usr/sbin/connectwizard_wrapper "$MANAGERFILE" #240311
+    fi
+    if [ "$CURRENT_EXEC" = 'peasywifi' ]; then
+        [ -f /root/Startup/peasywifi_auto ] \
+          && chmod a+x /root/Startup/peasywifi_auto
+        chmod a+x /etc/init.d/rc.network-start
+        chmod a+x /etc/init.d/rc.network-stop
+        chmod a+x /root/Startup/peasywifi_tray
+    else
+        [ -f /root/Startup/peasywifi_auto ] \
+          && chmod a-x /root/Startup/peasywifi_auto
+        chmod a-x /etc/init.d/rc.network-start
+        chmod a-x /etc/init.d/rc.network-stop
+        chmod a-x /root/Startup/peasywifi_tray
+    fi
+}
+
+initialize_connectwizard() {
+    # Use switchable autostart desktop files only if connman or peasywifi installed.
+    if which connman-gtk >/dev/null 2>&1 \
+      || which peasywifi >/dev/null 2>&1; then
+        if [ "$CURRENT_EXEC" != 'connman-gtk' ] \
+          && [ "$CURRENT_EXEC" != 'peasywifi' ]; then
+            ln -snf netmons/netmon_wce.desktop /etc/xdg/autostart/netmon.desktop
+        fi
+    fi
+}
+
+select_network_monitor() {
+    # Set switchable autostart desktop symlink.
+    case "$CURRENT_EXEC" in
+        connman-gtk) NETMON='connman-ui-gtk' ;;
+        peasywifi) NETMON='peasywifi_tray' ;;
+        *) NETMON='netmon_wce' ;;
+    esac
+    if [ ! -L /etc/xdg/autostart/netmon.desktop ] \
+      || [ "$(basename "$(readlink /etc/xdg/autostart/netmon.desktop)")" \
+         != "${NETMON}.desktop" ]; then
+        ln -snf netmons/"$NETMON".desktop /etc/xdg/autostart/netmon.desktop
+    fi
+}
+
+
+case $(basename "$0") in
+    connectwizard_wrapper)
+        CURRENT_EXEC='connectwizard'
+# shellcheck disable=SC1091
+        [ -f /root/.connectwizardrc ] && . /root/.connectwizardrc
+        select_network_monitor
+        MGRS2WRAP='connman-gtk peasywifi'
+        for ONEMGR in $MGRS2WRAP; do #unquoted
+            MANAGERFILE="$(which "$ONEMGR")"
+            if [ -n "$MANAGERFILE" ]; then 
+                if [ ! -L "$MANAGERFILE" ] \
+                  || [ "$(basename "$(readlink "$MANAGERFILE")")" != 'connectwizard_wrapper' ]; then
+                    case "$ONEMGR" in
+                        connman-gtk) initialize_connman ;;
+                        peasywifi) initialize_peasywifi ;;
+                    esac
                 fi
             fi
-            ;;
-    esac
-fi
+        done
+        ;;
+    connman-gtk)
+        XDLGPID="$(pgrep -fd ' ' '\--wmclass connman')"
+        [ -n "$XDLGPID" ] && kill "$XDLGPID"
+        if ! pgrep 'connman-gtk\.' >/dev/null; then
+            connectwizard_exec connman-gtk
+            exec connman-gtk.sh "$@"
+        else
+            Xdialog --left --wmclass "connman" --title "$(gettext 'Internet Connection Wizard')"   --backtitle "\n$(gettext 'ConnMan cannot start now because it is already active.')" --icon /usr/local/lib/X11/pixmaps/error.xpm --msgbox "\n$(gettext 'Please use the active ConnMan session or\nterminate it and start ConnMan again.')\n" 0 70
+            RC="$?"; [ "$RC" -le 2 ] && RC=3; exit "$RC" #Avoid connectwizard prompt
+        fi
+        ;;
+    peasywifi)
+        XDLGPID="$(pgrep -fd ' ' '\--wmclass peasywifi')"
+        [ -n "$XDLGPID" ] && kill "$XDLGPID"
+        if [ -z "$1" ]; then
+            if ! pgrep -f '/usr/local/peasywifi/peasywifi' >/dev/null; then
+                connectwizard_exec peasywifi
+                exec /usr/local/peasywifi/peasywifi #240311
+            else
+                Xdialog --left --wmclass "peasywifi" --title "$(gettext 'Internet Connection Wizard')"   --backtitle "\n$(gettext 'PeasyWiFi cannot start now because it is already active.')" --icon /usr/local/lib/X11/pixmaps/error.xpm --msgbox "\n$(gettext 'Please use the active PeasyWiFi session or\nterminate it and start PeasyWiFi again.')\n" 0 70
+                RC="$?"; [ "$RC" -le 2 ] && RC=3; exit "$RC" #Avoid connectwizard prompt
+            fi
+        else #auto start
+            if grep -qs 'peasywifi' /root/.connectwizardrc; then
+                chmod +x /root/Startup/peasywifi_tray
+                exec /usr/local/peasywifi/peasywifi "$@" #240311
+            fi
+        fi
+        ;;
+esac
