@@ -87,7 +87,7 @@ if [ -n "$DOTconfig_file" -a -n "$LatestK" ] ; then
 	[ -e "$DOTconfig_file" ] || exit_error "$DOTconfig_file doesn't exist"
 	IFS='-' read a b c <<< $DOTconfig_file
 	DOTconfig_sver=${b%\.*}
-	DOTconfig_new_ver_pre=`grep "^$DOTconfig_sver" /tmp/kernels.txt`
+	DOTconfig_new_ver_pre=`grep "^$DOTconfig_sver\." /tmp/kernels.txt`
 	if [ -z "$DOTconfig_new_ver_pre" ] ; then
 		log_msg "No latest stable or longterm kernel for Linux $b, Continuing with $DOTconfig_file"
 	elif [ "$b" == "${DOTconfig_new_ver_pre% *}" ] ; then

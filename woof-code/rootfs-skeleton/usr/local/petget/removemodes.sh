@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#240114 Avoid error message if file absent.
+#240114 v2.5 Avoid error message if file absent.
 
 #set -x ; mkdir -p /root/LOGs; NAME=$(basename "$0"); exec 1>> /root/LOGs/"$NAME".log 2>&1
 
