@@ -6,27 +6,63 @@
 export TEXTDOMAIN=set_hwclock_type
 export OUTPUT_CHARSET=UTF-8
 
+[ "$(whoami)" != "root" ] && exec sudo -A $0 $@
+
 CLI=yes
 MENUBOX='--menubox'
 
-if [ -z "$HWOPT" -o -z "$HWCLOCKTIME" ] ; then
-	pidof -s X Xorg `cat /etc/windowmanager 2>/dev/null` >/dev/null 2>&1 && CLI=""
+WMPATH=/etc/windowmanager
+HWCLOCK_CONF=/etc/hardwareclock  
+ADJTIME_FILE=/etc/adjtime
+
+[ -e "${HOME}/.config/windowmanager" ] && WMPATH="${HOME}/.config/windowmanager"
+
+WM=$(cat $WMPATH 2>/dev/null)
+
+[ "$(pidof X Xorg $WM 2>/dev/null)" == "" ] && CLI=""
+
+write_adjfile(){
+	
+CLOCK_TYPE="$1"
+ADJFILE="$2"
+	
+if [ "$CLOCK_TYPE" == "utc" ]; then
+
+echo "0.0 0 0.0
+0
+UTC" > $ADJFILE
+
+else 
+
+echo "0.0 0 0.0
+0
+LOCAL" > $ADJFILE
+ 
 fi
+	
+	
+}
+
 
 for i in $@ ; do
 	case $1 in 
 		cli|-cli|--cli) CLI=yes ;;
 		q|-q|-quiet) QUIET=1    ;;
 		localtime|utc) HWCLOCKTIME=$1 ;;
+		-l) HWCLOCKTIME="localtime" ;;
+		-u) HWCLOCKTIME="utc" ;;
+		-w) HWOPT="--systohc" ;;
+		-s) HWOPT="--hctosys" ;;		
 		--hctosys|--systohc) HWOPT=$1 ;;
 		*) echo "unknown param: $1" ;;
 	esac
 	shift
 done
 
-if [ ! -e /etc/localtime ] ; then
-	ln -sf /usr/share/zoneinfo/GMT0 /etc/localtime
-fi
+[ -z "$HWOPT" ] && HWOPT="--hctosys"
+
+[ ! -e /etc/localtime ] && ln -sf /usr/share/zoneinfo/UTC /etc/localtime
+
 
 if [ "$CLI" = "yes" ] ; then
 	DIALOG=dialog
@@ -40,14 +76,18 @@ REP=/tmp/${0##*/}$$.txt
 #=====================================
 
 if [ -z $HWCLOCKTIME ] ; then
+	
 	[ -f /etc/clock ] && . /etc/clock
+	
 	case $HWCLOCKTIME in
-		localtime|utc) ok=1 ;;
+		utc) HWCLOCKTIME=utc ;;
 		*) HWCLOCKTIME=localtime ;;
 	esac
+	
 fi
 
 if [ ! "$QUIET" ] ; then
+	
 	if [ "$HWCLOCKTIME" = "utc" ]; then
 		utc_flag='on'
 		local_flag='off'
@@ -55,14 +95,42 @@ if [ ! "$QUIET" ] ; then
 		utc_flag='off'
 		local_flag='on'
 	fi
+	
 	$DIALOG --title "$(gettext 'Set HW-Clock Type')" --radiolist "$(gettext 'What should the hardware clock be interpreted as?')" 0 0 0 localtime "" "$local_flag" utc "" "$utc_flag" 2>$REP
+	
 	[ $? -ne 0 ] && { rm -f $REP ; exit ; }
+	
 	HWCLOCKTIME=$(tail -n 1 $REP)
+	
+	echo "HWCLOCKTIME='$HWCLOCKTIME'" > /etc/clock
+	
+	. /etc/clock
+		
+fi
+ 
+echo "# /etc/hardwareclock" > $HWCLOCK_CONF
+echo "#" >> $HWCLOCK_CONF
+echo "# Tells how the hardware clock time is stored." >> $HWCLOCK_CONF
+echo "# You should run (gtk)clocksetup or timeconfig to edit this file." >> $HWCLOCK_CONF
+echo >> $HWCLOCK_CONF
+echo $HWCLOCKTIME >> $HWCLOCK_CONF
+
+if [ -e $ADJTIME_FILE ]; then
+  if [ "$HWCLOCKTIME" == "utc" ]; then
+    sed -i -e 's#LOCAL#UTC#g' $ADJTIME_FILE
+  else
+    sed -i -e 's#UTC#LOCAL#g' $ADJTIME_FILE
+  fi
+else
+  write_adjfile $ADJTIME_FILE $HWCLOCKTIME
 fi
 
-echo "HWCLOCKTIME='$HWCLOCKTIME'" > /etc/clock
+[ ! -d /var/lib/hwclock ] && mkdir -p /var/lib/hwclock
 
-[ "$QUIET" ] && [ ! "$HWOPT" ] && HWOPT=--hctosys
+if [ ! -f /var/lib/hwclock/adjtime ] && [ ! -L /var/lib/hwclock/adjtime ]; then 
+   ln -s $ADJTIME_FILE /var/lib/hwclock/adjtime
+fi 
+
 
 if [ -z $HWOPT ] ; then
 	$DIALOG --title "`gettext \"Set HW-Clock Type\"`" --ok-label "`gettext \"Yes\"`" --cancel-label "`gettext \"No\"`" \
@@ -72,22 +140,51 @@ if [ -z $HWOPT ] ; then
 	[ "$RET" = "to match software" ] && HWOPT=--hctosys #cmos clock to system.
 	[ "$RET" = "to match hardware" ] && HWOPT=--systohc #system to hardware clock.
 fi
-rm -f $REP
+
+rm -f $REP 2>/dev/null
 
 #===================================================
 
 #Ref: http://www.gnu.org/s/libc/manual/html_node/TZ-Variable.html
-TZ=$(readlink /etc/localtime | sed -e 's,/usr/share/zoneinfo/,,' -e 's,Etc/,,') #shinobar
+TZ="$(readlink /etc/localtime | sed -e 's,/usr/share/zoneinfo/,,' -e 's,Etc/,,')" #shinobar
+
+fTZ="$(cat /etc/timezone 2>/dev/null)"
+fTZ2="$(cat /etc/sysconfig/clock | grep -E "^ZONE=" | cut -f 2 -d '=' 2>/dev/null)"
+fTZ3="$(cat /etc/TZ 2>/dev/null)"
+
+if [ -e /etc/timezone ] && [ "$TZ" != "$fTZ" ]; then
+ [ ! -L /etc/timezone ] && echo "$TZ" > /etc/timezone
+fi
+
+if [ -e /etc/TZ ] && [ "$TZ" != "$fTZ3" ]; then
+ [ ! -L /etc/TZ ] && echo "$TZ" > /etc/TZ
+fi
+
+if [ -e /etc/sysconfig/clock ] && [ "$TZ" != "$fTZ2" ]; then
+ sed -i -e 's#ZONE=.*#ZONE="'$TZ'"#g' /etc/sysconfig/clock
+fi
+
 export TZ
 
 CMD="hwclock ${HWOPT} --${HWCLOCKTIME}"
 #echo $CMD
-if [ "${HWOPT}" = "--hctosys" ] ; then
-	#...--hctosys reads cmos clock to system, referencing /usr/share/zoneinfo/localtime
-	busybox $CMD || $CMD || $CMD --directisa #try --directisa if reading from /dev/rtc fails
+
+#For busybox
+bARG="-l"
+
+[ "$HWCLOCKTIME" == "utc" ] && bARG="-u"
+
+bOPT="${HWOPT}"
+
+[ "${HWOPT}" == "--systohc" ] && bOPT="-w" 
+[ "${HWOPT}" == "--hctosys" ] && bOPT="-s" 
+
+if [ "${HWOPT}" == "--hctosys" ]; then
+	#...--hctosys reads cmos clock to system, referencing /usr/share/zoneinfo/localtime	
+	busybox hwclock $bOPT $bARG || $CMD || $CMD --directisa #try --directisa if reading from /dev/rtc fails
 else
-	# set hardware clock from system time/date
-	busybox $CMD || $CMD
+	# set hardware clock from system time/date	
+	busybox hwclock $bOPT $bARG || $CMD
 fi
 
 exit $?
