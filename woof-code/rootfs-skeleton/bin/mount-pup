@@ -84,42 +84,166 @@ elif [ "$LUKS_FLAG" = "yes" ] ; then
 
 elif [ "$NTFS_FLAG" = "yes" ];then
 
+
   [ ! -d /tmp/ntfs-errors ] && mkdir -p /tmp/ntfs-errors
+  
+  KVER=$(uname -r)
+  KMAJOR=$(echo $KVER | cut -f 1 -d '-' | cut -f 1 -d '.')
+  KMINOR=$(echo $KVER | cut -f 1 -d '-' | cut -f 2 -d '.')
+  
 
   case "$@" in
     *"-o "*) #don't override -o
-      ntfs-3g "${@}" || busybox mount "${@}"
+      
+    if [ -e /sys/modules/ntfs3 ]; then
+     USE_NTFS3="y"
+    elif [ "$(grep -m 1 'ntfs3' /proc/filesystems)" != "" ]; then
+     USE_NTFS3="y"
+    elif [ -e /sys/fs/ntfs3 ]; then
+     USE_NTFS3="y" 
+    elif [ -e /lib/modules/${KVER}/kernel/fs/ntfs3 ]; then
+     USE_NTFS3="y" 
+    else
+     USE_NTFS3=""
+    fi
+     
+     NTFS_3G="y" 
+      
+      if [ "$USE_NTFS3" != "" ]; then
+       busybox mount "$(echo "${@}" | sed -e 's#\ ntfs\ #\ ntfs3 \#')"
+       RETVAL=$?
+	   if [ $RETVAL -eq 0 ]; then
+	    NTFS_3G="" 
+	   else
+	   
+	     for arg1 in ${@}
+	     do
+	      if [ "$(echo "$arg1" | grep "/")" != "" ]; then
+	       ptn="$arg1"
+	       break
+	      fi
+	     done
+	     
+	     if [ "$ptn" != "" ]; then
+	      [ "$(mount | grep -ow "$ptn")" != "" ] && NTFS_3G="" 
+	     fi
+	     
+	   fi
+	  
+	  fi	
+      
+      if [ "$NTFS_3G" != "" ]; then
+       ntfs-3g "${@}" || busybox mount "${@}"
+       RETVAL=$?
+      fi
+      
       RETVAL=$?
+      
       ;;
     *)
       #screen out all the options...
       CMDPRMS="`echo -n "$*" | tr '\t' ' ' | tr -s ' ' | tr ' ' '\n' | grep '^/' | tr '\n' ' '`"
       #kirk advised these options so Rox will not complain about file
       #permissions when copy a file to a ntfs partition...
-      [ -f /tmp/ntfs-errors/ntfsmnterr${MYPID}.txt ] && rm -f /tmp/ntfs-errors/ntfsmnterr${MYPID}.txt
-      ntfs-3g $CMDPRMS -o ${USER_OTPS}silent 2>/tmp/ntfs-errors/ntfsmnterr${MYPID}.txt
+
+     [ -f /tmp/ntfs-errors/ntfsmnterr-${MYPID}.txt ] && rm -f /tmp/ntfs-errors/ntfsmnterr-${MYPID}.txt
+      
+     if [ -e /sys/modules/ntfs3 ]; then
+      USE_NTFS3="y"
+     elif [ "$(grep -m 1 'ntfs3' /proc/filesystems)" != "" ]; then
+      USE_NTFS3="y"
+     elif [ -e /sys/fs/ntfs3 ]; then
+      USE_NTFS3="y" 
+     elif [ -e /lib/modules/$(uname -r)/kernel/fs/ntfs3 ]; then
+      USE_NTFS3="y" 
+     else
+      USE_NTFS3=""
+     fi
+     
+     NTFS_3G="y" 
+	
+	  if [ "$USE_NTFS3" != "" ]; then
+	  
+	   if [ $KMAJOR -ge 6 ] && [ $KMINOR -ge 2 ]; then
+        busybox mount -t ntfs3 -o ${USER_OTPS},prealloc,noatime,iocharset=utf8,nocase,windows_names $CMDPRMS	   
+	   else
+        busybox mount -t ntfs3 -o ${USER_OTPS},prealloc,noatime,iocharset=utf8 $CMDPRMS
+       fi
+       
+       RETVAL=$?
+       
+       if [ $RETVAL -ne 0 ]; then
+        if [ $KMAJOR -ge 6 ] && [ $KMINOR -ge 2 ]; then
+         busybox mount -t ntfs3 -o ${USER_OTPS},force,prealloc,noatime,iocharset=utf8,nocase,windows_names $CMDPRMS
+        else
+         busybox mount -t ntfs3 -o ${USER_OTPS},force,prealloc,noatime,iocharset=utf8 $CMDPRMS
+        fi
+        RETVAL=$?
+       fi
+       
+       if [ $RETVAL -eq 0 ]; then
+        NTFS_3G=""  
+       else
+       
+       	 for arg1 in $CMDPRMS
+	     do
+	      if [ "$(echo "$arg1" | grep "/")" != "" ]; then
+	       ptn="$arg1"
+	       break
+	      fi
+	     done
+	     
+	     if [ "$ptn" != "" ]; then
+	      [ "$(mount | grep -ow "$ptn")" != "" ] && NTFS_3G="" 
+	     fi
+       
+       fi
+      
+      fi
+      
+      if [ "$NTFS_3G" != "" ]; then
+     
+      ntfs-3g $CMDPRMS -o ${USER_OTPS}silent 2>/tmp/ntfs-errors/ntfsmnterr-${MYPID}.txt
       RETVAL=$?
+
       #v2.16 ntfs-3g v1.417, part. scheduled for check, failed with value 10...
       #v4.00 ntfs-3g v1.2412 does not have 4,10, has 15 for dirty f.s., 14 hiberneted...
       case $RETVAL in 4|10|15) #14 = must mount read-only
-        ntfs-3g $CMDPRMS -o ${USER_OTPS}force,silent 2>/tmp/ntfs-errors/ntfsmnterr${MYPID}.txt
+
+        ntfs-3g $CMDPRMS -o ${USER_OTPS}force,silent 2>/tmp/ntfs-errors/ntfsmnterr-${MYPID}.txt
+        
         RETVAL=$?
-        ERRMSG1="`cat /tmp/ntfs-errors/ntfsmnterr${MYPID}.txt`"
+        
+        ERRMSG1="`cat /tmp/ntfs-errors/ntfsmnterr-${MYPID}.txt`"
+
         echo "$ERRMSG1"
+
         if [ $RETVAL -eq 0 ];then
+         
          echo "WARNING: NTFS f.s. mounted read/write but corrupted."
+         
          [ ! "`pidof X`" = "" ] && nohup gxmessage -bg red -center -title "NTFS WARNING" "The ntfs-3g driver was able to mount the NTFS
 partition but returned this error message:
+
 $ERRMSG1
 
 It is mounted read/write, but advice is only write
 to it in emergency situation. Recommendation is
 boot Windows and fix the filesystem first!!!" &
+        
         fi
-       [ ! -s /tmp/ntfs-errors/ntfsmnterr${MYPID}.txt ] && rm -f /tmp/ntfs-errors/ntfsmnterr${MYPID}.txt
+        
        ;;
+      *)
+       if [ $RETVAL -eq 0 ];then
+        rm -f /tmp/ntfs-errors/ntfsmnterr-${MYPID}.txt 2>/dev/null
+       fi
+      ;;
       esac
- 
+	
+	
+	  fi	
+		
       #ntfs-3g plays very safe and will not mount if thinks anything
       #wrong with ntfs f.s. But, we may want to recover files from a
       #damaged windows. So, fall back to the kernel ntfs driver...
@@ -127,17 +251,27 @@ boot Windows and fix the filesystem first!!!" &
        #mount read-only...
        busybox mount -r -t ntfs $CMDPRMS
        RETVAL=$?
-       ERRMSG1="`cat /tmp/ntfs-errors/ntfsmnterr${MYPID}.txt`"
+       ERRMSG1="`cat /tmp/ntfs-errors/ntfsmnterr-${MYPID}.txt`"
        echo "$ERRMSG1"
        if [ $RETVAL -eq 0 ];then
         echo "WARNING: NTFS f.s. mounted read-only."
-        [ ! "`pidof X`" = "" ] && nohup gxmessage -bg red -center -title "NTFS WARNING" "The ntfs-3g driver was unable to mount the NTFS
+        
+        NTFS_DRV="ntfs3"
+        
+        [ "$USE_NTFS3" == "" ] && NTFS_DRV="ntfs-3g"
+        
+        [ ! "`pidof X`" = "" ] && nohup gxmessage -bg red -center -title "NTFS WARNING" "The $NTFS_DRV driver was unable to mount the NTFS
 partition and returned this error message:
+
 $ERRMSG1
 
-So, the inbuilt kernel NTFS driver has been used
+So, the inbuilt kernel legacy NTFS driver has been used
 to mount the partition read-only." &
+       else
+        rm -f /tmp/ntfs-errors/ntfsmnterr-${MYPID}.txt 2>/dev/null
        fi
+      else
+       rm -f /tmp/ntfs-errors/ntfsmnterr-${MYPID}.txt 2>/dev/null
       fi
       ;;
   esac
