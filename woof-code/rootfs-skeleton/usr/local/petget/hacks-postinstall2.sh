@@ -25,3 +25,31 @@ echo "#!/bin/sh
   chmod +x $pmhib
  done
 fi
+
+
+if [ "$(grep "/opt" "$PKGFILES" | grep -m 1 "/QtWebEngineProcess")" != "" ]; then
+
+ for fle in $(grep -E "\.desktop" "$PKGFILES" | tr '\n' ' ')
+ do
+  sed -i -e "s#^Exec=#Exec=run-as-spot\ #g" "$fle"
+ done
+ 
+fi
+
+
+if [ "$(echo "$PKGFILES" | grep -E "chrome|vivaldi|opera|chromium|brave|srware|rekonq|microsoft\-edge|msdge")" != "" ]; then
+ 
+ for fle in $(grep -E "\.desktop" "$PKGFILES" | tr '\n' ' ')
+ do
+  sed -i -e "s#^Exec=#Exec=run-as-spot\ #g" "$fle"
+ done
+
+elif [ "$(grep -m 1 "/chrome-sandbox" "$PKGFILES")" != "" ]; then
+ 
+ for fle in $(grep -E "\.desktop" "$PKGFILES" | tr '\n' ' ')
+ do
+  sed -i -e "s#^Exec=#Exec=run-as-spot\ #g" "$fle"
+ done
+
+fi
+
