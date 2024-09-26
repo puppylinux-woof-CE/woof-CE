@@ -10,18 +10,21 @@ export OUTPUT_CHARSET=UTF-8
 #================================================================
 
 #read current dpi setting...
-CURRDPI=`grep "^Xft\\.dpi:" /root/.Xresources | tr '\t' ' ' | tr -s ' ' | cut -f 2 -d ' '`
+CURRDPI=`grep "^Xft\\.dpi:" $HOME/.Xresources | tr '\t' ' ' | tr -s ' ' | cut -f 2 -d ' '`
 [ ! $CURRDPI ] && CURRDPI=78
 CURRINDEX=$(( $CURRDPI / 6 - 9 ))
 
+[ ! -d $HOME/.config/fontconfig ] && mkdir -p $HOME/.config/fontconfig
+
 #read appearance values
-if [ -f $HOME/.fonts.conf ];then
- export antialiasing=$(grep '<bool>' $HOME/.fonts.conf|head -1|cut -d '>' -f2|cut -d '<' -f1)
- export hinting=$(grep '<bool>' $HOME/.fonts.conf|head -2|tail -1|cut -d '>' -f2|cut -d '<' -f1)
- export autohint=$(grep '<bool>' $HOME/.fonts.conf|head -3|tail -1|cut -d '>' -f2|cut -d '<' -f1)
- export hintstyle=$(grep '<int>' $HOME/.fonts.conf|cut -d '>' -f2|cut -d '<' -f1)
+if [ -f $HOME/.config/fontconfig/fonts.conf ];then
+ export antialiasing=$(grep -A 2 'antialias' $HOME/.config/fontconfig/fonts.conf | awk -F'[<>]' '/bool/ {print $3}')
+ export hinting=$(grep -A 2 'hinting' $HOME/.config/fontconfig/fonts.conf | awk -F'[<>]' '/bool/ {print $3}')
+ export autohint=$(grep -A 2 'autohint' $HOME/.config/fontconfig/fonts.conf | awk -F'[<>]' '/bool/ {print $3}')
+ export hintstyle=$(grep -A 2 'hintstyle' $HOME/.config/fontconfig/fonts.conf | awk -F'[<>]' '/int/ {print $3}')
+ export lcdfilter=$(grep -A 2 'lcdfilter' $HOME/.config/fontconfig/fonts.conf | awk -F'[<>]' '/int/ {print $3}')
 else 
- export antialiasing=false hinting=false autohint=false hintstyle=0
+ export antialiasing=false hinting=false autohint=false hintstyle=0 lcdfilter=1
 fi
 
 #what tab should be active
@@ -42,6 +45,19 @@ install (){
 	esac
 }
 export -f install
+
+hintstyleval="none"
+
+[ $hintstyle -eq 1 ] && hintstyleval="slight"
+[ $hintstyle -eq 2 ] && hintstyleval="medium"
+[ $hintstyle -eq 3 ] && hintstyleval="full"
+
+lcdfilterval="none"
+
+[ $lcdfilter -eq 1 ] && lcdfilterval="default"
+[ $lcdfilter -eq 2 ] && lcdfilterval="light"
+[ $lcdfilter -eq 3 ] && lcdfilterval="legacy"
+[ $lcdfilter -eq 4 ] && lcdfilterval="legacy1"
 
 S='
 <window title="'$(gettext 'Font Manager')'" icon-name="gtk-execute"> 
@@ -103,13 +119,28 @@ S='
             <variable>autohint</variable>
             <default>'$autohint'</default>
           </checkbox>
+        </hbox>
+        <hbox space-expand="true" space-fill="true">
 		  <text space-expand="true" space-fill="true"><label>""</label></text>
-		  <text space-expand="false" space-fill="false"><label>'$(gettext 'Hint style')'</label></text>
-          <spinbutton range-min="0" range-max="3" width="100" editable="false" space-expand="false" space-fill="false">
+		  <text space-expand="false" space-fill="false"><label>'$(gettext 'Hint style')'</label></text>		  
+		  <comboboxtext space-expand="false" space-fill="false">
+		    <default>'$hintstyleval'</default>
 		    <variable>hintstyle</variable>
-		    <default>'$hintstyle'</default>
-		    <sensitive>true</sensitive>
-		  </spinbutton> 
+		    <item>none</item>
+		    <item>slight</item>
+		    <item>medium</item>
+		    <item>full</item>
+		  </comboboxtext>
+		  <text space-expand="false" space-fill="false"><label>'$(gettext 'LCD Filter')'</label></text>		  
+		  <comboboxtext space-expand="false" space-fill="false">
+		    <default>'$lcdfilterval'</default>
+		    <variable>lcdfilter</variable>
+		    <item>none</item>
+		    <item>default</item>
+		    <item>light</item>
+		    <item>legacy</item>
+		    <item>legacy1</item>
+		  </comboboxtext>		   
 		</hbox>
         <text height-request="5"><label>""</label></text>
         </vbox>
@@ -155,14 +186,14 @@ S='
       </button>'
       S=$S'<text space-expand="true" space-fill="true"><label>""</label></text>
     <button space-expand="false" space-fill="false">
-      <label>'$(gettext "Cancel")'</label>
-      '"`/usr/lib/gtkdialog/xml_button-icon cancel`"'
-      <action type="exit">EXIT_NOW</action>
-    </button>
-    <button space-expand="false" space-fill="false">
       <label>'$(gettext "Ok")'</label>
       '"`/usr/lib/gtkdialog/xml_button-icon ok`"'
       <action type="exit">save</action>
+    </button>      
+    <button space-expand="false" space-fill="false">
+      <label>'$(gettext "Cancel")'</label>
+      '"`/usr/lib/gtkdialog/xml_button-icon cancel`"'
+      <action type="exit">EXIT_NOW</action>
     </button>
   </hbox>
   </vbox>
@@ -170,20 +201,53 @@ S='
 export Font_Manager="$S"
 
 . /usr/lib/gtkdialog/xml_info gtk #build bg_pixmap for gtk-theme
-eval $(gtkdialog -p Font_Manager --styles=/tmp/gtkrc_xml_info.css)
+eval $(gtkdialog -p Font_Manager)
 
 case $EXIT in
 	save)
-		#set size
-		sed -i -e '/^Xft.dpi:/ d' $HOME/.Xresources
-		echo "Xft.dpi: $NEWDPI" >> $HOME/.Xresources
 
-		if [[ "$antialiasing" = "false" && "$hinting" = "false" && "$autohint" = "false" && "$hintstyle" = 0 ]];then
+		rhintstyleval=0
+
+		[ $hintstyle == "slight" ] && rhintstyleval=1
+		[ $hintstyle == "medium" ] && rhintstyleval=2
+		[ $hintstyle == "full" ] && rhintstyleval=3
+
+		rlcdfilterval=0
+
+		[ $lcdfilter == "default" ] && rlcdfilterval=1		
+		[ $lcdfilter == "light" ] && rlcdfilterval=2
+		[ $lcdfilter == "legacy" ] && rlcdfilterval=3		
+		[ $lcdfilter == "legacy1" ] && rlcdfilterval=4
+
+		antialiasingval=0
+		hintingval=0
+		autohintval=0
+		
+		gnomeantialias="none"
+				
+		if [ "$antialiasing" == "true" ]; then
+		 antialiasingval=1
+		 gnomeantialias="rgba"
+		fi
+		
+		[ "$hinting" == "true" ] && hintingval=1
+		[ "$autohint" == "true" ] && autohintval=1
+
+		#set size
+		sed -i -e 's#^Xft\.dpi:.*#Xft\.dpi:\ '$NEWDPI'#' $HOME/.Xresources
+		sed -i -e 's#^Xft\.autohint:.*#Xft\.autohint:\ '$autohintval'#' $HOME/.Xresources		
+		sed -i -e 's#^Xft\.antialias:.*#Xft\.antialias:\ '$antialiasingval'#' $HOME/.Xresources
+		sed -i -e 's#^Xft\.hinting:.*#Xft\.hinting:\ '$hintingval'#' $HOME/.Xresources
+		sed -i -e 's#^Xft\.hintstyle:.*#Xft\.hintstyle:\ hint'$hintstyle'#' $HOME/.Xresources		
+		sed -i -e 's#^Xft\.lcdfilter:.*#Xft\.lcdfilter:\ lcd'$lcdfilter'#' $HOME/.Xresources
+
+		if [[ "$antialiasing" = "false" && "$hinting" = "false" && "$autohint" = "false" && "$rhintstyle" = 0 && "$rlcdfilter" = 0 ]];then
 		 #don't write the file, delete if it's there.
 		 [ -f $HOME/.fonts.conf ] && rm $HOME/.fonts.conf 
 		 echo "not writing file"
 		else
-		 cat > $HOME/.fonts.conf << _EOF
+		 [ -f $HOME/.fonts.conf ] && rm $HOME/.fonts.conf 
+		 cat > $HOME/.config/fontconfig/fonts.conf << _EOF
 <?xml version="1.0"?>
 <!DOCTYPE fontconfig SYSTEM "fonts.dtd">
 <fontconfig>
@@ -204,7 +268,10 @@ case $EXIT in
 			<bool>$autohint</bool>
 		</edit>
 		<edit name="hintstyle" mode="assign">
-			<int>$hintstyle</int>
+			<int>$rhintstyleval</int>
+		</edit>
+		<edit name="lcdfilter" mode="assign">
+			<int>$rlcdfilterval</int>
 		</edit>
 	</match>
 	<selectfont>
@@ -216,6 +283,24 @@ case $EXIT in
 	</selectfont> 
 </fontconfig>
 _EOF
+		 
+		 fc-cache -fv
+		 
+		 xrdb -merge $HOME/.Xresources
+
+		 gsettings set org.gnome.desktop.interface font-antialiasing ${gnomeantialias} 2>/dev/null		 	
+		 gsettings set org.gnome.desktop.interface font-hinting ${hintstyle}  2>/dev/null
+		 
+		 kwriteconfig5 --file kdeglobals --group General --key XftDPI $NEWDPI  2>/dev/null
+		 kwriteconfig5 --file kdeglobals --group General --key XftAntialias --type bool $antialiasing 2>/dev/null
+         	 kwriteconfig5 --file kdeglobals --group General --key XftHinting --type bool $hinting 2>/dev/null	
+		 kwriteconfig5 --file kdeglobals --group General --key XftHintStyle --type string "hint${hintstyle}" 2>/dev/null	  # Use 'hintnone', 'hintslight', 'hintmedium', or 'hintfull'
+
+		 xfconf-query -c xsettings -p /Xft/DPI -s $NEWDPI
+		 xfconf-query -c xsettings -p /Xft/Antialias -s $antialiasingval
+		 xfconf-query -c xsettings -p /Xft/Hinting -s $hintingval
+		 xfconf-query -c xsettings -p /Xft/HintStyle -s "hint${hintstyle}"
+
 		fi
 		;;
 esac
