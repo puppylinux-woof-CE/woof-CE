@@ -432,10 +432,20 @@ EOF
 	CER=
 	FONT=devx/usr/share/grub/unicode.pf2
 elif [ -e "${PX}/usr/local/frugalpup" ] ; then
-	UEFI_ISO=yes
+	UEFI_ISO=
 	FPGRUB2XZ=`find $PX/usr/local/frugalpup -maxdepth 1 -name 'grub2-efi.tar.xz'`
 	FPBOOT=/tmp/grub2/EFI/boot
 	CER=/tmp/grub2/puppy.cer
+	if [ "$FPGRUB2XZ" ] ; then
+		UEFI_ISO=yes
+	else
+		FPGRUB2XZ=`find $PX/usr/local/frugalpup -maxdepth 1 -name 'grub2-efi-bin.tar.xz'`
+		if [ "$FPGRUB2XZ" ] ; then
+			UEFI_ISO=yes
+			CER=
+			FPBOOT=/tmp/grub2
+		fi
+	fi
 	FONT=$PX/usr/share/boot-dialog/font.pf2
 else
 	UEFI_ISO=
