@@ -90,8 +90,16 @@ function git_aufs_branch() {
 	5.17)  aufsv=5.17
 		vercmp ${kernel_version} ge 5.17.3 && aufsv='5.17.3'
 		;;
+	#### k6.x #####
 	6.6)  aufsv=6.6
 		vercmp ${kernel_version} ge 6.6.4 && aufsv='6.6.4'
+		vercmp ${kernel_version} ge 6.6.54 && aufsv='6.6.54'
+		;;
+	6.10)  aufsv=6.10
+		vercmp ${kernel_version} ge 6.10.13 && aufsv='6.10.13'
+		;;
+	6.11)  aufsv=6.11
+		vercmp ${kernel_version} ge 6.11.2 && aufsv='6.11.2'
 		;;
 	*)     aufsv=${kernel_major_version} ;;
 esac
