@@ -93,6 +93,7 @@ function git_aufs_branch() {
 	#### k6.x #####
 	6.6)  aufsv=6.6
 		vercmp ${kernel_version} ge 6.6.4 && aufsv='6.6.4'
+		vercmp ${kernel_version} ge 6.6.44 && aufsv='6.6.44'
 		vercmp ${kernel_version} ge 6.6.54 && aufsv='6.6.54'
 		;;
 	6.10)  aufsv=6.10
