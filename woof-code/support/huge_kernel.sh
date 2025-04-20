@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 # install huge kernel to build
 # * called by 3builddistro
 # * can be run independently
