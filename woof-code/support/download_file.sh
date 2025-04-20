@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 # download and verify files
 #
 # $1: url
