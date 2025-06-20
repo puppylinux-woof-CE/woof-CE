@@ -11,8 +11,11 @@ mkdir -p /tmp/services
 	echo "PATH='${PATH}'"
 ) > /tmp/services/user_info
 
+#Check for display managers
+DM_RUNNING=$(pidof lightdm gdm kdm sddm xdm lxdm slim ly wdm)
+
 if command -v startlabwc >/dev/null 2>&1 ; then
-	if [ ! -f /tmp/bootcnt.txt ] ; then
+	if [ ! -f /tmp/bootcnt.txt ] && [ "$DM_RUNNING" == "" ]; then
 		touch /tmp/bootcnt.txt
 		startlabwc
 	else
@@ -20,7 +23,7 @@ if command -v startlabwc >/dev/null 2>&1 ; then
 	fi
 elif command -v Xorg >/dev/null 2>&1 ; then
 	#want to go straight into X on bootup only...
-	if [ ! -f /tmp/bootcnt.txt ] ; then
+	if [ ! -f /tmp/bootcnt.txt ] && [ "$DM_RUNNING" == "" ]; then
 		touch /tmp/bootcnt.txt
 		dmesg > /tmp/bootkernel.log
 		xwin
