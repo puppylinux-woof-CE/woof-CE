@@ -16,7 +16,7 @@ mkdir -p /tmp/services
 DM_LIST=$(cat /etc/display-managers.list 2>/dev/null | tr '\n' ' ')
 
 if [ "$DM_LIST" != "" ]; then
-   DM_RUNNING=$(pidof $DMLIST)
+   DM_RUNNING=$(pidof $DM_LIST)
 else
    DM_RUNNING=""
 fi
