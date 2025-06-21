@@ -12,7 +12,14 @@ mkdir -p /tmp/services
 ) > /tmp/services/user_info
 
 #Check for display managers
-DM_RUNNING=$(pidof lightdm gdm kdm sddm xdm lxdm slim ly wdm)
+
+DM_LIST=$(cat /etc/display-managers.list 2>/dev/null | tr '\n' ' ')
+
+if [ "$DM_LIST" != "" ]; then
+   DM_RUNNING=$(pidof $DMLIST)
+else
+   DM_RUNNING=""
+fi
 
 if command -v startlabwc >/dev/null 2>&1 ; then
 	if [ ! -f /tmp/bootcnt.txt ] && [ "$DM_RUNNING" == "" ]; then
