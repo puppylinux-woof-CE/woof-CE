@@ -24,8 +24,8 @@ do
   sha256=`[ -e ${meta} ] && sha256sum ${meta} | cut -d ' ' -f 1`
   vpkg="<key>${vpkg}</key>"
   begnum=`grep -n $vpkg $repo | head -1 | cut -d : -f 1`
-  finnum=`tail -n +"$begnum" $repo | grep -n "<key>source" | head -1 | cut -d : -f 1`
-  finnum=`expr $begnum + $finnum + 1`
+  finnum=`tail -n +"$begnum" $repo | grep -n "</dict>" | head -1 | cut -d : -f 1`
+  finnum=`expr $begnum + $finnum - 1`
 
   sed -n "${begnum},${finnum}p" $repo > tmpout
   sed -i '/<key>filename-sha256/i \\t\t<key>automatic-install</key>\n\t\t<true/>' tmpout
