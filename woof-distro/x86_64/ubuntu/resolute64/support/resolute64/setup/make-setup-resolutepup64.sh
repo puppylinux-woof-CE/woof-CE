@@ -5,7 +5,7 @@
 # gftp & wireless-tools from noble
 # efilinux from TrixiePup64-Retro
 
-./createsfs -r new -f rp64setup gftp-common_2.9.1~beta-2build2_all.deb gftp-gtk_2.9.1~beta-2build2_amd64.deb wireless-tools_30~pre9-16.1ubuntu2_amd64.deb efilinux.sfs
+./createsfs -r new -f rp64setup gftp-common_2.9.1~beta-2build2_all.deb gftp-gtk_2.9.1~beta-2build2_amd64.deb wireless-tools_30~pre9-16.1ubuntu2_amd64.deb efilinux.sfs tweaks.sfs
 
 FINALSFS=rp64setup_new
 rm $FINALSFS/pet.specs
