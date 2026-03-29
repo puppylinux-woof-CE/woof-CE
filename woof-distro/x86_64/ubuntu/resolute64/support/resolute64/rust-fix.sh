@@ -10,3 +10,4 @@ do
   echo "exec /lib/cargo/bin/coreutils/$ii" > $ii-FULL
   chmod 755 $ii-FULL
 done
+cd ../../
