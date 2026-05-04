@@ -1,6 +1,13 @@
 #!/bin/sh
 # further tweaks for Github version of TrixiePup64-Wayland executed inside sandbox3/rootfs-complete
 
+. etc/DISTRO_SPECS
+
+#update custom TrixiePup64 help files (usr/share/doc/index.html, usr/share/doc/release-TrixiePup64Wayland-2606.htm and usr/share/doc/home.htm)
+sed -i -e "s/DISTRO_NAME/$DISTRO_NAME/g" -e "s/DISTRO_VERSION/$DISTRO_VERSION/g" -e "s/DISTRO_PUPPYDATE/$DISTRO_PUPPYDATE/g" usr/share/doc/index.html
+sed -i -e "s/Dpup-10.0/TrixiePup64Wayland-2606/g" usr/share/doc/index.html
+sed -i -e "s/DISTRO_NAME/$DISTRO_NAME/g" usr/share/doc/home.htm
+
 sed -i 's%no_single_hover=0%no_single_hover=1%' root/.config/spacefm/session
 sed -i 's%no_single_hover=0%no_single_hover=1%' root/.config/spacefm/session-default
 sed -i 's%</keyboard>%<keybind key="A-z"><action name="Execute"><command>/usr/bin/touchpad-toggle.sh</command></action></keybind></keyboard>%' root/.config/labwc/rc.xml
