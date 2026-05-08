@@ -315,10 +315,10 @@ rm -f etc/xdg/templates/_root_.jwmrc
 rm -rf root/.jwm
 
 #adjust yad titlebar icon
-for i in 16 24 32 48 96 128
-do
-ln -sf /usr/share/icons/dialog.png usr/share/icons/hicolor/${i}x${i}/apps/yad.png
-done
+#for i in 16 24 32 48 96 128
+#do
+#ln -sf /usr/share/icons/dialog.png usr/share/icons/hicolor/${i}x${i}/apps/yad.png
+#done
 
 #convert the default Puppy logout_gui to more capable version
 echo '#!/bin/bash
@@ -332,5 +332,28 @@ sed -i 's/\\nmtpaint -s//' usr/sbin/puppyapps
 
 #geany: Ensure newline at file end=false
 echo -e "[geany]\npref_editor_new_line=false" > root/.config/geany/geany.conf
+
+#sfsget button not supported in TrixiePup64
+#sed -i "/'\$SFSGETBUTTON'/d" usr/sbin/dotpup
+
+#remove roxfiler from puppyapps in TrixiePup64
+sed -i 's/roxfiler\\n//' usr/sbin/puppyapps
+
+#save2flash fails if /tmp/wmexitmode.txt still present after wmexit runs
+sed -i '/sync/i [ -f /tmp/wmexitmode.txt ] && rm /tmp/wmexitmode.txt\n' usr/sbin/save2flash
+
+# if drive icons are enabled, automatically unlock for save2flash and shutdown
+sed -i "/PUPMODE -eq 13/a \         [ -e ~\/.config\/zzzfm\/desktop0 ] \\&& chattr -i ~\/.config\/zzzfm\/desktop0 \\&& killall -SIGHUP sfwbar" usr/bin/wmexit
+sed -i "/sync/i [ -e ~\/.config\/zzzfm\/desktop0 ] \\&& chattr -i ~\/.config\/zzzfm\/desktop0 \\&& killall -SIGHUP sfwbar\\n" usr/sbin/save2flash
+sed -i "/exit 0/i [ -e ~\/.config\/zzzfm\/desktop0 ] \\&& chattr +i ~\/.config\/zzzfm\/desktop0\\n" usr/sbin/save2flash
+
+# puppyapps should offer option for spacefm -w (open as window rather than tab)
+#sed -i 's/spacefm\\n/spacefm\\nspacefm -w\\n/' usr/sbin/puppyapps
+
+# restart sfwbar when returning from suspend or screen blanking (i.e., reinitialize sfwbar widgets)
+sed -i "/rc.network restart/a [ -n \$(pidof sfwbar) ] \&\& sleep 4 \&\& killall -SIGHUP sfwbar" etc/acpi/actions/suspend.sh
+sed -i 's/wlopm --on \\\*"/wlopm --on \\\*" \&\& sleep 1 \&\& killall -SIGHUP sfwbar/g' usr/bin/pupx
+sed -i 's/wlopm --on \\\*"/wlopm --on \\\*" \&\& sleep 1 \&\& killall -SIGHUP sfwbar/g' usr/local/dcontrol/func
+sed -i 's/wlopm --on \\\*"/wlopm --on \\\*" \&\& sleep 1 \&\& killall -SIGHUP sfwbar/g' root/.config/swayidle/config
 
 exit 0
