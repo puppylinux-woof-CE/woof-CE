@@ -701,6 +701,8 @@ fi
 
 #####################
 # pause to configure
+# Kconfig500 adds 500hz to the standard set
+cp ../Kconfig500.hz ../linux*/kernel/Kconfig.hz
 function do_kernel_config() {
 	log_msg "$MAKE $1"
 	$MAKE $1 ##
