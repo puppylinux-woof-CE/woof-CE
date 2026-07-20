@@ -257,18 +257,18 @@ done <<< $(wlopm)
 MNR=$(printf "$MONS" | wc -l)
 if [ $MNR -gt 1 ]; then
     read xx yy DEF_MON0 <<<$(grep -m1 'SetMonitor "panel"' $HOME/.config/sfwbar/sfwbar.config|sed 's/\"//g') 
-    MONS0="        <comboboxtext width-request="185">
+    MONS0="        <comboboxtext width-request=\"185\">
             <item>$DEF_MON0</item>
-            $(printf "%s\n" "$MONS"|grep -v $DEF_MON0)
+            "$(printf "%s\n" "$MONS")"
           <variable>MON0</variable>
         </comboboxtext>"
 
-    read xx yy DEF_MON1 <<<$(grep -m1 'SetMonitor "launcher"' $HOME/.config/sfwbar/sfwbar.config|sed 's/\"//g') 
-    MONS1="        <comboboxtext sensitive="'"$SENSITIVE"'" width-request="185">
-            <item>$DEF_MON1</item>
-            $(printf "%s\n" "$MONS"|grep -v $DEF_MON1)
-          <variable>MON1</variable>
-        </comboboxtext>"
+read xx yy DEF_MON1 <<<$(grep -m1 'SetMonitor "launcher"' $HOME/.config/sfwbar/sfwbar.config|sed 's/\"//g') 
+MONS1="        <comboboxtext sensitive="'"$SENSITIVE"'" width-request=\"185\">
+        <item>$DEF_MON1</item>
+        "$(printf "%s\n" "$MONS")"
+      <variable>MON1</variable>
+    </comboboxtext>"
 else
     MONS0='' MONS1=''
 fi
