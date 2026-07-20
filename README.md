@@ -1,4 +1,4 @@
-# woof - the Puppy builder
+# woof - the puppy builder
 
 Currently supported:
 
