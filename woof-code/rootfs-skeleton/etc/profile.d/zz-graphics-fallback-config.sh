@@ -11,8 +11,8 @@ if [ -d "/sys/class/drm" ]; then
         simpledrm|simple-framebuffer|vkms|bochnet|bochs-drm)
         
             # Wlroots / Compositor Level
-            export WLR_RENDERER="pixman"
-            export WLR_NO_HARDWARE_CURSORS="1"
+            #export WLR_RENDERER="pixman"
+            #export WLR_NO_HARDWARE_CURSORS="1"
 
             # Mesa / Gallium3D Software Rasterization Level
             export LIBGL_ALWAYS_SOFTWARE="1"
